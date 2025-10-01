@@ -223,7 +223,8 @@ set(ALL_FILES
 ################################################################################
 # Target
 ################################################################################
-add_executable(${PROJECT_NAME} ${ALL_FILES})
+add_library(${PROJECT_NAME} SHARED ${ALL_FILES})
+target_compile_definitions(${PROJECT_NAME} PRIVATE SOH_BUILD_DLL)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
 use_props(${PROJECT_NAME} "${CMAKE_CONFIGURATION_TYPES}" "${DEFAULT_CXX_PROPS}")

@@ -228,6 +228,10 @@ ZRom::ZRom(std::string romPath)
 
     std::vector<uint8_t> decompressedData(1);
 
+	// Detect MM ROM by CRC at runtime so this code works regardless of GAME_MM compile define.
+	const bool isMMRom = (version.crc == MM_NTSC_10 || version.crc == MM_NTSC_10_UNCOMPRESSED ||
+	                      version.crc == MM_NTSC_GC  || version.crc == MM_NTSC_JP_GC);
+
 	for (unsigned int i = 0; i < lines.size(); i++)
 	{
 		lines[i] = StringHelper::Strip(lines[i], "\r");
@@ -252,14 +256,12 @@ ZRom::ZRom(std::string romPath)
 		auto outData = std::vector<uint8_t>();
 		outData.resize(size);
 		memcpy(outData.data(), romData.data() + physStart, size);
-		// An ifdef is used here because at this point the XMLs haven't been parsed, and we don't
-		// know if this is MM or OOT
-#ifdef GAME_MM
-		if ((i >= 15 && i <= 20) || i == 22)
+		// Use the CRC-based isMMRom flag (set before this loop) rather than a compile-time
+		// GAME_MM define, so this works for both games in the combo build.
+		if (isMMRom && ((i >= 15 && i <= 20) || i == 22))
 		{
 			yarCompressed = true;
 		}
-#endif
 
 		if (compressed)
 		{

@@ -542,8 +542,17 @@ bool Extractor::CallZapd(std::string installPath, std::string exportdir) {
     std::string tempdir = Mkdtemp();
     std::string curdir = std::filesystem::current_path().string();
 #ifdef _WIN32
-    std::filesystem::copy(installPath + "/assets", tempdir + "/assets",
-                          std::filesystem::copy_options::recursive | std::filesystem::copy_options::update_existing);
+    // Use overwrite_existing (not update_existing) — MSVC's update_existing combined with
+    // recursive can throw filesystem_error when comparing timestamps on a fresh destination.
+    try {
+        std::filesystem::copy(installPath + "/assets", tempdir + "/assets",
+                              std::filesystem::copy_options::recursive |
+                                  std::filesystem::copy_options::overwrite_existing);
+    } catch (const std::filesystem::filesystem_error& e) {
+        fprintf(stderr, "MM Extractor: failed to copy assets to temp dir: %s\n", e.what());
+        std::filesystem::remove_all(tempdir);
+        return false;
+    }
 #else
     std::filesystem::create_symlink(installPath + "/assets", tempdir + "/assets");
 #endif
@@ -593,12 +602,33 @@ bool Extractor::CallZapd(std::string installPath, std::string exportdir) {
                              nullptr);
 #endif
 
-    zapd_main(argc, (char**)argv.data());
+    // ZAPD's HANDLE_ERROR macro throws std::runtime_error on any extraction error.
+    // Catch it here so an unhandled exception doesn't crash the process.
+    try {
+        zapd_main(argc, (char**)argv.data());
+    } catch (const std::exception& e) {
+        fprintf(stderr, "MM Extractor: ZAPD failed: %s\n", e.what());
+#ifdef _WIN32
+        ShowWindow(cmdWindow, SW_HIDE);
+#endif
+        std::filesystem::current_path(curdir);
+        std::filesystem::remove_all(tempdir);
+        return false;
+    }
 
 #ifdef _WIN32
     // Hide the command window again.
     ShowWindow(cmdWindow, SW_HIDE);
 #endif
+
+    // Guard: if ZAPD didn't produce the archive (e.g. silent failure), copying a
+    // non-existent file throws filesystem_error which would crash the process.
+    if (!std::filesystem::exists(otrFile)) {
+        fprintf(stderr, "MM Extractor: ZAPD did not produce %s\n", otrFile);
+        std::filesystem::current_path(curdir);
+        std::filesystem::remove_all(tempdir);
+        return false;
+    }
 
     std::filesystem::copy(otrFile, exportdir + "/" + otrFile, std::filesystem::copy_options::overwrite_existing);
 
@@ -606,5 +636,5 @@ bool Extractor::CallZapd(std::string installPath, std::string exportdir) {
     std::filesystem::current_path(curdir);
     std::filesystem::remove_all(tempdir);
 
-    return 0;
+    return true;
 }

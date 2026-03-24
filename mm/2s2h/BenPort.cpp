@@ -113,6 +113,19 @@ OTRGlobals* OTRGlobals::Instance;
 GameInteractor* GameInteractor::Instance;
 AudioCollection* AudioCollection::Instance;
 
+#ifdef COMBO_BUILD
+// Set by ComboShip before MM_RunGame to signal that the OOT context should be reused.
+static bool sComboTransitionActive = false;
+
+extern "C"
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+void MM_NotifyComboTransition(void) {
+    sComboTransitionActive = true;
+}
+#endif
+
 extern "C" char** cameraStrings;
 bool prevAltAssets = false;
 std::vector<std::shared_ptr<std::string>> cameraStdStrings;
@@ -170,6 +183,26 @@ OTRGlobals::OTRGlobals() {
 
     std::unordered_set<uint32_t> validHashes = { MM_NTSC_US_10, MM_NTSC_US_GC };
 
+#ifdef COMBO_BUILD
+    // If a combo transition is active, reuse the existing OOT context instead of creating a new one.
+    // SOH_PrepareForTransition() must have been called first to stop the OOT audio thread.
+    bool usingExistingCtx = false;
+    if (sComboTransitionActive) {
+        auto existingCtx = Ship::Context::GetInstance();
+        if (existingCtx != nullptr) {
+            context = existingCtx;
+            auto archiveMgr = context->GetResourceManager()->GetArchiveManager();
+            archiveMgr->SetArchives(nullptr);
+            for (const auto& path : archiveFiles) {
+                archiveMgr->AddArchive(path);
+            }
+            context->GetResourceManager()->UnloadResources("*");
+            usingExistingCtx = true;
+        }
+        sComboTransitionActive = false;
+    }
+    if (!usingExistingCtx) {
+#endif
     context = Ship::Context::CreateUninitializedInstance("2 Ship 2 Harkinian", appShortName, "2ship2harkinian.json");
     context->InitFileDropMgr();
     context->InitLogging();
@@ -207,6 +240,19 @@ OTRGlobals::OTRGlobals() {
 
     SPDLOG_INFO("Starting 2 Ship 2 Harkinian version {} (Branch: {} | Commit: {})", (char*)gBuildVersion,
                 (char*)gGitBranch, (char*)gGitCommitHash);
+#ifdef COMBO_BUILD
+    } else {
+        // Reuse path: apply MM-specific overlay fonts and alt-assets to the existing context.
+        prevAltAssets = CVarGetInteger("gEnhancements.Mods.AlternateAssets", 0);
+        context->GetResourceManager()->SetAltAssetsEnabled(prevAltAssets);
+        auto overlay = context->GetInstance()->GetWindow()->GetGui()->GetGameOverlay();
+        overlay->LoadFont("Press Start 2P", 12.0f, "fonts/PressStart2P-Regular.ttf");
+        overlay->LoadFont("Fipps", 32.0f, "fonts/Fipps-Regular.otf");
+        overlay->SetCurrentFont(CVarGetString(CVAR_GAME_OVERLAY_FONT, "Press Start 2P"));
+        SPDLOG_INFO("Starting 2 Ship 2 Harkinian version {} (Branch: {} | Commit: {})", (char*)gBuildVersion,
+                    (char*)gGitBranch, (char*)gGitCommitHash);
+    }
+#endif
 
     auto loader = context->GetResourceManager()->GetResourceLoader();
     loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryBinaryTextureV0>(), RESOURCE_FORMAT_BINARY,
@@ -1907,6 +1953,107 @@ extern "C" int Controller_ShouldRumble(size_t slot) {
 extern "C" void Messagebox_ShowErrorBox(char* title, char* body) {
     Extractor::ShowErrorBox(title, body);
 }
+
+// ============================================================
+// ComboShip exports — 2ship.dll side
+// ============================================================
+
+static std::unique_ptr<Ship::ArchiveManager> gMMArchiveManager;
+
+// Opens mm.o2r + 2ship.o2r into a MM-private ArchiveManager (no context, no window).
+// This is the "dormant" MM state: archives open, no game loop running.
+extern "C" __declspec(dllexport) void MM_InitArchives() {
+    std::vector<std::string> archivePaths;
+
+    std::string mmPathO2R = Ship::Context::LocateFileAcrossAppDirs("mm.o2r", appShortName);
+    std::string mmPathZIP = Ship::Context::LocateFileAcrossAppDirs("mm.zip", appShortName);
+    if (std::filesystem::exists(mmPathO2R)) {
+        archivePaths.push_back(mmPathO2R);
+    } else if (std::filesystem::exists(mmPathZIP)) {
+        archivePaths.push_back(mmPathZIP);
+    } else {
+        std::string mmPathOtr = Ship::Context::LocateFileAcrossAppDirs("mm.otr", appShortName);
+        if (std::filesystem::exists(mmPathOtr)) {
+            archivePaths.push_back(mmPathOtr);
+        }
+    }
+
+    std::string shipO2R = Ship::Context::GetPathRelativeToAppBundle("2ship.o2r");
+    if (std::filesystem::exists(shipO2R)) {
+        archivePaths.push_back(shipO2R);
+    }
+
+    if (!archivePaths.empty()) {
+        printf("[2ship] MM_InitArchives: opening %zu archive(s):\n", archivePaths.size());
+        for (const auto& p : archivePaths) {
+            printf("[2ship]   %s\n", p.c_str());
+        }
+        gMMArchiveManager = std::make_unique<Ship::ArchiveManager>();
+        gMMArchiveManager->Init(archivePaths);
+        printf("[2ship] MM archives loaded (dormant).\n");
+    } else {
+        printf("[2ship] MM_InitArchives: no archives found — MM will remain unloaded.\n");
+    }
+}
+
+// -1 = normal MM boot; >= 0 = ComboShip game-switch: skip title/file-select and load this slot.
+// extern "C" so title_setup.c (a C file) can link to it without name mangling.
+extern "C" int gComboStartFileNum = -1;
+
+// C-callable wrapper used by title_setup.c (which is a C file) to load a MM save from disk.
+extern "C" void Combo_LoadMMSaveFile(int mmFileNum) {
+    SaveManager_LoadSaveFile(mmFileNum);
+}
+
+extern "C" void MM_RunMain(void);
+
+// Full MM initialization + game loop, entered after OOT has exited.
+// fileNum is the OOT 0-indexed slot; we map it to the same MM slot.
+extern "C" __declspec(dllexport) void MM_RunGame(int fileNum) {
+    gComboStartFileNum = fileNum;
+    MM_RunMain();
+}
+
+// Initializes a default MM save for the given OOT file slot (0-indexed) and writes it to disk.
+// Called by ComboShip when OOT creates a new save, so MM has a matching save ready for the transition.
+extern "C" __declspec(dllexport) void MM_InitSaveFile(int fileNum) {
+    // fileNum is OOT's 0-indexed slot; MM save files are 1-indexed (file1.json, file2.json, file3.json)
+    SaveManager_InitNewSaveForSlot(fileNum + 1);
+}
+
+// Returns the number of archives open in the MM-private ArchiveManager.
+// 0 means MM_InitArchives was not called or found no files.
+extern "C" __declspec(dllexport) int MM_ArchiveCount() {
+    if (!gMMArchiveManager) return 0;
+    auto archives = gMMArchiveManager->GetArchives();
+    return archives ? static_cast<int>(archives->size()) : 0;
+}
+
+#if not defined(__SWITCH__) && not defined(__WIIU__)
+extern "C" __declspec(dllexport) bool MM_Extract(const char* searchPath) {
+    std::string path = searchPath ? searchPath : std::filesystem::current_path().string();
+    std::string installPath = Ship::Context::GetAppBundlePath();
+
+    // Guard: check assets folder exists before attempting extraction
+    if (!std::filesystem::exists(installPath + "/assets")) {
+        Extractor::ShowErrorBox(
+            "Extractor assets not found",
+            "No game O2R file found. Missing assets folder needed to generate O2R file.\n\nExiting...");
+        return false;
+    }
+
+    Extractor extract;
+    if (!extract.Run(path)) {
+        return false;
+    }
+    if (!extract.CallZapd(installPath, path)) {
+        Extractor::ShowErrorBox("Extraction failed",
+                                "ROM extraction failed. Check the console window for details.\n\nExiting...");
+        return false;
+    }
+    return true;
+}
+#endif
 
 // Helper to redirect the user to the boot screen in place of known console crash scenarios, and emits a notification
 extern "C" bool Ship_HandleConsoleCrashAsReset() {

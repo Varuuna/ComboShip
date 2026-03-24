@@ -31,11 +31,8 @@
 #include <ExporterArchiveO2R.h>
 
 #include "ExporterArchiveOTR.h"
-#ifdef GAME_MM
-std::string archiveFileName = "mm.o2r";
-#elif GAME_OOT
+// Default archive name; overridden at runtime by the --otrfile argument.
 std::string archiveFileName = "oot.o2r";
-#endif
 std::string customArchiveFileName = "";
 std::string customAssetsPath = "";
 std::string portVersionString = "0.0.0";
@@ -425,12 +422,10 @@ void ImportExporters()
     exporterSet->exporters[ZResourceType::Array] = new OTRExporter_Array();
     exporterSet->exporters[ZResourceType::Path] = new OTRExporter_Path();
     exporterSet->exporters[ZResourceType::Text] = new OTRExporter_Text();
-#ifdef GAME_MM
     exporterSet->exporters[ZResourceType::TextMM] = new OTRExporter_TextMM();
     exporterSet->exporters[ZResourceType::KeyFrameSkel] = new OTRExporter_CKeyFrameSkel();
     exporterSet->exporters[ZResourceType::KeyFrameAnimation] = new OTRExporter_CKeyFrameAnim();
     exporterSet->exporters[ZResourceType::TextureAnimation] = new OTRExporter_TextureAnimation();
-#endif
     exporterSet->exporters[ZResourceType::Blob] = new OTRExporter_Blob();
     exporterSet->exporters[ZResourceType::Mtx] = new OTRExporter_MtxExporter();
     exporterSet->exporters[ZResourceType::Audio] = new OTRExporter_Audio();

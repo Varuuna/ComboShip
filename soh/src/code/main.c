@@ -43,6 +43,36 @@ void Main_LogSystemHeap(void) {
     osSyncPrintf(VT_RST);
 }
 
+// ComboShip export: run the OOT game loop. SOH_Init() must be called first.
+// Blocks until OOT exits.
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+void SOH_RunMain(int argc, char** argv) {
+    GameConsole_Init();
+    // SOH_Init() (i.e. InitOTR) was already called by ComboShip before this.
+    // TODO: Was moved to below InitOTR because it requires window to be setup. But will be late to catch crashes.
+    CrashHandlerRegisterCallback(CrashHandler_PrintSohData);
+    BootCommands_Init();
+
+    Heaps_Alloc();
+    Main(0);
+#ifndef COMBO_BUILD
+    DeinitOTR();
+    Heaps_Free();
+#endif
+}
+
+#ifdef COMBO_BUILD
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+void SOH_Deinit(void) {
+    DeinitOTR();
+    Heaps_Free();
+}
+#endif
+
 #ifdef _WIN32
 int SDL_main(int argc, char** argv) {
     AllocConsole();

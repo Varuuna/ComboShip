@@ -6,7 +6,7 @@ const u16 gBuildVersionMinor = 0;
 const u16 gBuildVersionPatch = 0;
 
 const char gGitBranch[] = "shared-libraries";
-const char gGitCommitHash[] = "6dae362";
+const char gGitCommitHash[] = "5d0d5a8";
 const char gGitCommitTag[] = "";
 
 const char gBuildTeam[] = "github.com/harbourmasters";

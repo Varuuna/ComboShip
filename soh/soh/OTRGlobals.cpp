@@ -345,12 +345,10 @@ void OTRGlobals::Initialize() {
     auto sohFast3dWindow =
         std::make_shared<Fast::Fast3dWindow>(std::vector<std::shared_ptr<Ship::GuiWindow>>({ sohInputEditorWindow }));
     context->InitWindow(sohFast3dWindow);
-
     auto overlay = context->GetInstance()->GetWindow()->GetGui()->GetGameOverlay();
     overlay->LoadFont("Press Start 2P", 12.0f, "fonts/PressStart2P-Regular.ttf");
     overlay->LoadFont("Fipps", 32.0f, "fonts/Fipps-Regular.otf");
     overlay->SetCurrentFont(CVarGetString(CVAR_GAME_OVERLAY_FONT, "Press Start 2P"));
-
     context->InitAudio({ .SampleRate = 32000, .SampleLength = 1024, .DesiredBuffered = 1680 });
 
     SPDLOG_INFO("Starting Ship of Harkinian version {} (Branch: {} | Commit: {})", (char*)gBuildVersion,
@@ -1134,6 +1132,9 @@ void CheckAndCreateModFolder() {
     }
 }
 
+// Forward declaration — defined further down in this file.
+extern "C" void (*gComboSceneSwitchCallback)(int fileNum);
+
 extern "C" void InitOTR() {
     OTRGlobals::Instance = new OTRGlobals();
 #ifdef __SWITCH__
@@ -1291,6 +1292,32 @@ extern "C" void InitOTR() {
     // #endregion
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnFileDropped>(SoH_ProcessDroppedFiles);
 
+#ifdef COMBO_BUILD
+    // Flag set when we want to switch to MM. Acted on at the start of the next clean frame.
+    static bool sComboSwitchPending = false;
+    static int  sComboSwitchFileNum = -1;
+
+    GameInteractor::Instance->RegisterGameHook<GameInteractor::OnSceneInit>([](int16_t sceneNum) {
+        if (sceneNum == SCENE_MIDOS_HOUSE) { // TEMP: normally SCENE_HAPPY_MASK_SHOP
+            sComboSwitchFileNum = (int)gSaveContext.fileNum;
+            sComboSwitchPending = true;
+        }
+    });
+
+    GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameFrameUpdate>([]() {
+        if (!sComboSwitchPending) return;
+        sComboSwitchPending = false;
+        SaveManager::Instance->SaveFile(sComboSwitchFileNum);
+        SaveManager::Instance->ThreadPoolWait();
+        if (gComboSceneSwitchCallback) {
+            gComboSceneSwitchCallback(sComboSwitchFileNum);
+        }
+        if (gGameState) {
+            gGameState->running = false;
+        }
+    });
+#endif
+
     RegisterImGuiItemIcons();
 
     time_t now = time(NULL);
@@ -1336,6 +1363,20 @@ extern "C" void DeinitOTR() {
 
     OTRGlobals::Instance->context = nullptr;
 }
+
+#ifdef COMBO_BUILD
+// Stops OOT audio and waits for pending saves WITHOUT destroying the context or window.
+// Called by ComboShip before launching MM so archives can be safely swapped.
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+extern "C" void SOH_PrepareForTransition(void) {
+    SaveManager_ThreadPoolWait();
+    OTRAudio_Exit();
+    SohGui::Destroy();
+    // Context, window, and resource manager are intentionally kept alive for MM to reuse.
+}
+#endif
 
 #ifdef _WIN32
 extern "C" uint64_t GetFrequency() {
@@ -2779,6 +2820,39 @@ extern "C" void Gfx_TextureCacheDelete(const uint8_t* texAddr) {
         assert(false && "Lost reference to Fast::Interpreter");
     }
 }
+
+// ============================================================
+// ComboShip exports — soh.dll side
+// ============================================================
+
+extern "C" __declspec(dllexport) void SOH_Init() {
+    InitOTR();
+}
+
+extern "C" void (*gComboSaveInitCallback)(int fileNum) = nullptr;
+
+extern "C" __declspec(dllexport) void SOH_SetOnNewSaveCallback(void (*cb)(int fileNum)) {
+    gComboSaveInitCallback = cb;
+}
+
+extern "C" void (*gComboSceneSwitchCallback)(int fileNum) = nullptr;
+
+extern "C" __declspec(dllexport) void SOH_SetOnSceneSwitchCallback(void (*cb)(int fileNum)) {
+    gComboSceneSwitchCallback = cb;
+}
+
+#if not defined(__SWITCH__) && not defined(__WIIU__)
+extern "C" __declspec(dllexport) bool SOH_Extract(const char* searchPath) {
+    std::string path = searchPath ? searchPath : std::filesystem::current_path().string();
+    std::string installPath = Ship::Context::GetAppBundlePath();
+    Extractor extract;
+    if (!extract.Run(path)) {
+        return false;
+    }
+    extract.CallZapd(installPath, path);
+    return true;
+}
+#endif
 
 void SoH_ProcessDroppedFiles(std::string filePath) {
     try {

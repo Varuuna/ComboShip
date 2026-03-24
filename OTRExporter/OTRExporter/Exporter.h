@@ -5,11 +5,9 @@
 #include <Utils/BinaryWriter.h>
 #include <libultraship/bridge.h>
 #include "VersionInfo.h"
-#ifdef GAME_MM
+// 2shResourceType.h is a superset of SohResourceType.h (identical common values,
+// plus MM-specific types). Safe to include unconditionally for both games.
 #include "../../mm/2s2h/resource/type/2shResourceType.h"
-#elif GAME_OOT
-#include "../../soh/soh/resource/type/SohResourceType.h"
-#endif
 class OTRExporter : public ZResourceExporter
 {
 protected:

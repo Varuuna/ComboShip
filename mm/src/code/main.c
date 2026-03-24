@@ -149,3 +149,46 @@ void SDL_main(int argc, char** argv /* void* arg*/) {
     FreeConsole();
 #endif
 }
+
+#ifdef COMBO_BUILD
+// ComboShip entry point — same as SDL_main but skips AllocConsole/FreeConsole
+// since ComboShip.exe already owns the console.
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+void MM_RunMain(void) {
+    intptr_t sysHeap;
+
+    setlocale(LC_ALL, ".UTF8");
+
+    InitOTR();
+    Heaps_Alloc();
+
+    gScreenWidth = SCREEN_WIDTH;
+    gScreenHeight = SCREEN_HEIGHT;
+
+    Nmi_Init();
+    Fault_Init();
+    Check_RegionIsSupported();
+    Check_ExpansionPak();
+    sysHeap = gSystemHeap;
+    SystemHeap_Init(sysHeap, SYSTEM_HEAP_SIZE);
+
+    Regs_Init();
+
+    R_ENABLE_ARENA_DBG = 0;
+
+    osCreateMesgQueue(&sSerialEventQueue, sSerialMsgBuf, ARRAY_COUNT(sSerialMsgBuf));
+    osSetEventMesg(OS_EVENT_SI, &sSerialEventQueue, OS_MESG_PTR(NULL));
+
+    osCreateMesgQueue(&sIrqMgrMsgQueue, sIrqMgrMsgBuf, ARRAY_COUNT(sIrqMgrMsgBuf));
+    PadMgr_Init(&sSerialEventQueue, &gIrqMgr, Z_THREAD_ID_PADMGR, Z_PRIORITY_PADMGR, STACK_TOP(sPadMgrStack));
+
+    AudioMgr_Init(&sAudioMgr, STACK_TOP(sAudioStack), Z_PRIORITY_AUDIOMGR, Z_THREAD_ID_AUDIOMGR, &gSchedContext,
+                  &gIrqMgr);
+
+    Graph_ThreadEntry(0);
+
+    DeinitOTR();
+}
+#endif

@@ -1,4 +1,3 @@
-#ifdef GAME_MM
 #include "CKeyFrameExporter.h"
 #include "DisplayListExporter.h"
 #include "Globals.h"
@@ -102,4 +101,3 @@ void OTRExporter_CKeyFrameAnim::Save(ZResource* res, const fs::path& outPath, Bi
     writer->Write(anim->unk_10);
     writer->Write(anim->duration);
 }
-#endif

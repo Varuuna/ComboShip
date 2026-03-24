@@ -12,6 +12,10 @@
 #define NUM_DUNGEONS 8
 #define NUM_COWS 10
 
+#ifdef COMBO_BUILD
+extern void (*gComboSaveInitCallback)(int fileNum);
+#endif
+
 void Save_LoadFile(void);
 
 void BossRush_InitSave(void);
@@ -271,6 +275,12 @@ void Sram_InitSave(FileChooseContext* fileChooseCtx) {
 
     Save_SaveFile();
     SaveManager_ThreadPoolWait();
+
+#ifdef COMBO_BUILD
+    if (gComboSaveInitCallback != NULL) {
+        gComboSaveInitCallback((int)gSaveContext.fileNum);
+    }
+#endif
 }
 
 void Sram_InitSram(GameState* gameState) {

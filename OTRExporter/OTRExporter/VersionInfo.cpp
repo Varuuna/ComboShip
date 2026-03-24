@@ -1,10 +1,6 @@
 #include "VersionInfo.h"
 #include <libultraship/bridge.h>
-#ifdef GAME_MM
 #include "../../mm/2s2h/resource/type/2shResourceType.h"
-#elif GAME_OOT
-#include "../../soh/soh/resource/type/SohResourceType.h"
-#endif
 std::map<uint32_t, uint32_t> resourceVersions;
 
 void InitVersionInfo()

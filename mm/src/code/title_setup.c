@@ -1,5 +1,9 @@
 #include "z_title_setup.h"
 #include "overlays/gamestates/ovl_title/z_title.h"
+#ifdef COMBO_BUILD
+#include "global.h"
+#include "BenPort.h"
+#endif
 
 void Setup_SetRegs(void) {
     XREG(2) = 0;
@@ -51,6 +55,32 @@ void Setup_InitImpl(SetupState* this) {
     SysFlashrom_InitFlash();
     SaveContext_Init();
     Setup_SetRegs();
+
+#ifdef COMBO_BUILD
+    if (gComboStartFileNum >= 0) {
+        // Set flashSaveAvailable so Sram_Alloc allocates saveBuf (normally set by the title screen).
+        gSaveContext.flashSaveAvailable = true;
+        // Load the MM save that matches the OOT slot (OOT slot N → MM file N+1).
+        Combo_LoadMMSaveFile(gComboStartFileNum + 1);
+        // Always spawn in South Clock Town regardless of save state.
+        gSaveContext.save.entrance = ENTRANCE(SOUTH_CLOCK_TOWN, 0);
+        gSaveContext.save.cutsceneIndex = 0;
+        // Copy permanent flags into cycle flags, the same way Sram_OpenSave does.
+        for (int i = 0; i < ARRAY_COUNT(gSaveContext.cycleSceneFlags); i++) {
+            gSaveContext.cycleSceneFlags[i].chest     = gSaveContext.save.saveInfo.permanentSceneFlags[i].chest;
+            gSaveContext.cycleSceneFlags[i].switch0   = gSaveContext.save.saveInfo.permanentSceneFlags[i].switch0;
+            gSaveContext.cycleSceneFlags[i].switch1   = gSaveContext.save.saveInfo.permanentSceneFlags[i].switch1;
+            gSaveContext.cycleSceneFlags[i].clearedRoom =
+                gSaveContext.save.saveInfo.permanentSceneFlags[i].clearedRoom;
+            gSaveContext.cycleSceneFlags[i].collectible =
+                gSaveContext.save.saveInfo.permanentSceneFlags[i].collectible;
+        }
+        gComboStartFileNum = -1;
+        STOP_GAMESTATE(&this->state);
+        SET_NEXT_GAMESTATE(&this->state, Play_Init, sizeof(PlayState));
+        return;
+    }
+#endif
 
     STOP_GAMESTATE(&this->state);
     SET_NEXT_GAMESTATE(&this->state, ConsoleLogo_Init, sizeof(ConsoleLogoState));

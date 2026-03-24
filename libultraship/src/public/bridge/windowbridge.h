@@ -7,6 +7,7 @@ extern "C" {
 #endif
 
 bool WindowIsRunning();
+void WindowClose();
 uint32_t WindowGetWidth();
 uint32_t WindowGetHeight();
 float WindowGetAspectRatio();

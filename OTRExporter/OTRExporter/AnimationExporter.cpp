@@ -1,9 +1,5 @@
 #include "AnimationExporter.h"
-#ifdef GAME_MM
 #include <resource/type/Animation.h>
-#elif GAME_OOT
-#include "../../soh/soh/resource/type/Animation.h"
-#endif
 
 #include <Globals.h>
 #include "DisplayListExporter.h"

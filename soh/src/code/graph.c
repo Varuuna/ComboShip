@@ -510,7 +510,11 @@ static void RunFrame() {
     osSyncPrintf("グラフィックスレッド実行終了\n"); // "End of graphic thread execution"
 
     // Graph_Update(gfxCtxTest, gameStateTest);
+#ifdef COMBO_BUILD
+    WindowClose(); // Signal the loop to stop so we return cleanly to ComboShip instead of looping
+#else
     exit(0);
+#endif
 }
 
 void Graph_ThreadEntry(void* arg0) {

@@ -230,6 +230,10 @@ void ZTexture::ConvertN64ToBitmap_RGBA16()
 {
 	textureData.InitEmptyRGBImage(width, height, true);
 	const auto& parentRawData = parent->GetRawData();
+	if (rawDataIndex + (size_t)width * height * 2 > parentRawData.size()) {
+		fprintf(stderr, "ZTexture: RGBA16 texture at 0x%zX (%zux%zu) exceeds ROM data — skipping\n", rawDataIndex, (size_t)width, (size_t)height);
+		return;
+	}
 	for (size_t y = 0; y < height; y++)
 	{
 		for (size_t x = 0; x < width; x++)
@@ -251,6 +255,13 @@ void ZTexture::ConvertN64ToBitmap_RGBA32()
 {
 	textureData.InitEmptyRGBImage(width, height, true);
 	const auto& parentRawData = parent->GetRawData();
+	size_t requiredSize = rawDataIndex + (size_t)width * height * 4;
+	if (requiredSize > parentRawData.size())
+	{
+		fprintf(stderr, "ZTexture: RGBA32 texture at 0x%zX (size %zux%zu) exceeds ROM data (have %zu, need %zu) — skipping\n",
+		        rawDataIndex, (size_t)width, (size_t)height, parentRawData.size(), requiredSize);
+		return;
+	}
 	for (size_t y = 0; y < height; y++)
 	{
 		for (size_t x = 0; x < width; x++)
@@ -270,6 +281,10 @@ void ZTexture::ConvertN64ToBitmap_Grayscale4()
 {
 	textureData.InitEmptyRGBImage(width, height, false);
 	const auto& parentRawData = parent->GetRawData();
+	if (rawDataIndex + ((size_t)width * height + 1) / 2 > parentRawData.size()) {
+		fprintf(stderr, "ZTexture: Grayscale4 texture at 0x%zX (%zux%zu) exceeds ROM data — skipping\n", rawDataIndex, (size_t)width, (size_t)height);
+		return;
+	}
 	for (size_t y = 0; y < height; y++)
 	{
 		for (size_t x = 0; x < width; x += 2)
@@ -294,6 +309,10 @@ void ZTexture::ConvertN64ToBitmap_Grayscale8()
 {
 	textureData.InitEmptyRGBImage(width, height, false);
 	const auto& parentRawData = parent->GetRawData();
+	if (rawDataIndex + (size_t)width * height > parentRawData.size()) {
+		fprintf(stderr, "ZTexture: Grayscale8 texture at 0x%zX (%zux%zu) exceeds ROM data — skipping\n", rawDataIndex, (size_t)width, (size_t)height);
+		return;
+	}
 	for (size_t y = 0; y < height; y++)
 	{
 		for (size_t x = 0; x < width; x++)
@@ -309,6 +328,10 @@ void ZTexture::ConvertN64ToBitmap_GrayscaleAlpha4()
 {
 	textureData.InitEmptyRGBImage(width, height, true);
 	const auto& parentRawData = parent->GetRawData();
+	if (rawDataIndex + ((size_t)width * height + 1) / 2 > parentRawData.size()) {
+		fprintf(stderr, "ZTexture: GrayscaleAlpha4 texture at 0x%zX (%zux%zu) exceeds ROM data — skipping\n", rawDataIndex, (size_t)width, (size_t)height);
+		return;
+	}
 	for (size_t y = 0; y < height; y++)
 	{
 		for (size_t x = 0; x < width; x += 2)
@@ -337,6 +360,10 @@ void ZTexture::ConvertN64ToBitmap_GrayscaleAlpha8()
 {
 	textureData.InitEmptyRGBImage(width, height, true);
 	const auto& parentRawData = parent->GetRawData();
+	if (rawDataIndex + (size_t)width * height > parentRawData.size()) {
+		fprintf(stderr, "ZTexture: GrayscaleAlpha8 texture at 0x%zX (%zux%zu) exceeds ROM data — skipping\n", rawDataIndex, (size_t)width, (size_t)height);
+		return;
+	}
 	for (size_t y = 0; y < height; y++)
 	{
 		for (size_t x = 0; x < width; x++)
@@ -359,6 +386,10 @@ void ZTexture::ConvertN64ToBitmap_GrayscaleAlpha16()
 {
 	textureData.InitEmptyRGBImage(width, height, true);
 	const auto& parentRawData = parent->GetRawData();
+	if (rawDataIndex + (size_t)width * height * 2 > parentRawData.size()) {
+		fprintf(stderr, "ZTexture: GrayscaleAlpha16 texture at 0x%zX (%zux%zu) exceeds ROM data — skipping\n", rawDataIndex, (size_t)width, (size_t)height);
+		return;
+	}
 	for (size_t y = 0; y < height; y++)
 	{
 		for (size_t x = 0; x < width; x++)
@@ -376,6 +407,10 @@ void ZTexture::ConvertN64ToBitmap_Palette4()
 {
 	textureData.InitEmptyPaletteImage(width, height);
 	const auto& parentRawData = parent->GetRawData();
+	if (rawDataIndex + ((size_t)width * height + 1) / 2 > parentRawData.size()) {
+		fprintf(stderr, "ZTexture: Palette4 texture at 0x%zX (%zux%zu) exceeds ROM data — skipping\n", rawDataIndex, (size_t)width, (size_t)height);
+		return;
+	}
 	for (size_t y = 0; y < height; y++)
 	{
 		for (size_t x = 0; x < width; x += 2)
@@ -400,6 +435,10 @@ void ZTexture::ConvertN64ToBitmap_Palette8()
 {
 	textureData.InitEmptyPaletteImage(width, height);
 	const auto& parentRawData = parent->GetRawData();
+	if (rawDataIndex + (size_t)width * height > parentRawData.size()) {
+		fprintf(stderr, "ZTexture: Palette8 texture at 0x%zX (%zux%zu) exceeds ROM data — skipping\n", rawDataIndex, (size_t)width, (size_t)height);
+		return;
+	}
 	for (size_t y = 0; y < height; y++)
 	{
 		for (size_t x = 0; x < width; x++)

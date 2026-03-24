@@ -177,6 +177,9 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 # Set CONTROLLERBUTTONS_T (from OOT)
 ################################################################################
 add_compile_definitions(CONTROLLERBUTTONS_T=uint32_t)
+add_compile_definitions(COMBO_BUILD)
+
+find_package(Python3 REQUIRED)
 
 ################################################################################
 # Sub-projects - Shared dependencies
@@ -195,16 +198,39 @@ add_subdirectory(OTRExporter ${CMAKE_BINARY_DIR}/OTRExporter)
 ################################################################################
 # Sub-projects - Game-specific builds
 ################################################################################
-# Add OOT (Ship of Harkinian) - from Combo's own soh directory
 add_subdirectory(soh ${CMAKE_BINARY_DIR}/soh)
 
-# Add MM (2 Ship 2 Harkinian) - from Combo's own mm directory
 add_subdirectory(mm ${CMAKE_BINARY_DIR}/mm)
 
+add_subdirectory(combo ${CMAKE_BINARY_DIR}/combo)
+
 ################################################################################
-# Meta target to build both games
+# Meta target to build both games and the combo executable
 ################################################################################
-add_custom_target(combo ALL DEPENDS soh 2ship)
+add_custom_target(combo ALL DEPENDS soh 2ship ComboShip)
+
+################################################################################
+# Asset archive generation targets
+################################################################################
+add_custom_target(
+    GenerateSohOtr
+    COMMAND ${CMAKE_COMMAND} -E rm -f soh.o2r
+    COMMAND ${CMAKE_COMMAND} -E rm -r -f ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/custom/shaders/
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/libultraship/src/graphic/Fast3D/shaders/ ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/custom/shaders/
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/OTRExporter/extract_assets.py -z "$<TARGET_FILE:ZAPD>" --norom --custom-otr-file soh.o2r "--custom-assets-path" ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/custom --port-ver "${CMAKE_PROJECT_VERSION}"
+    COMMAND ${CMAKE_COMMAND} -DSYSTEM_NAME=${CMAKE_SYSTEM_NAME} -DTARGET_DIR="$<TARGET_FILE_DIR:ZAPD>" -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DBINARY_DIR=${CMAKE_BINARY_DIR} -DONLYSOHOTR=On -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/copy-existing-otrs.cmake
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/soh
+    COMMENT "Generating soh.o2r..."
+    DEPENDS ZAPD)
+
+add_custom_target(
+    Generate2ShipOtr
+    COMMAND ${CMAKE_COMMAND} -E $<IF:$<VERSION_LESS:${CMAKE_VERSION},3.17>,remove,rm> -f 2ship.o2r
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/OTRExporter/extract_assets.py -z "$<TARGET_FILE:ZAPD>" --norom --custom-otr-file 2ship.o2r "--custom-assets-path" ${CMAKE_CURRENT_SOURCE_DIR}/mm/assets/custom --port-ver "${CMAKE_PROJECT_VERSION}"
+    COMMAND ${CMAKE_COMMAND} -DSYSTEM_NAME=${CMAKE_SYSTEM_NAME} -DTARGET_DIR="$<TARGET_FILE_DIR:ZAPD>" -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DBINARY_DIR=${CMAKE_BINARY_DIR} -DONLY2SHIPOTR=On -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/copy-existing-otrs.cmake
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/mm
+    COMMENT "Generating 2ship.o2r..."
+    DEPENDS ZAPD)
 
 ################################################################################
 # Installation and Packaging
@@ -223,8 +249,8 @@ endif()
 if ("${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
     install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/extractor/" DESTINATION ./assets/oot COMPONENT combo)
     install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/xml/" DESTINATION ./assets/xml/oot COMPONENT combo)
-    install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/extractor/" DESTINATION ./assets/mm COMPONENT combo)
-    install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/xml/" DESTINATION ./assets/xml/mm COMPONENT combo)
+    install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/extractor/" DESTINATION ./assets COMPONENT combo)
+    install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/xml/" DESTINATION ./assets/xml COMPONENT combo)
 endif()
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows|NintendoSwitch|CafeOS")

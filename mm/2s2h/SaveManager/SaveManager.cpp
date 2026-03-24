@@ -13,6 +13,7 @@ extern "C" {
 #include "macros.h"
 #include "src/overlays/gamestates/ovl_file_choose/z_file_select.h"
 extern FileSelectState* gFileSelectState;
+extern SaveContext gSaveContext;
 }
 
 // This entire thing is temporary until we have a more robust save system that
@@ -114,6 +115,47 @@ void SaveManager_WriteSaveFile(const std::filesystem::path& fileName, nlohmann::
         o << std::setw(4) << j << std::endl;
         o.close();
     } catch (...) { SPDLOG_ERROR("Failed to write save file"); }
+}
+
+void SaveManager_InitNewSaveForSlot(int mmFileNum) {
+    Sram_InitNewSave();
+    nlohmann::json j;
+    j["newCycleSave"]["save"] = gSaveContext.save;
+    j["version"] = CURRENT_SAVE_VERSION;
+    j["type"] = "2S2H_SAVE";
+    SaveManager_WriteSaveFile(SaveManager_GetFileName(mmFileNum), j);
+}
+
+int SaveManager_ReadSaveFile(const std::filesystem::path& fileName, nlohmann::json& j);
+
+void SaveManager_LoadSaveFile(int mmFileNum) {
+    std::string fileName = SaveManager_GetFileName(mmFileNum);
+    nlohmann::json j;
+    int result = SaveManager_ReadSaveFile(fileName, j);
+    if (result != 0) {
+        SPDLOG_ERROR("[ComboShip] Failed to read MM save file: {}", fileName);
+        return;
+    }
+    result = SaveManager_MigrateSave(j);
+    if (result != 0) {
+        SPDLOG_ERROR("[ComboShip] Failed to migrate MM save file: {}", fileName);
+        return;
+    }
+    if (!j.contains("newCycleSave")) {
+        SPDLOG_ERROR("[ComboShip] MM save file missing newCycleSave: {}", fileName);
+        return;
+    }
+    try {
+        Save save = j["newCycleSave"]["save"];
+        save.saveInfo.checksum = 0;
+        save.saveInfo.checksum = Sram_CalcChecksum(&save, sizeof(Save));
+        gSaveContext.save = save;
+        gSaveContext.fileNum = (s16)(mmFileNum - 1);
+    } catch (nlohmann::json::exception& je) {
+        SPDLOG_ERROR("[ComboShip] Failed to parse MM save: {}", je.what());
+    } catch (...) {
+        SPDLOG_ERROR("[ComboShip] Failed to parse MM save");
+    }
 }
 
 void SaveManager_DeleteSaveFile(const std::filesystem::path& fileName) {

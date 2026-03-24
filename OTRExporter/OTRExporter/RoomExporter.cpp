@@ -543,8 +543,8 @@ void OTRExporter_Room::Save(ZResource* res, const fs::path& outPath, BinaryWrite
             }
             break;
         }
-#ifdef GAME_MM
         case RoomCommand::SetAnimatedMaterialList: {
+            if (Globals::Instance->game != ZGame::MM_RETAIL) break;
             SetAnimatedMaterialList* list = (SetAnimatedMaterialList*)cmd;
             std::string listName;
             Globals::Instance->GetSegmentedPtrName(cmd->cmdArg2, cmd->parent, "AnimatedMaterial", listName,
@@ -562,7 +562,6 @@ void OTRExporter_Room::Save(ZResource* res, const fs::path& outPath, BinaryWrite
 
             break;
         }
-#endif
         case RoomCommand::SetMinimapList: {
             SetMinimapList* list = (SetMinimapList*)cmd;
 

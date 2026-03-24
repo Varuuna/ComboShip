@@ -68,3 +68,24 @@ _packages/
 /mm/src/boot/build.c
 /mm/windows/properties.h
 /clang-format.exe
+
+# Claude Code local settings (not for sharing)
+.claude/
+
+# CMake-generated build artifacts
+cmake_install.cmake
+CMakeFiles/
+
+# CMake-generated Visual Studio project files (mm and soh)
+/mm/*.sln
+/mm/*.vcxproj
+/mm/*.vcxproj.filters
+/soh/*.sln
+/soh/*.vcxproj
+/soh/*.vcxproj.filters
+
+# Build output in sub-directories (root x64/ already covered by /x64 above)
+x64/
+
+# vcpkg — auto-bootstrapped by CMake/automate-vcpkg.cmake, not tracked
+/vcpkg/

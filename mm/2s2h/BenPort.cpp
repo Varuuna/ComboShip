@@ -126,6 +126,12 @@ __declspec(dllexport)
 void MM_NotifyComboTransition(void) {
     sComboTransitionActive = true;
 }
+
+extern "C" void (*gComboReturnCallback)(void) = nullptr;
+extern "C" __declspec(dllexport) void MM_SetOnComboReturnCallback(void (*cb)(void)) {
+    gComboReturnCallback = cb;
+}
+static bool sComboReturnPending = false;
 #endif
 
 extern "C" char** cameraStrings;
@@ -771,6 +777,24 @@ extern "C" void InitOTR() {
     LoadGuiTextures();
     BenGui::SetupGuiElements();
     ShipInit::InitAll();
+#ifdef COMBO_BUILD
+    GameInteractor::Instance->RegisterGameHook<GameInteractor::OnSceneInit>(
+        [](s8 sceneId, s8 spawnNum) {
+            if (sceneId == SCENE_INSIDETOWER) {
+                sComboReturnPending = true;
+            }
+        });
+    GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameStateMainStart>([]() {
+        if (!sComboReturnPending) return;
+        sComboReturnPending = false;
+        SaveManager_SaveCurrentForCombo();
+        if (gComboReturnCallback) gComboReturnCallback();
+        if (auto fast3d = std::dynamic_pointer_cast<Fast::Fast3dWindow>(
+                Ship::Context::GetInstance()->GetWindow())) {
+            fast3d->SetIsRunning(false);
+        }
+    });
+#endif
     InitEnhancements();
     Rando::Init();
     GfxPatcher_ApplyNecessaryAuthenticPatches();

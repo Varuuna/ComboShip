@@ -137,6 +137,10 @@ static FnSOHDeinit               SOH_Deinit                  = nullptr;
 static FnSOHPrepare              SOH_PrepareForTransition    = nullptr;
 static FnMMNotify                MM_NotifyComboTransition    = nullptr;
 
+typedef void (*FnMMSetReturnCb)(void (*)(void));
+static FnMMSetReturnCb MM_SetOnComboReturnCallback = nullptr;
+static bool g_pendingOOTReturn = false;
+
 static int g_PendingMMFileNum = -1;
 
 static void Combo_OnOOTSaveInit(int fileNum) {
@@ -150,6 +154,11 @@ static void Combo_OnOOTSceneSwitch(int fileNum) {
     std::cout << "[ComboShip] Mask Shop entered — switching to MM, slot " << fileNum << std::endl;
     g_PendingMMFileNum = fileNum;
     // OOT game loop is already exiting (gGameState->running = false set by the hook).
+}
+
+static void Combo_OnMMReturn(void) {
+    std::cout << "[ComboShip] MM Clock Tower entered -- returning to OOT" << std::endl;
+    g_pendingOOTReturn = true;
 }
 
 // ---------- O2R existence checks ----------
@@ -242,6 +251,7 @@ int main(int argc, char** argv) {
     SOH_Deinit                   = (FnSOHDeinit)              GetSym(sohModule, "SOH_Deinit");
     SOH_PrepareForTransition     = (FnSOHPrepare)             GetSym(sohModule, "SOH_PrepareForTransition");
     MM_NotifyComboTransition     = (FnMMNotify)               GetSym(mmModule,  "MM_NotifyComboTransition");
+    MM_SetOnComboReturnCallback  = (FnMMSetReturnCb)          GetSym(mmModule,  "MM_SetOnComboReturnCallback");
 
     if (!MM_InitArchives) {
         std::cerr << "ERROR: 2ship.dll is missing required ComboShip exports (MM_InitArchives)." << std::endl;
@@ -350,8 +360,10 @@ int main(int argc, char** argv) {
         if (MM_NotifyComboTransition) {
             MM_NotifyComboTransition();
         }
+        if (MM_SetOnComboReturnCallback) MM_SetOnComboReturnCallback(Combo_OnMMReturn);
         std::cout << "[ComboShip] Launching MM for slot " << g_PendingMMFileNum << "..." << std::endl;
         MM_RunGame(g_PendingMMFileNum);
+        if (g_pendingOOTReturn) std::cout << "[ComboShip] OOT return pending (loop wiring lands in Task 4)" << std::endl;
     }
 
     // SOH context outlived MM (COMBO_BUILD keeps it alive across transition) — now fully tear it down.

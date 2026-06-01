@@ -160,6 +160,12 @@ int32_t GetGIID(uint32_t itemID);
 extern "C" {
 #endif
 uint64_t GetUnixTimestamp();
+#ifdef COMBO_BUILD
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+void MM_SetOnComboReturnCallback(void (*cb)(void));
+#endif
 #ifdef __cplusplus
 };
 #endif

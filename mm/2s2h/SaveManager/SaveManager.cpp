@@ -167,6 +167,15 @@ void SaveManager_InitNewSaveForSlot(int mmFileNum) {
     SaveManager_WriteSaveFile(SaveManager_GetFileName(mmFileNum), j);
 }
 
+void SaveManager_SaveCurrentForCombo() {
+    int mmFileNum = (int)gSaveContext.fileNum + 1;
+    nlohmann::json j;
+    j["newCycleSave"]["save"] = gSaveContext.save;
+    j["version"] = CURRENT_SAVE_VERSION;
+    j["type"] = "2S2H_SAVE";
+    SaveManager_WriteSaveFile(SaveManager_GetFileName(mmFileNum), j);
+}
+
 int SaveManager_ReadSaveFile(const std::filesystem::path& fileName, nlohmann::json& j);
 
 void SaveManager_LoadSaveFile(int mmFileNum) {

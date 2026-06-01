@@ -189,6 +189,8 @@ void MM_RunMain(void) {
 
     Graph_ThreadEntry(0);
 
+#ifndef COMBO_BUILD
     DeinitOTR();
+#endif
 }
 #endif

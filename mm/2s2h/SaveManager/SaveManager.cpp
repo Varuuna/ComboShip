@@ -133,7 +133,12 @@ void SaveManager_LoadSaveFile(int mmFileNum) {
     nlohmann::json j;
     int result = SaveManager_ReadSaveFile(fileName, j);
     if (result != 0) {
-        SPDLOG_ERROR("[ComboShip] Failed to read MM save file: {}", fileName);
+        // No MM save yet for this slot (e.g. the OOT->MM new-save callback never fired because the
+        // player loaded an existing OOT save rather than creating one). Create and persist a fresh
+        // MM save now so the transition runs on a valid, saved file instead of an uninitialized one.
+        SPDLOG_WARN("[ComboShip] MM save file {} missing; creating a new one", fileName);
+        SaveManager_InitNewSaveForSlot(mmFileNum);
+        gSaveContext.fileNum = (s16)(mmFileNum - 1);
         return;
     }
     result = SaveManager_MigrateSave(j);

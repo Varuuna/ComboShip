@@ -41,9 +41,17 @@ bool ResourceLoader::RegisterResourceFactory(std::shared_ptr<ResourceFactory> fa
 
     ResourceFactoryKey key{ .resourceFormat = format, .resourceType = type, .resourceVersion = version };
     if (mFactories.contains(key)) {
+#ifdef COMBO_BUILD
+        // Combo transition: the ResourceLoader is shared, so it still holds the previous game's
+        // factory for this key. Let the incoming game's factory take over (e.g. MM's scene/room
+        // factories replace OOT's) — otherwise MM would parse MM data with OOT's factory and throw.
+        mFactories[key] = factory;
+        return true;
+#else
         SPDLOG_ERROR("Failed to register resource factory: factory with key {}{}{} already exists", format, type,
                      version);
         return false;
+#endif
     }
     mFactories[key] = factory;
 

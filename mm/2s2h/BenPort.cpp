@@ -256,6 +256,14 @@ OTRGlobals::OTRGlobals() {
     }
 #endif
 
+#ifdef COMBO_BUILD
+    // ImGui's current-context global (GImGui) is a per-module static; this 2ship.dll has its own,
+    // separate from libultraship.dll where the context lives. Point it at the shared context so
+    // MM's own ImGui calls (menus, etc.) don't assert on a null context — both when reusing OOT's
+    // context across the transition and when MM creates the window itself.
+    ImGui::SetCurrentContext(context->GetInstance()->GetWindow()->GetGui()->GetImGuiContext());
+#endif
+
     auto loader = context->GetResourceManager()->GetResourceLoader();
     loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryBinaryTextureV0>(), RESOURCE_FORMAT_BINARY,
                                     "Texture", static_cast<uint32_t>(Fast::ResourceType::Texture), 0);

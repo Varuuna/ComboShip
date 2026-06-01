@@ -77,6 +77,12 @@ class Gui {
     // call ImGui::SetCurrentContext() with this, because ImGui's current-context global (GImGui)
     // is a per-module static — each DLL has its own and the game's starts out null.
     ImGuiContext* GetImGuiContext();
+    // Invalidates the active renderer backend's font texture so the next StartFrame() rebuilds the
+    // font atlas. Game DLLs must call this after adding fonts to the shared atlas once the backend
+    // has already built its texture (e.g. MM re-adding its fonts after OOT booted in a combo build);
+    // otherwise the new fonts leave the atlas with TexReady=false and ImGui::NewFrame() asserts
+    // "Font Atlas not built!".
+    void RebuildFontTexture();
     void StartDraw();
     void EndDraw();
     void HandleWindowEvents(WindowEvent event);

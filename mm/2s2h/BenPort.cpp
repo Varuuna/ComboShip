@@ -364,6 +364,16 @@ OTRGlobals::OTRGlobals() {
     fontStandardLarger = CreateFontWithSize(20.0f, "fonts/Montserrat-Regular.ttf");
     fontStandardLargest = CreateFontWithSize(24.0f, "fonts/Montserrat-Regular.ttf");
     ImGui::GetIO().FontDefault = fontMono;
+
+#ifdef COMBO_BUILD
+    // All MM fonts have now been added to the (shared, in a combo build) ImGui font atlas, which
+    // sets TexReady=false. When reusing OOT's context across a transition, the renderer backend
+    // already built its font texture for OOT and won't rebuild it on its own, so MM's first
+    // ImGui::NewFrame() would assert "Font Atlas not built!". Invalidate the backend font texture
+    // so the next frame rebuilds the atlas (OOT + MM glyphs). Harmless standalone: the backend
+    // hasn't built its texture yet pre-first-frame, so this is a no-op there.
+    Ship::Context::GetInstance()->GetWindow()->GetGui()->RebuildFontTexture();
+#endif
 }
 
 OTRGlobals::~OTRGlobals() {

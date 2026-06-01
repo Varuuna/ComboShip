@@ -11,6 +11,8 @@
 extern "C" {
 #include "z64save.h"
 #include "macros.h"
+#include "functions.h" // Flags_SetWeekEventReg (used by SET_WEEKEVENTREG)
+#include "variables.h"  // gItemSlots (used by INV_CONTENT)
 #include "src/overlays/gamestates/ovl_file_choose/z_file_select.h"
 extern FileSelectState* gFileSelectState;
 extern SaveContext gSaveContext;
@@ -106,19 +108,58 @@ int SaveManager_MigrateSave(nlohmann::json& j) {
 void SaveManager_WriteSaveFile(const std::filesystem::path& fileName, nlohmann::json j) {
     const std::filesystem::path filePath = savesFolderPath / fileName;
 
-    if (!std::filesystem::exists(savesFolderPath)) {
-        std::filesystem::create_directory(savesFolderPath);
+    // create_directories (plural) makes any missing parent dirs too; create_directory (single) fails
+    // silently if a parent is missing, after which the ofstream open below silently no-ops.
+    std::error_code ec;
+    std::filesystem::create_directories(savesFolderPath, ec);
+    if (ec) {
+        SPDLOG_ERROR("[ComboShip] Could not create saves folder {}: {}",
+                     std::filesystem::absolute(savesFolderPath).string(), ec.message());
     }
 
     try {
         std::ofstream o(filePath);
+        if (!o.is_open()) {
+            // std::ofstream does NOT throw on open failure — check explicitly or the failure is silent.
+            SPDLOG_ERROR("[ComboShip] Could not open save file for writing: {}",
+                         std::filesystem::absolute(filePath).string());
+            return;
+        }
         o << std::setw(4) << j << std::endl;
         o.close();
-    } catch (...) { SPDLOG_ERROR("Failed to write save file"); }
+        SPDLOG_INFO("[ComboShip] Wrote MM save file: {}", std::filesystem::absolute(filePath).string());
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[ComboShip] Failed to write save file {}: {}", filePath.string(), e.what());
+    } catch (...) {
+        SPDLOG_ERROR("[ComboShip] Failed to write save file {}", filePath.string());
+    }
 }
 
 void SaveManager_InitNewSaveForSlot(int mmFileNum) {
     Sram_InitNewSave();
+#ifdef COMBO_BUILD
+    // ComboShip: a fresh MM save is always entered mid-playthrough from OOT, never via MM's own title/
+    // intro. Set it up post-first-cycle — Human Link in South Clock Town with no first-cycle intro and no
+    // Tatl arrival conversation — mirroring the SkipIntroSequence + SkipFirstCycle enhancements and the
+    // Rando port's OnFileCreate. Kept here in PORT code (not MM game source). gPlayState doesn't exist at
+    // save-creation time, so items are written directly via INV_CONTENT instead of Item_Give. Scene flags
+    // go in permanentSceneFlags because title_setup.c copies those into cycleSceneFlags when the combo
+    // save is loaded.
+    gSaveContext.save.hasTatl = true;
+    gSaveContext.save.isFirstCycle = true;
+    gSaveContext.save.playerForm = PLAYER_FORM_HUMAN;
+    gSaveContext.save.saveInfo.playerData.isMagicAcquired = true;
+    gSaveContext.save.saveInfo.playerData.threeDayResetCount = 1;
+    INV_CONTENT(ITEM_OCARINA_OF_TIME) = ITEM_OCARINA_OF_TIME;
+    INV_CONTENT(ITEM_MASK_DEKU) = ITEM_MASK_DEKU;
+    gSaveContext.save.saveInfo.inventory.questItems |= (1 << QUEST_SONG_TIME) | (1 << QUEST_SONG_HEALING);
+    gSaveContext.save.saveInfo.permanentSceneFlags[SCENE_INSIDETOWER].switch0 |= (1 << 0); // Happy Mask Salesman
+    SET_WEEKEVENTREG(WEEKEVENTREG_59_04); // Tatl: entered South Clock Town — gates the first-entry conversation
+    SET_WEEKEVENTREG(WEEKEVENTREG_31_04); // Tatl
+    SET_WEEKEVENTREG(WEEKEVENTREG_ENTERED_EAST_CLOCK_TOWN);
+    SET_WEEKEVENTREG(WEEKEVENTREG_ENTERED_WEST_CLOCK_TOWN);
+    SET_WEEKEVENTREG(WEEKEVENTREG_ENTERED_NORTH_CLOCK_TOWN);
+#endif
     nlohmann::json j;
     j["newCycleSave"]["save"] = gSaveContext.save;
     j["version"] = CURRENT_SAVE_VERSION;
@@ -132,6 +173,9 @@ void SaveManager_LoadSaveFile(int mmFileNum) {
     std::string fileName = SaveManager_GetFileName(mmFileNum);
     nlohmann::json j;
     int result = SaveManager_ReadSaveFile(fileName, j);
+    SPDLOG_INFO("[ComboShip] LoadSaveFile slot {} -> {} (read result={}, savesFolder={})", mmFileNum,
+                std::filesystem::absolute(savesFolderPath / fileName).string(), result,
+                std::filesystem::absolute(savesFolderPath).string());
     if (result != 0) {
         // No MM save yet for this slot (e.g. the OOT->MM new-save callback never fired because the
         // player loaded an existing OOT save rather than creating one). Create and persist a fresh

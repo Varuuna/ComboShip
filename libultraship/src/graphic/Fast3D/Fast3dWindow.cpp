@@ -312,6 +312,10 @@ bool Fast3dWindow::IsRunning() {
     return mWindowManagerApi->IsRunning();
 }
 
+void Fast3dWindow::SetIsRunning(bool running) {
+    mWindowManagerApi->SetIsRunning(running);
+}
+
 uintptr_t Fast3dWindow::GetGfxFrameBuffer() {
     return mInterpreter->mGfxFrameBuffer;
 }

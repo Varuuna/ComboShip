@@ -199,6 +199,11 @@ OTRGlobals::OTRGlobals() {
                 archiveMgr->AddArchive(path);
             }
             context->GetResourceManager()->UnloadResources("*");
+            // OOT closed the shared window backend on exit (mIsRunning=false); re-arm it so MM's
+            // `while (WindowIsRunning())` game loop actually runs instead of returning immediately.
+            if (auto fast3d = std::dynamic_pointer_cast<Fast::Fast3dWindow>(context->GetWindow())) {
+                fast3d->SetIsRunning(true);
+            }
             usingExistingCtx = true;
         }
         sComboTransitionActive = false;

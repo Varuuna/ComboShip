@@ -37,6 +37,12 @@ class GfxWindowBackend {
     virtual void Destroy() = 0;
     virtual bool IsFullscreen() = 0;
 
+    // Combo: after OOT closes the window/backend (mIsRunning=false) the shared backend is reused
+    // by MM; this re-arms it so MM's `while (WindowIsRunning())` loop runs instead of exiting at once.
+    void SetIsRunning(bool running) {
+        mIsRunning = running;
+    }
+
   protected:
     void (*mOnFullscreenChanged)(bool isNowFullscreen);
     bool (*mOnKeyDown)(int scancode);

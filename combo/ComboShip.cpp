@@ -12,6 +12,80 @@
 #include <iostream>
 #include <filesystem>
 #include <string>
+#include <exception>
+#include <csignal>
+#include <cstdlib>
+#include <cstdarg>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+#include <DbgHelp.h>
+#include <cstdio>
+#pragma comment(lib, "DbgHelp.lib")
+
+// Writes a symbolized backtrace of the current call stack to combo_abort_stack.txt. Used to
+// locate the source of a silent exit(3)/abort() during SOH_Init that is neither a C++ exception
+// nor a std::terminate (so try/catch and set_terminate don't see it).
+static void ComboWriteStack(const char* reason) {
+    FILE* f = fopen("combo_abort_stack.txt", "w");
+    if (!f) return;
+    fprintf(f, "Reason: %s\n", reason);
+    void* frames[62];
+    USHORT n = CaptureStackBackTrace(0, 62, frames, nullptr);
+    HANDLE proc = GetCurrentProcess();
+    SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME);
+    SymInitialize(proc, NULL, TRUE);
+    char symBuf[sizeof(SYMBOL_INFO) + 512] = {};
+    SYMBOL_INFO* sym = (SYMBOL_INFO*)symBuf;
+    sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+    sym->MaxNameLen = 512;
+    for (USHORT i = 0; i < n; ++i) {
+        DWORD64 disp = 0;
+        IMAGEHLP_LINE64 line = {}; line.SizeOfStruct = sizeof(line); DWORD lineDisp = 0;
+        if (SymFromAddr(proc, (DWORD64)frames[i], &disp, sym)) {
+            fprintf(f, "%2u: %s + 0x%llx", i, sym->Name, (unsigned long long)disp);
+            if (SymGetLineFromAddr64(proc, (DWORD64)frames[i], &lineDisp, &line))
+                fprintf(f, "  (%s:%lu)", line.FileName, line.LineNumber);
+            fprintf(f, "\n");
+        } else {
+            fprintf(f, "%2u: 0x%p\n", i, frames[i]);
+        }
+    }
+    SymCleanup(proc);
+    fclose(f);
+}
+
+static void ComboAbortHandler(int) {
+    std::cerr << "[ComboShip] SIGABRT (abort) raised" << std::endl;
+    ComboWriteStack("SIGABRT");
+}
+static void ComboInvalidParameter(const wchar_t*, const wchar_t*, const wchar_t*, unsigned, uintptr_t) {
+    std::cerr << "[ComboShip] CRT invalid-parameter handler" << std::endl;
+    ComboWriteStack("invalid_parameter");
+}
+static void ComboPureCall() {
+    std::cerr << "[ComboShip] pure virtual call" << std::endl;
+    ComboWriteStack("purecall");
+}
+#endif
+
+// Surfaces the real exception behind a silent terminate()/exit(3). With the shared dynamic
+// CRT, exceptions thrown in soh.dll/2ship.dll propagate across the DLL boundary to here.
+static void ComboTerminateHandler() {
+    std::cerr << "[ComboShip] std::terminate";
+    if (auto ep = std::current_exception()) {
+        try {
+            std::rethrow_exception(ep);
+        } catch (const std::exception& e) {
+            std::cerr << " — uncaught std::exception: " << e.what();
+        } catch (...) {
+            std::cerr << " — uncaught non-std exception";
+        }
+    }
+    std::cerr << std::endl;
+    std::abort();
+}
 
 #ifdef _WIN32
 #include <Windows.h>
@@ -110,7 +184,11 @@ int main(int argc, char** argv) {
         _CrtSetReportMode(report, _CRTDBG_MODE_FILE);
         _CrtSetReportFile(report, _CRTDBG_FILE_STDERR);
     }
+    signal(SIGABRT, ComboAbortHandler);
+    _set_invalid_parameter_handler(ComboInvalidParameter);
+    _set_purecall_handler(ComboPureCall);
 #endif
+    std::set_terminate(ComboTerminateHandler);
 
     std::string workDir = std::filesystem::current_path().string();
 
@@ -228,7 +306,15 @@ int main(int argc, char** argv) {
     // --- 4. Initialize OOT game ---
 
     std::cout << "[ComboShip] Initializing Ship of Harkinian (OOT)..." << std::endl;
-    SOH_Init();
+    try {
+        SOH_Init();
+    } catch (const std::exception& e) {
+        std::cerr << "[ComboShip] SOH_Init threw std::exception: " << e.what() << std::endl;
+        return 1;
+    } catch (...) {
+        std::cerr << "[ComboShip] SOH_Init threw a non-std exception" << std::endl;
+        return 1;
+    }
     std::cout << "[ComboShip] OOT initialized." << std::endl;
 
     // --- 6. Register OOT callbacks ---

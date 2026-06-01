@@ -73,6 +73,10 @@ class Gui {
     virtual ~Gui();
 
     void Init(GuiWindowInitData windowImpl);
+    // Returns the Dear ImGui context created in libultraship.dll. Game DLLs (soh/2ship) must
+    // call ImGui::SetCurrentContext() with this, because ImGui's current-context global (GImGui)
+    // is a per-module static — each DLL has its own and the game's starts out null.
+    ImGuiContext* GetImGuiContext();
     void StartDraw();
     void EndDraw();
     void HandleWindowEvents(WindowEvent event);

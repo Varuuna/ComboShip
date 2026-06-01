@@ -107,6 +107,11 @@ Gui::~Gui() {
     }
 }
 
+ImGuiContext* Gui::GetImGuiContext() {
+    // Evaluated inside libultraship.dll, so this returns libultraship's GImGui (the real context).
+    return ImGui::GetCurrentContext();
+}
+
 void Gui::Init(GuiWindowInitData windowImpl) {
     mImpl = windowImpl;
     ImGuiContext* ctx = ImGui::CreateContext();

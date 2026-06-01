@@ -345,6 +345,12 @@ void OTRGlobals::Initialize() {
     auto sohFast3dWindow =
         std::make_shared<Fast::Fast3dWindow>(std::vector<std::shared_ptr<Ship::GuiWindow>>({ sohInputEditorWindow }));
     context->InitWindow(sohFast3dWindow);
+#ifdef COMBO_BUILD
+    // ImGui's current-context global (GImGui) is a per-module static. libultraship.dll created
+    // the context inside InitWindow; point this DLL's GImGui at it before any ImGui use here
+    // (e.g. CreateFontWithSize below), or ImGui::GetIO() asserts on a null context.
+    ImGui::SetCurrentContext(context->GetInstance()->GetWindow()->GetGui()->GetImGuiContext());
+#endif
     auto overlay = context->GetInstance()->GetWindow()->GetGui()->GetGameOverlay();
     overlay->LoadFont("Press Start 2P", 12.0f, "fonts/PressStart2P-Regular.ttf");
     overlay->LoadFont("Fipps", 32.0f, "fonts/Fipps-Regular.otf");

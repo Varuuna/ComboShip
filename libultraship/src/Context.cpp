@@ -30,6 +30,10 @@ std::shared_ptr<Context> Context::GetInstance() {
     return mContext.lock();
 }
 
+void Context::SetInstance(std::shared_ptr<Context> ctx) {
+    mContext = ctx;
+}
+
 Context::~Context() {
     SPDLOG_TRACE("destruct context");
     GetWindow()->SaveWindowToConfig();

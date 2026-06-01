@@ -1,10 +1,39 @@
 include(../cmake/cvars.cmake)
 
-add_library(libultraship STATIC)
+add_library(libultraship SHARED)
 set_target_properties(libultraship PROPERTIES PREFIX "")
 set_property(TARGET libultraship PROPERTY CXX_STANDARD 20)
 # Need to set C11 for libgfxd (_Alignas)
 set_property(TARGET libultraship PROPERTY C_STANDARD 11)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    # Export libultraship's full symbol surface so soh.dll and 2ship.dll share ONE copy of
+    # every engine global — most importantly Context::mContext, the singleton that lets MM
+    # reuse OOT's window during the combo transition instead of opening a new one.
+    #
+    # We deliberately do NOT use WINDOWS_EXPORT_ALL_SYMBOLS. That property appends its own
+    # `__create_def` step as the LAST pre-link command, so any PRE_LINK filter runs BEFORE
+    # the .def is (re)generated and can never strip the bogus '=' absolute COFF symbol that
+    # the scan emits — the linker then fails with `LNK2001: unresolved external symbol =`.
+    # Instead we own the whole pipeline: generate the .def from libultraship's own object
+    # files (the exact same input WINDOWS_EXPORT_ALL_SYMBOLS scans, so the export set is
+    # identical), strip '=', then feed the result to the linker via /DEF.
+    set(LUS_OBJ_LIST "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/lus_objects.txt")
+    set(LUS_DEF_FILE "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/lus_exports.def")
+
+    # Newline-separated list of libultraship's compiled objects (resolved per-config).
+    file(GENERATE OUTPUT "${LUS_OBJ_LIST}"
+        CONTENT "$<JOIN:$<TARGET_OBJECTS:libultraship>,\n>\n")
+
+    add_custom_command(TARGET libultraship PRE_LINK
+        COMMAND ${CMAKE_COMMAND} -E __create_def "${LUS_DEF_FILE}" "${LUS_OBJ_LIST}"
+        COMMAND ${CMAKE_COMMAND} -D "DEF_FILE=${LUS_DEF_FILE}"
+            -P "${CMAKE_SOURCE_DIR}/CMake/filter_def.cmake"
+        COMMENT "Generating + stripping libultraship export def"
+        VERBATIM
+    )
+    target_link_options(libultraship PRIVATE "/DEF:${LUS_DEF_FILE}")
+endif()
 
 set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 option(USE_OPENGLES "Enable GLES3" OFF)
@@ -182,14 +211,17 @@ target_link_libraries(libultraship
     PUBLIC ImGui
 )
 
-target_link_libraries(libultraship PRIVATE stb)
+# PUBLIC so soh.dll / 2ship.dll inherit these: their own code (ResourceMgr JPEG, OTRExporter)
+# calls into stb / libzip directly. As a STATIC lib these came in transitively; as a SHARED
+# lib libultraship no longer re-exposes PRIVATE deps, so consumers must link them too.
+target_link_libraries(libultraship PUBLIC stb)
 
 if (GFX_DEBUG_DISASSEMBLER)
     target_link_libraries(libultraship PRIVATE libgfxd)
 endif()
 
 find_package(libzip REQUIRED)
-target_link_libraries(libultraship PRIVATE libzip::zip)
+target_link_libraries(libultraship PUBLIC libzip::zip)
 
 find_package(nlohmann_json REQUIRED)
 target_link_libraries(libultraship PUBLIC nlohmann_json::nlohmann_json)

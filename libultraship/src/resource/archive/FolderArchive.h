@@ -1,7 +1,5 @@
 #pragma once
 
-#undef _DLL
-
 #include <string>
 #include <stdint.h>
 #include <string>

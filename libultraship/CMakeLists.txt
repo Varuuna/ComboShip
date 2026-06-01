@@ -17,7 +17,11 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
 endif()
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
-	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+	# Dynamic CRT (…DLL) so libultraship.dll shares ONE ucrt heap with soh.dll / 2ship.dll.
+	# As a shared DLL, C++ objects (shared_ptr<Context>, std::string, …) cross the module
+	# boundary; a static CRT would give libultraship its own heap and trip the debug-heap
+	# assert `__acrt_first_block == header` when such objects are freed in another module.
+	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
 
 include(cmake/Utils.cmake)

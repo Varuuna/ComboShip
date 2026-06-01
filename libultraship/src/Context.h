@@ -29,6 +29,7 @@ class FileDropMgr;
 class Context {
   public:
     static std::shared_ptr<Context> GetInstance();
+    static void SetInstance(std::shared_ptr<Context> ctx);
     static std::shared_ptr<Context> CreateInstance(const std::string name, const std::string shortName,
                                                    const std::string configFilePath,
                                                    const std::vector<std::string>& archivePaths = {},

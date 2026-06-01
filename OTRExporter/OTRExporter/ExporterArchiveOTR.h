@@ -1,6 +1,5 @@
 #pragma once
 #ifdef INCLUDE_MPQ_SUPPORT
-#undef _DLL
 
 #include <string>
 #include <vector>

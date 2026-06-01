@@ -115,6 +115,8 @@ AudioCollection* AudioCollection::Instance;
 
 #ifdef COMBO_BUILD
 // Set by ComboShip before MM_RunGame to signal that the OOT context should be reused.
+// With shared libultraship.dll, Context::mContext is the same instance in all DLLs,
+// so GetInstance() naturally returns the OOT context — no injection needed.
 static bool sComboTransitionActive = false;
 
 extern "C"

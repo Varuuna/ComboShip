@@ -15,6 +15,7 @@
 
 #ifdef _WIN32
 #include <Windows.h>
+#include <crtdbg.h>
 #else
 #include <dlfcn.h>
 #endif
@@ -101,6 +102,15 @@ static bool MMArchivesExist() {
 
 int main(int argc, char** argv) {
     std::cout << "ComboShip Launcher - Starting..." << std::endl;
+
+#if defined(_WIN32) && defined(_DEBUG)
+    // Route CRT assertions to stderr instead of a modal dialog so failures in the game/engine
+    // DLLs' static initializers surface as text (and don't block headless runs).
+    for (int report : { _CRT_ASSERT, _CRT_ERROR, _CRT_WARN }) {
+        _CrtSetReportMode(report, _CRTDBG_MODE_FILE);
+        _CrtSetReportFile(report, _CRTDBG_FILE_STDERR);
+    }
+#endif
 
     std::string workDir = std::filesystem::current_path().string();
 
@@ -250,6 +260,7 @@ int main(int argc, char** argv) {
             SOH_PrepareForTransition();
         }
         // Tell MM to reuse the existing context/window instead of creating a new one.
+        // With shared libultraship.dll, Context::mContext is the same instance in both DLLs.
         if (MM_NotifyComboTransition) {
             MM_NotifyComboTransition();
         }

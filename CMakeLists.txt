@@ -119,8 +119,14 @@ if ("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "Win32")
 	set(VCPKG_TRIPLET x86-windows-static)
 	set(VCPKG_TARGET_TRIPLET x86-windows-static)
 elseif ("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "x64")
-	set(VCPKG_TRIPLET x64-windows-static)
-	set(VCPKG_TARGET_TRIPLET x64-windows-static)
+	# static-md = STATIC libraries + DYNAMIC CRT. The combo build splits into libultraship.dll +
+	# soh.dll + 2ship.dll that pass C++ objects across module boundaries, so every dependency must
+	# share ONE dynamic UCRT heap (a static-CRT triplet gives each module its own heap → the
+	# `__acrt_first_block == header` debug-heap assert). The libraries themselves must stay STATIC,
+	# not DLLs: tinyxml2 is also vendored in-tree (ZAPDTR/lib/tinyxml2) and a DLL build collides
+	# with the vendored copy (LNK2005). Static libs let the duplicate inline symbols COMDAT-fold.
+	set(VCPKG_TRIPLET x64-windows-static-md)
+	set(VCPKG_TARGET_TRIPLET x64-windows-static-md)
 endif()
 
 vcpkg_bootstrap()
@@ -184,6 +190,15 @@ find_package(Python3 REQUIRED)
 ################################################################################
 # Sub-projects - Shared dependencies
 ################################################################################
+# COMBO_BUILD splits the engine into libultraship.dll + soh.dll + 2ship.dll that exchange
+# C++ objects across module boundaries, so every target must share ONE dynamic UCRT heap.
+# Default all sub-projects to the dynamic CRT; targets that explicitly pin the static CRT
+# (the games, ZAPD, prism) are individually corrected to dynamic as well. A mixed CRT here
+# causes the runtime debug-heap assert `__acrt_first_block == header`.
+if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
 # Shared libultraship (in Combo directory)
 add_subdirectory(libultraship ${CMAKE_BINARY_DIR}/libultraship)
 target_compile_options(libultraship PRIVATE "${WARNING_OVERRIDE}")
@@ -194,6 +209,13 @@ add_subdirectory(ZAPDTR/ZAPD ${CMAKE_BINARY_DIR}/ZAPD)
 
 # Shared OTRExporter (in Combo directory)
 add_subdirectory(OTRExporter ${CMAKE_BINARY_DIR}/OTRExporter)
+# OTRExporter blanks CMAKE_CXX_FLAGS in its own scope, which drops the inherited dynamic-CRT
+# default; force the runtime library on the target so it links the dynamic CRT like everything
+# else (otherwise OTRExporter.lib triggers LNK2038/LNK2005 CRT mismatch in soh.dll / 2ship.dll).
+if(MSVC AND TARGET OTRExporter)
+    set_target_properties(OTRExporter PROPERTIES
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
 
 ################################################################################
 # Sub-projects - Game-specific builds

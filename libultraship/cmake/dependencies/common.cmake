@@ -111,3 +111,18 @@ FetchContent_Declare(
     GIT_TAG bbcbc7e3f890a5806b579361e7aa0336acd547e7
 )
 FetchContent_MakeAvailable(prism)
+
+# prism (as a non-standalone static lib) hard-codes the static CRT by passing /MTd and /MT
+# through target_compile_options — which overrides MSVC_RUNTIME_LIBRARY / CMP0091 entirely.
+# Rewrite those flags on the prism target to the dynamic CRT so it shares the one UCRT heap
+# with the shared libultraship.dll and the games; otherwise libultraship.dll fails to link
+# with LNK2038/LNK2005 CRT mismatches from prism.lib. Operating on the target's COMPILE_OPTIONS
+# survives a fresh FetchContent populate that re-creates the static flags.
+if(MSVC AND TARGET prism)
+    get_target_property(_prism_opts prism COMPILE_OPTIONS)
+    if(_prism_opts)
+        string(REPLACE "/MTd" "/MDd" _prism_opts "${_prism_opts}")
+        string(REPLACE "/MT" "/MD" _prism_opts "${_prism_opts}")
+        set_target_properties(prism PROPERTIES COMPILE_OPTIONS "${_prism_opts}")
+    endif()
+endif()

@@ -1,7 +1,5 @@
 #pragma once
 
-#undef _DLL
-
 #include "FolderArchive.h"
 
 #include "Context.h"

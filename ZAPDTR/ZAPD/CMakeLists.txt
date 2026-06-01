@@ -301,10 +301,10 @@ foreach(ZTarget ${PROJECT_NAME} ZAPD)
 	if("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "Win32" OR "${CMAKE_VS_PLATFORM_NAME}" STREQUAL "x64")
 		string(CONCAT "MSVC_RUNTIME_LIBRARY_STR"
 			$<$<CONFIG:Debug>:
-				MultiThreadedDebug
+				MultiThreadedDebugDLL
 			>
 			$<$<CONFIG:Release>:
-				MultiThreaded
+				MultiThreadedDLL
 			>
 			$<$<NOT:$<OR:$<CONFIG:Debug>,$<CONFIG:Release>>>:${MSVC_RUNTIME_LIBRARY_DEFAULT}>
 		)

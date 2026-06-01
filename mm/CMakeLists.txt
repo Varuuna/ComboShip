@@ -209,10 +209,10 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	get_property(MSVC_RUNTIME_LIBRARY_DEFAULT TARGET ${PROJECT_NAME} PROPERTY MSVC_RUNTIME_LIBRARY)
 	string(CONCAT "MSVC_RUNTIME_LIBRARY_STR"
 		$<$<CONFIG:Debug>:
-			MultiThreadedDebug
+			MultiThreadedDebugDLL
 		>
 		$<$<CONFIG:Release>:
-			MultiThreaded
+			MultiThreadedDLL
 		>
 		$<$<NOT:$<OR:$<CONFIG:Debug>,$<CONFIG:Release>>>:${MSVC_RUNTIME_LIBRARY_DEFAULT}>
 	)

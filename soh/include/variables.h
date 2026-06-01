@@ -237,7 +237,14 @@ extern "C"
 	extern Arena gSystemArena;
 	extern OSPifRam __osPifInternalBuff;
 	extern u8 __osContLastPoll;
+#if defined(_WIN32) && defined(COMBO_BUILD)
+	// Combo build: libultraship.dll owns/exports this. Importing a DATA symbol across a
+	// DLL boundary requires dllimport (functions auto-thunk, data does not) — without it
+	// the linker fails with LNK2001 since soh excludes its own src/libultra/io/.
+	extern __declspec(dllimport) u8 __osMaxControllers;
+#else
 	extern u8 __osMaxControllers;
+#endif
 	extern __OSInode __osPfsInodeCache;
 	extern OSPifRam gPifMempakBuf;
 	extern u16 gZBuffer[SCREEN_HEIGHT][SCREEN_WIDTH]; // 0x25800 bytes

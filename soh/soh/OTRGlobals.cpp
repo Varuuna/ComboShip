@@ -266,101 +266,16 @@ OTRGlobals::OTRGlobals() {
     context = Ship::Context::CreateUninitializedInstance("Ship of Harkinian", appShortName, "shipofharkinian.json");
 }
 
-void OTRGlobals::Initialize() {
-    std::vector<std::string> OTRFiles;
-    std::string mqPath = Ship::Context::LocateFileAcrossAppDirs("oot-mq.o2r", appShortName);
-    if (std::filesystem::exists(mqPath)) {
-        OTRFiles.push_back(mqPath);
-    }
-    std::string ootPath = Ship::Context::LocateFileAcrossAppDirs("oot.o2r", appShortName);
-    if (std::filesystem::exists(ootPath)) {
-        OTRFiles.push_back(ootPath);
-    }
-
-    std::string sohOtrPath = Ship::Context::LocateFileAcrossAppDirs("soh.o2r");
-
-    if (std::filesystem::exists(sohOtrPath)) {
-        OTRFiles.push_back(sohOtrPath);
-    }
-    std::string patchesPath = Ship::Context::LocateFileAcrossAppDirs("mods", appShortName);
-    std::vector<std::string> patchOTRs = {};
-    if (patchesPath.length() > 0 && std::filesystem::exists(patchesPath)) {
-        if (std::filesystem::is_directory(patchesPath)) {
-            for (const auto& p : std::filesystem::recursive_directory_iterator(
-                     patchesPath, std::filesystem::directory_options::follow_directory_symlink)) {
-                if (StringHelper::IEquals(p.path().extension().string(), ".otr") ||
-                    StringHelper::IEquals(p.path().extension().string(), ".mpq") ||
-                    StringHelper::IEquals(p.path().extension().string(), ".o2r") ||
-                    StringHelper::IEquals(p.path().extension().string(), ".zip")) {
-                    patchOTRs.push_back(p.path().generic_string());
-                }
-            }
-        }
-    }
-    std::sort(patchOTRs.begin(), patchOTRs.end(), [](const std::string& a, const std::string& b) {
-        return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end(),
-                                            [](char c1, char c2) { return std::tolower(c1) < std::tolower(c2); });
-    });
-    OTRFiles.insert(OTRFiles.end(), patchOTRs.begin(), patchOTRs.end());
-    std::unordered_set<uint32_t> ValidHashes = {
-        OOT_PAL_MQ,     OOT_NTSC_JP_MQ, OOT_NTSC_US_MQ, OOT_PAL_GC_MQ_DBG, OOT_NTSC_US_10,
-        OOT_NTSC_US_11, OOT_NTSC_US_12, OOT_PAL_10,     OOT_PAL_11,        OOT_NTSC_JP_GC_CE,
-        OOT_NTSC_JP_GC, OOT_NTSC_US_GC, OOT_PAL_GC,     OOT_PAL_GC_DBG1,   OOT_PAL_GC_DBG2,
-    };
-
-    context->InitLogging();
-    context->InitGfxDebugger();
-    context->InitConfiguration();
-    context->InitConsoleVariables();
-    context->InitFileDropMgr();
-
-    // tell LUS to reserve 3 SoH specific threads (Game, Audio, Save)
-    context->InitResourceManager(OTRFiles, {}, 3);
-    prevAltAssets = CVarGetInteger(CVAR_SETTING("AltAssets"), 0);
-    context->GetResourceManager()->SetAltAssetsEnabled(prevAltAssets);
-
-    auto controlDeck = std::make_shared<LUS::ControlDeck>(std::vector<CONTROLLERBUTTONS_T>({
-        BTN_CUSTOM_MODIFIER1,
-        BTN_CUSTOM_MODIFIER2,
-        BTN_CUSTOM_OCARINA_NOTE_D4,
-        BTN_CUSTOM_OCARINA_NOTE_F4,
-        BTN_CUSTOM_OCARINA_NOTE_A4,
-        BTN_CUSTOM_OCARINA_NOTE_B4,
-        BTN_CUSTOM_OCARINA_NOTE_D5,
-        BTN_CUSTOM_OCARINA_DISABLE_SONGS,
-        BTN_CUSTOM_OCARINA_PITCH_UP,
-        BTN_CUSTOM_OCARINA_PITCH_DOWN,
-    }));
-    context->InitControlDeck(controlDeck);
-
-    context->InitCrashHandler();
-    context->InitConsole();
-
-    Ship::Context::GetInstance()->GetLogger()->set_level(
-        (spdlog::level::level_enum)CVarGetInteger(CVAR_DEVELOPER_TOOLS("LogLevel"), 1));
-    Ship::Context::GetInstance()->GetLogger()->set_pattern("[%H:%M:%S.%e] [%s:%#] [%l] %v");
-
-    auto sohInputEditorWindow =
-        std::make_shared<SohInputEditorWindow>(CVAR_WINDOW("ControllerConfiguration"), "Configure Controller");
-    auto sohFast3dWindow =
-        std::make_shared<Fast::Fast3dWindow>(std::vector<std::shared_ptr<Ship::GuiWindow>>({ sohInputEditorWindow }));
-    context->InitWindow(sohFast3dWindow);
 #ifdef COMBO_BUILD
-    // ImGui's current-context global (GImGui) is a per-module static. libultraship.dll created
-    // the context inside InitWindow; point this DLL's GImGui at it before any ImGui use here
-    // (e.g. CreateFontWithSize below), or ImGui::GetIO() asserts on a null context.
-    ImGui::SetCurrentContext(context->GetInstance()->GetWindow()->GetGui()->GetImGuiContext());
+// Captured during OTRGlobals::Initialize so a combo MM->OOT return can restore OOT's archives
+// (MM's reuse path cleared them with SetArchives(nullptr) + AddArchive of MM's files).
+static std::vector<std::string> sOOTArchivePaths;
 #endif
-    auto overlay = context->GetInstance()->GetWindow()->GetGui()->GetGameOverlay();
-    overlay->LoadFont("Press Start 2P", 12.0f, "fonts/PressStart2P-Regular.ttf");
-    overlay->LoadFont("Fipps", 32.0f, "fonts/Fipps-Regular.otf");
-    overlay->SetCurrentFont(CVarGetString(CVAR_GAME_OVERLAY_FONT, "Press Start 2P"));
-    context->InitAudio({ .SampleRate = 32000, .SampleLength = 1024, .DesiredBuffered = 1680 });
 
-    SPDLOG_INFO("Starting Ship of Harkinian version {} (Branch: {} | Commit: {})", (char*)gBuildVersion,
-                (char*)gGitBranch, (char*)gGitCommitHash);
-
-    auto loader = context->GetResourceManager()->GetResourceLoader();
+// Registers all OOT resource factories on the given loader. Factored out of
+// OTRGlobals::Initialize so SOH_ResumeGame (combo MM->OOT return) can re-register them after
+// archives are swapped back.
+static void RegisterOOTResourceFactories(std::shared_ptr<Ship::ResourceLoader> loader) {
     loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryBinaryTextureV0>(), RESOURCE_FORMAT_BINARY,
                                     "Texture", static_cast<uint32_t>(Fast::ResourceType::Texture), 0);
     loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryBinaryTextureV1>(), RESOURCE_FORMAT_BINARY,
@@ -417,7 +332,6 @@ void OTRGlobals::Initialize() {
                                     static_cast<uint32_t>(SOH::ResourceType::SOH_Text), 0);
     loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryAudioSampleV2>(), RESOURCE_FORMAT_BINARY,
                                     "AudioSample", static_cast<uint32_t>(SOH::ResourceType::SOH_AudioSample), 2);
-
     loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryXMLAudioSampleV0>(), RESOURCE_FORMAT_XML,
                                     "Sample", static_cast<uint32_t>(SOH::ResourceType::SOH_AudioSample), 0);
     loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryAudioSoundFontV2>(),
@@ -432,6 +346,107 @@ void OTRGlobals::Initialize() {
                                     "Sequence", static_cast<uint32_t>(SOH::ResourceType::SOH_AudioSequence), 0);
     loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryBackgroundV0>(), RESOURCE_FORMAT_BINARY,
                                     "Background", static_cast<uint32_t>(SOH::ResourceType::SOH_Background), 0);
+}
+
+void OTRGlobals::Initialize() {
+    std::vector<std::string> OTRFiles;
+    std::string mqPath = Ship::Context::LocateFileAcrossAppDirs("oot-mq.o2r", appShortName);
+    if (std::filesystem::exists(mqPath)) {
+        OTRFiles.push_back(mqPath);
+    }
+    std::string ootPath = Ship::Context::LocateFileAcrossAppDirs("oot.o2r", appShortName);
+    if (std::filesystem::exists(ootPath)) {
+        OTRFiles.push_back(ootPath);
+    }
+
+    std::string sohOtrPath = Ship::Context::LocateFileAcrossAppDirs("soh.o2r");
+
+    if (std::filesystem::exists(sohOtrPath)) {
+        OTRFiles.push_back(sohOtrPath);
+    }
+    std::string patchesPath = Ship::Context::LocateFileAcrossAppDirs("mods", appShortName);
+    std::vector<std::string> patchOTRs = {};
+    if (patchesPath.length() > 0 && std::filesystem::exists(patchesPath)) {
+        if (std::filesystem::is_directory(patchesPath)) {
+            for (const auto& p : std::filesystem::recursive_directory_iterator(
+                     patchesPath, std::filesystem::directory_options::follow_directory_symlink)) {
+                if (StringHelper::IEquals(p.path().extension().string(), ".otr") ||
+                    StringHelper::IEquals(p.path().extension().string(), ".mpq") ||
+                    StringHelper::IEquals(p.path().extension().string(), ".o2r") ||
+                    StringHelper::IEquals(p.path().extension().string(), ".zip")) {
+                    patchOTRs.push_back(p.path().generic_string());
+                }
+            }
+        }
+    }
+    std::sort(patchOTRs.begin(), patchOTRs.end(), [](const std::string& a, const std::string& b) {
+        return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end(),
+                                            [](char c1, char c2) { return std::tolower(c1) < std::tolower(c2); });
+    });
+    OTRFiles.insert(OTRFiles.end(), patchOTRs.begin(), patchOTRs.end());
+    std::unordered_set<uint32_t> ValidHashes = {
+        OOT_PAL_MQ,     OOT_NTSC_JP_MQ, OOT_NTSC_US_MQ, OOT_PAL_GC_MQ_DBG, OOT_NTSC_US_10,
+        OOT_NTSC_US_11, OOT_NTSC_US_12, OOT_PAL_10,     OOT_PAL_11,        OOT_NTSC_JP_GC_CE,
+        OOT_NTSC_JP_GC, OOT_NTSC_US_GC, OOT_PAL_GC,     OOT_PAL_GC_DBG1,   OOT_PAL_GC_DBG2,
+    };
+
+    context->InitLogging();
+    context->InitGfxDebugger();
+    context->InitConfiguration();
+    context->InitConsoleVariables();
+    context->InitFileDropMgr();
+
+    // tell LUS to reserve 3 SoH specific threads (Game, Audio, Save)
+    context->InitResourceManager(OTRFiles, {}, 3);
+#ifdef COMBO_BUILD
+    // Remember OOT's archive list so a combo MM->OOT return can restore it (see SOH_ResumeGame).
+    sOOTArchivePaths = OTRFiles;
+#endif
+    prevAltAssets = CVarGetInteger(CVAR_SETTING("AltAssets"), 0);
+    context->GetResourceManager()->SetAltAssetsEnabled(prevAltAssets);
+
+    auto controlDeck = std::make_shared<LUS::ControlDeck>(std::vector<CONTROLLERBUTTONS_T>({
+        BTN_CUSTOM_MODIFIER1,
+        BTN_CUSTOM_MODIFIER2,
+        BTN_CUSTOM_OCARINA_NOTE_D4,
+        BTN_CUSTOM_OCARINA_NOTE_F4,
+        BTN_CUSTOM_OCARINA_NOTE_A4,
+        BTN_CUSTOM_OCARINA_NOTE_B4,
+        BTN_CUSTOM_OCARINA_NOTE_D5,
+        BTN_CUSTOM_OCARINA_DISABLE_SONGS,
+        BTN_CUSTOM_OCARINA_PITCH_UP,
+        BTN_CUSTOM_OCARINA_PITCH_DOWN,
+    }));
+    context->InitControlDeck(controlDeck);
+
+    context->InitCrashHandler();
+    context->InitConsole();
+
+    Ship::Context::GetInstance()->GetLogger()->set_level(
+        (spdlog::level::level_enum)CVarGetInteger(CVAR_DEVELOPER_TOOLS("LogLevel"), 1));
+    Ship::Context::GetInstance()->GetLogger()->set_pattern("[%H:%M:%S.%e] [%s:%#] [%l] %v");
+
+    auto sohInputEditorWindow =
+        std::make_shared<SohInputEditorWindow>(CVAR_WINDOW("ControllerConfiguration"), "Configure Controller");
+    auto sohFast3dWindow =
+        std::make_shared<Fast::Fast3dWindow>(std::vector<std::shared_ptr<Ship::GuiWindow>>({ sohInputEditorWindow }));
+    context->InitWindow(sohFast3dWindow);
+#ifdef COMBO_BUILD
+    // ImGui's current-context global (GImGui) is a per-module static. libultraship.dll created
+    // the context inside InitWindow; point this DLL's GImGui at it before any ImGui use here
+    // (e.g. CreateFontWithSize below), or ImGui::GetIO() asserts on a null context.
+    ImGui::SetCurrentContext(context->GetInstance()->GetWindow()->GetGui()->GetImGuiContext());
+#endif
+    auto overlay = context->GetInstance()->GetWindow()->GetGui()->GetGameOverlay();
+    overlay->LoadFont("Press Start 2P", 12.0f, "fonts/PressStart2P-Regular.ttf");
+    overlay->LoadFont("Fipps", 32.0f, "fonts/Fipps-Regular.otf");
+    overlay->SetCurrentFont(CVarGetString(CVAR_GAME_OVERLAY_FONT, "Press Start 2P"));
+    context->InitAudio({ .SampleRate = 32000, .SampleLength = 1024, .DesiredBuffered = 1680 });
+
+    SPDLOG_INFO("Starting Ship of Harkinian version {} (Branch: {} | Commit: {})", (char*)gBuildVersion,
+                (char*)gGitBranch, (char*)gGitCommitHash);
+
+    RegisterOOTResourceFactories(context->GetResourceManager()->GetResourceLoader());
 
     gSaveStateMgr = std::make_shared<SaveStateMgr>();
     gRandoContext->InitStaticData();
@@ -2846,6 +2861,66 @@ extern "C" void (*gComboSceneSwitchCallback)(int fileNum) = nullptr;
 extern "C" __declspec(dllexport) void SOH_SetOnSceneSwitchCallback(void (*cb)(int fileNum)) {
     gComboSceneSwitchCallback = cb;
 }
+
+#ifdef COMBO_BUILD
+// Defined in soh/src/code/main.c: re-enters ONLY OOT's game loop (no heap/thread re-init).
+extern "C" void SOH_RunGameLoop(void);
+
+// Re-initializes the OOT-side pieces that SOH_PrepareForTransition tore down, and swaps the
+// shared resource manager's archives back to OOT (MM had swapped them to its own). Pairs each
+// teardown in SOH_PrepareForTransition with its boot-time init counterpart.
+static void SOH_ReinitForResume() {
+    auto ctx = Ship::Context::GetInstance();
+
+    // Counterpart to OTRAudio_Exit() in SOH_PrepareForTransition (init done at boot, OTRGlobals.cpp).
+    OTRAudio_Init();
+    // Counterpart to SohGui::Destroy() in SOH_PrepareForTransition (boot calls SohGui::SetupGuiElements).
+    SohGui::SetupGuiElements();
+
+    // Swap archives back to OOT and reload its resources/factories (mirror BenPort's reuse path,
+    // which did SetArchives(nullptr) + AddArchive loop + UnloadResources("*")).
+    auto archiveMgr = ctx->GetResourceManager()->GetArchiveManager();
+    archiveMgr->SetArchives(nullptr);
+    for (const auto& path : sOOTArchivePaths) {
+        archiveMgr->AddArchive(path);
+    }
+    ctx->GetResourceManager()->UnloadResources("*");
+    RegisterOOTResourceFactories(ctx->GetResourceManager()->GetResourceLoader());
+}
+
+// Symmetric marker, mirrors MM_NotifyComboTransition. ComboShip calls this before SOH_ResumeGame.
+extern "C" __declspec(dllexport) void SOH_NotifyComboReturn(void) {
+    // Currently a no-op; kept for symmetry with the forward transition's notify call.
+}
+
+// ComboShip MM->OOT return: re-enter OOT's game loop on the SAME shared context/window, swap
+// archives back to OOT, reload the OOT save, and spawn Link at the Mido's-House door in Kokiri
+// Forest. Counterpart to MM's sComboTransitionActive reuse path in BenPort.cpp.
+extern "C" __declspec(dllexport) void SOH_ResumeGame(void) {
+    auto ctx = Ship::Context::GetInstance();
+
+    // 1. Re-init audio/gui and swap archives + factories back to OOT.
+    SOH_ReinitForResume();
+
+    // 2. Re-arm the shared window so OOT's `while (WindowIsRunning())` loop runs instead of
+    //    returning immediately (MM cleared mIsRunning when its loop exited).
+    if (auto fast3d = std::dynamic_pointer_cast<Fast::Fast3dWindow>(ctx->GetWindow())) {
+        fast3d->SetIsRunning(true);
+    }
+
+    // 3. Re-sync this DLL's ImGui current-context (GImGui is per-module).
+    ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
+
+    // 4. Reload the OOT save and spawn at the Mido's-House door in Kokiri Forest.
+    SaveManager::Instance->LoadFile((int)gSaveContext.fileNum);
+    gSaveContext.entranceIndex = ENTR_KOKIRI_FOREST_OUTSIDE_MIDOS_HOUSE; // 0x443, SCENE_KOKIRI_FOREST spawn 9
+    gSaveContext.respawnFlag = 0;
+    gSaveContext.nextTransitionType = TRANS_NEXT_TYPE_DEFAULT;
+
+    // 5. Re-run OOT's game loop (returns when the shared window's running flag is cleared again).
+    SOH_RunGameLoop();
+}
+#endif
 
 #if not defined(__SWITCH__) && not defined(__WIIU__)
 extern "C" __declspec(dllexport) bool SOH_Extract(const char* searchPath) {

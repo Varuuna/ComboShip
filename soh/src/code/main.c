@@ -71,6 +71,19 @@ void SOH_Deinit(void) {
     DeinitOTR();
     Heaps_Free();
 }
+
+// ComboShip resume: re-enter ONLY the OOT game loop on the existing (already-booted)
+// process. The one-time heap/thread/IRQ setup done by Main() persists for the process
+// lifetime, so we must NOT re-run Heaps_Alloc()/Main(). Main() itself calls
+// Graph_ThreadEntry(0) on the main thread after its setup (main.c:170); re-entering only
+// that loop mirrors that call. Graph_ThreadEntry runs `while (WindowIsRunning()) RunFrame();`
+// and returns once the shared window's running flag is cleared again.
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+void SOH_RunGameLoop(void) {
+    Graph_ThreadEntry(0);
+}
 #endif
 
 #ifdef _WIN32

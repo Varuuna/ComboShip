@@ -141,6 +141,10 @@ typedef void (*FnMMSetReturnCb)(void (*)(void));
 static FnMMSetReturnCb MM_SetOnComboReturnCallback = nullptr;
 static bool g_pendingOOTReturn = false;
 
+typedef void (*FnVoidArgless)(void);
+static FnVoidArgless SOH_ResumeGame      = nullptr;
+static FnVoidArgless SOH_NotifyComboReturn = nullptr;
+
 static int g_PendingMMFileNum = -1;
 
 static void Combo_OnOOTSaveInit(int fileNum) {
@@ -252,6 +256,8 @@ int main(int argc, char** argv) {
     SOH_PrepareForTransition     = (FnSOHPrepare)             GetSym(sohModule, "SOH_PrepareForTransition");
     MM_NotifyComboTransition     = (FnMMNotify)               GetSym(mmModule,  "MM_NotifyComboTransition");
     MM_SetOnComboReturnCallback  = (FnMMSetReturnCb)          GetSym(mmModule,  "MM_SetOnComboReturnCallback");
+    SOH_ResumeGame               = (FnVoidArgless)            GetSym(sohModule, "SOH_ResumeGame");
+    SOH_NotifyComboReturn        = (FnVoidArgless)            GetSym(sohModule, "SOH_NotifyComboReturn");
 
     if (!MM_InitArchives) {
         std::cerr << "ERROR: 2ship.dll is missing required ComboShip exports (MM_InitArchives)." << std::endl;
@@ -363,7 +369,14 @@ int main(int argc, char** argv) {
         if (MM_SetOnComboReturnCallback) MM_SetOnComboReturnCallback(Combo_OnMMReturn);
         std::cout << "[ComboShip] Launching MM for slot " << g_PendingMMFileNum << "..." << std::endl;
         MM_RunGame(g_PendingMMFileNum);
-        if (g_pendingOOTReturn) std::cout << "[ComboShip] OOT return pending (loop wiring lands in Task 4)" << std::endl;
+
+        // --- 6c. If MM signalled a return-to-OOT, resume OOT on the shared context (Task 2). ---
+        // Temporary direct call; replaced by the full game-switch loop in Task 4.
+        if (g_pendingOOTReturn && SOH_ResumeGame) {
+            if (SOH_NotifyComboReturn) SOH_NotifyComboReturn();
+            std::cout << "[ComboShip] Resuming OOT..." << std::endl;
+            SOH_ResumeGame();
+        }
     }
 
     // SOH context outlived MM (COMBO_BUILD keeps it alive across transition) — now fully tear it down.

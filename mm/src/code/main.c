@@ -206,4 +206,13 @@ __declspec(dllexport)
 void MM_RunGameLoop(void) {
     Graph_ThreadEntry(0);
 }
+
+// MM's RunFrame state-0 path re-runs SysCfb_Init() + SystemArena_Malloc, which need a FRESH system
+// arena. MM_RunGameLoop skips MM_RunMain's SystemHeap_Init, so on resume the arena is stale/advanced
+// and SystemArena_Malloc returns a bad pointer -> RunFrame crashes in memset. Reset the arena over
+// the EXISTING gSystemHeap buffer (no re-malloc, no leak) before resuming. (OOT doesn't need this:
+// its SysCfb_Init is in Main(), not RunFrame, so its resume never re-carves the arena.)
+void MM_ResetSystemHeapForResume(void) {
+    SystemHeap_Init(gSystemHeap, SYSTEM_HEAP_SIZE);
+}
 #endif

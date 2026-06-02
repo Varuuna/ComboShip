@@ -2086,6 +2086,9 @@ extern "C" void MM_RunGameLoop(void);
 // Defined in mm/src/code/graph.c: resets the frame state machine so MM_RunGameLoop restarts the
 // gamestate sequence from Setup instead of resuming into the destroyed post-handoff gamestate.
 extern "C" void MM_ResetFrameLoopForResume(void);
+// Defined in mm/src/code/main.c: resets MM's system arena so RunFrame's SysCfb_Init + SystemArena_Malloc
+// have a fresh arena on resume.
+extern "C" void MM_ResetSystemHeapForResume(void);
 // Defined in mm/2s2h/z_message_OTR.cpp: rebuilds the message tables whose backing resources were
 // freed by the forward (MM->OOT) transition's UnloadResources.
 extern "C" void OTRMessage_ResetForResume(void);
@@ -2095,7 +2098,10 @@ extern "C" void OTRMessage_ResetForResume(void);
 extern "C" __declspec(dllexport) void MM_PrepareForTransition(void) {
     SaveManager_ThreadPoolWait();
     OTRAudio_Exit();
-    BenGui::Destroy();
+    // NOTE: do NOT BenGui::Destroy() here. The Gui is a single shared libultraship instance; tearing
+    // down its windows forces the resuming game's SetupGuiElements to RE-CREATE them, which re-registers
+    // SaveManager load functions and asserts (AddLoadFunction: duplicate). The shared Gui persists across
+    // transitions; each game's windows are set up once at its first boot.
     // Context, window, and resource manager are intentionally kept alive for OOT to reuse.
 }
 
@@ -2128,9 +2134,9 @@ extern "C" __declspec(dllexport) void MM_ResumeGame(int fileNum) {
     gAudioCtx.resetStatus = 1;
     OTRAudio_Init(); // counterpart to OTRAudio_Exit() in MM_PrepareForTransition
 
-    // 4. Re-init MM gui (counterpart to BenGui::Destroy() in MM_PrepareForTransition), then re-sync
-    //    this DLL's ImGui current-context (GImGui is a per-module static).
-    BenGui::SetupGuiElements();
+    // 4. Re-sync this DLL's ImGui current-context (GImGui is a per-module static). Do NOT re-run
+    //    BenGui::SetupGuiElements() — the shared Gui's windows persist from MM's first boot;
+    //    re-creating them would re-register SaveManager load functions and assert.
     ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
 
     // 5. Re-arm the shared window so MM's `while (WindowIsRunning())` loop runs instead of returning
@@ -2142,6 +2148,10 @@ extern "C" __declspec(dllexport) void MM_ResumeGame(int fileNum) {
     // 6. Hand off to MM's boot path: title_setup.c's Setup_InitImpl loads the save, sets the South
     //    Clock Town entrance, and jumps straight to Play when gComboStartFileNum >= 0.
     gComboStartFileNum = fileNum;
+    // Reset MM's system arena: RunFrame's state-0 path re-runs SysCfb_Init + SystemArena_Malloc, which
+    // need a fresh arena (MM_RunGameLoop skips MM_RunMain's SystemHeap_Init). Without this,
+    // SystemArena_Malloc returns a bad pointer and RunFrame crashes in memset.
+    MM_ResetSystemHeapForResume();
     MM_ResetFrameLoopForResume();
     SPDLOG_INFO("[ComboShip] MM_ResumeGame: entering MM loop (gComboStartFileNum={})", gComboStartFileNum);
 

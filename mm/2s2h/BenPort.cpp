@@ -543,6 +543,12 @@ extern "C" void OTRAudio_Exit() {
 
     // Wait until the audio thread quit
     audio.thread.join();
+#ifndef COMBO_BUILD
+    // In a combo build OTRAudio_Exit runs on every OOT<->MM transition, not just at shutdown. These
+    // maps (gFontMap/gSequenceMap) + load-status arrays are populated once by AudioLoad_Init at boot
+    // and must stay resident so a later MM resume can use them (its OTRAudio_Init only restarts the
+    // thread, it doesn't repopulate them). Freeing them here left gFontMap[fontId] dangling ->
+    // AudioHeap_Init/LoadPermanentSamples strlen(null) crash. Keep them (tiny leak only at real exit).
     for (size_t i = 0; i < gSequenceMapSize; i++) {
         free(gSequenceMap[i]);
     }
@@ -554,6 +560,7 @@ extern "C" void OTRAudio_Exit() {
     free(gFontMap);
     free(gAudioCtx.seqLoadStatus);
     free(gAudioCtx.fontLoadStatus);
+#endif
 }
 
 extern "C" void OTRExtScanner() {

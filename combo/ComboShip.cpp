@@ -1,4 +1,4 @@
-﻿// ComboShip - Unified Launcher for OOT (soh.dll) + MM (2ship.dll)
+// ComboShip - Unified Launcher for OOT (soh.dll) + MM (2ship.dll)
 //
 // Boot flow:
 //   1. Load soh.dll + 2ship.dll and resolve exported functions
@@ -13,127 +13,7 @@
 #include <filesystem>
 #include <string>
 #include <exception>
-#include <csignal>
 #include <cstdlib>
-#include <cstdarg>
-
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#include <Windows.h>
-#include <DbgHelp.h>
-#include <cstdio>
-#pragma comment(lib, "DbgHelp.lib")
-
-// Writes a symbolized backtrace of the current call stack to combo_abort_stack.txt. Used to
-// locate the source of a silent exit(3)/abort() during SOH_Init that is neither a C++ exception
-// nor a std::terminate (so try/catch and set_terminate don't see it).
-static void ComboWriteStack(const char* reason) {
-    FILE* f = fopen("combo_abort_stack.txt", "w");
-    if (!f) return;
-    fprintf(f, "Reason: %s\n", reason);
-    void* frames[62];
-    USHORT n = CaptureStackBackTrace(0, 62, frames, nullptr);
-    HANDLE proc = GetCurrentProcess();
-    SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME);
-    SymInitialize(proc, NULL, TRUE);
-    char symBuf[sizeof(SYMBOL_INFO) + 512] = {};
-    SYMBOL_INFO* sym = (SYMBOL_INFO*)symBuf;
-    sym->SizeOfStruct = sizeof(SYMBOL_INFO);
-    sym->MaxNameLen = 512;
-    for (USHORT i = 0; i < n; ++i) {
-        DWORD64 disp = 0;
-        IMAGEHLP_LINE64 line = {}; line.SizeOfStruct = sizeof(line); DWORD lineDisp = 0;
-        if (SymFromAddr(proc, (DWORD64)frames[i], &disp, sym)) {
-            fprintf(f, "%2u: %s + 0x%llx", i, sym->Name, (unsigned long long)disp);
-            if (SymGetLineFromAddr64(proc, (DWORD64)frames[i], &lineDisp, &line))
-                fprintf(f, "  (%s:%lu)", line.FileName, line.LineNumber);
-            fprintf(f, "\n");
-        } else {
-            fprintf(f, "%2u: 0x%p\n", i, frames[i]);
-        }
-    }
-    SymCleanup(proc);
-    fclose(f);
-}
-
-static void ComboAbortHandler(int) {
-    std::cerr << "[ComboShip] SIGABRT (abort) raised" << std::endl;
-    ComboWriteStack("SIGABRT");
-}
-static void ComboInvalidParameter(const wchar_t*, const wchar_t*, const wchar_t*, unsigned, uintptr_t) {
-    std::cerr << "[ComboShip] CRT invalid-parameter handler" << std::endl;
-    ComboWriteStack("invalid_parameter");
-}
-static void ComboPureCall() {
-    std::cerr << "[ComboShip] pure virtual call" << std::endl;
-    ComboWriteStack("purecall");
-}
-
-// Walks the faulting thread's stack from an exception CONTEXT (accurate crash-site backtrace, unlike
-// CaptureStackBackTrace from inside a handler) and writes it to combo_abort_stack.txt.
-static void ComboWriteStackCtx(EXCEPTION_POINTERS* ep, const char* reason) {
-    FILE* f = fopen("combo_abort_stack.txt", "w");
-    if (!f) return;
-    fprintf(f, "Reason: %s\n", reason);
-    HANDLE proc = GetCurrentProcess();
-    SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME);
-    SymInitialize(proc, NULL, TRUE);
-    CONTEXT ctx = *ep->ContextRecord;
-    STACKFRAME64 frame = {};
-    frame.AddrPC.Offset = ctx.Rip;    frame.AddrPC.Mode = AddrModeFlat;
-    frame.AddrFrame.Offset = ctx.Rbp; frame.AddrFrame.Mode = AddrModeFlat;
-    frame.AddrStack.Offset = ctx.Rsp; frame.AddrStack.Mode = AddrModeFlat;
-    char symBuf[sizeof(SYMBOL_INFO) + 512] = {};
-    SYMBOL_INFO* sym = (SYMBOL_INFO*)symBuf;
-    sym->SizeOfStruct = sizeof(SYMBOL_INFO);
-    sym->MaxNameLen = 512;
-    for (int i = 0; i < 62; ++i) {
-        if (!StackWalk64(IMAGE_FILE_MACHINE_AMD64, proc, GetCurrentThread(), &frame, &ctx, NULL,
-                         SymFunctionTableAccess64, SymGetModuleBase64, NULL))
-            break;
-        DWORD64 addr = frame.AddrPC.Offset;
-        if (!addr) break;
-        DWORD64 disp = 0;
-        IMAGEHLP_LINE64 line = {}; line.SizeOfStruct = sizeof(line); DWORD lineDisp = 0;
-        if (SymFromAddr(proc, addr, &disp, sym)) {
-            fprintf(f, "%2d: %s + 0x%llx", i, sym->Name, (unsigned long long)disp);
-            if (SymGetLineFromAddr64(proc, addr, &lineDisp, &line))
-                fprintf(f, "  (%s:%lu)", line.FileName, line.LineNumber);
-            fprintf(f, "\n");
-        } else {
-            fprintf(f, "%2d: 0x%llx\n", i, (unsigned long long)addr);
-        }
-    }
-    SymCleanup(proc);
-    fclose(f);
-}
-
-// Fires FIRST for every SEH exception (registered with first=1), before any frame/unhandled handler
-// or SoH's crash handler can swallow it. Records only genuinely fatal faults (access violation, stack
-// overflow, __fastfail, illegal instruction...), once, then lets normal handling proceed unchanged.
-// This is what captures the otherwise-silent MM->OOT resume crash.
-static LONG WINAPI ComboVectoredHandler(EXCEPTION_POINTERS* ep) {
-    DWORD code = ep->ExceptionRecord->ExceptionCode;
-    if (code < 0xC0000000u || code == 0xE06D7363u) // skip non-fatal + C++ exceptions (0xE06D7363)
-        return EXCEPTION_CONTINUE_SEARCH;
-    static bool wrote = false;
-    if (!wrote) {
-        wrote = true;
-        char reason[64];
-        snprintf(reason, sizeof(reason), "fatal SEH 0x%08lx", code);
-        ComboWriteStackCtx(ep, reason);
-        std::cerr << "[ComboShip] " << reason << " -> combo_abort_stack.txt" << std::endl;
-    }
-    return EXCEPTION_CONTINUE_SEARCH;
-}
-
-static LONG WINAPI ComboUnhandledFilter(EXCEPTION_POINTERS* ep) {
-    char reason[64];
-    snprintf(reason, sizeof(reason), "unhandled SEH 0x%08lx", ep->ExceptionRecord->ExceptionCode);
-    ComboWriteStackCtx(ep, reason);
-    return EXCEPTION_EXECUTE_HANDLER;
-}
-#endif
 
 // Surfaces the real exception behind a silent terminate()/exit(3). With the shared dynamic
 // CRT, exceptions thrown in soh.dll/2ship.dll propagate across the DLL boundary to here.
@@ -153,8 +33,8 @@ static void ComboTerminateHandler() {
 }
 
 #ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
-#include <crtdbg.h>
 #else
 #include <dlfcn.h>
 #endif
@@ -259,23 +139,6 @@ static bool MMArchivesExist() {
 int main(int argc, char** argv) {
     std::cout << "ComboShip Launcher - Starting..." << std::endl;
 
-#if defined(_WIN32) && defined(_DEBUG)
-    // Route CRT assertions to stderr instead of a modal dialog so failures in the game/engine
-    // DLLs' static initializers surface as text (and don't block headless runs).
-    for (int report : { _CRT_ASSERT, _CRT_ERROR, _CRT_WARN }) {
-        _CrtSetReportMode(report, _CRTDBG_MODE_FILE);
-        _CrtSetReportFile(report, _CRTDBG_FILE_STDERR);
-    }
-    signal(SIGABRT, ComboAbortHandler);
-    _set_invalid_parameter_handler(ComboInvalidParameter);
-    _set_purecall_handler(ComboPureCall);
-#endif
-#ifdef _WIN32
-    // Capture ANY fatal crash (access violation, etc.) to combo_abort_stack.txt, even ones that the
-    // SoH/abort handlers miss. Vectored (first=1) records the fault before anything can swallow it.
-    AddVectoredExceptionHandler(1, ComboVectoredHandler);
-    SetUnhandledExceptionFilter(ComboUnhandledFilter);
-#endif
     std::set_terminate(ComboTerminateHandler);
 
     std::string workDir = std::filesystem::current_path().string();
@@ -410,7 +273,7 @@ int main(int argc, char** argv) {
     }
     std::cout << "[ComboShip] OOT initialized." << std::endl;
 
-    // --- 6. Register OOT callbacks ---
+    // --- 5. Register OOT callbacks ---
     // Note: MM_InitArchives (dormant archive pre-load) is skipped — Ship::ArchiveManager::Init
     // requires a live context which doesn't exist until MM_RunMain runs InitOTR().
     // Archives are loaded correctly when MM_RunGame is called after OOT exits.

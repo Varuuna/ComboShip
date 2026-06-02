@@ -10,12 +10,8 @@ set(COMBO_SOURCES
     ComboShip.cpp
 )
 
-set(COMBO_HEADERS
-    ComboShip.h
-)
-
 # Create executable
-add_executable(ComboShip ${COMBO_SOURCES} ${COMBO_HEADERS})
+add_executable(ComboShip ${COMBO_SOURCES})
 
 # No include directories needed - this is a standalone launcher
 # No linking needed - we dynamically load the game DLLs at runtime

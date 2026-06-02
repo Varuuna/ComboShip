@@ -2878,13 +2878,8 @@ extern "C" s32 gComboReturnFileNum = -1;
 static void SOH_ReinitForResume() {
     auto ctx = Ship::Context::GetInstance();
 
-    // Counterpart to OTRAudio_Exit() in SOH_PrepareForTransition (init done at boot, OTRGlobals.cpp).
-    OTRAudio_Init();
-    // Counterpart to SohGui::Destroy() in SOH_PrepareForTransition (boot calls SohGui::SetupGuiElements).
-    SohGui::SetupGuiElements();
-
-    // Swap archives back to OOT and reload its resources/factories (mirror BenPort's reuse path,
-    // which did SetArchives(nullptr) + AddArchive loop + UnloadResources("*")).
+    // Order matters. Swap archives back to OOT and reload its resources/factories FIRST (mirror
+    // BenPort's reuse path: SetArchives(nullptr) + AddArchive loop + UnloadResources("*")).
     auto archiveMgr = ctx->GetResourceManager()->GetArchiveManager();
     archiveMgr->SetArchives(nullptr);
     for (const auto& path : sOOTArchivePaths) {
@@ -2892,6 +2887,14 @@ static void SOH_ReinitForResume() {
     }
     ctx->GetResourceManager()->UnloadResources("*");
     RegisterOOTResourceFactories(ctx->GetResourceManager()->GetResourceLoader());
+
+    // ONLY NOW re-init the pieces SOH_PrepareForTransition tore down. OTRAudio_Init() precaches the
+    // "audio" resource directory and starts the audio thread, so it MUST run AFTER the archive swap
+    // (so it caches OOT audio, not MM's) AND after UnloadResources("*") (otherwise the unload frees
+    // the audio samples out from under the running audio thread -> access violation in
+    // AudioSynth_ProcessNote, which is exactly the crash this ordering fixes).
+    OTRAudio_Init();              // counterpart to OTRAudio_Exit() in SOH_PrepareForTransition
+    SohGui::SetupGuiElements();   // counterpart to SohGui::Destroy() in SOH_PrepareForTransition
 }
 
 // Symmetric marker, mirrors MM_NotifyComboTransition. ComboShip calls this before SOH_ResumeGame.

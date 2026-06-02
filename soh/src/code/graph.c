@@ -523,6 +523,16 @@ void Graph_ThreadEntry(void* arg0) {
     }
 }
 
+#ifdef COMBO_BUILD
+// ComboShip MM->OOT return: reset the frame state machine so the next SOH_RunGameLoop re-seeds from
+// the first overlay (TitleSetup) and re-runs Graph_Init, instead of resuming (state == 1) into the
+// gamestate that was destroyed when OOT first handed off to MM — which falls straight through to
+// WindowClose() and exits the process.
+void SOH_ResetFrameLoopForResume(void) {
+    runFrameContext.state = 0;
+}
+#endif
+
 void* Graph_Alloc(GraphicsContext* gfxCtx, size_t size) {
     TwoHeadGfxArena* thga = &gfxCtx->polyOpa;
 

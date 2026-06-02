@@ -2865,6 +2865,12 @@ extern "C" __declspec(dllexport) void SOH_SetOnSceneSwitchCallback(void (*cb)(in
 #ifdef COMBO_BUILD
 // Defined in soh/src/code/main.c: re-enters ONLY OOT's game loop (no heap/thread re-init).
 extern "C" void SOH_RunGameLoop(void);
+// Defined in soh/src/code/graph.c: resets the frame state machine so SOH_RunGameLoop restarts the
+// gamestate sequence from TitleSetup instead of resuming into the destroyed post-handoff gamestate.
+extern "C" void SOH_ResetFrameLoopForResume(void);
+// Consumed by TitleSetup_InitImpl (soh/src/code/title_setup.c): >= 0 => skip title/file-select, load
+// this slot, and jump straight to Play at the Mido's-House door.
+extern "C" s32 gComboReturnFileNum = -1;
 
 // Re-initializes the OOT-side pieces that SOH_PrepareForTransition tore down, and swaps the
 // shared resource manager's archives back to OOT (MM had swapped them to its own). Pairs each
@@ -2911,11 +2917,11 @@ extern "C" __declspec(dllexport) void SOH_ResumeGame(void) {
     // 3. Re-sync this DLL's ImGui current-context (GImGui is per-module).
     ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
 
-    // 4. Reload the OOT save and spawn at the Mido's-House door in Kokiri Forest.
-    SaveManager::Instance->LoadFile((int)gSaveContext.fileNum);
-    gSaveContext.entranceIndex = ENTR_KOKIRI_FOREST_OUTSIDE_MIDOS_HOUSE; // 0x443, SCENE_KOKIRI_FOREST spawn 9
-    gSaveContext.respawnFlag = 0;
-    gSaveContext.nextTransitionType = TRANS_NEXT_TYPE_DEFAULT;
+    // 4. Hand off to OOT's boot path: capture the save slot, reset the frame state machine, and let
+    //    TitleSetup jump straight to Play at the Mido's-House door (mirrors FileChoose + MM title_setup).
+    //    The save itself is loaded by TitleSetup via Sram_OpenSave, exactly like normal file select.
+    gComboReturnFileNum = (s32)gSaveContext.fileNum;
+    SOH_ResetFrameLoopForResume();
 
     // 5. Re-run OOT's game loop (returns when the shared window's running flag is cleared again).
     SOH_RunGameLoop();

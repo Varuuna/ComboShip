@@ -165,6 +165,14 @@ uint64_t GetUnixTimestamp();
 __declspec(dllexport)
 #endif
 void MM_SetOnComboReturnCallback(void (*cb)(void));
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+void MM_PrepareForTransition(void);
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+void MM_ResumeGame(int fileNum);
 #endif
 #ifdef __cplusplus
 };

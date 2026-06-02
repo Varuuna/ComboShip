@@ -210,6 +210,10 @@ typedef void (*FnVoidArgless)(void);
 static FnVoidArgless SOH_ResumeGame      = nullptr;
 static FnVoidArgless SOH_NotifyComboReturn = nullptr;
 
+typedef void (*FnMMResume)(int);
+static FnMMResume    MM_ResumeGame          = nullptr;
+static FnVoidArgless MM_PrepareForTransition = nullptr;
+
 static int g_PendingMMFileNum = -1;
 
 static void Combo_OnOOTSaveInit(int fileNum) {
@@ -329,6 +333,8 @@ int main(int argc, char** argv) {
     MM_SetOnComboReturnCallback  = (FnMMSetReturnCb)          GetSym(mmModule,  "MM_SetOnComboReturnCallback");
     SOH_ResumeGame               = (FnVoidArgless)            GetSym(sohModule, "SOH_ResumeGame");
     SOH_NotifyComboReturn        = (FnVoidArgless)            GetSym(sohModule, "SOH_NotifyComboReturn");
+    MM_ResumeGame                = (FnMMResume)               GetSym(mmModule,  "MM_ResumeGame");
+    MM_PrepareForTransition      = (FnVoidArgless)            GetSym(mmModule,  "MM_PrepareForTransition");
 
     if (!MM_InitArchives) {
         std::cerr << "ERROR: 2ship.dll is missing required ComboShip exports (MM_InitArchives)." << std::endl;
@@ -419,34 +425,52 @@ int main(int argc, char** argv) {
         std::cout << "[ComboShip] OOT scene-switch callback registered." << std::endl;
     }
 
-    // --- 6. Run OOT game loop (blocks until exit) ---
+    // --- 6. Bidirectional game-switch loop ---
+    // OOT boots first (SOH_RunMain), then each game's loop returns when it signals a switch:
+    //   OOT sets g_PendingMMFileNum (Mask Shop) -> hand off / resume MM.
+    //   MM sets g_pendingOOTReturn (Clock Tower) -> hand off / resume OOT.
+    // The one-time per-process init (heaps/threads) runs only on the FIRST entry into each game;
+    // subsequent entries resume the existing process on the shared context/window.
 
-    std::cout << "Starting OOT game loop..." << std::endl;
-    SOH_RunMain(argc, argv);
-
-    // --- 6b. If a game-switch was triggered, launch MM ---
-
-    if (g_PendingMMFileNum >= 0 && MM_RunGame) {
-        // Stop OOT audio thread and flush saves so archives can be safely swapped.
-        if (SOH_PrepareForTransition) {
-            std::cout << "[ComboShip] Preparing OOT for transition..." << std::endl;
-            SOH_PrepareForTransition();
-        }
-        // Tell MM to reuse the existing context/window instead of creating a new one.
-        // With shared libultraship.dll, Context::mContext is the same instance in both DLLs.
-        if (MM_NotifyComboTransition) {
-            MM_NotifyComboTransition();
-        }
-        if (MM_SetOnComboReturnCallback) MM_SetOnComboReturnCallback(Combo_OnMMReturn);
-        std::cout << "[ComboShip] Launching MM for slot " << g_PendingMMFileNum << "..." << std::endl;
-        MM_RunGame(g_PendingMMFileNum);
-
-        // --- 6c. If MM signalled a return-to-OOT, resume OOT on the shared context (Task 2). ---
-        // Temporary direct call; replaced by the full game-switch loop in Task 4.
-        if (g_pendingOOTReturn && SOH_ResumeGame) {
-            if (SOH_NotifyComboReturn) SOH_NotifyComboReturn();
-            std::cout << "[ComboShip] Resuming OOT..." << std::endl;
-            SOH_ResumeGame();
+    enum ComboGame { GAME_OOT, GAME_MM };
+    ComboGame current = GAME_OOT;
+    bool ootBooted = false, mmBooted = false;
+    for (;;) {
+        if (current == GAME_OOT) {
+            g_PendingMMFileNum = -1;
+            if (!ootBooted) {
+                std::cout << "[ComboShip] OOT boot\n";
+                SOH_RunMain(argc, argv);
+                ootBooted = true;
+            } else {
+                std::cout << "[ComboShip] OOT resume\n";
+                if (SOH_ResumeGame) SOH_ResumeGame();
+            }
+            if (g_PendingMMFileNum >= 0 && MM_RunGame) {
+                if (SOH_PrepareForTransition) SOH_PrepareForTransition();
+                if (MM_NotifyComboTransition) MM_NotifyComboTransition();
+                if (MM_SetOnComboReturnCallback) MM_SetOnComboReturnCallback(Combo_OnMMReturn);
+                current = GAME_MM;
+            } else {
+                break;
+            }
+        } else {
+            g_pendingOOTReturn = false;
+            if (!mmBooted) {
+                std::cout << "[ComboShip] MM boot\n";
+                MM_RunGame(g_PendingMMFileNum);
+                mmBooted = true;
+            } else {
+                std::cout << "[ComboShip] MM resume\n";
+                if (MM_ResumeGame) MM_ResumeGame(g_PendingMMFileNum);
+            }
+            if (g_pendingOOTReturn) {
+                if (MM_PrepareForTransition) MM_PrepareForTransition();
+                if (SOH_NotifyComboReturn) SOH_NotifyComboReturn();
+                current = GAME_OOT;
+            } else {
+                break;
+            }
         }
     }
 

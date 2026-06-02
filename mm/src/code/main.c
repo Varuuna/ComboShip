@@ -193,4 +193,17 @@ void MM_RunMain(void) {
     DeinitOTR();
 #endif
 }
+
+// ComboShip resume: re-enter ONLY the MM game loop on the existing (already-booted) process.
+// The one-time heap/thread/IRQ setup done by MM_RunMain() persists for the process lifetime, so
+// we must NOT re-run it. MM_RunMain itself calls Graph_ThreadEntry(0) on the main thread after its
+// setup; re-entering only that loop mirrors that call. Graph_ThreadEntry runs
+// `while (WindowIsRunning()) RunFrame();` and returns once the shared window's running flag is
+// cleared again. Mirrors SOH_RunGameLoop in soh/src/code/main.c.
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+void MM_RunGameLoop(void) {
+    Graph_ThreadEntry(0);
+}
 #endif

@@ -132,6 +132,10 @@ extern "C" __declspec(dllexport) void MM_SetOnComboReturnCallback(void (*cb)(voi
     gComboReturnCallback = cb;
 }
 static bool sComboReturnPending = false;
+// Captured in the OTRGlobals ctor so a combo OOT->MM return can restore MM's archives (the reuse
+// path / SOH's resume both clear them with SetArchives(nullptr) + AddArchive of the other game's
+// files). Mirrors sOOTArchivePaths in soh/soh/OTRGlobals.cpp.
+static std::vector<std::string> sMMArchivePaths;
 #endif
 
 extern "C" char** cameraStrings;
@@ -141,6 +145,79 @@ std::vector<std::shared_ptr<std::string>> cameraStdStrings;
 Color_RGB8 kokiriColor = { 0x1E, 0x69, 0x1B };
 Color_RGB8 goronColor = { 0x64, 0x14, 0x00 };
 Color_RGB8 zoraColor = { 0x00, 0xEC, 0x64 };
+
+// Registers all MM resource factories on the given loader. Factored out of OTRGlobals::OTRGlobals
+// so MM_ResumeGame (combo OOT->MM return) can re-register them after archives are swapped back.
+// Mirrors RegisterOOTResourceFactories in soh/soh/OTRGlobals.cpp.
+static void RegisterMMResourceFactories(std::shared_ptr<Ship::ResourceLoader> loader) {
+    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryBinaryTextureV0>(), RESOURCE_FORMAT_BINARY,
+                                    "Texture", static_cast<uint32_t>(Fast::ResourceType::Texture), 0);
+    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryBinaryTextureV1>(), RESOURCE_FORMAT_BINARY,
+                                    "Texture", static_cast<uint32_t>(Fast::ResourceType::Texture), 1);
+    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryBinaryVertexV0>(), RESOURCE_FORMAT_BINARY,
+                                    "Vertex", static_cast<uint32_t>(Fast::ResourceType::Vertex), 0);
+    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryXMLVertexV0>(), RESOURCE_FORMAT_XML, "Vertex",
+                                    static_cast<uint32_t>(Fast::ResourceType::Vertex), 0);
+    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryBinaryDisplayListV0>(),
+                                    RESOURCE_FORMAT_BINARY, "DisplayList",
+                                    static_cast<uint32_t>(Fast::ResourceType::DisplayList), 0);
+    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryXMLDisplayListV0>(), RESOURCE_FORMAT_XML,
+                                    "DisplayList", static_cast<uint32_t>(Fast::ResourceType::DisplayList), 0);
+    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryBinaryMatrixV0>(), RESOURCE_FORMAT_BINARY,
+                                    "Matrix", static_cast<uint32_t>(Fast::ResourceType::Matrix), 0);
+    loader->RegisterResourceFactory(std::make_shared<Ship::ResourceFactoryBinaryBlobV0>(), RESOURCE_FORMAT_BINARY,
+                                    "Blob", static_cast<uint32_t>(Ship::ResourceType::Blob), 0);
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryArrayV0>(), RESOURCE_FORMAT_BINARY,
+                                    "Array", static_cast<uint32_t>(SOH::ResourceType::SOH_Array), 0);
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryAnimationV0>(), RESOURCE_FORMAT_BINARY,
+                                    "Animation", static_cast<uint32_t>(SOH::ResourceType::SOH_Animation), 0);
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryPlayerAnimationV0>(),
+                                    RESOURCE_FORMAT_BINARY, "PlayerAnimation",
+                                    static_cast<uint32_t>(SOH::ResourceType::SOH_PlayerAnimation), 0);
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinarySceneV0>(), RESOURCE_FORMAT_BINARY,
+                                    "Room", static_cast<uint32_t>(SOH::ResourceType::SOH_Room), 0);
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryCollisionHeaderV0>(),
+                                    RESOURCE_FORMAT_BINARY, "CollisionHeader",
+                                    static_cast<uint32_t>(SOH::ResourceType::SOH_CollisionHeader), 0);
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinarySkeletonV0>(), RESOURCE_FORMAT_BINARY,
+                                    "Skeleton", static_cast<uint32_t>(SOH::ResourceType::SOH_Skeleton), 0);
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinarySkeletonLimbV0>(),
+                                    RESOURCE_FORMAT_BINARY, "SkeletonLimb",
+                                    static_cast<uint32_t>(SOH::ResourceType::SOH_SkeletonLimb), 0);
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryPathMMV0>(), RESOURCE_FORMAT_BINARY,
+                                    "Path", static_cast<uint32_t>(SOH::ResourceType::SOH_Path), 0);
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryCutsceneV0>(), RESOURCE_FORMAT_BINARY,
+                                    "Cutscene", static_cast<uint32_t>(SOH::ResourceType::SOH_Cutscene), 0);
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryTextMMV0>(), RESOURCE_FORMAT_BINARY,
+                                    "TextMM", static_cast<uint32_t>(SOH::ResourceType::TSH_TextMM), 0);
+
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryAudioSampleV2>(), RESOURCE_FORMAT_BINARY,
+                                    "AudioSample", static_cast<uint32_t>(SOH::ResourceType::SOH_AudioSample), 2);
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryXMLAudioSampleV0>(), RESOURCE_FORMAT_XML,
+                                    "Sample", static_cast<uint32_t>(SOH::ResourceType::SOH_AudioSample), 0);
+
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryAudioSoundFontV2>(),
+                                    RESOURCE_FORMAT_BINARY, "AudioSoundFont",
+                                    static_cast<uint32_t>(SOH::ResourceType::SOH_AudioSoundFont), 2);
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryXMLSoundFontV0>(), RESOURCE_FORMAT_XML,
+                                    "SoundFont", static_cast<uint32_t>(SOH::ResourceType::SOH_AudioSoundFont), 0);
+
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryAudioSequenceV2>(),
+                                    RESOURCE_FORMAT_BINARY, "AudioSequence",
+                                    static_cast<uint32_t>(SOH::ResourceType::SOH_AudioSequence), 2);
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryXMLAudioSequenceV0>(), RESOURCE_FORMAT_XML,
+                                    "Sequence", static_cast<uint32_t>(SOH::ResourceType::SOH_AudioSequence), 0);
+
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryBackgroundV0>(), RESOURCE_FORMAT_BINARY,
+                                    "Background", static_cast<uint32_t>(SOH::ResourceType::SOH_Background), 0);
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryTextureAnimationV0>(),
+                                    RESOURCE_FORMAT_BINARY, "TextureAnimation",
+                                    static_cast<uint32_t>(SOH::ResourceType::TSH_TexAnim), 0);
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryKeyFrameAnim>(), RESOURCE_FORMAT_BINARY,
+                                    "KeyFrameAnim", static_cast<uint32_t>(SOH::ResourceType::TSH_CKeyFrameAnim), 0);
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryKeyFrameSkel>(), RESOURCE_FORMAT_BINARY,
+                                    "KeyFrameSkel", static_cast<uint32_t>(SOH::ResourceType::TSH_CKeyFrameSkel), 0);
+}
 
 OTRGlobals::OTRGlobals() {
     std::vector<std::string> archiveFiles;
@@ -188,6 +265,13 @@ OTRGlobals::OTRGlobals() {
     });
 
     archiveFiles.insert(archiveFiles.end(), patchFiles.begin(), patchFiles.end());
+
+#ifdef COMBO_BUILD
+    // Remember MM's full archive list (mm + 2ship + patches) so a combo return can restore exactly
+    // these. Captured here, after the list is finalized, so both the reuse path's AddArchive loop and
+    // InitResourceManager below use the same set. See MM_ResumeGame.
+    sMMArchivePaths = archiveFiles;
+#endif
 
     std::unordered_set<uint32_t> validHashes = { MM_NTSC_US_10, MM_NTSC_US_GC };
 
@@ -275,74 +359,7 @@ OTRGlobals::OTRGlobals() {
     ImGui::SetCurrentContext(context->GetInstance()->GetWindow()->GetGui()->GetImGuiContext());
 #endif
 
-    auto loader = context->GetResourceManager()->GetResourceLoader();
-    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryBinaryTextureV0>(), RESOURCE_FORMAT_BINARY,
-                                    "Texture", static_cast<uint32_t>(Fast::ResourceType::Texture), 0);
-    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryBinaryTextureV1>(), RESOURCE_FORMAT_BINARY,
-                                    "Texture", static_cast<uint32_t>(Fast::ResourceType::Texture), 1);
-    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryBinaryVertexV0>(), RESOURCE_FORMAT_BINARY,
-                                    "Vertex", static_cast<uint32_t>(Fast::ResourceType::Vertex), 0);
-    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryXMLVertexV0>(), RESOURCE_FORMAT_XML, "Vertex",
-                                    static_cast<uint32_t>(Fast::ResourceType::Vertex), 0);
-    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryBinaryDisplayListV0>(),
-                                    RESOURCE_FORMAT_BINARY, "DisplayList",
-                                    static_cast<uint32_t>(Fast::ResourceType::DisplayList), 0);
-    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryXMLDisplayListV0>(), RESOURCE_FORMAT_XML,
-                                    "DisplayList", static_cast<uint32_t>(Fast::ResourceType::DisplayList), 0);
-    loader->RegisterResourceFactory(std::make_shared<Fast::ResourceFactoryBinaryMatrixV0>(), RESOURCE_FORMAT_BINARY,
-                                    "Matrix", static_cast<uint32_t>(Fast::ResourceType::Matrix), 0);
-    loader->RegisterResourceFactory(std::make_shared<Ship::ResourceFactoryBinaryBlobV0>(), RESOURCE_FORMAT_BINARY,
-                                    "Blob", static_cast<uint32_t>(Ship::ResourceType::Blob), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryArrayV0>(), RESOURCE_FORMAT_BINARY,
-                                    "Array", static_cast<uint32_t>(SOH::ResourceType::SOH_Array), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryAnimationV0>(), RESOURCE_FORMAT_BINARY,
-                                    "Animation", static_cast<uint32_t>(SOH::ResourceType::SOH_Animation), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryPlayerAnimationV0>(),
-                                    RESOURCE_FORMAT_BINARY, "PlayerAnimation",
-                                    static_cast<uint32_t>(SOH::ResourceType::SOH_PlayerAnimation), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinarySceneV0>(), RESOURCE_FORMAT_BINARY,
-                                    "Room", static_cast<uint32_t>(SOH::ResourceType::SOH_Room), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryCollisionHeaderV0>(),
-                                    RESOURCE_FORMAT_BINARY, "CollisionHeader",
-                                    static_cast<uint32_t>(SOH::ResourceType::SOH_CollisionHeader), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinarySkeletonV0>(), RESOURCE_FORMAT_BINARY,
-                                    "Skeleton", static_cast<uint32_t>(SOH::ResourceType::SOH_Skeleton), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinarySkeletonLimbV0>(),
-                                    RESOURCE_FORMAT_BINARY, "SkeletonLimb",
-                                    static_cast<uint32_t>(SOH::ResourceType::SOH_SkeletonLimb), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryPathMMV0>(), RESOURCE_FORMAT_BINARY,
-                                    "Path", static_cast<uint32_t>(SOH::ResourceType::SOH_Path), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryCutsceneV0>(), RESOURCE_FORMAT_BINARY,
-                                    "Cutscene", static_cast<uint32_t>(SOH::ResourceType::SOH_Cutscene), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryTextMMV0>(), RESOURCE_FORMAT_BINARY,
-                                    "TextMM", static_cast<uint32_t>(SOH::ResourceType::TSH_TextMM), 0);
-
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryAudioSampleV2>(), RESOURCE_FORMAT_BINARY,
-                                    "AudioSample", static_cast<uint32_t>(SOH::ResourceType::SOH_AudioSample), 2);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryXMLAudioSampleV0>(), RESOURCE_FORMAT_XML,
-                                    "Sample", static_cast<uint32_t>(SOH::ResourceType::SOH_AudioSample), 0);
-
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryAudioSoundFontV2>(),
-                                    RESOURCE_FORMAT_BINARY, "AudioSoundFont",
-                                    static_cast<uint32_t>(SOH::ResourceType::SOH_AudioSoundFont), 2);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryXMLSoundFontV0>(), RESOURCE_FORMAT_XML,
-                                    "SoundFont", static_cast<uint32_t>(SOH::ResourceType::SOH_AudioSoundFont), 0);
-
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryAudioSequenceV2>(),
-                                    RESOURCE_FORMAT_BINARY, "AudioSequence",
-                                    static_cast<uint32_t>(SOH::ResourceType::SOH_AudioSequence), 2);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryXMLAudioSequenceV0>(), RESOURCE_FORMAT_XML,
-                                    "Sequence", static_cast<uint32_t>(SOH::ResourceType::SOH_AudioSequence), 0);
-
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryBackgroundV0>(), RESOURCE_FORMAT_BINARY,
-                                    "Background", static_cast<uint32_t>(SOH::ResourceType::SOH_Background), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryTextureAnimationV0>(),
-                                    RESOURCE_FORMAT_BINARY, "TextureAnimation",
-                                    static_cast<uint32_t>(SOH::ResourceType::TSH_TexAnim), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryKeyFrameAnim>(), RESOURCE_FORMAT_BINARY,
-                                    "KeyFrameAnim", static_cast<uint32_t>(SOH::ResourceType::TSH_CKeyFrameAnim), 0);
-    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryKeyFrameSkel>(), RESOURCE_FORMAT_BINARY,
-                                    "KeyFrameSkel", static_cast<uint32_t>(SOH::ResourceType::TSH_CKeyFrameSkel), 0);
+    RegisterMMResourceFactories(context->GetResourceManager()->GetResourceLoader());
 
     // gSaveStateMgr = std::make_shared<SaveStateMgr>();
     // gRandomizer = std::make_shared<Randomizer>();
@@ -2062,6 +2079,77 @@ extern "C" __declspec(dllexport) void MM_RunGame(int fileNum) {
     gComboStartFileNum = fileNum;
     MM_RunMain();
 }
+
+#ifdef COMBO_BUILD
+// Defined in mm/src/code/main.c: re-enters ONLY MM's game loop (no heap/thread re-init).
+extern "C" void MM_RunGameLoop(void);
+// Defined in mm/src/code/graph.c: resets the frame state machine so MM_RunGameLoop restarts the
+// gamestate sequence from Setup instead of resuming into the destroyed post-handoff gamestate.
+extern "C" void MM_ResetFrameLoopForResume(void);
+// Defined in mm/2s2h/z_message_OTR.cpp: rebuilds the message tables whose backing resources were
+// freed by the forward (MM->OOT) transition's UnloadResources.
+extern "C" void OTRMessage_ResetForResume(void);
+
+// ComboShip OOT->MM forward transition: stop MM audio and tear down MM gui WITHOUT destroying the
+// shared context/window/resource-manager (OOT will reuse them). Mirrors SOH_PrepareForTransition.
+extern "C" __declspec(dllexport) void MM_PrepareForTransition(void) {
+    SaveManager_ThreadPoolWait();
+    OTRAudio_Exit();
+    BenGui::Destroy();
+    // Context, window, and resource manager are intentionally kept alive for OOT to reuse.
+}
+
+// ComboShip OOT->MM return: re-enter MM's game loop on the SAME shared context/window, swap archives
+// back to MM, reload resources, and jump straight to Play in South Clock Town for the given slot.
+// Counterpart to OOT's SOH_ResumeGame in soh/soh/OTRGlobals.cpp.
+extern "C" __declspec(dllexport) void MM_ResumeGame(int fileNum) {
+    auto ctx = Ship::Context::GetInstance();
+    ctx->GetLogger()->flush_on(spdlog::level::trace);
+    SPDLOG_INFO("[ComboShip] MM_ResumeGame: begin (fileNum={})", fileNum);
+
+    // 1. Swap archives back to MM and reload its resources/factories FIRST (mirror the reuse path:
+    //    SetArchives(nullptr) + AddArchive loop + UnloadResources("*")).
+    auto archiveMgr = ctx->GetResourceManager()->GetArchiveManager();
+    archiveMgr->SetArchives(nullptr);
+    for (const auto& path : sMMArchivePaths) {
+        archiveMgr->AddArchive(path);
+    }
+    ctx->GetResourceManager()->UnloadResources("*");
+    RegisterMMResourceFactories(ctx->GetResourceManager()->GetResourceLoader());
+
+    // 2. Rebuild MM's message tables: the forward transition freed the resources the credits table
+    //    points into. Must run AFTER the archive swap (it reloads from MM's archives).
+    OTRMessage_ResetForResume();
+
+    // 3. Force a full audio-heap reset so soundfonts/samples reload from the swapped-back archives.
+    //    Set BEFORE the audio thread restarts (OTRAudio_Init) so the first CreateNextAudioBuffer
+    //    processes the reset before playing any note. OTRAudio_Init precaches the "audio" directory,
+    //    so it MUST run AFTER the archive swap + UnloadResources (same ordering as SOH_ResumeGame).
+    gAudioCtx.resetStatus = 1;
+    OTRAudio_Init(); // counterpart to OTRAudio_Exit() in MM_PrepareForTransition
+
+    // 4. Re-init MM gui (counterpart to BenGui::Destroy() in MM_PrepareForTransition), then re-sync
+    //    this DLL's ImGui current-context (GImGui is a per-module static).
+    BenGui::SetupGuiElements();
+    ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
+
+    // 5. Re-arm the shared window so MM's `while (WindowIsRunning())` loop runs instead of returning
+    //    immediately (OOT cleared mIsRunning when its loop exited).
+    if (auto fast3d = std::dynamic_pointer_cast<Fast::Fast3dWindow>(ctx->GetWindow())) {
+        fast3d->SetIsRunning(true);
+    }
+
+    // 6. Hand off to MM's boot path: title_setup.c's Setup_InitImpl loads the save, sets the South
+    //    Clock Town entrance, and jumps straight to Play when gComboStartFileNum >= 0.
+    gComboStartFileNum = fileNum;
+    MM_ResetFrameLoopForResume();
+    SPDLOG_INFO("[ComboShip] MM_ResumeGame: entering MM loop (gComboStartFileNum={})", gComboStartFileNum);
+
+    // 7. Re-run MM's game loop (returns when the shared window's running flag is cleared again).
+    MM_RunGameLoop();
+    SPDLOG_INFO("[ComboShip] MM_ResumeGame: MM loop RETURNED");
+}
+#endif
 
 // Initializes a default MM save for the given OOT file slot (0-indexed) and writes it to disk.
 // Called by ComboShip when OOT creates a new save, so MM has a matching save ready for the transition.

@@ -365,6 +365,13 @@ std::shared_ptr<ResourceManager> Context::GetResourceManager() {
     return mResourceManager;
 }
 
+// ComboShip: swap the active ResourceManager (e.g. OOT<->MM on a game switch). The previous one is
+// NOT destroyed here — the caller keeps a reference so its archives/resource cache stay loaded, which
+// lets each game keep its resources resident and avoids freeing data other globals still point into.
+void Context::SetResourceManager(std::shared_ptr<ResourceManager> resourceManager) {
+    mResourceManager = resourceManager;
+}
+
 std::shared_ptr<ControlDeck> Context::GetControlDeck() {
     return mControlDeck;
 }

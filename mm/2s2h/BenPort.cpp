@@ -135,7 +135,10 @@ static bool sComboReturnPending = false;
 // Captured in the OTRGlobals ctor so a combo OOT->MM return can restore MM's archives (the reuse
 // path / SOH's resume both clear them with SetArchives(nullptr) + AddArchive of the other game's
 // files). Mirrors sOOTArchivePaths in soh/soh/OTRGlobals.cpp.
-static std::vector<std::string> sMMArchivePaths;
+// MM's own ResourceManager, created at first boot and kept alive for the whole process. A combo
+// transition swaps the Context's active RM between MM's and OOT's, so each game keeps its archives +
+// resource cache resident and nothing is ever unloaded (no dangling cached pointers). See MM_ResumeGame.
+static std::shared_ptr<Ship::ResourceManager> sMMResourceManager;
 #endif
 
 extern "C" char** cameraStrings;
@@ -266,13 +269,6 @@ OTRGlobals::OTRGlobals() {
 
     archiveFiles.insert(archiveFiles.end(), patchFiles.begin(), patchFiles.end());
 
-#ifdef COMBO_BUILD
-    // Remember MM's full archive list (mm + 2ship + patches) so a combo return can restore exactly
-    // these. Captured here, after the list is finalized, so both the reuse path's AddArchive loop and
-    // InitResourceManager below use the same set. See MM_ResumeGame.
-    sMMArchivePaths = archiveFiles;
-#endif
-
     std::unordered_set<uint32_t> validHashes = { MM_NTSC_US_10, MM_NTSC_US_GC };
 
 #ifdef COMBO_BUILD
@@ -283,12 +279,20 @@ OTRGlobals::OTRGlobals() {
         auto existingCtx = Ship::Context::GetInstance();
         if (existingCtx != nullptr) {
             context = existingCtx;
-            auto archiveMgr = context->GetResourceManager()->GetArchiveManager();
-            archiveMgr->SetArchives(nullptr);
-            for (const auto& path : archiveFiles) {
-                archiveMgr->AddArchive(path);
-            }
-            context->GetResourceManager()->UnloadResources("*");
+            // Create MM's OWN ResourceManager (its own archives + factories + resource cache) and make
+            // it the Context's active RM, instead of swapping archives in OOT's shared RM. OOT's RM is
+            // kept alive (sOOTResourceManager holds it), so nothing is unloaded and no OOT cached pointer
+            // dangles. Reserve 3 threads like the standalone path; empty validHashes (version is checked
+            // separately below).
+            auto mmResourceManager = std::make_shared<Ship::ResourceManager>();
+            // Make it the active RM BEFORE Init (mirrors Context::InitResourceManager's order, so any
+            // GetResourceManager() lookups during Init resolve to this new RM, not OOT's).
+            context->SetResourceManager(mmResourceManager);
+            mmResourceManager->Init(archiveFiles, {}, 3);
+            sMMResourceManager = mmResourceManager;
+            // MM's fresh RM lacks the Gui-owned infra factories (Font, GuiTexture) that the shared Gui
+            // registered on OOT's RM at boot; register them on MM's RM so font/gui-texture loads work.
+            context->GetWindow()->GetGui()->RegisterResourceFactories();
             // OOT closed the shared window backend on exit (mIsRunning=false); re-arm it so MM's
             // `while (WindowIsRunning())` game loop actually runs instead of returning immediately.
             if (auto fast3d = std::dynamic_pointer_cast<Fast::Fast3dWindow>(context->GetWindow())) {
@@ -2113,25 +2117,13 @@ extern "C" __declspec(dllexport) void MM_ResumeGame(int fileNum) {
     ctx->GetLogger()->flush_on(spdlog::level::trace);
     SPDLOG_INFO("[ComboShip] MM_ResumeGame: begin (fileNum={})", fileNum);
 
-    // 1. Swap archives back to MM and reload its resources/factories FIRST (mirror the reuse path:
-    //    SetArchives(nullptr) + AddArchive loop + UnloadResources("*")).
-    auto archiveMgr = ctx->GetResourceManager()->GetArchiveManager();
-    archiveMgr->SetArchives(nullptr);
-    for (const auto& path : sMMArchivePaths) {
-        archiveMgr->AddArchive(path);
-    }
-    ctx->GetResourceManager()->UnloadResources("*");
-    RegisterMMResourceFactories(ctx->GetResourceManager()->GetResourceLoader());
+    // 1. Re-activate MM's own ResourceManager (created at MM's first boot, kept resident the whole
+    //    time OOT was running). Its archives + factories + resource cache never went away, so there's
+    //    nothing to swap, unload, re-register, or reset (message tables/audio samples stay valid).
+    ctx->SetResourceManager(sMMResourceManager);
 
-    // 2. Rebuild MM's message tables: the forward transition freed the resources the credits table
-    //    points into. Must run AFTER the archive swap (it reloads from MM's archives).
-    OTRMessage_ResetForResume();
-
-    // 3. Force a full audio-heap reset so soundfonts/samples reload from the swapped-back archives.
-    //    Set BEFORE the audio thread restarts (OTRAudio_Init) so the first CreateNextAudioBuffer
-    //    processes the reset before playing any note. OTRAudio_Init precaches the "audio" directory,
-    //    so it MUST run AFTER the archive swap + UnloadResources (same ordering as SOH_ResumeGame).
-    gAudioCtx.resetStatus = 1;
+    // 2. Restart MM's audio thread (MM_PrepareForTransition stopped it). Soundfonts/samples are still
+    //    resident in MM's RM, so it resumes against valid data with no reload/heap reset.
     OTRAudio_Init(); // counterpart to OTRAudio_Exit() in MM_PrepareForTransition
 
     // 4. Re-sync this DLL's ImGui current-context (GImGui is a per-module static). Do NOT re-run

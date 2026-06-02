@@ -158,11 +158,7 @@ void Gui::Init(GuiWindowInitData windowImpl) {
     GetGuiWindow("Input Editor")->Init();
     GetGuiWindow("Console")->Init();
     GetGuiWindow("GfxDebuggerWindow")->Init();
-    GetGameOverlay()->Init();
-
-    Context::GetInstance()->GetResourceManager()->GetResourceLoader()->RegisterResourceFactory(
-        std::make_shared<ResourceFactoryBinaryGuiTextureV0>(), RESOURCE_FORMAT_BINARY, "GuiTexture",
-        static_cast<uint32_t>(RESOURCE_TYPE_GUI_TEXTURE), 0);
+    RegisterResourceFactories();
 
     ImGuiWMInit();
     mInterpreter = dynamic_pointer_cast<Fast::Fast3dWindow>(Context::GetInstance()->GetWindow())->GetInterpreterWeak();
@@ -370,6 +366,17 @@ void Gui::ImGuiBackendNewFrame() {
         default:
             break;
     }
+}
+
+// Registers the Gui-owned resource factories (Font, GuiTexture) on the Context's CURRENTLY ACTIVE
+// ResourceManager. Called once at Gui::Init, and again by a game that creates its own ResourceManager
+// (ComboShip: each game has its own RM, so each must get these infra factories — they're otherwise
+// only registered on whichever RM was active when the shared Gui was first created).
+void Gui::RegisterResourceFactories() {
+    GetGameOverlay()->Init(); // registers the Font factory on the active RM
+    Context::GetInstance()->GetResourceManager()->GetResourceLoader()->RegisterResourceFactory(
+        std::make_shared<ResourceFactoryBinaryGuiTextureV0>(), RESOURCE_FORMAT_BINARY, "GuiTexture",
+        static_cast<uint32_t>(RESOURCE_TYPE_GUI_TEXTURE), 0);
 }
 
 void Gui::RebuildFontTexture() {

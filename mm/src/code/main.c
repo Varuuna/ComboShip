@@ -214,5 +214,9 @@ void MM_RunGameLoop(void) {
 // its SysCfb_Init is in Main(), not RunFrame, so its resume never re-carves the arena.)
 void MM_ResetSystemHeapForResume(void) {
     SystemHeap_Init(gSystemHeap, SYSTEM_HEAP_SIZE);
+    // Resetting the system arena orphans arena-allocated globals like gRegEditor (which holds SREG,
+    // incl. R_UPDATE_RATE used as a divisor at frame time). Re-run Regs_Init to re-establish them,
+    // mirroring MM_RunMain's order (SystemHeap_Init then Regs_Init).
+    Regs_Init();
 }
 #endif

@@ -56,6 +56,8 @@ class Context {
     std::shared_ptr<Config> GetConfig();
     std::shared_ptr<ConsoleVariable> GetConsoleVariables();
     std::shared_ptr<ResourceManager> GetResourceManager();
+    // ComboShip: swap the active ResourceManager without destroying the previous one (caller retains it).
+    void SetResourceManager(std::shared_ptr<ResourceManager> resourceManager);
     std::shared_ptr<ControlDeck> GetControlDeck();
     std::shared_ptr<CrashHandler> GetCrashHandler();
     std::shared_ptr<Window> GetWindow();

@@ -83,6 +83,9 @@ class Gui {
     // otherwise the new fonts leave the atlas with TexReady=false and ImGui::NewFrame() asserts
     // "Font Atlas not built!".
     void RebuildFontTexture();
+    // Registers the Gui-owned resource factories (Font, GuiTexture) on the active ResourceManager.
+    // A game that creates its own ResourceManager (combo per-game RMs) must call this on it.
+    void RegisterResourceFactories();
     void StartDraw();
     void EndDraw();
     void HandleWindowEvents(WindowEvent event);

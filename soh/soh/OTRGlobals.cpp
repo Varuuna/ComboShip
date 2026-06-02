@@ -267,9 +267,10 @@ OTRGlobals::OTRGlobals() {
 }
 
 #ifdef COMBO_BUILD
-// Captured during OTRGlobals::Initialize so a combo MM->OOT return can restore OOT's archives
-// (MM's reuse path cleared them with SetArchives(nullptr) + AddArchive of MM's files).
-static std::vector<std::string> sOOTArchivePaths;
+// OOT's own ResourceManager, created at first boot and kept alive for the whole process. A combo
+// transition swaps the Context's active RM between OOT's and MM's (each game keeps its own archives +
+// resource cache resident), so nothing is unloaded and no cached resource pointer ever dangles.
+static std::shared_ptr<Ship::ResourceManager> sOOTResourceManager;
 #endif
 
 // Registers all OOT resource factories on the given loader. Factored out of
@@ -399,8 +400,9 @@ void OTRGlobals::Initialize() {
     // tell LUS to reserve 3 SoH specific threads (Game, Audio, Save)
     context->InitResourceManager(OTRFiles, {}, 3);
 #ifdef COMBO_BUILD
-    // Remember OOT's archive list so a combo MM->OOT return can restore it (see SOH_ResumeGame).
-    sOOTArchivePaths = OTRFiles;
+    // Keep a reference to OOT's ResourceManager so a combo MM->OOT return can re-activate it (its
+    // archives + resource cache stay resident the whole time — see SOH_ResumeGame).
+    sOOTResourceManager = context->GetResourceManager();
 #endif
     prevAltAssets = CVarGetInteger(CVAR_SETTING("AltAssets"), 0);
     context->GetResourceManager()->SetAltAssetsEnabled(prevAltAssets);
@@ -2875,34 +2877,18 @@ extern "C" void OTRMessage_ResetForResume(void);
 // this slot, and jump straight to Play at the Mido's-House door.
 extern "C" s32 gComboReturnFileNum = -1;
 
-// Re-initializes the OOT-side pieces that SOH_PrepareForTransition tore down, and swaps the
-// shared resource manager's archives back to OOT (MM had swapped them to its own). Pairs each
-// teardown in SOH_PrepareForTransition with its boot-time init counterpart.
+// Re-activate OOT's resources and re-init the pieces SOH_PrepareForTransition tore down.
 static void SOH_ReinitForResume() {
     auto ctx = Ship::Context::GetInstance();
 
-    // Order matters. Swap archives back to OOT and reload its resources/factories FIRST (mirror
-    // BenPort's reuse path: SetArchives(nullptr) + AddArchive loop + UnloadResources("*")).
-    auto archiveMgr = ctx->GetResourceManager()->GetArchiveManager();
-    archiveMgr->SetArchives(nullptr);
-    for (const auto& path : sOOTArchivePaths) {
-        archiveMgr->AddArchive(path);
-    }
-    ctx->GetResourceManager()->UnloadResources("*");
-    RegisterOOTResourceFactories(ctx->GetResourceManager()->GetResourceLoader());
+    // Re-activate OOT's own ResourceManager. Its archives, factories, and resource cache stayed
+    // resident the entire time MM was running (MM used its own RM), so nothing was unloaded and no
+    // cached resource pointer dangles -> no archive swap, no UnloadResources, no factory re-register,
+    // no message-table/audio-heap reset needed. This is what eliminates the whole dangling class.
+    ctx->SetResourceManager(sOOTResourceManager);
 
-    // ONLY NOW re-init the pieces SOH_PrepareForTransition tore down. OTRAudio_Init() precaches the
-    // "audio" resource directory and starts the audio thread, so it MUST run AFTER the archive swap
-    // (so it caches OOT audio, not MM's) AND after UnloadResources("*") (otherwise the unload frees
-    // the audio samples out from under the running audio thread -> access violation in
-    // AudioSynth_ProcessNote, which is exactly the crash this ordering fixes).
-    // Force a full audio-heap reset so soundfonts/samples reload from the swapped-back archives. The
-    // audio engine still references the sample buffers freed by the transition's UnloadResources; the
-    // reset (AudioHeap_Init) discards the heap and load status so the first sequence reloads fresh,
-    // instead of AudioSynth_ProcessNote reading freed memory. Set BEFORE the audio thread restarts so
-    // its first CreateNextAudioBuffer processes the reset before playing any note.
-    gAudioContext.resetStatus = 1;
-
+    // Restart OOT's audio thread (SOH_PrepareForTransition stopped it). Soundfonts/samples are still
+    // resident in OOT's RM, so the thread resumes against valid data with no reload/heap reset.
     OTRAudio_Init();              // counterpart to OTRAudio_Exit() in SOH_PrepareForTransition
     SohGui::SetupGuiElements();   // counterpart to SohGui::Destroy() in SOH_PrepareForTransition
 }
@@ -2924,12 +2910,9 @@ extern "C" __declspec(dllexport) void SOH_ResumeGame(void) {
     ctx->GetLogger()->flush_on(spdlog::level::trace);
     SPDLOG_INFO("[ComboShip] SOH_ResumeGame: begin (gSaveContext.fileNum={})", (int)gSaveContext.fileNum);
 
-    // 1. Re-init audio/gui and swap archives + factories back to OOT.
+    // 1. Re-activate OOT's ResourceManager + restart audio/gui (resources stayed resident, so no
+    //    message-table/audio reset is needed — that whole dangling class is gone with per-game RMs).
     SOH_ReinitForResume();
-    // Rebuild OOT's message-data tables: the cached table pointers + _message_0xFFFC_nes dangle after
-    // the forward transition freed their backing resources; without this, Play_Init's Message_Init
-    // strlen()s freed memory and crashes. Must run AFTER archives are swapped back (it reloads them).
-    OTRMessage_ResetForResume();
     SPDLOG_INFO("[ComboShip] SOH_ResumeGame: SOH_ReinitForResume done");
 
     // 2. Re-arm the shared window so OOT's `while (WindowIsRunning())` loop runs instead of

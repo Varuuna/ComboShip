@@ -15,8 +15,22 @@ s32 OTRScene_ExecuteCommands(PlayState* play, SOH::Scene* scene);
 
 // LUS::OTRResource* OTRPlay_LoadFile(PlayState* play, RomFile* file) {
 Ship::IResource* OTRPlay_LoadFile(PlayState* play, const char* fileName) {
-    auto res = Ship::Context::GetInstance()->GetResourceManager()->LoadResource(fileName);
-    return res.get();
+    // ComboShip: the resource manager loads async and rethrows on .get(); during an MM->OOT resume a
+    // scene/resource can fail to load and the throw was taking the whole process down with no captured
+    // backtrace. Catch it here, log exactly which file failed and why, and return nullptr so the caller
+    // hits its existing fallback instead of dying silently.
+    try {
+        auto res = Ship::Context::GetInstance()->GetResourceManager()->LoadResource(fileName);
+        return res.get();
+    } catch (const std::exception& e) {
+        lusprintf(__FILE__, __LINE__, 2, "[ComboShip] OTRPlay_LoadFile FAILED for '%s': %s\n",
+                  fileName ? fileName : "(null)", e.what());
+        return nullptr;
+    } catch (...) {
+        lusprintf(__FILE__, __LINE__, 2, "[ComboShip] OTRPlay_LoadFile FAILED for '%s': unknown exception\n",
+                  fileName ? fileName : "(null)");
+        return nullptr;
+    }
 }
 
 extern "C" void OTRPlay_SpawnScene(PlayState* play, s32 sceneId, s32 spawn) {

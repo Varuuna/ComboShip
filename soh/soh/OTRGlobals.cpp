@@ -2868,6 +2868,9 @@ extern "C" void SOH_RunGameLoop(void);
 // Defined in soh/src/code/graph.c: resets the frame state machine so SOH_RunGameLoop restarts the
 // gamestate sequence from TitleSetup instead of resuming into the destroyed post-handoff gamestate.
 extern "C" void SOH_ResetFrameLoopForResume(void);
+// Defined in soh/soh/z_message_OTR.cpp: rebuilds the message-data tables whose cached pointers were
+// left dangling by the forward transition's UnloadResources.
+extern "C" void OTRMessage_ResetForResume(void);
 // Consumed by TitleSetup_InitImpl (soh/src/code/title_setup.c): >= 0 => skip title/file-select, load
 // this slot, and jump straight to Play at the Mido's-House door.
 extern "C" s32 gComboReturnFileNum = -1;
@@ -2893,6 +2896,13 @@ static void SOH_ReinitForResume() {
     // (so it caches OOT audio, not MM's) AND after UnloadResources("*") (otherwise the unload frees
     // the audio samples out from under the running audio thread -> access violation in
     // AudioSynth_ProcessNote, which is exactly the crash this ordering fixes).
+    // Force a full audio-heap reset so soundfonts/samples reload from the swapped-back archives. The
+    // audio engine still references the sample buffers freed by the transition's UnloadResources; the
+    // reset (AudioHeap_Init) discards the heap and load status so the first sequence reloads fresh,
+    // instead of AudioSynth_ProcessNote reading freed memory. Set BEFORE the audio thread restarts so
+    // its first CreateNextAudioBuffer processes the reset before playing any note.
+    gAudioContext.resetStatus = 1;
+
     OTRAudio_Init();              // counterpart to OTRAudio_Exit() in SOH_PrepareForTransition
     SohGui::SetupGuiElements();   // counterpart to SohGui::Destroy() in SOH_PrepareForTransition
 }
@@ -2905,11 +2915,22 @@ extern "C" __declspec(dllexport) void SOH_NotifyComboReturn(void) {
 // ComboShip MM->OOT return: re-enter OOT's game loop on the SAME shared context/window, swap
 // archives back to OOT, reload the OOT save, and spawn Link at the Mido's-House door in Kokiri
 // Forest. Counterpart to MM's sComboTransitionActive reuse path in BenPort.cpp.
+extern "C" bool WindowIsRunning(void);
+
 extern "C" __declspec(dllexport) void SOH_ResumeGame(void) {
     auto ctx = Ship::Context::GetInstance();
+    // Flush every log line immediately so the resume diagnostics survive a hard crash (the console
+    // window closes on crash; the log file is what we read afterward).
+    ctx->GetLogger()->flush_on(spdlog::level::trace);
+    SPDLOG_INFO("[ComboShip] SOH_ResumeGame: begin (gSaveContext.fileNum={})", (int)gSaveContext.fileNum);
 
     // 1. Re-init audio/gui and swap archives + factories back to OOT.
     SOH_ReinitForResume();
+    // Rebuild OOT's message-data tables: the cached table pointers + _message_0xFFFC_nes dangle after
+    // the forward transition freed their backing resources; without this, Play_Init's Message_Init
+    // strlen()s freed memory and crashes. Must run AFTER archives are swapped back (it reloads them).
+    OTRMessage_ResetForResume();
+    SPDLOG_INFO("[ComboShip] SOH_ResumeGame: SOH_ReinitForResume done");
 
     // 2. Re-arm the shared window so OOT's `while (WindowIsRunning())` loop runs instead of
     //    returning immediately (MM cleared mIsRunning when its loop exited).
@@ -2925,9 +2946,12 @@ extern "C" __declspec(dllexport) void SOH_ResumeGame(void) {
     //    The save itself is loaded by TitleSetup via Sram_OpenSave, exactly like normal file select.
     gComboReturnFileNum = (s32)gSaveContext.fileNum;
     SOH_ResetFrameLoopForResume();
+    SPDLOG_INFO("[ComboShip] SOH_ResumeGame: entering OOT loop (gComboReturnFileNum={}, WindowIsRunning={})",
+                gComboReturnFileNum, WindowIsRunning());
 
     // 5. Re-run OOT's game loop (returns when the shared window's running flag is cleared again).
     SOH_RunGameLoop();
+    SPDLOG_INFO("[ComboShip] SOH_ResumeGame: OOT loop RETURNED (WindowIsRunning={})", WindowIsRunning());
 }
 #endif
 

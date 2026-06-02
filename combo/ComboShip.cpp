@@ -68,6 +68,71 @@ static void ComboPureCall() {
     std::cerr << "[ComboShip] pure virtual call" << std::endl;
     ComboWriteStack("purecall");
 }
+
+// Walks the faulting thread's stack from an exception CONTEXT (accurate crash-site backtrace, unlike
+// CaptureStackBackTrace from inside a handler) and writes it to combo_abort_stack.txt.
+static void ComboWriteStackCtx(EXCEPTION_POINTERS* ep, const char* reason) {
+    FILE* f = fopen("combo_abort_stack.txt", "w");
+    if (!f) return;
+    fprintf(f, "Reason: %s\n", reason);
+    HANDLE proc = GetCurrentProcess();
+    SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME);
+    SymInitialize(proc, NULL, TRUE);
+    CONTEXT ctx = *ep->ContextRecord;
+    STACKFRAME64 frame = {};
+    frame.AddrPC.Offset = ctx.Rip;    frame.AddrPC.Mode = AddrModeFlat;
+    frame.AddrFrame.Offset = ctx.Rbp; frame.AddrFrame.Mode = AddrModeFlat;
+    frame.AddrStack.Offset = ctx.Rsp; frame.AddrStack.Mode = AddrModeFlat;
+    char symBuf[sizeof(SYMBOL_INFO) + 512] = {};
+    SYMBOL_INFO* sym = (SYMBOL_INFO*)symBuf;
+    sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+    sym->MaxNameLen = 512;
+    for (int i = 0; i < 62; ++i) {
+        if (!StackWalk64(IMAGE_FILE_MACHINE_AMD64, proc, GetCurrentThread(), &frame, &ctx, NULL,
+                         SymFunctionTableAccess64, SymGetModuleBase64, NULL))
+            break;
+        DWORD64 addr = frame.AddrPC.Offset;
+        if (!addr) break;
+        DWORD64 disp = 0;
+        IMAGEHLP_LINE64 line = {}; line.SizeOfStruct = sizeof(line); DWORD lineDisp = 0;
+        if (SymFromAddr(proc, addr, &disp, sym)) {
+            fprintf(f, "%2d: %s + 0x%llx", i, sym->Name, (unsigned long long)disp);
+            if (SymGetLineFromAddr64(proc, addr, &lineDisp, &line))
+                fprintf(f, "  (%s:%lu)", line.FileName, line.LineNumber);
+            fprintf(f, "\n");
+        } else {
+            fprintf(f, "%2d: 0x%llx\n", i, (unsigned long long)addr);
+        }
+    }
+    SymCleanup(proc);
+    fclose(f);
+}
+
+// Fires FIRST for every SEH exception (registered with first=1), before any frame/unhandled handler
+// or SoH's crash handler can swallow it. Records only genuinely fatal faults (access violation, stack
+// overflow, __fastfail, illegal instruction...), once, then lets normal handling proceed unchanged.
+// This is what captures the otherwise-silent MM->OOT resume crash.
+static LONG WINAPI ComboVectoredHandler(EXCEPTION_POINTERS* ep) {
+    DWORD code = ep->ExceptionRecord->ExceptionCode;
+    if (code < 0xC0000000u || code == 0xE06D7363u) // skip non-fatal + C++ exceptions (0xE06D7363)
+        return EXCEPTION_CONTINUE_SEARCH;
+    static bool wrote = false;
+    if (!wrote) {
+        wrote = true;
+        char reason[64];
+        snprintf(reason, sizeof(reason), "fatal SEH 0x%08lx", code);
+        ComboWriteStackCtx(ep, reason);
+        std::cerr << "[ComboShip] " << reason << " -> combo_abort_stack.txt" << std::endl;
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+static LONG WINAPI ComboUnhandledFilter(EXCEPTION_POINTERS* ep) {
+    char reason[64];
+    snprintf(reason, sizeof(reason), "unhandled SEH 0x%08lx", ep->ExceptionRecord->ExceptionCode);
+    ComboWriteStackCtx(ep, reason);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
 #endif
 
 // Surfaces the real exception behind a silent terminate()/exit(3). With the shared dynamic
@@ -200,6 +265,12 @@ int main(int argc, char** argv) {
     signal(SIGABRT, ComboAbortHandler);
     _set_invalid_parameter_handler(ComboInvalidParameter);
     _set_purecall_handler(ComboPureCall);
+#endif
+#ifdef _WIN32
+    // Capture ANY fatal crash (access violation, etc.) to combo_abort_stack.txt, even ones that the
+    // SoH/abort handlers miss. Vectored (first=1) records the fault before anything can swallow it.
+    AddVectoredExceptionHandler(1, ComboVectoredHandler);
+    SetUnhandledExceptionFilter(ComboUnhandledFilter);
 #endif
     std::set_terminate(ComboTerminateHandler);
 

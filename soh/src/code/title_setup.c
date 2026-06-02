@@ -13,6 +13,7 @@ void TitleSetup_InitImpl(GameState* gameState) {
     if (gComboReturnFileNum >= 0) {
         // Combo MM->OOT return: mirror FileChoose_LoadGame (z_file_choose.c) to load the OOT save and
         // jump directly to Play, then override the entrance so Link spawns exiting Mido's House.
+        LUSLOG_INFO("[ComboShip] TitleSetup combo jump -> Play (fileNum=%d)", gComboReturnFileNum);
         gSaveContext.fileNum = gComboReturnFileNum;
         gSaveContext.gameMode = GAMEMODE_NORMAL;
         Sram_OpenSave();

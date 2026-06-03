@@ -4,7 +4,7 @@
 #include "../ZAPD/ZFile.h"
 #include <Utils/MemoryStream.h>
 #include <Utils/BitConverter.h>
-#include <utils/StrHash64.h>
+#include <ship/utils/StrHash64.h>
 #include "spdlog/spdlog.h"
 #include <libultraship/libultra/gbi.h>
 #include <Globals.h>

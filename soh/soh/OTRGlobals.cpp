@@ -2570,7 +2570,9 @@ extern "C" __declspec(dllexport) bool SOH_Extract(const char* searchPath) {
     if (!extract.Run(path)) {
         return false;
     }
-    extract.CallZapd(installPath, path);
+    // Upstream merge: CallZapd gained two atomic progress counters (extracted / total).
+    std::atomic<size_t> extractCount = 0, totalExtract = 0;
+    extract.CallZapd(installPath, path, &extractCount, &totalExtract);
     return true;
 }
 #endif

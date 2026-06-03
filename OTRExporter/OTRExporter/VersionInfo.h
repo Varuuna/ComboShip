@@ -2,6 +2,7 @@
 
 #include <map>
 #include <vector>
-#include "src/resource/Resource.h"
+#include <ship/resource/Resource.h>
+#include <fast/resource/ResourceType.h>
 
 extern std::map<uint32_t, uint32_t> resourceVersions;

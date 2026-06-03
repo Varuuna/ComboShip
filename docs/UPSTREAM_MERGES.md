@@ -165,10 +165,41 @@ Only two files conflicted; the rest auto-merged (mostly upstream asset additions
     `SetResourceManager`). The factory **set** is byte-for-byte identical to upstream's, so nothing
     is lost.
 
-**Still broken after this merge (pre-existing, NOT caused by it):** `OTRExporter` (a separate,
-non-updated vendored folder) still `#include`s libultraship's old header paths
-(`src/resource/Resource.h`, `utils/StrHash64.h`) and old `Fast::` resource-type API, so a `soh`
-build still fails in `OTRExporter.vcxproj` until OTRExporter is adapted to the merged libultraship.
+### Build-fix follow-up (to make `soh.dll` actually build against the merged libultraship)
+
+soh@develop is coupled to libultraship **and** to OTRExporter/ZAPDTR (both are git submodules in
+Shipwright, pinned `OTRExporter@32e088e28` / `ZAPDTR@ee3397a365`, fetched here as remotes
+`up-otrx` / `up-zapd`). The merge surfaced a chain of issues; `soh.dll` builds clean once all are
+applied:
+
+1. **OTRExporter include relocations** (hand-patched to the merged LUS header layout):
+   `VersionInfo.h` → `<ship/resource/Resource.h>` + `<fast/resource/ResourceType.h>`;
+   `<utils/StrHash64.h>` → `<ship/utils/StrHash64.h>` in `DisplayListExporter.cpp`,
+   `ExporterArchive{,O2R,OTR}.cpp`. **Kept** combo deviations: `Exporter.h` includes MM's
+   `2shResourceType.h` unconditionally, and the build defines **both** `GAME_MM` and `GAME_OOT`
+   (ComboShip builds ONE exporter for both games — do NOT adopt upstream's mutually-exclusive
+   `#ifdef GAME_MM / #elif GAME_OOT` gating).
+2. **`/Zc:preprocessor`** added to the combo **root** `CMakeLists.txt`. Upstream soh's randomizer
+   X-macro enum headers (`randomizerEnums.h`) use C++20 `__VA_OPT__`, which MSVC only supports under
+   the conforming preprocessor. Upstream sets this in their root; we have our own root.
+3. **`SPDLOG_LEVEL_*` defined at combo root scope** (before the subdir `add_subdirectory`s).
+   `libultraship/src/CMakeLists.txt` sets them only in its own subdir scope, so sibling subdirs
+   (soh, mm) didn't inherit them → `LOG_LEVEL_GAME_PRINTS=${SPDLOG_LEVEL_OFF}` expanded to empty →
+   `#if` C1017 in `soh/include/functions.h`.
+4. **ZAPDTR `zapd_report`**: adopted the pin's `ZAPD/Main.cpp` + `ExecutableMain.cpp` (upstream
+   renamed `zapd_main` → `zapd_report(argc, argv, &extractCount, &totalExtract)` and kept a
+   `zapd_main` wrapper). soh's `Extract.cpp` calls `zapd_report`. Left `ZRom.cpp`/`CMakeLists.txt`
+   untouched — they carry combo deviations (runtime MM-ROM CRC detection; `GAME_MM`+`GAME_OOT`).
+5. **`g_exec_stack` cross-DLL data import**: `libultraship/include/fast/interpreter.h` now guards the
+   declaration `extern __declspec(dllimport) GfxExecStack g_exec_stack;` for consumers
+   (`!defined(libultraship_EXPORTS)`). soh's `CrashHandlerExt.cpp` references this libultraship data
+   symbol; data symbols need explicit consumer-side dllimport (functions auto-thunk, data does not —
+   the `__osMaxControllers` pattern). libultraship still exports it via the all-symbols `/DEF`.
+6. **`SOH_Init` / `SOH_Extract`** in OTRGlobals.cpp adjusted to upstream's new signatures:
+   `InitOTR()` → `InitOTR(0, nullptr)`; `Extractor::CallZapd` is now 4-arg (two atomic counters).
+
+**Not yet done:** rebuild `2ship` + `ComboShip` against the merged deps (2ship shares OTRExporter;
+mm itself is not yet upstream-merged), then runtime-test the OOT↔MM loop.
 
 ## mm — `develop`
 

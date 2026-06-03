@@ -57,6 +57,11 @@ set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT combo)
 # Compiler options
 add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/MP>)
 add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+# ComboShip: upstream Shipwright/2ship set this in THEIR root CMakeLists; we have our own root,
+# so mirror it here. Required by soh's (and mm's) randomizer X-macro enum headers, which use the
+# C++20 __VA_OPT__ preprocessor feature that MSVC only supports under the conforming preprocessor.
+# Surfaced by the soh upstream merge (see docs/UPSTREAM_MERGES.md).
+add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/Zc:preprocessor>)
 
 # Warning suppression option (from OOT)
 option(SUPPRESS_WARNINGS "Suppress warnings in LUS and src (decomp)" ON)
@@ -198,6 +203,20 @@ find_package(Python3 REQUIRED)
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
+
+# ComboShip: spdlog log-level numeric values. libultraship/src/CMakeLists.txt sets these but only
+# in its own subdirectory scope, so sibling subdirs (soh, mm) don't inherit them -> their
+# LOG_LEVEL_GAME_PRINTS=${SPDLOG_LEVEL_OFF} compile-def expands to empty -> #if C1017 in
+# soh/include/functions.h. Define them here at root scope so every game subdir inherits them.
+# (Surfaced by the soh upstream merge once libultraship's logging CMake was rescoped. See
+# docs/UPSTREAM_MERGES.md.)
+set(SPDLOG_LEVEL_TRACE 0)
+set(SPDLOG_LEVEL_DEBUG 1)
+set(SPDLOG_LEVEL_INFO 2)
+set(SPDLOG_LEVEL_WARN 3)
+set(SPDLOG_LEVEL_ERROR 4)
+set(SPDLOG_LEVEL_CRITICAL 5)
+set(SPDLOG_LEVEL_OFF 6)
 
 # Shared libultraship (in Combo directory)
 add_subdirectory(libultraship ${CMAKE_BINARY_DIR}/libultraship)

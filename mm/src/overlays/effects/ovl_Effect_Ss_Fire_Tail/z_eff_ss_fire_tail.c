@@ -27,7 +27,7 @@ u32 EffectSsFireTail_Init(PlayState* play, u32 index, EffectSs* this, void* init
 void EffectSsFireTail_Update(PlayState* play, u32 index, EffectSs* this);
 void EffectSsFireTail_Draw(PlayState* play, u32 index, EffectSs* this);
 
-EffectSsInit Effect_Ss_Fire_Tail_InitVars = {
+EffectSsProfile Effect_Ss_Fire_Tail_Profile = {
     EFFECT_SS_FIRE_TAIL,
     EffectSsFireTail_Init,
 };
@@ -120,13 +120,13 @@ void EffectSsFireTail_Draw(PlayState* play, u32 index, EffectSs* this) {
 
     Matrix_Scale(1.0f, temp1, 1.0f / temp1, MTXMODE_APPLY);
 
-    gSPMatrix(POLY_XLU_DISP++, Matrix_NewMtx(play->state.gfxCtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, play->state.gfxCtx);
     Gfx_SetupDL25_Xlu(play->state.gfxCtx);
     gDPSetPrimColor(POLY_XLU_DISP++, 0, 0x80, this->rPrimColorR, this->rPrimColorG, this->rPrimColorB, 255);
     gDPSetEnvColor(POLY_XLU_DISP++, this->rEnvColorR, this->rEnvColorG, this->rEnvColorB, 0);
-    gSPSegment(
-        POLY_XLU_DISP++, 0x08,
-        Gfx_TwoTexScroll(play->state.gfxCtx, 0, 0, 0, 32, 64, 1, 0, (play->state.frames * -20) & 0x1FF, 32, 128));
+    gSPSegment(POLY_XLU_DISP++, 0x08,
+               Gfx_TwoTexScrollEx(play->state.gfxCtx, 0, 0, 0, 32, 64, 1, 0, (play->state.frames * -20) & 0x1FF, 32,
+                                  128, 0, 0, 0, -20));
 
     if (this->rType != 0) {
         gSPDisplayList(POLY_XLU_DISP++, gEffFire2DL);

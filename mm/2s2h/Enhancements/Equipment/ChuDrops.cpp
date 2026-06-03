@@ -1,4 +1,4 @@
-#include "public/bridge/consolevariablebridge.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include "2s2h/ShipInit.hpp"
 #include "2s2h/CustomItem/CustomItem.h"
@@ -62,7 +62,7 @@ static void ChuDrop_Draw(Actor* actor, PlayState* play) {
 
         gSPSegment(POLY_OPA_DISP++, 0x08, (uintptr_t)gDropBombchuTex);
 
-        gSPMatrix(POLY_OPA_DISP++, Matrix_NewMtx(play->state.gfxCtx), G_MTX_MODELVIEW | G_MTX_LOAD);
+        MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, play->state.gfxCtx);
 
         gSPDisplayList(POLY_OPA_DISP++, (Gfx*)gItemDropDL);
     }
@@ -74,7 +74,8 @@ static void ChuDrop_Draw(Actor* actor, PlayState* play) {
 
 void RegisterChuDrops() {
     COND_ID_HOOK(ShouldActorInit, ACTOR_EN_ITEM00, CVAR, [](Actor* actor, bool* should) {
-        if (actor->params == ITEM00_BOMBS_0 || actor->params == ITEM00_BOMBS_A || actor->params == ITEM00_BOMBS_B) {
+        u8 params = actor->params & 0xFF;
+        if (params == ITEM00_BOMBS_0 || params == ITEM00_BOMBS_A || params == ITEM00_BOMBS_B) {
             if (rand() % 100 < 50) {
                 *should = false;
                 EnItem00* newItem =

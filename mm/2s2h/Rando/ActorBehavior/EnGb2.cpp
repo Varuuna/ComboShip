@@ -1,12 +1,12 @@
 #include "ActorBehavior.h"
-#include "public/bridge/consolevariablebridge.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 #include "2s2h/CustomMessage/CustomMessage.h"
 
 extern "C" {
 #include "variables.h"
 #include "src/overlays/actors/ovl_En_Gb2/z_en_gb2.h"
 
-void Player_TalkWithPlayer(PlayState* play, Actor* actor);
+void Player_StartTalking(PlayState* play, Actor* actor);
 }
 
 void Rando::ActorBehavior::InitEnGb2Behavior() {
@@ -30,7 +30,7 @@ void Rando::ActorBehavior::InitEnGb2Behavior() {
         player->talkActor = refActor;
         player->talkActorDistance = refActor->xzDistToPlayer;
         player->exchangeItemAction = PLAYER_IA_MINUS1;
-        Player_TalkWithPlayer(gPlayState, refActor);
+        Player_StartTalking(gPlayState, refActor);
         /*
          * This actor sets MSGMODE_TEXT_CLOSING state and expects GI to set it back to MSGMODE_TEXT_START. Because the
          * GI is skipped, we manually start the textbox to prevent the player from being able to move during dialog.
@@ -44,7 +44,8 @@ void Rando::ActorBehavior::InitEnGb2Behavior() {
         }
 
         std::string checkItemName =
-            Rando::StaticData::GetItemName(RANDO_SAVE_CHECKS[RC_IKANA_CANYON_GHOST_HUT_PIECE_OF_HEART].randoItemId);
+            Rando::StaticData::GetItemName(RANDO_SAVE_CHECKS[RC_IKANA_CANYON_GHOST_HUT_PIECE_OF_HEART].randoItemId,
+                                           true, RC_IKANA_CANYON_GHOST_HUT_PIECE_OF_HEART);
 
         auto entry = CustomMessage::LoadVanillaMessageTableEntry(*textId);
         entry.msg = "If you are seeking the one who is\n";

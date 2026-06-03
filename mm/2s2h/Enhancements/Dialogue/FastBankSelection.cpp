@@ -1,4 +1,4 @@
-#include "public/bridge/consolevariablebridge.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include "2s2h/ShipInit.hpp"
 
@@ -24,35 +24,25 @@ void FastBankSelection_UpdateMessage(const char rupeeValue[3]) {
 void OnEnGinkoManUpdate(Actor* actor) {
     EnGinkoMan* enGinko = (EnGinkoMan*)actor;
     if (gPlayState->msgCtx.currentTextId == 0x450) {
+        uint32_t depositAmount = MIN(gSaveContext.save.saveInfo.playerData.rupees, 999u);
         if (CHECK_BTN_ALL(gPlayState->state.input[0].cur.button, BTN_Z) &&
-            gPlayState->msgCtx.bankRupeesSelected != gSaveContext.save.saveInfo.playerData.rupees) {
-            char firstChar = (gSaveContext.save.saveInfo.playerData.rupees / 100) + '0';
-            char secondChar = ((gSaveContext.save.saveInfo.playerData.rupees / 10) % 10) + '0';
-            char thirdChar = (gSaveContext.save.saveInfo.playerData.rupees % 10) + '0';
+            gPlayState->msgCtx.rupeesSelected != (s32)depositAmount) {
+            char firstChar = (depositAmount / 100) + '0';
+            char secondChar = ((depositAmount / 10) % 10) + '0';
+            char thirdChar = (depositAmount % 10) + '0';
             const char rupeeChar[3] = { firstChar, secondChar, thirdChar };
 
             FastBankSelection_UpdateMessage(rupeeChar);
         }
     } else if (gPlayState->msgCtx.currentTextId == 0x46E) {
-        uint32_t walletSize = CUR_UPG_VALUE(UPG_WALLET);
         uint32_t currentRupees = gSaveContext.save.saveInfo.playerData.rupees;
         uint32_t maxWallet;
         if (CHECK_BTN_ALL(gPlayState->state.input[0].cur.button, BTN_Z)) {
-            switch (ITEM_WALLET_DEFAULT + walletSize) {
-                case ITEM_WALLET_ADULT:
-                    maxWallet = (200 - currentRupees);
-                    break;
-                case ITEM_WALLET_GIANT:
-                    maxWallet = (500 - currentRupees);
-                    break;
-                default:
-                    maxWallet = (99 - currentRupees);
-                    break;
-            }
+            uint32_t walletCapacity = CUR_CAPACITY(UPG_WALLET);
+            maxWallet = (walletCapacity > currentRupees) ? (walletCapacity - currentRupees) : 0;
+            maxWallet = MIN(maxWallet, MIN(HS_GET_BANK_RUPEES(), 999u));
 
-            maxWallet = MIN(maxWallet, HS_GET_BANK_RUPEES());
-
-            if (maxWallet != 0 && gPlayState->msgCtx.bankRupeesSelected != maxWallet) {
+            if (maxWallet != 0 && gPlayState->msgCtx.rupeesSelected != maxWallet) {
                 char firstChar = (maxWallet / 100) + '0';
                 char secondChar = ((maxWallet / 10) % 10) + '0';
                 char thirdChar = (maxWallet % 10) + '0';
@@ -63,7 +53,7 @@ void OnEnGinkoManUpdate(Actor* actor) {
         }
     }
     if (gPlayState->msgCtx.currentTextId == 0x450 || gPlayState->msgCtx.currentTextId == 0x46E) {
-        if (CHECK_BTN_ALL(gPlayState->state.input[0].cur.button, BTN_R) && gPlayState->msgCtx.bankRupeesSelected != 0) {
+        if (CHECK_BTN_ALL(gPlayState->state.input[0].cur.button, BTN_R) && gPlayState->msgCtx.rupeesSelected != 0) {
             FastBankSelection_UpdateMessage(zeroRupees);
         }
     }

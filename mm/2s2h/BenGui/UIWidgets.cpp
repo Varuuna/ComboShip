@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include "2s2h/ShipUtils.h"
 #include <spdlog/fmt/fmt.h>
+#include "2s2h/BenPort.h"
 
 namespace UIWidgets {
 
@@ -138,7 +139,7 @@ void PushStyleInput(const ImVec4& color) {
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(color.x, color.y, color.z, 0.6f));
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.0f, 0.0f, 0.0f, 0.3f));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f, 6.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f, 8.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 5.0f);
 }
 
@@ -233,6 +234,124 @@ void Separator(bool padTop, bool padBottom, float extraVerticalTopPadding, float
     if (padBottom) {
         Spacer(extraVerticalBottomPadding);
     }
+}
+
+// Internal state stored per layout instance
+struct CardLayoutState {
+    std::vector<float> columnWidths;
+    std::vector<float> columnHeights;
+    std::vector<float> columnXPositions;
+    int currentCardColumn;
+    float startY;
+    int columnsPerRow;
+    float spacing;
+    bool autoItemWidth;
+    ImGuiChildFlags childFlags;
+};
+
+static CardLayoutState* gCurrentCardLayout = nullptr;
+
+void BeginCardLayout(const CardLayoutOptions& options) {
+    CardLayoutState* state = new CardLayoutState();
+
+    float availWidth = ImGui::GetContentRegionAvail().x;
+    int columnsPerRow = ImClamp(options.columnsPerRow, 1, options.columnsPerRow);
+    if (options.minColumnWidth > 0.0f) {
+        float denom = options.minColumnWidth + options.spacing;
+        if (denom > 0.0f) {
+            int widthLimitedColumns = static_cast<int>(ImFloor((availWidth + options.spacing) / denom));
+            columnsPerRow = ImClamp(widthLimitedColumns, 1, options.columnsPerRow);
+        }
+    }
+    columnsPerRow = ImMax(columnsPerRow, 1);
+    float columnWidth = (availWidth - (options.spacing * (columnsPerRow - 1))) / static_cast<float>(columnsPerRow);
+
+    // Initialize columns
+    state->columnWidths.resize(columnsPerRow, columnWidth);
+    state->columnHeights.resize(columnsPerRow, 0.0f);
+    state->columnXPositions.resize(columnsPerRow);
+
+    // Calculate X positions for each column
+    float currentX = ImGui::GetCursorPosX();
+    for (int i = 0; i < columnsPerRow; i++) {
+        state->columnXPositions[i] = currentX + (i * (columnWidth + options.spacing));
+    }
+
+    state->startY = ImGui::GetCursorPosY();
+    state->currentCardColumn = 0;
+    state->columnsPerRow = columnsPerRow;
+    state->spacing = options.spacing;
+    state->autoItemWidth = options.autoItemWidth;
+    state->childFlags = options.childFlags;
+
+    gCurrentCardLayout = state;
+}
+
+void BeginCard(const char* id) {
+    CardLayoutState* state = gCurrentCardLayout;
+    if (!state)
+        return;
+
+    // Find shortest column
+    int shortestCol = 0;
+    float shortestHeight = state->columnHeights[0];
+    for (int i = 1; i < state->columnsPerRow; i++) {
+        if (state->columnHeights[i] < shortestHeight) {
+            shortestHeight = state->columnHeights[i];
+            shortestCol = i;
+        }
+    }
+    state->currentCardColumn = shortestCol;
+
+    // Position cursor at this column's current height
+    ImGui::SetCursorPosX(state->columnXPositions[state->currentCardColumn]);
+    ImGui::SetCursorPosY(state->startY + state->columnHeights[state->currentCardColumn]);
+
+    ImGui::BeginChild(id, ImVec2(state->columnWidths[state->currentCardColumn], 0), state->childFlags);
+
+    // Auto-push item width to fill card
+    if (state->autoItemWidth) {
+        ImGui::PushItemWidth(-FLT_MIN);
+    }
+}
+
+void EndCard() {
+    CardLayoutState* state = gCurrentCardLayout;
+    if (!state)
+        return;
+
+    // Auto-pop item width
+    if (state->autoItemWidth) {
+        ImGui::PopItemWidth();
+    }
+
+    ImGui::EndChild();
+
+    // Get the height of the card we just rendered
+    ImVec2 itemSize = ImGui::GetItemRectSize();
+
+    // Update this column's height (add card height + spacing)
+    state->columnHeights[state->currentCardColumn] += itemSize.y + state->spacing;
+}
+
+void EndCardLayout() {
+    if (!gCurrentCardLayout) {
+        return;
+    }
+
+    CardLayoutState* state = gCurrentCardLayout;
+    float maxHeight = 0.0f;
+    for (float height : state->columnHeights) {
+        maxHeight = ImMax(maxHeight, height);
+    }
+    if (maxHeight > 0.0f) {
+        maxHeight -= state->spacing;
+        ImGui::SetCursorPosY(state->startY + maxHeight);
+        ImGui::Dummy(ImVec2(0.0f, 0.0f));
+    }
+
+    delete state;
+    gCurrentCardLayout = nullptr;
 }
 
 void RenderText(ImVec2 pos, const char* text, const char* text_end, bool hide_text_after_hash) {
@@ -872,19 +991,12 @@ bool CVarInputInt(const char* label, const char* cvarName, const InputOptions& o
     return dirty;
 }
 
-bool CVarColorPicker(const char* label, const char* cvarName, Color_RGBA8 defaultColor, bool hasAlpha,
-                     uint8_t modifiers, UIWidgets::Colors themeColor) {
-    std::string valueCVar = std::string(cvarName) + ".Value";
-    std::string rainbowCVar = std::string(cvarName) + ".Rainbow";
-    std::string lockedCVar = std::string(cvarName) + ".Locked";
-    Color_RGBA8 color = CVarGetColor(valueCVar.c_str(), defaultColor);
+bool CVarColorPicker(const char* label, const char* valueCvar, Color_RGBA8 defaultColor, bool hasAlpha,
+                     const char* lockedCvar, UIWidgets::Colors themeColor) {
+    Color_RGBA8 color = CVarGetColor(valueCvar, defaultColor);
     ImVec4 colorVec = ImVec4(color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f);
     bool changed = false;
-    bool showReset = modifiers & ColorPickerResetButton;
-    bool showRandom = modifiers & ColorPickerRandomButton;
-    bool showRainbow = modifiers & ColorPickerRainbowCheck;
-    bool showLock = modifiers & ColorPickerLockCheck;
-    bool locked = CVarGetInteger(lockedCVar.c_str(), 0);
+    bool locked = lockedCvar != nullptr && CVarGetInteger(lockedCvar, 0);
     ImGuiColorEditFlags flags = ImGuiColorEditFlags_NoInputs;
     ImGui::BeginDisabled(locked);
     PushStyleCombobox(UIWidgets::Colors::DarkGray);
@@ -895,63 +1007,15 @@ bool CVarColorPicker(const char* label, const char* cvarName, Color_RGBA8 defaul
         changed = ImGui::ColorEdit3(label, (float*)&colorVec, flags | ImGuiColorEditFlags_NoAlpha);
     }
     PopStyleCombobox();
-    ImGui::AlignTextToFramePadding();
-    if (showReset) {
-        ImGui::SameLine();
-        std::string uniqueTag = "Reset##" + std::string(label);
-        if (UIWidgets::Button(uniqueTag.c_str(),
-                              UIWidgets::ButtonOptions({ { .tooltip = "Resets this color to its default value" } })
-                                  .Color(themeColor)
-                                  .Size(UIWidgets::Sizes::Inline))) {
-            CVarClearBlock(valueCVar.c_str());
-            Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
-        }
-    }
-    if (showRandom) {
-        ImGui::SameLine();
-        std::string uniqueTag = "Random##" + std::string(label);
-        if (UIWidgets::Button(uniqueTag.c_str(),
-                              UIWidgets::ButtonOptions({ { .tooltip = "Generates a random color value to use" } })
-                                  .Color(themeColor)
-                                  .Size(UIWidgets::Sizes::Inline))) {
-            colorVec = GetRandomValue();
-            color.r = fmin(fmax(colorVec.x * 255, 0), 255);
-            color.g = fmin(fmax(colorVec.y * 255, 0), 255);
-            color.b = fmin(fmax(colorVec.z * 255, 0), 255);
-            CVarSetColor(valueCVar.c_str(), color);
-            CVarSetInteger(rainbowCVar.c_str(), 0); // On click disable rainbow mode.
-            ShipInit::Init(rainbowCVar.c_str());
-            Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
-        }
-    }
-    if (showRainbow) {
-        ImGui::SameLine();
-        std::string uniqueTag = "Rainbow##" + std::string(cvarName) + "Rainbow";
-
-        UIWidgets::CVarCheckbox(
-            uniqueTag.c_str(), rainbowCVar.c_str(),
-            UIWidgets::CheckboxOptions(
-                { { .tooltip = "Cycles through colors on a timer\nOverwrites previously chosen color" } })
-                .Color(themeColor));
-    }
     ImGui::EndDisabled();
-    if (showLock) {
-        ImGui::SameLine();
-        std::string uniqueTag = "Lock##" + std::string(cvarName) + "Locked";
-
-        UIWidgets::CVarCheckbox(
-            uniqueTag.c_str(), lockedCVar.c_str(),
-            UIWidgets::CheckboxOptions({ { .tooltip = "Prevents this color from being changed" } }).Color(themeColor));
-    }
     if (changed) {
         color.r = (uint8_t)(colorVec.x * 255.0f);
         color.g = (uint8_t)(colorVec.y * 255.0f);
         color.b = (uint8_t)(colorVec.z * 255.0f);
         color.a = (uint8_t)(colorVec.w * 255.0f);
-        CVarSetColor(valueCVar.c_str(), color);
+        CVarSetColor(valueCvar, color);
         Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
-        ShipInit::Init(valueCVar.c_str());
-        changed = true;
+        ShipInit::Init(valueCvar);
     }
 
     return changed;
@@ -1058,7 +1122,7 @@ void DrawFlagArray32(const std::string& name, uint32_t& flags, Colors color) {
         }
         if (ImGui::IsItemHovered()) {
             std::string label = fmt::format("0x{:02X} ({})", flagIndex, flagIndex);
-            ImGui::SetTooltip(label.c_str());
+            ImGui::SetTooltip("%s", label.c_str());
         }
         ImGui::PopStyleVar();
         PopStyleCheckbox();
@@ -1088,7 +1152,7 @@ void DrawFlagArray16(const std::string& name, uint16_t& flags, Colors color) {
         }
         if (ImGui::IsItemHovered()) {
             std::string label = fmt::format("0x{:02X} ({})", flagIndex, flagIndex);
-            ImGui::SetTooltip(label.c_str());
+            ImGui::SetTooltip("%s", label.c_str());
         }
         ImGui::PopStyleVar();
         PopStyleCheckbox();
@@ -1122,7 +1186,7 @@ void DrawFlagTableArray16(const FlagTable& flagTable, uint16_t& flags) {
             if (!label.size()) {
                 label = fmt::format("0x{:02X} ({})", flagIndex, flagIndex);
             }
-            ImGui::SetTooltip(label.c_str());
+            ImGui::SetTooltip("%s", label.c_str());
         }
         ImGui::PopStyleVar();
         PopStyleCheckbox();
@@ -1156,7 +1220,7 @@ void DrawFlagTableArray8(const FlagTable& flagTable, uint16_t row, uint8_t& flag
             if (!label.size()) {
                 label = fmt::format("0x{:02X} ({})", flagIndex, flagIndex);
             }
-            ImGui::SetTooltip(label.c_str());
+            ImGui::SetTooltip("%s", label.c_str());
         }
         ImGui::PopStyleVar();
         PopStyleCheckbox();
@@ -1188,7 +1252,7 @@ void DrawFlagTableArray8Mask(const FlagTable& flagTable, uint16_t row, uint8_t& 
         if (ImGui::IsItemHovered()) {
             std::string label = WrappedText(flagEntry.description, 60).c_str();
             label += fmt::format("{}0x{:02X} ({})", label.size() ? "\n" : "", bitMask, flagIndex);
-            ImGui::SetTooltip(label.c_str());
+            ImGui::SetTooltip("%s", label.c_str());
         }
         ImGui::PopStyleVar();
         PopStyleCheckbox();
@@ -1196,6 +1260,103 @@ void DrawFlagTableArray8Mask(const FlagTable& flagTable, uint16_t row, uint8_t& 
     }
     ImGui::PopID();
 }
+
+std::map<std::string, int32_t> buttonMap = {
+    { "A", BTN_A },
+    { "B", BTN_B },
+    { "Z", BTN_Z },
+    { "START", BTN_START },
+    { "D-Up", BTN_DUP },
+    { "D-Down", BTN_DDOWN },
+    { "D-Left", BTN_DLEFT },
+    { "D-Right", BTN_DRIGHT },
+    { "L", BTN_L },
+    { "R", BTN_R },
+    { "C-Up", BTN_CUP },
+    { "C-Down", BTN_CDOWN },
+    { "C-Left", BTN_CLEFT },
+    { "C-Right", BTN_CRIGHT },
+    { "Modifier 1", BTN_CUSTOM_MODIFIER1 },
+    { "Modifier 2", BTN_CUSTOM_MODIFIER2 },
+};
+bool BtnSelector(const char* label, int32_t* value, const BtnSelectorOptions& options) {
+    bool dirty = false;
+    ImGui::PushID(label);
+    ImGui::BeginGroup();
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("%s", label);
+    ImGui::BeginDisabled(false);
+    PushStyleCombobox(options.color);
+    ImGui::BeginChild("ButtonCombo", ImVec2(0, ImGui::GetFrameHeightWithSpacing() + 14.0f), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_HorizontalScrollbar);
+    int32_t currentValue = *value;
+    int index = 0;
+    for (const auto& [buttonName, buttonMask] : buttonMap) {
+        if (currentValue & buttonMask) {
+            ImGui::PushID(buttonName.c_str());
+            if (index++ > 0) {
+                ImGui::Text("+");
+                ImGui::SameLine();
+            }
+            if (UIWidgets::Button(buttonName.c_str(), UIWidgets::ButtonOptions()
+                                                          .Tooltip("Remove this button from the combination")
+                                                          .Color(UIWidgets::Colors::Gray)
+                                                          .Size(UIWidgets::Sizes::Inline))) {
+                currentValue &= ~buttonMask;
+                dirty = true;
+            }
+            ImGui::PopID();
+            ImGui::SameLine();
+        }
+    }
+    if (UIWidgets::Button("+", UIWidgets::ButtonOptions({ { .tooltip = "Add a button to the combination" } })
+                                   .Size(UIWidgets::Sizes::Inline)
+                                   .Color(options.color))) {
+        ImGui::OpenPopup("Add Button");
+    }
+    if (ImGui::BeginPopup("Add Button")) {
+        UIWidgets::PushStyleMenuItem();
+        for (const auto& [buttonName, buttonMask] : buttonMap) {
+            if (!(currentValue & buttonMask)) {
+                if (ImGui::MenuItem(buttonName.c_str())) {
+                    currentValue |= buttonMask;
+                    dirty = true;
+                }
+            }
+        }
+        UIWidgets::PopStyleMenuItem();
+        ImGui::EndPopup();
+    }
+    ImGui::SameLine();
+    if (UIWidgets::Button(ICON_FA_UNDO,
+                          UIWidgets::ButtonOptions().Size(UIWidgets::Sizes::Inline).Color(options.color))) {
+        currentValue = options.defaultValue;
+        dirty = true;
+    }
+    ImGui::EndChild();
+    PopStyleCombobox();
+    ImGui::EndDisabled();
+    ImGui::EndGroup();
+    ImGui::PopID();
+
+    if (dirty) {
+        *value = currentValue;
+    }
+    return dirty;
+}
+
+bool CVarBtnSelector(const char* label, const char* cvarName, const BtnSelectorOptions& options) {
+    bool dirty = false;
+    int32_t value = CVarGetInteger(cvarName, options.defaultValue);
+    if (BtnSelector(label, &value, options)) {
+        CVarSetInteger(cvarName, value);
+        Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+        ShipInit::Init(cvarName);
+        dirty = true;
+    }
+    return dirty;
+}
+
 } // namespace UIWidgets
 
 ImVec4 GetRandomValue() {

@@ -18,7 +18,7 @@
 #include <string.h>
 #include "BenPort.h"
 #include "2s2h/BenGui/CosmeticEditor.h"
-#include "public/bridge/consolevariablebridge.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 
 s32 D_808144F10 = 100;
 f32 D_808144F14 = 8.0f;
@@ -259,7 +259,7 @@ void FileSelect_UpdateMainMenu(GameState* thisx) {
                     this->configMode = CM_ROTATE_TO_NAME_ENTRY;
                     this->kbdButton = FS_KBD_BTN_NONE;
                     this->charPage = FS_CHAR_PAGE_HIRA;
-                    if (gSaveContext.options.language != 0) {
+                    if (gSaveContext.options.language != LANGUAGE_JPN) {
                         this->charPage = FS_CHAR_PAGE_ENG;
                     }
                     this->kbdX = 0;
@@ -283,7 +283,7 @@ void FileSelect_UpdateMainMenu(GameState* thisx) {
                 this->configMode = CM_ROTATE_TO_NAME_ENTRY;
                 this->kbdButton = FS_KBD_BTN_NONE;
                 this->charPage = FS_CHAR_PAGE_HIRA;
-                if (gSaveContext.options.language != 0) {
+                if (gSaveContext.options.language != LANGUAGE_JPN) {
                     this->charPage = FS_CHAR_PAGE_ENG;
                 }
                 this->kbdX = 0;
@@ -1485,7 +1485,7 @@ void FileSelect_DrawFileInfo(GameState* thisx, s16 fileIndex) {
         gSPVertex(POLY_OPA_DISP++, &this->windowContentVtx[D_80814654[fileIndex] + 0xCC], 4, 0);
 
         POLY_OPA_DISP = FileSelect_DrawTexQuadIA8(
-            POLY_OPA_DISP, sFileSelHeartPieceTextures[this->heartPieceCount[sp20C]], 0x18, 0x10, (s16)0);
+            POLY_OPA_DISP, sFileSelHeartPieceTextures[this->heartPieceCount[sp20C]], 0x18, 0x10, 0);
 
         if (this->defenseHearts[sp20C] == 0) {
             heartType = 0;
@@ -1687,8 +1687,6 @@ void FileSelect_DrawWindowContents(GameState* thisx) {
     s16 i;
     s16 quadVtxIndex;
 
-    if (1) {}
-
     OPEN_DISPS(this->state.gfxCtx);
 
     // draw title label
@@ -1722,7 +1720,7 @@ void FileSelect_DrawWindowContents(GameState* thisx) {
             gDPPipeSync(POLY_OPA_DISP++);
             gDPSetPrimColorOverride(POLY_OPA_DISP++, 0, 0, this->windowColor[0], this->windowColor[1],
                                     this->windowColor[2], this->fileInfoAlpha[fileIndex],
-                                    COSMETIC_ELEMENT_FILE_SELECT_PLATES);
+                                    COSMETIC_ID("Menus.FilePlates"));
             gSPVertex(POLY_OPA_DISP++, &this->windowContentVtx[temp], 28, 0);
 
             for (quadVtxIndex = 0, i = 0; i < 7; i++, quadVtxIndex += 4) {
@@ -1744,8 +1742,7 @@ void FileSelect_DrawWindowContents(GameState* thisx) {
             // draw file button
             gSPVertex(POLY_OPA_DISP++, &this->windowContentVtx[temp], 16, 0);
             gDPSetPrimColorOverride(POLY_OPA_DISP++, 0, 0, sWindowContentColors[0], sWindowContentColors[1],
-                                    sWindowContentColors[2], this->fileButtonAlpha[i],
-                                    COSMETIC_ELEMENT_FILE_SELECT_PLATES);
+                                    sWindowContentColors[2], this->fileButtonAlpha[i], COSMETIC_ID("Menus.FilePlates"));
             gDPLoadTextureBlock(POLY_OPA_DISP++, sFileButtonTextures[i], G_IM_FMT_IA, G_IM_SIZ_16b, 64, 16, 0,
                                 G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK,
                                 G_TX_NOLOD, G_TX_NOLOD);
@@ -1753,15 +1750,13 @@ void FileSelect_DrawWindowContents(GameState* thisx) {
 
             // draw file name box
             gDPSetPrimColorOverride(POLY_OPA_DISP++, 0, 0, sWindowContentColors[0], sWindowContentColors[1],
-                                    sWindowContentColors[2], this->nameBoxAlpha[i],
-                                    COSMETIC_ELEMENT_FILE_SELECT_PLATES);
+                                    sWindowContentColors[2], this->nameBoxAlpha[i], COSMETIC_ID("Menus.FilePlates"));
             gDPLoadTextureBlock(POLY_OPA_DISP++, gFileSelFileNameBoxTex, G_IM_FMT_IA, G_IM_SIZ_16b, 108, 16, 0,
                                 G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK,
                                 G_TX_NOLOD, G_TX_NOLOD);
             gSP1Quadrangle(POLY_OPA_DISP++, 4, 6, 7, 5, 0);
             gDPSetPrimColorOverride(POLY_OPA_DISP++, 0, 0, sWindowContentColors[0], sWindowContentColors[1],
-                                    sWindowContentColors[2], this->nameBoxAlpha[i],
-                                    COSMETIC_ELEMENT_FILE_SELECT_PLATES);
+                                    sWindowContentColors[2], this->nameBoxAlpha[i], COSMETIC_ID("Menus.FilePlates"));
             gDPLoadTextureBlock(POLY_OPA_DISP++, gFileSelConnectorTex, G_IM_FMT_IA, G_IM_SIZ_8b, 24, 16, 0,
                                 G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK,
                                 G_TX_NOLOD, G_TX_NOLOD);
@@ -1771,7 +1766,7 @@ void FileSelect_DrawWindowContents(GameState* thisx) {
                                       this->isOwlSave[i + FILE_NUM_OWL_SAVE_OFFSET], i)) {
                 gDPSetPrimColorOverride(POLY_OPA_DISP++, 0, 0, sWindowContentColors[0], sWindowContentColors[1],
                                         sWindowContentColors[2], this->nameBoxAlpha[i],
-                                        COSMETIC_ELEMENT_FILE_SELECT_PLATES);
+                                        COSMETIC_ID("Menus.FilePlates"));
                 gDPLoadTextureBlock(POLY_OPA_DISP++, gFileSelBlankButtonTex, G_IM_FMT_IA, G_IM_SIZ_16b, 52, 16, 0,
                                     G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK,
                                     G_TX_NOLOD, G_TX_NOLOD);
@@ -1795,7 +1790,7 @@ void FileSelect_DrawWindowContents(GameState* thisx) {
     for (quadVtxIndex = 0, i = 0; i < 2; i++, quadVtxIndex += 4) {
         gDPPipeSync(POLY_OPA_DISP++);
         gDPSetPrimColorOverride(POLY_OPA_DISP++, 0, 0, this->windowColor[0], this->windowColor[1], this->windowColor[2],
-                                this->actionButtonAlpha[i], COSMETIC_ELEMENT_FILE_SELECT_PLATES);
+                                this->actionButtonAlpha[i], COSMETIC_ID("Menus.FilePlates"));
         gDPLoadTextureBlock(POLY_OPA_DISP++, sActionButtonTextures[i], G_IM_FMT_IA, G_IM_SIZ_16b, 64, 16, 0,
                             G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD,
                             G_TX_NOLOD);
@@ -1808,7 +1803,7 @@ void FileSelect_DrawWindowContents(GameState* thisx) {
     for (quadVtxIndex = 0, i = FS_BTN_CONFIRM_YES; i <= FS_BTN_CONFIRM_QUIT; i++, quadVtxIndex += 4) {
         temp = this->confirmButtonTexIndices[i];
         gDPSetPrimColorOverride(POLY_OPA_DISP++, 0, 0, this->windowColor[0], this->windowColor[1], this->windowColor[2],
-                                this->confirmButtonAlpha[i], COSMETIC_ELEMENT_FILE_SELECT_PLATES);
+                                this->confirmButtonAlpha[i], COSMETIC_ID("Menus.FilePlates"));
         gDPLoadTextureBlock(POLY_OPA_DISP++, sActionButtonTextures[temp], G_IM_FMT_IA, G_IM_SIZ_16b, 64, 16, 0,
                             G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD,
                             G_TX_NOLOD);
@@ -1818,7 +1813,7 @@ void FileSelect_DrawWindowContents(GameState* thisx) {
     // draw options button
     gDPPipeSync(POLY_OPA_DISP++);
     gDPSetPrimColorOverride(POLY_OPA_DISP++, 0, 0, this->windowColor[0], this->windowColor[1], this->windowColor[2],
-                            this->optionButtonAlpha, COSMETIC_ELEMENT_FILE_SELECT_PLATES);
+                            this->optionButtonAlpha, COSMETIC_ID("Menus.FilePlates"));
     gDPLoadTextureBlock(POLY_OPA_DISP++, gFileSelOptionsButtonENGTex, G_IM_FMT_IA, G_IM_SIZ_16b, 64, 16, 0,
                         G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD,
                         G_TX_NOLOD);
@@ -1888,7 +1883,7 @@ void FileSelect_ConfigModeDraw(GameState* thisx) {
         gDPSetCombineMode(POLY_OPA_DISP++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM);
         // File Select Window
         gDPSetPrimColorOverride(POLY_OPA_DISP++, 0, 0, this->windowColor[0], this->windowColor[1], this->windowColor[2],
-                                this->windowAlpha, COSMETIC_ELEMENT_FILE_SELECT_MENU);
+                                this->windowAlpha, COSMETIC_ID("Menus.FileWindow"));
         gDPSetEnvColor(POLY_OPA_DISP++, 0, 0, 0, 0);
 
         Matrix_Translate(0.0f, 0.0f, -93.6f, MTXMODE_NEW);
@@ -1898,7 +1893,7 @@ void FileSelect_ConfigModeDraw(GameState* thisx) {
             Matrix_RotateXFApply(this->windowRot / 100.0f);
         }
 
-        gSPMatrix(POLY_OPA_DISP++, Matrix_NewMtx(this->state.gfxCtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+        MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, this->state.gfxCtx);
 
         gSPVertex(POLY_OPA_DISP++, &this->windowVtx[0], 32, 0);
         gSPDisplayList(POLY_OPA_DISP++, gFileSelWindow1DL);
@@ -1919,14 +1914,14 @@ void FileSelect_ConfigModeDraw(GameState* thisx) {
         gDPPipeSync(POLY_OPA_DISP++);
         gDPSetCombineMode(POLY_OPA_DISP++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM);
         gDPSetPrimColorOverride(POLY_OPA_DISP++, 0, 0, this->windowColor[0], this->windowColor[1], this->windowColor[2],
-                                this->windowAlpha, COSMETIC_ELEMENT_FILE_SELECT_MENU);
+                                this->windowAlpha, COSMETIC_ID("Menus.FileWindow"));
         gDPSetEnvColor(POLY_OPA_DISP++, 0, 0, 0, 0);
 
         Matrix_Translate(0.0f, 0.0f, -93.6f, MTXMODE_NEW);
         Matrix_Scale(0.78f, 0.78f, 0.78f, MTXMODE_APPLY);
         Matrix_RotateXFApply((this->windowRot - 314.0f) / 100.0f);
 
-        gSPMatrix(POLY_OPA_DISP++, Matrix_NewMtx(this->state.gfxCtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+        MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, this->state.gfxCtx);
 
         gSPVertex(POLY_OPA_DISP++, &this->windowVtx[0], 32, 0);
         gSPDisplayList(POLY_OPA_DISP++, gFileSelWindow1DL);
@@ -1947,14 +1942,14 @@ void FileSelect_ConfigModeDraw(GameState* thisx) {
         gDPPipeSync(POLY_OPA_DISP++);
         gDPSetCombineMode(POLY_OPA_DISP++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM);
         gDPSetPrimColorOverride(POLY_OPA_DISP++, 0, 0, this->windowColor[0], this->windowColor[1], this->windowColor[2],
-                                this->windowAlpha, COSMETIC_ELEMENT_FILE_SELECT_MENU);
+                                this->windowAlpha, COSMETIC_ID("Menus.FileWindow"));
         gDPSetEnvColor(POLY_OPA_DISP++, 0, 0, 0, 0);
 
         Matrix_Translate(0.0f, 0.0f, -93.6f, MTXMODE_NEW);
         Matrix_Scale(0.78f, 0.78f, 0.78f, MTXMODE_APPLY);
         Matrix_RotateXFApply((this->windowRot - 314.0f) / 100.0f);
 
-        gSPMatrix(POLY_OPA_DISP++, Matrix_NewMtx(this->state.gfxCtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+        MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, this->state.gfxCtx);
 
         gSPVertex(POLY_OPA_DISP++, &this->windowVtx[0], 32, 0);
         gSPDisplayList(POLY_OPA_DISP++, gFileSelWindow1DL);
@@ -2283,13 +2278,13 @@ void FileSelect_SelectModeDraw(GameState* thisx) {
 
     gDPSetCombineMode(POLY_OPA_DISP++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM);
     gDPSetPrimColorOverride(POLY_OPA_DISP++, 0, 0, this->windowColor[0], this->windowColor[1], this->windowColor[2],
-                            this->windowAlpha, COSMETIC_ELEMENT_FILE_SELECT_MENU);
+                            this->windowAlpha, COSMETIC_ID("Menus.FileWindow"));
     gDPSetEnvColor(POLY_OPA_DISP++, 0, 0, 0, 0);
 
     Matrix_Translate(0.0f, 0.0f, -93.6f, MTXMODE_NEW);
     Matrix_Scale(0.78f, 0.78f, 0.78f, MTXMODE_APPLY);
     Matrix_RotateXFApply(this->windowRot / 100.0f);
-    gSPMatrix(POLY_OPA_DISP++, Matrix_NewMtx(this->state.gfxCtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, this->state.gfxCtx);
 
     gSPVertex(POLY_OPA_DISP++, &this->windowVtx[0], 32, 0);
     gSPDisplayList(POLY_OPA_DISP++, gFileSelWindow1DL);
@@ -2540,7 +2535,7 @@ void FileSelect_InitContext(GameState* thisx) {
     envCtx->lightConfig = 0;
     envCtx->changeLightNextConfig = 0;
     envCtx->lightSetting = 0;
-    envCtx->skyboxConfig = 2;
+    envCtx->skyboxConfig = SKYBOX_CONFIG_2;
     envCtx->skyboxDisabled = 0;
     envCtx->skyboxBlend = 0;
     envCtx->glareAlpha = 0.0f;

@@ -5,31 +5,30 @@
 #include <fstream>
 #include <chrono>
 
-#include <ResourceManager.h>
-#include "graphic/Fast3D/Fast3dWindow.h"
-#include <File.h>
-#include <DisplayList.h>
-#include <Window.h>
+#include <ship/resource/ResourceManager.h>
+#include <fast/Fast3dWindow.h>
+#include <ship/resource/File.h>
+#include <ship/window/Window.h>
 
 #include "z64animation.h"
 #include "z64bgcheck.h"
 #include <libultraship/libultra/gbi.h>
-#include <Fonts.h>
+#include <ship/window/gui/Fonts.h>
 #ifdef _WIN32
 #include <Windows.h>
 #else
 #include <time.h>
 #endif
-#include <AudioPlayer.h>
+#include <ship/audio/AudioPlayer.h>
 #include "variables.h"
 #include "z64.h"
 #include "macros.h"
-#include <utils/StringHelper.h>
+#include <ship/utils/StringHelper.h>
 #include <nlohmann/json.hpp>
 #include "build.h"
 
-#include <Fast3D/interpreter.h>
-#include <Fast3D/backends/gfx_rendering_api.h>
+#include <fast/interpreter.h>
+#include <fast/backends/gfx_rendering_api.h>
 
 #ifdef __APPLE__
 #include <SDL_scancode.h>
@@ -38,7 +37,7 @@
 #endif
 #include "Extractor/Extract.h"
 // OTRTODO
-//#include <functions.h>
+// #include <functions.h>
 #include "2s2h/Enhancements/FrameInterpolation/FrameInterpolation.h"
 
 #ifdef ENABLE_CROWD_CONTROL
@@ -47,11 +46,15 @@ CrowdControl* CrowdControl::Instance;
 #endif
 
 #include <libultraship/libultraship.h>
+#include <libultraship/controller/controldeck/ControlDeck.h>
+#include <fast/resource/ResourceType.h>
 #include <BenGui/BenGui.hpp>
+#include <BenGui/BenMenu.h>
 
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include "2s2h/Enhancements/Enhancements.h"
 #include "2s2h/Enhancements/GfxPatcher/AuthenticGfxPatches.h"
+#include "2s2h/Enhancements/GfxPatcher/PlayerCustomFlipbooks.h"
 #include "2s2h/DeveloperTools/DebugConsole.h"
 #include "2s2h/Rando/Rando.h"
 #include "2s2h/Rando/Spoiler/Spoiler.h"
@@ -62,13 +65,14 @@ CrowdControl* CrowdControl::Instance;
 #include "2s2h/ShipUtils.h"
 #include "2s2h/ShipInit.hpp"
 #include "2s2h/PresetManager/PresetManager.h"
+#include "2s2h/config/ConfigUpdaters.h"
 
 // Resource Types/Factories
-#include "resource/type/Blob.h"
-#include "resource/type/DisplayList.h"
-#include "resource/type/Matrix.h"
-#include "resource/type/Texture.h"
-#include "resource/type/Vertex.h"
+#include <ship/resource/type/Blob.h>
+#include <fast/resource/type/DisplayList.h>
+#include <fast/resource/type/Matrix.h>
+#include <fast/resource/type/Texture.h>
+#include <fast/resource/type/Vertex.h>
 #include "2s2h/resource/type/2shResourceType.h"
 #include "2s2h/resource/type/Animation.h"
 #include "2s2h/resource/type/Array.h"
@@ -82,11 +86,11 @@ CrowdControl* CrowdControl::Instance;
 #include "2s2h/resource/type/Scene.h"
 #include "2s2h/resource/type/Skeleton.h"
 #include "2s2h/resource/type/SkeletonLimb.h"
-#include "resource/factory/BlobFactory.h"
-#include "resource/factory/DisplayListFactory.h"
-#include "resource/factory/MatrixFactory.h"
-#include "resource/factory/TextureFactory.h"
-#include "resource/factory/VertexFactory.h"
+#include <ship/resource/factory/BlobFactory.h>
+#include <fast/resource/factory/DisplayListFactory.h>
+#include <fast/resource/factory/MatrixFactory.h>
+#include <fast/resource/factory/TextureFactory.h>
+#include <fast/resource/factory/VertexFactory.h>
 #include "2s2h/resource/importer/AnimationFactory.h"
 #include "2s2h/resource/importer/ArrayFactory.h"
 #include "2s2h/resource/importer/AudioSampleFactory.h"
@@ -103,9 +107,9 @@ CrowdControl* CrowdControl::Instance;
 #include "2s2h/resource/importer/BackgroundFactory.h"
 #include "2s2h/resource/importer/TextureAnimationFactory.h"
 #include "2s2h/resource/importer/KeyFrameFactory.h"
-#include "window/gui/resource/Font.h"
-#include "window/FileDropMgr.h"
-#include "window/gui/resource/FontFactory.h"
+#include <ship/window/gui/resource/Font.h>
+#include <ship/window/FileDropMgr.h>
+#include <ship/window/gui/resource/FontFactory.h>
 #include "2s2h/Enhancements/Audio/AudioCollection.h"
 #include "BenGui/BenInputEditorWindow.h"
 
@@ -121,87 +125,527 @@ Color_RGB8 kokiriColor = { 0x1E, 0x69, 0x1B };
 Color_RGB8 goronColor = { 0x64, 0x14, 0x00 };
 Color_RGB8 zoraColor = { 0x00, 0xEC, 0x64 };
 
+int32_t previousImGuiScaleIndex;
+float previousImGuiScale;
+
+typedef struct {
+    uint16_t major;
+    uint16_t minor;
+    uint16_t patch;
+} ArchiveVersion;
+
+std::shared_ptr<Fast::Fast3dWindow> benFast3dWindow;
+static ArchiveVersion DetectArchiveVersion(std::string path, bool isO2rType);
+static bool VerifyArchiveVersion(ArchiveVersion version);
+std::string portArchivePath = "";
+static bool shipArchiveVersionMatch = false;
+
 OTRGlobals::OTRGlobals() {
-    std::vector<std::string> archiveFiles;
-    std::vector<std::string> patchFiles;
-    std::string mmPathO2R = Ship::Context::LocateFileAcrossAppDirs("mm.o2r", appShortName);
-    std::string mmPathZIP = Ship::Context::LocateFileAcrossAppDirs("mm.zip", appShortName);
-    if (std::filesystem::exists(mmPathO2R)) {
-        archiveFiles.push_back(mmPathO2R);
-    } else if (std::filesystem::exists(mmPathZIP)) {
-        archiveFiles.push_back(mmPathZIP);
-    } else {
-        std::string mmPath = Ship::Context::LocateFileAcrossAppDirs("mm.otr", appShortName);
-        if (std::filesystem::exists(mmPath)) {
-            archiveFiles.push_back(mmPath);
-        }
-    }
-
-    std::string shipOtrPath = Ship::Context::GetPathRelativeToAppBundle("2ship.o2r");
-    if (std::filesystem::exists(shipOtrPath)) {
-        archiveFiles.push_back(shipOtrPath);
-    }
-
-    std::string patchesPath = Ship::Context::LocateFileAcrossAppDirs("mods", appShortName);
-    if (patchesPath.length() > 0 && std::filesystem::exists(patchesPath)) {
-        if (std::filesystem::is_directory(patchesPath)) {
-            for (const auto& p : std::filesystem::recursive_directory_iterator(patchesPath)) {
-                if (StringHelper::IEquals(p.path().extension().string(), ".o2r")) {
-                    patchFiles.push_back(p.path().generic_string());
-                } else if (StringHelper::IEquals(p.path().extension().string(), ".zip")) {
-                    patchFiles.push_back(p.path().generic_string());
-                } else if (StringHelper::IEquals(p.path().extension().string(), ".otr")) {
-                    patchFiles.push_back(p.path().generic_string());
-                }
-            }
-        }
-    }
-
-    // Sort all patch files from the mods directory lexigraphically to guarantee sort order across all platforms
-    std::sort(patchFiles.begin(), patchFiles.end(), [](const std::string& a, const std::string& b) {
-        // Sort based on file name alone, excluding file extension, so that order is not impacted by archive format
-        const std::string aFileName = a.substr(0, a.find_last_of("."));
-        const std::string bFileName = b.substr(0, b.find_last_of("."));
-        return std::lexicographical_compare(aFileName.begin(), aFileName.end(), bFileName.begin(), bFileName.end(),
-                                            [](char c1, char c2) { return std::tolower(c1) < std::tolower(c2); });
-    });
-
-    archiveFiles.insert(archiveFiles.end(), patchFiles.begin(), patchFiles.end());
-
-    std::unordered_set<uint32_t> validHashes = { MM_NTSC_US_10, MM_NTSC_US_GC };
-
     context = Ship::Context::CreateUninitializedInstance("2 Ship 2 Harkinian", appShortName, "2ship2harkinian.json");
-    context->InitFileDropMgr();
-    context->InitLogging();
-    context->InitGfxDebugger();
+
+    portArchivePath = Ship::Context::LocateFileAcrossAppDirs("2ship.o2r");
+    ArchiveVersion portArchiveVersion = DetectArchiveVersion("2ship.o2r", true);
+    shipArchiveVersionMatch = portArchiveVersion.major == gBuildVersionMajor &&
+                              portArchiveVersion.minor == gBuildVersionMinor &&
+                              portArchiveVersion.patch == gBuildVersionPatch;
+
     context->InitConfiguration();
     context->InitConsoleVariables();
 
-    // tell LUS to reserve 3 SoH specific threads (Game, Audio, Save)
-    context->InitResourceManager(archiveFiles, {}, 3);
-    prevAltAssets = CVarGetInteger("gEnhancements.Mods.AlternateAssets", 0);
-    context->GetResourceManager()->SetAltAssetsEnabled(prevAltAssets);
-
-    auto controlDeck = std::make_shared<LUS::ControlDeck>(std::vector<CONTROLLERBUTTONS_T>({}));
+    auto controlDeck = std::make_shared<LUS::ControlDeck>(std::vector<CONTROLLERBUTTONS_T>({
+        BTN_CUSTOM_MODIFIER1,
+        BTN_CUSTOM_MODIFIER2,
+        BTN_CUSTOM_OCARINA_NOTE_D4,
+        BTN_CUSTOM_OCARINA_NOTE_F4,
+        BTN_CUSTOM_OCARINA_NOTE_A4,
+        BTN_CUSTOM_OCARINA_NOTE_B4,
+        BTN_CUSTOM_OCARINA_NOTE_D5,
+        BTN_CUSTOM_OCARINA_DISABLE_SONGS,
+        BTN_CUSTOM_OCARINA_PITCH_UP,
+        BTN_CUSTOM_OCARINA_PITCH_DOWN,
+    }));
     context->InitControlDeck(controlDeck);
-
-    context->InitCrashHandler();
+    context->InitResourceManager({ portArchivePath }, {}, 3, true);
     context->InitConsole();
 
     auto benInputEditorWindow = std::make_shared<BenInputEditorWindow>("gWindows.BenInputEditor", "2S2H Input Editor");
-    auto benFast3dWindow =
+    benFast3dWindow =
         std::make_shared<Fast::Fast3dWindow>(std::vector<std::shared_ptr<Ship::GuiWindow>>({ benInputEditorWindow }));
     context->InitWindow(benFast3dWindow);
 
-    // Override LUS defaults
-    Ship::Context::GetInstance()->GetLogger()->set_level(
-        (spdlog::level::level_enum)CVarGetInteger("gDeveloperTools.LogLevel", 1));
+    BenGui::SetupMenu();
+
+    if (shipArchiveVersionMatch) {
+
+        auto overlay = context->GetInstance()->GetWindow()->GetGui()->GetGameOverlay();
+        overlay->LoadFont("Press Start 2P", 12.0f, "fonts/PressStart2P-Regular.ttf");
+        overlay->LoadFont("Fipps", 32.0f, "fonts/Fipps-Regular.otf");
+        overlay->SetCurrentFont(CVarGetString(CVAR_GAME_OVERLAY_FONT, "Press Start 2P"));
+
+        fontMono = CreateFontWithSize(16.0f, "fonts/Inconsolata-Regular.ttf");
+        fontMonoLarger = CreateFontWithSize(20.0f, "fonts/Inconsolata-Regular.ttf");
+        fontMonoLargest = CreateFontWithSize(24.0f, "fonts/Inconsolata-Regular.ttf");
+        fontStandard = CreateFontWithSize(16.0f, "fonts/Montserrat-Regular.ttf");
+        fontStandardLarger = CreateFontWithSize(20.0f, "fonts/Montserrat-Regular.ttf");
+        fontStandardLargest = CreateFontWithSize(24.0f, "fonts/Montserrat-Regular.ttf");
+        ImGui::GetIO().FontDefault = fontStandardLarger;
+    }
+
+    previousImGuiScaleIndex = -1;
+    previousImGuiScale = defaultImGuiScale;
+    ScaleImGui();
+}
+
+typedef enum ExtractSteps {
+    ES_PORT_ARCHIVE,
+    ES_WINDOWS,
+    ES_EXTRACT_ARGS,
+    ES_EXTRACT,
+    ES_VERIFY,
+} ExtractSteps;
+
+typedef enum PromptSteps {
+    PS_FILE_CHECK,
+    PS_LOCAL,
+    PS_FIRST,
+    PS_SECOND,
+    PS_DUPE,
+    PS_WAIT,
+    PS_NONE,
+} PromptSteps;
+
+typedef enum WindowsSteps {
+    WS_TEMP,
+    WS_PERMS,
+    WS_ONEDRIVE,
+    WS_DONE,
+} WindowsSteps;
+
+bool IsSubpath(const std::filesystem::path& path, const std::filesystem::path& base) {
+    auto rel = std::filesystem::relative(path, base);
+    return !rel.empty() && rel.native()[0] != '.';
+}
+
+bool PathTestCleanup(FILE* tfile) {
+    try {
+        if (std::filesystem::exists("./text.txt"))
+            std::filesystem::remove("./text.txt");
+        if (std::filesystem::exists("./test/"))
+            std::filesystem::remove("./test/");
+    } catch (std::filesystem::filesystem_error const& ex) { return false; }
+    return true;
+}
+
+void CheckAndCreateModFolder() {
+    try {
+        std::string modsPath = Ship::Context::LocateFileAcrossAppDirs("mods", appShortName);
+        if (!std::filesystem::exists(modsPath)) {
+            // Create mods folder relative to app dir
+            modsPath = Ship::Context::GetPathRelativeToAppDirectory("mods", appShortName);
+            std::string filePath = modsPath + "/custom_mod_files_go_here.txt";
+            if (std::filesystem::create_directories(modsPath)) {
+                std::ofstream(filePath).close();
+            }
+        }
+    } catch (std::filesystem::filesystem_error const& ex) {
+        // Couldn't make the folder, continue silently
+        return;
+    }
+}
+
+namespace BenGui {
+extern std::shared_ptr<BenGui::BenMenu> mBenMenu;
+}
+
+void OTRGlobals::RunExtract(int argc, char* argv[]) {
+    bool extractDone = false;
+    ExtractSteps extractStep = ES_PORT_ARCHIVE;
+    WindowsSteps windowsStep = WS_TEMP;
+    auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(OTRGlobals::Instance->context->GetWindow());
+    auto gui = wnd->GetGui();
+
+    bool shouldRegen = VerifyArchiveVersion(DetectArchiveVersion("mm.o2r", true));
+
+    std::filesystem::path ownPath;
+    std::vector<std::string> args;
+    if (argc > 1) {
+        for (int i = 1; i < argc; i++) {
+            args.push_back(argv[i]);
+        }
+    }
+    Extractor extract;
+    PromptSteps promptStep = PS_FILE_CHECK;
+    std::atomic<size_t> extractCount = 0, totalExtract = 0;
+
+    std::string installPath = Ship::Context::GetAppBundlePath();
+    std::string dataPath = Ship::Context::GetAppDirectoryPath(appShortName);
+    std::string file;
+
+#if defined(__SWITCH__)
+    BenGui::RegisterPopup("Outdated ROM Archives",
+                          "\x1b[2;2HYou've launched 2Ship with an old ROM O2R file."
+                          "\x1b[4;2HPlease regenerate a new ROM O2R and relaunch."
+                          "\x1b[6;2HPress the Home button to exit...",
+                          "OK", "", [&]() { exit(1); });
+#elif defined(__WIIU__)
+    BenGui::RegisterPopup("Outdated ROM Archives",
+                          "You've launched 2Ship with an old a ROM O2R file.\n\n"
+                          "Please generate a ROM O2R and relaunch.\n\n"
+                          "Press and hold the Power button to shutdown...",
+                          "OK", "", [&]() { exit(1); });
+    OSFatal();
+#endif
+
+    if (!std::filesystem::exists(installPath + "/assets")) {
+        BenGui::RegisterPopup("Extractor assets not found",
+                              "No O2R files found. Missing 'assets/' folder needed to generate OTR file.\nPlease "
+                              "re-extract them from the download or.\n\nExiting...",
+                              "OK", "", [&]() { exit(1); });
+    } else if (shouldRegen) {
+        BenGui::RegisterPopup("Outdated ROM Archives",
+                              "Your mm.o2r was created with incompatible versions of 2Ship.\nYou will "
+                              "now be redirected to re-extract them.");
+        std::filesystem::remove("mm.o2r");
+    }
+
+    std::shared_ptr<BS::thread_pool> threadPool = std::make_shared<BS::thread_pool>(1);
+    std::optional<std::future<void>> extractionTask;
+
+#if not defined(__SWITCH__) && not defined(__WIIU__)
+    CheckAndCreateModFolder();
+#endif
+
+    while (!extractDone) {
+        if (BenGui::PopupsQueued() > 0 || extractionTask.has_value()) {
+            goto render;
+        }
+        switch (extractStep) {
+            case ES_PORT_ARCHIVE: {
+                if (shipArchiveVersionMatch) {
+#ifdef _WIN32
+                    extractStep = ES_WINDOWS;
+#elif (defined(__WIIU__) || defined(__SWITCH__))
+                    extractStep = ES_VERIFY;
+#else
+                    extractStep = args.empty() ? ES_EXTRACT : ES_EXTRACT_ARGS;
+#endif
+                } else {
+                    std::string msg;
+
+#if defined(__SWITCH__)
+                    msg = "\x1b[4;2HPlease re-extract it from the download.\n"
+                          "\x1b[6;2HPress the Home button to exit...";
+#elif defined(__WIIU__)
+                    msg = "Please extract the 2ship.o2r from the 2 Ship 2 Harkinian download\nto your folder.\n\nPress "
+                          "and hold the power\n"
+                          "button to shutdown...";
+#else
+                    msg = "Please extract the 2ship.o2r from the 2 Ship 2 Harkinian download to your "
+                          "folder.\n\nExiting...";
+#endif
+                    std::string title =
+                        !std::filesystem::exists(portArchivePath) ? "Missing 2ship.o2r" : "2ship.o2r is outdated";
+                    BenGui::RegisterPopup(title, msg, "OK", "", [&]() { exit(1); });
+                }
+                continue;
+            }
+            case ES_WINDOWS: {
+                switch (windowsStep) {
+                    case WS_TEMP: {
+#ifdef _WIN32
+                        char* tempVar = getenv("TEMP");
+                        std::filesystem::path tempPath;
+                        try {
+                            tempPath = std::filesystem::canonical(tempVar);
+                        } catch (std::filesystem::filesystem_error const& ex) {
+                            std::string userPath = getenv("USERPROFILE");
+                            userPath.append("\\AppData\\Local\\Temp");
+                            tempPath = std::filesystem::canonical(userPath);
+                        }
+                        wchar_t buffer[MAX_PATH];
+                        GetModuleFileName(NULL, buffer, _countof(buffer));
+                        ownPath = std::filesystem::canonical(buffer).parent_path();
+                        if (IsSubpath(ownPath, tempPath)) {
+                            BenGui::RegisterPopup("2S2H Path Error",
+                                                  "2S2H is running in a temp folder.\nExtract the .zip and run again.",
+                                                  "OK", "", [&]() { exit(0); });
+                        } else {
+                            windowsStep = WS_PERMS;
+                        }
+#endif
+                        continue;
+                    }
+                    case WS_PERMS: {
+                        FILE* tfile = fopen("./text.txt", "w");
+                        std::filesystem::path tfolder = std::filesystem::path("./test/");
+                        bool error = false;
+                        try {
+                            create_directories(tfolder);
+                        } catch (std::filesystem::filesystem_error const& ex) { error = true; }
+                        if (tfile == NULL || error) {
+                            BenGui::RegisterPopup("2S2H Permissions Error",
+                                                  "2S2H does not have proper file permissions.\nPlease move it to a "
+                                                  "folder that does and run again.",
+                                                  "OK", "", [&]() {
+                                                      fclose(tfile);
+                                                      PathTestCleanup(tfile);
+                                                      exit(0);
+                                                  });
+                        } else {
+                            fclose(tfile);
+                            if (!PathTestCleanup(tfile)) {
+                                BenGui::RegisterPopup(
+                                    "2S2H Permissions Error",
+                                    "2S2H does not have proper file permissions.\nPlease move it to a "
+                                    "folder that does and run again.",
+                                    "OK", "", [&]() { exit(0); });
+                            }
+                            windowsStep = WS_ONEDRIVE;
+                        }
+                        continue;
+                    }
+                    case WS_ONEDRIVE: {
+                        if (ownPath.string().find("OneDrive") != std::string::npos) {
+                            BenGui::RegisterPopup("2S2H Path Error",
+                                                  "2S2H appears to be in a OneDrive folder, which will cause issues.\n"
+                                                  "Please move it to a folder outside of OneDrive, like the root of a\n"
+                                                  "drive (e.g. \"C:\\Games\\2S2H\").",
+                                                  "OK", "", [&]() { exit(0); });
+                        } else {
+                            windowsStep = WS_DONE;
+                            extractStep = args.empty() ? ES_EXTRACT : ES_EXTRACT_ARGS;
+                        }
+                        continue;
+                    }
+                    default:
+                        continue;
+                }
+                break;
+            }
+            case ES_EXTRACT_ARGS: {
+#if !defined(__SWITCH__) && !defined(__WIIU__)
+                if (args.empty()) {
+                    BenGui::RegisterPopup(
+                        "Run 2 Ship 2 Harkinian", "All files have been processed. Run 2S2H?", "Yes", "No",
+                        [&]() {
+                            if (!std::filesystem::exists(Ship::Context::GetAppDirectoryPath(appShortName) +
+                                                         "/mm.o2r")) {
+                                extractStep = ES_EXTRACT;
+                                promptStep = PS_FILE_CHECK;
+                            } else {
+                                extractStep = ES_VERIFY;
+                            }
+                        },
+                        [&]() { exit(0); });
+                    break;
+                }
+                file = args.at(0);
+                args.erase(args.begin());
+                extract = Extractor();
+                if (extract.RunFileStandalone(file)) {
+                    bool doExtract = true;
+                    if (std::filesystem::exists(Ship::Context::GetAppDirectoryPath(appShortName) + "/mm.o2r")) {
+                        std::string msg = "Archive for current ROM, mm.o2r, already exists.\nExtract again?";
+                        BenGui::RegisterPopup("Confirm Re-extract", msg.c_str(), "Yes", "No", [&]() {
+                            extractionTask = threadPool->submit_task([&]() -> void {
+                                extract.CallZapd(installPath, Ship::Context::GetAppDirectoryPath(appShortName),
+                                                 &extractCount, &totalExtract);
+                                extractCount = totalExtract = 0;
+                            });
+                        });
+                    } else {
+                        extractionTask = threadPool->submit_task([&]() -> void {
+                            extract.CallZapd(installPath, Ship::Context::GetAppDirectoryPath(appShortName),
+                                             &extractCount, &totalExtract);
+                            extractCount = totalExtract = 0;
+                        });
+                    }
+                } else {
+                    bool open = true;
+                    std::string msg = "File\n" + std::string(file) + "\nis not a ROM or does not match supported ROMs.";
+                    BenGui::RegisterPopup("2S2H ROM Error", msg.c_str());
+                }
+#else
+                extractStep = ES_VERIFY;
+#endif
+                break;
+            }
+            case ES_EXTRACT: {
+                switch (promptStep) {
+                    case PS_FILE_CHECK: {
+                        if (!std::filesystem::exists(Ship::Context::LocateFileAcrossAppDirs("mm.o2r", appShortName))) {
+                            BenGui::RegisterPopup(
+                                "No O2R Files", "No O2R files found. Generate one now?", "Yes", "No",
+                                [&]() { promptStep = PS_LOCAL; }, [&]() { exit(0); });
+                        } else {
+                            extractStep = ES_VERIFY;
+                        }
+                        continue;
+                    }
+                    case PS_LOCAL: {
+                        extract = Extractor();
+                        extract.SetSearchPath(installPath);
+                        extract.GetRoms(args);
+                        extract.SetSearchPath(dataPath);
+                        extract.GetRoms(args);
+                        if (!args.empty()) {
+                            promptStep = PS_WAIT;
+                            BenGui::RegisterPopup(
+                                "ROMs found", "ROMs found in application directory. Would you like to process them?",
+                                "Yes", "No", [&]() { extractStep = ES_EXTRACT_ARGS; },
+                                [&]() { promptStep = PS_FIRST; });
+                        } else {
+                            promptStep = PS_FIRST;
+                        }
+                        continue;
+                    }
+                    case PS_FIRST: {
+                        if (!extract.ManuallySearchForRomMatchingType(RomSearchMode::Both)) {
+                            promptStep = PS_FILE_CHECK;
+                            continue;
+                        }
+                        extractionTask = threadPool->submit_task([&]() -> void {
+                            extract.CallZapd(installPath, Ship::Context::GetAppDirectoryPath(appShortName),
+                                             &extractCount, &totalExtract);
+                            promptStep = PS_SECOND;
+                            extractCount = 0;
+                            totalExtract = 0;
+                        });
+                        continue;
+                    }
+                    case PS_SECOND: {
+                        BenGui::RegisterPopup(
+                            "Extraction Complete", "ROM Extracted. Extract another?", "Yes", "No",
+                            [&]() {
+                                if (!extract.ManuallySearchForRomMatchingType(RomSearchMode::Vanilla)) {
+                                    extractStep = ES_VERIFY;
+                                } else {
+                                    extractionTask = threadPool->submit_task([&]() -> void {
+                                        extract.CallZapd(installPath, Ship::Context::GetAppDirectoryPath(appShortName),
+                                                         &extractCount, &totalExtract);
+                                        extractStep = ES_VERIFY;
+                                        extractCount = 0;
+                                        totalExtract = 0;
+                                    });
+                                }
+                            },
+                            [&]() { extractStep = ES_VERIFY; });
+                        continue;
+                    }
+                    default:
+                        break;
+                }
+                break;
+            }
+            case ES_VERIFY: {
+                if (!std::filesystem::exists(Ship::Context::LocateFileAcrossAppDirs("mm.o2r", appShortName))) {
+                    BenGui::RegisterPopup("No ROM Archives",
+                                          "No ROM O2R files detected. Please generate a ROM O2R and relaunch.", "OK",
+                                          "", [&]() { exit(0); });
+                }
+                extractDone = true;
+                continue;
+            }
+            default:
+                break;
+        }
+
+    render:
+        if (!WindowIsRunning()) {
+            exit(0);
+        }
+        // Process window events for resize, mouse, keyboard events
+        wnd->HandleEvents();
+        UIWidgets::Colors themeColor =
+            static_cast<UIWidgets::Colors>(CVarGetInteger("gSettings.Menu.Theme", UIWidgets::Colors::LightBlue));
+        ImGui::PushStyleColor(ImGuiCol_TitleBgActive, UIWidgets::ColorValues.at(themeColor));
+        ImGui::PushStyleColor(ImGuiCol_ModalWindowDimBg, UIWidgets::ColorValues.at(UIWidgets::Colors::DarkGray));
+
+        // Skip dropped frames
+        if (!wnd->IsFrameReady()) {
+            continue;
+        }
+        gui->StartDraw();
+        benFast3dWindow->StartFrame();
+        benFast3dWindow->RunGuiOnly();
+        if (extractionTask.has_value()) {
+            auto status = extractionTask->wait_for(std::chrono::milliseconds(0));
+            if (status == std::future_status::ready) {
+                try {
+                    extractionTask->get();
+                } catch (const std::exception& e) {
+                    BenGui::RegisterPopup("Extraction Crashed", e.what(), "Close", "", []() { exit(1); });
+                }
+                extractionTask.reset();
+            } else {
+                if (!ImGui::IsPopupOpen("ROM Extraction")) {
+                    ImGui::OpenPopup("ROM Extraction");
+                }
+                ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f, 8.0f));
+                auto color = UIWidgets::ColorValues.at(THEME_COLOR);
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(color.x, color.y, color.z, 0.6f));
+                ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(color.x, color.y, color.z, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.0f, 0.0f, 0.0f, 0.3f));
+                if (ImGui::BeginPopupModal("ROM Extraction", NULL,
+                                           ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize |
+                                               ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
+                                               ImGuiWindowFlags_NoSavedSettings)) {
+                    float progress = (totalExtract > 0.0f ? (float)extractCount / (float)totalExtract : 0) * 100.0f;
+                    auto filename = std::filesystem::path(file).filename().string();
+                    ImGui::Text("Extracting %s...%s", filename.c_str(),
+                                roundf(progress) == 100.0f ? " Done. Finishing up." : "");
+                    std::string overlay = extractCount > 0 ? fmt::format("{:.0f}%", progress) : "Starting Up";
+                    ImGui::ProgressBar(progress / 100.0f, ImVec2(600.0f, 50.0f), overlay.c_str());
+                    ImGui::EndPopup();
+                }
+                ImGui::PopStyleColor(3);
+                ImGui::PopStyleVar(2);
+            }
+        }
+        gui->EndDraw();
+        benFast3dWindow->EndFrame();
+        ImGui::PopStyleColor(2);
+    }
+
+#ifdef __SWITCH__
+    Ship::Switch::Init(Ship::PreInitPhase);
+#elif defined(__WIIU__)
+    Ship::WiiU::Init(appShortName);
+#endif
+}
+
+void OTRGlobals::Initialize() {
+    std::string mmPath = Ship::Context::LocateFileAcrossAppDirs("mm.o2r", appShortName);
+    if (std::filesystem::exists(mmPath)) {
+        context->GetResourceManager()->GetArchiveManager()->AddArchive(mmPath);
+    }
+
+    std::unordered_set<uint32_t> validHashes = { MM_NTSC_US_10, MM_NTSC_US_GC };
+
+#if (_DEBUG)
+    auto defaultLogLevel = spdlog::level::trace;
+#else
+    auto defaultLogLevel = spdlog::level::info;
+#endif
+    context->InitConfiguration();
+    context->InitConsoleVariables();
+    auto logLevel = static_cast<spdlog::level::level_enum>(CVarGetInteger("gDeveloperTools.LogLevel", defaultLogLevel));
+    context->InitLogging(logLevel, logLevel);
     Ship::Context::GetInstance()->GetLogger()->set_pattern("[%H:%M:%S.%e] [%s:%#] [%l] %v");
 
-    auto overlay = context->GetInstance()->GetWindow()->GetGui()->GetGameOverlay();
-    overlay->LoadFont("Press Start 2P", 12.0f, "fonts/PressStart2P-Regular.ttf");
-    overlay->LoadFont("Fipps", 32.0f, "fonts/Fipps-Regular.otf");
-    overlay->SetCurrentFont(CVarGetString(CVAR_GAME_OVERLAY_FONT, "Press Start 2P"));
+    context->InitGfxDebugger();
+    context->InitFileDropMgr();
+
+    // tell LUS to reserve 3 2S2H specific threads (Game, Audio, Save)
+    prevAltAssets = CVarGetInteger("gEnhancements.Mods.AlternateAssets", 1);
+    context->GetResourceManager()->SetAltAssetsEnabled(prevAltAssets);
+
+    context->InitCrashHandler();
+
+    context->GetWindow()->SetAutoCaptureMouse(CVarGetInteger("gSettings.EnableMouse", 0) &&
+                                              CVarGetInteger("gSettings.AutoCaptureMouse", 1));
+    context->GetWindow()->SetForceCursorVisibility(CVarGetInteger("gSettings.CursorVisibility", 0));
 
     context->InitAudio({ .SampleRate = 32000, .SampleLength = 1024, .DesiredBuffered = 1680 });
 
@@ -295,17 +739,56 @@ OTRGlobals::OTRGlobals() {
             exit(1);
         }
     }
-
-    fontMono = CreateFontWithSize(16.0f, "fonts/Inconsolata-Regular.ttf");
-    fontMonoLarger = CreateFontWithSize(20.0f, "fonts/Inconsolata-Regular.ttf");
-    fontMonoLargest = CreateFontWithSize(24.0f, "fonts/Inconsolata-Regular.ttf");
-    fontStandard = CreateFontWithSize(16.0f, "fonts/Montserrat-Regular.ttf");
-    fontStandardLarger = CreateFontWithSize(20.0f, "fonts/Montserrat-Regular.ttf");
-    fontStandardLargest = CreateFontWithSize(24.0f, "fonts/Montserrat-Regular.ttf");
-    ImGui::GetIO().FontDefault = fontMono;
 }
 
 OTRGlobals::~OTRGlobals() {
+}
+
+extern "C" uint32_t Ship_GetInterpolationFPS() {
+    return OTRGlobals::Instance->GetInterpolationFPS();
+}
+
+// Number of interpolated frames
+extern "C" uint32_t Ship_GetInterpolationFrameCount() {
+    return ceil((float)Ship_GetInterpolationFPS() / 20.0f);
+}
+
+struct ExtensionEntry {
+    std::string path;
+    std::string ext;
+};
+
+void OTRGlobals::ScaleImGui() {
+    int32_t imGuiScaleIndex = CVarGetInteger("gSettings.ImGuiScale", defaultImGuiScale);
+    if (imGuiScaleIndex == previousImGuiScaleIndex) {
+        return;
+    }
+
+    float scale = imguiScaleOptionToValue[imGuiScaleIndex];
+    float newScale = scale / previousImGuiScale;
+    ImGui::GetStyle().ScaleAllSizes(newScale);
+    ImGui::GetIO().FontGlobalScale = scale;
+    previousImGuiScale = scale;
+    previousImGuiScaleIndex = imGuiScaleIndex;
+}
+
+ImFont* OTRGlobals::CreateDefaultFontWithSize(float size) {
+    auto mImGuiIo = &ImGui::GetIO();
+    ImFontConfig fontCfg = ImFontConfig();
+    fontCfg.OversampleH = fontCfg.OversampleV = 1;
+    fontCfg.PixelSnapH = true;
+    fontCfg.SizePixels = size;
+    ImFont* font = mImGuiIo->Fonts->AddFontDefault(&fontCfg);
+    // FontAwesome fonts need to have their sizes reduced by 2.0f/3.0f in order to align correctly
+    float iconFontSize = size * 2.0f / 3.0f;
+    static const ImWchar sIconsRanges[] = { ICON_MIN_FA, ICON_MAX_16_FA, 0 };
+    ImFontConfig iconsConfig;
+    iconsConfig.MergeMode = true;
+    iconsConfig.PixelSnapH = true;
+    iconsConfig.GlyphMinAdvanceX = iconFontSize;
+    mImGuiIo->Fonts->AddFontFromMemoryCompressedBase85TTF(fontawesome_compressed_data_base85, iconFontSize,
+                                                          &iconsConfig, sIconsRanges);
+    return font;
 }
 
 uint32_t OTRGlobals::GetInterpolationFPS() {
@@ -317,49 +800,6 @@ uint32_t OTRGlobals::GetInterpolationFPS() {
                                   CVarGetInteger("gInterpolationFPS", 20));
     }
     return CVarGetInteger("gInterpolationFPS", 20);
-}
-
-extern "C" uint32_t Ship_GetInterpolationFPS() {
-    return OTRGlobals::Instance->GetInterpolationFPS();
-}
-
-struct ExtensionEntry {
-    std::string path;
-    std::string ext;
-};
-
-ImFont* OTRGlobals::CreateFontWithSize(float size, std::string fontPath) {
-    auto mImGuiIo = &ImGui::GetIO();
-    ImFont* font;
-    if (fontPath == "") {
-        ImFontConfig fontCfg = ImFontConfig();
-        fontCfg.OversampleH = fontCfg.OversampleV = 1;
-        fontCfg.PixelSnapH = true;
-        fontCfg.SizePixels = size;
-        font = mImGuiIo->Fonts->AddFontDefault(&fontCfg);
-    } else {
-        auto initData = std::make_shared<Ship::ResourceInitData>();
-        ImFontConfig config;
-        config.FontDataOwnedByAtlas = false;
-
-        initData->Format = RESOURCE_FORMAT_BINARY;
-        initData->Type = static_cast<uint32_t>(RESOURCE_TYPE_FONT);
-        initData->ResourceVersion = 0;
-        initData->Path = fontPath;
-        std::shared_ptr<Ship::Font> fontData = std::static_pointer_cast<Ship::Font>(
-            Ship::Context::GetInstance()->GetResourceManager()->LoadResource(fontPath, false, initData));
-        font = mImGuiIo->Fonts->AddFontFromMemoryTTF(fontData->Data, fontData->DataSize, size, &config);
-    }
-    // FontAwesome fonts need to have their sizes reduced by 2.0f/3.0f in order to align correctly
-    float iconFontSize = size * 2.0f / 3.0f;
-    static const ImWchar sIconsRanges[] = { ICON_MIN_FA, ICON_MAX_16_FA, 0 };
-    ImFontConfig iconsConfig;
-    iconsConfig.MergeMode = true;
-    iconsConfig.PixelSnapH = true;
-    iconsConfig.GlyphMinAdvanceX = iconFontSize;
-    mImGuiIo->Fonts->AddFontFromMemoryCompressedBase85TTF(fontawesome_compressed_data_base85, iconFontSize,
-                                                          &iconsConfig, sIconsRanges);
-    return font;
 }
 
 extern "C" void OTRMessage_Init();
@@ -471,12 +911,6 @@ extern "C" void OTRExtScanner() {
     }
 }
 
-typedef struct {
-    uint16_t major;
-    uint16_t minor;
-    uint16_t patch;
-} ArchiveVersion;
-
 // Read the port version from an archive file
 ArchiveVersion ReadPortVersionFromArchive(std::string archivePath, bool isO2rType) {
     ArchiveVersion version = {};
@@ -511,206 +945,55 @@ ArchiveVersion ReadPortVersionFromArchive(std::string archivePath, bool isO2rTyp
 
 // Check that a 2ship.o2r exists and matches the version of 2ship running
 // Otherwise show a message and exit
-void Check2ShipArchiveVersion(std::string archivePath) {
-    std::string msg;
-
-#if defined(__SWITCH__)
-    msg = "\x1b[4;2HPlease re-extract it from the download."
-          "\x1b[6;2HPress the Home button to exit...";
-#elif defined(__WIIU__)
-    msg = "Please extract the 2ship.o2r from the 2 Ship 2 Harkinian download\nto your folder.\n\n"
-          "Press and hold the power button to shutdown...";
-#else
-    msg = "Please extract the 2ship.o2r from the 2 Ship 2 Harkinian download to your folder.\n\nExiting...";
-#endif
-
-    if (!std::filesystem::exists(archivePath)) {
-#if not defined(__SWITCH__) && not defined(__WIIU__)
-        Extractor::ShowErrorBox("2ship.o2r file is missing", msg.c_str());
-        exit(1);
-#elif defined(__SWITCH__)
-        Ship::Switch::PrintErrorMessageToScreen(("\x1b[2;2HYou are missing the 2ship.o2r file." + msg).c_str());
-#elif defined(__WIIU__)
-        OSFatal(("You are missing the 2ship.o2r file\n\n" + msg).c_str());
-#endif
-    }
-
-    ArchiveVersion archiveVer = ReadPortVersionFromArchive(archivePath, true);
-
-    if (archiveVer.major != gBuildVersionMajor || archiveVer.minor != gBuildVersionMinor ||
-        archiveVer.patch != gBuildVersionPatch) {
-#if not defined(__SWITCH__) && not defined(__WIIU__)
-        Extractor::ShowErrorBox("2ship.o2r file version does not match", msg.c_str());
-        exit(1);
-#elif defined(__SWITCH__)
-        Ship::Switch::PrintErrorMessageToScreen(("\x1b[2;2HYou have an old 2ship.o2r file." + msg).c_str());
-#elif defined(__WIIU__)
-        OSFatal(("You have an old 2ship.o2r file\n\n" + msg).c_str());
-#endif
-    }
-}
-
-// Checks the program version stored in the o2r and compares the major/minor value to 2ship
 // For Windows/Mac/Linux if the version doesn't match, offer to regenerate it
-void DetectArchiveVersion(std::string fileName, bool isO2rType) {
+ArchiveVersion DetectArchiveVersion(std::string fileName, bool isO2rType) {
     bool isArchiveOld = false;
     std::string archivePath = Ship::Context::LocateFileAcrossAppDirs(fileName, appShortName);
 
     // Doesn't exist so nothing to do here
     if (!std::filesystem::exists(archivePath)) {
-        return;
+        return { INT16_MAX, INT16_MAX, INT16_MAX };
     }
 
-    ArchiveVersion archiveVer = ReadPortVersionFromArchive(archivePath, isO2rType);
-
-    // Check both major and minor for game archives
-    if (archiveVer.major != gBuildVersionMajor || archiveVer.minor != gBuildVersionMinor) {
-        isArchiveOld = true;
-    }
-
-    if (isArchiveOld) {
-#if not defined(__SWITCH__) && not defined(__WIIU__)
-        char msgBuf[250];
-        char version[18]; // 5 digits for int16_max (x3) + separators + terminator
-
-        if (archiveVer.major != 0 || archiveVer.minor != 0 || archiveVer.patch != 0) {
-            snprintf(version, 18, "%d.%d.%d", archiveVer.major, archiveVer.minor, archiveVer.patch);
-        } else {
-            snprintf(version, 18, "no version found");
-        }
-
-        snprintf(msgBuf, 250,
-                 "The %s file was generated with a different version of 2 Ship 2 Harkinian.\n"
-                 "O2R version: %s\n\n"
-                 "You must regenerate to be able to play, otherwise the program will exit.\n"
-                 "Would you like to regenerate it now?",
-                 fileName.c_str(), version);
-
-        if (Extractor::ShowYesNoBox("Old O2R File Found", msgBuf) == IDYES) {
-            std::string installPath = Ship::Context::GetAppBundlePath();
-            if (!std::filesystem::exists(installPath + "/assets")) {
-                Extractor::ShowErrorBox(
-                    "Extractor assets not found",
-                    "Unable to regenerate. Missing assets folder needed to generate O2R file.\n\nExiting...");
-                exit(1);
-            }
-
-            Extractor extract;
-            if (!extract.Run(Ship::Context::GetAppDirectoryPath(appShortName))) {
-                Extractor::ShowErrorBox("Error", "An error occurred, no O2R file was generated.\n\nExiting...");
-                exit(1);
-            }
-
-            // We can only regenerate O2R archives, so we should just delete the old OTR file
-            if (!isO2rType) {
-                std::filesystem::remove(archivePath);
-            }
-
-            extract.CallZapd(installPath, Ship::Context::GetAppDirectoryPath(appShortName));
-
-            // Rename the new O2R with the previously used extension
-            if (isO2rType) {
-                std::filesystem::rename(Ship::Context::LocateFileAcrossAppDirs("mm.o2r", appShortName), archivePath);
-            }
-        } else {
-            exit(1);
-        }
-
-#elif defined(__SWITCH__)
-        Ship::Switch::PrintErrorMessageToScreen("\x1b[2;2HYou've launched the 2Ship with an old game O2R file."
-                                                "\x1b[4;2HPlease regenerate a new game O2R and relaunch."
-                                                "\x1b[6;2HPress the Home button to exit...");
-#elif defined(__WIIU__)
-        OSFatal("You've launched the 2Ship with an old a game O2R file.\n\n"
-                "Please generate a game O2R and relaunch.\n\n"
-                "Press and hold the Power button to shutdown...");
-#endif
-    }
+    return ReadPortVersionFromArchive(archivePath, isO2rType);
 }
 
-void CheckAndCreateModFolder() {
-    try {
-        std::string modsPath = Ship::Context::LocateFileAcrossAppDirs("mods", appShortName);
-        if (!std::filesystem::exists(modsPath)) {
-            // Create mods folder relative to app dir
-            modsPath = Ship::Context::GetPathRelativeToAppDirectory("mods", appShortName);
-            std::string filePath = modsPath + "/custom_mod_files_go_here.txt";
-            if (std::filesystem::create_directories(modsPath)) {
-                std::ofstream(filePath).close();
-            }
-        }
-    } catch (std::filesystem::filesystem_error const& ex) {
-        // Couldn't make the folder, continue silently
-        return;
-    }
+extern "C" void Messagebox_ShowErrorBox(char* title, char* body) {
+    Extractor::ShowErrorBox(title, body);
 }
 
-extern "C" void InitOTR() {
+bool VerifyArchiveVersion(ArchiveVersion version) {
+    return version.major != INT16_MAX && version.major != gBuildVersionMajor;
+}
 
-#ifdef __SWITCH__
-    Ship::Switch::Init(Ship::PreInitPhase);
-#elif defined(__WIIU__)
-    Ship::WiiU::Init(appShortName);
-#endif
-
-    // BENTODO: OTRExporter is filling the version file with garbage. Uncomment once fixed.
-    // Check2ShipArchiveVersion(Ship::Context::GetPathRelativeToAppBundle("2ship.o2r"));
-
-    std::string mmPathO2R = Ship::Context::LocateFileAcrossAppDirs("mm.o2r", appShortName);
-    std::string mmPathZIP = Ship::Context::LocateFileAcrossAppDirs("mm.zip", appShortName);
-    std::string mmPathOtr = Ship::Context::LocateFileAcrossAppDirs("mm.otr", appShortName);
-
-    // Check game archives in preferred order
-    if (std::filesystem::exists(mmPathO2R)) {
-        DetectArchiveVersion("mm.o2r", true);
-    } else if (std::filesystem::exists(mmPathZIP)) {
-        DetectArchiveVersion("mm.zip", true);
-    } else if (std::filesystem::exists(mmPathOtr)) {
-        DetectArchiveVersion("mm.otr", false);
-    }
-
-#if not defined(__SWITCH__) && not defined(__WIIU__)
-    CheckAndCreateModFolder();
-    if (!std::filesystem::exists(mmPathO2R) && !std::filesystem::exists(mmPathZIP) &&
-        !std::filesystem::exists(mmPathOtr)) {
-        std::string installPath = Ship::Context::GetAppBundlePath();
-        if (!std::filesystem::exists(installPath + "/assets")) {
-            Extractor::ShowErrorBox(
-                "Extractor assets not found",
-                "No game O2R file found. Missing assets folder needed to generate O2R file. Exiting...");
-            exit(1);
-        }
-
-        if (Extractor::ShowYesNoBox("No O2R File", "No O2R files found. Generate one now?") == IDYES) {
-            Extractor extract;
-            if (!extract.Run(Ship::Context::GetAppDirectoryPath(appShortName))) {
-                Extractor::ShowErrorBox("Error", "An error occurred, no O2R file was generated. Exiting...");
-                exit(1);
-            }
-            extract.CallZapd(installPath, Ship::Context::GetAppDirectoryPath(appShortName));
-        } else {
-            exit(1);
-        }
-    }
-#endif
-
+extern "C" void InitOTR(int argc, char* argv[]) {
     OTRGlobals::Instance = new OTRGlobals();
+    OTRGlobals::Instance->RunExtract(argc, argv);
+
+    OTRGlobals::Instance->Initialize();
+
+    std::shared_ptr<Ship::Config> conf = OTRGlobals::Instance->context->GetConfig();
+    conf->RegisterVersionUpdater(std::make_shared<Ben::ConfigVersion1Updater>());
+    conf->RunVersionUpdates();
+    Ship::Context::GetInstance()->GetConsoleVariables()->Save();
+
     GameInteractor::Instance = new GameInteractor();
     AudioCollection::Instance = new AudioCollection();
     LoadGuiTextures();
     BenGui::SetupGuiElements();
     ShipInit::InitAll();
-    InitEnhancements();
     Rando::Init();
     GfxPatcher_ApplyNecessaryAuthenticPatches();
     DebugConsole_Init();
     GameInteractor::Instance->RegisterOwnHooks();
     CustomItem::RegisterHooks();
     CustomMessage::RegisterHooks();
+    Rando::StaticData::PopulateCheckNames();
 
     OTRMessage_Init();
     OTRAudio_Init();
     OTRExtScanner();
+    PlayerCustomFlipbooks_Patch();
 
     // Just came up with arbitrary numbers that seemed to work, this is
     // usually set once(?) in currently stubbed out areas of code.
@@ -735,7 +1018,6 @@ extern "C" void InitOTR() {
     }
 #endif
 
-    std::shared_ptr<Ship::Config> conf = OTRGlobals::Instance->context->GetConfig();
     Ship::Context::GetInstance()->GetFileDropMgr()->RegisterDropHandler(BinarySaveConverter_HandleFileDropped);
     Ship::Context::GetInstance()->GetFileDropMgr()->RegisterDropHandler(SaveManager_HandleFileDropped);
 }
@@ -755,6 +1037,7 @@ extern "C" void DeinitOTR() {
     // Destroying gui here because we have shared ptrs to LUS objects which output to SPDLOG which is destroyed before
     // these shared ptrs.
     BenGui::Destroy();
+    benFast3dWindow = nullptr;
 
     OTRGlobals::Instance->context = nullptr;
     delete AudioCollection::Instance;
@@ -901,9 +1184,17 @@ void RunCommands(Gfx* Commands, const std::vector<std::unordered_map<Mtx*, MtxF>
     // Process window events for resize, mouse, keyboard events
     wnd->HandleEvents();
 
+    auto intp = wnd->GetInterpreterWeak().lock().get();
+    intp->mInterpolationIndex = 0;
+
+    UIWidgets::Colors themeColor =
+        static_cast<UIWidgets::Colors>(CVarGetInteger("gSettings.Menu.Theme", UIWidgets::Colors::LightBlue));
+    ImGui::PushStyleColor(ImGuiCol_TitleBgActive, UIWidgets::ColorValues.at(themeColor));
     for (const auto& m : mtx_replacements) {
         wnd->DrawAndRunGraphicsCommands(Commands, m);
+        intp->mInterpolationIndex++;
     }
+    ImGui::PopStyleColor();
 }
 
 // C->C++ Bridge
@@ -972,8 +1263,8 @@ extern "C" void Graph_ProcessGfxCommands(Gfx* commands) {
         prevAltAssets = curAltAssets;
         Ship::Context::GetInstance()->GetResourceManager()->SetAltAssetsEnabled(curAltAssets);
         gfx_texture_cache_clear();
-        // TODO: skeleton patch, hooks
-        // SOH::SkeletonPatcher::UpdateSkeletons();
+        PlayerCustomFlipbooks_Patch();
+        SOH::SkeletonPatcher::UpdateSkeletons();
         // GameInteractor::Instance->ExecuteHooks<GameInteractor::OnAssetAltChange>();
     }
 
@@ -1049,6 +1340,25 @@ extern "C" void ResourceMgr_LoadDirectory(const char* resName) {
 }
 extern "C" void ResourceMgr_DirtyDirectory(const char* resName) {
     Ship::Context::GetInstance()->GetResourceManager()->DirtyResources(resName);
+}
+
+extern "C" void ResourceMgr_UnloadResource(const char* resName) {
+    std::string path = resName;
+    if (path.starts_with("__OTR__")) {
+        path = path.substr(7);
+    }
+    Ship::Context::GetInstance()->GetResourceManager()->UnloadResource(path);
+}
+
+static void ResourceMgr_UnloadOriginalWhenAltExists(const char* resName) {
+    std::string path = resName;
+    if (path.starts_with("__OTR__")) {
+        path = path.substr(7);
+    }
+
+    if (ResourceMgr_IsAltAssetsEnabled() && ExtensionCache.contains(Ship::IResource::gAltAssetPrefix + path)) {
+        ResourceMgr_UnloadResource(path.c_str());
+    }
 }
 
 // OTRTODO: There is probably a more elegant way to go about this...
@@ -1181,6 +1491,8 @@ extern "C" void ResourceMgr_PushCurrentDirectory(char* path) {
 }
 
 extern "C" Gfx* ResourceMgr_LoadGfxByName(const char* path) {
+    ResourceMgr_UnloadOriginalWhenAltExists(path);
+
     auto res = std::static_pointer_cast<Fast::DisplayList>(GetResourceByName(path));
     return (Gfx*)&res->Instructions[0];
 }
@@ -1260,6 +1572,36 @@ extern "C" void ResourceMgr_UnpatchGfxByName(const char* path, const char* patch
         *gfx = originalGfx[path][patchName].instruction;
 
         originalGfx[path].erase(patchName);
+    }
+}
+
+extern "C" size_t ResourceMgr_GetPatchCountForDL(const char* path) {
+    if (originalGfx.contains(path)) {
+        return originalGfx[path].size();
+    }
+    return 0;
+}
+
+extern "C" void ResourceMgr_ResetAllPatchesForDL(const char* path) {
+    if (!originalGfx.contains(path)) {
+        return;
+    }
+
+    auto res = std::static_pointer_cast<Fast::DisplayList>(
+        Ship::Context::GetInstance()->GetResourceManager()->LoadResource(path));
+
+    // Iterate through all patches and restore original instructions
+    auto& patches = originalGfx[path];
+    for (auto it = patches.begin(); it != patches.end();) {
+        Gfx* gfx = (Gfx*)&res->Instructions[it->second.index];
+        *gfx = it->second.instruction;
+        // erase() returns the next iterator, allowing safe iteration during removal
+        it = patches.erase(it);
+    }
+
+    // Clean up empty map entry
+    if (patches.empty()) {
+        originalGfx.erase(path);
     }
 }
 
@@ -1445,7 +1787,47 @@ extern "C" int ResourceMgr_OTRSigCheck(char* imgData) {
     return 0;
 }
 
+// Load animation with explicit alt asset path checking.
+// When Alt Assets is OFF: use original path directly (O2R or vanilla)
+// When Alt Assets is ON: try alt/ prefix first, fall back to regular path if not found or invalid
 extern "C" AnimationHeaderCommon* ResourceMgr_LoadAnimByName(const char* path) {
+    bool isAlt = ResourceMgr_IsAltAssetsEnabled();
+
+    if (isAlt) {
+        std::string pathStr = std::string(path);
+        static const std::string sOtr = "__OTR__";
+
+        if (pathStr.starts_with(sOtr)) {
+            pathStr = pathStr.substr(sOtr.length());
+        }
+
+        // Try alt/ first
+        pathStr = Ship::IResource::gAltAssetPrefix + pathStr;
+        AnimationHeaderCommon* animHeader = (AnimationHeaderCommon*)ResourceGetDataByName(pathStr.c_str());
+
+        // If alt loaded successfully, verify it has valid data
+        if (animHeader != NULL) {
+            // Check for valid frame count (> 0)
+            if (animHeader->frameCount > 0) {
+                // For Normal animations: check frameData (comes after frameCount in AnimationHeader)
+                // For Link animations: check segment (comes after frameCount in LinkAnimationHeader)
+                // We check both to be safe - if either is valid, the animation is usable
+                AnimationHeader* normalAnim = (AnimationHeader*)animHeader;
+                PlayerAnimationHeader* playerAnim = (PlayerAnimationHeader*)animHeader;
+
+                // Valid if Normal animation has frameData OR Link animation has segment
+                if (normalAnim->frameData != NULL || playerAnim->segmentVoid != NULL) {
+                    return animHeader;
+                }
+            }
+            // Alt loaded but is invalid (broken), fall through to original path
+        }
+
+        // Fall back to original path
+        return (AnimationHeaderCommon*)ResourceGetDataByName(path);
+    }
+
+    // Alt OFF: use original path directly
     return (AnimationHeaderCommon*)ResourceGetDataByName(path);
 }
 
@@ -1474,7 +1856,7 @@ extern "C" SkeletonHeader* ResourceMgr_LoadSkeletonByName(const char* path, Skel
     // Therefore we can take this opportunity to take note of the Skeleton that is created...
     if (skelAnime != nullptr) {
         auto stringPath = std::string(path);
-        // Ship::SkeletonPatcher::RegisterSkeleton(stringPath, skelAnime);
+        SOH::SkeletonPatcher::RegisterSkeleton(stringPath, skelAnime);
     }
 
     return skelHeader;
@@ -1485,13 +1867,45 @@ extern "C" void ResourceMgr_UnregisterSkeleton(SkelAnime* skelAnime) {
         SOH::SkeletonPatcher::UnregisterSkeleton(skelAnime);
 }
 
-extern "C" void ResourceMgr_ClearSkeletons(SkelAnime* skelAnime) {
-    if (skelAnime != nullptr)
-        SOH::SkeletonPatcher::ClearSkeletons();
+extern "C" void ResourceMgr_ClearSkeletons() {
+    SOH::SkeletonPatcher::ClearSkeletons();
 }
 
 extern "C" s32* ResourceMgr_LoadCSByName(const char* path) {
     return (s32*)ResourceGetDataByName(path);
+}
+
+ImFont* OTRGlobals::CreateFontWithSize(float size, std::string fontPath) {
+    auto mImGuiIo = &ImGui::GetIO();
+    ImFont* font;
+    if (fontPath == "") {
+        ImFontConfig fontCfg = ImFontConfig();
+        fontCfg.OversampleH = fontCfg.OversampleV = 1;
+        fontCfg.PixelSnapH = true;
+        fontCfg.SizePixels = size;
+        font = mImGuiIo->Fonts->AddFontDefault(&fontCfg);
+    } else {
+        auto initData = std::make_shared<Ship::ResourceInitData>();
+        initData->Format = RESOURCE_FORMAT_BINARY;
+        initData->Type = static_cast<uint32_t>(RESOURCE_TYPE_FONT);
+        initData->ResourceVersion = 0;
+        initData->Path = fontPath;
+        std::shared_ptr<Ship::Font> fontData = std::static_pointer_cast<Ship::Font>(
+            Ship::Context::GetInstance()->GetResourceManager()->LoadResource(fontPath, false, initData));
+        ImFontConfig fontConf;
+        fontConf.FontDataOwnedByAtlas = false;
+        font = mImGuiIo->Fonts->AddFontFromMemoryTTF(fontData->Data, fontData->DataSize, size, &fontConf, nullptr);
+    }
+    // FontAwesome fonts need to have their sizes reduced by 2.0f/3.0f in order to align correctly
+    float iconFontSize = size * 2.0f / 3.0f;
+    static const ImWchar sIconsRanges[] = { ICON_MIN_FA, ICON_MAX_16_FA, 0 };
+    ImFontConfig iconsConfig;
+    iconsConfig.MergeMode = true;
+    iconsConfig.PixelSnapH = true;
+    iconsConfig.GlyphMinAdvanceX = iconFontSize;
+    mImGuiIo->Fonts->AddFontFromMemoryCompressedBase85TTF(fontawesome_compressed_data_base85, iconFontSize,
+                                                          &iconsConfig, sIconsRanges);
+    return font;
 }
 
 std::filesystem::path GetSaveFile(std::shared_ptr<Ship::Config> Conf) {
@@ -1902,10 +2316,6 @@ extern "C" int Controller_ShouldRumble(size_t slot) {
 
     // rumble
     return 1;
-}
-
-extern "C" void Messagebox_ShowErrorBox(char* title, char* body) {
-    Extractor::ShowErrorBox(title, body);
 }
 
 // Helper to redirect the user to the boot screen in place of known console crash scenarios, and emits a notification

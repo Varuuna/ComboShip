@@ -1,4 +1,4 @@
-#include "public/bridge/consolevariablebridge.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include "2s2h/ShipInit.hpp"
 #include "CameraUtils.h"
@@ -16,6 +16,9 @@ extern void func_800CBFA4(Camera* camera, Vec3f* arg1, Vec3f* arg2, s32 arg3);
 extern CameraSetting sCameraSettings[];
 extern s32 sCameraInterfaceFlags;
 }
+
+// Check if bombchu remote control is active
+extern bool IsBombchuFocused();
 
 // Static Data Used For Free Camera
 static bool sCanFreeLook = false;
@@ -124,9 +127,19 @@ bool Camera_FreeLook(Camera* camera) {
     *eyeNext = OLib_AddVecGeoToVec3f(at, &eyeAdjustment);
     // Apply new camera angle only when camera active
     if (camera->status == CAM_STATUS_ACTIVE) {
-        *eye = *eyeNext;
-        // Adjust camera for collision with floors, walls and ceilings.
-        func_800CBFA4(camera, at, eye, 0);
+        CameraCollision camCollision = {};
+        camCollision.pos = *eyeNext;
+
+        if (Camera_BgCheckInfo(camera, at, &camCollision)) {
+            f32 collDist = Math3D_Vec3f_DistXYZ(at, &camCollision.pos);
+            eyeAdjustment.r = collDist - 3.0f;
+            *eye = OLib_AddVecGeoToVec3f(at, &eyeAdjustment);
+        } else {
+            *eye = *eyeNext;
+        }
+
+        camera->dist = Math3D_Vec3f_DistXYZ(at, eye);
+        camera->eyeNext = *eye;
     }
 
     // 65.0f based on value from SoH
@@ -149,6 +162,10 @@ bool Camera_CanFreeLook(Camera* camera) {
     }
     // Reset camera during cutscenes
     if (gPlayState != nullptr && Player_InCsMode(gPlayState)) {
+        sCanFreeLook = false;
+    }
+    // Disable freecam during bombchu control
+    if (IsBombchuFocused()) {
         sCanFreeLook = false;
     }
 

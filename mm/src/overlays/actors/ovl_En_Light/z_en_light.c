@@ -9,8 +9,6 @@
 
 #define FLAGS 0x00000000
 
-#define THIS ((EnLight*)thisx)
-
 void EnLight_Init(Actor* thisx, PlayState* play);
 void EnLight_Destroy(Actor* thisx, PlayState* play);
 void EnLight_Update(Actor* thisx, PlayState* play);
@@ -18,7 +16,7 @@ void EnLight_Draw(Actor* thisx, PlayState* play);
 
 void func_80865F38(Actor* thisx, PlayState* play);
 
-ActorInit En_Light_InitVars = {
+ActorProfile En_Light_Profile = {
     /**/ ACTOR_EN_LIGHT,
     /**/ ACTORCAT_ITEMACTION,
     /**/ FLAGS,
@@ -49,7 +47,7 @@ EnLightStruct D_808666D0[] = {
 
 void EnLight_Init(Actor* thisx, PlayState* play) {
     s32 pad;
-    EnLight* this = THIS;
+    EnLight* this = (EnLight*)thisx;
 
     if (!ENLIGHT_GET_4000(&this->actor)) {
         if ((gSaveContext.gameMode == GAMEMODE_END_CREDITS) || ENLIGHT_GET_2000(&this->actor)) {
@@ -79,7 +77,7 @@ void EnLight_Init(Actor* thisx, PlayState* play) {
 }
 
 void EnLight_Destroy(Actor* thisx, PlayState* play) {
-    EnLight* this = THIS;
+    EnLight* this = (EnLight*)thisx;
 
     if (!ENLIGHT_GET_4000(&this->actor)) {
         LightContext_RemoveLight(play, &play->lightCtx, this->lightNode);
@@ -98,7 +96,7 @@ void func_80865BF8(EnLight* this, PlayState* play) {
 }
 
 void EnLight_Update(Actor* thisx, PlayState* play) {
-    EnLight* this = THIS;
+    EnLight* this = (EnLight*)thisx;
 
     if (!ENLIGHT_GET_4000(&this->actor)) {
         EnLightStruct* sp28 = &D_808666D0[ENLIGHT_GET_F(&this->actor)];
@@ -117,7 +115,7 @@ void EnLight_Update(Actor* thisx, PlayState* play) {
 }
 
 void func_80865F38(Actor* thisx, PlayState* play) {
-    EnLight* this = THIS;
+    EnLight* this = (EnLight*)thisx;
     EnLightStruct* sp38 = &D_808666D0[ENLIGHT_GET_F(&this->actor)];
     f32 temp_f2;
     f32 sp30 = this->actor.scale.x / (sp38->unk_07 * 0.0001f);
@@ -162,7 +160,7 @@ void func_80865F38(Actor* thisx, PlayState* play) {
 
 void EnLight_Draw(Actor* thisx, PlayState* play) {
     s32 pad;
-    EnLight* this = THIS;
+    EnLight* this = (EnLight*)thisx;
     EnLightStruct* sp6C = &D_808666D0[ENLIGHT_GET_F(&this->actor)];
     Gfx* sp68;
 
@@ -171,16 +169,16 @@ void EnLight_Draw(Actor* thisx, PlayState* play) {
     Gfx_SetupDL25_Xlu(play->state.gfxCtx);
 
     if (this->actor.params >= 0) {
-        gSPSegment(
-            POLY_XLU_DISP++, 0x08,
-            Gfx_TwoTexScroll(play->state.gfxCtx, 0, 0, 0, 0x20, 0x40, 1, 0, (this->unk_144 * -20) & 0x1FF, 0x20, 0x80));
+        gSPSegment(POLY_XLU_DISP++, 0x08,
+                   Gfx_TwoTexScrollEx(play->state.gfxCtx, 0, 0, 0, 0x20, 0x40, 1, 0, (this->unk_144 * -20) & 0x1FF,
+                                      0x20, 0x80, 0, 0, 0, -20));
         sp68 = gEffFire1DL;
         gDPSetPrimColor(POLY_XLU_DISP++, 0x80, 0x80, sp6C->unk_00.r, sp6C->unk_00.g, sp6C->unk_00.b, sp6C->unk_00.a);
         gDPSetEnvColor(POLY_XLU_DISP++, sp6C->unk_04.r, sp6C->unk_04.g, sp6C->unk_04.b, 0);
     } else {
         gSPSegment(POLY_XLU_DISP++, 0x08,
-                   Gfx_TwoTexScroll(play->state.gfxCtx, 0, 0, 0, 0x10, 0x20, 1, (this->unk_144 * 2) & 0x3F,
-                                    (this->unk_144 * -6) & 0x7F, 0x10, 0x20));
+                   Gfx_TwoTexScrollEx(play->state.gfxCtx, 0, 0, 0, 0x10, 0x20, 1, (this->unk_144 * 2) & 0x3F,
+                                      (this->unk_144 * -6) & 0x7F, 0x10, 0x20, 0, 0, 2, -6));
         sp68 = gameplay_keep_DL_01ACF0;
         gDPSetPrimColor(POLY_XLU_DISP++, 0xC0, 0xC0, 255, 200, 0, 0);
         gDPSetEnvColor(POLY_XLU_DISP++, 255, 0, 0, 0);
@@ -194,7 +192,7 @@ void EnLight_Draw(Actor* thisx, PlayState* play) {
 
     Matrix_Scale(1.0f, 1.0f, 1.0f, MTXMODE_APPLY);
 
-    gSPMatrix(POLY_XLU_DISP++, Matrix_NewMtx(play->state.gfxCtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, play->state.gfxCtx);
     gSPDisplayList(POLY_XLU_DISP++, sp68);
 
     CLOSE_DISPS(play->state.gfxCtx);

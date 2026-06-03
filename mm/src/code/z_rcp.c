@@ -1,6 +1,5 @@
 #include "global.h"
 #include "sys_cfb.h"
-#include "overlays/kaleido_scope/ovl_kaleido_scope/z_kaleido_scope.h"
 
 #include "BenPort.h"
 
@@ -905,8 +904,8 @@ Gfx* Gfx_SetupDL(Gfx* gfx, u32 i) {
     return Gfx_SetupDLImpl(gfx, i);
 }
 
-void Gfx_SetupDLAtPtr(Gfx** gfxp, u32 i) {
-    *gfxp = Gfx_SetupDL(*gfxp, i);
+void Gfx_SetupDLAtPtr(Gfx** gfxP, u32 i) {
+    *gfxP = Gfx_SetupDL(*gfxP, i);
 }
 
 Gfx* Gfx_SetupDL57(Gfx* gfx) {
@@ -1209,11 +1208,11 @@ void Gfx_SetupDL39_Overlay(GraphicsContext* gfxCtx) {
     CLOSE_DISPS(gfxCtx);
 }
 
-void Gfx_SetupDL39_Ptr(Gfx** gfxp) {
-    Gfx* gfx = *gfxp;
+void Gfx_SetupDL39_Ptr(Gfx** gfxP) {
+    Gfx* gfx = *gfxP;
 
     gSPDisplayList(gfx++, gSetupDLs[SETUPDL_39]);
-    *gfxp = gfx;
+    *gfxP = gfx;
 }
 
 void Gfx_SetupDL40_Opa(GraphicsContext* gfxCtx) {
@@ -1344,11 +1343,11 @@ void Gfx_SetupDL56_Opa(GraphicsContext* gfxCtx) {
     CLOSE_DISPS(gfxCtx);
 }
 
-void Gfx_SetupDL56_Ptr(Gfx** gfxp) {
-    Gfx* gfx = *gfxp;
+void Gfx_SetupDL56_Ptr(Gfx** gfxP) {
+    Gfx* gfx = *gfxP;
 
     gSPDisplayList(gfx++, gSetupDLs[SETUPDL_56]);
-    *gfxp = gfx;
+    *gfxP = gfx;
 }
 
 void Gfx_SetupDL59_Opa(GraphicsContext* gfxCtx) {
@@ -1359,8 +1358,8 @@ void Gfx_SetupDL59_Opa(GraphicsContext* gfxCtx) {
     CLOSE_DISPS(gfxCtx);
 }
 
-Gfx* Gfx_BranchTexScroll(Gfx** gfxp, u32 x, u32 y, s32 width, s32 height) {
-    Gfx* gfx = Graph_DlistAlloc(gfxp, 3 * sizeof(Gfx));
+Gfx* Gfx_BranchTexScroll(Gfx** gfxP, u32 x, u32 y, s32 width, s32 height) {
+    Gfx* gfx = Graph_DlistAlloc(gfxP, 3 * sizeof(Gfx));
 
     gDPTileSync(&gfx[0]);
     gDPSetTileSize(&gfx[1], 0, x, y, (x + ((width - 1) << 2)), (y + ((height - 1) << 2)));
@@ -1369,12 +1368,44 @@ Gfx* Gfx_BranchTexScroll(Gfx** gfxp, u32 x, u32 y, s32 width, s32 height) {
     return gfx;
 }
 
-void func_8012CB04(Gfx** gfxp, u32 x, u32 y) {
-    Gfx_BranchTexScroll(gfxp, x, y, 0, 0);
+void func_8012CB04(Gfx** gfxP, u32 x, u32 y) {
+    Gfx_BranchTexScroll(gfxP, x, y, 0, 0);
 }
 
 Gfx* func_8012CB28(GraphicsContext* gfxCtx, u32 x, u32 y) {
     return Gfx_TexScroll(gfxCtx, x, y, 0, 0);
+}
+
+Gfx* Gfx_TexScrollEx(GraphicsContext* gfxCtx, u32 x, u32 y, s32 width, s32 height, s32 xStep, s32 yStep) {
+    int interpFrames = Ship_GetInterpolationFrameCount();
+
+    Gfx* gfx = GRAPH_ALLOC(gfxCtx, (2 + (interpFrames * 4)) * sizeof(Gfx));
+
+    x %= 2048;
+    y %= 2048;
+
+    float xFlt = (float)x;
+    float yFlt = (float)y;
+
+    float xInc = (float)xStep / (float)interpFrames;
+    float yInc = (float)yStep / (float)interpFrames;
+
+    int idx = 0;
+
+    gDPTileSync(&gfx[idx++]);
+
+    for (int i = 0; i < interpFrames; i++) {
+        gDPSetInterpolation(&gfx[idx++], i);
+        gDPSetTileSizeInterp(&gfx[idx], 0, xFlt, yFlt, (xFlt + ((width - 1) << 2)), (yFlt + ((height - 1) << 2)));
+        idx += 3;
+
+        xFlt += xInc;
+        yFlt += yInc;
+    }
+
+    gSPEndDisplayList(&gfx[idx++]);
+
+    return gfx;
 }
 
 Gfx* Gfx_TexScroll(GraphicsContext* gfxCtx, u32 x, u32 y, s32 width, s32 height) {
@@ -1386,6 +1417,52 @@ Gfx* Gfx_TexScroll(GraphicsContext* gfxCtx, u32 x, u32 y, s32 width, s32 height)
     gDPTileSync(&gfx[0]);
     gDPSetTileSize(&gfx[1], 0, x, y, (x + ((width - 1) << 2)), (y + ((height - 1) << 2)));
     gSPEndDisplayList(&gfx[2]);
+
+    return gfx;
+}
+
+Gfx* Gfx_TwoTexScrollEx(GraphicsContext* gfxCtx, s32 tile1, u32 x1, u32 y1, s32 width1, s32 height1, s32 tile2, u32 x2,
+                        u32 y2, s32 width2, s32 height2, s32 xStep1, s32 yStep1, s32 xStep2, s32 yStep2) {
+    int interpFrames = Ship_GetInterpolationFrameCount();
+
+    Gfx* gfx = GRAPH_ALLOC(gfxCtx, (5 + (interpFrames * 7)) * sizeof(Gfx));
+
+    x1 %= 2048;
+    y1 %= 2048;
+    x2 %= 2048;
+    y2 %= 2048;
+
+    float x1Flt = (float)x1;
+    float y1Flt = (float)y1;
+    float x2Flt = (float)x2;
+    float y2Flt = (float)y2;
+
+    int index = 0;
+
+    gDPTileSync(&gfx[index++]);
+
+    float xInc1 = (float)xStep1 / (float)interpFrames;
+    float yInc1 = (float)yStep1 / (float)interpFrames;
+
+    float xInc2 = (float)xStep2 / (float)interpFrames;
+    float yInc2 = (float)yStep2 / (float)interpFrames;
+
+    for (int i = 0; i < interpFrames; i++) {
+        gDPSetInterpolation(&gfx[index++], i);
+
+        gDPSetTileSizeInterp(&gfx[index], tile1, x1Flt, y1Flt, (x1Flt + ((width1 - 1) << 2)),
+                             (y1Flt + ((height1 - 1) << 2)));
+        index += 3;
+        gDPSetTileSizeInterp(&gfx[index], tile2, x2Flt, y2Flt, (x2Flt + ((width2 - 1) << 2)),
+                             (y2Flt + ((height2 - 1) << 2)));
+        index += 3;
+
+        x1Flt += xInc1;
+        x2Flt += xInc2;
+        y1Flt += yInc1;
+        y2Flt += yInc2;
+    }
+    gSPEndDisplayList(&gfx[index]);
 
     return gfx;
 }

@@ -14,6 +14,7 @@
 #include "stack.h"
 #include "stackcheck.h"
 #include "BenPort.h"
+#include <libultraship/bridge/crashhandlerbridge.h>
 
 // Variables are put before most headers as a hacky way to bypass bss reordering
 OSMesgQueue sSerialEventQueue;
@@ -46,13 +47,13 @@ s32 gScreenWidth = SCREEN_WIDTH;
 s32 gScreenHeight = SCREEN_HEIGHT;
 size_t gSystemHeapSize = 0;
 
-void InitOTR();
-
+void InitOTR(int argc, char* argv[]);
+void Heaps_Free(void);
 #ifdef __GNUC__
 #define SDL_main main
 #endif
 
-void SDL_main(int argc, char** argv /* void* arg*/) {
+int SDL_main(int argc, char* argv[] /* void* arg*/) {
     intptr_t fb;
     intptr_t sysHeap;
     s32 exit;
@@ -71,7 +72,8 @@ void SDL_main(int argc, char** argv /* void* arg*/) {
     setlocale(LC_ALL, ".UTF8");
 #endif // _WIN32
 
-    InitOTR();
+    InitOTR(argc, argv);
+    CrashHandlerRegisterCallback(CrashHandler_PrintExt);
     Heaps_Alloc();
 
     gScreenWidth = SCREEN_WIDTH;
@@ -82,7 +84,7 @@ void SDL_main(int argc, char** argv /* void* arg*/) {
     Check_RegionIsSupported();
     Check_ExpansionPak();
     sysHeap = gSystemHeap;
-    // fb = 0x80780000;
+    // fb = FRAMEBUFFERS_START_ADDR;
     // gSystemHeapSize = fb - sysHeap;
     SystemHeap_Init(sysHeap, SYSTEM_HEAP_SIZE);
 
@@ -148,4 +150,5 @@ void SDL_main(int argc, char** argv /* void* arg*/) {
 #ifdef _WIN32
     FreeConsole();
 #endif
+    Heaps_Free();
 }

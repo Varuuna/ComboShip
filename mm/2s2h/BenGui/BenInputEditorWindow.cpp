@@ -1,14 +1,21 @@
 #include "BenInputEditorWindow.h"
-#include <Context.h>
-#include "public/bridge/consolevariablebridge.h"
-#include "controller/controldevice/controller/mapping/ControllerRumbleMapping.h"
-#include "controller/controldeck/ControlDeck.h"
-#include "utils/StringHelper.h"
+#include <ship/Context.h>
+#include <libultraship/bridge/consolevariablebridge.h>
+#include <ship/controller/controldevice/controller/mapping/ControllerRumbleMapping.h>
+#include <ship/controller/controldeck/ControlDeck.h>
+#include <ship/utils/StringHelper.h>
+#include "2s2h/BenPort.h"
+#include "2s2h/BenGui/UIWidgets.hpp"
+#include "2s2h/BenGui/BenGui.hpp"
 #ifndef __WIIU__
-#include "controller/controldevice/controller/mapping/sdl/SDLAxisDirectionToButtonMapping.h"
+#include <ship/controller/controldevice/controller/mapping/sdl/SDLAxisDirectionToButtonMapping.h>
 #endif
 
 #define SCALE_IMGUI_SIZE(value) ((value / 13.0f) * ImGui::GetFontSize())
+
+using namespace UIWidgets;
+
+static s32 heldInputs = 0;
 
 BenInputEditorWindow::~BenInputEditorWindow() {
 }
@@ -37,6 +44,14 @@ void BenInputEditorWindow::InitElement() {
     addButtonName(BTN_DDOWN, "D-pad down");
     addButtonName(BTN_DLEFT, "D-pad left");
     addButtonName(BTN_DRIGHT, "D-pad right");
+    addButtonName(BTN_CUSTOM_OCARINA_NOTE_D4, "Ocarina A (D4)");
+    addButtonName(BTN_CUSTOM_OCARINA_NOTE_F4, "Ocarina C Down (F4)");
+    addButtonName(BTN_CUSTOM_OCARINA_NOTE_A4, "Ocarina C Right (A4)");
+    addButtonName(BTN_CUSTOM_OCARINA_NOTE_B4, "Ocarina C Left (B4)");
+    addButtonName(BTN_CUSTOM_OCARINA_NOTE_D5, "Ocarina C Up (D5)");
+    addButtonName(BTN_CUSTOM_OCARINA_DISABLE_SONGS, "Disable Song Detection");
+    addButtonName(BTN_CUSTOM_OCARINA_PITCH_UP, "Pitch Up");
+    addButtonName(BTN_CUSTOM_OCARINA_PITCH_DOWN, "Pitch Down");
     addButtonName(0, "None");
 }
 
@@ -442,6 +457,9 @@ void BenInputEditorWindow::DrawButtonLine(const char* buttonName, uint8_t port, 
                                           ImVec4 color = CHIP_COLOR_N64_GREY) {
     ImGui::NewLine();
     ImGui::SameLine(SCALE_IMGUI_SIZE(32.0f));
+    if (heldInputs & bitmask) {
+        color.w = 0.5f;
+    }
     DrawInputChip(buttonName, color);
     ImGui::SameLine(SCALE_IMGUI_SIZE(86.0f));
     for (auto id : mBitmaskToMappingIds[port][bitmask]) {
@@ -1376,6 +1394,13 @@ void BenInputEditorWindow::DrawPortTabContents(uint8_t portIndex) {
         DrawButtonLine(StringHelper::Sprintf("%s##DPad", ICON_FA_ARROW_RIGHT).c_str(), portIndex, BTN_DRIGHT);
     }
 
+    if (ImGui::CollapsingHeader("Modifier Buttons", NULL, ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::TextWrapped("These can be bound to physical buttons and be selected for use in various\nenhancements, "
+                           "but otherwise have no use on their own.");
+        DrawButtonLine("M1", portIndex, BTN_CUSTOM_MODIFIER1);
+        DrawButtonLine("M2", portIndex, BTN_CUSTOM_MODIFIER2);
+    }
+
     if (ImGui::CollapsingHeader("Analog Stick", NULL, ImGuiTreeNodeFlags_DefaultOpen)) {
         DrawStickSection(portIndex, Ship::LEFT);
     }
@@ -1394,6 +1419,43 @@ void BenInputEditorWindow::DrawPortTabContents(uint8_t portIndex) {
 
     if (ImGui::CollapsingHeader("LEDs")) {
         DrawLEDSection(portIndex);
+    }
+
+    if (ImGui::CollapsingHeader("Custom Ocarina Controls")) {
+
+        bool customOcarinaEnabled = CVarGetInteger("gEnhancements.Playback.CustomizeOcarinaControls", 0);
+        if (ImGui::Checkbox("Enable Custom Ocarina Controls", &customOcarinaEnabled)) {
+            CVarSetInteger("gEnhancements.Playback.CustomizeOcarinaControls", customOcarinaEnabled);
+            Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+        }
+        UIWidgets::Tooltip("Allow customization of which physical buttons are used for ocarina playback.\nWARNING: "
+                           "This disables the normal ocarina controls (A and C buttons).");
+
+        if (customOcarinaEnabled) {
+            ImGui::AlignTextToFramePadding();
+            ImGui::BulletText("Notes");
+            DrawButtonLine("A (D4)##OcarinaD4", portIndex, BTN_CUSTOM_OCARINA_NOTE_D4);
+            DrawButtonLine(StringHelper::Sprintf("%s (F4)##OcarinaF4", ICON_FA_ARROW_DOWN).c_str(), portIndex,
+                           BTN_CUSTOM_OCARINA_NOTE_F4);
+            DrawButtonLine(StringHelper::Sprintf("%s (A4)##OcarinaA4", ICON_FA_ARROW_RIGHT).c_str(), portIndex,
+                           BTN_CUSTOM_OCARINA_NOTE_A4);
+            DrawButtonLine(StringHelper::Sprintf("%s (B4)##OcarinaB4", ICON_FA_ARROW_LEFT).c_str(), portIndex,
+                           BTN_CUSTOM_OCARINA_NOTE_B4);
+            DrawButtonLine(StringHelper::Sprintf("%s (D5)##OcarinaD5", ICON_FA_ARROW_UP).c_str(), portIndex,
+                           BTN_CUSTOM_OCARINA_NOTE_D5);
+
+            ImGui::AlignTextToFramePadding();
+            ImGui::BulletText("Disable song detection");
+            DrawButtonLine(StringHelper::Sprintf("%s##OcarinaDisableSongs", ICON_FA_BAN).c_str(), portIndex,
+                           BTN_CUSTOM_OCARINA_DISABLE_SONGS);
+
+            ImGui::AlignTextToFramePadding();
+            ImGui::BulletText("Pitch");
+            DrawButtonLine(StringHelper::Sprintf("%s##OcarinaPitchUp", ICON_FA_ARROW_UP).c_str(), portIndex,
+                           BTN_CUSTOM_OCARINA_PITCH_UP);
+            DrawButtonLine(StringHelper::Sprintf("%s##OcarinaPitchDown", ICON_FA_ARROW_DOWN).c_str(), portIndex,
+                           BTN_CUSTOM_OCARINA_PITCH_DOWN);
+        }
     }
 
     ImGui::PopStyleColor();
@@ -1493,3 +1555,12 @@ void BenInputEditorWindow::OffsetMappingPopup() {
     pos.x += HORIZONTAL_OFFSET;
     ImGui::SetNextWindowPos(pos);
 }
+
+static RegisterShipInitFunc initFunc(
+    []() {
+        COND_HOOK(OnGameStateMainStart, true, []() {
+            Input* input = CONTROLLER1(gGameState);
+            heldInputs = input->cur.button;
+        });
+    },
+    {});

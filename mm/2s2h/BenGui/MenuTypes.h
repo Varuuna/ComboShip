@@ -30,6 +30,8 @@ typedef enum {
     DISABLE_FOR_LOW_RES_MODE_ON,
     DISABLE_FOR_ADVANCED_RESOLUTION_OFF,
     DISABLE_FOR_VERTICAL_RESOLUTION_OFF,
+    DISABLE_FOR_LINKS_VOICE_PITCH_MULTIPLIER_OFF,
+    DISABLE_FOR_KOUME_INVINCIBLE,
 } DisableOption;
 
 struct WidgetInfo;
@@ -48,6 +50,7 @@ typedef enum {
     WIDGET_CVAR_COMBOBOX,
     WIDGET_CVAR_SLIDER_INT,
     WIDGET_CVAR_SLIDER_FLOAT,
+    WIDGET_CVAR_BTN_SELECTOR,
     WIDGET_BUTTON,
     WIDGET_COLOR_24, // color picker without alpha
     WIDGET_COLOR_32, // color picker with alpha
@@ -86,9 +89,9 @@ typedef enum {
 // holds the widget values for a widget, contains all CVar types available from LUS. int32_t is used for boolean
 // evaluation
 using CVarVariant = std::variant<int32_t, const char*, float, Color_RGBA8, Color_RGB8>;
-using OptionsVariant =
-    std::variant<UIWidgets::ButtonOptions, UIWidgets::CheckboxOptions, UIWidgets::ComboboxOptions,
-                 UIWidgets::FloatSliderOptions, UIWidgets::IntSliderOptions, UIWidgets::WidgetOptions>;
+using OptionsVariant = std::variant<UIWidgets::ButtonOptions, UIWidgets::CheckboxOptions, UIWidgets::ComboboxOptions,
+                                    UIWidgets::FloatSliderOptions, UIWidgets::IntSliderOptions,
+                                    UIWidgets::BtnSelectorOptions, UIWidgets::WidgetOptions>;
 
 // All the info needed for display and search of all widgets in the menu.
 // `name` is the label displayed,
@@ -124,6 +127,7 @@ struct WidgetInfo {
     const char* windowName = "";
     bool isHidden = false;
     bool sameLine = false;
+    bool hideInSearch = false;
 
     WidgetInfo& CVar(const char* cVar_) {
         cVar = cVar_;
@@ -154,6 +158,10 @@ struct WidgetInfo {
             case WIDGET_BUTTON:
             case WIDGET_WINDOW_BUTTON:
                 options = std::make_shared<UIWidgets::ButtonOptions>(std::get<UIWidgets::ButtonOptions>(options_));
+                break;
+            case WIDGET_CVAR_BTN_SELECTOR:
+                options =
+                    std::make_shared<UIWidgets::BtnSelectorOptions>(std::get<UIWidgets::BtnSelectorOptions>(options_));
                 break;
             case WIDGET_TEXT:
             case WIDGET_SEPARATOR_TEXT:
@@ -199,6 +207,11 @@ struct WidgetInfo {
     }
     WidgetInfo& CustomFunction(WidgetFunc customFunction_) {
         customFunction = customFunction_;
+        return *this;
+    }
+
+    WidgetInfo& HideInSearch(bool hide) {
+        hideInSearch = hide;
         return *this;
     }
 };
@@ -253,6 +266,15 @@ struct SidebarEntry {
     std::vector<std::vector<WidgetInfo>> columnWidgets;
 };
 
+struct SearchWidget {
+    // First four required
+    WidgetInfo& info;
+    std::string menuName;
+    std::string sidebarName;
+    std::string location;
+    std::string extraTerms = "";
+};
+
 // Contains entries for what's listed in the header at the top, including the name displayed on the top bar (label),
 // a vector of the SidebarEntries for that header entry, and the name of the cvar used to track what sidebar entry is
 // the last viewed for that header.
@@ -266,6 +288,7 @@ struct MainMenuEntry {
 static const std::unordered_map<Ship::AudioBackend, const char*> audioBackendsMap = {
     { Ship::AudioBackend::WASAPI, "Windows Audio Session API" },
     { Ship::AudioBackend::SDL, "SDL" },
+    { Ship::AudioBackend::NUL, "Null" },
 };
 
 static const std::unordered_map<Ship::WindowBackend, const char*> windowBackendsMap = {

@@ -20,7 +20,7 @@ u32 EffectSsKFire_Init(PlayState* play, u32 index, EffectSs* this, void* initPar
 void EffectSsKFire_Update(PlayState* play, u32 index, EffectSs* this);
 void EffectSsKFire_Draw(PlayState* play, u32 index, EffectSs* this);
 
-EffectSsInit Effect_Ss_K_Fire_InitVars = {
+EffectSsProfile Effect_Ss_K_Fire_Profile = {
     EFFECT_SS_K_FIRE,
     EffectSsKFire_Init,
 };
@@ -57,8 +57,8 @@ void EffectSsKFire_Draw(PlayState* play, u32 index, EffectSs* this) {
     Matrix_Scale(xzScale, yScale, xzScale, MTXMODE_APPLY);
     Gfx_SetupDL25_Xlu(play->state.gfxCtx);
     gSPSegment(POLY_XLU_DISP++, 0x08,
-               Gfx_TwoTexScroll(play->state.gfxCtx, 0, 0, 0, 0x20, 0x40, 1, 0, play->state.frames * this->rScroll, 0x20,
-                                0x80));
+               Gfx_TwoTexScrollEx(play->state.gfxCtx, 0, 0, 0, 0x20, 0x40, 1, 0, play->state.frames * this->rScroll,
+                                  0x20, 0x80, 0, 0, 0, this->rScroll));
 
     if (this->rType >= 100) {
         gDPSetPrimColor(POLY_XLU_DISP++, 0x80, 0x80, 255, 255, 0, this->rAlpha);
@@ -75,7 +75,7 @@ void EffectSsKFire_Draw(PlayState* play, u32 index, EffectSs* this) {
         Matrix_RotateYF(M_PIf, MTXMODE_APPLY);
     }
 
-    gSPMatrix(POLY_XLU_DISP++, Matrix_NewMtx(play->state.gfxCtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, play->state.gfxCtx);
     gSPDisplayList(POLY_XLU_DISP++, gEffFire1DL);
 
     CLOSE_DISPS(gfxCtx);

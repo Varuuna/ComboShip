@@ -20,6 +20,9 @@ static const ALIGN_ASSET(2) char gArrowDownTex[] = dgArrowDown;
 #define dgTriforcePiece "__OTR__textures/parameter_static/gTriforcePiece"
 static const ALIGN_ASSET(2) char gTriforcePieceTex[] = dgTriforcePiece;
 
+#define dgFlippers "__OTR__textures/parameter_static/gFlippers"
+static const ALIGN_ASSET(2) char gFlippersTex[] = dgFlippers;
+
 #define dgThreeDayClockHour13Tex "__OTR__textures/parameter_static/gThreeDayClockHour13Tex"
 static const ALIGN_ASSET(2) char gThreeDayClockHour13Tex[] = dgThreeDayClockHour13Tex;
 
@@ -370,3 +373,36 @@ static const ALIGN_ASSET(2) char gCrateTrackerIcon[] = dgCrateTrackerIcon;
 
 #define dgBarrelTrackerIcon "__OTR__textures/icons/gBarrelTrackerIcon"
 static const ALIGN_ASSET(2) char gBarrelTrackerIcon[] = dgBarrelTrackerIcon;
+
+#define dgGiFlippersDL "__OTR__objects/object_ability_swim/gGiFlippersDL"
+static const ALIGN_ASSET(2) char gGiFlippersDL[] = dgGiFlippersDL;
+
+#define dgTriforcePiece0DL "__OTR__objects/object_triforce_piece_0/gTriforcePiece0DL"
+static const ALIGN_ASSET(2) char gTriforcePiece0DL[] = dgTriforcePiece0DL;
+
+#define dgTriforcePiece1DL "__OTR__objects/object_triforce_piece_1/gTriforcePiece1DL"
+static const ALIGN_ASSET(2) char gTriforcePiece1DL[] = dgTriforcePiece1DL;
+
+#define dgTriforcePiece2DL "__OTR__objects/object_triforce_piece_2/gTriforcePiece2DL"
+static const ALIGN_ASSET(2) char gTriforcePiece2DL[] = dgTriforcePiece2DL;
+
+#define dgTriforcePieceCompletedDL "__OTR__objects/object_triforce_completed/gTriforcePieceCompletedDL"
+static const ALIGN_ASSET(2) char gTriforcePieceCompletedDL[] = dgTriforcePieceCompletedDL;
+
+#define dgTrapDL "__OTR__objects/object_trap/gTrapDL"
+static const ALIGN_ASSET(2) char gTrapDL[] = dgTrapDL;
+
+#define dgOcarinaAButtonDL "__OTR__objects/object_ocarina_a_button/gOcarinaAButtonDL"
+static const ALIGN_ASSET(2) char gOcarinaAButtonDL[] = dgOcarinaAButtonDL;
+
+#define dgOcarinaCDownButtonDL "__OTR__objects/object_ocarina_c_down_button/gOcarinaCDownButtonDL"
+static const ALIGN_ASSET(2) char gOcarinaCDownButtonDL[] = dgOcarinaCDownButtonDL;
+
+#define dgOcarinaCLeftButtonDL "__OTR__objects/object_ocarina_c_left_button/gOcarinaCLeftButtonDL"
+static const ALIGN_ASSET(2) char gOcarinaCLeftButtonDL[] = dgOcarinaCLeftButtonDL;
+
+#define dgOcarinaCRightButtonDL "__OTR__objects/object_ocarina_c_right_button/gOcarinaCRightButtonDL"
+static const ALIGN_ASSET(2) char gOcarinaCRightButtonDL[] = dgOcarinaCRightButtonDL;
+
+#define dgOcarinaCUpButtonDL "__OTR__objects/object_ocarina_c_up_button/gOcarinaCUpButtonDL"
+static const ALIGN_ASSET(2) char gOcarinaCUpButtonDL[] = dgOcarinaCUpButtonDL;

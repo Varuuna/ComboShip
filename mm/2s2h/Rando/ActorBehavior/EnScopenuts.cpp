@@ -1,12 +1,12 @@
 #include "ActorBehavior.h"
-#include "public/bridge/consolevariablebridge.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 #include "2s2h/CustomMessage/CustomMessage.h"
 
 extern "C" {
 #include "variables.h"
 #include "overlays/actors/ovl_En_Scopenuts/z_en_scopenuts.h"
 
-void Player_TalkWithPlayer(PlayState* play, Actor* actor);
+void Player_StartTalking(PlayState* play, Actor* actor);
 void func_80BCB980(EnScopenuts* enScopenuts, PlayState* play);
 }
 
@@ -18,12 +18,12 @@ void Rando::ActorBehavior::InitEnScopenutsBehavior() {
         if (actor->id == ACTOR_EN_SCOPENUTS) {
             EnScopenuts* enScopenuts = (EnScopenuts*)actor;
             *should = false;
-            SET_WEEKEVENTREG(WEEKEVENTREG_53_02);
+            SET_WEEKEVENTREG(WEEKEVENTREG_RECEIVED_BUSINESS_SCRUB_HEART_PIECE);
             actor->parent = &player->actor;
             player->talkActor = actor;
             player->talkActorDistance = actor->xzDistToPlayer;
             player->exchangeItemAction = PLAYER_IA_MINUS1;
-            Player_TalkWithPlayer(gPlayState, actor);
+            Player_StartTalking(gPlayState, actor);
             enScopenuts->actionFunc = func_80BCB980;
         }
     });
@@ -33,7 +33,8 @@ void Rando::ActorBehavior::InitEnScopenutsBehavior() {
         RandoItemId randoItemId = RANDO_SAVE_CHECKS[RC_TERMINA_FIELD_GROTTO_SCRUB].randoItemId;
         entry.msg = "Please! I'll sell you %y{{itemName}}%w if you just keep this place a secret...\xE0";
 
-        CustomMessage::Replace(&entry.msg, "{{itemName}}", Rando::StaticData::GetItemName(randoItemId));
+        CustomMessage::Replace(&entry.msg, "{{itemName}}",
+                               Rando::StaticData::GetItemName(randoItemId, true, RC_TERMINA_FIELD_GROTTO_SCRUB));
         CustomMessage::LoadCustomMessageIntoFont(entry);
         *loadFromMessageTable = false;
     });

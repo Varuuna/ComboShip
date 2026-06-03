@@ -1,5 +1,6 @@
 #include <soh/OTRGlobals.h>
 #include "static_data.h"
+#include "soh/Enhancements/randomizer/randomizer.h"
 
 extern "C" {
 #include "src/overlays/actors/ovl_En_Cow/z_en_cow.h"
@@ -29,7 +30,7 @@ void EnCow_MoveForRandomizer(EnCow* enCow, PlayState* play) {
 
     if (moved) {
         // Reposition collider
-        func_809DEE9C(enCow);
+        EnCow_SetColliderPos(enCow);
     }
 }
 
@@ -38,7 +39,7 @@ void RegisterShuffleCows() {
 
     COND_VB_SHOULD(VB_GIVE_ITEM_FROM_COW, shouldRegister, {
         EnCow* enCow = va_arg(args, EnCow*);
-        CowIdentity cowIdentity = OTRGlobals::Instance->gRandomizer->IdentifyCow(
+        CheckIdentity cowIdentity = OTRGlobals::Instance->gRandomizer->IdentifyCow(
             gPlayState->sceneNum, static_cast<int32_t>(enCow->actor.world.pos.x),
             static_cast<int32_t>(enCow->actor.world.pos.z));
         // Has this cow already rewarded an item?
@@ -58,7 +59,7 @@ void RegisterShuffleCows() {
     });
 }
 
-static RegisterShipInitFunc initFunc(RegisterShuffleCows, { "IS_RANDO" });
+static RegisterShipInitFunc registerShuffleCows(RegisterShuffleCows, { "IS_RANDO" });
 
 void Rando::StaticData::RegisterCowLocations() {
     static bool registered = false;
@@ -79,4 +80,4 @@ void Rando::StaticData::RegisterCowLocations() {
     // clang-format-on
 }
 
-static RegisterShipInitFunc registerFunc(Rando::StaticData::RegisterCowLocations);
+static RegisterShipInitFunc registerCowLocations(Rando::StaticData::RegisterCowLocations);

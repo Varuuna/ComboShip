@@ -1,6 +1,15 @@
 cmake_minimum_required(VERSION 3.24.0)
 
+# Enable /Z7 (embedded debug info) instead of /Zi (shared PDB) on MSVC so that
+# sccache can cache object files without racing over a shared .pdb file.
+# CMP0141 was introduced in CMake 3.25, so guard it for older versions.
+if(POLICY CMP0141)
+    cmake_policy(SET CMP0141 NEW)
+endif()
+
 option(NON_PORTABLE "Build a non-portable version" OFF)
+option(DISABLE_DLL_LOADER "Disable dynamic library loading support" OFF)
+option(ENABLE_SCRIPTING "Enable TCC-based C mod compilation and scripting system" OFF)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     option(SIGN_LIBRARY "Enable xcode signing" OFF)
@@ -21,7 +30,14 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	# As a shared DLL, C++ objects (shared_ptr<Context>, std::string, …) cross the module
 	# boundary; a static CRT would give libultraship its own heap and trip the debug-heap
 	# assert `__acrt_first_block == header` when such objects are freed in another module.
+	# ComboShip: keep the DLL CRT (upstream switched to the static CRT here) — the combo build
+	# links libultraship as a shared library, so all modules must share one runtime/heap.
 	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+	# Default to embedded debug info (/Z7) so sccache can cache object files
+	# without multiple CL.EXE processes racing over a shared .pdb file. (kept from upstream)
+	if(POLICY CMP0141)
+		set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:Embedded>")
+	endif()
 endif()
 
 include(cmake/Utils.cmake)
@@ -54,6 +70,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     include(cmake/dependencies/linux.cmake)
 endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "OpenBSD")
+    include(cmake/dependencies/openbsd.cmake)
+endif()
+
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     include(cmake/dependencies/windows.cmake)
 endif()
@@ -65,3 +85,10 @@ endif()
 
 # =========== Sources =============
 add_subdirectory("src")
+
+# =========== Tests =============
+option(LUS_BUILD_TESTS "Build unit tests" OFF)
+if(LUS_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory("tests")
+endif()

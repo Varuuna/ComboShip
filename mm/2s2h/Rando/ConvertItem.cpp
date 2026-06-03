@@ -1,5 +1,8 @@
 #include "Rando/Rando.h"
+#include "Rando/ActorBehavior/Souls.h"
+#include "Rando/MiscBehavior/ClockShuffle.h"
 #include "2s2h/ShipUtils.h"
+#include "2s2h/ShipInit.hpp"
 #include <cassert>
 
 // Copied from z_player.c, we could instead move this to a header file, idk
@@ -49,9 +52,8 @@ extern GetItemEntry sGetItemTable[GI_MAX - 1];
 // obtain it. If not, we convert it to a junk item.
 //
 // Junk Items:
-// - The list of junk items is defined below. We attempt to roll a random junk item one time, based on the RC provided,
-// and if we fail, we return a blue rupee. This will still result in the "lots of blue rupees" problem, but it's better
-// than _always_ converting to a blue rupee.
+// - The list of junk items is defined below. Every 1.5 seconds we roll a random junk item, based on the RC provided and
+// the current obtainability status of all junk items. The user can also opt out of the timed cycling.
 
 static std::vector<RandoItemId> junkItems = {
     // Rupees
@@ -76,23 +78,116 @@ static std::vector<RandoItemId> junkItems = {
     RI_NONE,
 };
 
-// Pick a random junk item every second
-RandoItemId Rando::CurrentJunkItem() {
-    static RandoItemId lastJunkItem = RI_UNKNOWN;
-    static u32 lastChosenAt = 0;
-    if (gPlayState != NULL && ABS(gPlayState->gameplayFrames - lastChosenAt) > 20) {
-        lastChosenAt = gPlayState->gameplayFrames;
-        lastJunkItem = RI_UNKNOWN;
-    }
+static std::vector<RandoItemId> obtainableJunkItems;
+static std::vector<RandoItemId> obtainableTrapItems;
+static std::vector<RandoItemId> allTrapItems;
 
-    while (lastJunkItem == RI_UNKNOWN) {
-        RandoItemId randJunkItem = junkItems[rand() % junkItems.size()];
-        if (Rando::IsItemObtainable(randJunkItem)) {
-            lastJunkItem = randJunkItem;
+void RefreshObtainableJunkItems() {
+    obtainableJunkItems.clear();
+
+    for (RandoItemId junkItem : junkItems) {
+        if (Rando::IsItemObtainable(junkItem)) {
+            switch (junkItem) {
+                case RI_ARROWS_10:
+                    if (AMMO(ITEM_BOW) < CUR_CAPACITY(UPG_QUIVER)) {
+                        obtainableJunkItems.push_back(junkItem);
+                    }
+                    break;
+                case RI_BOMBCHU_5:
+                    if (AMMO(ITEM_BOMBCHU) < CUR_CAPACITY(UPG_BOMB_BAG)) {
+                        obtainableJunkItems.push_back(junkItem);
+                    }
+                    break;
+                case RI_BOMBS_5:
+                    if (AMMO(ITEM_BOMB) < CUR_CAPACITY(UPG_BOMB_BAG)) {
+                        obtainableJunkItems.push_back(junkItem);
+                    }
+                    break;
+                case RI_DEKU_NUTS_5:
+                    if (AMMO(ITEM_DEKU_NUT) < CUR_CAPACITY(UPG_DEKU_NUTS)) {
+                        obtainableJunkItems.push_back(junkItem);
+                    }
+                    break;
+                case RI_DEKU_STICKS_5:
+                    if (AMMO(ITEM_DEKU_STICK) < CUR_CAPACITY(UPG_DEKU_STICKS)) {
+                        obtainableJunkItems.push_back(junkItem);
+                    }
+                    break;
+                case RI_MAGIC_JAR_SMALL:
+                    if (gSaveContext.save.saveInfo.playerData.magic < gSaveContext.magicCapacity) {
+                        obtainableJunkItems.push_back(junkItem);
+                    }
+                    break;
+                default:
+                    obtainableJunkItems.push_back(junkItem);
+                    break;
+            }
         }
     }
+}
 
-    return lastJunkItem;
+void RefreshObtainableTrapItems() {
+    obtainableTrapItems.clear();
+
+    for (auto& [randoCheckId, _] : Rando::StaticData::Checks) {
+        RandoSaveCheck saveCheck = RANDO_SAVE_CHECKS[randoCheckId];
+        if (saveCheck.shuffled && !saveCheck.obtained &&
+            (Rando::StaticData::Items[saveCheck.randoItemId].randoItemType == RITYPE_MAJOR ||
+             Rando::StaticData::Items[saveCheck.randoItemId].randoItemType == RITYPE_MASK)) {
+            obtainableTrapItems.push_back(saveCheck.randoItemId);
+        }
+    }
+}
+
+static RegisterShipInitFunc refreshInitFunc(
+    []() {
+        COND_HOOK(OnSceneInit, IS_RANDO, [](s8 sceneId, s8 spawnNum) {
+            RefreshObtainableJunkItems();
+            RefreshObtainableTrapItems();
+        });
+
+        if (IS_RANDO) {
+            for (auto& [randoCheckId, _] : Rando::StaticData::Checks) {
+                RandoSaveCheck saveCheck = RANDO_SAVE_CHECKS[randoCheckId];
+                if (saveCheck.shuffled &&
+                    (Rando::StaticData::Items[saveCheck.randoItemId].randoItemType == RITYPE_MAJOR ||
+                     Rando::StaticData::Items[saveCheck.randoItemId].randoItemType == RITYPE_MASK)) {
+                    allTrapItems.push_back(saveCheck.randoItemId);
+                }
+            }
+        }
+    },
+    { "IS_RANDO" });
+
+RandoItemId Rando::CurrentJunkItem(RandoCheckId randoCheckId) {
+    if (CVarGetInteger("gRando.JunkItems", 0) == 0) {
+        Ship_Random_Seed(gSaveContext.save.shipSaveInfo.rando.finalSeed + randoCheckId +
+                         (gPlayState->gameplayFrames / 30));
+        return obtainableJunkItems[Ship_Random(0, obtainableJunkItems.size() - 1)];
+    } else {
+        Ship_Random_Seed(gSaveContext.save.shipSaveInfo.rando.finalSeed + randoCheckId);
+        return obtainableJunkItems[Ship_Random(0, obtainableJunkItems.size() - 1)];
+    }
+}
+
+RandoItemId Rando::CurrentTrapItem(RandoCheckId randoCheckId) {
+    if (CVarGetInteger("gRando.TrapItems", 0) == 0) {
+        if (obtainableTrapItems.size() == 0) {
+            return RI_RUPEE_SILVER;
+        }
+
+        Ship_Random_Seed(gSaveContext.save.shipSaveInfo.rando.finalSeed + randoCheckId);
+
+        return obtainableTrapItems[Ship_Random(0, obtainableTrapItems.size() - 1)];
+    } else {
+        if (allTrapItems.size() == 0) {
+            return RI_RUPEE_SILVER;
+        }
+
+        Ship_Random_Seed(gSaveContext.save.shipSaveInfo.rando.finalSeed + randoCheckId);
+
+        return allTrapItems[Ship_Random(0, allTrapItems.size() - 1)];
+    }
 }
 
 bool Rando::IsItemObtainable(RandoItemId randoItemId, RandoCheckId randoCheckId) {
@@ -116,6 +211,10 @@ bool Rando::IsItemObtainable(RandoItemId randoItemId, RandoCheckId randoCheckId)
         case RI_PROGRESSIVE_WALLET:
             if (hasObtainedCheck) {
                 return false;
+            } else if (RANDO_SAVE_OPTIONS[RO_SHUFFLE_TYCOON_WALLET] == RO_GENERIC_YES) {
+                if (CUR_UPG_VALUE(UPG_WALLET) >= 3) {
+                    return false;
+                }
             } else if (CUR_UPG_VALUE(UPG_WALLET) >= 2) {
                 return false;
             }
@@ -127,6 +226,11 @@ bool Rando::IsItemObtainable(RandoItemId randoItemId, RandoCheckId randoCheckId)
             break;
         case RI_WALLET_GIANT:
             if (CUR_UPG_VALUE(UPG_WALLET) >= 2) {
+                return false;
+            }
+            break;
+        case RI_WALLET_TYCOON:
+            if (CUR_UPG_VALUE(UPG_WALLET) >= 3) {
                 return false;
             }
             break;
@@ -227,21 +331,19 @@ bool Rando::IsItemObtainable(RandoItemId randoItemId, RandoCheckId randoCheckId)
         case RI_SNOWHEAD_SMALL_KEY:
         case RI_GREAT_BAY_SMALL_KEY:
         case RI_STONE_TOWER_SMALL_KEY:
-        case RI_CLOCK_TOWN_STRAY_FAIRY:
         case RI_WOODFALL_STRAY_FAIRY:
         case RI_SNOWHEAD_STRAY_FAIRY:
         case RI_GREAT_BAY_STRAY_FAIRY:
         case RI_STONE_TOWER_STRAY_FAIRY:
         case RI_GS_TOKEN_SWAMP:
         case RI_GS_TOKEN_OCEAN:
-        case RI_FROG_BLUE:
-        case RI_FROG_CYAN:
-        case RI_FROG_PINK:
-        case RI_FROG_WHITE:
+        case RI_TRIFORCE_PIECE:
             if (hasObtainedCheck) {
                 return false;
             }
             return true;
+        case RI_CLOCK_TOWN_STRAY_FAIRY:
+            return !CHECK_WEEKEVENTREG(WEEKEVENTREG_08_80);
         case RI_HEART_PIECE:
         case RI_HEART_CONTAINER:
             if (hasObtainedCheck) {
@@ -325,31 +427,31 @@ bool Rando::IsItemObtainable(RandoItemId randoItemId, RandoCheckId randoCheckId)
         case RI_DOUBLE_DEFENSE:
             return !gSaveContext.save.saveInfo.playerData.doubleDefense;
         case RI_GREAT_SPIN_ATTACK:
-            return !CHECK_WEEKEVENTREG(WEEKEVENTREG_OBTAINED_GREAT_SPIN_ATTACK);
+            return !CHECK_WEEKEVENTREG(WEEKEVENTREG_RECEIVED_GREAT_SPIN_ATTACK);
         case RI_WOODFALL_BOSS_KEY:
-            return !CHECK_DUNGEON_ITEM(DUNGEON_BOSS_KEY, DUNGEON_INDEX_WOODFALL_TEMPLE);
+            return !CHECK_DUNGEON_ITEM(DUNGEON_BOSS_KEY, DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE);
         case RI_WOODFALL_COMPASS:
-            return !CHECK_DUNGEON_ITEM(DUNGEON_COMPASS, DUNGEON_INDEX_WOODFALL_TEMPLE);
+            return !CHECK_DUNGEON_ITEM(DUNGEON_COMPASS, DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE);
         case RI_WOODFALL_MAP:
-            return !CHECK_DUNGEON_ITEM(DUNGEON_MAP, DUNGEON_INDEX_WOODFALL_TEMPLE);
+            return !CHECK_DUNGEON_ITEM(DUNGEON_MAP, DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE);
         case RI_SNOWHEAD_BOSS_KEY:
-            return !CHECK_DUNGEON_ITEM(DUNGEON_BOSS_KEY, DUNGEON_INDEX_SNOWHEAD_TEMPLE);
+            return !CHECK_DUNGEON_ITEM(DUNGEON_BOSS_KEY, DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE);
         case RI_SNOWHEAD_COMPASS:
-            return !CHECK_DUNGEON_ITEM(DUNGEON_COMPASS, DUNGEON_INDEX_SNOWHEAD_TEMPLE);
+            return !CHECK_DUNGEON_ITEM(DUNGEON_COMPASS, DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE);
         case RI_SNOWHEAD_MAP:
-            return !CHECK_DUNGEON_ITEM(DUNGEON_MAP, DUNGEON_INDEX_SNOWHEAD_TEMPLE);
+            return !CHECK_DUNGEON_ITEM(DUNGEON_MAP, DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE);
         case RI_GREAT_BAY_BOSS_KEY:
-            return !CHECK_DUNGEON_ITEM(DUNGEON_BOSS_KEY, DUNGEON_INDEX_GREAT_BAY_TEMPLE);
+            return !CHECK_DUNGEON_ITEM(DUNGEON_BOSS_KEY, DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE);
         case RI_GREAT_BAY_COMPASS:
-            return !CHECK_DUNGEON_ITEM(DUNGEON_COMPASS, DUNGEON_INDEX_GREAT_BAY_TEMPLE);
+            return !CHECK_DUNGEON_ITEM(DUNGEON_COMPASS, DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE);
         case RI_GREAT_BAY_MAP:
-            return !CHECK_DUNGEON_ITEM(DUNGEON_MAP, DUNGEON_INDEX_GREAT_BAY_TEMPLE);
+            return !CHECK_DUNGEON_ITEM(DUNGEON_MAP, DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE);
         case RI_STONE_TOWER_BOSS_KEY:
-            return !CHECK_DUNGEON_ITEM(DUNGEON_BOSS_KEY, DUNGEON_INDEX_STONE_TOWER_TEMPLE);
+            return !CHECK_DUNGEON_ITEM(DUNGEON_BOSS_KEY, DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE);
         case RI_STONE_TOWER_COMPASS:
-            return !CHECK_DUNGEON_ITEM(DUNGEON_COMPASS, DUNGEON_INDEX_STONE_TOWER_TEMPLE);
+            return !CHECK_DUNGEON_ITEM(DUNGEON_COMPASS, DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE);
         case RI_STONE_TOWER_MAP:
-            return !CHECK_DUNGEON_ITEM(DUNGEON_MAP, DUNGEON_INDEX_STONE_TOWER_TEMPLE);
+            return !CHECK_DUNGEON_ITEM(DUNGEON_MAP, DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE);
         case RI_OWL_CLOCK_TOWN_SOUTH:
             return !CAN_OWL_WARP(OWL_WARP_CLOCK_TOWN);
         case RI_OWL_GREAT_BAY_COAST:
@@ -373,6 +475,8 @@ bool Rando::IsItemObtainable(RandoItemId randoItemId, RandoCheckId randoCheckId)
         // These items are technically fine to receive again because they don't do anything, but we'll convert them to
         // ensure it's clear to the player something didn't go wrong.
         // Quest Items
+        case RI_BOMBERS_NOTEBOOK:
+            return !CHECK_QUEST_ITEM(QUEST_BOMBERS_NOTEBOOK);
         case RI_REMAINS_ODOLWA:
             return !CHECK_QUEST_ITEM(QUEST_REMAINS_ODOLWA);
         case RI_REMAINS_GOHT:
@@ -381,6 +485,8 @@ bool Rando::IsItemObtainable(RandoItemId randoItemId, RandoCheckId randoCheckId)
             return !CHECK_QUEST_ITEM(QUEST_REMAINS_GYORG);
         case RI_REMAINS_TWINMOLD:
             return !CHECK_QUEST_ITEM(QUEST_REMAINS_TWINMOLD);
+        case RI_SONG_DOUBLE_TIME:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_SONG_DOUBLE_TIME);
         case RI_SONG_NOVA:
             return !CHECK_QUEST_ITEM(QUEST_SONG_BOSSA_NOVA);
         case RI_SONG_ELEGY:
@@ -389,6 +495,8 @@ bool Rando::IsItemObtainable(RandoItemId randoItemId, RandoCheckId randoCheckId)
             return !CHECK_QUEST_ITEM(QUEST_SONG_EPONA);
         case RI_SONG_HEALING:
             return !CHECK_QUEST_ITEM(QUEST_SONG_HEALING);
+        case RI_SONG_INVERTED_TIME:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_SONG_INVERTED_TIME);
         case RI_SONG_LULLABY_INTRO:
             return !CHECK_QUEST_ITEM(QUEST_SONG_LULLABY_INTRO);
         case RI_SONG_LULLABY:
@@ -419,12 +527,90 @@ bool Rando::IsItemObtainable(RandoItemId randoItemId, RandoCheckId randoCheckId)
             return !CHECK_WEEKEVENTREG(WEEKEVENTREG_TINGLE_MAP_BOUGHT_SNOWHEAD);
         case RI_TINGLE_MAP_STONE_TOWER:
             return !CHECK_WEEKEVENTREG(WEEKEVENTREG_TINGLE_MAP_BOUGHT_STONE_TOWER);
-        case RI_SOUL_GOHT:
-        case RI_SOUL_GYORG:
-        case RI_SOUL_MAJORA:
-        case RI_SOUL_ODOLWA:
-        case RI_SOUL_TWINMOLD:
-            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_SOUL_OF_GOHT + (randoItemId - RI_SOUL_GOHT));
+        case RI_SOUL_BOSS_GOHT:
+        case RI_SOUL_BOSS_GYORG:
+        case RI_SOUL_BOSS_MAJORA:
+        case RI_SOUL_BOSS_ODOLWA:
+        case RI_SOUL_BOSS_TWINMOLD:
+        case RI_SOUL_ENEMY_ALIEN:
+        case RI_SOUL_ENEMY_ARMOS:
+        case RI_SOUL_ENEMY_BAD_BAT:
+        case RI_SOUL_ENEMY_BEAMOS:
+        case RI_SOUL_ENEMY_BOE:
+        case RI_SOUL_ENEMY_BUBBLE:
+        case RI_SOUL_ENEMY_CAPTAIN_KEETA:
+        case RI_SOUL_ENEMY_CHUCHU:
+        case RI_SOUL_ENEMY_DEATH_ARMOS:
+        case RI_SOUL_ENEMY_DEEP_PYTHON:
+        case RI_SOUL_ENEMY_DEKU_BABA:
+        case RI_SOUL_ENEMY_DEXIHAND:
+        case RI_SOUL_ENEMY_DINOLFOS:
+        case RI_SOUL_ENEMY_DODONGO:
+        case RI_SOUL_ENEMY_DRAGONFLY:
+        case RI_SOUL_ENEMY_EENO:
+        case RI_SOUL_ENEMY_EYEGORE:
+        case RI_SOUL_ENEMY_FREEZARD:
+        case RI_SOUL_ENEMY_GARO:
+        case RI_SOUL_ENEMY_GEKKO:
+        case RI_SOUL_ENEMY_GIANT_BEE:
+        case RI_SOUL_ENEMY_GOMESS:
+        case RI_SOUL_ENEMY_GUAY:
+        case RI_SOUL_ENEMY_HIPLOOP:
+        case RI_SOUL_ENEMY_IGOS_DU_IKANA:
+        case RI_SOUL_ENEMY_IRON_KNUCKLE:
+        case RI_SOUL_ENEMY_KEESE:
+        case RI_SOUL_ENEMY_LEEVER:
+        case RI_SOUL_ENEMY_LIKE_LIKE:
+        case RI_SOUL_ENEMY_MAD_SCRUB:
+        case RI_SOUL_ENEMY_NEJIRON:
+        case RI_SOUL_ENEMY_OCTOROK:
+        case RI_SOUL_ENEMY_PEAHAT:
+        case RI_SOUL_ENEMY_PIRATE:
+        case RI_SOUL_ENEMY_POE:
+        case RI_SOUL_ENEMY_REDEAD:
+        case RI_SOUL_ENEMY_SHELLBLADE:
+        case RI_SOUL_ENEMY_SKULLFISH:
+        case RI_SOUL_ENEMY_SKULLTULA:
+        case RI_SOUL_ENEMY_SNAPPER:
+        case RI_SOUL_ENEMY_STALCHILD:
+        case RI_SOUL_ENEMY_TAKKURI:
+        case RI_SOUL_ENEMY_TEKTITE:
+        case RI_SOUL_ENEMY_WALLMASTER:
+        case RI_SOUL_ENEMY_WART:
+        case RI_SOUL_ENEMY_WIZROBE:
+        case RI_SOUL_ENEMY_WOLFOS:
+            return !Flags_GetRandoInf(SOUL_RI_TO_RANDO_INF(randoItemId));
+        case RI_ABILITY_SWIM:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_SWIM);
+        case RI_FROG_BLUE:
+            return !CHECK_WEEKEVENTREG(WEEKEVENTREG_33_01);
+        case RI_FROG_CYAN:
+            return !CHECK_WEEKEVENTREG(WEEKEVENTREG_32_40);
+        case RI_FROG_PINK:
+            return !CHECK_WEEKEVENTREG(WEEKEVENTREG_32_80);
+        case RI_FROG_WHITE:
+            return !CHECK_WEEKEVENTREG(WEEKEVENTREG_33_02);
+        case RI_TIME_DAY_1:
+        case RI_TIME_NIGHT_1:
+        case RI_TIME_DAY_2:
+        case RI_TIME_NIGHT_2:
+        case RI_TIME_DAY_3:
+        case RI_TIME_NIGHT_3:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_CLOCK_DAY_1 +
+                                      Rando::ClockItems::GetHalfDayIndexFromClockItem(randoItemId));
+        case RI_TIME_PROGRESSIVE:
+            if (hasObtainedCheck) {
+                return false;
+            } else if (Rando::ClockItems::GetAllOwnedHalfDaysMask() == 0x3F) { // Have all 6 half days
+                return false;
+            }
+            return true;
+        case RI_OCARINA_BUTTON_A:
+        case RI_OCARINA_BUTTON_C_DOWN:
+        case RI_OCARINA_BUTTON_C_LEFT:
+        case RI_OCARINA_BUTTON_C_RIGHT:
+        case RI_OCARINA_BUTTON_C_UP:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_A + (randoItemId - RI_OCARINA_BUTTON_A));
         // These items are technically fine to receive again because they don't do anything, but we'll convert them to
         // ensure it's clear to the player something didn't go wrong. We just simply check the inventory state
         // Masks
@@ -469,6 +655,31 @@ bool Rando::IsItemObtainable(RandoItemId randoItemId, RandoCheckId randoCheckId)
 RandoItemId Rando::ConvertItem(RandoItemId randoItemId, RandoCheckId randoCheckId) {
     if (IsItemObtainable(randoItemId, randoCheckId)) {
         switch (randoItemId) {
+            case RI_TIME_PROGRESSIVE: {
+                // Choose the next clock according to mode and current owned half-days
+                int mode = RANDO_SAVE_OPTIONS[RO_CLOCK_SHUFFLE_PROGRESSIVE];
+
+                if (mode == RO_CLOCK_SHUFFLE_RANDOM) {
+                    // Random mode should never have progressive items
+                    return RI_JUNK;
+                }
+
+                // Build list in target order
+                RandoItemId ascending[] = { RI_TIME_DAY_1,   RI_TIME_NIGHT_1, RI_TIME_DAY_2,
+                                            RI_TIME_NIGHT_2, RI_TIME_DAY_3,   RI_TIME_NIGHT_3 };
+                RandoItemId descending[] = { RI_TIME_NIGHT_3, RI_TIME_DAY_3,   RI_TIME_NIGHT_2,
+                                             RI_TIME_DAY_2,   RI_TIME_NIGHT_1, RI_TIME_DAY_1 };
+                RandoItemId* order = (mode == RO_CLOCK_SHUFFLE_DESCENDING) ? descending : ascending;
+                for (int i = 0; i < 6; ++i) {
+                    int halfIndex = Rando::ClockItems::GetHalfDayIndexFromClockItem(order[i]);
+                    if (halfIndex >= 0 &&
+                        !Flags_GetRandoInf(static_cast<RandoInf>(RANDO_INF_OBTAINED_CLOCK_DAY_1 + halfIndex))) {
+                        return order[i];
+                    }
+                }
+                // All owned; degrade to junk
+                return RI_JUNK;
+            }
             case RI_PROGRESSIVE_BOMB_BAG:
                 if (CUR_UPG_VALUE(UPG_BOMB_BAG) == 0) {
                     return RI_BOMB_BAG_20;
@@ -516,6 +727,8 @@ RandoItemId Rando::ConvertItem(RandoItemId randoItemId, RandoCheckId randoCheckI
                     return RI_WALLET_ADULT;
                 } else if (CUR_UPG_VALUE(UPG_WALLET) == 1) {
                     return RI_WALLET_GIANT;
+                } else if (CUR_UPG_VALUE(UPG_WALLET) == 2) {
+                    return RI_WALLET_TYCOON;
                 }
                 // Shouldn't happen, just in case
                 assert(false);

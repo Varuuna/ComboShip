@@ -1,5 +1,6 @@
 #include "MiscBehavior.h"
 #include "2s2h/Enhancements/FrameInterpolation/FrameInterpolation.h"
+#include "2s2h/ShipUtils.h"
 
 extern "C" {
 #include "z64interface.h"
@@ -9,20 +10,6 @@ extern "C" {
 #include "archives/icon_item_static/icon_item_static_yar.h"
 #include "overlays/kaleido_scope/ovl_kaleido_scope/z_kaleido_scope.h"
 }
-
-// Vertices for the extra items
-static Vtx sCycleExtraItemVtx[] = {
-    // Left Item
-    VTX(-48, 16, 0, 0 << 5, 0 << 5, 0xFF, 0xFF, 0xFF, 0xFF),
-    VTX(-16, 16, 0, 32 << 5, 0 << 5, 0xFF, 0xFF, 0xFF, 0xFF),
-    VTX(-48, -16, 0, 0 << 5, 32 << 5, 0xFF, 0xFF, 0xFF, 0xFF),
-    VTX(-16, -16, 0, 32 << 5, 32 << 5, 0xFF, 0xFF, 0xFF, 0xFF),
-    // Right Item
-    VTX(16, 16, 0, 0 << 5, 0 << 5, 0xFF, 0xFF, 0xFF, 0xFF),
-    VTX(48, 16, 0, 32 << 5, 0 << 5, 0xFF, 0xFF, 0xFF, 0xFF),
-    VTX(16, -16, 0, 0 << 5, 32 << 5, 0xFF, 0xFF, 0xFF, 0xFF),
-    VTX(48, -16, 0, 32 << 5, 32 << 5, 0xFF, 0xFF, 0xFF, 0xFF),
-};
 
 // Vertices for the circle behind the items
 static Vtx sCycleCircleVtx[] = {
@@ -36,14 +23,6 @@ static Vtx sCycleCircleVtx[] = {
     VTX(56, 24, 0, 48 << 5, 0 << 5, 0xFF, 0xFF, 0xFF, 0xFF),
     VTX(8, -24, 0, 0 << 5, 48 << 5, 0xFF, 0xFF, 0xFF, 0xFF),
     VTX(56, -24, 0, 48 << 5, 48 << 5, 0xFF, 0xFF, 0xFF, 0xFF),
-};
-
-// Vertices for A button indicator (coordinates 1.5x larger than texture size)
-static Vtx sCycleAButtonVtx[] = {
-    VTX(-18, 12, 0, 0 << 5, 0 << 5, 0xFF, 0xFF, 0xFF, 0xFF),
-    VTX(18, 12, 0, 24 << 5, 0 << 5, 0xFF, 0xFF, 0xFF, 0xFF),
-    VTX(-18, -12, 0, 0 << 5, 16 << 5, 0xFF, 0xFF, 0xFF, 0xFF),
-    VTX(18, -12, 0, 24 << 5, 16 << 5, 0xFF, 0xFF, 0xFF, 0xFF),
 };
 
 static int sCycleActiveAnimTimer = 0;
@@ -183,18 +162,12 @@ void DrawItemCycleExtras(PlayState* play, u8 slot, u8 canCycle, u8 leftItem, u8 
             Matrix_Scale(finalScale, finalScale, 1.0f, MTXMODE_APPLY);
         }
 
-        gSPMatrix(POLY_OPA_DISP++, Matrix_NewMtx(play->state.gfxCtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+        MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, play->state.gfxCtx);
 
         // Render A button indicator when hovered and not cycling
         if (!isCycling && sCycleActiveAnimTimer == 0 && pauseCtx->cursorSlot[PAUSE_ITEM] == slot &&
             pauseCtx->cursorSpecialPos == 0) {
-            Color_RGB8 aButtonColor = { 0, 100, 255 };
-
-            gSPVertex(POLY_OPA_DISP++, (uintptr_t)sCycleAButtonVtx, 4, 0);
-            gDPSetPrimColor(POLY_OPA_DISP++, 0, 0, aButtonColor.r, aButtonColor.g, aButtonColor.b, pauseCtx->alpha);
-            gDPLoadTextureBlock(POLY_OPA_DISP++, gABtnSymbolTex, G_IM_FMT_IA, G_IM_SIZ_8b, 24, 16, 0,
-                                G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMIRROR | G_TX_CLAMP, 4, 4, G_TX_NOLOD, G_TX_NOLOD);
-            gSP1Quadrangle(POLY_OPA_DISP++, 0, 2, 3, 1, 0);
+            Ship_DrawKaleidoCycleAButtonPrompt(play, pauseCtx->alpha);
         }
 
         // Render a dark circle behind the extra items when cycling
@@ -262,7 +235,7 @@ void Rando::MiscBehavior::InitKaleidoItemPage() {
             if (sPrevKaleidoCursorSlot == SLOT_TRADE_DEED || sPrevKaleidoCursorSlot == SLOT_TRADE_KEY_MAMA ||
                 sPrevKaleidoCursorSlot == SLOT_TRADE_COUPLE) {
                 // Reset A button back to Info when going away from a cycle-able item
-                if (interfaceCtx->aButtonHorseDoAction != DO_ACTION_INFO) {
+                if (interfaceCtx->aButtonDoActionDelayed != DO_ACTION_INFO) {
                     Interface_SetAButtonDoAction(gPlayState, DO_ACTION_INFO);
                 }
             }
@@ -277,7 +250,7 @@ void Rando::MiscBehavior::InitKaleidoItemPage() {
 
         if (availableItems.size() == 0) {
             // Nothing to cycle, switch back to Info on A button
-            if (interfaceCtx->aButtonHorseDoAction != DO_ACTION_INFO) {
+            if (interfaceCtx->aButtonDoActionDelayed != DO_ACTION_INFO) {
                 Interface_SetAButtonDoAction(gPlayState, DO_ACTION_INFO);
             }
 
@@ -311,7 +284,7 @@ void Rando::MiscBehavior::InitKaleidoItemPage() {
 
         if (sCurrentItemCyclingSlot != SLOT_NONE) {
             // Update HUD A button
-            if (interfaceCtx->aButtonHorseDoAction != DO_ACTION_STOP) {
+            if (interfaceCtx->aButtonDoActionDelayed != DO_ACTION_STOP) {
                 Interface_SetAButtonDoAction(gPlayState, DO_ACTION_STOP);
             }
             if (gSaveContext.buttonStatus[EQUIP_SLOT_A] != BTN_ENABLED) {
@@ -338,7 +311,7 @@ void Rando::MiscBehavior::InitKaleidoItemPage() {
             }
         } else if (itemId == PAUSE_ITEM_NONE || availableItems.size() > 1) {
             // Update HUD A button
-            if (interfaceCtx->aButtonHorseDoAction != DO_ACTION_DECIDE) {
+            if (interfaceCtx->aButtonDoActionDelayed != DO_ACTION_DECIDE) {
                 Interface_SetAButtonDoAction(gPlayState, DO_ACTION_DECIDE);
             }
             if (gSaveContext.buttonStatus[EQUIP_SLOT_A] != BTN_ENABLED) {
@@ -348,7 +321,7 @@ void Rando::MiscBehavior::InitKaleidoItemPage() {
             }
         } else {
             // Nothing to cycle, switch back to Info on A button
-            if (interfaceCtx->aButtonHorseDoAction != DO_ACTION_INFO) {
+            if (interfaceCtx->aButtonDoActionDelayed != DO_ACTION_INFO) {
                 Interface_SetAButtonDoAction(gPlayState, DO_ACTION_INFO);
             }
         }

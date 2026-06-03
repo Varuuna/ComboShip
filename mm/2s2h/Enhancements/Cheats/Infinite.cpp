@@ -1,4 +1,4 @@
-#include "public/bridge/consolevariablebridge.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include "2s2h/ShipInit.hpp"
 
@@ -62,7 +62,7 @@ static RegisterShipInitFunc consumeablesInitFunc(
             }
 
             if (INV_CONTENT(ITEM_POWDER_KEG) == ITEM_POWDER_KEG) {
-                AMMO(ITEM_POWDER_KEG) = 1;
+                AMMO(ITEM_POWDER_KEG) = CVarGetInteger("gEnhancements.Items.ExtraPowderKegs", 0) ? 3 : 1;
             }
         });
     },

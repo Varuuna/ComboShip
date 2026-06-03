@@ -3,9 +3,9 @@
 #include "regs.h"
 #include "functions.h"
 #include "fault.h"
-#include "public/bridge/gfxdebuggerbridge.h"
-#include "public/bridge/consolevariablebridge.h"
-#include "public/bridge/windowbridge.h"
+#include <libultraship/bridge/gfxdebuggerbridge.h>
+#include <libultraship/bridge/consolevariablebridge.h>
+#include <libultraship/bridge/windowbridge.h>
 #include <string.h>
 
 // Variables are put before most headers as a hacky way to bypass bss reordering
@@ -104,7 +104,7 @@ GameStateOverlay* Graph_GetNextGameState(GameState* gameState) {
 uintptr_t Graph_FaultAddrConv(uintptr_t address, void* param) {
     uintptr_t addr = address;
     GameStateOverlay* gameStateOvl = &gGameStateOverlayTable[0];
-    size_t ramConv;
+    uintptr_t ramConv;
     void* ramStart;
     size_t diff;
     s32 i;
@@ -358,19 +358,6 @@ void Graph_Update(GraphicsContext* gfxCtx, GameState* gameState) {
 
     Graph_UpdateGame(gameState);
     Graph_ExecuteAndDraw(gfxCtx, gameState);
-
-    // 2S2H [Debug] Decomp didn't contain the original code that would allow for this, so this is stolen from ship
-    if (CVarGetInteger("gDeveloperTools.DebugEnabled", 0)) {
-        if (CHECK_BTN_ALL(gameState->input[0].press.button, BTN_Z) &&
-            CHECK_BTN_ALL(gameState->input[0].cur.button, BTN_L | BTN_R)) {
-            STOP_GAMESTATE(gameState);
-            gSaveContext.gameMode = GAMEMODE_NORMAL;
-            gSaveContext.nextDayTime = NEXT_TIME_NONE;
-            gSaveContext.nextTransitionType = TRANS_NEXT_TYPE_DEFAULT;
-            gSaveContext.prevHudVisibility = HUD_VISIBILITY_ALL;
-            SET_NEXT_GAMESTATE(gameState, MapSelect_Init, sizeof(MapSelectState));
-        }
-    }
 }
 
 static struct RunFrameContext {

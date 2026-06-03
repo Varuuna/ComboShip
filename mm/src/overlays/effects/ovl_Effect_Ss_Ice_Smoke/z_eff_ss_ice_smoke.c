@@ -18,7 +18,7 @@ u32 EffectSsIceSmoke_Init(PlayState* play, u32 index, EffectSs* this, void* init
 void EffectSsIceSmoke_Update(PlayState* play, u32 index, EffectSs* this);
 void EffectSsIceSmoke_Draw(PlayState* play, u32 index, EffectSs* this);
 
-EffectSsInit Effect_Ss_Ice_Smoke_InitVars = {
+EffectSsProfile Effect_Ss_Ice_Smoke_Profile = {
     EFFECT_SS_ICE_SMOKE,
     EffectSsIceSmoke_Init,
 };
@@ -55,13 +55,13 @@ void EffectSsIceSmoke_Draw(PlayState* play, u32 index, EffectSs* this) {
     Gfx_SetupDL25_Xlu(play->state.gfxCtx);
     gDPSetPrimColor(POLY_XLU_DISP++, 0, 0, 195, 235, 235, this->rAlpha);
     gSPSegment(POLY_XLU_DISP++, 0x08,
-               Gfx_TwoTexScroll(play->state.gfxCtx, 0, this->rScrollX * this->life, this->rScrollY * this->life, 0x20,
-                                0x40, 1, 0, 0, 0x20, 0x20));
+               Gfx_TwoTexScrollEx(play->state.gfxCtx, 0, this->rScrollX * this->life, this->rScrollY * this->life, 0x20,
+                                  0x40, 1, 0, 0, 0x20, 0x20, -1, -1, 0, 0));
     Matrix_Translate(this->pos.x, this->pos.y, this->pos.z, MTXMODE_NEW);
     Matrix_ReplaceRotation(&play->billboardMtxF);
     scale = this->rScale * 0.0001f;
     Matrix_Scale(scale, scale, 1.0f, MTXMODE_APPLY);
-    mtx = Matrix_NewMtx(play->state.gfxCtx);
+    mtx = Matrix_Finalize(play->state.gfxCtx);
     if (mtx != NULL) {
         gSPMatrix(POLY_XLU_DISP++, mtx, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
         gSPDisplayList(POLY_XLU_DISP++, gEffIceSmokeDL);

@@ -1,8 +1,6 @@
 #ifndef ENHANCEMENTS_H
 #define ENHANCEMENTS_H
 
-#include "Saving/SavingEnhancements.h"
-
 enum AlwaysWinDoggyRaceOptions {
     ALWAYS_WIN_DOGGY_RACE_OFF,
     ALWAYS_WIN_DOGGY_RACE_MASKOFTRUTH,
@@ -27,6 +25,12 @@ enum CremiaRewardsOptions {
     CREMIA_REWARD_ALWAYS_RUPEE,
 };
 
+enum AmmoBuybackOptions {
+    AMMO_BUYBACK_VANILLA,
+    AMMO_BUYBACK_FULL_PRICE,
+    AMMO_BUYBACK_HALF_PRICE,
+};
+
 enum GibdoTradeSequenceOptions {
     GIBDO_TRADE_SEQUENCE_VANILLA,
     GIBDO_TRADE_SEQUENCE_MM3D,
@@ -46,7 +50,28 @@ enum HiddenGrottosVisibilityOptions {
     HIDDEN_GROTTOS_VISIBLITY_ALWAYS,
 };
 
-// Old Entry Point
-void InitEnhancements();
+enum TimerDisplayOptions {
+    TIMER_DISPLAY_NONE,
+    TIMER_DISPLAY_RTA,
+    TIMER_DISPLAY_IGT,
+};
+
+enum GoronRaceDifficultyOptions {
+    GORON_RACE_DIFFICULTY_VANILLA,
+    GORON_RACE_DIFFICULTY_BALANCED,
+    GORON_RACE_DIFFICULTY_SKIP,
+};
+
+enum MirroredWorldModeOptions {
+    MIRRORED_WORLD_OFF,
+    MIRRORED_WORLD_ALWAYS,
+    MIRRORED_WORLD_RANDOM,
+    MIRRORED_WORLD_RANDOM_SEEDED,
+    MIRRORED_WORLD_DUNGEONS_TEMPLES,
+    MIRRORED_WORLD_DUNGEONS_SPIDERS,
+    MIRRORED_WORLD_DUNGEONS_ALL,
+    MIRRORED_WORLD_DUNGEONS_RANDOM,
+    MIRRORED_WORLD_DUNGEONS_RANDOM_SEEDED,
+};
 
 #endif // ENHANCEMENTS_H

@@ -1,6 +1,6 @@
 #include "DeveloperTools.h"
 #include "BenPort.h"
-#include "public/bridge/consolevariablebridge.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include "2s2h/ShipInit.hpp"
 
@@ -10,6 +10,7 @@ extern "C" {
 #include "z64save.h"
 #include "variables.h"
 #include "overlays/kaleido_scope/ovl_kaleido_scope/z_kaleido_scope.h"
+#include "overlays/gamestates/ovl_select/z_select.h"
 
 void Sram_InitDebugSave(void);
 void Flags_SetWeekEventReg(s32 flag);
@@ -51,7 +52,7 @@ void SetSaveFileInfo() {
         gSaveContext.save.saveInfo.playerData.magicLevel = 2;
         gSaveContext.save.saveInfo.playerData.magic = MAGIC_DOUBLE_METER;
         gSaveContext.save.saveInfo.playerData.owlActivationFlags = (1 << (OWL_WARP_STONE_TOWER + 1)) - 1;
-        gSaveContext.save.saveInfo.playerData.unk_20 = OWL_WARP_CLOCK_TOWN;
+        gSaveContext.save.saveInfo.playerData.owlWarpId = OWL_WARP_CLOCK_TOWN;
 
         gSaveContext.save.saveInfo.inventory.defenseHearts = 20;
         gSaveContext.save.saveInfo.regionsVisited = (1 << REGION_MAX) - 1;
@@ -158,6 +159,36 @@ void RegisterDebugMode() {
             gPlayState->frameAdvCtx.enabled = false;
         }
     }
+
+    COND_HOOK(OnGameStateMainStart, CVAR_DEBUG_MODE, []() {
+        Input* input = CONTROLLER1(gGameState);
+
+        auto mask = CVarGetInteger("gDeveloperTools.MapSelectBtn", BTN_Z | BTN_L | BTN_R);
+
+        if (CHECK_BTN_ANY(gGameState->input[0].press.button, mask) &&
+            CHECK_BTN_ALL(gGameState->input[0].cur.button, mask)) {
+            STOP_GAMESTATE(gGameState);
+            gSaveContext.gameMode = GAMEMODE_NORMAL;
+            gSaveContext.nextDayTime = NEXT_TIME_NONE;
+            gSaveContext.nextTransitionType = TRANS_NEXT_TYPE_DEFAULT;
+            gSaveContext.prevHudVisibility = HUD_VISIBILITY_ALL;
+            SET_NEXT_GAMESTATE(gGameState, MapSelect_Init, sizeof(MapSelectState));
+        }
+    });
+
+    // For lack of a better place, sticking this here now
+    COND_HOOK(OnGameStateMainStart, true, []() {
+        Input* input = CONTROLLER1(gGameState);
+
+        auto mask = CVarGetInteger("gSettings.ResetBtn", BTN_CUSTOM_MODIFIER2);
+
+        if (CHECK_BTN_ANY(gGameState->input[0].press.button, mask) &&
+            CHECK_BTN_ALL(gGameState->input[0].cur.button, mask)) {
+            std::reinterpret_pointer_cast<Ship::ConsoleWindow>(
+                Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGuiWindow("Console"))
+                ->Dispatch("reset");
+        }
+    });
 }
 
 RegisterShipInitFunc initFuncDebugMode(RegisterDebugMode, { CVAR_DEBUG_MODE_NAME });

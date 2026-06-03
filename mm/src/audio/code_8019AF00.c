@@ -1,8 +1,10 @@
 #include "global.h"
+#include "z64voice.h"
 
 #include "GameInteractor/GameInteractor.h"
 #include "2s2h/Enhancements/Audio/AudioEditor.h"
-#include "public/bridge/consolevariablebridge.h"
+#include <libultraship/bridge/consolevariablebridge.h>
+#include <libultraship/bridge/audiobridge.h>
 
 typedef struct {
     /* 0x0 */ s8 x;
@@ -2072,24 +2074,6 @@ const char sAudioOcarinaUnusedText5[] = "last key is bad !!! %d %d %02X %02X\n";
 const char sAudioOcarinaUnusedText6[] = "last key step is too short !!! %d:%d %d<%d\n";
 const char sAudioOcarinaUnusedText7[] = "check is over!!! %d %d %d\n";
 
-// BENTODO find a final place for this function
-// 2S2H [Port] Part of the audio editor
-void PreviewSequence(u16 seqId) {
-    u16 curSeqId = AudioSeq_GetActiveSeqId(SEQ_PLAYER_BGM_MAIN);
-
-    // if ((curSeqId & 0xFF) != NA_BGM_GANON_TOWER && (curSeqId & 0xFF) != NA_BGM_ESCAPE && curSeqId != seqId) {
-    Audio_SetSequenceMode(SEQ_MODE_IGNORE);
-    if (curSeqId != NA_BGM_DISABLED) {
-        sPrevMainBgmSeqId = curSeqId;
-    } else {
-        osSyncPrintf("Middle Boss BGM Start not stack \n");
-    }
-
-    SEQCMD_PLAY_SEQUENCE(SEQ_PLAYER_BGM_MAIN, 1, seqId);
-
-    // }
-}
-
 void AudioOcarina_ReadControllerInput(void) {
     Input inputs[MAXCONTROLLERS];
     Input* input = &inputs[0];
@@ -2100,6 +2084,17 @@ void AudioOcarina_ReadControllerInput(void) {
     sOcarinaInputButtonPrev = ocarinaInputButtonPrev;
     sOcarinaInputStickRel.x = input->rel.stick_x;
     sOcarinaInputStickRel.y = input->rel.stick_y;
+
+    // 2S2H [Enhancement] When custom ocarina controls are enabled, block regular ocarina inputs
+    if (CVarGetInteger("gEnhancements.Playback.CustomizeOcarinaControls", 0)) {
+        sOcarinaInputButtonCur &= ~(BTN_A | BTN_CUP | BTN_CDOWN | BTN_CLEFT | BTN_CRIGHT | BTN_L | BTN_R | BTN_Z);
+    }
+
+    // 2S2H [Enhancement] Apply right stick ocarina input via GameInteractor
+    sOcarinaInputButtonCur |= GameInteractor_RightStickOcarina(input);
+
+    // 2S2H [Enhancement] Apply custom ocarina controls via GameInteractor
+    sOcarinaInputButtonCur |= GameInteractor_CustomOcarinaControls(input);
 }
 
 /**
@@ -2662,7 +2657,7 @@ void AudioOcarina_PlayControllerInput(u8 isOcarinaSfxSuppressedWhenCancelled) {
             sCurOcarinaButtonIndex = OCARINA_BTN_C_UP;
         }
 
-        if (sOcarinaInputButtonCur) {}
+        if (GameInteractor_Should(VB_PLAY_OCARINA_NOTE, true, &sCurOcarinaButtonIndex, &sCurOcarinaPitch)) {}
 
         // Pressing the R Button will raise the pitch by 1 semitone
         if ((sCurOcarinaPitch != OCARINA_PITCH_NONE) && CHECK_BTN_ANY(sOcarinaInputButtonCur, BTN_R) &&
@@ -3669,7 +3664,7 @@ void Audio_Update(void) {
     if ((AudioSeq_UpdateAudioHeapReset() == 0) && !AudioSeq_ResetReverb()) {
         AudioOcarina_SetCustomSequence();
         AudioOcarina_Update();
-        func_801A5118();
+        AudioVoice_Update();
         Audio_StepFreqLerp(&sRiverFreqScaleLerp);
         Audio_StepFreqLerp(&sWaterfallFreqScaleLerp);
         Audio_UpdateRiverSoundVolumes();
@@ -5796,11 +5791,7 @@ void Audio_SetSequenceMode(u8 seqMode) {
             if (seqMode != (sPrevSeqMode & 0x7F)) {
                 if (seqMode == SEQ_MODE_ENEMY) {
                     // If only seqMode = SEQ_MODE_ENEMY (Start)
-                    if (gActiveSeqs[SEQ_PLAYER_BGM_SUB].volScales[1] - sBgmEnemyVolume < 0) {
-                        volumeFadeInTimer = -(gActiveSeqs[SEQ_PLAYER_BGM_SUB].volScales[1] - sBgmEnemyVolume);
-                    } else {
-                        volumeFadeInTimer = gActiveSeqs[SEQ_PLAYER_BGM_SUB].volScales[1] - sBgmEnemyVolume;
-                    }
+                    volumeFadeInTimer = ABS_ALT(gActiveSeqs[SEQ_PLAYER_BGM_SUB].volScales[1] - sBgmEnemyVolume);
 
                     AudioSeq_SetVolumeScale(SEQ_PLAYER_BGM_SUB, VOL_SCALE_INDEX_BGM_SUB, sBgmEnemyVolume,
                                             volumeFadeInTimer);
@@ -6103,21 +6094,29 @@ void Audio_SetFileSelectSettings(s8 audioSetting) {
         case SAVE_AUDIO_STEREO:
             soundMode = SOUNDMODE_STEREO;
             sSoundMode = SOUNDMODE_STEREO;
+            // 2S2H [Port] Inform LUS of audio setting change
+            SetAudioChannels(audioStereo);
             break;
 
         case SAVE_AUDIO_MONO:
             soundMode = SOUNDMODE_MONO;
             sSoundMode = SOUNDMODE_MONO;
+            // 2S2H [Port] Inform LUS of audio setting change
+            SetAudioChannels(audioStereo);
             break;
 
         case SAVE_AUDIO_HEADSET:
             soundMode = SOUNDMODE_HEADSET;
             sSoundMode = SOUNDMODE_HEADSET;
+            // 2S2H [Port] Inform LUS of audio setting change
+            SetAudioChannels(audioStereo);
             break;
 
         case SAVE_AUDIO_SURROUND:
             soundMode = SOUNDMODE_SURROUND;
             sSoundMode = SOUNDMODE_SURROUND_EXTERNAL;
+            // 2S2H [Port] Inform LUS of audio setting change
+            SetAudioChannels(audioMatrix51);
             break;
 
         default:
@@ -6548,7 +6547,7 @@ void Audio_ResetForAudioHeapStep1(s32 specId) {
     AudioSfx_ResetSfxChannelState();
     AudioSeq_ResetActiveSequences();
     AudioSfx_Reset();
-    func_801A4FD8();
+    AudioVoice_ResetWord();
     if (gAudioSpecId == 0xB) {
         AudioSfx_MuteBanks((1 << BANK_PLAYER) | (1 << BANK_ITEM) | (1 << BANK_ENV) | (1 << BANK_ENEMY) |
                            (1 << BANK_OCARINA) | (1 << BANK_VOICE));
@@ -6561,5 +6560,5 @@ void Audio_UnusedReset(void) {
     Audio_ResetData();
     AudioSfx_ResetSfxChannelState();
     AudioSfx_Init(1);
-    func_801A4FD8();
+    AudioVoice_ResetWord();
 }

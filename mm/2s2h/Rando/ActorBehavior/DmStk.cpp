@@ -1,5 +1,5 @@
 #include "ActorBehavior.h"
-#include "public/bridge/consolevariablebridge.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 #include "2s2h/CustomMessage/CustomMessage.h"
 #include "2s2h/ShipUtils.h"
 #include "2s2h/Rando/Logic/Logic.h"
@@ -28,12 +28,12 @@ void ApplyOathHint(u16* textId, bool* loadFromMessageTable) {
         msg = "You think you can defeat me? The Giants are trapped and powerless to stop me. Even if they were free, "
               "they couldn't save you.";
     } else {
-        msg = "I can hear the Giants Melody coming from "
+        msg = "I can hear the Giants Melody echoing "
               "%y{{location}}%w. But it's too late! They can't help you now!";
     }
 
     RandoCheckId randoCheckId = Rando::FindItemPlacement(RI_SONG_OATH);
-    CustomMessage::Replace(&msg, "{{location}}", Ship_GetSceneName(Rando::StaticData::Checks[randoCheckId].sceneId));
+    CustomMessage::Replace(&msg, "{{location}}", Rando::StaticData::GetLocationNameForHint(randoCheckId, false));
 
     CustomMessage::Entry entry = {
         .nextMessageID = (u16)0xFFFF,
@@ -69,6 +69,8 @@ void Rando::ActorBehavior::InitDmStkBehavior() {
                  [](Actor* actor, bool* should) { actor->update = DmChar02_UpdateCustom; });
 
     COND_VB_SHOULD(VB_DRAW_OCARINA_IN_STK_HAND, IS_RANDO, {
+        Actor* dmStk = va_arg(args, Actor*);
+
         if (*should) {
             *should = false;
 
@@ -84,7 +86,8 @@ void Rando::ActorBehavior::InitDmStkBehavior() {
             Matrix_TranslateRotateZYX(&pos, &rot);
 
             auto randoSaveCheck = RANDO_SAVE_CHECKS[RC_CLOCK_TOWER_ROOF_OCARINA];
-            Rando::DrawItem(Rando::ConvertItem(randoSaveCheck.randoItemId, RC_CLOCK_TOWER_ROOF_OCARINA));
+            Rando::DrawItem(Rando::ConvertItem(randoSaveCheck.randoItemId, RC_CLOCK_TOWER_ROOF_OCARINA),
+                            RC_CLOCK_TOWER_ROOF_OCARINA, dmStk);
         }
     });
 
@@ -95,6 +98,8 @@ void Rando::ActorBehavior::InitDmStkBehavior() {
     });
 
     COND_VB_SHOULD(VB_POST_CHAR02_LIMB, IS_RANDO, {
+        Actor* dmChar02 = va_arg(args, Actor*);
+
         Matrix_Scale(15.0f, 15.0f, 15.0f, MTXMODE_APPLY);
         Vec3s rot;
         rot.x = -11554;
@@ -105,7 +110,8 @@ void Rando::ActorBehavior::InitDmStkBehavior() {
         Matrix_TranslateRotateZYX(&pos, &rot);
 
         auto randoSaveCheck = RANDO_SAVE_CHECKS[RC_CLOCK_TOWER_ROOF_OCARINA];
-        Rando::DrawItem(Rando::ConvertItem(randoSaveCheck.randoItemId, RC_CLOCK_TOWER_ROOF_OCARINA));
+        Rando::DrawItem(Rando::ConvertItem(randoSaveCheck.randoItemId, RC_CLOCK_TOWER_ROOF_OCARINA),
+                        RC_CLOCK_TOWER_ROOF_OCARINA, dmChar02);
     });
 
     COND_VB_SHOULD(VB_STK_HAVE_OCARINA, IS_RANDO, {
@@ -128,7 +134,7 @@ void Rando::ActorBehavior::InitDmStkBehavior() {
                 Actor_OfferTalk(&dmStk->actor, gPlayState, 200.0f);
             }
 
-            if (Actor_ProcessTalkRequest(&dmStk->actor, &gPlayState->state)) {
+            if (Actor_TalkOfferAccepted(&dmStk->actor, &gPlayState->state)) {
                 Message_StartTextbox(gPlayState, 0x2013, &dmStk->actor);
                 if ((Message_GetState(&gPlayState->msgCtx) == TEXT_STATE_DONE) && Message_ShouldAdvance(gPlayState)) {
                     Message_CloseTextbox(gPlayState);

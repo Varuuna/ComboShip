@@ -9,9 +9,7 @@
 
 #include "2s2h/BenGui/CosmeticEditor.h"
 
-#define FLAGS (ACTOR_FLAG_10 | ACTOR_FLAG_2000000)
-
-#define THIS ((ArrowFire*)thisx)
+#define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_UPDATE_DURING_OCARINA)
 
 void ArrowFire_Init(Actor* thisx, PlayState* play);
 void ArrowFire_Destroy(Actor* thisx, PlayState* play);
@@ -23,7 +21,7 @@ void FireArrow_Fly(ArrowFire* this, PlayState* play);
 
 #include "overlays/ovl_Arrow_Fire/ovl_Arrow_Fire.h"
 
-ActorInit Arrow_Fire_InitVars = {
+ActorProfile Arrow_Fire_Profile = {
     /**/ ACTOR_ARROW_FIRE,
     /**/ ACTORCAT_ITEMACTION,
     /**/ FLAGS,
@@ -37,7 +35,7 @@ ActorInit Arrow_Fire_InitVars = {
 
 static ColliderQuadInit sQuadInit = {
     {
-        COLTYPE_NONE,
+        COL_MATERIAL_NONE,
         AT_ON | AT_TYPE_PLAYER,
         AC_NONE,
         OC1_NONE,
@@ -45,18 +43,18 @@ static ColliderQuadInit sQuadInit = {
         COLSHAPE_QUAD,
     },
     {
-        ELEMTYPE_UNK0,
+        ELEM_MATERIAL_UNK0,
         { 0x08000000, 0x00, 0x02 },
         { 0x00000000, 0x00, 0x00 },
-        TOUCH_ON | TOUCH_SFX_NORMAL,
-        BUMP_NONE,
+        ATELEM_ON | ATELEM_SFX_NORMAL,
+        ACELEM_NONE,
         OCELEM_NONE,
     },
     { { { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f } } },
 };
 
 static InitChainEntry sInitChain[] = {
-    ICHAIN_F32(uncullZoneForward, 2000, ICHAIN_STOP),
+    ICHAIN_F32(cullingVolumeDistance, 2000, ICHAIN_STOP),
 };
 
 static s32 sBssPad;
@@ -66,7 +64,7 @@ void ArrowFire_SetupAction(ArrowFire* this, ArrowFireActionFunc actionFunc) {
 }
 
 void ArrowFire_Init(Actor* thisx, PlayState* play) {
-    ArrowFire* this = THIS;
+    ArrowFire* this = (ArrowFire*)thisx;
 
     Actor_ProcessInitChain(&this->actor, sInitChain);
     this->radius = 0;
@@ -81,7 +79,7 @@ void ArrowFire_Init(Actor* thisx, PlayState* play) {
 }
 
 void ArrowFire_Destroy(Actor* thisx, PlayState* play) {
-    ArrowFire* this = THIS;
+    ArrowFire* this = (ArrowFire*)thisx;
 
     Magic_Reset(play);
     Collider_DestroyQuad(play, &this->collider1);
@@ -241,7 +239,7 @@ void FireArrow_SetQuadVerticies(ArrowFire* this) {
 
 void ArrowFire_Draw(Actor* thisx, PlayState* play) {
     EnArrow* arrow;
-    ArrowFire* this = THIS;
+    ArrowFire* this = (ArrowFire*)thisx;
     u32 frames = play->state.frames;
     s32 pad;
 
@@ -272,8 +270,8 @@ void ArrowFire_Draw(Actor* thisx, PlayState* play) {
         Gfx_SetupDL25_Xlu(play->state.gfxCtx);
 
         gDPSetPrimColorOverride(POLY_XLU_DISP++, 0x80, 0x80, 255, 200, 0, this->alpha,
-                                COSMETIC_ELEMENT_FIRE_ARROW_PRIMARY);
-        gDPSetEnvColorOverride(POLY_XLU_DISP++, 255, 0, 0, 128, COSMETIC_ELEMENT_FIRE_ARROW_SECONDARY);
+                                COSMETIC_ID("Effects.FireArrowPrim"));
+        gDPSetEnvColorOverride(POLY_XLU_DISP++, 255, 0, 0, 128, COSMETIC_ID("Effects.FireArrowSec"));
 
         Matrix_RotateZYX(0x4000, 0, 0, MTXMODE_APPLY);
 
@@ -286,12 +284,13 @@ void ArrowFire_Draw(Actor* thisx, PlayState* play) {
         Matrix_Scale(this->radius * 0.2f, this->height * 4.0f, this->radius * 0.2f, MTXMODE_APPLY);
         Matrix_Translate(0.0f, -700.0f, 0.0f, MTXMODE_APPLY);
 
-        gSPMatrix(POLY_XLU_DISP++, Matrix_NewMtx(play->state.gfxCtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+        MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, play->state.gfxCtx);
 
         FireArrow_SetQuadVerticies(this);
         gSPDisplayList(POLY_XLU_DISP++, gFireArrowMaterialDL);
-        gSPDisplayList(POLY_XLU_DISP++, Gfx_TwoTexScroll(play->state.gfxCtx, 0, 255 - ((frames * 2) % 256), 0, 64, 32,
-                                                         1, 255 - (frames % 256), 511 - ((frames * 10) % 512), 64, 64));
+        gSPDisplayList(POLY_XLU_DISP++,
+                       Gfx_TwoTexScrollEx(play->state.gfxCtx, 0, 255 - ((frames * 2) % 256), 0, 64, 32, 1,
+                                          255 - (frames % 256), 511 - ((frames * 10) % 512), 64, 64, -2, 0, -1, -10));
         gSPDisplayList(POLY_XLU_DISP++, gFireArrowModelDL);
 
         CLOSE_DISPS(play->state.gfxCtx);

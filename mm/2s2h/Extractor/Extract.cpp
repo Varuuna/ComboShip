@@ -6,7 +6,7 @@
 #endif
 #include "Extract.h"
 #include "portable-file-dialogs.h"
-#include <utils/binarytools/BitConverter.h>
+#include <ship/utils/binarytools/BitConverter.h>
 #include "build.h"
 
 #ifdef unix
@@ -362,7 +362,6 @@ bool Extractor::ManuallySearchForRom() {
     std::ifstream inFile;
 
     if (!GetRomPathFromBox()) {
-        ShowErrorBox("No rom selected", "No Rom selected. Exiting");
         return false;
     }
 
@@ -414,11 +413,43 @@ bool Extractor::ManuallySearchForRomMatchingType(RomSearchMode searchMode) {
     return true;
 }
 
+bool Extractor::RunFileStandalone(std::string rom) {
+    if (std::filesystem::is_directory(rom)) {
+        return false;
+    }
+    auto file = std::filesystem::path(rom);
+    if ((file.extension() != ".n64") && (file.extension() != ".z64") && (file.extension() != ".v64")) {
+        return false;
+    }
+    SetRomInfo(rom);
+
+    if (!ValidateRomSize()) {
+        return false;
+    }
+    std::ifstream inFile;
+
+    inFile.open(rom, std::ios::in | std::ios::binary);
+    inFile.read((char*)mRomData.get(), mCurRomSize);
+    inFile.clear();
+    inFile.close();
+    BitConverter::RomToBigEndian(mRomData.get(), mCurRomSize);
+
+    if (!ValidateRom(true)) {
+        return false;
+    }
+
+    return true;
+}
+
+void Extractor::SetSearchPath(const std::string& path) {
+    mSearchPath = path;
+}
+
 bool Extractor::Run(std::string searchPath, RomSearchMode searchMode) {
     std::vector<std::string> roms;
     std::ifstream inFile;
 
-    mSearchPath = searchPath;
+    SetSearchPath(searchPath);
 
     GetRoms(roms);
     FilterRoms(roms, searchMode);
@@ -438,6 +469,17 @@ bool Extractor::Run(std::string searchPath, RomSearchMode searchMode) {
             default:
                 UNREACHABLE;
                 break;
+        }
+    }
+
+    if (roms.size() > 1) {
+        int ret = ShowYesNoBox("Multiple ROMs Found", "Multiple ROM files were detected. Select one manually?");
+        if (ret == IDYES) {
+            if (!ManuallySearchForRomMatchingType(searchMode)) {
+                return false;
+            }
+            roms.clear();
+            roms.push_back(mCurrentRomPath);
         }
     }
 
@@ -524,9 +566,11 @@ std::string Extractor::Mkdtemp() {
     return tmppath;
 }
 
-extern "C" int zapd_main(int argc, char** argv);
+extern "C" int zapd_report(int argc, char** argv, std::atomic<size_t>* extractCount, std::atomic<size_t>* totalExtract);
+static void MessageboxWorker();
 
-bool Extractor::CallZapd(std::string installPath, std::string exportdir) {
+bool Extractor::CallZapd(std::string installPath, std::string exportdir, std::atomic<size_t>* extractCount,
+                         std::atomic<size_t>* totalExtract) {
     constexpr int argc = 22;
     char xmlPath[1024];
     char confPath[1024];
@@ -637,4 +681,11 @@ bool Extractor::CallZapd(std::string installPath, std::string exportdir) {
     std::filesystem::remove_all(tempdir);
 
     return true;
+}
+
+static void MessageboxWorker() {
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Extracting",
+                             "Extraction will now begin in the background.\n\nPlease be patient for the process to "
+                             "finish. Do not close the main program.",
+                             nullptr);
 }

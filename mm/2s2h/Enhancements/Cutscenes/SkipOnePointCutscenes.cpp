@@ -1,4 +1,4 @@
-#include "public/bridge/consolevariablebridge.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include "2s2h/ShipInit.hpp"
 
@@ -63,6 +63,7 @@ void RegisterSkipOnePointCutscenes() {
                     *should = false;
                 }
                 break;
+            case ACTOR_EN_CHA:    // Bell in Laundry Pool
             case ACTOR_BG_SPDWEB: // Spider Web
             case ACTOR_DOOR_SHUTTER:
             case ACTOR_BG_NUMA_HANA: // Big wooden flower in Woodfall Temple
@@ -101,6 +102,7 @@ void RegisterSkipOnePointCutscenes() {
             case ACTOR_BG_IKNIN_SUSCEIL:
             case ACTOR_BG_IKANA_DHARMA:
             case ACTOR_OBJ_HUGEBOMBIWA:
+            case ACTOR_OBJ_WARPSTONE:
                 *should = false;
                 break;
             default:

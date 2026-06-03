@@ -9,9 +9,7 @@
 
 #include "2s2h/BenGui/CosmeticEditor.h"
 
-#define FLAGS (ACTOR_FLAG_10 | ACTOR_FLAG_2000000)
-
-#define THIS ((ArrowIce*)thisx)
+#define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_UPDATE_DURING_OCARINA)
 
 void ArrowIce_Init(Actor* thisx, PlayState* play);
 void ArrowIce_Destroy(Actor* thisx, PlayState* play);
@@ -23,7 +21,7 @@ void ArrowIce_Fly(ArrowIce* this, PlayState* play);
 
 #include "overlays/ovl_Arrow_Ice/ovl_Arrow_Ice.h"
 
-ActorInit Arrow_Ice_InitVars = {
+ActorProfile Arrow_Ice_Profile = {
     /**/ ACTOR_ARROW_ICE,
     /**/ ACTORCAT_ITEMACTION,
     /**/ FLAGS,
@@ -36,7 +34,7 @@ ActorInit Arrow_Ice_InitVars = {
 };
 
 static InitChainEntry sInitChain[] = {
-    ICHAIN_F32(uncullZoneForward, 2000, ICHAIN_STOP),
+    ICHAIN_F32(cullingVolumeDistance, 2000, ICHAIN_STOP),
 };
 
 void ArrowIce_SetupAction(ArrowIce* this, ArrowIceActionFunc actionFunc) {
@@ -44,7 +42,7 @@ void ArrowIce_SetupAction(ArrowIce* this, ArrowIceActionFunc actionFunc) {
 }
 
 void ArrowIce_Init(Actor* thisx, PlayState* play) {
-    ArrowIce* this = THIS;
+    ArrowIce* this = (ArrowIce*)thisx;
 
     Actor_ProcessInitChain(&this->actor, sInitChain);
     this->radius = 0;
@@ -174,7 +172,7 @@ void ArrowIce_Fly(ArrowIce* this, PlayState* play) {
 }
 
 void ArrowIce_Update(Actor* thisx, PlayState* play) {
-    ArrowIce* this = THIS;
+    ArrowIce* this = (ArrowIce*)thisx;
 
     if ((play->msgCtx.msgMode == MSGMODE_E) || (play->msgCtx.msgMode == MSGMODE_SONG_PLAYED)) {
         Actor_Kill(&this->actor);
@@ -186,7 +184,7 @@ void ArrowIce_Update(Actor* thisx, PlayState* play) {
 
 void ArrowIce_Draw(Actor* thisx, PlayState* play) {
     s32 pad;
-    ArrowIce* this = THIS;
+    ArrowIce* this = (ArrowIce*)thisx;
     Actor* transform;
     u32 stateFrames = play->state.frames;
     EnArrow* arrow = (EnArrow*)this->actor.parent;
@@ -216,8 +214,8 @@ void ArrowIce_Draw(Actor* thisx, PlayState* play) {
         // Draw ice on the arrow
         Gfx_SetupDL25_Xlu(play->state.gfxCtx);
         gDPSetPrimColorOverride(POLY_XLU_DISP++, 0x80, 0x80, 170, 255, 255, (s32)(this->alpha * 0.5f) & 0xFF,
-                                COSMETIC_ELEMENT_ICE_ARROW_PRIMARY);
-        gDPSetEnvColorOverride(POLY_XLU_DISP++, 0, 0, 255, 128, COSMETIC_ELEMENT_ICE_ARROW_SECONDARY);
+                                COSMETIC_ID("Effects.IceArrowPrim"));
+        gDPSetEnvColorOverride(POLY_XLU_DISP++, 0, 0, 255, 128, COSMETIC_ID("Effects.IceArrowSec"));
         Matrix_RotateZYX(0x4000, 0, 0, MTXMODE_APPLY);
         if (this->timer != 0) {
             Matrix_Translate(0.0f, 0.0f, 0.0f, MTXMODE_APPLY);
@@ -226,11 +224,11 @@ void ArrowIce_Draw(Actor* thisx, PlayState* play) {
         }
         Matrix_Scale(this->radius * 0.2f, this->height * 3.0f, this->radius * 0.2f, MTXMODE_APPLY);
         Matrix_Translate(0.0f, -700.0f, 0.0f, MTXMODE_APPLY);
-        gSPMatrix(POLY_XLU_DISP++, Matrix_NewMtx(play->state.gfxCtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+        MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, play->state.gfxCtx);
         gSPDisplayList(POLY_XLU_DISP++, gIceArrowMaterialDL);
-        gSPDisplayList(POLY_XLU_DISP++,
-                       Gfx_TwoTexScroll(play->state.gfxCtx, 0, 511 - (stateFrames * 5) % 512, 0, 128, 32, 1,
-                                        511 - (stateFrames * 10) % 512, 511 - (stateFrames * 10) % 512, 4, 16));
+        gSPDisplayList(POLY_XLU_DISP++, Gfx_TwoTexScrollEx(play->state.gfxCtx, 0, 511 - (stateFrames * 5) % 512, 0, 128,
+                                                           32, 1, 511 - (stateFrames * 10) % 512,
+                                                           511 - (stateFrames * 10) % 512, 4, 16, -5, 0, -10, -10));
         gSPDisplayList(POLY_XLU_DISP++, gIceArrowModelDL);
 
         CLOSE_DISPS(play->state.gfxCtx);

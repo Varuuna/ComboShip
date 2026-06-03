@@ -4,8 +4,9 @@
 #include "global.h"
 #include "BenPort.h"
 #endif
+#include "z64save.h"
 
-void Setup_SetRegs(void) {
+void Setup_InitRegs(void) {
     XREG(2) = 0;
     XREG(10) = 26;
     XREG(11) = 20;
@@ -28,7 +29,7 @@ void Setup_SetRegs(void) {
     XREG(77) = 0x3C;
     XREG(78) = 0x2F;
     XREG(79) = 0x62;
-    R_PAUSE_OWLWARP_ALPHA = 0;
+    R_PAUSE_OWL_WARP_ALPHA = 0;
     XREG(88) = 0x56;
     XREG(89) = 0x258;
     XREG(90) = 0x1C2;
@@ -54,7 +55,8 @@ void Setup_SetRegs(void) {
 void Setup_InitImpl(SetupState* this) {
     SysFlashrom_InitFlash();
     SaveContext_Init();
-    Setup_SetRegs();
+    Sram_LoadGlobalOptions();
+    Setup_InitRegs();
 
 #ifdef COMBO_BUILD
     if (gComboStartFileNum >= 0) {

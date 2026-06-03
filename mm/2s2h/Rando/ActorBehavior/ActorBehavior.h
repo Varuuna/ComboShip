@@ -10,8 +10,8 @@ namespace ActorBehavior {
 void Init();
 void OnFileLoad();
 
-RandoCheckId GetActorRandoCheckId(Actor* actor);
-void SetActorRandoCheckId(Actor* actor, RandoCheckId rc);
+RandoCheckId GetObjectRandoCheckId(void* actor);
+void SetObjectRandoCheckId(const void* object, RandoCheckId rc);
 
 void InitDmChar01Behavior();
 void InitDmChar05Behavior();
@@ -35,6 +35,7 @@ void InitEnDnhBehavior();
 void InitEnElfgrpBehavior();
 void InitEnElforgBehavior();
 void InitEnFish2Behavior();
+void InitEnemyDropBehavior();
 void InitEnFsnBehavior();
 void InitEnFuBehavior();
 void InitEnGamelupyBehavior();
@@ -80,6 +81,7 @@ void InitEnSyatekiManBehavior();
 void InitEnTabBehavior();
 void InitEnTakarayaBehavior();
 void InitEnTalkBehavior();
+void InitEnTimeTagBehavior();
 void InitEnTotoBehavior();
 void InitEnTrtBehavior();
 void InitEnYbBehavior();
@@ -93,9 +95,12 @@ void InitObjGrassBehavior();
 void InitObjMoonStoneBehavior();
 void InitObjSnowballBehavior();
 void InitObjTaruBehavior();
+void InitObjTreeBehavior();
 void InitObjTsuboBehavior();
 void InitObjWarpstoneBehavior();
+void InitPlayerBehavior();
 void InitSoulsBehavior();
+void InitTrapsBehavior();
 
 } // namespace ActorBehavior
 

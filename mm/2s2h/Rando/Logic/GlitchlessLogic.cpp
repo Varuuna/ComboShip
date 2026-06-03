@@ -15,16 +15,18 @@ namespace Rando {
 
 namespace Logic {
 
-void ApplyGlitchlessLogicToSaveContext(std::unordered_map<RandoCheckId, bool>& checkPool,
-                                       std::vector<RandoItemId>& itemPool) {
+void ApplyGlitchlessLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool) {
     uint64_t tick = GetUnixTimestamp();
 
     SaveContext copiedSaveContext;
     memcpy(&copiedSaveContext, &gSaveContext, sizeof(SaveContext));
 
     std::set<RandoRegionId> regionsInLogic = { RR_MAX };
-    std::unordered_map<RandoCheckId, bool> checksInLogic;
+    std::set<RandoCheckId> checksInLogic;
     std::set<std::pair<RandoEvent, std::function<bool()>>*> eventsInLogic;
+
+    // Initialize time states using shared function
+    std::unordered_map<RandoRegionId, RegionTimeState> regionTimeStates = InitializeRegionTimeStates(RR_MAX);
 
     RandoCheckId checkWithJunk = RC_UNKNOWN;
     std::set<RandoItemId> nonJunkItemsThatWeHaveTried;
@@ -44,7 +46,7 @@ void ApplyGlitchlessLogicToSaveContext(std::unordered_map<RandoCheckId, bool>& c
         SPDLOG_ERROR("Items/Checks: {}/{}", itemPool.size(), checkPool.size());
 
         // Log out the checks that are still in the pool
-        for (auto& [randoCheckId, _] : checkPool) {
+        for (auto& randoCheckId : checkPool) {
             SPDLOG_ERROR("Check still in pool: {}", Rando::StaticData::Checks[randoCheckId].name);
         }
         // Log out the items that are still in the pool
@@ -59,7 +61,7 @@ void ApplyGlitchlessLogicToSaveContext(std::unordered_map<RandoCheckId, bool>& c
     while (true) {
         // Break if we've been running for too long
         if (GetUnixTimestamp() - tick > 10000) {
-            handleError("Logic Generation Timeout");
+            handleError("Generation took too long, aborting");
         }
 
         bool regionsInLogicChanged = false;
@@ -69,7 +71,7 @@ void ApplyGlitchlessLogicToSaveContext(std::unordered_map<RandoCheckId, bool>& c
         // Crawl through all reachable regions and add any new reachable regions
         auto prevRegionsInLogicSize = regionsInLogic.size();
         for (RandoRegionId regionId : regionsInLogic) {
-            FindReachableRegions(regionId, regionsInLogic);
+            FindReachableRegions(regionId, regionsInLogic, regionTimeStates);
         }
         if (regionsInLogic.size() != prevRegionsInLogicSize) {
             regionsInLogicChanged = true;
@@ -77,6 +79,9 @@ void ApplyGlitchlessLogicToSaveContext(std::unordered_map<RandoCheckId, bool>& c
 
         for (RandoRegionId regionId : regionsInLogic) {
             auto& randoRegion = Regions[regionId];
+
+            // Set current region time for check evaluation
+            SetCurrentRegionTime(regionTimeStates, regionId);
 
             // Apply any new events
             for (auto& randoEvent : randoRegion.events) {
@@ -89,31 +94,55 @@ void ApplyGlitchlessLogicToSaveContext(std::unordered_map<RandoCheckId, bool>& c
 
             // Apply any new checks
             for (auto& [randoCheckId, checkLogic] : randoRegion.checks) {
-                if (checksInLogic.find(randoCheckId) == checksInLogic.end() && checkLogic.first()) {
-                    bool isShuffled = checkPool.find(randoCheckId) != checkPool.end();
-                    checksInLogic.insert({ randoCheckId, isShuffled });
-                    checkPool.erase(randoCheckId);
+                if (!checksInLogic.contains(randoCheckId) && checkLogic.first()) {
+                    // VALIDATION: Verify check is reachable with owned time
+                    TimeLogic::ValidateRegionTimeOwnership(regionId, randoCheckId,
+                                                           regionTimeStates[regionId].timeSlices, "Glitchless");
 
-                    RandoItemId randoItemId;
+                    checksInLogic.insert(randoCheckId);
 
-                    if (isShuffled) {
-                        randoItemId = itemPool.back();
+                    RandoItemId randoItemId = RANDO_SAVE_CHECKS[randoCheckId].randoItemId;
+
+                    auto it = std::find(checkPool.begin(), checkPool.end(), randoCheckId);
+                    bool inPool = it != checkPool.end();
+                    if (inPool) {
+                        checkPool.erase(it);
+                        randoItemId = RANDO_SAVE_CHECKS[randoCheckId].randoItemId = itemPool.back();
+                        RANDO_SAVE_CHECKS[randoCheckId].shuffled = true;
+
                         itemPool.pop_back();
 
                         if (Rando::StaticData::Items[randoItemId].randoItemType == RITYPE_JUNK ||
                             Rando::StaticData::Items[randoItemId].randoItemType == RITYPE_HEALTH) {
                             checksWithJunk.push_back(randoCheckId);
                             checksWithJunkWeights.push_back(weight);
+                            SPDLOG_TRACE("Item Placed: {}:{}", Rando::StaticData::Checks[randoCheckId].name,
+                                         Rando::StaticData::Items[randoItemId].spoilerName);
+                        } else {
+                            SPDLOG_DEBUG("Item Placed: {}:{}", Rando::StaticData::Checks[randoCheckId].name,
+                                         Rando::StaticData::Items[randoItemId].spoilerName);
                         }
-                        SPDLOG_TRACE("Check: {}:{}", Rando::StaticData::Checks[randoCheckId].name,
-                                     Rando::StaticData::Items[randoItemId].spoilerName);
-                    } else {
-                        randoItemId = Rando::StaticData::Checks[randoCheckId].randoItemId;
                     }
 
-                    RANDO_SAVE_CHECKS[randoCheckId].randoItemId = randoItemId;
-                    RANDO_SAVE_CHECKS[randoCheckId].shuffled = isShuffled;
                     GiveItem(ConvertItem(randoItemId));
+
+                    // Update time states for all regions when time items are obtained
+                    if (randoItemId >= RI_TIME_DAY_1 && randoItemId <= RI_TIME_PROGRESSIVE) {
+                        uint64_t newTimeSlices = TimeLogic::GetOwnedTimeSlices();
+                        // Update RR_MAX time state first - this is the source for new region discoveries
+                        if (regionTimeStates.find(RR_MAX) != regionTimeStates.end()) {
+                            regionTimeStates[RR_MAX].timeSlices = newTimeSlices;
+                        }
+                        // Update existing region time states to reflect new owned time
+                        for (auto& [regionId, timeState] : regionTimeStates) {
+                            timeState.timeSlices = newTimeSlices;
+                            // Expand time forward based on region's stay restrictions
+                            if (timeState.canStayOverTime) {
+                                timeState.timeSlices = TimeLogic::ExpandTimeForward(newTimeSlices, Regions[regionId]);
+                            }
+                        }
+                    }
+
                     checksInLogicChanged = true;
                 }
             }
@@ -128,11 +157,13 @@ void ApplyGlitchlessLogicToSaveContext(std::unordered_map<RandoCheckId, bool>& c
         if (!regionsInLogicChanged && !checksInLogicChanged && !eventsInLogicChanged) {
             if (checkWithJunk == RC_UNKNOWN) {
                 if (checksWithJunk.empty()) {
-                    handleError("No checks with junk, not sure what to do");
+                    handleError("Out of checks to replace, cannot place remaining items");
                 }
 
                 if (checksWithJunk.size() == 1) {
                     checkWithJunk = checksWithJunk[0];
+                    checksWithJunk.pop_back();
+                    checksWithJunkWeights.pop_back();
                 } else {
                     std::vector<double> cumulativeWeights(checksWithJunkWeights.size());
                     std::partial_sum(checksWithJunkWeights.begin(), checksWithJunkWeights.end(),
@@ -147,6 +178,9 @@ void ApplyGlitchlessLogicToSaveContext(std::unordered_map<RandoCheckId, bool>& c
                     checksWithJunk.erase(checksWithJunk.begin() + index);
                     checksWithJunkWeights.erase(checksWithJunkWeights.begin() + index);
                 }
+
+                SPDLOG_DEBUG("Nothing changed, attempting to replace check: {}",
+                             Rando::StaticData::Checks[checkWithJunk].name);
             }
 
             std::vector<std::pair<RandoItemId, int>> nonJunkItemsThatWeHaveNotTried;
@@ -162,7 +196,7 @@ void ApplyGlitchlessLogicToSaveContext(std::unordered_map<RandoCheckId, bool>& c
             }
 
             if (!anyNonJunkItemsLeft) {
-                handleError("No non-junk items left");
+                handleError("No non-junk items left to place, progression is impossible");
             }
 
             if (nonJunkItemsThatWeHaveNotTried.empty()) {
@@ -180,6 +214,9 @@ void ApplyGlitchlessLogicToSaveContext(std::unordered_map<RandoCheckId, bool>& c
 
             RANDO_SAVE_CHECKS[checkWithJunk].randoItemId = newRandoItemId;
 
+            SPDLOG_DEBUG("Item Replaced Junk: {}:{}", Rando::StaticData::Checks[checkWithJunk].name,
+                         Rando::StaticData::Items[newRandoItemId].spoilerName);
+
             RemoveItem(oldRandoItemId);
             GiveItem(ConvertItem(newRandoItemId));
 
@@ -192,7 +229,7 @@ void ApplyGlitchlessLogicToSaveContext(std::unordered_map<RandoCheckId, bool>& c
         } else {
             weight++;
             if (checkWithJunk != RC_UNKNOWN) {
-                SPDLOG_TRACE("Successfully Replaced junk item with: {}:{}",
+                SPDLOG_DEBUG("Successfully Replaced junk item with: {}:{}",
                              Rando::StaticData::Checks[checkWithJunk].name,
                              Rando::StaticData::Items[RANDO_SAVE_CHECKS[checkWithJunk].randoItemId].spoilerName);
             }
@@ -209,10 +246,11 @@ void ApplyGlitchlessLogicToSaveContext(std::unordered_map<RandoCheckId, bool>& c
         }
     }
 
-    for (auto& [randoCheckId, isShuffled] : checksInLogic) {
+    for (auto& randoCheckId : checksInLogic) {
         copiedSaveContext.save.shipSaveInfo.rando.randoSaveChecks[randoCheckId].randoItemId =
             RANDO_SAVE_CHECKS[randoCheckId].randoItemId;
-        copiedSaveContext.save.shipSaveInfo.rando.randoSaveChecks[randoCheckId].shuffled = isShuffled;
+        copiedSaveContext.save.shipSaveInfo.rando.randoSaveChecks[randoCheckId].shuffled =
+            RANDO_SAVE_CHECKS[randoCheckId].shuffled;
     }
 
     memcpy(&gSaveContext, &copiedSaveContext, sizeof(SaveContext));

@@ -9,7 +9,7 @@
 
 #include "2s2h/BenGui/HudEditor.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
-#include "public/bridge/consolevariablebridge.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 
 s16 sEquipState = EQUIP_STATE_MAGIC_ARROW_GROW_ORB;
 
@@ -185,6 +185,10 @@ void KaleidoScope_DrawAmmoCount(PauseContext* pauseCtx, GraphicsContext* gfxCtx,
     s16 ammoUpperDigit;
     s16 ammo;
 
+    if (!GameInteractor_Should(VB_KALEIDO_DRAW_AMMO_COUNT, true, pauseCtx, gfxCtx, item, ammoIndex)) {
+        return;
+    }
+
     OPEN_DISPS(gfxCtx);
 
     if (item == ITEM_PICTOGRAPH_BOX) {
@@ -213,8 +217,8 @@ void KaleidoScope_DrawAmmoCount(PauseContext* pauseCtx, GraphicsContext* gfxCtx,
                    ((item == ITEM_DEKU_STICK) && (AMMO(item) == CUR_CAPACITY(UPG_DEKU_STICKS))) ||
                    ((item == ITEM_DEKU_NUT) && (AMMO(item) == CUR_CAPACITY(UPG_DEKU_NUTS))) ||
                    ((item == ITEM_BOMBCHU) && (AMMO(item) == CUR_CAPACITY(UPG_BOMB_BAG))) ||
-                   ((item == ITEM_POWDER_KEG) && (ammo == 1)) || ((item == ITEM_PICTOGRAPH_BOX) && (ammo == 1)) ||
-                   ((item == ITEM_MAGIC_BEANS) && (ammo == 20))) {
+                   ((item == ITEM_POWDER_KEG) && GameInteractor_Should(VB_POWDER_KEG_AMMO_AT_CAPACITY, ammo == 1)) ||
+                   ((item == ITEM_PICTOGRAPH_BOX) && (ammo == 1)) || ((item == ITEM_MAGIC_BEANS) && (ammo == 20))) {
             // Ammo at capacity
             gDPSetPrimColor(POLY_OPA_DISP++, 0, 0, 120, 255, 0, pauseCtx->alpha);
         }
@@ -265,7 +269,9 @@ void KaleidoScope_DrawItemSelect(PlayState* play) {
     gDPSetPrimColor(POLY_OPA_DISP++, 0, 0, 255, 255, 255, pauseCtx->alpha);
     for (i = 0, j = ITEM_NUM_SLOTS * 4; i < 3; i++, j += 4) {
         if (GET_CUR_FORM_BTN_ITEM(i + 1) != ITEM_NONE) {
-            if (GET_CUR_FORM_BTN_SLOT(i + 1) < ITEM_NUM_SLOTS) {
+            ItemId item = GET_CUR_FORM_BTN_ITEM(i + 1);
+            if (GameInteractor_Should(VB_DRAW_ITEM_EQUIPPED_OUTLINE, (GET_CUR_FORM_BTN_SLOT(i + 1) < ITEM_NUM_SLOTS),
+                                      &item, (s32)(i + 1), 0, PAUSE_ITEM)) {
                 gSPVertex(POLY_OPA_DISP++, &pauseCtx->itemVtx[j], 4, 0);
                 POLY_OPA_DISP = Gfx_DrawTexQuadIA8(POLY_OPA_DISP, gEquippedItemOutlineTex, 32, 32, 0);
             }
@@ -275,7 +281,10 @@ void KaleidoScope_DrawItemSelect(PlayState* play) {
     if (CVarGetInteger("gEnhancements.Dpad.DpadEquips", 0)) {
         for (i = EQUIP_SLOT_D_RIGHT; i <= EQUIP_SLOT_D_UP; i++, j += 4) {
             if (DPAD_GET_CUR_FORM_BTN_ITEM(i) != ITEM_NONE) {
-                if (DPAD_GET_CUR_FORM_BTN_SLOT(i) < ITEM_NUM_SLOTS) {
+                ItemId item = DPAD_GET_CUR_FORM_BTN_ITEM(i);
+                if (GameInteractor_Should(VB_DRAW_ITEM_EQUIPPED_OUTLINE,
+                                          (DPAD_GET_CUR_FORM_BTN_SLOT(i) < ITEM_NUM_SLOTS), &item, (s32)i, 1,
+                                          PAUSE_ITEM)) {
                     gSPVertex(POLY_OPA_DISP++, &pauseCtx->itemVtx[j], 4, 0);
                     POLY_OPA_DISP = Gfx_DrawTexQuadIA8(POLY_OPA_DISP, gEquippedItemOutlineTex, 32, 32, 0);
                 }
@@ -345,7 +354,7 @@ void KaleidoScope_DrawItemSelect(PlayState* play) {
     if (pauseCtx->pageIndex == PAUSE_ITEM) {
         if ((pauseCtx->state == PAUSE_STATE_MAIN) &&
             ((pauseCtx->mainState == PAUSE_MAIN_STATE_IDLE) || (pauseCtx->mainState == PAUSE_MAIN_STATE_EQUIP_ITEM)) &&
-            (pauseCtx->state != PAUSE_STATE_SAVEPROMPT) && !IS_PAUSE_STATE_GAMEOVER) {
+            (pauseCtx->state != PAUSE_STATE_SAVEPROMPT) && !IS_PAUSE_STATE_GAMEOVER(pauseCtx)) {
             Gfx_SetupDL39_Opa(play->state.gfxCtx);
             gDPSetCombineMode(POLY_OPA_DISP++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM);
 
@@ -733,6 +742,9 @@ void KaleidoScope_UpdateItemCursor(PlayState* play) {
                         }
                     }
                     // #endregion
+                    if (!GameInteractor_Should(VB_KALEIDO_EQUIP_ITEM_TO_BUTTON, true, cursorSlot, cursorItem)) {
+                        return;
+                    }
 
                     // Equip item to the C buttons
                     pauseCtx->equipTargetItem = cursorItem;

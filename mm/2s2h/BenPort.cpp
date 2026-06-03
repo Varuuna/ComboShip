@@ -729,7 +729,9 @@ void OTRGlobals::Initialize() {
     context->InitFileDropMgr();
 
     // tell LUS to reserve 3 2S2H specific threads (Game, Audio, Save)
-    prevAltAssets = CVarGetInteger("gEnhancements.Mods.AlternateAssets", 1);
+    // ComboShip: default Alternate Assets OFF (same as soh side; upstream flipped it ON, combo ships
+    // no HD/alt asset pack -> per-frame alt/ probe just spams the log). See docs/UPSTREAM_MERGES.md.
+    prevAltAssets = CVarGetInteger("gEnhancements.Mods.AlternateAssets", 0);
     context->GetResourceManager()->SetAltAssetsEnabled(prevAltAssets);
 
     context->InitCrashHandler();

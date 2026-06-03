@@ -247,3 +247,23 @@ mm used pre-migration APIs soh@develop had already moved past):**
 5. **`InitOTR()` → `InitOTR(0, NULL)`** in `mm/src/code/main.c` `MM_RunMain` (upstream added argc/argv).
 
 `2ship.dll` builds clean (Debug). NEXT: rebuild ComboShip; runtime-test the loop.
+
+## Runtime fixes (first launch — boots to OOT file-select)
+
+- **Console redirect (`libultraship/src/ship/Context.cpp`, `InitLogging`):** the merged soh `Initialize`
+  now calls `InitLogging`, whose Debug+Win32 path does `FreeConsole()`+`AllocConsole()`+stdout-redirect
+  — each game DLL stole the console into its own window instead of using ComboShip's. Guarded that block
+  with `#if defined(_DEBUG) && defined(_WIN32) && !defined(COMBO_BUILD)` (the stdout_color sink stays, so
+  soh/mm log into ComboShip's inherited console). `COMBO_BUILD` is defined for libultraship via the root
+  `add_compile_definitions(COMBO_BUILD)`.
+
+- **Alternate Assets default OFF:** upstream soh@develop (and 2ship) flipped the `AltAssets` default
+  from `0` to `1`. With it ON and no HD/alt asset pack present, the ResourceManager probes an
+  `alt/<path>` for every resource every frame → log spam (`Failed to load resource file at path
+  alt/...`) and per-frame probe overhead. Combo ships no HD pack, so restored the default to `0`:
+  `soh/soh/OTRGlobals.cpp` (`CVAR_SETTING("AltAssets")`, 3 sites) and `mm/2s2h/BenPort.cpp`
+  (`"gEnhancements.Mods.AlternateAssets"`, load site). Users can still toggle it on.
+
+**Known stale-user-data crash (NOT a code bug):** old randomizer spoilers in `x64/Debug/Randomizer/*.json`
+(pre-merge seeds) reference renamed option variants (e.g. `"Bombchu Bag": "Off"` → now `"None"`) →
+`Settings::ParseJson` → `assert(false)` at file-select. Clear stale rando seeds / use a non-rando save.

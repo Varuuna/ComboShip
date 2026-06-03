@@ -849,7 +849,10 @@ void OTRGlobals::Initialize() {
     context->InitFileDropMgr();
 
     // tell LUS to reserve 3 SoH specific threads (Game, Audio, Save)
-    prevAltAssets = CVarGetInteger(CVAR_SETTING("AltAssets"), 1);
+    // ComboShip: default Alternate Assets OFF. Upstream soh@develop flipped this default to ON, but
+    // combo ships no HD/alt asset pack, so the per-frame alt/ resource probe just spams the log with
+    // misses. See docs/UPSTREAM_MERGES.md.
+    prevAltAssets = CVarGetInteger(CVAR_SETTING("AltAssets"), 0);
     context->GetResourceManager()->SetAltAssetsEnabled(prevAltAssets);
 
     context->InitCrashHandler();
@@ -1777,7 +1780,7 @@ extern "C" void Graph_StartFrame() {
 #endif
         case KbScancode::LUS_KB_TAB: {
             if (CVarGetInteger(CVAR_SETTING("Mods.AlternateAssetsHotkey"), 1)) {
-                CVarSetInteger(CVAR_SETTING("AltAssets"), !CVarGetInteger(CVAR_SETTING("AltAssets"), 1));
+                CVarSetInteger(CVAR_SETTING("AltAssets"), !CVarGetInteger(CVAR_SETTING("AltAssets"), 0));
             }
             break;
         }
@@ -1869,7 +1872,7 @@ extern "C" void Graph_ProcessGfxCommands(Gfx* commands) {
         }
     }
 
-    bool curAltAssets = CVarGetInteger(CVAR_SETTING("AltAssets"), 1);
+    bool curAltAssets = CVarGetInteger(CVAR_SETTING("AltAssets"), 0);
     if (prevAltAssets != curAltAssets) {
         prevAltAssets = curAltAssets;
         Ship::Context::GetInstance()->GetResourceManager()->SetAltAssetsEnabled(curAltAssets);

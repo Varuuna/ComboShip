@@ -122,7 +122,53 @@ re-architected to fit the new class split.
 
 ## soh — `develop`
 
-_(pending — to be filled in when soh is merged)_
+Merged `soh/` only (mm / OTRExporter / ZAPDTR / libultraship are decoupled vendored copies and were
+**not** updated from origin in this pass). Fork point `7c8fc85c5`; merged up to `develop` tip
+`abcb3ad94`. Vendor-branch + grafted-ancestry mechanism as above (branch `vendor-soh`).
+
+**Object-availability note (different from the libultraship merge):** the HarbourMasters/Shipwright
+server **refuses by-SHA lazy blob fetches** (`upload-pack: not our ref …`), so the `blob:none`
+promisor clone could not backfill blobs the way Kenix3's server did. Hydrate the soh blobs with a
+**forced, filter-disabled shallow fetch** instead:
+`git -c remote.up-soh.promisor=false -c remote.up-soh.partialclonefilter= fetch --refetch --depth=1 up-soh develop`.
+A plain/incremental fetch is a no-op (git treats the missing blobs as legitimately-absent promisor
+objects). Also: use git ≥ 2.40 so `GIT_NO_LAZY_FETCH=1` works and `read-tree` doesn't bulk-prefetch.
+
+Only two files conflicted; the rest auto-merged (mostly upstream asset additions).
+
+**Deviations re-applied / resolved (each also has a `ComboShip:`-style comment in code):**
+
+- `soh/CMakeLists.txt` (MSVC runtime library) — kept **ours**: `MultiThreadedDebugDLL` /
+  `MultiThreadedDLL` (dynamic CRT). Upstream uses the static `MultiThreaded*` variants. The dynamic
+  CRT is **required** so `soh.dll`, `2ship.dll`, and the shared `libultraship.dll` share one CRT
+  heap (see the CRT-uniformity work). Do not revert.
+
+- `soh/soh/OTRGlobals.cpp` — upstream heavily refactored this file (moved `InitResourceManager` /
+  `InitWindow` into the `OTRGlobals` **constructor**, changed `InitOTR()` → `InitOTR(int argc,
+  char* argv[])`, renamed `SoH_ProcessDroppedFiles(std::string)` → `SoH_HandleConfigDrop(char*)`).
+  Resolved by taking upstream's structure and **re-applying** our COMBO_BUILD changes onto it:
+  - `sOOTResourceManager` static + its capture — moved into the constructor (right after the new
+    `InitResourceManager`), since that's where the RM is now created. Same RM object as before.
+  - `ImGui::SetCurrentContext(...)` after `InitWindow` (now in the constructor, before the first
+    ImGui use `CreateFontWithSize`).
+  - The COMBO scene-switch hooks (`OnSceneInit`→`SCENE_MIDOS_HOUSE` / `OnGameFrameUpdate`) re-added
+    in `InitOTR` (the old `OnFileDropped` anchor was removed upstream; anchored before
+    `RegisterImGuiItemIcons()` instead).
+  - `SOH_PrepareForTransition` re-added after `DeinitOTR`; the ComboShip exports block
+    (`SOH_Init`, callbacks, `SOH_ResumeGame`/`SOH_ReinitForResume`, `SOH_Extract`, …) re-added
+    before `SoH_HandleConfigDrop`.
+  - `SOH_Init` now calls `InitOTR(0, nullptr)` (upstream's new signature; combo drives extraction
+    separately via `SOH_Extract`, and `RunExtract` no-ops on `argc<=1`).
+  - **Dropped** the old `RegisterOOTResourceFactories` factoring (kept upstream's inline factory
+    registration). It was only ever called from `Initialize`; per-game ResourceManagers made the
+    "re-register after archive swap" rationale obsolete (`SOH_ReinitForResume` only calls
+    `SetResourceManager`). The factory **set** is byte-for-byte identical to upstream's, so nothing
+    is lost.
+
+**Still broken after this merge (pre-existing, NOT caused by it):** `OTRExporter` (a separate,
+non-updated vendored folder) still `#include`s libultraship's old header paths
+(`src/resource/Resource.h`, `utils/StrHash64.h`) and old `Fast::` resource-type API, so a `soh`
+build still fails in `OTRExporter.vcxproj` until OTRExporter is adapted to the merged libultraship.
 
 ## mm — `develop`
 

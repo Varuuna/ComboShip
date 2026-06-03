@@ -649,7 +649,9 @@ bool Extractor::CallZapd(std::string installPath, std::string exportdir, std::at
     // ZAPD's HANDLE_ERROR macro throws std::runtime_error on any extraction error.
     // Catch it here so an unhandled exception doesn't crash the process.
     try {
-        zapd_main(argc, (char**)argv.data());
+        // Upstream renamed zapd_main -> zapd_report (added progress counters); call it with null
+        // counters (our combo extraction shows progress via the console window instead).
+        zapd_report(argc, (char**)argv.data(), nullptr, nullptr);
     } catch (const std::exception& e) {
         fprintf(stderr, "MM Extractor: ZAPD failed: %s\n", e.what());
 #ifdef _WIN32

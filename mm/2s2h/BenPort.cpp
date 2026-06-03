@@ -7,6 +7,9 @@
 
 #include <ship/resource/ResourceManager.h>
 #include <fast/Fast3dWindow.h>
+// ComboShip: upstream merge — our newer libultraship moved these; mm@develop assumed older paths/APIs.
+#include <fast/debug/GfxDebugger.h>
+#include <stb_image.h>
 #include <ship/resource/File.h>
 #include <ship/window/Window.h>
 
@@ -689,6 +692,20 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
 #endif
 }
 
+// ComboShip: our newer libultraship dropped Context::InitGfxDebugger; mirror soh's free helper
+// (mm@develop's pin still called it as a Context method).
+static void InitGfxDebugger() {
+    auto dbg =
+        std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow())->GetGfxDebugger();
+    if (dbg != nullptr) {
+        return;
+    }
+    dbg = std::make_shared<Fast::GfxDebugger>();
+    if (dbg != nullptr) {
+        SPDLOG_ERROR("Failed to initialize gfx debugger");
+    }
+}
+
 void OTRGlobals::Initialize() {
     std::string mmPath = Ship::Context::LocateFileAcrossAppDirs("mm.o2r", appShortName);
     if (std::filesystem::exists(mmPath)) {
@@ -708,7 +725,7 @@ void OTRGlobals::Initialize() {
     context->InitLogging(logLevel, logLevel);
     Ship::Context::GetInstance()->GetLogger()->set_pattern("[%H:%M:%S.%e] [%s:%#] [%l] %v");
 
-    context->InitGfxDebugger();
+    InitGfxDebugger();
     context->InitFileDropMgr();
 
     // tell LUS to reserve 3 2S2H specific threads (Game, Audio, Save)

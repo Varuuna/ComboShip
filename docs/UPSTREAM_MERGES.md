@@ -203,4 +203,47 @@ mm itself is not yet upstream-merged), then runtime-test the OOT↔MM loop.
 
 ## mm — `develop`
 
-_(pending — to be filled in when mm is merged)_
+Merged `mm/` only. Fork `558f59b06` → develop tip `04a1a43197`; vendor-branch + grafted ancestry
+(branch `vendor-mm`), committed `6e336608b`. Blob hydration needed a **depth-580** forced
+filter-disabled refetch (`git -c remote.up-mm.promisor=false -c remote.up-mm.partialclonefilter=
+fetch --refetch --depth=580 up-mm develop`) because the fork is 561 commits behind the tip and the
+HarbourMasters server refuses by-SHA fetches. Merge run with **`-c merge.renames=false`** (rename
+detection mispaired deleted mm assets against soh assets → spurious soh conflicts).
+
+**Merge conflict resolutions (354):**
+
+- **350 `mm/assets/**.h` modify/delete → kept deleted from tracking** (`git rm`). These generated
+  asset headers were never imported into our combo tree. BUT mm CODE `#include`s ~48 of them
+  (object_*.h, gameplay_keep.h, icon_item_static_yar.h), so they must exist **on disk**. They're
+  gitignored generated artifacts; restore the on-disk copies from upstream and leave them untracked:
+  `git checkout vendor-mm -- mm/assets && git restore --staged mm/assets`. **On future mm merges,
+  resolve these modify/deletes with `git rm --cached` (NOT `git rm`) to keep the on-disk copies.**
+- `mm/src/code/title_setup.c`: kept both (COMBO includes + upstream `z64save.h`).
+- `mm/2s2h/BenPort.h`: kept both (`MM_*` transition exports + upstream `CrashHandler_PrintExt`).
+- `mm/2s2h/Extractor/Extract.cpp`: kept ours (combo console-window + try/catch hardening). Upstream
+  renamed `zapd_main`→`zapd_report`; our retained call uses `zapd_report(argc, argv, nullptr, nullptr)`.
+- `mm/2s2h/BenPort.cpp` (transition core): reset to upstream, re-applied the COMBO_BUILD delta onto
+  upstream's refactored `ctor`/`RunExtract`/`Initialize` split (statics + `MM_NotifyComboTransition`/
+  callbacks, the ctor OOT-context reuse path with per-game `sMMResourceManager`, `ImGui::SetCurrentContext`,
+  `RebuildFontTexture`, `OTRAudio_Exit` `#ifndef COMBO_BUILD` guards, InitOTR reverse hooks, MM exports
+  block). Dropped the obsolete `RegisterMMResourceFactories` factoring (Initialize owns the inline
+  registration). **RUNTIME-VERIFY the OOT↔MM transition** — the reuse path was re-derived against
+  upstream's new init structure (font atlas, audio re-init, Initialize re-run on the shared context).
+
+**Build-fix chain (libultraship API drift — mm@develop pins LUS ~67 commits behind our main tip, so
+mm used pre-migration APIs soh@develop had already moved past):**
+
+1. **Texture methods** moved `Ship::Gui` → `Fast::Fast3dGui`: wrapped 90 call sites in
+   `std::dynamic_pointer_cast<Fast::Fast3dGui>(…GetGui())->…` (`GetTextureByName`/`HasTextureByName`/
+   `LoadTextureFromRawImage`/`LoadGuiTexture`/`GetTextureSize`) + `#include <fast/Fast3dGui.h>` across
+   13 files (BenGui, Trackers, Rando, ShipUtils).
+2. **`Ship::WindowBackend`/`FAST3D_*`** → `Fast::…` + `#include <fast/Fast3dWindow.h>` (4 files).
+   `GetWindowBackend()`/`GetAvailableWindowBackends()` now return `int`/`vector<int>`: cast
+   `(Fast::WindowBackend)`, and `availableWindowBackends` is `shared_ptr<vector<int32_t>>`.
+3. **`Context::InitGfxDebugger` dropped** from our libultraship: mm now uses a local free
+   `InitGfxDebugger()` (mirrors soh) in BenPort.cpp + `#include <fast/debug/GfxDebugger.h>`.
+4. **`stbi_load_from_memory`/`STBI_rgb_alpha`**: `#include <stb_image.h>` in BenPort.cpp (impl linked
+   from libultraship; stb dir already on the 2ship include path).
+5. **`InitOTR()` → `InitOTR(0, NULL)`** in `mm/src/code/main.c` `MM_RunMain` (upstream added argc/argv).
+
+`2ship.dll` builds clean (Debug). NEXT: rebuild ComboShip; runtime-test the loop.

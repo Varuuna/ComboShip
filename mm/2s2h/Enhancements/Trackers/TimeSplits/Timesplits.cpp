@@ -1,5 +1,6 @@
 
 #include "Timesplits.h"
+#include <fast/Fast3dGui.h>
 #include <libultraship/bridge/consolevariablebridge.h>
 #include <ship/Context.h>
 #include <ship/window/Window.h>
@@ -193,7 +194,7 @@ void DrawSplitsList(bool isMain) {
                 SplitsPushImageButtonStyle();
                 if (ImGui::ImageButton(
                         std::to_string(i).c_str(),
-                        Ship::Context::GetInstance()->GetWindow()->GetGui()->GetTextureByName(
+                        std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())->GetTextureByName(
                             splitList[i].splitType == SPLIT_TYPE_NORMAL ? GetItemImageById(splitList[i].splitId)
                                                                         : gPauseUnusedCursorTex),
                         splitList[i].splitType == SPLIT_TYPE_NORMAL ? GetItemImageSizeById(splitList[i].splitId)

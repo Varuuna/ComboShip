@@ -164,7 +164,9 @@ void MM_RunMain(void) {
 
     setlocale(LC_ALL, ".UTF8");
 
-    InitOTR();
+    // ComboShip: upstream InitOTR now takes (argc, argv) for CLI extraction; the combo MM boot has
+    // no CLI args (extraction is driven separately via MM_Extract).
+    InitOTR(0, NULL);
     Heaps_Alloc();
 
     gScreenWidth = SCREEN_WIDTH;

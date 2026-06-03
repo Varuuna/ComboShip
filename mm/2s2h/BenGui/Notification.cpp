@@ -1,5 +1,6 @@
 
 #include "Notification.h"
+#include <fast/Fast3dGui.h>
 #include <libultraship/libultraship.h>
 
 extern "C" {
@@ -89,7 +90,7 @@ void Window::Draw() {
 
         if (notification.itemIcon != nullptr) {
             ImGui::Image(
-                Ship::Context::GetInstance()->GetWindow()->GetGui()->GetTextureByName(notification.itemIcon),
+                std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())->GetTextureByName(notification.itemIcon),
                 ImVec2(22 * CVarGetFloat("gNotifications.Size", 1.8f), 22 * CVarGetFloat("gNotifications.Size", 1.8f)));
             ImGui::SameLine();
         }

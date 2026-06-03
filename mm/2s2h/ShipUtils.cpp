@@ -1,4 +1,5 @@
 #include "ShipUtils.h"
+#include <fast/Fast3dGui.h>
 #include "assets/2s2h_assets.h"
 #include <string>
 #include <bit>
@@ -348,21 +349,21 @@ extern uint32_t Ship_Hash(std::string str) {
 void LoadGuiTextures() {
     for (const TexturePtr entry : gItemIcons) {
         auto path = static_cast<const char*>(entry);
-        Ship::Context::GetInstance()->GetWindow()->GetGui()->LoadGuiTexture(path, path, ImVec4(1, 1, 1, 1));
+        std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())->LoadGuiTexture(path, path, ImVec4(1, 1, 1, 1));
     }
     for (const TexturePtr entry : gQuestIcons) {
         auto path = static_cast<const char*>(entry);
-        Ship::Context::GetInstance()->GetWindow()->GetGui()->LoadGuiTexture(path, path, ImVec4(1, 1, 1, 1));
+        std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())->LoadGuiTexture(path, path, ImVec4(1, 1, 1, 1));
     }
     for (const TexturePtr entry : gBombersNotebookPhotos) {
         auto path = static_cast<const char*>(entry);
-        Ship::Context::GetInstance()->GetWindow()->GetGui()->LoadGuiTexture(path, path, ImVec4(1, 1, 1, 1));
+        std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())->LoadGuiTexture(path, path, ImVec4(1, 1, 1, 1));
     }
     for (const auto entry : miscellaneousTextures) {
-        Ship::Context::GetInstance()->GetWindow()->GetGui()->LoadGuiTexture(entry, entry, ImVec4(1, 1, 1, 1));
+        std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())->LoadGuiTexture(entry, entry, ImVec4(1, 1, 1, 1));
     }
     for (const auto entry : digitList) {
-        Ship::Context::GetInstance()->GetWindow()->GetGui()->LoadGuiTexture(entry, entry, ImVec4(1, 1, 1, 1));
+        std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())->LoadGuiTexture(entry, entry, ImVec4(1, 1, 1, 1));
     }
 }
 

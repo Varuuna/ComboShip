@@ -1,5 +1,6 @@
 
 #include "CheckTracker.h"
+#include <fast/Fast3dGui.h>
 #include "2s2h/Rando/Logic/Logic.h"
 #include "2s2h/ShipUtils.h"
 #include "2s2h/BenGui/UIWidgets.hpp"
@@ -163,7 +164,7 @@ std::string GetTotalCheckCount() {
 
 void DrawCheckTypeIcon(RandoCheckId randoCheckId) {
     RandoCheckType checkType = Rando::StaticData::Checks[randoCheckId].randoCheckType;
-    ImGui::Image(Ship::Context::GetInstance()->GetWindow()->GetGui()->GetTextureByName(checkTypeIconList[checkType]),
+    ImGui::Image(std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())->GetTextureByName(checkTypeIconList[checkType]),
                  checkType == RCTYPE_SONG  ? ImVec2(12.0f * trackerScale, 18.0f * trackerScale)
                  : checkType == RCTYPE_OWL ? ImVec2(18.0f * trackerScale, 9.0f * trackerScale)
                                            : ImVec2(18.0f * trackerScale, 18.0f * trackerScale),
@@ -556,7 +557,7 @@ void CheckTrackerWindow::Draw() {
                 ImGui::PushStyleColor(ImGuiCol_Button, buttonCol);
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 1.0f, 1.0f, 0.2f));
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.0f, 1.0f, 1.0f, 0.1f));
-                TexturePtr textureId = Ship::Context::GetInstance()->GetWindow()->GetGui()->GetTextureByName(
+                TexturePtr textureId = std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())->GetTextureByName(
                     randoCheckType == RCTYPE_UNKNOWN ? (const char*)gShootingGalleryOctorokCrossTex
                                                      : checkTypeIconList[randoCheckType]);
                 if (randoCheckType == RCTYPE_OWL) {

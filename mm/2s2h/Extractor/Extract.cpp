@@ -654,6 +654,12 @@ bool Extractor::CallZapd(std::string installPath, std::string exportdir, std::at
         zapd_report(argc, (char**)argv.data(), nullptr, nullptr);
     } catch (const std::exception& e) {
         fprintf(stderr, "MM Extractor: ZAPD failed: %s\n", e.what());
+        // ComboShip: also persist the error to a file (curdir is absolute) so it survives the console
+        // closing when the "Extraction failed" box appears. See docs/UPSTREAM_MERGES.md.
+        if (FILE* ef = fopen((curdir + "/mm_extract_error.log").c_str(), "w")) {
+            fprintf(ef, "MM Extractor: ZAPD threw an exception during extraction:\n%s\n", e.what());
+            fclose(ef);
+        }
 #ifdef _WIN32
         ShowWindow(cmdWindow, SW_HIDE);
 #endif
@@ -671,6 +677,10 @@ bool Extractor::CallZapd(std::string installPath, std::string exportdir, std::at
     // non-existent file throws filesystem_error which would crash the process.
     if (!std::filesystem::exists(otrFile)) {
         fprintf(stderr, "MM Extractor: ZAPD did not produce %s\n", otrFile);
+        if (FILE* ef = fopen((curdir + "/mm_extract_error.log").c_str(), "w")) {
+            fprintf(ef, "MM Extractor: ZAPD finished without throwing but did not produce %s.\n", otrFile);
+            fclose(ef);
+        }
         std::filesystem::current_path(curdir);
         std::filesystem::remove_all(tempdir);
         return false;

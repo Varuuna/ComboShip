@@ -16,6 +16,7 @@
 #include <cstdlib>
 
 #include "rando/CrossMailbox.h"
+#include "rando/CrossWorldRando.h"
 
 // Surfaces the real exception behind a silent terminate()/exit(3). With the shared dynamic
 // CRT, exceptions thrown in soh.dll/2ship.dll propagate across the DLL boundary to here.
@@ -294,20 +295,34 @@ int main(int argc, char** argv) {
 
     // ComboShip Inc2 de-risk: dump BOTH games' static rando data (headless, safe AFTER SOH_Init).
     // Write to files under saves/combo/ so the result is verifiable regardless of console visibility.
+    // Also generate a no-logic combined spoiler (phase 1: per-game permutation, native-only).
     {
         std::error_code ec;
         std::filesystem::create_directories("saves/combo", ec);
+
+        std::string sohDump, mmDump;
+
         if (SOH_DumpRandoStaticData) {
-            std::string s = SOH_DumpRandoStaticData();
-            { std::ofstream f("saves/combo/oot_dump.json", std::ios::trunc); f << s; }
-            auto j = nlohmann::json::parse(s);
+            sohDump = SOH_DumpRandoStaticData();
+            { std::ofstream f("saves/combo/oot_dump.json", std::ios::trunc); f << sohDump; }
+            auto j = nlohmann::json::parse(sohDump);
             std::cout << "[ComboShip] OOT static dump: " << j["checks"].size() << " checks, " << j["items"].size() << " items\n";
         }
         if (MM_DumpRandoStaticData) {
-            std::string s = MM_DumpRandoStaticData();
-            { std::ofstream f("saves/combo/mm_dump.json", std::ios::trunc); f << s; }
-            auto j = nlohmann::json::parse(s);
+            mmDump = MM_DumpRandoStaticData();
+            { std::ofstream f("saves/combo/mm_dump.json", std::ios::trunc); f << mmDump; }
+            auto j = nlohmann::json::parse(mmDump);
             std::cout << "[ComboShip] MM static dump: " << j["checks"].size() << " checks, " << j["items"].size() << " items\n";
+        }
+
+        if (!sohDump.empty() && !mmDump.empty()) {
+            std::string spoiler = ComboRando::CrossWorldGenerateSpoiler(sohDump, mmDump, 12345u);
+            { std::ofstream f("saves/combo/test.spoiler.json", std::ios::trunc); f << spoiler; }
+            auto js = nlohmann::json::parse(spoiler);
+            uint32_t ootCount = js.value("ootCount", 0u);
+            uint32_t mmCount  = js.value("mmCount",  0u);
+            std::cout << "[ComboShip] Spoiler generated (seed=12345): "
+                      << ootCount << " OOT checks, " << mmCount << " MM checks -> saves/combo/test.spoiler.json\n";
         }
     }
 

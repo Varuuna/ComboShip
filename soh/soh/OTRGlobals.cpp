@@ -2605,11 +2605,13 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         // This mirrors the first part of the full generation sequence without filling items.
         ctx->GetLogic()->Reset();
         ctx->FinalizeSettings({}, {});
-        ctx->GenerateLocationPool(); // fills ctx->allLocations with the shuffled-check set
-
-        // Dump the real shuffled check set (not all RC_MAX).
-        for (RandomizerCheck rc : ctx->allLocations) {
-            Rando::Location* loc = Rando::StaticData::GetLocation(rc);
+        // NOTE: do NOT call ctx->GenerateLocationPool() here — it dereferences a file-global `ctx`
+        // raw pointer (location_access.cpp) that isn't initialized in this headless path and crashes
+        // in GetDungeons(). Dump every check that has a vanilla item instead; that's sufficient for
+        // Phase 1 (Randomizer_InitSaveFile needs only itemLocationTable populated + IsSeedGenerated,
+        // and OOT runtime delivery only intercepts the checks it actually shuffles).
+        for (int i = 0; i < RC_MAX; ++i) {
+            Rando::Location* loc = Rando::StaticData::GetLocation(static_cast<RandomizerCheck>(i));
             if (!loc) continue;
             const std::string& name = loc->GetName();
             if (name.empty()) continue;

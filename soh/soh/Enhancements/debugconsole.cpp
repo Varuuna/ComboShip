@@ -1523,9 +1523,13 @@ static bool CrossSendHandler(std::shared_ptr<Ship::Console> Console, const std::
         return 1;
     }
     std::string itemName = (args.size() > 1) ? args[1] : "DEBUG_ITEM";
+    // displayName == itemName for debug; real pickup code will supply a proper string.
     ComboRando::MailboxEntry e{ ComboRando::GAME_OOT, ComboRando::GAME_MM,
                                 itemName, itemName, "DEBUG_OOT_CONSOLE", false };
-    ComboRando::Enqueue(gSaveContext.fileNum, e);
+    if (!ComboRando::Enqueue(gSaveContext.fileNum, e)) {
+        ERROR_MESSAGE("[ComboShip] cross_send: failed to write mailbox (slot %d).", gSaveContext.fileNum);
+        return 1;
+    }
     INFO_MESSAGE("[ComboShip] Queued '%s' for MM (slot %d).", itemName.c_str(), gSaveContext.fileNum);
     return 0;
 }

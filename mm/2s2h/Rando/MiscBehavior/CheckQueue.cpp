@@ -23,8 +23,9 @@ extern s16 D_801CFF94[250];
 static void Rando_CrossMailboxDrain() {
     if (gPlayState == nullptr) return;
     if (gSaveContext.fileNum == 0xFF) return;  // no real save loaded (title / debug sentinel)
-    int slot = gSaveContext.fileNum - 1;  // canonical OOT slot (MM file N+1 <-> OOT slot N)
-    if (slot < 0) return;
+    // MM's runtime gSaveContext.fileNum is already the 0-based canonical slot (SaveManager_LoadSaveFile
+    // stores mmFileNum-1), identical to OOT's. The N+1 offset is only the on-disk MM file number.
+    int slot = gSaveContext.fileNum;
     auto pending = ComboRando::LoadPending(slot, ComboRando::GAME_MM);
     if (pending.empty()) return;
 

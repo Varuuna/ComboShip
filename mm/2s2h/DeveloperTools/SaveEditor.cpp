@@ -2268,8 +2268,10 @@ void DrawFlagsTab() {
 void DrawRandoTab() {
 #ifdef COMBO_BUILD
     if (UIWidgets::Button("Cross-send debug item to OOT", { .size = UIWidgets::Sizes::Inline })) {
-        int slot = gSaveContext.fileNum - 1;  // canonical OOT slot (MM file N+1 <-> OOT slot N)
-        if (gSaveContext.fileNum == 0xFF || slot < 0) {
+        // MM runtime fileNum is already the 0-based canonical slot (== OOT's); only the on-disk MM
+        // file number carries the +1 offset.
+        int slot = gSaveContext.fileNum;
+        if (gSaveContext.fileNum == 0xFF) {
             SPDLOG_WARN("[ComboShip] MM cross-send: no save loaded (fileNum=0x{:X})",
                         (unsigned)gSaveContext.fileNum);
         } else {

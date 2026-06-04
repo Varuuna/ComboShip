@@ -278,8 +278,12 @@ conflict unless upstream rewrites the exact functions). Spec/plan:
 `docs/superpowers/plans/2026-06-04-crossworld-randomizer-increment-1-mailbox.md`.
 
 The delivery channel is a header-only mailbox `combo/rando/CrossMailbox.h` (`namespace ComboRando`,
-not an upstream file) backed by `saves/combo/slot{N}.mailbox.json`, keyed by the canonical OOT slot N
-(MM uses `gSaveContext.fileNum - 1`). Increment 1 proves the channel with debug send-triggers + a
+not an upstream file) backed by `saves/combo/slot{N}.mailbox.json`, keyed by the canonical 0-based
+slot N. **Both engines hold N in `gSaveContext.fileNum` at runtime** — OOT directly, and MM because
+`SaveManager_LoadSaveFile` stores `mmFileNum - 1` (the `+1` MM-file offset is on-disk only). So all
+four mailbox sites use `gSaveContext.fileNum` as-is; do NOT subtract 1 on the MM side (that was an
+early bug — it made OOT(N) and MM(N-1) miss each other and killed slot 0 via a `slot<0` guard).
+Increment 1 proves the channel with debug send-triggers + a
 placeholder blue-rupee grant on receive; real seed generation, pickup-interception, foreign-item
 markers and the gift presentation are later increments.
 
@@ -296,7 +300,7 @@ markers and the gift presentation are later increments.
 - `Enhancements/debugconsole.cpp` — `cross_send <itemName>` console command (enqueues an MM-bound entry for the current slot).
 
 **mm (`mm/2s2h/...`, all COMBO_BUILD-guarded):**
-- `Rando/MiscBehavior/CheckQueue.cpp` — `Rando_CrossMailboxDrain` (drains MM-bound entries each player-update, placeholder grant; guards the `0xFF` no-save sentinel + `slot < 0`) and `InitCrossMailboxDrain` (registers it via the same `COND_ID_HOOK(OnActorUpdate, ACTOR_PLAYER, IS_RANDO, …)` macro CheckQueue uses).
+- `Rando/MiscBehavior/CheckQueue.cpp` — `Rando_CrossMailboxDrain` (drains MM-bound entries each player-update, placeholder grant; guards the `0xFF` no-save sentinel and uses `gSaveContext.fileNum` directly as the slot) and `InitCrossMailboxDrain` (registers it via the same `COND_ID_HOOK(OnActorUpdate, ACTOR_PLAYER, IS_RANDO, …)` macro CheckQueue uses).
 - `Rando/MiscBehavior/MiscBehavior.h` / `MiscBehavior.cpp` — declaration of `InitCrossMailboxDrain` + its call from `OnFileLoad` (alongside the CheckQueue hook).
 - `DeveloperTools/SaveEditor.cpp` — debug button in `DrawRandoTab()` enqueuing an OOT-bound entry.
 

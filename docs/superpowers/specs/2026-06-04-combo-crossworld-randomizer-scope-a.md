@@ -122,6 +122,14 @@ Then control returns to `Sram_InitSave`: step (1) `Randomizer_InitSaveFile()` pe
 
 **Seed.** A master seed (combo-layer CVar `gCombo.Seed`, or auto-random when blank) drives the assignment RNG; `oot_seed`/`mm_seed` are derived (`Hash(master+"OOT")` / `+"MM"`) only for any incidental per-game randomness.
 
+### Increment 2 — UX refinements (user direction, 2026-06-04)
+
+- **Randomizer is the ONLY save type in combo.** ComboShip is a randomizer-first experience: creating a save always produces a rando save — OOT `QUEST_RANDOMIZER`, MM `SAVETYPE_RANDO`. No normal/vanilla save creation is offered. This also turns on the default rando enhancements (e.g. cutscene skips) for free. (This is what makes the Increment-1 `IS_RANDO` ungate unnecessary long-term — but keep the unconditional combo receive anyway; it's harmless and robust.)
+- **One combined settings window, one Generate.** A single combo-owned ImGui window edits BOTH OOT and MM rando settings together; a single "Generate" runs the central-assignment fill and writes the combined spoiler BEFORE the save files are created. Then save creation consumes the result (both games rando).
+- **Bypass the per-game mandatory settings/seed screens.** Normally OOT file-select requires `Randomizer_IsSeedGenerated()` and MM creates its seed in its own `OnFileCreate`; the combo generate-hook (see above) drives both, so the standalone per-game settings screens are skipped/ignored.
+- **Host the combined window in the always-available (OOT/shared) ImGui.** Known ComboShip limitation: both games register GUI windows into the one shared ImGui and there is no per-active-game window-visibility swap, so while MM runs only OOT's menus are visible. A combo-owned settings window registered in the shared/OOT GUI is therefore always reachable — and this is the right home for it regardless. (The menu-swap bug is broader than rando; only worth a dedicated fix if MM-specific menus are ever needed in combo.)
+- **No-logic for now:** use a no-logic preset or a skip-settings default config for the generate step.
+
 ## Verification approach (whole feature)
 
 No unit-test harness exists for combo/game C++. Verification per task is:

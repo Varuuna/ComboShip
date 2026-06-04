@@ -292,14 +292,23 @@ int main(int argc, char** argv) {
     }
     std::cout << "[ComboShip] OOT initialized." << std::endl;
 
-    // ComboShip Inc2 de-risk: confirm BOTH games' static rando data dumps headlessly (safe AFTER SOH_Init).
-    if (SOH_DumpRandoStaticData) {
-        auto j = nlohmann::json::parse(SOH_DumpRandoStaticData());
-        std::cout << "[ComboShip] OOT static dump: " << j["checks"].size() << " checks, " << j["items"].size() << " items\n";
-    }
-    if (MM_DumpRandoStaticData) {
-        auto j = nlohmann::json::parse(MM_DumpRandoStaticData());
-        std::cout << "[ComboShip] MM static dump: " << j["checks"].size() << " checks, " << j["items"].size() << " items\n";
+    // ComboShip Inc2 de-risk: dump BOTH games' static rando data (headless, safe AFTER SOH_Init).
+    // Write to files under saves/combo/ so the result is verifiable regardless of console visibility.
+    {
+        std::error_code ec;
+        std::filesystem::create_directories("saves/combo", ec);
+        if (SOH_DumpRandoStaticData) {
+            std::string s = SOH_DumpRandoStaticData();
+            { std::ofstream f("saves/combo/oot_dump.json", std::ios::trunc); f << s; }
+            auto j = nlohmann::json::parse(s);
+            std::cout << "[ComboShip] OOT static dump: " << j["checks"].size() << " checks, " << j["items"].size() << " items\n";
+        }
+        if (MM_DumpRandoStaticData) {
+            std::string s = MM_DumpRandoStaticData();
+            { std::ofstream f("saves/combo/mm_dump.json", std::ios::trunc); f << s; }
+            auto j = nlohmann::json::parse(s);
+            std::cout << "[ComboShip] MM static dump: " << j["checks"].size() << " checks, " << j["items"].size() << " items\n";
+        }
     }
 
     // --- 5. Register OOT callbacks ---

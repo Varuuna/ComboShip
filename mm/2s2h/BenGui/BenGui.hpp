@@ -8,6 +8,9 @@
 namespace BenGui {
     void SetupHooks();
     void SetupMenu();
+    // ComboShip: ensure MM's BenMenu is the shared Gui's active menu (constructs it on first call,
+    // re-installs it thereafter). Used on the combo transition where the ctor's SetupMenu() is skipped.
+    void ActivateMenu();
     void SetupMenuElements();
     void SetupGuiElements();
     void Draw();

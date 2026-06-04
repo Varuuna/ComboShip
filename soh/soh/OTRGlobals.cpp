@@ -2518,6 +2518,9 @@ static void SOH_ReinitForResume() {
     // resident in OOT's RM, so the thread resumes against valid data with no reload/heap reset.
     OTRAudio_Init();              // counterpart to OTRAudio_Exit() in SOH_PrepareForTransition
     SohGui::SetupGuiElements();   // counterpart to SohGui::Destroy() in SOH_PrepareForTransition
+    // ComboShip: restore OOT's menu into the shared Gui's single menu slot (MM set it to its BenMenu
+    // while it was the active game). mSohMenu persists (SohGui::Destroy doesn't clear it).
+    ctx->GetWindow()->GetGui()->SetMenu(SohGui::GetSohMenu());
 }
 
 // Symmetric marker, mirrors MM_NotifyComboTransition. ComboShip calls this before SOH_ResumeGame.

@@ -242,6 +242,13 @@ OTRGlobals::OTRGlobals() {
     // separate from libultraship.dll where the context lives. Point it at the shared context (works
     // for both the reuse path and standalone window creation) before any ImGui use here.
     ImGui::SetCurrentContext(context->GetInstance()->GetWindow()->GetGui()->GetImGuiContext());
+    // ComboShip: the reuse path above skipped BenGui::SetupMenu() (it only runs inside the
+    // !usingExistingCtx block), so MM's BenMenu was never built and the shared Gui's single menu slot
+    // still holds OOT's SohMenu. Build/install MM's menu now that the ImGui context is current
+    // (widgets populate lazily via BenMenu::InitElement).
+    if (usingExistingCtx) {
+        BenGui::ActivateMenu();
+    }
 #endif
 
     if (shipArchiveVersionMatch) {
@@ -2543,6 +2550,10 @@ extern "C" __declspec(dllexport) void MM_ResumeGame(int fileNum) {
     //    BenGui::SetupGuiElements() — the shared Gui's windows persist from MM's first boot;
     //    re-creating them would re-register SaveManager load functions and assert.
     ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
+
+    // ComboShip: re-activate MM's menu in the shared Gui's single menu slot (OOT set it back to its
+    // SohMenu while it was the active game). BenMenu persists (BenGui::Destroy isn't called in combo).
+    BenGui::ActivateMenu();
 
     // 5. Re-arm the shared window so MM's `while (WindowIsRunning())` loop runs instead of returning
     //    immediately (OOT cleared mIsRunning when its loop exited).

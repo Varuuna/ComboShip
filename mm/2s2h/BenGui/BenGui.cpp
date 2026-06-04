@@ -89,6 +89,18 @@ void SetupMenu() {
     mModalWindow->Show();
 }
 
+// ComboShip: install MM's menu into the shared Gui's single menu slot. On the combo transition the
+// OTRGlobals ctor's SetupMenu() is skipped (it lives in the !usingExistingCtx block), so the slot
+// otherwise keeps OOT's SohMenu. First call constructs BenMenu (full setup); later calls just re-set it.
+void ActivateMenu() {
+    auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
+    if (mBenMenu == nullptr) {
+        SetupMenu();
+    } else {
+        gui->SetMenu(mBenMenu);
+    }
+}
+
 void SetupGuiElements() {
     auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
 

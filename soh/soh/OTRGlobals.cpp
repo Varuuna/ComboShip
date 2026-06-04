@@ -2729,7 +2729,12 @@ static void EnsureOracleInit() {
     ctx->FinalizeSettings({}, {});
     RegionTable_Init();
     ctx->GenerateLocationPool();
-    GenerateItemPool();
+    // ComboShip: deliberately do NOT call GenerateItemPool() here. It builds OOT's item pool purely for
+    // OOT's OWN fill (which the combo layer never runs — the combined cross-world fill owns placement),
+    // and it asserts `itemPool.size() <= locCount` as a fill precondition. Under the headless default
+    // settings the pool isn't balanced for a real fill, so that assert aborts. The oracle only needs
+    // reachability: ReachabilitySearch reads the logic/region state + allLocations (from
+    // GenerateLocationPool), and GenerateStartingInventory does not touch itemPool — neither needs it.
     GenerateStartingInventory();
     sOracleInitialized = true;
 }

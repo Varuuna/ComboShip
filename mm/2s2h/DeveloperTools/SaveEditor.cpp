@@ -9,6 +9,10 @@
 #include "2s2h/BenGui/Notification.h"
 #include "2s2h/Rando/Spoiler/Spoiler.h"
 #include "2s2h/ShipUtils.h"
+#ifdef COMBO_BUILD
+#include <spdlog/spdlog.h>
+#include "rando/CrossMailbox.h"  // ComboShip
+#endif
 
 #include "interface/icon_item_dungeon_static/icon_item_dungeon_static.h"
 #include "archives/icon_item_24_static/icon_item_24_static_yar.h"
@@ -2262,6 +2266,23 @@ void DrawFlagsTab() {
 }
 
 void DrawRandoTab() {
+#ifdef COMBO_BUILD
+    if (UIWidgets::Button("Cross-send debug item to OOT", { .size = UIWidgets::Sizes::Inline })) {
+        if (gSaveContext.fileNum != 0xFF) {
+            int slot = gSaveContext.fileNum - 1;
+            if (slot >= 0) {
+                ComboRando::MailboxEntry e{ ComboRando::GAME_MM, ComboRando::GAME_OOT,
+                                            "DEBUG_ITEM", "DEBUG_ITEM", "DEBUG_MM_MENU", false };
+                if (!ComboRando::Enqueue(slot, e)) {
+                    SPDLOG_WARN("[ComboShip] MM cross-send: failed to write mailbox (slot {})", slot);
+                } else {
+                    SPDLOG_INFO("[ComboShip] MM cross-send: queued DEBUG_ITEM for OOT (slot {})", slot);
+                }
+            }
+        }
+    }
+    UIWidgets::Tooltip("ComboShip: enqueue a cross-world debug item addressed to OOT for the current save slot");
+#endif
     if (UIWidgets::Button("Generate Spoiler from Save", { .size = UIWidgets::Sizes::Inline })) {
         nlohmann::json spoiler = Rando::Spoiler::GenerateFromSaveContext();
         std::string inputSeed = std::to_string(Ship_Random(0, 1000000));

@@ -36,6 +36,10 @@ extern PlayState* gPlayState;
 #include <libultraship/bridge.h>
 #include <libultraship/libultraship.h>
 
+#ifdef COMBO_BUILD
+#include "rando/CrossMailbox.h"  // ComboShip
+#endif
+
 #define CMD_REGISTER Ship::Context::GetInstance()->GetConsole()->AddCommand
 // TODO: Commands should be using the output passed in.
 #define ERROR_MESSAGE                                                                 \
@@ -1510,6 +1514,23 @@ static bool AvailableChecksRecalculateHandler(std::shared_ptr<Ship::Console> Con
     return 0;
 }
 
+#ifdef COMBO_BUILD
+// ComboShip: `cross_send <itemName>` — queue a fake MM-bound item for the current slot (debug).
+static bool CrossSendHandler(std::shared_ptr<Ship::Console> Console, const std::vector<std::string>& args,
+                             std::string* output) {
+    if (gSaveContext.fileNum == 0xFF) {
+        ERROR_MESSAGE("[ComboShip] cross_send: no save loaded (fileNum == 0xFF)");
+        return 1;
+    }
+    std::string itemName = (args.size() > 1) ? args[1] : "DEBUG_ITEM";
+    ComboRando::MailboxEntry e{ ComboRando::GAME_OOT, ComboRando::GAME_MM,
+                                itemName, itemName, "DEBUG_OOT_CONSOLE", false };
+    ComboRando::Enqueue(gSaveContext.fileNum, e);
+    INFO_MESSAGE("[ComboShip] Queued '%s' for MM (slot %d).", itemName.c_str(), gSaveContext.fileNum);
+    return 0;
+}
+#endif
+
 void DebugConsole_Init(void) {
     // Console
     CMD_REGISTER("file_select", { FileSelectHandler, "Returns to the file select." });
@@ -1779,6 +1800,14 @@ void DebugConsole_Init(void) {
                      { "starting_region", Ship::ArgumentType::NUMBER, true },
                      { "ChildDay|ChildNight|AdultDay|AdultNight", Ship::ArgumentType::TEXT, true },
                  } });
+
+#ifdef COMBO_BUILD
+    CMD_REGISTER("cross_send", { CrossSendHandler,
+                                 "ComboShip: queue a fake MM-bound item for the current slot (debug).",
+                                 {
+                                     { "itemName", Ship::ArgumentType::TEXT },
+                                 } });
+#endif
 
     Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
 }

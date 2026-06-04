@@ -15,6 +15,8 @@
 #include <exception>
 #include <cstdlib>
 
+#include "rando/CrossMailbox.h"
+
 // Surfaces the real exception behind a silent terminate()/exit(3). With the shared dynamic
 // CRT, exceptions thrown in soh.dll/2ship.dll propagate across the DLL boundary to here.
 static void ComboTerminateHandler() {
@@ -142,6 +144,15 @@ int main(int argc, char** argv) {
     std::set_terminate(ComboTerminateHandler);
 
     std::string workDir = std::filesystem::current_path().string();
+
+    // ComboShip: surface any mailbox left from a previous session (debug aid; harmless if absent).
+    {
+        auto leftover = ComboRando::LoadAll(0);
+        if (!leftover.empty()) {
+            std::cout << "[ComboShip] mailbox slot0 has " << leftover.size()
+                      << " entr" << (leftover.size() == 1 ? "y" : "ies") << " on startup\n";
+        }
+    }
 
     // --- 1. Load DLLs ---
 

@@ -13,8 +13,9 @@ set(COMBO_SOURCES
 # Create executable
 add_executable(ComboShip ${COMBO_SOURCES})
 
-# No include directories needed - this is a standalone launcher
-# No linking needed - we dynamically load the game DLLs at runtime
+# nlohmann/json is used by combo/rando/CrossMailbox.h (header-only, pulled transitively through vcpkg)
+find_package(nlohmann_json REQUIRED)
+target_link_libraries(ComboShip PRIVATE nlohmann_json::nlohmann_json)
 
 # Add dependencies to ensure games are built first
 add_dependencies(ComboShip

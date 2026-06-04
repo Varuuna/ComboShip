@@ -26,6 +26,10 @@ void Rando::MiscBehavior::OnFileLoad() {
     COND_HOOK(AfterEndOfCycleSave, IS_RANDO, Rando::MiscBehavior::AfterEndOfCycleSave);
     COND_HOOK(OnSceneInit, IS_RANDO, Rando::MiscBehavior::OnSceneInit);
     COND_ID_HOOK(OnActorUpdate, ACTOR_PLAYER, IS_RANDO, [](Actor* actor) { Rando::MiscBehavior::CheckQueue(); });
+#ifdef COMBO_BUILD
+    // ComboShip: drain cross-world mailbox each player-update frame (rando saves only).
+    Rando::MiscBehavior::InitCrossMailboxDrain();
+#endif
 
     // This overrides the ocarina condition for Termina Field
     COND_VB_SHOULD(VB_TERMINA_FIELD_BE_EMPTY, IS_RANDO, { *should = false; });

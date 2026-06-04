@@ -12,6 +12,9 @@ void OnFileLoad();
 
 void CheckQueue();
 void CheckQueueReset();
+#ifdef COMBO_BUILD
+void InitCrossMailboxDrain();  // ComboShip: register cross-world mailbox drain hook
+#endif
 void InitFileSelect();
 void InitKaleidoItemPage();
 void InitOfferGetItemBehavior();

@@ -241,6 +241,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE assets
     ${SDL2-NET-INCLUDE}
 	${CMAKE_CURRENT_SOURCE_DIR}/assets/
 	${dr_libs_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../combo
 	.
 )
 

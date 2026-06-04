@@ -7,6 +7,9 @@
 #include "2s2h/Rando/StaticData/StaticData.h"
 #include "2s2h/ShipUtils.h"
 #include "Traps.h"
+#ifdef COMBO_BUILD
+#include "rando/CrossMailbox.h"  // ComboShip: cross-world mailbox
+#endif
 
 extern "C" {
 #include "variables.h"
@@ -14,6 +17,27 @@ extern "C" {
 extern TexturePtr gItemIcons[131];
 extern s16 D_801CFF94[250];
 }
+
+#ifdef COMBO_BUILD
+// ComboShip: grant any cross-world items addressed to MM for the current slot.
+static void Rando_CrossMailboxDrain() {
+    if (gPlayState == nullptr) return;
+    int slot = gSaveContext.fileNum - 1;  // canonical OOT slot (MM file N+1 <-> OOT slot N)
+    if (slot < 0) return;
+    auto pending = ComboRando::LoadPending(slot, ComboRando::GAME_MM);
+    if (pending.empty()) return;
+
+    for (const auto& e : pending) {
+        // Increment 1: prove delivery with a visible, safe grant. Full item mapping = Increment 3.
+        Item_Give(gPlayState, ITEM_RUPEE_BLUE);
+        SPDLOG_INFO("[ComboShip] MM received cross item '{}' (from OOT): granted placeholder rupee",
+                    e.itemName);
+    }
+    if (!ComboRando::MarkAllDelivered(slot, ComboRando::GAME_MM)) {
+        SPDLOG_WARN("[ComboShip] MM: failed to persist mailbox delivery for slot {}", slot);
+    }
+}
+#endif
 
 static bool queued = false;
 
@@ -128,3 +152,11 @@ void Rando::MiscBehavior::CheckQueueReset() {
     GameInteractor::Instance->currentEvent = GIEventNone{};
     GameInteractor::Instance->events.clear();
 }
+
+#ifdef COMBO_BUILD
+// ComboShip: register the cross-world mailbox drain hook alongside CheckQueue's own hook.
+// Called from OnFileLoad so it is only active in a rando save (IS_RANDO guard).
+void Rando::MiscBehavior::InitCrossMailboxDrain() {
+    COND_ID_HOOK(OnActorUpdate, ACTOR_PLAYER, IS_RANDO, [](Actor* actor) { Rando_CrossMailboxDrain(); });
+}
+#endif

@@ -137,8 +137,8 @@ static int g_PendingMMFileNum = -1;
 // save-init in the same new-save flow, so this is populated by the time the MM save is created.
 static std::string g_PendingMMPlacements;
 
-// ComboShip Inc2 (Task 3): generate callback — called by Sram_InitSave (via gComboGenerateCallback)
-// before save creation. Runs the combo generator and applies OOT placements, then marks seed generated.
+// ComboShip: generate callback — called by Sram_InitSave (via gComboGenerateCallback)
+// before save creation. Runs the combined-logic fill (or no-logic fallback) and applies placements.
 static void Combo_OnGenerate(int fileNum) {
     if (!SOH_DumpRandoStaticData || !MM_DumpRandoStaticData) {
         std::cerr << "[ComboShip] Combo_OnGenerate: dump functions not resolved, cannot generate\n";
@@ -153,7 +153,44 @@ static void Combo_OnGenerate(int fileNum) {
         return;
     }
 
-    std::string spoiler = ComboRando::CrossWorldGenerateSpoiler(sohDump, mmDump, 12345u);
+    std::string spoiler;
+    bool usedCombinedFill = false;
+
+    // Use the combined-logic assumed fill when both oracles are available
+    if (Combo_SOH_Rando_Reset && Combo_SOH_Rando_SetOwnedItems &&
+        Combo_SOH_Rando_GetReachableChecks && Combo_SOH_Rando_PlaceItem &&
+        Combo_MM_Rando_Reset && Combo_MM_Rando_SetOwnedItems &&
+        Combo_MM_Rando_GetReachableChecks && Combo_MM_Rando_PlaceItem &&
+        Combo_MM_Rando_Restore) {
+
+        ComboRando::OracleFns ootOracle = {
+            Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
+            Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem
+        };
+        ComboRando::OracleFns mmOracle = {
+            Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
+            Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem
+        };
+
+        auto result = ComboRando::CrossWorldCombinedFill(
+            sohDump, mmDump, 12345u, ootOracle, mmOracle);
+
+        if (result.success) {
+            spoiler = result.spoilerJson;
+            usedCombinedFill = true;
+            std::cout << "[ComboShip] Combo_OnGenerate: combined-logic fill succeeded\n";
+        } else {
+            std::cerr << "[ComboShip] Combo_OnGenerate: combined fill failed ("
+                      << result.error << "), falling back to no-logic\n";
+        }
+
+        Combo_MM_Rando_Restore();
+    }
+
+    if (!usedCombinedFill) {
+        spoiler = ComboRando::CrossWorldGenerateSpoiler(sohDump, mmDump, 12345u);
+        std::cout << "[ComboShip] Combo_OnGenerate: using no-logic fallback\n";
+    }
 
     // Write per-slot spoiler for debugging.
     {

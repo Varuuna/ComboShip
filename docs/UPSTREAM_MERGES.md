@@ -420,3 +420,64 @@ are unchanged):**
 falls back to the raw spoiler name, so MM-bound items show as `RI_*` in the "Sent/Received" toasts
 (OOT-bound items already show English names). Improving requires the per-game dumps to carry a
 human-readable display name. Tracked for a later pass.
+
+**Runtime-verified 2026-06-05:** opened a foreign OOT chest (Deku Tree Map Chest holding
+`RI_MAGIC_JAR_BIG`) → "Sent to Termina" toast → portal to MM → mailbox entry `delivered: true`
+(MM's drain granted it). Full Increment 6 loop confirmed end-to-end.
+
+## Cross-World Randomizer — Eager MM boot (replaces headless warm-up) (2026-06-05)
+
+The MM rando oracle needs MM's region graph at OOT-generate time, before MM would normally boot.
+The Inc3 approach (`MM_InitRandoLogic` → `ShipInit::InitAll()` at startup) faked a headless MM and
+crashed: `InitAll()` runs MM's entire UI/cosmetic/audio init surface, which dereferences a null
+`GameInteractor::Instance` and then `ResourceManager`-loads MM assets through OOT's RM. Replaced by
+**eagerly booting MM for real at startup** — one OOT→MM→OOT transition with MM's game loop skipped,
+reusing the existing transition machinery. (Runtime-verified: boots to file-select, generation runs,
+round-trip + Inc6 delivery all work.)
+
+**Game-source deviation (additive, COMBO_BUILD-guarded — preserve on future mm merges):**
+- `mm/src/code/main.c` (`MM_RunMain` tail): the final `Graph_ThreadEntry(0)` is gated on
+  `gComboBootOnly` so `MM_BootForCombo` can run MM's full init without entering the blocking loop.
+  `extern int gComboBootOnly;` declared near the `InitOTR` forward-decl.
+
+**MM port code (`mm/2s2h/BenPort.cpp`):**
+- `extern "C" int gComboBootOnly` definition; `MM_BootForCombo()` export (sets `sComboTransitionActive`
+  + `gComboBootOnly`, runs `MM_RunMain`, clears the flag).
+- **Deleted** `MM_InitRandoLogic()` (and the throwaway-singleton workaround from `f54b3cece`), plus its
+  lazy-init caller at the top of `Combo_MM_Rando_Reset` (the region graph is now built by eager boot).
+
+**OOT port code (`soh/soh/OTRGlobals.cpp`):**
+- `SOH_ResumeForeground()` export = `SOH_ReinitForResume()` + `ImGui::SetCurrentContext`, no game loop
+  (reactivates OOT as foreground after the eager MM boot).
+- `EnsureOracleInit()` (the OOT oracle init) no longer calls `GenerateItemPool()`. That builds OOT's
+  item pool purely for OOT's OWN fill (which the combo layer never runs — the combined cross-world fill
+  owns placement) and asserts `itemPool.size() <= locCount`; under headless default settings the pools
+  aren't balanced for a real fill, so it aborted on file creation. The oracle only needs reachability
+  (`ReachabilitySearch` reads logic/region state + `allLocations` from `GenerateLocationPool`;
+  `GenerateStartingInventory` doesn't touch `itemPool`).
+
+**combo (`combo/ComboShip.cpp`):** the warm-up block is replaced by the eager-boot sequence
+(`SOH_PrepareForTransition` → `MM_BootForCombo` → `MM_PrepareForTransition` → `SOH_ResumeForeground`);
+the main loop starts with `mmBooted = true` so the first portal transition is a `MM_ResumeGame`. The
+stale `MM_InitRandoLogic` resolution was removed.
+
+**GUI lifecycle fix (`soh/soh/OTRGlobals.cpp`, found via runtime testing 2026-06-05):** the OOT
+transition path tore down + rebuilt the shared Gui every OOT↔MM transition
+(`SOH_PrepareForTransition` → `SohGui::Destroy()`, `SOH_ReinitForResume` →
+`SohGui::SetupGuiElements()`). MM deliberately does NOT (see `MM_PrepareForTransition`): the shared
+Gui persists, each game's windows are set up once. On the OOT rebuild the Gui still held the old
+windows, so `AddGuiWindow` rejected the duplicates → the new windows never got `InitElement`'d → their
+`calloc`-backed buffers stayed `0xCD` → freeing them on the next rebuild crashed
+(`MessageViewer::~MessageViewer`, access violation on the 2nd MM→OOT return). Fixed by making OOT match
+MM: removed the `Destroy()`/`SetupGuiElements()` calls from the transition path — OOT's windows persist
+(fully initialized) and only the active RM/audio/menu are swapped. **Runtime-verified: multiple
+OOT↔MM round-trips now work.**
+
+**Open follow-ups (not blocking, tracked):**
+- **Combined-fill performance:** the fill is O(checks²)-ish (~5000 checks, per-item double-oracle
+  reachability + JSON round-trips) and takes minutes synchronously on the main thread (window appears
+  frozen). Needs incremental reachability / binary interchange + a "Generating…" frame. See the
+  combined-logic spec's perf note.
+- **Foreign `displayName` polish** (see Inc6 section above).
+- **Combo settings window (Increment 7):** without it, both games' rando options sit at defaults, so
+  most non-chest checks aren't shuffled at runtime.

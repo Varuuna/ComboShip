@@ -98,11 +98,29 @@ array, then builds OOT/MM apply payloads with foreign-check slots overwritten by
   "Sent to Hyrule" toast + save), no local grant.
 - Receive drain: placeholder rupee → `GetItemIdFromName` → `Rando::GiveItem` + "Received from Hyrule" toast.
 
-**Build:** soh, 2ship, ComboShip all rebuilt clean (Debug, exit 0). **In-game end-to-end loop not yet
-manually verified** (requires a playthrough to a foreign check).
+**Build:** soh, 2ship, ComboShip all rebuilt clean (Debug, exit 0).
+
+**Runtime-verified 2026-06-05:** opened a foreign OOT chest (Deku Tree Map Chest → `RI_MAGIC_JAR_BIG`)
+→ "Sent to Termina" toast → portal to MM → mailbox `delivered: true`. Full loop confirmed.
 
 **Polish deferred:** `displayName` falls back to the raw spoiler name, so MM-bound toasts show `RI_*`
 names. Needs human display names in the per-game dumps.
+
+---
+
+## Foundation — Eager MM boot (replaces headless warm-up) (2026-06-05)
+
+The Inc3 headless warm-up (`MM_InitRandoLogic` → `ShipInit::InitAll()` at startup) crashed on the first
+real launch (null `GameInteractor::Instance`, then a cosmetic init `ResourceManager`-loading MM assets
+through OOT's RM). Replaced by **eagerly booting MM for real at startup** — one OOT→MM→OOT transition
+with MM's game loop skipped (`gComboBootOnly` gate in `main.c`, `MM_BootForCombo` export, OOT
+`SOH_ResumeForeground`). Also removed `GenerateItemPool()` from the OOT oracle init (fill-only, asserted
+`itemPool.size() <= locCount` under headless defaults). Details in `UPSTREAM_MERGES.md` and the dedicated
+plan `docs/superpowers/plans/2026-06-04-eager-mm-boot-foundation.md`. **Runtime-verified:** boots to
+file-select, generation runs, OOT↔MM round-trip + Inc6 delivery all work.
+
+**Tracked follow-ups:** combined-fill perf (O(checks²), minutes, synchronous — needs incremental
+reachability + a "Generating…" frame); foreign `displayName` polish; Increment 7 settings window.
 
 ---
 

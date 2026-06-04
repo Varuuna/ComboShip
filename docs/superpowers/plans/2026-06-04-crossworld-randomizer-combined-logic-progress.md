@@ -72,15 +72,41 @@
 
 ---
 
-## Remaining
+### Increment 6 — Foreign markers + send interception + real grants (`<pending-commit>`)
 
-### Increment 6 — Foreign markers + send interception + real grants
-- Write `saves/combo/slot{N}.foreign.json` from the combined fill's `"foreign"` annotations
-- Add sentinel items (`RG_COMBO_FOREIGN` / `RI_COMBO_FOREIGN`) to each game's enum
-- Send interception at OOT `hook_handlers.cpp:380` and MM `CheckQueue.cpp:37` — check foreign map, divert to mailbox
-- Replace placeholder blue-rupee grant in receive drains with real item grant via item-name mapping
-- Gift presentation: "Sent to Termina/Hyrule: <item>" text
-- See spec section 3 (Cross-Game Delivery) and section 4 (Foreign-Item Marker Schema)
+**`combo/rando/CrossForeign.h`** (new, header-only) — `saves/combo/slot{N}.foreign.json` map:
+per-game-keyed (`oot`/`mm`) check→{itemGame,itemName,displayName}. `itemName` is in the destination
+game's namespace. Sentinel name constants (`kForeignSentinelNameOOT`/`MM`). Load (cached per slot) +
+atomic write helpers.
+
+**Sentinels** (appended before terminators — existing values/save data unchanged):
+- OOT `RG_COMBO_FOREIGN` (`RandomizerGet.h` + `item_list.cpp` table entry, English name "Combo Foreign Item").
+- MM `RI_COMBO_FOREIGN` (`Types.h` + `Items.cpp` entry, spoilerName "RI_COMBO_FOREIGN").
+
+**`combo/ComboShip.cpp` (`Combo_OnGenerate`)** — writes the foreign map from the spoiler's `"foreign"`
+array, then builds OOT/MM apply payloads with foreign-check slots overwritten by the per-game sentinel
+(spoiler keeps real item names for readability).
+
+**OOT (`hook_handlers.cpp`, COMBO_BUILD):**
+- RCQueue handler branch: placed RG == `RG_COMBO_FOREIGN` → `OOT_SendForeignCheck` (mailbox enqueue +
+  "Sent to Termina" toast + mark `RCSHOW_COLLECTED`), no local grant. Cached per-slot foreign lookup.
+- Receive drain: placeholder rupee → real grant (`itemNameToEnum` → `GetGIEntry_Copy` →
+  `GiveItemEntryWithoutActor`) + "Received from Termina" toast.
+
+**MM (`CheckQueue.cpp`, COMBO_BUILD):**
+- giveItem-lambda branch: raw `randoItemId == RI_COMBO_FOREIGN` → `Rando_SendForeignCheck` (mailbox +
+  "Sent to Hyrule" toast + save), no local grant.
+- Receive drain: placeholder rupee → `GetItemIdFromName` → `Rando::GiveItem` + "Received from Hyrule" toast.
+
+**Build:** soh, 2ship, ComboShip all rebuilt clean (Debug, exit 0). **In-game end-to-end loop not yet
+manually verified** (requires a playthrough to a foreign check).
+
+**Polish deferred:** `displayName` falls back to the raw spoiler name, so MM-bound toasts show `RI_*`
+names. Needs human display names in the per-game dumps.
+
+---
+
+## Remaining
 
 ### Increment 7 — Combined settings window + Generate UX
 - `Ship::GuiWindow` subclass in `soh.dll` (COMBO_BUILD)

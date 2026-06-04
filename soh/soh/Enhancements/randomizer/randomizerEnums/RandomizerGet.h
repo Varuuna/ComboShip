@@ -323,6 +323,10 @@ RANDO_ENUM_ITEM(RG_ROCS_FEATHER)
 // Logic Only
 RANDO_ENUM_ITEM(RG_STICKS)
 RANDO_ENUM_ITEM(RG_NUTS)
+// ComboShip: sentinel placed in an OOT check that holds an item belonging to MM. The pickup code
+// recognizes it and diverts the real (foreign) item through the cross-world mailbox instead of
+// granting locally. Appended before RG_MAX so existing RG values (and save data) are unchanged.
+RANDO_ENUM_ITEM(RG_COMBO_FOREIGN)
 RANDO_ENUM_ITEM(RG_MAX)
 RANDO_ENUM_END(RandomizerGet)
 

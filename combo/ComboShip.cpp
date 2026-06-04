@@ -16,6 +16,7 @@
 #include <cstdlib>
 
 #include "rando/CrossMailbox.h"
+#include "rando/CrossForeign.h"
 #include "rando/CrossWorldRando.h"
 
 // Surfaces the real exception behind a silent terminate()/exit(3). With the shared dynamic
@@ -203,18 +204,35 @@ static void Combo_OnGenerate(int fileNum) {
     }
 
     auto j = nlohmann::json::parse(spoiler);
-    if (SOH_ApplyRandoPlacements && j.contains("oot")) {
-        SOH_ApplyRandoPlacements(j["oot"].dump().c_str());
-        std::cout << "[ComboShip] Combo_OnGenerate: OOT placements applied for slot " << fileNum << "\n";
+
+    // Write the cross-world foreign-item marker map, then build the per-game apply payloads with the
+    // foreign-check slots overwritten by each game's sentinel item. The spoiler keeps the real foreign
+    // item names (human-readable); the save only ever sees the sentinel for a foreign check, so the
+    // check's own game places it and the pickup code diverts the real item through the mailbox.
+    auto foreignArr = j.value("foreign", nlohmann::json::array());
+    ComboRando::WriteForeignFromAnnotations(fileNum, foreignArr);
+
+    nlohmann::json ootApply = j.value("oot", nlohmann::json::object());
+    nlohmann::json mmApply  = j.value("mm",  nlohmann::json::object());
+    for (const auto& fm : foreignArr) {
+        std::string cg = fm.value("checkGame", "");
+        std::string cn = fm.value("checkName", "");
+        if (cn.empty()) continue;
+        if (cg == "oot")     ootApply[cn] = ComboRando::kForeignSentinelNameOOT;
+        else if (cg == "mm") mmApply[cn]  = ComboRando::kForeignSentinelNameMM;
+    }
+
+    if (SOH_ApplyRandoPlacements) {
+        SOH_ApplyRandoPlacements(ootApply.dump().c_str());
+        std::cout << "[ComboShip] Combo_OnGenerate: OOT placements applied for slot " << fileNum
+                  << " (" << foreignArr.size() << " foreign markers)\n";
     }
 
     // Stash the MM slice so Combo_OnOOTSaveInit (fires next in the new-save flow) can create a rando
     // MM save. Cleared first so a generator failure can't leave a stale slice for the wrong slot.
     g_PendingMMPlacements.clear();
-    if (j.contains("mm")) {
-        g_PendingMMPlacements = j["mm"].dump();
-        std::cout << "[ComboShip] Combo_OnGenerate: MM placements stashed for slot " << fileNum << "\n";
-    }
+    g_PendingMMPlacements = mmApply.dump();
+    std::cout << "[ComboShip] Combo_OnGenerate: MM placements stashed for slot " << fileNum << "\n";
 }
 
 static void Combo_OnOOTSaveInit(int fileNum) {

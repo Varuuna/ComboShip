@@ -2606,6 +2606,10 @@ typedef enum {
     RI_WOODFALL_MAP,
     RI_WOODFALL_SMALL_KEY,
     RI_WOODFALL_STRAY_FAIRY,
+    // ComboShip: sentinel placed in an MM check that holds an item belonging to OOT. The pickup code
+    // recognizes it and diverts the real (foreign) item through the cross-world mailbox instead of
+    // granting locally. Appended before the terminators so existing RI values (and save data) are unchanged.
+    RI_COMBO_FOREIGN,
     RI_MAX_TRAP, // Just used for ice trap ice cube model
     RI_MAX,
 } RandoItemId;

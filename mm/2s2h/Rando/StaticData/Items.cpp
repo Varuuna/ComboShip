@@ -263,6 +263,11 @@ std::map<RandoItemId, RandoStaticItem> Items = {
     RI(RI_WOODFALL_MAP,               "the",  "Woodfall Map",               RITYPE_LESSER,          ITEM_DUNGEON_MAP,                GI_MAP,                      GID_DUNGEON_MAP),
     RI(RI_WOODFALL_SMALL_KEY,         "a",    "Woodfall Small Key",         RITYPE_SMALL_KEY,       ITEM_KEY_SMALL,                  GI_KEY_SMALL,                GID_KEY_SMALL),
     RI(RI_WOODFALL_STRAY_FAIRY,       "a",    "Woodfall Stray Fairy",       RITYPE_STRAY_FAIRY,     ITEM_STRAY_FAIRIES,              GI_STRAY_FAIRY,              GID_NONE),
+    // ComboShip: sentinel for a check holding an item that belongs to OOT. Never actually granted —
+    // the pickup code intercepts RI_COMBO_FOREIGN and diverts the real item through the cross-world
+    // mailbox. The spoilerName ("RI_COMBO_FOREIGN", via the #id macro) is what the combo generator
+    // writes into the MM placement payload (GetItemIdFromName -> RI_COMBO_FOREIGN).
+    RI(RI_COMBO_FOREIGN,              "",     "Combo Foreign Item",         RITYPE_JUNK,            ITEM_NONE,                       GI_RUPEE_BLUE,               GID_RUPEE_BLUE),
 };
 
 std::map<StartingItemCategory, std::vector<RandoItemId>> StartingItemsMap = {

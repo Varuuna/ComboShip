@@ -9,6 +9,7 @@
 #include "Traps.h"
 #ifdef COMBO_BUILD
 #include "rando/CrossMailbox.h"  // ComboShip: cross-world mailbox
+#include "rando/CrossForeign.h"  // ComboShip: cross-world foreign-item marker map
 #include "2s2h/SaveManager/SaveManager.h"  // ComboShip: persist delivered cross items into the MM save
 #endif
 
@@ -31,10 +32,18 @@ static void Rando_CrossMailboxDrain() {
     if (pending.empty()) return;
 
     for (const auto& e : pending) {
-        // Increment 1: prove delivery with a visible, safe grant. Full item mapping = Increment 3.
-        Item_Give(gPlayState, ITEM_RUPEE_BLUE);
-        SPDLOG_INFO("[ComboShip] MM received cross item '{}' (from OOT): granted placeholder rupee",
-                    e.itemName);
+        // The item's home is MM (itemName is an MM RI_* spoiler name). Map it to its RandoItemId and
+        // grant the real item.
+        RandoItemId ri = Rando::StaticData::GetItemIdFromName(e.itemName.c_str());
+        if (ri == RI_UNKNOWN) {
+            SPDLOG_WARN("[ComboShip] MM received cross item '{}' (from OOT): unknown MM item, skipping",
+                        e.itemName);
+            continue;
+        }
+        Rando::GiveItem(ri);
+        Notification::Emit({ .message = "Received from Hyrule:",
+                             .suffix = e.displayName.empty() ? e.itemName : e.displayName });
+        SPDLOG_INFO("[ComboShip] MM received cross item '{}' (from OOT): granted", e.itemName);
     }
     // ComboShip: persist the granted items straight into the MM save file so they survive even if the
     // player never triggers an in-game save — this is the "deliver into the save" model (vs a volatile
@@ -44,6 +53,42 @@ static void Rando_CrossMailboxDrain() {
     if (!ComboRando::MarkAllDelivered(slot, ComboRando::GAME_MM)) {
         SPDLOG_WARN("[ComboShip] MM: failed to persist mailbox delivery for slot {}", slot);
     }
+}
+
+// ComboShip: per-slot cache of MM checks that hold a foreign (OOT-bound) item. Reloaded when the
+// active slot changes.
+static int g_mmForeignSlot = -1;
+static std::unordered_map<std::string, ComboRando::ForeignItem> g_mmForeignMap;
+
+// ComboShip: divert a foreign-marked MM check into the cross-world mailbox instead of granting
+// locally. Enqueues the real item for its home game, shows a "Sent to Hyrule" toast, and persists
+// the save (the caller has already marked the check obtained).
+static void Rando_SendForeignCheck(RandoCheckId rc) {
+    int slot = gSaveContext.fileNum;
+    if (slot != g_mmForeignSlot) {
+        g_mmForeignMap = ComboRando::LoadForeignForGame(slot, ComboRando::GAME_MM);
+        g_mmForeignSlot = slot;
+    }
+    const std::string checkName = Rando::StaticData::CheckNames[rc];
+    auto it = g_mmForeignMap.find(checkName);
+    if (it != g_mmForeignMap.end()) {
+        ComboRando::MailboxEntry e{};
+        e.srcGame = ComboRando::GAME_MM;
+        e.dstGame = it->second.itemGame;
+        e.itemName = it->second.itemName;
+        e.displayName = it->second.displayName;
+        e.srcCheckName = checkName;
+        e.delivered = false;
+        ComboRando::Enqueue(slot, e);
+        Notification::Emit({ .message = "Sent to Hyrule:", .suffix = it->second.displayName });
+        SPDLOG_INFO("[ComboShip] MM sent foreign item '{}' to OOT (from check '{}')", it->second.itemName,
+                    checkName);
+    } else {
+        SPDLOG_WARN("[ComboShip] MM foreign sentinel at '{}' but no foreign-map entry; dropping", checkName);
+    }
+    // Persist the obtained flags (set by the caller) straight into the save so the collected state
+    // survives a transition to OOT and back.
+    SaveManager_SaveCurrentForCombo();
 }
 #endif
 
@@ -76,6 +121,20 @@ void Rando::MiscBehavior::CheckQueue() {
                 .giveItem =
                     [](Actor* actor, PlayState* play) {
                         auto& randoSaveCheck = RANDO_SAVE_CHECKS[CUSTOM_ITEM_PARAM];
+#ifdef COMBO_BUILD
+                        // ComboShip: this MM check holds an item belonging to OOT. Divert it to the
+                        // mailbox instead of granting locally. Branch on the raw stored id (before
+                        // ConvertItem) so the sentinel is matched directly.
+                        if (randoSaveCheck.randoItemId == RI_COMBO_FOREIGN) {
+                            randoSaveCheck.cycleObtained = true;
+                            randoSaveCheck.obtained = true;
+                            randoSaveCheck.eligible = false;
+                            Rando_SendForeignCheck((RandoCheckId)CUSTOM_ITEM_PARAM);
+                            queued = false;
+                            CUSTOM_ITEM_PARAM = RI_COMBO_FOREIGN;
+                            return;
+                        }
+#endif
                         RandoItemId randoItemId =
                             Rando::ConvertItem(randoSaveCheck.randoItemId, (RandoCheckId)CUSTOM_ITEM_PARAM);
                         std::string prefix = "You found";

@@ -17,6 +17,7 @@
 #include "soh/Enhancements/randomizer/randomizer.h"
 #ifdef COMBO_BUILD
 #include "rando/CrossMailbox.h"  // ComboShip: cross-world mailbox
+#include "rando/CrossForeign.h"  // ComboShip: cross-world foreign-item marker map
 #endif
 
 extern "C" {
@@ -353,6 +354,54 @@ void RandomizerOnSceneFlagSetHandler(int16_t sceneNum, int16_t flagType, int16_t
 
 static Vec3f spawnPos = { 0.0f, -999.0f, 0.0f };
 
+#ifdef COMBO_BUILD
+// ComboShip: per-slot cache of OOT checks that hold a foreign (MM-bound) item. Reloaded when the
+// active slot changes. Avoids re-reading the foreign file on every check pickup.
+static int g_ootForeignSlot = -1;
+static std::unordered_map<std::string, ComboRando::ForeignItem> g_ootForeignMap;
+
+static const ComboRando::ForeignItem* OOT_LookupForeign(int slot, const std::string& checkName) {
+    if (slot != g_ootForeignSlot) {
+        g_ootForeignMap = ComboRando::LoadForeignForGame(slot, ComboRando::GAME_OOT);
+        g_ootForeignSlot = slot;
+    }
+    auto it = g_ootForeignMap.find(checkName);
+    return it == g_ootForeignMap.end() ? nullptr : &it->second;
+}
+
+// ComboShip: divert a foreign-marked OOT check into the cross-world mailbox instead of granting
+// locally. Enqueues the real item for its home game, shows a "Sent to Termina" toast, and marks the
+// check collected so the normal grant pipeline is bypassed and it never re-queues.
+static void OOT_SendForeignCheck(RandomizerCheck rc, Rando::ItemLocation* loc) {
+    int slot = gSaveContext.fileNum;
+    const std::string checkName = Rando::StaticData::GetLocation(rc)->GetName();
+    const ComboRando::ForeignItem* fi = OOT_LookupForeign(slot, checkName);
+
+    if (fi) {
+        ComboRando::MailboxEntry e{};
+        e.srcGame = ComboRando::GAME_OOT;
+        e.dstGame = fi->itemGame;
+        e.itemName = fi->itemName;
+        e.displayName = fi->displayName;
+        e.srcCheckName = checkName;
+        e.delivered = false;
+        ComboRando::Enqueue(slot, e);
+        Notification::Emit({ .message = "Sent to Termina:", .suffix = fi->displayName });
+        SPDLOG_INFO("[ComboShip] OOT sent foreign item '{}' to MM (from check '{}')", fi->itemName, checkName);
+    } else {
+        SPDLOG_WARN("[ComboShip] OOT foreign sentinel at '{}' but no foreign-map entry; dropping", checkName);
+    }
+
+    // Mark collected (mirrors RandomizerOnItemReceiveHandler) so HasObtained() is true and the
+    // normal grant path is skipped.
+    loc->SetCheckStatus(RCSHOW_COLLECTED);
+    CheckTracker::SpoilAreaFromCheck(rc);
+    CheckTracker::RecalculateAllAreaTotals();
+    CheckTracker::RecalculateAvailableChecks();
+    SaveManager::Instance->SaveSection(gSaveContext.fileNum, SECTION_ID_TRACKER_DATA, true);
+}
+#endif
+
 void RandomizerOnPlayerUpdateForRCQueueHandler() {
     // If we're already queued, don't queue again
     if (randomizerQueuedCheck != RC_UNKNOWN_CHECK)
@@ -379,6 +428,12 @@ void RandomizerOnPlayerUpdateForRCQueueHandler() {
 
     if (loc->HasObtained()) {
         SPDLOG_INFO("RC {} already obtained, skipping", static_cast<uint32_t>(rc));
+#ifdef COMBO_BUILD
+    } else if (loc->GetPlacedRandomizerGet() == RG_COMBO_FOREIGN) {
+        // ComboShip: this OOT check holds an item belonging to MM. Divert it to the mailbox instead
+        // of granting locally, then fall through to pop without queueing anything.
+        OOT_SendForeignCheck(rc, loc);
+#endif
     } else {
         iceTrapScale = 0.0f;
         randomizerQueuedCheck = rc;
@@ -2723,10 +2778,19 @@ static void RandomizerOnPlayerUpdateForCrossMailboxHandler() {
     if (pending.empty()) return;
 
     for (const auto& e : pending) {
-        // Increment 1: prove delivery with a visible, safe grant. Full RG_*/RI_* mapping = Increment 3.
-        Item_Give(gPlayState, ITEM_RUPEE_BLUE);
-        SPDLOG_INFO("[ComboShip] OOT received cross item '{}' (from MM): granted placeholder rupee",
-                    e.itemName);
+        // The item's home is OOT (itemName is an OOT English name). Map it to its RandomizerGet and
+        // grant the real item via the same path the rando item-queue uses.
+        auto rgIt = Rando::StaticData::itemNameToEnum.find(e.itemName);
+        if (rgIt == Rando::StaticData::itemNameToEnum.end()) {
+            SPDLOG_WARN("[ComboShip] OOT received cross item '{}' (from MM): unknown OOT item, skipping",
+                        e.itemName);
+            continue;
+        }
+        GetItemEntry gie = Rando::StaticData::RetrieveItem(rgIt->second).GetGIEntry_Copy();
+        GiveItemEntryWithoutActor(gPlayState, gie);
+        Notification::Emit({ .message = "Received from Termina:",
+                             .suffix = e.displayName.empty() ? e.itemName : e.displayName });
+        SPDLOG_INFO("[ComboShip] OOT received cross item '{}' (from MM): granted", e.itemName);
     }
     if (!ComboRando::MarkAllDelivered(slot, ComboRando::GAME_OOT)) {
         SPDLOG_WARN("[ComboShip] OOT: failed to persist mailbox delivery for slot {}", slot);

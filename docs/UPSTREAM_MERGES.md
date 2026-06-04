@@ -366,3 +366,57 @@ lives in port code (`BenPort.cpp`), and placement is fed through MM's *existing*
 - `Combo_OnOOTSaveInit` calls `MM_InitRandoSaveFile(fileNum, g_PendingMMPlacements)` when a placement is
   stashed (the generate callback fires earlier in the same new-save flow), else falls back to the vanilla
   `MM_InitSaveFile`. Resolves the new `MM_InitRandoSaveFile` symbol from `2ship.dll`.
+
+## Cross-World Randomizer — Increment 6: foreign markers + send interception + real grants (2026-06-04)
+
+Wires cross-placed (foreign) items to the delivery channel: a check whose item belongs to the OTHER
+game holds a per-game **sentinel** item; at pickup the game diverts the real item through the mailbox
+instead of granting locally, and the receiving game grants the real item. Replaces the Increment 1
+placeholder blue-rupee grants on both receive drains. All vendored-source edits are additive and
+either `#ifdef COMBO_BUILD`-guarded or appended enum/table entries — **preserve on future merges.**
+
+**New non-upstream file (no merge risk):**
+- `combo/rando/CrossForeign.h` — header-only foreign-item marker map (`namespace ComboRando`), backed
+  by `saves/combo/slot{N}.foreign.json`. Schema is per-game-keyed (`oot`/`mm`) check→{itemGame,
+  itemName,displayName}. `itemName` is in the **destination** game's namespace (OOT English names,
+  MM `RI_*` spoilerNames) since that game grants it. Defines the two sentinel name constants
+  (`kForeignSentinelNameOOT = "Combo Foreign Item"`, `kForeignSentinelNameMM = "RI_COMBO_FOREIGN"`).
+
+**Sentinel enum/table additions (appended — keep before the terminators so existing values/save data
+are unchanged):**
+- `soh/soh/Enhancements/randomizer/randomizerEnums/RandomizerGet.h` — `RG_COMBO_FOREIGN` before `RG_MAX`.
+- `soh/soh/Enhancements/randomizer/item_list.cpp` — `itemTable[RG_COMBO_FOREIGN]` entry (harmless
+  blue-rupee GIEntry; English name "Combo Foreign Item" → auto-registered in `itemNameToEnum`). Never
+  granted — only resolved defensively by `GetFinalGIEntry`/`RetrieveItem` before the divert.
+- `mm/2s2h/Rando/Types.h` — `RI_COMBO_FOREIGN` before `RI_MAX_TRAP`.
+- `mm/2s2h/Rando/StaticData/Items.cpp` — `RI(RI_COMBO_FOREIGN, …)` entry (spoilerName "RI_COMBO_FOREIGN"
+  via the `#id` macro; RITYPE_JUNK, blue-rupee model).
+
+**combo (`combo/ComboShip.cpp`, `Combo_OnGenerate`):**
+- After the fill, writes the foreign map (`WriteForeignFromAnnotations`) from the spoiler's `"foreign"`
+  array, then builds the OOT/MM apply payloads with each foreign check's slot **overwritten by that
+  game's sentinel name** (so the check's own game places the sentinel; the spoiler keeps the real
+  foreign item names for readability).
+
+**soh send interception + real grant (`hook_handlers.cpp`, COMBO_BUILD-guarded):**
+- `RandomizerOnPlayerUpdateForRCQueueHandler` — new branch: when `loc->GetPlacedRandomizerGet() ==
+  RG_COMBO_FOREIGN`, calls `OOT_SendForeignCheck` (enqueue mailbox to the item's home game, "Sent to
+  Termina" toast, mark `RCSHOW_COLLECTED` + tracker recalc so it never re-queues) instead of queueing
+  a local grant. Per-slot foreign map is cached (`OOT_LookupForeign`).
+- `RandomizerOnPlayerUpdateForCrossMailboxHandler` — placeholder blue rupee replaced with the real
+  grant: `itemNameToEnum[itemName]` → `RetrieveItem(rg).GetGIEntry_Copy()` →
+  `GiveItemEntryWithoutActor`, plus a "Received from Termina" toast.
+- Added `#include "rando/CrossForeign.h"`.
+
+**mm send interception + real grant (`Rando/MiscBehavior/CheckQueue.cpp`, COMBO_BUILD-guarded):**
+- `CheckQueue` giveItem lambda — new branch on the **raw** `randoSaveCheck.randoItemId ==
+  RI_COMBO_FOREIGN` (before `ConvertItem`): marks obtained, calls `Rando_SendForeignCheck` (enqueue +
+  "Sent to Hyrule" toast + `SaveManager_SaveCurrentForCombo`), and returns without granting.
+- `Rando_CrossMailboxDrain` — placeholder blue rupee replaced with `GetItemIdFromName(itemName)` →
+  `Rando::GiveItem(ri)`, plus a "Received from Hyrule" toast.
+- Added `#include "rando/CrossForeign.h"`.
+
+**Known limitation (functional polish, not blocking):** the foreign map's `displayName` currently
+falls back to the raw spoiler name, so MM-bound items show as `RI_*` in the "Sent/Received" toasts
+(OOT-bound items already show English names). Improving requires the per-game dumps to carry a
+human-readable display name. Tracked for a later pass.

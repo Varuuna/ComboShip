@@ -95,6 +95,7 @@ static FnVoidArgless SOH_NotifyComboReturn = nullptr;
 typedef void (*FnMMResume)(int);
 static FnMMResume    MM_ResumeGame          = nullptr;
 static FnVoidArgless MM_PrepareForTransition = nullptr;
+static FnVoidArgless MM_InitRandoRuntime    = nullptr;
 
 static int g_PendingMMFileNum = -1;
 
@@ -210,6 +211,7 @@ int main(int argc, char** argv) {
     SOH_NotifyComboReturn        = (FnVoidArgless)            GetSym(sohModule, "SOH_NotifyComboReturn");
     MM_ResumeGame                = (FnMMResume)               GetSym(mmModule,  "MM_ResumeGame");
     MM_PrepareForTransition      = (FnVoidArgless)            GetSym(mmModule,  "MM_PrepareForTransition");
+    MM_InitRandoRuntime          = (FnVoidArgless)            GetSym(mmModule,  "MM_InitRandoRuntime");
 
     if (!MM_InitArchives) {
         std::cerr << "ERROR: 2ship.dll is missing required ComboShip exports (MM_InitArchives)." << std::endl;
@@ -218,6 +220,9 @@ int main(int argc, char** argv) {
         FreeDll(sohModule);
         return 1;
     }
+
+    // ComboShip Inc2 de-risk: confirm MM headless rando pools build (logs counts). TEMPORARY call site.
+    if (MM_InitRandoRuntime) MM_InitRandoRuntime();
 
     // --- 2. Ensure OOT archives exist ---
 

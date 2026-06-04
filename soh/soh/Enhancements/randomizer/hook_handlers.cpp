@@ -15,7 +15,9 @@
 #include "soh/ObjectExtension/ObjectExtension.h"
 #include "item_category_adj.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
+#ifdef COMBO_BUILD
 #include "rando/CrossMailbox.h"  // ComboShip: cross-world mailbox
+#endif
 
 extern "C" {
 #include "macros.h"
@@ -2725,7 +2727,9 @@ static void RandomizerOnPlayerUpdateForCrossMailboxHandler() {
         SPDLOG_INFO("[ComboShip] OOT received cross item '{}' (from MM): granted placeholder rupee",
                     e.itemName);
     }
-    ComboRando::MarkAllDelivered(slot, ComboRando::GAME_OOT);
+    if (!ComboRando::MarkAllDelivered(slot, ComboRando::GAME_OOT)) {
+        SPDLOG_WARN("[ComboShip] OOT: failed to persist mailbox delivery for slot {}", slot);
+    }
 }
 #endif
 

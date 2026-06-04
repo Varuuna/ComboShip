@@ -2268,16 +2268,17 @@ void DrawFlagsTab() {
 void DrawRandoTab() {
 #ifdef COMBO_BUILD
     if (UIWidgets::Button("Cross-send debug item to OOT", { .size = UIWidgets::Sizes::Inline })) {
-        if (gSaveContext.fileNum != 0xFF) {
-            int slot = gSaveContext.fileNum - 1;
-            if (slot >= 0) {
-                ComboRando::MailboxEntry e{ ComboRando::GAME_MM, ComboRando::GAME_OOT,
-                                            "DEBUG_ITEM", "DEBUG_ITEM", "DEBUG_MM_MENU", false };
-                if (!ComboRando::Enqueue(slot, e)) {
-                    SPDLOG_WARN("[ComboShip] MM cross-send: failed to write mailbox (slot {})", slot);
-                } else {
-                    SPDLOG_INFO("[ComboShip] MM cross-send: queued DEBUG_ITEM for OOT (slot {})", slot);
-                }
+        int slot = gSaveContext.fileNum - 1;  // canonical OOT slot (MM file N+1 <-> OOT slot N)
+        if (gSaveContext.fileNum == 0xFF || slot < 0) {
+            SPDLOG_WARN("[ComboShip] MM cross-send: no save loaded (fileNum=0x{:X})",
+                        (unsigned)gSaveContext.fileNum);
+        } else {
+            ComboRando::MailboxEntry e{ ComboRando::GAME_MM, ComboRando::GAME_OOT,
+                                        "DEBUG_ITEM", "DEBUG_ITEM", "DEBUG_MM_MENU", false };
+            if (!ComboRando::Enqueue(slot, e)) {
+                SPDLOG_WARN("[ComboShip] MM cross-send: failed to write mailbox (slot {})", slot);
+            } else {
+                SPDLOG_INFO("[ComboShip] MM cross-send: queued DEBUG_ITEM for OOT (slot {})", slot);
             }
         }
     }

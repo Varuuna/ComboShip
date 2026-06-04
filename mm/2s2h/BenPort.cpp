@@ -2584,6 +2584,61 @@ extern "C" __declspec(dllexport) void MM_InitSaveFile(int fileNum) {
     SaveManager_InitNewSaveForSlot(fileNum + 1);
 }
 
+// ComboShip Inc2 (Task 4): create a RANDO MM save for the given OOT slot from a combo placement slice.
+// placementJson is the "mm" object of the combined spoiler: { "<RC_name>": "<itemSpoilerName>", ... }.
+// We do NOT run MM's own generator (GeneratePools/logic) — the combo layer owns placement. Instead we
+// build the playable combo baseline (SaveManager_InitNewSaveForSlot, post-first-cycle Human Link in
+// South Clock Town), mark the save SAVETYPE_RANDO, and feed the placement through the existing
+// Rando::Spoiler::ApplyToSaveContext path (which writes randoSaveChecks). Headless-safe: never calls
+// GrantStartingItems / Item_Give (those need gPlayState). Falls back to a vanilla save on any error.
+extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const char* placementJson) {
+    // Playable combo baseline first (Human Link, South Clock Town, ocarina/songs, etc.).
+    SaveManager_InitNewSaveForSlot(fileNum + 1);
+    // Sram_InitNewSave (inside the call above) resets fileNum; restore it so SaveManager_SaveCurrentForCombo
+    // re-writes the correct slot (it targets gSaveContext.fileNum + 1).
+    gSaveContext.fileNum = (s16)fileNum;
+
+    if (!placementJson || placementJson[0] == '\0') {
+        SPDLOG_WARN("[ComboShip] MM_InitRandoSaveFile: no placement for slot {}; left vanilla MM save", fileNum);
+        return;
+    }
+
+    // Mark the save as rando and zero the rando struct (mirrors Rando::MiscBehavior::OnFileCreate).
+    gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_RANDO;
+    memset(&gSaveContext.save.shipSaveInfo.rando, 0, sizeof(gSaveContext.save.shipSaveInfo.rando));
+    memcpy(&gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys,
+           &gSaveContext.save.saveInfo.inventory.dungeonKeys,
+           sizeof(gSaveContext.save.saveInfo.inventory.dungeonKeys));
+
+    try {
+        // ApplyToSaveContext consumes a full MM spoiler: it requires finalSeed, options, startingItems
+        // and checks keys (startingItems and finalSeed throw if absent). For the no-logic native phase
+        // we supply empty options/startingItems (defaults) and feed the combo placement as "checks".
+        nlohmann::json spoiler;
+        spoiler["finalSeed"] = (uint32_t)0; // Phase 1: not used for runtime delivery (driven by randoSaveChecks)
+        spoiler["options"] = nlohmann::json::object();
+        spoiler["startingItems"] = nlohmann::json::array();
+        spoiler["checks"] = nlohmann::json::parse(placementJson); // { "RC_*": "<spoilerName>", ... }
+
+        Rando::Spoiler::ApplyToSaveContext(spoiler);
+        // NOTE: deliberately NOT calling Rando::GrantStartingItems() — headless (Item_Give needs gPlayState).
+
+        // The two always-eligible starting checks (mirrors OnFileCreate tail).
+        RANDO_SAVE_CHECKS[RC_STARTING_ITEM_DEKU_MASK].eligible = true;
+        RANDO_SAVE_CHECKS[RC_STARTING_ITEM_SONG_OF_HEALING].eligible = true;
+
+        SPDLOG_INFO("[ComboShip] MM_InitRandoSaveFile: applied {} placements for slot {}",
+                    spoiler["checks"].size(), fileNum);
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[ComboShip] MM_InitRandoSaveFile: {} — falling back to vanilla save for slot {}",
+                     e.what(), fileNum);
+        gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_VANILLA;
+    }
+
+    // Persist the (rando) save to the slot file.
+    SaveManager_SaveCurrentForCombo();
+}
+
 // Returns the number of archives open in the MM-private ArchiveManager.
 // 0 means MM_InitArchives was not called or found no files.
 extern "C" __declspec(dllexport) int MM_ArchiveCount() {

@@ -338,3 +338,31 @@ game-source file is touched, and only via an additive `#ifdef COMBO_BUILD` guard
   then `SetSeedGenerated(true)`. Calls `ItemReset()` first so all locations start from RG_NONE.
 - `SOH_SetOnComboGenerateCallback(void(*)(int))` — registers `gComboGenerateCallback`, the
   fn-pointer fired by the z_sram.c hook. Pattern mirrors `gComboSaveInitCallback`.
+
+## Cross-World Randomizer — Increment 2, Task 4: MM rando save injection at save creation (2026-06-04)
+
+MM side of the combo rando injection pipeline. No vendored MM game-source touched — the new export
+lives in port code (`BenPort.cpp`), and placement is fed through MM's *existing*
+`Rando::Spoiler::ApplyToSaveContext` path. The combo layer owns placement; MM's own generator
+(`GeneratePools`/logic) is never run.
+
+**2ship.dll export added (`mm/2s2h/BenPort.cpp`, `extern "C" __declspec(dllexport)`):**
+- `MM_InitRandoSaveFile(int fileNum, const char* placementJson)` — creates a RANDO MM save for the
+  given OOT slot from the combined spoiler's `"mm"` slice (`{ "<RC_name>": "<itemSpoilerName>", ... }`):
+  1. `SaveManager_InitNewSaveForSlot(fileNum + 1)` — playable combo baseline (Human Link, South Clock
+     Town, ocarina/songs), then restore `gSaveContext.fileNum = fileNum` (Sram_InitNewSave reset it) so
+     `SaveManager_SaveCurrentForCombo` re-writes the right slot.
+  2. `saveType = SAVETYPE_RANDO`, zero the rando struct + seed `foundDungeonKeys` (mirrors `OnFileCreate`).
+  3. Build a minimal MM spoiler (`finalSeed:0`, empty `options`/`startingItems`, `checks` = the placement
+     slice) and call `Rando::Spoiler::ApplyToSaveContext` — which writes `randoSaveChecks`. **Never** calls
+     `GrantStartingItems`/`Item_Give` (headless; those need `gPlayState`). Marks the two always-eligible
+     starting checks (Deku Mask / Song of Healing) like `OnFileCreate` does. Falls back to a vanilla save
+     on any exception.
+  4. `SaveManager_SaveCurrentForCombo()` persists the rando save to `saves/2ship/file{N+1}.json`.
+
+**combo (`combo/ComboShip.cpp`):**
+- `Combo_OnGenerate` now stashes the spoiler's `"mm"` slice into `g_PendingMMPlacements` (cleared first
+  so a generator failure can't reuse a stale slice).
+- `Combo_OnOOTSaveInit` calls `MM_InitRandoSaveFile(fileNum, g_PendingMMPlacements)` when a placement is
+  stashed (the generate callback fires earlier in the same new-save flow), else falls back to the vanilla
+  `MM_InitSaveFile`. Resolves the new `MM_InitRandoSaveFile` symbol from `2ship.dll`.

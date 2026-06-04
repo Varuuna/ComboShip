@@ -105,10 +105,17 @@ static FnDumpData MM_DumpRandoStaticData  = nullptr;
 // ComboShip Inc2 (Task 3): placement injection exports
 typedef void (*FnSetGenerateCb)(void (*)(int));
 typedef void (*FnApplyPlacements)(const char*);
-static FnSetGenerateCb   SOH_SetOnComboGenerateCallback = nullptr;
-static FnApplyPlacements SOH_ApplyRandoPlacements       = nullptr;
+typedef void (*FnMMInitRandoSave)(int, const char*);
+static FnSetGenerateCb    SOH_SetOnComboGenerateCallback = nullptr;
+static FnApplyPlacements  SOH_ApplyRandoPlacements       = nullptr;
+static FnMMInitRandoSave  MM_InitRandoSaveFile           = nullptr;
 
 static int g_PendingMMFileNum = -1;
+
+// ComboShip Inc2 (Task 4): the "mm" placement slice from the most recent Combo_OnGenerate run, stashed
+// so the (later) Combo_OnOOTSaveInit callback can hand it to MM_InitRandoSaveFile. Generate fires before
+// save-init in the same new-save flow, so this is populated by the time the MM save is created.
+static std::string g_PendingMMPlacements;
 
 // ComboShip Inc2 (Task 3): generate callback — called by Sram_InitSave (via gComboGenerateCallback)
 // before save creation. Runs the combo generator and applies OOT placements, then marks seed generated.
@@ -143,11 +150,23 @@ static void Combo_OnGenerate(int fileNum) {
         SOH_ApplyRandoPlacements(j["oot"].dump().c_str());
         std::cout << "[ComboShip] Combo_OnGenerate: OOT placements applied for slot " << fileNum << "\n";
     }
-    // MM injection is a later task; j["mm"] available when needed.
+
+    // Stash the MM slice so Combo_OnOOTSaveInit (fires next in the new-save flow) can create a rando
+    // MM save. Cleared first so a generator failure can't leave a stale slice for the wrong slot.
+    g_PendingMMPlacements.clear();
+    if (j.contains("mm")) {
+        g_PendingMMPlacements = j["mm"].dump();
+        std::cout << "[ComboShip] Combo_OnGenerate: MM placements stashed for slot " << fileNum << "\n";
+    }
 }
 
 static void Combo_OnOOTSaveInit(int fileNum) {
-    if (MM_InitSaveFile) {
+    if (MM_InitRandoSaveFile && !g_PendingMMPlacements.empty()) {
+        std::cout << "[ComboShip] Creating RANDO MM save for OOT slot " << fileNum << std::endl;
+        MM_InitRandoSaveFile(fileNum, g_PendingMMPlacements.c_str());
+        g_PendingMMPlacements.clear();
+    } else if (MM_InitSaveFile) {
+        // No placement available (e.g. generation was skipped) — fall back to a vanilla MM save.
         std::cout << "[ComboShip] Creating MM save for OOT slot " << fileNum << std::endl;
         MM_InitSaveFile(fileNum);
     }
@@ -260,6 +279,7 @@ int main(int argc, char** argv) {
     MM_PrepareForTransition      = (FnVoidArgless)            GetSym(mmModule,  "MM_PrepareForTransition");
     SOH_DumpRandoStaticData          = (FnDumpData)           GetSym(sohModule, "SOH_DumpRandoStaticData");
     MM_DumpRandoStaticData           = (FnDumpData)           GetSym(mmModule,  "MM_DumpRandoStaticData");
+    MM_InitRandoSaveFile             = (FnMMInitRandoSave)    GetSym(mmModule,  "MM_InitRandoSaveFile");
     SOH_SetOnComboGenerateCallback   = (FnSetGenerateCb)      GetSym(sohModule, "SOH_SetOnComboGenerateCallback");
     SOH_ApplyRandoPlacements         = (FnApplyPlacements)    GetSym(sohModule, "SOH_ApplyRandoPlacements");
 

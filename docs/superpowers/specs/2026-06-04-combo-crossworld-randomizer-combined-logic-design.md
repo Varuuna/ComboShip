@@ -101,6 +101,16 @@ over the union** of both games' pools, joined by the portal:
 - Completability is guaranteed by the same assumed-fill discipline each game uses today, lifted to the
   union (place progression only into currently-reachable locations; retry/undo on dead ends).
 
+**Junk / filler items carry no logic constraint.** Only *progression* (advancement) items must be placed
+into currently-reachable locations to preserve completability. Junk — green/blue rupees, ammo, recovery
+hearts, and anything else non-advancement — is free filler: after progression is placed, every remaining
+empty check (in either world) is filled with junk with no reachability check. Junk is also freely
+**interchangeable across worlds and substitutable** — an MM check's junk slot may hold an OOT green rupee
+(or any junk), and vice-versa, since junk is inert for progression and each game can render/grant a
+sensible local junk equivalent. This is what keeps pool-balancing trivial: junk is the flexible padding
+that absorbs any size mismatch between the two games' check/item counts (no forced 1:1). Junk delivered
+cross-world still routes through the normal delivery path but never gates anything.
+
 Output: a **combined spoiler** with each game's placement slice **plus per-check foreign markers**
 (`{srcGame, itemName}`) for checks that hold the other world's item.
 

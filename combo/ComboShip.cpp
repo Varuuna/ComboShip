@@ -102,7 +102,49 @@ typedef const char* (*FnDumpData)(void);
 static FnDumpData SOH_DumpRandoStaticData = nullptr;
 static FnDumpData MM_DumpRandoStaticData  = nullptr;
 
+// ComboShip Inc2 (Task 3): placement injection exports
+typedef void (*FnSetGenerateCb)(void (*)(int));
+typedef void (*FnApplyPlacements)(const char*);
+static FnSetGenerateCb   SOH_SetOnComboGenerateCallback = nullptr;
+static FnApplyPlacements SOH_ApplyRandoPlacements       = nullptr;
+
 static int g_PendingMMFileNum = -1;
+
+// ComboShip Inc2 (Task 3): generate callback — called by Sram_InitSave (via gComboGenerateCallback)
+// before save creation. Runs the combo generator and applies OOT placements, then marks seed generated.
+static void Combo_OnGenerate(int fileNum) {
+    if (!SOH_DumpRandoStaticData || !MM_DumpRandoStaticData) {
+        std::cerr << "[ComboShip] Combo_OnGenerate: dump functions not resolved, cannot generate\n";
+        return;
+    }
+
+    std::string sohDump = SOH_DumpRandoStaticData();
+    std::string mmDump  = MM_DumpRandoStaticData();
+
+    if (sohDump.empty() || mmDump.empty()) {
+        std::cerr << "[ComboShip] Combo_OnGenerate: empty dump, cannot generate\n";
+        return;
+    }
+
+    std::string spoiler = ComboRando::CrossWorldGenerateSpoiler(sohDump, mmDump, 12345u);
+
+    // Write per-slot spoiler for debugging.
+    {
+        std::error_code ec;
+        std::filesystem::create_directories("saves/combo", ec);
+        std::string path = "saves/combo/slot" + std::to_string(fileNum) + ".spoiler.json";
+        std::ofstream f(path, std::ios::trunc);
+        f << spoiler;
+        std::cout << "[ComboShip] Combo_OnGenerate: spoiler written to " << path << "\n";
+    }
+
+    auto j = nlohmann::json::parse(spoiler);
+    if (SOH_ApplyRandoPlacements && j.contains("oot")) {
+        SOH_ApplyRandoPlacements(j["oot"].dump().c_str());
+        std::cout << "[ComboShip] Combo_OnGenerate: OOT placements applied for slot " << fileNum << "\n";
+    }
+    // MM injection is a later task; j["mm"] available when needed.
+}
 
 static void Combo_OnOOTSaveInit(int fileNum) {
     if (MM_InitSaveFile) {
@@ -216,8 +258,10 @@ int main(int argc, char** argv) {
     SOH_NotifyComboReturn        = (FnVoidArgless)            GetSym(sohModule, "SOH_NotifyComboReturn");
     MM_ResumeGame                = (FnMMResume)               GetSym(mmModule,  "MM_ResumeGame");
     MM_PrepareForTransition      = (FnVoidArgless)            GetSym(mmModule,  "MM_PrepareForTransition");
-    SOH_DumpRandoStaticData      = (FnDumpData)               GetSym(sohModule, "SOH_DumpRandoStaticData");
-    MM_DumpRandoStaticData       = (FnDumpData)               GetSym(mmModule,  "MM_DumpRandoStaticData");
+    SOH_DumpRandoStaticData          = (FnDumpData)           GetSym(sohModule, "SOH_DumpRandoStaticData");
+    MM_DumpRandoStaticData           = (FnDumpData)           GetSym(mmModule,  "MM_DumpRandoStaticData");
+    SOH_SetOnComboGenerateCallback   = (FnSetGenerateCb)      GetSym(sohModule, "SOH_SetOnComboGenerateCallback");
+    SOH_ApplyRandoPlacements         = (FnApplyPlacements)    GetSym(sohModule, "SOH_ApplyRandoPlacements");
 
     if (!MM_InitArchives) {
         std::cerr << "ERROR: 2ship.dll is missing required ComboShip exports (MM_InitArchives)." << std::endl;
@@ -293,36 +337,26 @@ int main(int argc, char** argv) {
     }
     std::cout << "[ComboShip] OOT initialized." << std::endl;
 
-    // ComboShip Inc2 de-risk: dump BOTH games' static rando data (headless, safe AFTER SOH_Init).
-    // Write to files under saves/combo/ so the result is verifiable regardless of console visibility.
-    // Also generate a no-logic combined spoiler (phase 1: per-game permutation, native-only).
+    // ComboShip Inc2 de-risk: dump OOT static rando data (headless, safe AFTER SOH_Init).
+    // Write to saves/combo/oot_dump.json so the coherent check set is verifiable.
+    // Spoiler generation now happens per-save in Combo_OnGenerate (not at startup).
     {
         std::error_code ec;
         std::filesystem::create_directories("saves/combo", ec);
 
-        std::string sohDump, mmDump;
-
         if (SOH_DumpRandoStaticData) {
-            sohDump = SOH_DumpRandoStaticData();
+            std::string sohDump = SOH_DumpRandoStaticData();
             { std::ofstream f("saves/combo/oot_dump.json", std::ios::trunc); f << sohDump; }
             auto j = nlohmann::json::parse(sohDump);
-            std::cout << "[ComboShip] OOT static dump: " << j["checks"].size() << " checks, " << j["items"].size() << " items\n";
+            std::cout << "[ComboShip] OOT coherent dump: " << j["checks"].size() << " checks, "
+                      << j["items"].size() << " items -> saves/combo/oot_dump.json\n";
         }
         if (MM_DumpRandoStaticData) {
-            mmDump = MM_DumpRandoStaticData();
+            std::string mmDump = MM_DumpRandoStaticData();
             { std::ofstream f("saves/combo/mm_dump.json", std::ios::trunc); f << mmDump; }
             auto j = nlohmann::json::parse(mmDump);
-            std::cout << "[ComboShip] MM static dump: " << j["checks"].size() << " checks, " << j["items"].size() << " items\n";
-        }
-
-        if (!sohDump.empty() && !mmDump.empty()) {
-            std::string spoiler = ComboRando::CrossWorldGenerateSpoiler(sohDump, mmDump, 12345u);
-            { std::ofstream f("saves/combo/test.spoiler.json", std::ios::trunc); f << spoiler; }
-            auto js = nlohmann::json::parse(spoiler);
-            uint32_t ootCount = js.value("ootCount", 0u);
-            uint32_t mmCount  = js.value("mmCount",  0u);
-            std::cout << "[ComboShip] Spoiler generated (seed=12345): "
-                      << ootCount << " OOT checks, " << mmCount << " MM checks -> saves/combo/test.spoiler.json\n";
+            std::cout << "[ComboShip] MM static dump: " << j["checks"].size() << " checks, "
+                      << j["items"].size() << " items -> saves/combo/mm_dump.json\n";
         }
     }
 
@@ -330,6 +364,13 @@ int main(int argc, char** argv) {
     // Note: MM_InitArchives (dormant archive pre-load) is skipped — Ship::ArchiveManager::Init
     // requires a live context which doesn't exist until MM_RunMain runs InitOTR().
     // Archives are loaded correctly when MM_RunGame is called after OOT exits.
+
+    // ComboShip Inc2 (Task 3): register the generate callback BEFORE the save-init callback.
+    // Fired by Sram_InitSave before questType is read; generates the seed and applies OOT placements.
+    if (SOH_SetOnComboGenerateCallback) {
+        SOH_SetOnComboGenerateCallback(Combo_OnGenerate);
+        std::cout << "[ComboShip] OOT generate callback registered." << std::endl;
+    }
 
     if (SOH_SetOnNewSaveCallback && MM_InitSaveFile) {
         SOH_SetOnNewSaveCallback(Combo_OnOOTSaveInit);

@@ -307,3 +307,34 @@ markers and the gift presentation are later increments.
 **Note:** the receive drains read the mailbox file every player-update frame — an accepted Increment-1
 simplification (tiny file, correctness-first); a later increment can throttle or drain on
 game-gain-control instead.
+
+## Cross-World Randomizer — Increment 2, Task 3: OOT placement injection at save creation (2026-06-04)
+
+Net-new ComboShip feature (OOT side of the combo rando injection pipeline). Only one vendored
+game-source file is touched, and only via an additive `#ifdef COMBO_BUILD` guard.
+
+**Game-source deviation (additive, guarded — preserve on future soh merges):**
+
+- `soh/src/code/z_sram.c` (`Sram_InitSave`, ~line 266): new `#ifdef COMBO_BUILD` block fires
+  `gComboGenerateCallback(fileNum)` immediately before `u8 currentQuest = ...` is read, then
+  forces `questType[buttonIndex] = QUEST_RANDOMIZER`. **Why:** the combo generator must run
+  (via `SOH_ApplyRandoPlacements`) and `SetSeedGenerated(true)` must be called **before**
+  `Randomizer_IsSeedGenerated()` is tested two lines later; if the callback hasn't run yet,
+  the `currentQuest == QUEST_RANDOMIZER && IsSeedGenerated()` branch is never taken and
+  `Randomizer_InitSaveFile()` is never called. The force-to-RANDOMIZER is intentional: in a
+  ComboShip session every save is a rando save (the combo generator owns placement).
+
+**New non-upstream files (no merge risk):**
+- `combo/rando/CrossWorldRando.h` — header-only combo spoiler generator (permutation phase 1).
+
+**soh.dll exports added (`soh/soh/OTRGlobals.cpp`, all `extern "C" __declspec(dllexport)`):**
+- `SOH_DumpRandoStaticData` — now runs the headless prep sequence
+  (`GetLogic()->Reset()`, `FinalizeSettings({},{})`, `GenerateLocationPool()`) to dump only
+  `ctx->allLocations` (the real shuffled-check set) instead of all RC_MAX entries. Required
+  `#include "soh/Enhancements/randomizer/logic.h"` in `OTRGlobals.cpp` (Logic was forward-declared
+  in SeedContext.h; `->Reset()` needs the full type).
+- `SOH_ApplyRandoPlacements(const char* json)` — applies the combo generator's `{"check":"item",...}`
+  map: `locationNameToEnum[name]` → rc, `itemNameToEnum[item]` → rg, `PlaceItemInLocation(rc,rg,false,false)`,
+  then `SetSeedGenerated(true)`. Calls `ItemReset()` first so all locations start from RG_NONE.
+- `SOH_SetOnComboGenerateCallback(void(*)(int))` — registers `gComboGenerateCallback`, the
+  fn-pointer fired by the z_sram.c hook. Pattern mirrors `gComboSaveInitCallback`.

@@ -33,6 +33,7 @@
 #include "Enhancements/randomizer/randomizer_check_tracker.h"
 #include "Enhancements/randomizer/static_data.h"
 #include "soh/Enhancements/randomizer/settings.h"
+#include "soh/Enhancements/randomizer/logic.h" // ComboShip: needed for ctx->GetLogic()->Reset() in SOH_DumpRandoStaticData
 #include "Enhancements/gameplaystats.h"
 #include "soh/Enhancements/savestates.h"
 #include "frame_interpolation.h"
@@ -2583,10 +2584,12 @@ extern "C" __declspec(dllexport) bool SOH_Extract(const char* searchPath) {
 }
 #endif
 
-// ComboShip Inc2: headless dump of OOT static rando tables (checks + items).
-// HEADLESS-SAFE: reads only StaticData::locationTable + itemTable, both populated
-// by InitLocationTable()/InitItemTable() inside SOH_Init(). No region graph, no
-// GeneratePools, no Context-dependent calls inside this function.
+// ComboShip Inc2 (Task 3): coherent OOT rando dump — runs the headless prep sequence
+// (GetLogic()->Reset, FinalizeSettings, GenerateLocationPool) so ctx->allLocations reflects
+// the real shuffled-check set for default settings, then dumps those checks + their vanilla
+// items. This makes the combo generator's permutation coherent (same set as Randomizer_InitSaveFile).
+// ItemReset/HintReset are NOT called here; the context is left in a state where allLocations
+// is valid but no items are placed yet — SOH_ApplyRandoPlacements fills the placements.
 // Caller MUST invoke this AFTER SOH_Init() returns.
 extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
     static std::string cached;
@@ -2595,29 +2598,37 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
     nlohmann::json checks = nlohmann::json::array();
     nlohmann::json items  = nlohmann::json::array();
 
-    // Iterate every check in the location table (RC_UNKNOWN_CHECK=0 … RC_MAX-1).
-    // GetLocation returns a pointer into the static array; it is valid for the
-    // lifetime of the process.
-    for (int rc = 0; rc < RC_MAX; ++rc) {
-        Rando::Location* loc = Rando::StaticData::GetLocation(static_cast<RandomizerCheck>(rc));
-        if (!loc) continue;
-        const std::string& name = loc->GetName();
-        if (name.empty()) continue;
+    try {
+        auto ctx = OTRGlobals::Instance->gRandoContext;
 
-        nlohmann::json entry = { {"name", name} };
+        // Headless prep: reset logic state, finalize default settings, fill allLocations.
+        // This mirrors the first part of the full generation sequence without filling items.
+        ctx->GetLogic()->Reset();
+        ctx->FinalizeSettings({}, {});
+        ctx->GenerateLocationPool(); // fills ctx->allLocations with the shuffled-check set
 
-        // OOT stores the vanilla item per location via vanillaItem (RandomizerGet).
-        RandomizerGet vanillaRG = loc->GetVanillaItem();
-        if (vanillaRG != RG_NONE) {
+        // Dump the real shuffled check set (not all RC_MAX).
+        for (RandomizerCheck rc : ctx->allLocations) {
+            Rando::Location* loc = Rando::StaticData::GetLocation(rc);
+            if (!loc) continue;
+            const std::string& name = loc->GetName();
+            if (name.empty()) continue;
+
+            RandomizerGet vanillaRG = loc->GetVanillaItem();
+            if (vanillaRG == RG_NONE) continue; // skip checks with no vanilla item
+
             const std::string& vigName = Rando::StaticData::RetrieveItem(vanillaRG).GetName().GetEnglish();
-            if (!vigName.empty()) {
-                entry["vanillaItem"] = vigName;
-            }
+            if (vigName.empty()) continue;
+
+            checks.push_back({ {"name", name}, {"vanillaItem", vigName} });
         }
-        checks.push_back(std::move(entry));
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[ComboShip] SOH_DumpRandoStaticData: exception during headless prep: {}", e.what());
+    } catch (...) {
+        SPDLOG_ERROR("[ComboShip] SOH_DumpRandoStaticData: unknown exception during headless prep");
     }
 
-    // Iterate every item in the item table (RG_NONE=0 … RG_MAX-1).
+    // Items list: full item table (for the generator's reference; vanillaItems come from checks above).
     for (int rg = 0; rg < RG_MAX; ++rg) {
         Rando::Item& item = Rando::StaticData::RetrieveItem(static_cast<RandomizerGet>(rg));
         const std::string& name = item.GetName().GetEnglish();
@@ -2627,6 +2638,65 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
 
     cached = nlohmann::json{ {"checks", std::move(checks)}, {"items", std::move(items)} }.dump();
     return cached.c_str();
+}
+
+// ComboShip Inc2 (Task 3): apply a placement mapping produced by the combo generator.
+// Input JSON: {"<checkName>":"<itemName>", ...}  (the "oot" object from the combined spoiler).
+// For each entry: look up rc = locationNameToEnum[name], rg = itemNameToEnum[item], place it.
+// After all placements: SetSeedGenerated(true) so Randomizer_IsSeedGenerated() returns true
+// and Sram_InitSave proceeds into Randomizer_InitSaveFile().
+// Does NOT call OOT's own Fill()/GenerateItemPool() — the combo generator owns the placement.
+extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json) {
+    if (!json) {
+        SPDLOG_ERROR("[ComboShip] SOH_ApplyRandoPlacements: null JSON");
+        return;
+    }
+    try {
+        auto ctx = OTRGlobals::Instance->gRandoContext;
+
+        // ItemReset so all locations start with RG_NONE before we apply our placement.
+        ctx->ItemReset();
+
+        nlohmann::json placements = nlohmann::json::parse(json);
+        int placed = 0, skipped = 0;
+        for (auto& [name, itemVal] : placements.items()) {
+            if (!itemVal.is_string()) { ++skipped; continue; }
+            const std::string itemName = itemVal.get<std::string>();
+
+            auto rcIt = Rando::StaticData::locationNameToEnum.find(name);
+            if (rcIt == Rando::StaticData::locationNameToEnum.end()) {
+                SPDLOG_WARN("[ComboShip] SOH_ApplyRandoPlacements: unknown location '{}'", name);
+                ++skipped; continue;
+            }
+            auto rgIt = Rando::StaticData::itemNameToEnum.find(itemName);
+            if (rgIt == Rando::StaticData::itemNameToEnum.end()) {
+                SPDLOG_WARN("[ComboShip] SOH_ApplyRandoPlacements: unknown item '{}' at '{}'", itemName, name);
+                ++skipped; continue;
+            }
+
+            RandomizerCheck rc = rcIt->second;
+            RandomizerGet   rg = rgIt->second;
+            ctx->PlaceItemInLocation(rc, rg, false, false);
+            ++placed;
+        }
+
+        ctx->SetSeedGenerated(true);
+        SPDLOG_INFO("[ComboShip] SOH_ApplyRandoPlacements: placed={} skipped={} seedGenerated=true",
+                    placed, skipped);
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[ComboShip] SOH_ApplyRandoPlacements: exception: {}", e.what());
+    } catch (...) {
+        SPDLOG_ERROR("[ComboShip] SOH_ApplyRandoPlacements: unknown exception");
+    }
+}
+
+// ComboShip Inc2 (Task 3): generate callback — fired by Sram_InitSave before save creation,
+// giving the combo orchestrator a chance to run the generator and apply placements before
+// Randomizer_InitSaveFile() consumes them.
+extern "C" void (*gComboGenerateCallback)(int fileNum) = nullptr;
+
+extern "C" __declspec(dllexport) void SOH_SetOnComboGenerateCallback(void (*cb)(int fileNum)) {
+    gComboGenerateCallback = cb;
 }
 
 bool SoH_HandleConfigDrop(char* filePath) {

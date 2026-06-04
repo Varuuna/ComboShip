@@ -2725,6 +2725,20 @@ extern "C" __declspec(dllexport) void MM_InitRandoLogic(void) {
     if (inited) return;
     inited = true;
 
+    // ComboShip: ShipInit::InitAll() runs EVERY registered init func — most register GameInteractor
+    // hooks (and some reference AudioCollection) at registration time. At OOT-startup warm-up MM has
+    // not booted yet, so these singletons are null and the first hook registration faults (e.g.
+    // BenInputEditorWindow's OnGameStateMainStart hook). MM's real boot (Initialize, above) creates
+    // both singletons immediately before its own InitAll(); mirror that prelude here so the headless
+    // region-graph build can run. The real boot later reassigns both `Instance`s (these are
+    // throwaways) and re-runs InitAll, so nothing is double-registered.
+    if (GameInteractor::Instance == nullptr) {
+        GameInteractor::Instance = new GameInteractor();
+    }
+    if (AudioCollection::Instance == nullptr) {
+        AudioCollection::Instance = new AudioCollection();
+    }
+
     ShipInit::InitAll();
     Rando::StaticData::PopulateCheckNames();
 

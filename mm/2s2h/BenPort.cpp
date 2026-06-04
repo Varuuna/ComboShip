@@ -2506,6 +2506,24 @@ extern "C" __declspec(dllexport) void MM_RunGame(int fileNum) {
     MM_RunMain();
 }
 
+// ComboShip: read by mm/src/code/main.c's MM_RunMain to skip the blocking game loop. Set only for
+// the duration of MM_BootForCombo.
+extern "C" int gComboBootOnly = 0;
+
+// ComboShip: eagerly boot MM at OOT startup (called once after SOH_Init) so the cross-world rando
+// oracle runs against a real, fully-initialized MM (region graph built by the real ShipInit::InitAll,
+// real GameInteractor/AudioCollection/RM) instead of a fragile headless fake. Reuses OOT's shared
+// Context (sComboTransitionActive) and runs MM_RunMain's full init while skipping its game loop
+// (gComboBootOnly). The caller (ComboShip main) brackets this with SOH_PrepareForTransition (before)
+// and MM_PrepareForTransition + SOH_ResumeForeground (after) to hand the foreground back to OOT.
+extern "C" __declspec(dllexport) void MM_BootForCombo(void) {
+    gComboStartFileNum = -1;        // boot only — no save load / Play jump
+    sComboTransitionActive = true;  // OTRGlobals ctor reuses OOT's Context + creates MM's own RM
+    gComboBootOnly = 1;
+    MM_RunMain();                   // full init; main.c skips Graph_ThreadEntry due to gComboBootOnly
+    gComboBootOnly = 0;
+}
+
 #ifdef COMBO_BUILD
 // Defined in mm/src/code/main.c: re-enters ONLY MM's game loop (no heap/thread re-init).
 extern "C" void MM_RunGameLoop(void);
@@ -2713,39 +2731,6 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
 
     cached = nlohmann::json{ {"checks", std::move(checks)}, {"items", std::move(items)} }.dump();
     return cached.c_str();
-}
-
-// ComboShip Inc3: warm up MM's rando logic engine headlessly so the region graph and
-// static data are available for the combined-logic oracle at OOT save-creation time.
-// ShipInit::InitAll() populates Rando::Logic::Regions (the region graph) + runs all
-// other RegisterShipInitFunc lambdas. PopulateCheckNames fills the check name table.
-// MUST be called AFTER SOH_Init() (shared libultraship Context must exist). Idempotent.
-extern "C" __declspec(dllexport) void MM_InitRandoLogic(void) {
-    static bool inited = false;
-    if (inited) return;
-    inited = true;
-
-    // ComboShip: ShipInit::InitAll() runs EVERY registered init func — most register GameInteractor
-    // hooks (and some reference AudioCollection) at registration time. At OOT-startup warm-up MM has
-    // not booted yet, so these singletons are null and the first hook registration faults (e.g.
-    // BenInputEditorWindow's OnGameStateMainStart hook). MM's real boot (Initialize, above) creates
-    // both singletons immediately before its own InitAll(); mirror that prelude here so the headless
-    // region-graph build can run. The real boot later reassigns both `Instance`s (these are
-    // throwaways) and re-runs InitAll, so nothing is double-registered.
-    if (GameInteractor::Instance == nullptr) {
-        GameInteractor::Instance = new GameInteractor();
-    }
-    if (AudioCollection::Instance == nullptr) {
-        AudioCollection::Instance = new AudioCollection();
-    }
-
-    ShipInit::InitAll();
-    Rando::StaticData::PopulateCheckNames();
-
-    SPDLOG_INFO("[ComboShip] MM_InitRandoLogic: Regions={} checks={} items={}",
-                Rando::Logic::Regions.size(),
-                Rando::StaticData::Checks.size(),
-                Rando::StaticData::Items.size());
 }
 
 // ComboShip Inc4: MM reachability oracle — headless logic engine wrappers.
@@ -2972,7 +2957,9 @@ static void GiveItemForOracle(RandoItemId ri) {
 }
 
 extern "C" __declspec(dllexport) void Combo_MM_Rando_Reset(void) {
-    MM_InitRandoLogic();
+    // ComboShip: MM's region graph + static data are now built by the real eager boot
+    // (MM_BootForCombo -> ShipInit::InitAll), replacing the deleted headless MM_InitRandoLogic
+    // warm-up; the oracle no longer needs a lazy init here.
     memcpy(&sMM_OracleSavedContext, &gSaveContext, sizeof(SaveContext));
     sMM_OracleSavedRegionTime = gCurrentRegionTime;
     memset(&gSaveContext, 0, sizeof(SaveContext));

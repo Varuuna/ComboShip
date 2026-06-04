@@ -49,6 +49,11 @@ size_t gSystemHeapSize = 0;
 
 void InitOTR(int argc, char* argv[]);
 void Heaps_Free(void);
+#ifdef COMBO_BUILD
+// ComboShip: when nonzero, MM_RunMain initializes MM but skips its blocking game loop
+// (Graph_ThreadEntry). Set by MM_BootForCombo (mm/2s2h/BenPort.cpp) for the eager OOT-startup boot.
+extern int gComboBootOnly;
+#endif
 #ifdef __GNUC__
 #define SDL_main main
 #endif
@@ -192,9 +197,15 @@ void MM_RunMain(void) {
     AudioMgr_Init(&sAudioMgr, STACK_TOP(sAudioStack), Z_PRIORITY_AUDIOMGR, Z_THREAD_ID_AUDIOMGR, &gSchedContext,
                   &gIrqMgr);
 
+#ifdef COMBO_BUILD
+    // ComboShip: MM_BootForCombo sets gComboBootOnly to initialize MM at OOT startup WITHOUT running
+    // its blocking game loop — the cross-world oracle only needs the region graph + runtime. The loop
+    // runs later via MM_ResumeGame on the first portal transition.
+    if (!gComboBootOnly) {
+        Graph_ThreadEntry(0);
+    }
+#else
     Graph_ThreadEntry(0);
-
-#ifndef COMBO_BUILD
     DeinitOTR();
 #endif
 }

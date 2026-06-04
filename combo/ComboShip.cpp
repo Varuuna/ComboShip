@@ -103,8 +103,9 @@ typedef const char* (*FnDumpData)(void);
 static FnDumpData SOH_DumpRandoStaticData = nullptr;
 static FnDumpData MM_DumpRandoStaticData  = nullptr;
 
-// ComboShip Inc3: MM rando-logic warm-up (regions + static data)
-static FnVoid MM_InitRandoLogic = nullptr;
+// ComboShip: eager MM boot at startup (replaces the headless MM_InitRandoLogic warm-up).
+static FnVoidArgless MM_BootForCombo      = nullptr;
+static FnVoidArgless SOH_ResumeForeground = nullptr;
 
 // ComboShip Inc4: per-game reachability oracle exports
 typedef void        (*FnOracleVoid)(void);
@@ -357,7 +358,8 @@ int main(int argc, char** argv) {
     MM_InitRandoSaveFile             = (FnMMInitRandoSave)    GetSym(mmModule,  "MM_InitRandoSaveFile");
     SOH_SetOnComboGenerateCallback   = (FnSetGenerateCb)      GetSym(sohModule, "SOH_SetOnComboGenerateCallback");
     SOH_ApplyRandoPlacements         = (FnApplyPlacements)    GetSym(sohModule, "SOH_ApplyRandoPlacements");
-    MM_InitRandoLogic                = (FnVoid)               GetSym(mmModule,  "MM_InitRandoLogic");
+    MM_BootForCombo                  = (FnVoidArgless)        GetSym(mmModule,  "MM_BootForCombo");
+    SOH_ResumeForeground             = (FnVoidArgless)        GetSym(sohModule, "SOH_ResumeForeground");
 
     // Inc4: oracle exports
     Combo_SOH_Rando_Reset             = (FnOracleVoid)      GetSym(sohModule, "Combo_SOH_Rando_Reset");
@@ -444,11 +446,24 @@ int main(int argc, char** argv) {
     }
     std::cout << "[ComboShip] OOT initialized." << std::endl;
 
-    // ComboShip Inc3: warm up MM's rando-logic engine (Regions + StaticData) now that
-    // the shared libultraship Context exists. Must happen before any oracle queries.
-    if (MM_InitRandoLogic) {
-        MM_InitRandoLogic();
-        std::cout << "[ComboShip] MM rando-logic warm-up complete." << std::endl;
+    // ComboShip: eagerly boot MM now (after OOT init) so the cross-world rando oracle runs against a
+    // real, fully-initialized MM. This performs an OOT->MM->OOT transition once, with MM's game loop
+    // skipped: hand the foreground from OOT to MM (SOH_PrepareForTransition), boot MM without its loop
+    // (MM_BootForCombo), then hand the foreground back to OOT (MM_PrepareForTransition stops MM's
+    // audio; SOH_ResumeForeground re-activates OOT's RM/audio/GUI). MM stays booted + resident, so the
+    // first portal transition is a normal MM_ResumeGame.
+    bool mmEagerBooted = false;
+    if (MM_BootForCombo && SOH_PrepareForTransition && MM_PrepareForTransition && SOH_ResumeForeground) {
+        std::cout << "[ComboShip] Eager MM boot: begin" << std::endl;
+        SOH_PrepareForTransition();   // stop OOT audio + tear down OOT GUI (Context/RM kept alive)
+        MM_BootForCombo();            // full MM init on the shared Context, MM's RM active, no loop
+        MM_PrepareForTransition();    // stop MM's audio (MM started it during InitOTR)
+        SOH_ResumeForeground();       // re-activate OOT's RM/audio/GUI as the foreground game
+        mmEagerBooted = true;
+        std::cout << "[ComboShip] Eager MM boot: complete" << std::endl;
+    } else {
+        std::cerr << "[ComboShip] Eager MM boot: required exports missing — oracle will be unavailable"
+                  << std::endl;
     }
 
     // ComboShip Inc2 de-risk: dump OOT static rando data (headless, safe AFTER SOH_Init).
@@ -505,7 +520,10 @@ int main(int argc, char** argv) {
 
     enum ComboGame { GAME_OOT, GAME_MM };
     ComboGame current = GAME_OOT;
-    bool ootBooted = false, mmBooted = false;
+    bool ootBooted = false;
+    // MM was already booted at startup (eager boot) — the first portal transition must RESUME MM,
+    // not run MM_RunGame (which would re-run MM_RunMain on an already-initialized MM).
+    bool mmBooted = mmEagerBooted;
     for (;;) {
         if (current == GAME_OOT) {
             g_PendingMMFileNum = -1;

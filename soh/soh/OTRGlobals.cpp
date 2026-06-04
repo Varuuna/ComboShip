@@ -2571,6 +2571,18 @@ extern "C" __declspec(dllexport) void SOH_ResumeGame(void) {
     SOH_RunGameLoop();
     SPDLOG_INFO("[ComboShip] SOH_ResumeGame: OOT loop RETURNED (WindowIsRunning={})", WindowIsRunning());
 }
+
+// ComboShip: re-activate OOT as the foreground game WITHOUT entering its game loop. Used once at
+// startup right after MM is eagerly booted (MM_BootForCombo), which left MM's RM active and tore down
+// OOT's audio/GUI (via SOH_PrepareForTransition). This restores OOT's RM/audio/GUI/menu so OOT's first
+// real boot (SOH_RunMain) renders correctly. Mirrors SOH_ResumeGame minus the frame-loop reset and
+// SOH_RunGameLoop — SOH_RunMain runs the loop.
+extern "C" __declspec(dllexport) void SOH_ResumeForeground(void) {
+    auto ctx = Ship::Context::GetInstance();
+    SOH_ReinitForResume();  // OOT RM active, OOT audio, OOT GUI + menu
+    // Re-sync this DLL's ImGui current-context (GImGui is per-module).
+    ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
+}
 #endif
 
 #if not defined(__SWITCH__) && not defined(__WIIU__)

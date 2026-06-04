@@ -102,6 +102,26 @@ typedef const char* (*FnDumpData)(void);
 static FnDumpData SOH_DumpRandoStaticData = nullptr;
 static FnDumpData MM_DumpRandoStaticData  = nullptr;
 
+// ComboShip Inc3: MM rando-logic warm-up (regions + static data)
+static FnVoid MM_InitRandoLogic = nullptr;
+
+// ComboShip Inc4: per-game reachability oracle exports
+typedef void        (*FnOracleVoid)(void);
+typedef void        (*FnOracleSetItems)(const char*);
+typedef const char* (*FnOracleGetChecks)(void);
+typedef void        (*FnOraclePlaceItem)(const char*, const char*);
+
+static FnOracleVoid      Combo_SOH_Rando_Reset             = nullptr;
+static FnOracleSetItems  Combo_SOH_Rando_SetOwnedItems     = nullptr;
+static FnOracleGetChecks Combo_SOH_Rando_GetReachableChecks = nullptr;
+static FnOraclePlaceItem Combo_SOH_Rando_PlaceItem          = nullptr;
+
+static FnOracleVoid      Combo_MM_Rando_Reset              = nullptr;
+static FnOracleSetItems  Combo_MM_Rando_SetOwnedItems      = nullptr;
+static FnOracleGetChecks Combo_MM_Rando_GetReachableChecks  = nullptr;
+static FnOraclePlaceItem Combo_MM_Rando_PlaceItem           = nullptr;
+static FnOracleVoid      Combo_MM_Rando_Restore             = nullptr;
+
 // ComboShip Inc2 (Task 3): placement injection exports
 typedef void (*FnSetGenerateCb)(void (*)(int));
 typedef void (*FnApplyPlacements)(const char*);
@@ -282,6 +302,18 @@ int main(int argc, char** argv) {
     MM_InitRandoSaveFile             = (FnMMInitRandoSave)    GetSym(mmModule,  "MM_InitRandoSaveFile");
     SOH_SetOnComboGenerateCallback   = (FnSetGenerateCb)      GetSym(sohModule, "SOH_SetOnComboGenerateCallback");
     SOH_ApplyRandoPlacements         = (FnApplyPlacements)    GetSym(sohModule, "SOH_ApplyRandoPlacements");
+    MM_InitRandoLogic                = (FnVoid)               GetSym(mmModule,  "MM_InitRandoLogic");
+
+    // Inc4: oracle exports
+    Combo_SOH_Rando_Reset             = (FnOracleVoid)      GetSym(sohModule, "Combo_SOH_Rando_Reset");
+    Combo_SOH_Rando_SetOwnedItems     = (FnOracleSetItems)  GetSym(sohModule, "Combo_SOH_Rando_SetOwnedItems");
+    Combo_SOH_Rando_GetReachableChecks = (FnOracleGetChecks) GetSym(sohModule, "Combo_SOH_Rando_GetReachableChecks");
+    Combo_SOH_Rando_PlaceItem          = (FnOraclePlaceItem) GetSym(sohModule, "Combo_SOH_Rando_PlaceItem");
+    Combo_MM_Rando_Reset              = (FnOracleVoid)      GetSym(mmModule,  "Combo_MM_Rando_Reset");
+    Combo_MM_Rando_SetOwnedItems      = (FnOracleSetItems)  GetSym(mmModule,  "Combo_MM_Rando_SetOwnedItems");
+    Combo_MM_Rando_GetReachableChecks  = (FnOracleGetChecks) GetSym(mmModule,  "Combo_MM_Rando_GetReachableChecks");
+    Combo_MM_Rando_PlaceItem           = (FnOraclePlaceItem) GetSym(mmModule,  "Combo_MM_Rando_PlaceItem");
+    Combo_MM_Rando_Restore             = (FnOracleVoid)      GetSym(mmModule,  "Combo_MM_Rando_Restore");
 
     if (!MM_InitArchives) {
         std::cerr << "ERROR: 2ship.dll is missing required ComboShip exports (MM_InitArchives)." << std::endl;
@@ -356,6 +388,13 @@ int main(int argc, char** argv) {
         return 1;
     }
     std::cout << "[ComboShip] OOT initialized." << std::endl;
+
+    // ComboShip Inc3: warm up MM's rando-logic engine (Regions + StaticData) now that
+    // the shared libultraship Context exists. Must happen before any oracle queries.
+    if (MM_InitRandoLogic) {
+        MM_InitRandoLogic();
+        std::cout << "[ComboShip] MM rando-logic warm-up complete." << std::endl;
+    }
 
     // ComboShip Inc2 de-risk: dump OOT static rando data (headless, safe AFTER SOH_Init).
     // Write to saves/combo/oot_dump.json so the coherent check set is verifiable.

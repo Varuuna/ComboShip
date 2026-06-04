@@ -33,7 +33,11 @@
 #include "Enhancements/randomizer/randomizer_check_tracker.h"
 #include "Enhancements/randomizer/static_data.h"
 #include "soh/Enhancements/randomizer/settings.h"
-#include "soh/Enhancements/randomizer/logic.h" // ComboShip: needed for ctx->GetLogic()->Reset() in SOH_DumpRandoStaticData
+#include "soh/Enhancements/randomizer/logic.h"
+#include "soh/Enhancements/randomizer/3drando/fill.hpp"
+#include "soh/Enhancements/randomizer/location_access.h"
+#include "soh/Enhancements/randomizer/3drando/item_pool.hpp"
+#include "soh/Enhancements/randomizer/3drando/starting_inventory.hpp"
 #include "Enhancements/gameplaystats.h"
 #include "soh/Enhancements/savestates.h"
 #include "frame_interpolation.h"
@@ -2699,6 +2703,71 @@ extern "C" void (*gComboGenerateCallback)(int fileNum) = nullptr;
 
 extern "C" __declspec(dllexport) void SOH_SetOnComboGenerateCallback(void (*cb)(int fileNum)) {
     gComboGenerateCallback = cb;
+}
+
+// ComboShip Inc4: OOT combo-logic exports — thin wrappers around the existing logic engine.
+// The combined fill drives these to query "given owned items, which checks are reachable?"
+
+static bool sOracleInitialized = false;
+
+static void EnsureOracleInit() {
+    if (sOracleInitialized) return;
+    auto ctx = OTRGlobals::Instance->gRandoContext;
+    ctx->GetLogic()->Reset();
+    ctx->FinalizeSettings({}, {});
+    RegionTable_Init();
+    ctx->GenerateLocationPool();
+    GenerateItemPool();
+    GenerateStartingInventory();
+    sOracleInitialized = true;
+}
+
+extern "C" __declspec(dllexport) void Combo_SOH_Rando_Reset(void) {
+    auto ctx = OTRGlobals::Instance->gRandoContext;
+    EnsureOracleInit();
+    ctx->GetLogic()->Reset();
+    Regions::AccessReset();
+    ctx->LocationReset();
+    ctx->ItemReset();
+    ApplyStartingInventory();
+}
+
+extern "C" __declspec(dllexport) void Combo_SOH_Rando_SetOwnedItems(const char* itemNamesJson) {
+    if (!itemNamesJson) return;
+    auto ctx = OTRGlobals::Instance->gRandoContext;
+    try {
+        auto items = nlohmann::json::parse(itemNamesJson);
+        for (const auto& name : items) {
+            auto it = Rando::StaticData::itemNameToEnum.find(name.get<std::string>());
+            if (it == Rando::StaticData::itemNameToEnum.end()) continue;
+            Rando::Item& item = Rando::StaticData::RetrieveItem(it->second);
+            item.ApplyEffect();
+        }
+    } catch (...) {}
+}
+
+extern "C" __declspec(dllexport) const char* Combo_SOH_Rando_GetReachableChecks(void) {
+    static std::string buf;
+    auto ctx = OTRGlobals::Instance->gRandoContext;
+    auto reachable = ReachabilitySearch(ctx->allLocations);
+    nlohmann::json out = nlohmann::json::array();
+    for (RandomizerCheck rc : reachable) {
+        const std::string& name = Rando::StaticData::GetLocation(rc)->GetName();
+        if (!name.empty()) out.push_back(name);
+    }
+    buf = out.dump();
+    return buf.c_str();
+}
+
+extern "C" __declspec(dllexport) void Combo_SOH_Rando_PlaceItem(
+    const char* checkName, const char* itemName) {
+    if (!checkName || !itemName) return;
+    auto ctx = OTRGlobals::Instance->gRandoContext;
+    auto rcIt = Rando::StaticData::locationNameToEnum.find(checkName);
+    if (rcIt == Rando::StaticData::locationNameToEnum.end()) return;
+    auto rgIt = Rando::StaticData::itemNameToEnum.find(itemName);
+    if (rgIt == Rando::StaticData::itemNameToEnum.end()) return;
+    ctx->PlaceItemInLocation(rcIt->second, rgIt->second, false, false);
 }
 
 bool SoH_HandleConfigDrop(char* filePath) {

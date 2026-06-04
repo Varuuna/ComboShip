@@ -61,6 +61,8 @@ CrowdControl* CrowdControl::Instance;
 #include "2s2h/DeveloperTools/DebugConsole.h"
 #include "2s2h/Rando/Rando.h"
 #include "2s2h/Rando/Spoiler/Spoiler.h"
+#include "2s2h/Rando/Logic/Logic.h"
+#include "2s2h/Rando/MiscBehavior/ClockShuffle.h"
 #include "2s2h/SaveManager/SaveManager.h"
 #include "2s2h/CustomMessage/CustomMessage.h"
 #include "2s2h/CustomItem/CustomItem.h"
@@ -2711,6 +2713,333 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
 
     cached = nlohmann::json{ {"checks", std::move(checks)}, {"items", std::move(items)} }.dump();
     return cached.c_str();
+}
+
+// ComboShip Inc3: warm up MM's rando logic engine headlessly so the region graph and
+// static data are available for the combined-logic oracle at OOT save-creation time.
+// ShipInit::InitAll() populates Rando::Logic::Regions (the region graph) + runs all
+// other RegisterShipInitFunc lambdas. PopulateCheckNames fills the check name table.
+// MUST be called AFTER SOH_Init() (shared libultraship Context must exist). Idempotent.
+extern "C" __declspec(dllexport) void MM_InitRandoLogic(void) {
+    static bool inited = false;
+    if (inited) return;
+    inited = true;
+
+    ShipInit::InitAll();
+    Rando::StaticData::PopulateCheckNames();
+
+    SPDLOG_INFO("[ComboShip] MM_InitRandoLogic: Regions={} checks={} items={}",
+                Rando::Logic::Regions.size(),
+                Rando::StaticData::Checks.size(),
+                Rando::StaticData::Items.size());
+}
+
+// ComboShip Inc4: MM reachability oracle — headless logic engine wrappers.
+// The combined fill drives these to query "given owned items, which checks are reachable?"
+
+static SaveContext sMM_OracleSavedContext;
+static uint64_t sMM_OracleSavedRegionTime;
+using Rando::Logic::gCurrentRegionTime;
+
+// Headless item-give: sets gSaveContext fields without ever touching gPlayState.
+// Covers the save-context mutations that logic conditions read (INV_CONTENT, equipment,
+// quest items, rando flags, dungeon items, week event regs). Derived from GiveItem.cpp.
+static void GiveItemForOracle(RandoItemId ri) {
+    switch (ri) {
+        case RI_JUNK:
+        case RI_NONE:
+        case RI_TRAP:
+            break;
+
+        // Magic
+        case RI_SINGLE_MAGIC:
+            gSaveContext.save.saveInfo.playerData.isMagicAcquired = true;
+            gSaveContext.save.saveInfo.playerData.magic = MAGIC_NORMAL_METER;
+            SET_WEEKEVENTREG(WEEKEVENTREG_12_80);
+            break;
+        case RI_DOUBLE_MAGIC:
+            gSaveContext.save.saveInfo.playerData.isMagicAcquired = true;
+            gSaveContext.save.saveInfo.playerData.isDoubleMagicAcquired = true;
+            gSaveContext.save.saveInfo.playerData.magic = MAGIC_DOUBLE_METER;
+            SET_WEEKEVENTREG(WEEKEVENTREG_12_80);
+            break;
+        case RI_DOUBLE_DEFENSE:
+            gSaveContext.save.saveInfo.playerData.doubleDefense = true;
+            gSaveContext.save.saveInfo.inventory.defenseHearts = 20;
+            break;
+
+        // Swords — set equipment value (logic checks GET_CUR_EQUIP_VALUE)
+        case RI_SWORD_KOKIRI:
+            SET_EQUIP_VALUE(EQUIP_TYPE_SWORD, EQUIP_VALUE_SWORD_KOKIRI);
+            break;
+        case RI_SWORD_RAZOR:
+            SET_EQUIP_VALUE(EQUIP_TYPE_SWORD, EQUIP_VALUE_SWORD_RAZOR);
+            break;
+        case RI_SWORD_GILDED:
+            SET_EQUIP_VALUE(EQUIP_TYPE_SWORD, EQUIP_VALUE_SWORD_GILDED);
+            break;
+
+        // Bomb bags — set upgrade + inventory
+        case RI_BOMB_BAG_20:
+            Inventory_ChangeUpgrade(UPG_BOMB_BAG, 1);
+            INV_CONTENT(ITEM_BOMB) = ITEM_BOMB;
+            INV_CONTENT(ITEM_BOMBCHU) = ITEM_BOMBCHU;
+            AMMO(ITEM_BOMB) = 20;
+            break;
+        case RI_BOMB_BAG_30:
+            Inventory_ChangeUpgrade(UPG_BOMB_BAG, 2);
+            INV_CONTENT(ITEM_BOMB) = ITEM_BOMB;
+            INV_CONTENT(ITEM_BOMBCHU) = ITEM_BOMBCHU;
+            AMMO(ITEM_BOMB) = 30;
+            break;
+        case RI_BOMB_BAG_40:
+            Inventory_ChangeUpgrade(UPG_BOMB_BAG, 3);
+            INV_CONTENT(ITEM_BOMB) = ITEM_BOMB;
+            INV_CONTENT(ITEM_BOMBCHU) = ITEM_BOMBCHU;
+            AMMO(ITEM_BOMB) = 40;
+            break;
+
+        // Wallets
+        case RI_WALLET_ADULT:
+            Inventory_ChangeUpgrade(UPG_WALLET, 1);
+            break;
+        case RI_WALLET_GIANT:
+            Inventory_ChangeUpgrade(UPG_WALLET, 2);
+            break;
+        case RI_WALLET_TYCOON:
+            Inventory_ChangeUpgrade(UPG_WALLET, 3);
+            break;
+
+        // Heart pieces/containers — logic doesn't check these for reachability, but include for completeness
+        case RI_HEART_CONTAINER:
+            gSaveContext.save.saveInfo.playerData.healthCapacity += 0x10;
+            break;
+        case RI_HEART_PIECE:
+            gSaveContext.save.saveInfo.playerData.healthCapacity += 0x10;
+            break;
+
+        // Bottle
+        case RI_BOTTLE_RED_POTION: {
+            for (int i = SLOT(ITEM_BOTTLE); i < SLOT(ITEM_BOTTLE) + 6; i++) {
+                if (gSaveContext.save.saveInfo.inventory.items[i] == ITEM_NONE) {
+                    gSaveContext.save.saveInfo.inventory.items[i] = ITEM_POTION_RED;
+                    break;
+                }
+            }
+            break;
+        }
+
+        // Dungeon items
+        case RI_WOODFALL_BOSS_KEY: case RI_WOODFALL_MAP: case RI_WOODFALL_COMPASS:
+            SET_DUNGEON_ITEM(Rando::StaticData::Items[ri].itemId - ITEM_KEY_BOSS, DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE);
+            break;
+        case RI_SNOWHEAD_BOSS_KEY: case RI_SNOWHEAD_MAP: case RI_SNOWHEAD_COMPASS:
+            SET_DUNGEON_ITEM(Rando::StaticData::Items[ri].itemId - ITEM_KEY_BOSS, DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE);
+            break;
+        case RI_GREAT_BAY_BOSS_KEY: case RI_GREAT_BAY_MAP: case RI_GREAT_BAY_COMPASS:
+            SET_DUNGEON_ITEM(Rando::StaticData::Items[ri].itemId - ITEM_KEY_BOSS, DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE);
+            break;
+        case RI_STONE_TOWER_BOSS_KEY: case RI_STONE_TOWER_MAP: case RI_STONE_TOWER_COMPASS:
+            SET_DUNGEON_ITEM(Rando::StaticData::Items[ri].itemId - ITEM_KEY_BOSS, DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE);
+            break;
+
+        // Small keys
+        case RI_WOODFALL_SMALL_KEY:
+            DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE) = std::max(0, (int)DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE)) + 1;
+            break;
+        case RI_SNOWHEAD_SMALL_KEY:
+            DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE) = std::max(0, (int)DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE)) + 1;
+            break;
+        case RI_GREAT_BAY_SMALL_KEY:
+            DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE) = std::max(0, (int)DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE)) + 1;
+            break;
+        case RI_STONE_TOWER_SMALL_KEY:
+            DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE) = std::max(0, (int)DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE)) + 1;
+            break;
+
+        // Stray fairies
+        case RI_CLOCK_TOWN_STRAY_FAIRY: SET_WEEKEVENTREG(WEEKEVENTREG_08_80); break;
+        case RI_WOODFALL_STRAY_FAIRY: gSaveContext.save.saveInfo.inventory.strayFairies[DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE]++; break;
+        case RI_SNOWHEAD_STRAY_FAIRY: gSaveContext.save.saveInfo.inventory.strayFairies[DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE]++; break;
+        case RI_GREAT_BAY_STRAY_FAIRY: gSaveContext.save.saveInfo.inventory.strayFairies[DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE]++; break;
+        case RI_STONE_TOWER_STRAY_FAIRY: gSaveContext.save.saveInfo.inventory.strayFairies[DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE]++; break;
+
+        // Rando-flag items (deeds, keys, letters, etc.)
+        case RI_MOONS_TEAR: Flags_SetRandoInf(RANDO_INF_OBTAINED_MOONS_TEAR); break;
+        case RI_DEED_LAND: Flags_SetRandoInf(RANDO_INF_OBTAINED_DEED_LAND); break;
+        case RI_DEED_SWAMP: Flags_SetRandoInf(RANDO_INF_OBTAINED_DEED_SWAMP); break;
+        case RI_DEED_MOUNTAIN: Flags_SetRandoInf(RANDO_INF_OBTAINED_DEED_MOUNTAIN); break;
+        case RI_DEED_OCEAN: Flags_SetRandoInf(RANDO_INF_OBTAINED_DEED_OCEAN); break;
+        case RI_ROOM_KEY: Flags_SetRandoInf(RANDO_INF_OBTAINED_ROOM_KEY); break;
+        case RI_LETTER_TO_MAMA: Flags_SetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_MAMA); break;
+        case RI_LETTER_TO_KAFEI: Flags_SetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_KAFEI); break;
+        case RI_PENDANT_OF_MEMORIES: Flags_SetRandoInf(RANDO_INF_OBTAINED_PENDANT_OF_MEMORIES); break;
+        case RI_POWDER_KEG: Flags_SetWeekEventReg(WEEKEVENTREG_HAS_POWDERKEG_PRIVILEGES); break;
+        case RI_GREAT_SPIN_ATTACK: SET_WEEKEVENTREG(WEEKEVENTREG_RECEIVED_GREAT_SPIN_ATTACK); break;
+        case RI_ABILITY_SWIM: Flags_SetRandoInf(RANDO_INF_OBTAINED_SWIM); break;
+
+        // Ocarina buttons
+        case RI_OCARINA_BUTTON_A:
+        case RI_OCARINA_BUTTON_C_DOWN:
+        case RI_OCARINA_BUTTON_C_LEFT:
+        case RI_OCARINA_BUTTON_C_RIGHT:
+        case RI_OCARINA_BUTTON_C_UP:
+            Flags_SetRandoInf(RANDO_INF_OBTAINED_OCARINA_BUTTON_A + (ri - RI_OCARINA_BUTTON_A));
+            break;
+
+        // Songs (song double/inverted time)
+        case RI_SONG_DOUBLE_TIME: Flags_SetRandoInf(RANDO_INF_OBTAINED_SONG_DOUBLE_TIME); break;
+        case RI_SONG_INVERTED_TIME: Flags_SetRandoInf(RANDO_INF_OBTAINED_SONG_INVERTED_TIME); break;
+
+        // Clock items
+        case RI_TIME_DAY_1: case RI_TIME_NIGHT_1:
+        case RI_TIME_DAY_2: case RI_TIME_NIGHT_2:
+        case RI_TIME_DAY_3: case RI_TIME_NIGHT_3: {
+            int index = Rando::ClockItems::GetHalfDayIndexFromClockItem(ri);
+            if (index != Rando::ClockItems::INVALID) {
+                Flags_SetRandoInf(static_cast<RandoInf>(RANDO_INF_OBTAINED_CLOCK_DAY_1 + index));
+            }
+            break;
+        }
+        case RI_TIME_PROGRESSIVE: {
+            RandoItemId concrete = Rando::ConvertItem(RI_TIME_PROGRESSIVE);
+            if (concrete != RI_JUNK) GiveItemForOracle(concrete);
+            break;
+        }
+
+        // Souls
+        case RI_SOUL_BOSS_GOHT: case RI_SOUL_BOSS_GYORG: case RI_SOUL_BOSS_MAJORA:
+        case RI_SOUL_BOSS_ODOLWA: case RI_SOUL_BOSS_TWINMOLD:
+            Flags_SetRandoInf(SOUL_RI_TO_RANDO_INF(ri));
+            break;
+
+        // Progressive items — convert then recurse
+        case RI_PROGRESSIVE_MAGIC:
+        case RI_PROGRESSIVE_BOW:
+        case RI_PROGRESSIVE_BOMB_BAG:
+        case RI_PROGRESSIVE_LULLABY:
+        case RI_PROGRESSIVE_SWORD:
+        case RI_PROGRESSIVE_WALLET:
+            GiveItemForOracle(Rando::ConvertItem(ri));
+            break;
+
+        // Frogs
+        case RI_FROG_BLUE: SET_WEEKEVENTREG(WEEKEVENTREG_33_01); break;
+        case RI_FROG_CYAN: SET_WEEKEVENTREG(WEEKEVENTREG_32_40); break;
+        case RI_FROG_PINK: SET_WEEKEVENTREG(WEEKEVENTREG_32_80); break;
+        case RI_FROG_WHITE: SET_WEEKEVENTREG(WEEKEVENTREG_33_02); break;
+
+        // GS tokens
+        case RI_GS_TOKEN_SWAMP:
+            SET_QUEST_ITEM(QUEST_QUIVER);
+            Inventory_IncrementSkullTokenCount(SCENE_KINSTA1);
+            break;
+        case RI_GS_TOKEN_OCEAN:
+            SET_QUEST_ITEM(QUEST_QUIVER);
+            Inventory_IncrementSkullTokenCount(SCENE_KINDAN2);
+            break;
+
+        default: {
+            // Standard items: set inventory slot directly (what HAS_ITEM checks).
+            auto it = Rando::StaticData::Items.find(ri);
+            if (it != Rando::StaticData::Items.end()) {
+                u8 itemId = it->second.itemId;
+                if (itemId != ITEM_NONE && itemId < ITEM_FD) {
+                    INV_CONTENT(itemId) = itemId;
+                    // Songs go in quest items too
+                    if (itemId >= ITEM_SONG_SONATA && itemId <= ITEM_SONG_SUN) {
+                        SET_QUEST_ITEM(QUEST_SONG_SONATA + (itemId - ITEM_SONG_SONATA));
+                    }
+                }
+            }
+            break;
+        }
+    }
+}
+
+extern "C" __declspec(dllexport) void Combo_MM_Rando_Reset(void) {
+    MM_InitRandoLogic();
+    memcpy(&sMM_OracleSavedContext, &gSaveContext, sizeof(SaveContext));
+    sMM_OracleSavedRegionTime = gCurrentRegionTime;
+    memset(&gSaveContext, 0, sizeof(SaveContext));
+}
+
+extern "C" __declspec(dllexport) void Combo_MM_Rando_SetOwnedItems(const char* itemNamesJson) {
+    if (!itemNamesJson) return;
+    try {
+        auto items = nlohmann::json::parse(itemNamesJson);
+        for (const auto& name : items) {
+            std::string itemStr = name.get<std::string>();
+            for (auto& [id, item] : Rando::StaticData::Items) {
+                if (item.spoilerName && itemStr == item.spoilerName) {
+                    GiveItemForOracle(id);
+                    break;
+                }
+            }
+        }
+    } catch (...) {}
+}
+
+extern "C" __declspec(dllexport) const char* Combo_MM_Rando_GetReachableChecks(void) {
+    static std::string buf;
+
+    std::set<RandoRegionId> reachable = { RR_MAX };
+    auto timeStates = Rando::Logic::InitializeRegionTimeStates(RR_MAX);
+
+    bool changed = true;
+    while (changed) {
+        size_t prevSize = reachable.size();
+        for (auto regionId : std::set<RandoRegionId>(reachable)) {
+            Rando::Logic::FindReachableRegions(regionId, reachable, timeStates);
+        }
+        changed = (reachable.size() != prevSize);
+    }
+
+    nlohmann::json out = nlohmann::json::array();
+    for (RandoRegionId regionId : reachable) {
+        auto regIt = Rando::Logic::Regions.find(regionId);
+        if (regIt == Rando::Logic::Regions.end()) continue;
+        auto& region = regIt->second;
+
+        auto tsIt = timeStates.find(regionId);
+        if (tsIt != timeStates.end()) {
+            gCurrentRegionTime = tsIt->second.timeSlices;
+        }
+
+        for (auto& [checkId, checkLogic] : region.checks) {
+            if (checkLogic.first()) {
+                auto chkIt = Rando::StaticData::Checks.find(checkId);
+                if (chkIt != Rando::StaticData::Checks.end() && chkIt->second.name) {
+                    out.push_back(chkIt->second.name);
+                }
+            }
+        }
+    }
+
+    buf = out.dump();
+    return buf.c_str();
+}
+
+extern "C" __declspec(dllexport) void Combo_MM_Rando_PlaceItem(
+    const char* checkName, const char* itemName) {
+    if (!checkName || !itemName) return;
+    for (auto& [id, chk] : Rando::StaticData::Checks) {
+        if (chk.name && std::string(chk.name) == checkName) {
+            for (auto& [ri, item] : Rando::StaticData::Items) {
+                if (item.spoilerName && std::string(item.spoilerName) == itemName) {
+                    RANDO_SAVE_CHECKS[id].randoItemId = ri;
+                    RANDO_SAVE_CHECKS[id].shuffled = true;
+                    return;
+                }
+            }
+            return;
+        }
+    }
+}
+
+extern "C" __declspec(dllexport) void Combo_MM_Rando_Restore(void) {
+    memcpy(&gSaveContext, &sMM_OracleSavedContext, sizeof(SaveContext));
+    gCurrentRegionTime = sMM_OracleSavedRegionTime;
 }
 
 // Helper to redirect the user to the boot screen in place of known console crash scenarios, and emits a notification

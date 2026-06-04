@@ -15,6 +15,7 @@
 #include "soh/ObjectExtension/ObjectExtension.h"
 #include "item_category_adj.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
+#include "rando/CrossMailbox.h"  // ComboShip: cross-world mailbox
 
 extern "C" {
 #include "macros.h"
@@ -2710,11 +2711,32 @@ void RandomizerOnCuccoOrChickenHatch() {
     }
 }
 
+#ifdef COMBO_BUILD
+// ComboShip: grant any cross-world items addressed to OOT for the current slot.
+static void RandomizerOnPlayerUpdateForCrossMailboxHandler() {
+    if (gPlayState == nullptr) return;
+    int slot = gSaveContext.fileNum;   // OOT's file number is the canonical slot
+    auto pending = ComboRando::LoadPending(slot, ComboRando::GAME_OOT);
+    if (pending.empty()) return;
+
+    for (const auto& e : pending) {
+        // Increment 1: prove delivery with a visible, safe grant. Full RG_*/RI_* mapping = Increment 3.
+        Item_Give(gPlayState, ITEM_RUPEE_BLUE);
+        SPDLOG_INFO("[ComboShip] OOT received cross item '{}' (from MM): granted placeholder rupee",
+                    e.itemName);
+    }
+    ComboRando::MarkAllDelivered(slot, ComboRando::GAME_OOT);
+}
+#endif
+
 static void RandomizerRegisterHooks() {
     static uint32_t onFlagSetHook = 0;
     static uint32_t onSceneFlagSetHook = 0;
     static uint32_t onPlayerUpdateForRCQueueHook = 0;
     static uint32_t onPlayerUpdateForItemQueueHook = 0;
+#ifdef COMBO_BUILD
+    static uint32_t onPlayerUpdateForCrossMailboxHook = 0;
+#endif
     static uint32_t onItemReceiveHook = 0;
     static uint32_t onDialogMessageHook = 0;
     static uint32_t onVanillaBehaviorHook = 0;
@@ -2748,6 +2770,9 @@ static void RandomizerRegisterHooks() {
         GameInteractor::Instance->UnregisterGameHook<GameInteractor::OnSceneFlagSet>(onSceneFlagSetHook);
         GameInteractor::Instance->UnregisterGameHook<GameInteractor::OnPlayerUpdate>(onPlayerUpdateForRCQueueHook);
         GameInteractor::Instance->UnregisterGameHook<GameInteractor::OnPlayerUpdate>(onPlayerUpdateForItemQueueHook);
+#ifdef COMBO_BUILD
+        GameInteractor::Instance->UnregisterGameHook<GameInteractor::OnPlayerUpdate>(onPlayerUpdateForCrossMailboxHook);
+#endif
         GameInteractor::Instance->UnregisterGameHook<GameInteractor::OnItemReceive>(onItemReceiveHook);
         GameInteractor::Instance->UnregisterGameHook<GameInteractor::OnItemReceive>(onDialogMessageHook);
         GameInteractor::Instance->UnregisterGameHook<GameInteractor::OnVanillaBehavior>(onVanillaBehaviorHook);
@@ -2767,6 +2792,9 @@ static void RandomizerRegisterHooks() {
         onSceneFlagSetHook = 0;
         onPlayerUpdateForRCQueueHook = 0;
         onPlayerUpdateForItemQueueHook = 0;
+#ifdef COMBO_BUILD
+        onPlayerUpdateForCrossMailboxHook = 0;
+#endif
         onItemReceiveHook = 0;
         onDialogMessageHook = 0;
         onVanillaBehaviorHook = 0;
@@ -2802,6 +2830,10 @@ static void RandomizerRegisterHooks() {
             RandomizerOnPlayerUpdateForRCQueueHandler);
         onPlayerUpdateForItemQueueHook = GameInteractor::Instance->RegisterGameHook<GameInteractor::OnPlayerUpdate>(
             RandomizerOnPlayerUpdateForItemQueueHandler);
+#ifdef COMBO_BUILD
+        onPlayerUpdateForCrossMailboxHook = GameInteractor::Instance->RegisterGameHook<GameInteractor::OnPlayerUpdate>(
+            RandomizerOnPlayerUpdateForCrossMailboxHandler);
+#endif
         onItemReceiveHook =
             GameInteractor::Instance->RegisterGameHook<GameInteractor::OnItemReceive>(RandomizerOnItemReceiveHandler);
         onDialogMessageHook = GameInteractor::Instance->RegisterGameHook<GameInteractor::OnDialogMessage>(

@@ -147,6 +147,7 @@ int main(int argc, char** argv) {
 
     // ComboShip: surface any mailbox left from a previous session (debug aid; harmless if absent).
     {
+        // Slot 0 only for now; expand when multi-slot save is wired.
         auto leftover = ComboRando::LoadAll(0);
         if (!leftover.empty()) {
             std::cout << "[ComboShip] mailbox slot0 has " << leftover.size()

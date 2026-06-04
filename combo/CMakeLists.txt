@@ -13,6 +13,11 @@ set(COMBO_SOURCES
 # Create executable
 add_executable(ComboShip ${COMBO_SOURCES})
 
+# Portable relative-include fix: MSVC VS generator implicitly adds the source file's directory,
+# but Ninja/Unix builds do not. Explicitly add the combo source dir so that includes like
+# "rando/CrossMailbox.h" resolve on all generators.
+target_include_directories(ComboShip PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
 # nlohmann/json is used by combo/rando/CrossMailbox.h (header-only, pulled transitively through vcpkg)
 find_package(nlohmann_json REQUIRED)
 target_link_libraries(ComboShip PRIVATE nlohmann_json::nlohmann_json)

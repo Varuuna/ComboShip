@@ -9,6 +9,7 @@
 #include "Traps.h"
 #ifdef COMBO_BUILD
 #include "rando/CrossMailbox.h"  // ComboShip: cross-world mailbox
+#include "2s2h/SaveManager/SaveManager.h"  // ComboShip: persist delivered cross items into the MM save
 #endif
 
 extern "C" {
@@ -35,6 +36,11 @@ static void Rando_CrossMailboxDrain() {
         SPDLOG_INFO("[ComboShip] MM received cross item '{}' (from OOT): granted placeholder rupee",
                     e.itemName);
     }
+    // ComboShip: persist the granted items straight into the MM save file so they survive even if the
+    // player never triggers an in-game save — this is the "deliver into the save" model (vs a volatile
+    // runtime queue). Write before marking delivered so a crash between the two re-delivers (dupe) rather
+    // than loses the item.
+    SaveManager_SaveCurrentForCombo();
     if (!ComboRando::MarkAllDelivered(slot, ComboRando::GAME_MM)) {
         SPDLOG_WARN("[ComboShip] MM: failed to persist mailbox delivery for slot {}", slot);
     }

@@ -29,6 +29,15 @@ void Rando::Init() {
     Ship::Context::GetInstance()->GetFileDropMgr()->RegisterDropHandler(Rando::Spoiler::HandleFileDropped);
 
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnSaveLoad>(OnSaveLoadHandler);
+
+#ifdef COMBO_BUILD
+    // ComboShip: the combo MM boot force-spawns via title_setup and never fires GameInteractor's
+    // OnSaveLoad (only the normal file-select / opening paths call GameInteractor_ExecuteOnSaveLoad),
+    // so OnSaveLoadHandler -> MiscBehavior::OnFileLoad -> InitCrossMailboxDrain never runs in combo.
+    // Register the cross-world mailbox drain here at boot so OOT->MM delivery works regardless of the
+    // rando OnSaveLoad path. (Rando::Init runs once per process at MM boot; the hook then persists.)
+    Rando::MiscBehavior::InitCrossMailboxDrain();
+#endif
 }
 
 RandoCheckId Rando::FindItemPlacement(RandoItemId randoItemId) {

@@ -14,6 +14,30 @@
 
 ---
 
+## ⚠ REVISED APPROACH (post de-risk gate, 2026-06-04) — supersedes the MM headless-region parts below
+
+The original Task 1 de-risk (`MM_InitRandoRuntime` = `ShipInit::InitAll()`) **failed**: `ShipInit::InitAll()` runs `Init("*")` = ALL registered init funcs (region-builders register only under `"*"`, no category), and running them before the shared libultraship Context exists crashed `SOH_Init`'s `Context::CreateUninitializedInstance`. MM's region/logic GRAPH is not cheaply buildable headless.
+
+**Revised, user-approved design — Combo-owned tables via headless static dumps, no-logic only:**
+- Each game gets a thin **headless `*_DumpRandoStaticData()` export** that walks its `StaticData` check + item tables (these ARE populated at DLL-load static-init, unlike the region graph) and returns JSON: checks `{name, vanillaItem}` + items `{name}`. MM: `Rando::StaticData::Checks[rc].name`/`.randoItemId`, `Items[ri].spoilerName`. OOT: location table names + item table names.
+- The **combo layer owns the combined table** built from those dumps and does the **no-logic assignment** — it never runs MM's `GeneratePools`, `Regions`, or `ShipInit::InitAll`.
+- Simplest assignment = **permutation of vanilla-check-items** (item multiset == every shuffled check's vanilla item → counts match exactly, no junk/extras logic). Phase 1 = per-game permutation (native-only); Phase 2 = combined permutation across both games' checks (cross-place) + foreign markers.
+- **Combo owns ITEMS, not logic** (no-logic now; logic graphs are code, not data — deferred; schema can be made logic-ready later).
+- **Safety rule (the gate's lesson):** never touch shared libultraship state before `SOH_Init`. Call dumps/generation at/after OOT save creation (Context + logger live), or at-startup only AFTER `SOH_Init`.
+
+**Revised Phase 1 task list (replaces Tasks 1-2 below; Tasks 3-7 adjust to consume dumps):**
+- T1: `SOH_DumpRandoStaticData` + `MM_DumpRandoStaticData` headless exports + de-risk gate (call after `SOH_Init`, log non-zero check/item counts).
+- T2: combo-owned combined table + no-logic permutation assignment + combined spoiler (`combo/rando/CrossWorldRando.h`).
+- T3: `SOH_ApplyRandoPlacements` (inject OOT) + `gComboGenerateCallback` hook (`OTRGlobals.cpp` + `z_sram.c`).
+- T4: `MM_InitRandoSaveFile(fileNum, json)` (write MM rando save).
+- T5: combo orchestration (callback → dumps → assign → inject OOT + create MM rando save).
+- T6: rando-only enforcement (OOT quest forced; MM save = rando).
+- T7: E2E verify (combined spoiler + both rando saves; native checks deliver) + docs.
+
+(The `MM_InitRandoRuntime`/`MM_BuildRandoPools` items and the "MM headless via GeneratePools" findings below are SUPERSEDED. The OOT findings, the `gComboGenerateCallback`/injection seams, and the rando-only/spoiler findings remain valid.)
+
+---
+
 ## Validated findings (from 2026-06-04 investigation — treat as ground truth)
 
 **OOT (`soh.dll`), all in `soh/soh/Enhancements/randomizer/`:**

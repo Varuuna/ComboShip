@@ -22,6 +22,7 @@ extern s16 D_801CFF94[250];
 // ComboShip: grant any cross-world items addressed to MM for the current slot.
 static void Rando_CrossMailboxDrain() {
     if (gPlayState == nullptr) return;
+    if (gSaveContext.fileNum == 0xFF) return;  // no real save loaded (title / debug sentinel)
     int slot = gSaveContext.fileNum - 1;  // canonical OOT slot (MM file N+1 <-> OOT slot N)
     if (slot < 0) return;
     auto pending = ComboRando::LoadPending(slot, ComboRando::GAME_MM);

@@ -2620,6 +2620,44 @@ extern "C" __declspec(dllexport) bool MM_Extract(const char* searchPath) {
 }
 #endif
 
+// ComboShip Inc2: headless dump of MM static rando tables (checks + items).
+// HEADLESS-SAFE: Rando::StaticData::Checks and ::Items are std::map instances
+// populated by static initializers in Checks.cpp / Items.cpp at DLL-load time —
+// before any function executes. No ShipInit::InitAll, no region graph, no
+// Context-dependent calls inside this function.
+// Caller MUST invoke this AFTER SOH_Init() returns (so the Context + logger exist
+// in the shared libultraship.dll), but the DATA itself is safe to read at any point.
+extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
+    static std::string cached;
+    if (!cached.empty()) return cached.c_str();
+
+    nlohmann::json checks = nlohmann::json::array();
+    nlohmann::json items  = nlohmann::json::array();
+
+    for (auto& [id, chk] : Rando::StaticData::Checks) {
+        if (!chk.name || chk.name[0] == '\0') continue;
+        nlohmann::json entry = { {"name", chk.name} };
+
+        // MM stores vanilla item per check via randoItemId.
+        if (chk.randoItemId != RI_UNKNOWN) {
+            auto it = Rando::StaticData::Items.find(chk.randoItemId);
+            if (it != Rando::StaticData::Items.end() &&
+                it->second.spoilerName && it->second.spoilerName[0] != '\0') {
+                entry["vanillaItem"] = it->second.spoilerName;
+            }
+        }
+        checks.push_back(std::move(entry));
+    }
+
+    for (auto& [id, item] : Rando::StaticData::Items) {
+        if (!item.spoilerName || item.spoilerName[0] == '\0') continue;
+        items.push_back({ {"name", item.spoilerName} });
+    }
+
+    cached = nlohmann::json{ {"checks", std::move(checks)}, {"items", std::move(items)} }.dump();
+    return cached.c_str();
+}
+
 // Helper to redirect the user to the boot screen in place of known console crash scenarios, and emits a notification
 extern "C" bool Ship_HandleConsoleCrashAsReset() {
     // If fix crashes is on, return false and let fallback handling process in source

@@ -2583,6 +2583,52 @@ extern "C" __declspec(dllexport) bool SOH_Extract(const char* searchPath) {
 }
 #endif
 
+// ComboShip Inc2: headless dump of OOT static rando tables (checks + items).
+// HEADLESS-SAFE: reads only StaticData::locationTable + itemTable, both populated
+// by InitLocationTable()/InitItemTable() inside SOH_Init(). No region graph, no
+// GeneratePools, no Context-dependent calls inside this function.
+// Caller MUST invoke this AFTER SOH_Init() returns.
+extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
+    static std::string cached;
+    if (!cached.empty()) return cached.c_str();
+
+    nlohmann::json checks = nlohmann::json::array();
+    nlohmann::json items  = nlohmann::json::array();
+
+    // Iterate every check in the location table (RC_UNKNOWN_CHECK=0 … RC_MAX-1).
+    // GetLocation returns a pointer into the static array; it is valid for the
+    // lifetime of the process.
+    for (int rc = 0; rc < RC_MAX; ++rc) {
+        Rando::Location* loc = Rando::StaticData::GetLocation(static_cast<RandomizerCheck>(rc));
+        if (!loc) continue;
+        const std::string& name = loc->GetName();
+        if (name.empty()) continue;
+
+        nlohmann::json entry = { {"name", name} };
+
+        // OOT stores the vanilla item per location via vanillaItem (RandomizerGet).
+        RandomizerGet vanillaRG = loc->GetVanillaItem();
+        if (vanillaRG != RG_NONE) {
+            const std::string& vigName = Rando::StaticData::RetrieveItem(vanillaRG).GetName().GetEnglish();
+            if (!vigName.empty()) {
+                entry["vanillaItem"] = vigName;
+            }
+        }
+        checks.push_back(std::move(entry));
+    }
+
+    // Iterate every item in the item table (RG_NONE=0 … RG_MAX-1).
+    for (int rg = 0; rg < RG_MAX; ++rg) {
+        Rando::Item& item = Rando::StaticData::RetrieveItem(static_cast<RandomizerGet>(rg));
+        const std::string& name = item.GetName().GetEnglish();
+        if (name.empty()) continue;
+        items.push_back({ {"name", name} });
+    }
+
+    cached = nlohmann::json{ {"checks", std::move(checks)}, {"items", std::move(items)} }.dump();
+    return cached.c_str();
+}
+
 bool SoH_HandleConfigDrop(char* filePath) {
     if (SohUtils::IsStringEmpty(filePath)) {
         return false;

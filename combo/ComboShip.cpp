@@ -96,6 +96,11 @@ typedef void (*FnMMResume)(int);
 static FnMMResume    MM_ResumeGame          = nullptr;
 static FnVoidArgless MM_PrepareForTransition = nullptr;
 
+// ComboShip Inc2: headless static-data dump exports
+typedef const char* (*FnDumpData)(void);
+static FnDumpData SOH_DumpRandoStaticData = nullptr;
+static FnDumpData MM_DumpRandoStaticData  = nullptr;
+
 static int g_PendingMMFileNum = -1;
 
 static void Combo_OnOOTSaveInit(int fileNum) {
@@ -210,6 +215,8 @@ int main(int argc, char** argv) {
     SOH_NotifyComboReturn        = (FnVoidArgless)            GetSym(sohModule, "SOH_NotifyComboReturn");
     MM_ResumeGame                = (FnMMResume)               GetSym(mmModule,  "MM_ResumeGame");
     MM_PrepareForTransition      = (FnVoidArgless)            GetSym(mmModule,  "MM_PrepareForTransition");
+    SOH_DumpRandoStaticData      = (FnDumpData)               GetSym(sohModule, "SOH_DumpRandoStaticData");
+    MM_DumpRandoStaticData       = (FnDumpData)               GetSym(mmModule,  "MM_DumpRandoStaticData");
 
     if (!MM_InitArchives) {
         std::cerr << "ERROR: 2ship.dll is missing required ComboShip exports (MM_InitArchives)." << std::endl;
@@ -284,6 +291,16 @@ int main(int argc, char** argv) {
         return 1;
     }
     std::cout << "[ComboShip] OOT initialized." << std::endl;
+
+    // ComboShip Inc2 de-risk: confirm BOTH games' static rando data dumps headlessly (safe AFTER SOH_Init).
+    if (SOH_DumpRandoStaticData) {
+        auto j = nlohmann::json::parse(SOH_DumpRandoStaticData());
+        std::cout << "[ComboShip] OOT static dump: " << j["checks"].size() << " checks, " << j["items"].size() << " items\n";
+    }
+    if (MM_DumpRandoStaticData) {
+        auto j = nlohmann::json::parse(MM_DumpRandoStaticData());
+        std::cout << "[ComboShip] MM static dump: " << j["checks"].size() << " checks, " << j["items"].size() << " items\n";
+    }
 
     // --- 5. Register OOT callbacks ---
     // Note: MM_InitArchives (dormant archive pre-load) is skipped — Ship::ArchiveManager::Init

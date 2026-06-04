@@ -24,13 +24,13 @@ struct MailboxEntry {
 };
 
 inline void to_json(nlohmann::json& j, const MailboxEntry& e) {
-    j = nlohmann::json{ {"srcGame", (int)e.srcGame}, {"dstGame", (int)e.dstGame},
+    j = nlohmann::json{ {"srcGame", static_cast<int>(e.srcGame)}, {"dstGame", static_cast<int>(e.dstGame)},
                         {"itemName", e.itemName}, {"displayName", e.displayName},
                         {"srcCheckName", e.srcCheckName}, {"delivered", e.delivered} };
 }
 inline void from_json(const nlohmann::json& j, MailboxEntry& e) {
-    e.srcGame      = (GameId)j.value("srcGame", 0);
-    e.dstGame      = (GameId)j.value("dstGame", 0);
+    e.srcGame      = static_cast<GameId>(j.value("srcGame", 0));
+    e.dstGame      = static_cast<GameId>(j.value("dstGame", 0));
     e.itemName     = j.value("itemName", std::string{});
     e.displayName  = j.value("displayName", std::string{});
     e.srcCheckName = j.value("srcCheckName", std::string{});
@@ -45,10 +45,7 @@ inline std::filesystem::path MailboxPath(int canonicalSlot) {
 
 inline std::vector<MailboxEntry> LoadAll(int canonicalSlot) {
     std::vector<MailboxEntry> out;
-    std::error_code ec;
-    auto path = MailboxPath(canonicalSlot);
-    if (!std::filesystem::exists(path, ec)) return out;
-    std::ifstream in(path);
+    std::ifstream in(MailboxPath(canonicalSlot));
     if (!in.is_open()) return out;
     try {
         nlohmann::json j; in >> j;
@@ -70,16 +67,20 @@ inline bool WriteAll(int canonicalSlot, const std::vector<MailboxEntry>& entries
         nlohmann::json j;
         j["entries"] = entries;
         out << j.dump(2);
-        if (!out.good()) return false;
+        if (!out.good()) {
+            out.close();
+            std::filesystem::remove(tmp, ec);
+            return false;
+        }
     }
     std::filesystem::rename(tmp, path, ec);   // atomic on same volume
     return !ec;
 }
 
-inline void Enqueue(int canonicalSlot, const MailboxEntry& entry) {
+inline bool Enqueue(int canonicalSlot, const MailboxEntry& entry) {
     auto entries = LoadAll(canonicalSlot);
     entries.push_back(entry);
-    WriteAll(canonicalSlot, entries);
+    return WriteAll(canonicalSlot, entries);
 }
 
 // Returns undelivered entries addressed to dstGame (does not mutate the file).
@@ -92,12 +93,12 @@ inline std::vector<MailboxEntry> LoadPending(int canonicalSlot, GameId dstGame) 
 }
 
 // Marks every undelivered entry addressed to dstGame as delivered, persists.
-inline void MarkAllDelivered(int canonicalSlot, GameId dstGame) {
+inline bool MarkAllDelivered(int canonicalSlot, GameId dstGame) {
     auto entries = LoadAll(canonicalSlot);
     for (auto& e : entries) {
         if (!e.delivered && e.dstGame == dstGame) e.delivered = true;
     }
-    WriteAll(canonicalSlot, entries);
+    return WriteAll(canonicalSlot, entries);
 }
 
 } // namespace ComboRando

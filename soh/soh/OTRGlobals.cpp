@@ -1645,8 +1645,12 @@ __declspec(dllexport)
 extern "C" void SOH_PrepareForTransition(void) {
     SaveManager_ThreadPoolWait();
     OTRAudio_Exit();
-    SohGui::Destroy();
-    // Context, window, and resource manager are intentionally kept alive for MM to reuse.
+    // ComboShip: do NOT SohGui::Destroy() here. The Gui is a single shared libultraship instance that
+    // persists across transitions; OOT's windows are set up once at first boot and stay resident (same
+    // model MM uses — see MM_PrepareForTransition). Tearing them down forces a SetupGuiElements rebuild
+    // on resume, but the shared Gui still holds the old windows so AddGuiWindow rejects the duplicates;
+    // the rejected windows never get InitElement'd, and freeing their uninitialized buffers on the next
+    // rebuild crashes (0xCD heap marker). Context, window, and resource manager are kept alive for MM.
 }
 #endif
 
@@ -2522,9 +2526,13 @@ static void SOH_ReinitForResume() {
     // Restart OOT's audio thread (SOH_PrepareForTransition stopped it). Soundfonts/samples are still
     // resident in OOT's RM, so the thread resumes against valid data with no reload/heap reset.
     OTRAudio_Init();              // counterpart to OTRAudio_Exit() in SOH_PrepareForTransition
-    SohGui::SetupGuiElements();   // counterpart to SohGui::Destroy() in SOH_PrepareForTransition
-    // ComboShip: restore OOT's menu into the shared Gui's single menu slot (MM set it to its BenMenu
-    // while it was the active game). mSohMenu persists (SohGui::Destroy doesn't clear it).
+    // ComboShip: do NOT SohGui::SetupGuiElements() here. OOT's windows persist across the transition
+    // (SOH_PrepareForTransition no longer destroys them), so re-creating them would hit AddGuiWindow's
+    // duplicate-name rejection -> the new windows never get InitElement'd -> freeing their uninitialized
+    // buffers on the next rebuild crashes. The resident windows are still fully initialized; we only
+    // need to swap the active RM/audio (above) and restore OOT's menu (below).
+    // Restore OOT's menu into the shared Gui's single menu slot (MM set it to its BenMenu while it was
+    // the active game). mSohMenu persists.
     ctx->GetWindow()->GetGui()->SetMenu(SohGui::GetSohMenu());
 }
 

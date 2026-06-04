@@ -2717,6 +2717,7 @@ void RandomizerOnCuccoOrChickenHatch() {
 // ComboShip: grant any cross-world items addressed to OOT for the current slot.
 static void RandomizerOnPlayerUpdateForCrossMailboxHandler() {
     if (gPlayState == nullptr) return;
+    if (gSaveContext.fileNum == 0xFF) return;  // no real save loaded
     int slot = gSaveContext.fileNum;   // OOT's file number is the canonical slot
     auto pending = ComboRando::LoadPending(slot, ComboRando::GAME_OOT);
     if (pending.empty()) return;
@@ -2814,6 +2815,14 @@ static void RandomizerRegisterHooks() {
         onKaleidoUpdateHook = 0;
         onCuccoOrChickenHatchHook = 0;
 
+#ifdef COMBO_BUILD
+        // ComboShip: the cross-world mailbox drain is NOT rando-gated — ComboShip is a randomizer
+        // experience and the channel must deliver regardless of the local save's quest flag. Register
+        // it before the IS_RANDO gate below; it is a no-op when the mailbox is empty.
+        onPlayerUpdateForCrossMailboxHook = GameInteractor::Instance->RegisterGameHook<GameInteractor::OnPlayerUpdate>(
+            RandomizerOnPlayerUpdateForCrossMailboxHandler);
+#endif
+
         if (!IS_RANDO)
             return;
 
@@ -2834,10 +2843,6 @@ static void RandomizerRegisterHooks() {
             RandomizerOnPlayerUpdateForRCQueueHandler);
         onPlayerUpdateForItemQueueHook = GameInteractor::Instance->RegisterGameHook<GameInteractor::OnPlayerUpdate>(
             RandomizerOnPlayerUpdateForItemQueueHandler);
-#ifdef COMBO_BUILD
-        onPlayerUpdateForCrossMailboxHook = GameInteractor::Instance->RegisterGameHook<GameInteractor::OnPlayerUpdate>(
-            RandomizerOnPlayerUpdateForCrossMailboxHandler);
-#endif
         onItemReceiveHook =
             GameInteractor::Instance->RegisterGameHook<GameInteractor::OnItemReceive>(RandomizerOnItemReceiveHandler);
         onDialogMessageHook = GameInteractor::Instance->RegisterGameHook<GameInteractor::OnDialogMessage>(

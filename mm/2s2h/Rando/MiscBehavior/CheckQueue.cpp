@@ -157,8 +157,10 @@ void Rando::MiscBehavior::CheckQueueReset() {
 
 #ifdef COMBO_BUILD
 // ComboShip: register the cross-world mailbox drain hook alongside CheckQueue's own hook.
-// Called from OnFileLoad so it is only active in a rando save (IS_RANDO guard).
+// NOT rando-gated (condition `true`): ComboShip is a randomizer experience and the cross-game
+// channel must deliver regardless of the local save's saveType (combo MM saves aren't flagged
+// SAVETYPE_RANDO until the Increment 2 generator). The drain is a no-op on an empty mailbox.
 void Rando::MiscBehavior::InitCrossMailboxDrain() {
-    COND_ID_HOOK(OnActorUpdate, ACTOR_PLAYER, IS_RANDO, [](Actor* actor) { Rando_CrossMailboxDrain(); });
+    COND_ID_HOOK(OnActorUpdate, ACTOR_PLAYER, true, [](Actor* actor) { Rando_CrossMailboxDrain(); });
 }
 #endif

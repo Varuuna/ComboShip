@@ -267,3 +267,39 @@ mm used pre-migration APIs soh@develop had already moved past):**
 **Known stale-user-data crash (NOT a code bug):** old randomizer spoilers in `x64/Debug/Randomizer/*.json`
 (pre-merge seeds) reference renamed option variants (e.g. `"Bombchu Bag": "Off"` → now `"None"`) →
 `Settings::ParseJson` → `assert(false)` at file-select. Clear stale rando seeds / use a non-rando save.
+
+## Cross-World Randomizer (ComboShip feature) — Increment 1 (2026-06-04)
+
+A net-new ComboShip feature (cross-game item delivery), not an upstream adaptation — but it adds
+`#ifdef COMBO_BUILD`-guarded blocks to vendored **soh** and **mm** port files. Every block is guarded
+and carries a `// ComboShip:` comment; **preserve these on future upstream merges** (they will not
+conflict unless upstream rewrites the exact functions). Spec/plan:
+`docs/superpowers/specs/2026-06-04-combo-crossworld-randomizer-scope-a.md` /
+`docs/superpowers/plans/2026-06-04-crossworld-randomizer-increment-1-mailbox.md`.
+
+The delivery channel is a header-only mailbox `combo/rando/CrossMailbox.h` (`namespace ComboRando`,
+not an upstream file) backed by `saves/combo/slot{N}.mailbox.json`, keyed by the canonical OOT slot N
+(MM uses `gSaveContext.fileNum - 1`). Increment 1 proves the channel with debug send-triggers + a
+placeholder blue-rupee grant on receive; real seed generation, pickup-interception, foreign-item
+markers and the gift presentation are later increments.
+
+**New, non-upstream files (no merge risk):**
+- `combo/rando/CrossMailbox.h` — the shared mailbox module (compiled into soh.dll, 2ship.dll, ComboShip.exe).
+
+**Build glue (preserve on merges):**
+- `combo/CMakeLists.txt` — `find_package(nlohmann_json)` + link to `ComboShip`; `target_include_directories(ComboShip PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})`.
+- `soh/CMakeLists.txt` and `mm/CMakeLists.txt` — added `${CMAKE_CURRENT_SOURCE_DIR}/../combo` to each game target's include dirs so `"rando/CrossMailbox.h"` resolves.
+
+**soh (`soh/soh/...`, all COMBO_BUILD-guarded):**
+- `combo/ComboShip.cpp` — startup log of any leftover mailbox (slot 0) — diagnostic only.
+- `Enhancements/randomizer/hook_handlers.cpp` — `RandomizerOnPlayerUpdateForCrossMailboxHandler` (drains OOT-bound mailbox entries on `OnPlayerUpdate`, placeholder blue-rupee grant) + its hook register/unregister/reset lifecycle (mirrors `onPlayerUpdateForItemQueueHook`). Guarded `#include "rando/CrossMailbox.h"`.
+- `Enhancements/debugconsole.cpp` — `cross_send <itemName>` console command (enqueues an MM-bound entry for the current slot).
+
+**mm (`mm/2s2h/...`, all COMBO_BUILD-guarded):**
+- `Rando/MiscBehavior/CheckQueue.cpp` — `Rando_CrossMailboxDrain` (drains MM-bound entries each player-update, placeholder grant; guards the `0xFF` no-save sentinel + `slot < 0`) and `InitCrossMailboxDrain` (registers it via the same `COND_ID_HOOK(OnActorUpdate, ACTOR_PLAYER, IS_RANDO, …)` macro CheckQueue uses).
+- `Rando/MiscBehavior/MiscBehavior.h` / `MiscBehavior.cpp` — declaration of `InitCrossMailboxDrain` + its call from `OnFileLoad` (alongside the CheckQueue hook).
+- `DeveloperTools/SaveEditor.cpp` — debug button in `DrawRandoTab()` enqueuing an OOT-bound entry.
+
+**Note:** the receive drains read the mailbox file every player-update frame — an accepted Increment-1
+simplification (tiny file, correctness-first); a later increment can throttle or drain on
+game-gain-control instead.

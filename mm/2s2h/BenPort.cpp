@@ -60,7 +60,6 @@ CrowdControl* CrowdControl::Instance;
 #include "2s2h/Enhancements/GfxPatcher/PlayerCustomFlipbooks.h"
 #include "2s2h/DeveloperTools/DebugConsole.h"
 #include "2s2h/Rando/Rando.h"
-#include "2s2h/Rando/Logic/Logic.h"
 #include "2s2h/Rando/Spoiler/Spoiler.h"
 #include "2s2h/SaveManager/SaveManager.h"
 #include "2s2h/CustomMessage/CustomMessage.h"
@@ -2620,25 +2619,6 @@ extern "C" __declspec(dllexport) bool MM_Extract(const char* searchPath) {
     return true;
 }
 #endif
-
-// ComboShip: populate Rando::Logic::Regions + StaticData names WITHOUT a game loop, so headless
-// pool-building works at OOT-save-creation time. Idempotent.
-extern "C" __declspec(dllexport) void MM_InitRandoRuntime(void) {
-    static bool inited = false;
-    if (inited) return;
-    ShipInit::InitAll();
-    Rando::StaticData::PopulateCheckNames();
-    inited = true;
-    SPDLOG_INFO("[ComboShip] MM_InitRandoRuntime: Regions populated ({} entries)",
-                Rando::Logic::Regions.size());
-
-    // ---- TEMPORARY de-risk validation (remove in Inc2-T2): prove headless pools are non-empty ----
-    RandoSaveInfo scratch{};
-    for (auto& [id, opt] : Rando::StaticData::Options) scratch.randoSaveOptions[id] = opt.defaultValue;
-    std::vector<RandoCheckId> checks; std::vector<RandoItemId> items;
-    Rando::Logic::GeneratePools(scratch, checks, items);
-    SPDLOG_INFO("[ComboShip] MM headless pools: {} checks, {} items", checks.size(), items.size());
-}
 
 // Helper to redirect the user to the boot screen in place of known console crash scenarios, and emits a notification
 extern "C" bool Ship_HandleConsoleCrashAsReset() {

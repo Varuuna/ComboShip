@@ -89,3 +89,5 @@ x64/
 
 # vcpkg — auto-bootstrapped by CMake/automate-vcpkg.cmake, not tracked
 /vcpkg/
+# Superpowers brainstorming companion (local mockups)
+.superpowers/

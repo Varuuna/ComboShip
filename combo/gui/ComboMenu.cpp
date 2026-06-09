@@ -24,7 +24,12 @@ void ComboMenu::DrawComboPanel() { ImGui::TextUnformatted("Cross-world Generate 
 
 } // namespace ComboRando
 
-extern "C" __declspec(dllexport) void ComboUI_Register(void) {
+#ifdef _WIN32
+extern "C" __declspec(dllexport) void ComboUI_Register(void)
+#else
+extern "C" void ComboUI_Register(void)
+#endif
+{
     auto ctx = Ship::Context::GetInstance();
     if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
         return; // GUI not ready

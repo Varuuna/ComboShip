@@ -25,4 +25,8 @@ class ComboMenu final : public Ship::GuiWindow {
 
 } // namespace ComboRando
 
+#ifdef _WIN32
 extern "C" __declspec(dllexport) void ComboUI_Register(void);
+#else
+extern "C" void ComboUI_Register(void);
+#endif

@@ -16,8 +16,7 @@ target_include_directories(comboui PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../libultraship/include
 )
-find_package(nlohmann_json REQUIRED)
-target_link_libraries(comboui PRIVATE libultraship nlohmann_json::nlohmann_json)
+target_link_libraries(comboui PRIVATE libultraship)
 add_dependencies(comboui libultraship)
 
 # Source files

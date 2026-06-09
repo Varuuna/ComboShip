@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-05
 **Branch:** `randomizer`
-**Status:** Design complete (brainstormed + approved); plan to follow.
+**Status:** SUPERSEDED (2026-06-09) by `docs/superpowers/specs/2026-06-09-combo-unified-settings-menu-design.md`. The cross-world Generate UX described here is preserved as the **Combo** tab of the unified menu; the standalone window is dropped.
 **Parent spec:** `docs/superpowers/specs/2026-06-04-combo-crossworld-randomizer-combined-logic-design.md` (§5 "Combo Settings Window")
 **Depends on (all DONE):** Inc1–6 + eager-MM-boot foundation. Combined fill (`combo/rando/CrossWorldRando.h` `CrossWorldCombinedFill`), oracles (`Combo_SOH_Rando_*` / `Combo_MM_Rando_*`), foreign markers (`combo/rando/CrossForeign.h`), mailbox, `SOH_ApplyRandoPlacements`, `MM_InitRandoSaveFile`, `SOH_Dump/MM_DumpRandoStaticData`.
 

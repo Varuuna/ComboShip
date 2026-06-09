@@ -117,6 +117,26 @@ Both are safe under the new model where they previously crashed, because:
   correctly evaluates to its "save not loaded" disabled state,
 - any callback that can touch resources runs inside an RM scope (below).
 
+**Validated by the Phase 0 spike (2026-06-09).** comboui successfully rendered a
+backgrounded MM `WIDGET_CUSTOM` widget and evaluated a `preFunc` under the shared
+ImGui context with no fault. The spike also established the **mandatory per-game
+custom-draw contract** the pipeline must honor before invoking any custom widget or
+theme-styled UIWidgets call, because comboui owns the menu slot so the Gui loop
+never drives the game's own menu lifecycle:
+1. the game's menu instance must be **constructed** (MM: `BenGui::ActivateMenu()` /
+   `SetupMenu()`; OOT: the `SohMenu` instance), then
+2. **`Init()`** (idempotent; runs `InitElement`), then
+3. **`Update()`** — critical: the theme member (`menuThemeIndex`) is assigned in
+   `UpdateElement()`, not `InitElement()`. Without `Update()` it is uninitialized and
+   `THEME_COLOR`/`UIWidgets::ColorValues.at(...)` throws `out_of_range`.
+
+**Cross-game theme-CVar hazard.** `gSettings.Menu.Theme` is a single shared CVar, but
+each game indexes it against its **own** `Colors` enum + `ColorValues` map (the maps
+differ per game). A value valid for one game can be out of range for the other and
+throw in `.at()`. The per-game `Update()` resolves it against that game's
+`defaultThemeIndex`; the combo render must clamp/validate the theme index against the
+target game's map rather than assume the shared value is in range.
+
 ### ResourceManagerScope (new primitive)
 
 There is no scoped RM helper today — only bare swaps in the resume paths. Add an

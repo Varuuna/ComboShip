@@ -499,7 +499,15 @@ extern "C" __declspec(dllexport) void SOH_MenuDrawCustom(int32_t i) {
     auto ctx = Ship::Context::GetInstance();
     if (ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui())
         ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
-    if (SohGui::mSohMenu) SohGui::mSohMenu->DrawCustomByIndex(i);
+    // Phase 0 spike contract: comboui owns the menu slot, so the Gui loop never drives this
+    // menu's lifecycle. A custom widget reads THEME_COLOR (menuThemeIndex), which is set in
+    // UpdateElement() — so Init()+Update() BEFORE invoking, else ColorValues.at() throws
+    // out_of_range. Mirror this in MM_MenuDrawCustom.
+    if (SohGui::mSohMenu) {
+        SohGui::mSohMenu->Init();
+        SohGui::mSohMenu->Update();
+        SohGui::mSohMenu->DrawCustomByIndex(i);
+    }
 }
 ```
 

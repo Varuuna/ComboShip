@@ -19,32 +19,34 @@ void ComboMenu::DrawSharedPanel() {
 
     // Internal resolution multiplier.
     // Window::SetResolutionMultiplier(float multiplier) — confirmed in Window.h.
-    float res = CVarGetFloat("gInternalResolution", 1.0f);
+    float res = CVarGetFloat("gSettings.InternalResolution", 1.0f);
     if (ImGui::SliderFloat("Internal Resolution", &res, 0.5f, 2.0f, "%.2fx")) {
-        CVarSetFloat("gInternalResolution", res);
+        CVarSetFloat("gSettings.InternalResolution", res);
         window->SetResolutionMultiplier(res);
         SaveCVars();
     }
 
     // MSAA sample count.
     // Window::SetMsaaLevel(uint32_t value) — confirmed in Window.h.
-    int msaa = static_cast<int>(CVarGetInteger("gMSAAValue", 1));
+    int msaa = static_cast<int>(CVarGetInteger("gSettings.MSAAValue", 1));
     if (ImGui::SliderInt("Anti-aliasing (MSAA)", &msaa, 1, 8)) {
         if (msaa < 1) msaa = 1;
-        CVarSetInteger("gMSAAValue", msaa);
+        CVarSetInteger("gSettings.MSAAValue", msaa);
         window->SetMsaaLevel(static_cast<uint32_t>(msaa));
         SaveCVars();
     }
 
-    // Texture filter — CVar only; engine reads gTextureFilter directly each frame.
+    // Texture filter — CVar only. The engine only applies it at startup (Fast3dWindow::SetTextureFilter
+    // is called in Init, not per-frame), and the apply hook lives in game code we can't call from here,
+    // so the change takes effect on reload — matching how both games label this setting.
     {
         const char* labels[] = { "Three-Point", "Bilinear", "None" };
-        int tf = CVarGetInteger("gTextureFilter", 0);
+        int tf = CVarGetInteger("gSettings.TextureFilter", 0);
         if (tf < 0 || tf > 2) tf = 0;
-        if (ImGui::BeginCombo("Texture Filter", labels[tf])) {
+        if (ImGui::BeginCombo("Texture Filter (needs reload)", labels[tf])) {
             for (int i = 0; i < 3; ++i) {
                 if (ImGui::Selectable(labels[i], i == tf)) {
-                    CVarSetInteger("gTextureFilter", i);
+                    CVarSetInteger("gSettings.TextureFilter", i);
                     SaveCVars();
                 }
             }
@@ -53,17 +55,17 @@ void ComboMenu::DrawSharedPanel() {
     }
 
     // VSync — CVar only; engine applies on next frame.
-    bool vsync = CVarGetInteger("gVsyncEnabled", 1) != 0;
+    bool vsync = CVarGetInteger("gSettings.VsyncEnabled", 1) != 0;
     if (ImGui::Checkbox("VSync", &vsync)) {
-        CVarSetInteger("gVsyncEnabled", vsync ? 1 : 0);
+        CVarSetInteger("gSettings.VsyncEnabled", vsync ? 1 : 0);
         SaveCVars();
     }
 
     // Windowed fullscreen.
     // Window::SetFullscreen(bool isFullscreen) — confirmed in Window.h.
-    bool fs = CVarGetInteger("gSdlWindowedFullscreen", 0) != 0;
+    bool fs = CVarGetInteger("gSettings.SdlWindowedFullscreen", 0) != 0;
     if (ImGui::Checkbox("Windowed Fullscreen", &fs)) {
-        CVarSetInteger("gSdlWindowedFullscreen", fs ? 1 : 0);
+        CVarSetInteger("gSettings.SdlWindowedFullscreen", fs ? 1 : 0);
         window->SetFullscreen(fs);
         SaveCVars();
     }
@@ -99,14 +101,15 @@ void ComboMenu::DrawSharedPanel() {
 
     // Menu theme — CVar only; UI reads it on next draw.
     int theme = CVarGetInteger("gSettings.Menu.Theme", 0);
-    if (ImGui::SliderInt("Menu Theme", &theme, 0, 7)) {
+    if (ImGui::SliderInt("Menu Theme", &theme, 0, 13)) {
         CVarSetInteger("gSettings.Menu.Theme", theme);
         SaveCVars();
     }
 
-    // UI scale — CVar only.
+    // UI scale — CVar only. The apply hook (OTRGlobals::ScaleImGui) lives in game code we can't call
+    // from comboui, so this takes effect on reload.
     int scale = CVarGetInteger("gSettings.ImGuiScale", 1);
-    if (ImGui::SliderInt("UI Scale", &scale, 0, 3)) {
+    if (ImGui::SliderInt("UI Scale (needs reload)", &scale, 0, 3)) {
         CVarSetInteger("gSettings.ImGuiScale", scale);
         SaveCVars();
     }

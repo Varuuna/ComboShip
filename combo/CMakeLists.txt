@@ -24,6 +24,7 @@ set_target_properties(comboui PROPERTIES
 target_compile_definitions(comboui PRIVATE COMBO_BUILD)
 target_include_directories(comboui PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/menu
     ${CMAKE_CURRENT_SOURCE_DIR}/../libultraship/include
 )
 target_link_libraries(comboui PRIVATE libultraship)

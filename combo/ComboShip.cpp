@@ -639,6 +639,13 @@ int main(int argc, char** argv) {
 
     // --- 7. Cleanup ---
 
+    // Join any in-flight generate worker BEFORE freeing the game DLLs it calls into. A still-joinable
+    // std::thread would otherwise std::terminate() at static destruction, and the worker must not touch
+    // soh/2ship exports after FreeDll. (Blocks until the fill finishes if one is running at exit.)
+    if (g_GenerateThread.joinable()) {
+        g_GenerateThread.join();
+    }
+
     if (comboUIModule) FreeDll(comboUIModule);
     FreeDll(mmModule);
     FreeDll(sohModule);

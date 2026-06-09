@@ -20,9 +20,9 @@ FnDrawSettings ResolveDraw(const char* dll, const char* sym) {
 }
 FnDrawSettings sSohDraw = nullptr;
 FnDrawSettings sMmDraw  = nullptr;
-// Engine sidebars comboui draws itself in the Shared tab -> skip them in the game tabs.
-const char* kSohSkip = "Settings/Graphics,Settings/General";
-const char* kMmSkip  = "Settings/Graphics,Settings/General";
+// Engine sidebars shown ONCE in the Shared tab (rendered by OOT, since they write the shared
+// gSettings.* engine CVars) and skipped from the per-game tabs to avoid duplication.
+const char* kEngineSidebars = "Settings/Graphics,Settings/General";
 } // namespace
 
 namespace ComboRando {
@@ -75,15 +75,22 @@ void ComboMenu::DrawElement() {
     ImGui::End();
 }
 
-// DrawSharedPanel() is defined in ComboSharedPanel.cpp.
+// Shared tab: render OOT's themed engine sidebars (Graphics/General) via the only-list. They write
+// the shared gSettings.* engine CVars, so this one panel controls both games — and it looks native.
+void ComboMenu::DrawSharedPanel() {
+    if (!sSohDraw) sSohDraw = ResolveDraw("soh.dll", "SOH_DrawSettings");
+    if (sSohDraw) sSohDraw(kEngineSidebars, "");
+    else ImGui::TextUnformatted("Shared settings unavailable (SOH_DrawSettings not found).");
+}
+
 void ComboMenu::DrawGamePanel(const char* gameKey) {
     if (strcmp(gameKey, "oot") == 0) {
         if (!sSohDraw) sSohDraw = ResolveDraw("soh.dll", "SOH_DrawSettings");
-        if (sSohDraw) sSohDraw("", kSohSkip);
+        if (sSohDraw) sSohDraw("", kEngineSidebars);
         else ImGui::TextUnformatted("OOT settings unavailable (SOH_DrawSettings not found).");
     } else {
         if (!sMmDraw) sMmDraw = ResolveDraw("2ship.dll", "MM_DrawSettings");
-        if (sMmDraw) sMmDraw("", kMmSkip);
+        if (sMmDraw) sMmDraw("", kEngineSidebars);
         else ImGui::TextUnformatted("MM settings unavailable (MM_DrawSettings not found).");
     }
 }

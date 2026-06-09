@@ -102,6 +102,23 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
         if (sSohDraw) sSohDraw("", kEngineSidebars);
         else ImGui::TextUnformatted("OOT settings unavailable (SOH_DrawSettings not found).");
     } else {
+        // ComboShip SPIKE (Phase 0, revert later): drive the throwaway MM exports to prove
+        // backgrounded custom/preFunc rendering under comboui's context.
+        typedef void (*FnVoid)(void);
+        typedef int  (*FnInt)(void);
+        static FnVoid sSpikeDraw = nullptr;
+        static FnInt  sSpikeEval = nullptr;
+        if (!sSpikeDraw) {
+            HMODULE h = GetModuleHandleA("2ship.dll");
+            if (h) {
+                sSpikeDraw = (FnVoid)GetProcAddress(h, "MM_SpikeDrawWarpCustom");
+                sSpikeEval = (FnInt)GetProcAddress(h, "MM_SpikeEvalDisabled");
+            }
+        }
+        if (sSpikeEval) ImGui::Text("MM preFunc disabled = %d", sSpikeEval());
+        if (sSpikeDraw) sSpikeDraw();
+        return; // skip the normal MM_DrawSettings path during the spike
+
         if (!sMmDraw) sMmDraw = ResolveDraw("2ship.dll", "MM_DrawSettings");
         if (sMmDraw) sMmDraw("", kEngineSidebars);
         else ImGui::TextUnformatted("MM settings unavailable (MM_DrawSettings not found).");

@@ -3084,10 +3084,14 @@ extern "C" __declspec(dllexport) void MM_SpikeDrawWarpCustom(void) {
     if (sctx && sctx->GetWindow() && sctx->GetWindow()->GetGui()) {
         ImGui::SetCurrentContext(sctx->GetWindow()->GetGui()->GetImGuiContext());
     }
-    // mBenMenu must exist: RenderWarpPointSection -> BenGui::GetMenuThemeColor -> mBenMenu->...
-    // The real pipeline guarantees mBenMenu is constructed at boot; replicate that here.
+    // mBenMenu must exist AND be Init()'d: RenderWarpPointSection -> theme color + UIWidgets style
+    // maps require InitElement-time setup (menuThemeIndex). comboui owns the active menu, so
+    // libultraship never Init()s this one — do it here (idempotent), mirroring MM_DrawSettings.
     if (!BenGui::GetBenMenu()) {
         BenGui::ActivateMenu();
+    }
+    if (auto menu = BenGui::GetBenMenu()) {
+        menu->Init();
     }
     // "Warp Point" custom body. In mm/2s2h/BenGui/BenMenu.cpp the "Warp Point"
     // WIDGET_CUSTOM calls RenderWarpPointSection(). Call the same thing here.

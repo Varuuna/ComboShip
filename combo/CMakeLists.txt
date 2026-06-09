@@ -5,6 +5,21 @@ project(ComboShip LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 23)
 
+# ─── comboui.dll: combo-owned unified settings menu (links libultraship + ImGui) ───
+set(COMBOUI_SOURCES
+    gui/ComboMenu.cpp
+)
+add_library(comboui SHARED ${COMBOUI_SOURCES})
+set_target_properties(comboui PROPERTIES PREFIX "")
+target_compile_definitions(comboui PRIVATE COMBO_BUILD)
+target_include_directories(comboui PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../libultraship/include
+)
+find_package(nlohmann_json REQUIRED)
+target_link_libraries(comboui PRIVATE libultraship nlohmann_json::nlohmann_json)
+add_dependencies(comboui libultraship)
+
 # Source files
 set(COMBO_SOURCES
     ComboShip.cpp
@@ -27,6 +42,7 @@ add_dependencies(ComboShip
     soh
     2ship
     libultraship
+    comboui
 )
 
 # Windows-specific settings
@@ -56,6 +72,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:libultraship>
             ${CMAKE_SOURCE_DIR}/x64/Debug/libultraship.dll
+        # Copy combo UI DLL to x64/Debug
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:comboui>
+            ${CMAKE_SOURCE_DIR}/x64/Debug/comboui.dll
         # Also copy DLLs to ComboShip's build directory for local testing
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:soh>
@@ -65,6 +85,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
             $<TARGET_FILE_DIR:ComboShip>
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:libultraship>
+            $<TARGET_FILE_DIR:ComboShip>
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:comboui>
             $<TARGET_FILE_DIR:ComboShip>
         # Copy the PORT/custom .o2r assets (config-independent) next to the exe and to x64/Debug.
         COMMAND ${CMAKE_COMMAND} -E copy_if_different

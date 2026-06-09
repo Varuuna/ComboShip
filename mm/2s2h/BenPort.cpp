@@ -3122,6 +3122,52 @@ extern "C" __declspec(dllexport) void MM_DrawSettings(const char* onlyCsv, const
     parseCsv(skipCsv, skip);
     menu->DrawContent(only, skip);
 }
+
+// ComboShip: MM analog of SOH_ExportMenu et al. (soh/soh/OTRGlobals.cpp). comboui resolves these by
+// GetProcAddress and ingests the CwMenu (combo/menu/ComboMenuABI.h), then invokes back by index.
+namespace {
+// Ensure mBenMenu exists; returns it (or nullptr if it couldn't be built).
+std::shared_ptr<BenGui::BenMenu> Combo_EnsureBenMenu() {
+    auto menu = BenGui::GetBenMenu();
+    if (!menu) {
+        BenGui::ActivateMenu();
+        menu = BenGui::GetBenMenu();
+    }
+    return menu;
+}
+} // namespace
+
+extern "C" __declspec(dllexport) const CwMenu* MM_ExportMenu(void) {
+    auto menu = Combo_EnsureBenMenu();
+    return menu ? menu->ExportComboMenu() : nullptr;
+}
+
+extern "C" __declspec(dllexport) void MM_MenuInvokeCallback(int32_t i) {
+    if (auto menu = Combo_EnsureBenMenu()) {
+        menu->InvokeCallbackByIndex(i);
+    }
+}
+
+extern "C" __declspec(dllexport) int32_t MM_MenuEvalDisabled(int32_t i, const char** outReason) {
+    auto menu = Combo_EnsureBenMenu();
+    return menu ? menu->EvalDisabledByIndex(i, outReason) : 0;
+}
+
+extern "C" __declspec(dllexport) void MM_MenuDrawCustom(int32_t i) {
+    // comboui owns the active menu slot, so the Gui loop never drives MM's menu. A custom widget may read
+    // THEME_COLOR (menuThemeIndex), which is set in UpdateElement(); skipping Update() makes ColorValues.at()
+    // throw out_of_range (proven by the Phase 0 spike). So Init()+Update() before any custom draw.
+    auto sctx = Ship::Context::GetInstance();
+    if (sctx && sctx->GetWindow() && sctx->GetWindow()->GetGui()) {
+        ImGui::SetCurrentContext(sctx->GetWindow()->GetGui()->GetImGuiContext());
+    }
+    auto menu = Combo_EnsureBenMenu();
+    if (menu) {
+        menu->Init();
+        menu->Update();
+        menu->DrawCustomByIndex(i);
+    }
+}
 #endif
 
 // Helper to redirect the user to the boot screen in place of known console crash scenarios, and emits a notification

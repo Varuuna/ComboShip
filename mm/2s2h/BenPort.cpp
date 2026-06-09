@@ -3133,6 +3133,14 @@ std::shared_ptr<BenGui::BenMenu> Combo_EnsureBenMenu() {
         BenGui::ActivateMenu();
         menu = BenGui::GetBenMenu();
     }
+    // MM populates its menu tree (AddSettings/AddEnhancements/AddDevTools) and disabledMap in
+    // BenMenu::InitElement() — NOT in the constructor. comboui owns the menu slot so the Gui loop
+    // never Init()s this menu, leaving menuEntries empty and ExportComboMenu walking nothing (empty
+    // MM tab). Init() here (idempotent) before any export/walk. OOT differs: it calls
+    // AddMenuElements() explicitly at boot, so SOH_ExportMenu needs no Init.
+    if (menu) {
+        menu->Init();
+    }
     return menu;
 }
 } // namespace

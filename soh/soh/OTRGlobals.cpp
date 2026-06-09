@@ -2659,6 +2659,10 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
 
         // Headless prep: reset logic state, finalize current settings, build region tables,
         // then fill allLocations with only the checks the current settings shuffle.
+        // ComboShip: copy the player's chosen CVar settings into the Context FIRST (mirrors
+        // GenerateRandomizer), so the scoped pool, the fill's reachability, and the later
+        // Randomizer_InitSaveFile (settings + starting items) all honor the menu choices.
+        Rando::Settings::GetInstance()->SetAllToContext();
         ctx->GetLogic()->Reset();
         ctx->FinalizeSettings({}, {});
         RegionTable_Init();
@@ -2805,6 +2809,7 @@ static bool sOracleInitialized = false;
 static void EnsureOracleInit() {
     if (sOracleInitialized) return;
     auto ctx = OTRGlobals::Instance->gRandoContext;
+    Rando::Settings::GetInstance()->SetAllToContext(); // ComboShip: apply chosen CVar settings before finalizing
     ctx->GetLogic()->Reset();
     ctx->FinalizeSettings({}, {});
     RegionTable_Init();

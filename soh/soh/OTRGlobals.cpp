@@ -2580,16 +2580,29 @@ extern "C" __declspec(dllexport) void SOH_DrawSettings(const char* onlyCsv, cons
 // SohMenu instance is built at menu setup (SohGui::SetupMenu) and kept for process life; comboui owns
 // the menu slot, so libultraship's Gui loop never drives this menu — see SOH_MenuDrawCustom for why
 // Init()/Update() must run before invoking a custom widget.
+// soh.dll has its own per-module ImGui GImGui; when OOT is backgrounded it isn't current, so any
+// cross-DLL export that can reach an ImGui call (menu build, callbacks, disable eval) must point it
+// at the shared context first. SOH_MenuDrawCustom does this inline; the siblings use this helper.
+static void ComboMenu_UseSharedImGuiContext() {
+    auto ctx = Ship::Context::GetInstance();
+    if (ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
+        ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
+    }
+}
+
 extern "C" __declspec(dllexport) const CwMenu* SOH_ExportMenu(void) {
+    ComboMenu_UseSharedImGuiContext();
     auto menu = SohGui::GetSohMenu();
     return menu ? menu->ExportComboMenu() : nullptr;
 }
 
 extern "C" __declspec(dllexport) void SOH_MenuInvokeCallback(int32_t i) {
+    ComboMenu_UseSharedImGuiContext();
     if (auto menu = SohGui::GetSohMenu()) menu->InvokeCallbackByIndex(i);
 }
 
 extern "C" __declspec(dllexport) int32_t SOH_MenuEvalDisabled(int32_t i, const char** outReason) {
+    ComboMenu_UseSharedImGuiContext();
     auto menu = SohGui::GetSohMenu();
     return menu ? menu->EvalDisabledByIndex(i, outReason) : 0;
 }

@@ -3137,18 +3137,31 @@ std::shared_ptr<BenGui::BenMenu> Combo_EnsureBenMenu() {
 }
 } // namespace
 
+// 2ship.dll has its own per-module ImGui GImGui; when MM is backgrounded it isn't current, so any
+// cross-DLL export that can reach an ImGui call (menu build, callbacks, disable eval) must point it
+// at the shared context first. MM_MenuDrawCustom does this inline; the siblings use this helper.
+static void ComboMenu_UseSharedImGuiContext() {
+    auto sctx = Ship::Context::GetInstance();
+    if (sctx && sctx->GetWindow() && sctx->GetWindow()->GetGui()) {
+        ImGui::SetCurrentContext(sctx->GetWindow()->GetGui()->GetImGuiContext());
+    }
+}
+
 extern "C" __declspec(dllexport) const CwMenu* MM_ExportMenu(void) {
+    ComboMenu_UseSharedImGuiContext();
     auto menu = Combo_EnsureBenMenu();
     return menu ? menu->ExportComboMenu() : nullptr;
 }
 
 extern "C" __declspec(dllexport) void MM_MenuInvokeCallback(int32_t i) {
+    ComboMenu_UseSharedImGuiContext();
     if (auto menu = Combo_EnsureBenMenu()) {
         menu->InvokeCallbackByIndex(i);
     }
 }
 
 extern "C" __declspec(dllexport) int32_t MM_MenuEvalDisabled(int32_t i, const char** outReason) {
+    ComboMenu_UseSharedImGuiContext();
     auto menu = Combo_EnsureBenMenu();
     return menu ? menu->EvalDisabledByIndex(i, outReason) : 0;
 }

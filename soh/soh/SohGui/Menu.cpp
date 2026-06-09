@@ -948,4 +948,79 @@ void Menu::DrawElement() {
     }
     ImGui::End();
 }
+
+void Menu::DrawContent(const std::set<std::string>& skipPaths) {
+    const char* activeHeaderCvar = CVAR_SETTING("Menu.ActiveHeader");
+    std::string activeHeader = CVarGetString(activeHeaderCvar, "Settings");
+    UIWidgets::Colors themeIndex = GetMenuThemeColor();
+
+    auto isSkipped = [&](const std::string& path) { return skipPaths.count(path) > 0; };
+
+    std::vector<std::string> headers;
+    for (auto& label : menuOrder) {
+        if (!menuEntries.count(label)) continue;
+        if (isSkipped(label)) continue;
+        headers.push_back(label);
+    }
+    if (headers.empty()) {
+        ImGui::TextUnformatted("No settings.");
+        return;
+    }
+    if (std::find(headers.begin(), headers.end(), activeHeader) == headers.end()) {
+        activeHeader = headers.front();
+        CVarSetString(activeHeaderCvar, activeHeader.c_str());
+    }
+
+    // Header button row
+    for (size_t i = 0; i < headers.size(); ++i) {
+        if (i != 0) ImGui::SameLine();
+        bool sel = (headers[i] == activeHeader);
+        if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        if (ImGui::Button(headers[i].c_str())) {
+            activeHeader = headers[i];
+            CVarSetString(activeHeaderCvar, activeHeader.c_str());
+        }
+        if (sel) ImGui::PopStyleColor();
+    }
+    ImGui::Separator();
+
+    MainMenuEntry& entry = menuEntries.at(activeHeader);
+    const char* rawSidebarCvar = entry.sidebarCvar;
+    std::string sidebarCvar = rawSidebarCvar ? rawSidebarCvar : "";
+    std::string activeSidebar = sidebarCvar.empty() ? "" : CVarGetString(sidebarCvar.c_str(), "");
+
+    std::vector<std::string> sidebars;
+    for (auto& s : entry.sidebarOrder) {
+        if (isSkipped(activeHeader + "/" + s)) continue;
+        sidebars.push_back(s);
+    }
+    if (sidebars.empty()) {
+        ImGui::TextUnformatted("No settings in this section.");
+        return;
+    }
+    if (std::find(sidebars.begin(), sidebars.end(), activeSidebar) == sidebars.end()) {
+        activeSidebar = sidebars.front();
+        if (!sidebarCvar.empty()) CVarSetString(sidebarCvar.c_str(), activeSidebar.c_str());
+    }
+
+    ImGui::BeginChild("sohSidebar", ImVec2(180, 0), true);
+    for (auto& s : sidebars) {
+        if (ImGui::Selectable(s.c_str(), s == activeSidebar)) {
+            activeSidebar = s;
+            if (!sidebarCvar.empty()) CVarSetString(sidebarCvar.c_str(), s.c_str());
+        }
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+    ImGui::BeginChild("sohWidgets", ImVec2(0, 0), true);
+    SidebarEntry& sb = entry.sidebars.at(activeSidebar);
+    for (size_t col = 0; col < sb.columnWidgets.size(); ++col) {
+        for (auto& w : sb.columnWidgets.at(col)) {
+            MenuDrawItem(w, 90 / std::max<uint32_t>(sb.columnCount, 1), themeIndex);
+        }
+    }
+    ImGui::EndChild();
+    Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+}
+
 } // namespace Ship

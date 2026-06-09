@@ -2636,31 +2636,60 @@ extern "C" __declspec(dllexport) bool SOH_Extract(const char* searchPath) {
 #endif
 
 // ComboShip Inc2 (Task 3): coherent OOT rando dump — runs the headless prep sequence
-// (GetLogic()->Reset, FinalizeSettings, GenerateLocationPool) so ctx->allLocations reflects
-// the real shuffled-check set for default settings, then dumps those checks + their vanilla
-// items. This makes the combo generator's permutation coherent (same set as Randomizer_InitSaveFile).
-// ItemReset/HintReset are NOT called here; the context is left in a state where allLocations
-// is valid but no items are placed yet — SOH_ApplyRandoPlacements fills the placements.
+// (GetLogic()->Reset, FinalizeSettings, RegionTable_Init, GenerateLocationPool) so
+// ctx->allLocations reflects the real shuffled-check set for the current settings, then
+// dumps those checks + their vanilla items. This makes the combo generator's permutation
+// coherent (same set as Randomizer_InitSaveFile).
+// ComboShip Inc7: scoped to current settings — iterates ctx->allLocations (populated by
+// GenerateLocationPool) instead of all RC_MAX, so only settings-enabled checks are emitted.
+// Cache removed (was static/permanent): result now depends on live CVar/settings state so
+// it must recompute every call.
+// Fallback: if RegionTable_Init+GenerateLocationPool throws, falls back to iterating all
+// RC_MAX (same as old behaviour) so the dump always succeeds.
 // Caller MUST invoke this AFTER SOH_Init() returns.
 extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
     static std::string cached;
-    if (!cached.empty()) return cached.c_str();
 
     nlohmann::json checks = nlohmann::json::array();
     nlohmann::json items  = nlohmann::json::array();
 
+    bool usedPool = false;
     try {
         auto ctx = OTRGlobals::Instance->gRandoContext;
 
-        // Headless prep: reset logic state, finalize default settings, fill allLocations.
-        // This mirrors the first part of the full generation sequence without filling items.
+        // Headless prep: reset logic state, finalize current settings, build region tables,
+        // then fill allLocations with only the checks the current settings shuffle.
         ctx->GetLogic()->Reset();
         ctx->FinalizeSettings({}, {});
-        // NOTE: do NOT call ctx->GenerateLocationPool() here — it dereferences a file-global `ctx`
-        // raw pointer (location_access.cpp) that isn't initialized in this headless path and crashes
-        // in GetDungeons(). Dump every check that has a vanilla item instead; that's sufficient for
-        // Phase 1 (Randomizer_InitSaveFile needs only itemLocationTable populated + IsSeedGenerated,
-        // and OOT runtime delivery only intercepts the checks it actually shuffles).
+        RegionTable_Init();
+        ctx->GenerateLocationPool();
+
+        // Iterate allLocations (the settings-scoped check set) instead of all RC_MAX.
+        for (RandomizerCheck rc : ctx->allLocations) {
+            Rando::Location* loc = Rando::StaticData::GetLocation(rc);
+            if (!loc) continue;
+            const std::string& name = loc->GetName();
+            if (name.empty()) continue;
+
+            RandomizerGet vanillaRG = loc->GetVanillaItem();
+            if (vanillaRG == RG_NONE) continue;
+
+            const std::string& vigName = Rando::StaticData::RetrieveItem(vanillaRG).GetName().GetEnglish();
+            if (vigName.empty()) continue;
+
+            checks.push_back({ {"name", name}, {"vanillaItem", vigName} });
+        }
+        usedPool = true;
+    } catch (const std::exception& e) {
+        SPDLOG_WARN("[ComboShip] SOH_DumpRandoStaticData: RegionTable_Init/GenerateLocationPool threw ({}); "
+                    "falling back to full RC_MAX dump", e.what());
+    } catch (...) {
+        SPDLOG_WARN("[ComboShip] SOH_DumpRandoStaticData: RegionTable_Init/GenerateLocationPool threw unknown "
+                    "exception; falling back to full RC_MAX dump");
+    }
+
+    if (!usedPool) {
+        // Fallback: dump every check that has a vanilla item (old Inc2 behaviour).
         for (int i = 0; i < RC_MAX; ++i) {
             Rando::Location* loc = Rando::StaticData::GetLocation(static_cast<RandomizerCheck>(i));
             if (!loc) continue;
@@ -2668,17 +2697,13 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             if (name.empty()) continue;
 
             RandomizerGet vanillaRG = loc->GetVanillaItem();
-            if (vanillaRG == RG_NONE) continue; // skip checks with no vanilla item
+            if (vanillaRG == RG_NONE) continue;
 
             const std::string& vigName = Rando::StaticData::RetrieveItem(vanillaRG).GetName().GetEnglish();
             if (vigName.empty()) continue;
 
             checks.push_back({ {"name", name}, {"vanillaItem", vigName} });
         }
-    } catch (const std::exception& e) {
-        SPDLOG_ERROR("[ComboShip] SOH_DumpRandoStaticData: exception during headless prep: {}", e.what());
-    } catch (...) {
-        SPDLOG_ERROR("[ComboShip] SOH_DumpRandoStaticData: unknown exception during headless prep");
     }
 
     // Items list: full item table (for the generator's reference; vanillaItems come from checks above).

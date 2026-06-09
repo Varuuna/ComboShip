@@ -2697,21 +2697,37 @@ extern "C" __declspec(dllexport) bool MM_Extract(const char* searchPath) {
 }
 #endif
 
-// ComboShip Inc2: headless dump of MM static rando tables (checks + items).
-// HEADLESS-SAFE: Rando::StaticData::Checks and ::Items are std::map instances
-// populated by static initializers in Checks.cpp / Items.cpp at DLL-load time —
-// before any function executes. No ShipInit::InitAll, no region graph, no
-// Context-dependent calls inside this function.
+// ComboShip Inc2: headless dump of MM rando tables (checks + items).
+// ComboShip Inc7: scoped to the current settings via Rando::Logic::GeneratePools — mirrors
+// RefreshMetrics() in Rando/Menu.cpp. Only checks that the current CVars actually shuffle
+// are emitted, so the cross-world fill sees the same pool as MM's own generator would use.
+// Cache removed (was static/permanent): result now depends on live CVar state so it must
+// recompute every call.
 // Caller MUST invoke this AFTER SOH_Init() returns (so the Context + logger exist
-// in the shared libultraship.dll), but the DATA itself is safe to read at any point.
+// in the shared libultraship.dll, and CVars are loaded).
 extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     static std::string cached;
-    if (!cached.empty()) return cached.c_str();
 
     nlohmann::json checks = nlohmann::json::array();
     nlohmann::json items  = nlohmann::json::array();
 
-    for (auto& [id, chk] : Rando::StaticData::Checks) {
+    // Build a RandoSaveInfo from current CVars — same pattern as Menu.cpp RefreshMetrics().
+    RandoSaveInfo saveInfo;
+    for (auto& [id, opt] : Rando::StaticData::Options) {
+        saveInfo.randoSaveOptions[id] = (uint32_t)CVarGetInteger(opt.cvar, opt.defaultValue);
+    }
+    auto startingItems = Rando::GetStartingItemsFromConfig();
+    Rando::SetStartingItemsInSave(saveInfo, startingItems);
+
+    std::vector<RandoCheckId> checkPool;
+    std::vector<RandoItemId> itemPool;
+    Rando::Logic::GeneratePools(saveInfo, checkPool, itemPool);
+
+    // Emit only the checks in the settings-scoped pool.
+    for (RandoCheckId id : checkPool) {
+        auto chkIt = Rando::StaticData::Checks.find(id);
+        if (chkIt == Rando::StaticData::Checks.end()) continue;
+        const auto& chk = chkIt->second;
         if (!chk.name || chk.name[0] == '\0') continue;
         nlohmann::json entry = { {"name", chk.name} };
 

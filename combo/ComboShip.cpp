@@ -15,7 +15,6 @@
 #include <string>
 #include <exception>
 #include <cstdlib>
-#include <thread>
 #include <atomic>
 #include <chrono>
 
@@ -147,7 +146,6 @@ typedef void (*FnSetSeedGenerated)(uint8_t);
 static FnSetGenReqCb      SOH_SetOnComboGenerateRequestCallback = nullptr;
 static FnSetSeedGenerated SOH_SetSeedGenerated                  = nullptr;
 
-static std::thread        g_GenerateThread;
 static std::atomic<bool>  g_GenerateBusy{ false };
 
 // Seed utilities — Ship_Hash/Ship_Random are not exported from libultraship, so implement inline.
@@ -274,18 +272,18 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     g_GenerateBusy.store(false);
 }
 
-// ComboShip Task 6: request handler — called by SOH_TriggerComboGenerate from the UI.
-// Rejects concurrent requests; joins any previous finished thread, then spins a new one.
+// ComboShip Task 6 / Inc7: request handler — called by SOH_TriggerComboGenerate from the UI.
+// Runs synchronously on the calling (game) thread — the background thread was removed because
+// it raced the games' single-threaded rando logic and caused crashes.
+// A simple reentrancy guard prevents double-invocation (shouldn't happen with the one-frame
+// defer in ComboMenu, but guard anyway).
 static void Combo_OnGenerateRequest(const char* inputSeed, ComboRando::ComboGenProgress* progress) {
     if (g_GenerateBusy.exchange(true)) {
         // Already running — ignore the duplicate request.
         if (progress) { progress->SetError("generate already in progress"); progress->done.store(true); }
         return;
     }
-    if (g_GenerateThread.joinable()) g_GenerateThread.join();
-    g_GenerateThread = std::thread(RunComboFill,
-                                   std::string(inputSeed ? inputSeed : ""),
-                                   progress);
+    RunComboFill(std::string(inputSeed ? inputSeed : ""), progress);
 }
 
 static void Combo_OnOOTSaveInit(int fileNum) {
@@ -639,12 +637,7 @@ int main(int argc, char** argv) {
 
     // --- 7. Cleanup ---
 
-    // Join any in-flight generate worker BEFORE freeing the game DLLs it calls into. A still-joinable
-    // std::thread would otherwise std::terminate() at static destruction, and the worker must not touch
-    // soh/2ship exports after FreeDll. (Blocks until the fill finishes if one is running at exit.)
-    if (g_GenerateThread.joinable()) {
-        g_GenerateThread.join();
-    }
+    // Generate is now synchronous — no background thread to join before freeing DLLs.
 
     if (comboUIModule) FreeDll(comboUIModule);
     FreeDll(mmModule);

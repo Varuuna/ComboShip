@@ -30,6 +30,7 @@ class ComboMenu final : public Ship::GuiWindow {
     char             mSeedBuf[128] = { 0 };
     ComboGenProgress mProgress;        // worker (in the exe) writes; this polls. Pointer handed across DLL.
     std::string      mStatusLine;
+    bool             mGeneratePending = false; // one-frame defer: show "Generating…" before blocking fill
 };
 
 } // namespace ComboRando

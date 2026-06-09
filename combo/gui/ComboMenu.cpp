@@ -25,7 +25,7 @@ FnDrawSettings sMmDraw  = nullptr;
 // gSettings.* engine CVars) and skipped from the per-game tabs to avoid duplication.
 const char* kEngineSidebars = "Settings/Graphics,Settings/General";
 
-// Generate trigger (soh.dll export); returns immediately, worker runs on a thread in the exe.
+// Generate trigger (soh.dll export); runs synchronously on the calling thread (Inc7: thread removed).
 typedef void (*FnTriggerGenerate)(const char*, ComboRando::ComboGenProgress*);
 FnTriggerGenerate sTrigger = nullptr;
 FnTriggerGenerate ResolveTrigger() {
@@ -120,19 +120,27 @@ void ComboMenu::DrawComboPanel() {
     if (ImGui::Button("Generate")) {
         if (!sTrigger) sTrigger = ResolveTrigger();
         if (sTrigger) {
+            // Arm the one-frame defer: show "Generating…" this frame so the user sees
+            // feedback before the synchronous (blocking) fill runs next frame.
             mProgress.Reset();
             mProgress.done.store(false);
             mProgress.running.store(true);
             mStatusLine.clear();
-            sTrigger(mSeedBuf, &mProgress); // returns immediately; worker runs on a thread
+            mGeneratePending = true;
         } else {
             mStatusLine = "Generate unavailable (SOH_TriggerComboGenerate not found).";
         }
     }
     if (busy) ImGui::EndDisabled();
 
-    // Latch the result once the worker finishes. Branch on success, not just done — a done&&!success
-    // covers both real errors and a rejected duplicate request, so the UI never hangs on the bar.
+    // One-frame defer: if a generate was requested last frame, fire it now (blocks until done).
+    if (mGeneratePending) {
+        mGeneratePending = false;
+        sTrigger(mSeedBuf, &mProgress); // synchronous — blocks this frame; sets done on return
+    }
+
+    // Latch the result once the (synchronous) fill finishes. Branch on success, not just done —
+    // a done&&!success covers both real errors and a rejected duplicate, so the UI never hangs.
     if (mProgress.done.load() && mProgress.running.load()) {
         if (mProgress.success.load()) {
             char buf[160];

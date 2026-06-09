@@ -107,6 +107,10 @@ static FnDumpData MM_DumpRandoStaticData  = nullptr;
 static FnVoidArgless MM_BootForCombo      = nullptr;
 static FnVoidArgless SOH_ResumeForeground = nullptr;
 
+typedef void (*FnComboUIRegister)(void);
+static DllHandle           comboUIModule    = nullptr;
+static FnComboUIRegister   ComboUI_Register = nullptr;
+
 // ComboShip Inc4: per-game reachability oracle exports
 typedef void        (*FnOracleVoid)(void);
 typedef void        (*FnOracleSetItems)(const char*);
@@ -446,6 +450,21 @@ int main(int argc, char** argv) {
     }
     std::cout << "[ComboShip] OOT initialized." << std::endl;
 
+    // ComboShip: load the combo-owned menu DLL and install the unified menu now that
+    // OOT has created the shared Gui. comboui owns the menu for the whole process.
+    comboUIModule = LoadDll("comboui.dll");
+    if (comboUIModule) {
+        ComboUI_Register = (FnComboUIRegister)GetSym(comboUIModule, "ComboUI_Register");
+        if (ComboUI_Register) {
+            ComboUI_Register();
+            std::cout << "[ComboShip] comboui registered (unified menu installed)." << std::endl;
+        } else {
+            std::cerr << "[ComboShip] WARNING: comboui.dll missing ComboUI_Register" << std::endl;
+        }
+    } else {
+        std::cerr << "[ComboShip] WARNING: failed to load comboui.dll (" << DllError() << ")" << std::endl;
+    }
+
     // ComboShip: eagerly boot MM now (after OOT init) so the cross-world rando oracle runs against a
     // real, fully-initialized MM. This performs an OOT->MM->OOT transition once, with MM's game loop
     // skipped: hand the foreground from OOT to MM (SOH_PrepareForTransition), boot MM without its loop
@@ -570,6 +589,7 @@ int main(int argc, char** argv) {
 
     // --- 7. Cleanup ---
 
+    if (comboUIModule) FreeDll(comboUIModule);
     FreeDll(mmModule);
     FreeDll(sohModule);
     return 0;

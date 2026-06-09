@@ -2533,7 +2533,10 @@ static void SOH_ReinitForResume() {
     // need to swap the active RM/audio (above) and restore OOT's menu (below).
     // Restore OOT's menu into the shared Gui's single menu slot (MM set it to its BenMenu while it was
     // the active game). mSohMenu persists.
+#ifndef COMBO_BUILD
     ctx->GetWindow()->GetGui()->SetMenu(SohGui::GetSohMenu());
+#endif
+    // ComboShip: comboui's menu stays installed across transitions; do not restore SohMenu.
 }
 
 // Symmetric marker, mirrors MM_NotifyComboTransition. ComboShip calls this before SOH_ResumeGame.

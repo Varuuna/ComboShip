@@ -77,7 +77,9 @@ UIWidgets::Colors GetMenuThemeColor() {
 void SetupMenu() {
     auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
     mBenMenu = std::make_shared<BenMenu>("gWindows.Menu", "Settings Menu");
-    gui->SetMenu(mBenMenu);
+#ifndef COMBO_BUILD
+    gui->SetMenu(mBenMenu); // ComboShip: comboui owns the menu; MM only builds its tree.
+#endif
 
     auto& style = ImGui::GetStyle();
     style.FramePadding = ImVec2(4.0f, 6.0f);
@@ -93,12 +95,14 @@ void SetupMenu() {
 // OTRGlobals ctor's SetupMenu() is skipped (it lives in the !usingExistingCtx block), so the slot
 // otherwise keeps OOT's SohMenu. First call constructs BenMenu (full setup); later calls just re-set it.
 void ActivateMenu() {
+#ifndef COMBO_BUILD
     auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
     if (mBenMenu == nullptr) {
         SetupMenu();
     } else {
         gui->SetMenu(mBenMenu);
     }
+#endif
 }
 
 void SetupGuiElements() {

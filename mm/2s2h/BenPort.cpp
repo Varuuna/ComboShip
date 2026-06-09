@@ -249,7 +249,7 @@ OTRGlobals::OTRGlobals() {
     // still holds OOT's SohMenu. Build/install MM's menu now that the ImGui context is current
     // (widgets populate lazily via BenMenu::InitElement).
     if (usingExistingCtx) {
-        BenGui::ActivateMenu();
+        BenGui::ActivateMenu(); // ComboShip: no-op under COMBO_BUILD (comboui owns the menu)
     }
 #endif
 
@@ -2573,7 +2573,7 @@ extern "C" __declspec(dllexport) void MM_ResumeGame(int fileNum) {
 
     // ComboShip: re-activate MM's menu in the shared Gui's single menu slot (OOT set it back to its
     // SohMenu while it was the active game). BenMenu persists (BenGui::Destroy isn't called in combo).
-    BenGui::ActivateMenu();
+    BenGui::ActivateMenu(); // ComboShip: no-op under COMBO_BUILD (comboui owns the menu)
 
     // 5. Re-arm the shared window so MM's `while (WindowIsRunning())` loop runs instead of returning
     //    immediately (OOT cleared mIsRunning when its loop exited).

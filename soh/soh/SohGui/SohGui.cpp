@@ -103,7 +103,9 @@ std::shared_ptr<SohMenu> GetSohMenu() {
 void SetupMenu() {
     auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
     mSohMenu = std::make_shared<SohMenu>(CVAR_WINDOW("Menu"), "Port Menu");
-    gui->SetMenu(mSohMenu);
+#ifndef COMBO_BUILD
+    gui->SetMenu(mSohMenu); // ComboShip: comboui owns the menu; SoH only builds its tree.
+#endif
 
     mModalWindow = std::make_shared<SohModalWindow>(CVAR_WINDOW("ModalWindow"), "Modal Window");
     gui->AddGuiWindow(mModalWindow);

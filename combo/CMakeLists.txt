@@ -9,6 +9,7 @@ set(CMAKE_C_STANDARD 23)
 set(COMBOUI_SOURCES
     gui/ComboMenu.cpp
     gui/ComboMenuModel.cpp
+    gui/ComboWidgetRender.cpp
 )
 add_library(comboui SHARED ${COMBOUI_SOURCES})
 set_target_properties(comboui PROPERTIES PREFIX "")

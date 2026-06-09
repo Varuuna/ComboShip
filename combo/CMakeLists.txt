@@ -8,6 +8,7 @@ set(CMAKE_C_STANDARD 23)
 # ─── comboui.dll: combo-owned unified settings menu (links libultraship + ImGui) ───
 set(COMBOUI_SOURCES
     gui/ComboMenu.cpp
+    gui/ComboMenuModel.cpp
 )
 add_library(comboui SHARED ${COMBOUI_SOURCES})
 set_target_properties(comboui PROPERTIES PREFIX "")

@@ -11,6 +11,16 @@ set(COMBOUI_SOURCES
 )
 add_library(comboui SHARED ${COMBOUI_SOURCES})
 set_target_properties(comboui PROPERTIES PREFIX "")
+# ComboShip: deploy comboui.dll directly into the shared runtime dir (x64/<config>),
+# matching how soh/2ship set their own RUNTIME_OUTPUT_DIRECTORY. Without this, a
+# per-target `--target comboui` build lands in build/x64/combo/<config> and never
+# reaches the exe's load path until the ComboShip exe is rebuilt — a stale-DLL trap.
+set_target_properties(comboui PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG   "${CMAKE_SOURCE_DIR}/x64/Debug"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/x64/Release"
+    ARCHIVE_OUTPUT_DIRECTORY_DEBUG   "${CMAKE_SOURCE_DIR}/x64/Debug"
+    ARCHIVE_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/x64/Release"
+)
 target_compile_definitions(comboui PRIVATE COMBO_BUILD)
 target_include_directories(comboui PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}

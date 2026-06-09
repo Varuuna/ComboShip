@@ -75,8 +75,7 @@ void ComboMenu::DrawElement() {
     ImGui::End();
 }
 
-// Placeholder bodies until later tasks.
-void ComboMenu::DrawSharedPanel() { ImGui::TextUnformatted("Shared engine settings (todo Phase 2)"); }
+// DrawSharedPanel() is defined in ComboSharedPanel.cpp.
 void ComboMenu::DrawGamePanel(const char* gameKey) {
     if (strcmp(gameKey, "oot") == 0) {
         if (!sSohDraw) sSohDraw = ResolveDraw("soh.dll", "SOH_DrawSettings");

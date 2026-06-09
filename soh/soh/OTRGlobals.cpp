@@ -4,6 +4,8 @@
 #include <atomic>
 #include <filesystem>
 #include <fstream>
+#include <set>
+#include <sstream>
 #include <vector>
 #include <chrono>
 #include <optional>
@@ -2542,6 +2544,19 @@ static void SOH_ReinitForResume() {
 // Symmetric marker, mirrors MM_NotifyComboTransition. ComboShip calls this before SOH_ResumeGame.
 extern "C" __declspec(dllexport) void SOH_NotifyComboReturn(void) {
     // Currently a no-op; kept for symmetry with the forward transition's notify call.
+}
+
+// ComboShip: draw OOT's menu content (content-only) into the current ImGui window, skipping the
+// comma-separated header / "Header/Sidebar" paths in skipCsv (comboui draws the engine sidebars itself).
+extern "C" __declspec(dllexport) void SOH_DrawSettings(const char* skipCsv) {
+    auto menu = SohGui::GetSohMenu();
+    if (!menu) return;
+    std::set<std::string> skip;
+    if (skipCsv && skipCsv[0]) {
+        std::stringstream ss(skipCsv); std::string item;
+        while (std::getline(ss, item, ',')) if (!item.empty()) skip.insert(item);
+    }
+    menu->DrawContent(skip);
 }
 
 // ComboShip MM->OOT return: re-enter OOT's game loop on the SAME shared context/window, swap

@@ -4,6 +4,8 @@
 #include <filesystem>
 #include <fstream>
 #include <chrono>
+#include <set>
+#include <sstream>
 
 #include <ship/resource/ResourceManager.h>
 #include <fast/Fast3dWindow.h>
@@ -3042,6 +3044,20 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Restore(void) {
     memcpy(&gSaveContext, &sMM_OracleSavedContext, sizeof(SaveContext));
     gCurrentRegionTime = sMM_OracleSavedRegionTime;
 }
+
+#ifdef COMBO_BUILD
+// ComboShip: draw MM's menu content (content-only), skipping the given paths.
+extern "C" __declspec(dllexport) void MM_DrawSettings(const char* skipCsv) {
+    auto menu = BenGui::GetBenMenu();
+    if (!menu) return;
+    std::set<std::string> skip;
+    if (skipCsv && skipCsv[0]) {
+        std::stringstream ss(skipCsv); std::string item;
+        while (std::getline(ss, item, ',')) if (!item.empty()) skip.insert(item);
+    }
+    menu->DrawContent(skip);
+}
+#endif
 
 // Helper to redirect the user to the boot screen in place of known console crash scenarios, and emits a notification
 extern "C" bool Ship_HandleConsoleCrashAsReset() {

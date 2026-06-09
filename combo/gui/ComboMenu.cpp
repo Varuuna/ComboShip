@@ -2,6 +2,27 @@
 #include "ComboMenu.h"
 #include <imgui.h>
 #include <memory>
+#include <string>
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+namespace {
+typedef void (*FnDrawSettings)(const char*);
+FnDrawSettings ResolveDraw(const char* dll, const char* sym) {
+#ifdef _WIN32
+    HMODULE h = GetModuleHandleA(dll); // already loaded by the exe
+    return h ? (FnDrawSettings)GetProcAddress(h, sym) : nullptr;
+#else
+    return nullptr;
+#endif
+}
+FnDrawSettings sSohDraw = nullptr;
+FnDrawSettings sMmDraw  = nullptr;
+// Engine sidebars comboui draws itself in the Shared tab -> skip them in the game tabs.
+const char* kSohSkip = "Settings/Graphics,Settings/General";
+const char* kMmSkip  = "Settings/Graphics,Settings/General";
+} // namespace
 
 namespace ComboRando {
 
@@ -55,7 +76,17 @@ void ComboMenu::DrawElement() {
 
 // Placeholder bodies until later tasks.
 void ComboMenu::DrawSharedPanel() { ImGui::TextUnformatted("Shared engine settings (todo Phase 2)"); }
-void ComboMenu::DrawGamePanel(const char* gameKey) { ImGui::Text("%s settings (todo Phase 1)", gameKey); }
+void ComboMenu::DrawGamePanel(const char* gameKey) {
+    if (std::string(gameKey) == "oot") {
+        if (!sSohDraw) sSohDraw = ResolveDraw("soh.dll", "SOH_DrawSettings");
+        if (sSohDraw) sSohDraw(kSohSkip);
+        else ImGui::TextUnformatted("OOT settings unavailable (SOH_DrawSettings not found).");
+    } else {
+        if (!sMmDraw) sMmDraw = ResolveDraw("2ship.dll", "MM_DrawSettings");
+        if (sMmDraw) sMmDraw(kMmSkip);
+        else ImGui::TextUnformatted("MM settings unavailable (MM_DrawSettings not found).");
+    }
+}
 void ComboMenu::DrawComboPanel() { ImGui::TextUnformatted("Cross-world Generate (todo Phase 3)"); }
 
 } // namespace ComboRando

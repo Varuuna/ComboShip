@@ -74,6 +74,8 @@ UIWidgets::Colors GetMenuThemeColor() {
     return mBenMenu->GetMenuThemeColor();
 }
 
+std::shared_ptr<BenMenu> GetBenMenu() { return mBenMenu; } // ComboShip
+
 void SetupMenu() {
     auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
     mBenMenu = std::make_shared<BenMenu>("gWindows.Menu", "Settings Menu");

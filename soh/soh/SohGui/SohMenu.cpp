@@ -533,8 +533,17 @@ void SohMenu::DrawCustomByIndex(int32_t i) {
         return;
     }
     auto* w = mFlat[i];
-    if (w && w->customFunction) {
-        w->customFunction(*w);
+    if (!w || !w->customFunction) {
+        return;
     }
+    // Custom widgets can depend on OOT live subsystems. comboui owns the menu and may render this tab
+    // while OOT is backgrounded; those subsystems aren't initialized then. Only draw the real widget
+    // when OOT is live (same guard as DrawElement/EvalDisabledByIndex); otherwise show a placeholder.
+    // Declarative widgets + CVars still work while backgrounded.
+    if (OTRGlobals::Instance == nullptr || OTRGlobals::Instance->fontStandardLargest == nullptr) {
+        ImGui::TextDisabled("Available while Ocarina of Time is the active game.");
+        return;
+    }
+    w->customFunction(*w);
 }
 } // namespace SohGui

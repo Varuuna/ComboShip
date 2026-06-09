@@ -82,17 +82,20 @@ void ComboMenu::DrawSharedPanel() {
         ImGui::TextDisabled("(applies on restart)");
     }
 
-    // Interpolation FPS — CVar only; engine reads it each frame.
-    int fps = CVarGetInteger("gInterpolationFPS", 20);
+    // Interpolation FPS + Match Refresh Rate are read PER-GAME (not by the shared engine), and the two
+    // ports diverged: OOT reads the migrated gSettings.* names (OTRGlobals::GetInterpolationFPS), while
+    // MM still reads the legacy g* names (BenPort). Write BOTH so whichever game is active honors it.
+    int fps = CVarGetInteger("gSettings.InterpolationFPS", 20);
     if (ImGui::SliderInt("Interpolation FPS", &fps, 20, 360)) {
-        CVarSetInteger("gInterpolationFPS", fps);
+        CVarSetInteger("gSettings.InterpolationFPS", fps); // OOT
+        CVarSetInteger("gInterpolationFPS", fps);          // MM (legacy)
         SaveCVars();
     }
 
-    // Match refresh rate — CVar only.
-    bool matchRefresh = CVarGetInteger("gMatchRefreshRate", 0) != 0;
+    bool matchRefresh = CVarGetInteger("gSettings.MatchRefreshRate", 0) != 0;
     if (ImGui::Checkbox("Match Refresh Rate", &matchRefresh)) {
-        CVarSetInteger("gMatchRefreshRate", matchRefresh ? 1 : 0);
+        CVarSetInteger("gSettings.MatchRefreshRate", matchRefresh ? 1 : 0); // OOT
+        CVarSetInteger("gMatchRefreshRate", matchRefresh ? 1 : 0);          // MM (legacy)
         SaveCVars();
     }
 

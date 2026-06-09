@@ -2406,6 +2406,7 @@ const CwMenu* BenMenu::ExportComboMenu() {
     mWidgets.reserve(widgetCount);
     mChoices.reserve(choiceCount);
     mFlat.reserve(widgetCount);
+    mFlatRando.reserve(widgetCount);
 
     // ---- Pass 2: fill. ----
     auto ownStr = [this](const std::string& s) -> const char* {
@@ -2463,6 +2464,9 @@ const CwMenu* BenMenu::ExportComboMenu() {
                 for (auto& w : column) {
                     int32_t index = (int32_t)mFlat.size();
                     mFlat.push_back(&w);
+                    // Keep mFlatRando perfectly parallel to mFlat (same site, same count).
+                    // Rando widgets are exempt from the foreground-only placeholder in DrawCustomByIndex.
+                    mFlatRando.push_back(entry.label == "Rando" ? 1 : 0);
 
                     CwWidget cw = {};
                     cw.index = index;
@@ -2659,7 +2663,10 @@ void BenMenu::DrawCustomByIndex(int32_t i) {
     // menu and may render this tab while MM is backgrounded; those subsystems aren't initialized then.
     // Only draw the real widget when MM is live (same guard as DrawElement/EvalDisabledByIndex);
     // otherwise show a placeholder. Declarative widgets + CVars still work while backgrounded.
-    if (OTRGlobals::Instance == nullptr || OTRGlobals::Instance->fontStandardLargest == nullptr) {
+    // Rando widgets must be editable even while MM is backgrounded, so they are exempt.
+    bool live = !(OTRGlobals::Instance == nullptr || OTRGlobals::Instance->fontStandardLargest == nullptr);
+    bool isRando = (i >= 0 && i < (int32_t)mFlatRando.size() && mFlatRando[i]);
+    if (!live && !isRando) {
         ImGui::TextDisabled("Available while Majora's Mask is the active game.");
         return;
     }

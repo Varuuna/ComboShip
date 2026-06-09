@@ -302,6 +302,7 @@ const CwMenu* SohMenu::ExportComboMenu() {
     mWidgets.reserve(widgetCount);
     mChoices.reserve(choiceCount);
     mFlat.reserve(widgetCount);
+    mFlatRando.reserve(widgetCount);
 
     // ---- Pass 2: fill. ----
     // We populate the flat mWidgets/mChoices fully (each CwWidget references mChoices.data()
@@ -363,6 +364,9 @@ const CwMenu* SohMenu::ExportComboMenu() {
                 for (auto& w : column) {
                     int32_t index = (int32_t)mFlat.size();
                     mFlat.push_back(&w);
+                    // Keep mFlatRando perfectly parallel to mFlat (same site, same count).
+                    // Rando widgets are exempt from the foreground-only placeholder in DrawCustomByIndex.
+                    mFlatRando.push_back(entry.label == "Randomizer" ? 1 : 0);
 
                     CwWidget cw = {};
                     cw.index = index;
@@ -540,7 +544,10 @@ void SohMenu::DrawCustomByIndex(int32_t i) {
     // while OOT is backgrounded; those subsystems aren't initialized then. Only draw the real widget
     // when OOT is live (same guard as DrawElement/EvalDisabledByIndex); otherwise show a placeholder.
     // Declarative widgets + CVars still work while backgrounded.
-    if (OTRGlobals::Instance == nullptr || OTRGlobals::Instance->fontStandardLargest == nullptr) {
+    // Rando widgets must be editable even while OOT is backgrounded, so they are exempt.
+    bool live = !(OTRGlobals::Instance == nullptr || OTRGlobals::Instance->fontStandardLargest == nullptr);
+    bool isRando = (i >= 0 && i < (int32_t)mFlatRando.size() && mFlatRando[i]);
+    if (!live && !isRando) {
         ImGui::TextDisabled("Available while Ocarina of Time is the active game.");
         return;
     }

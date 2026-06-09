@@ -70,6 +70,7 @@ class SohMenu : public Ship::Menu {
     bool mExported = false;
     CwMenu mMenu = {};
     std::vector<WidgetInfo*> mFlat;     // index -> source widget (the invoke key)
+    std::vector<uint8_t> mFlatRando;    // parallel to mFlat: 1 if widget is in the "Randomizer" section
     std::vector<CwSection> mSections;   // reserved up-front; .data() stable after fill
     std::vector<CwSidebar> mSidebars;
     std::vector<CwWidget> mWidgets;

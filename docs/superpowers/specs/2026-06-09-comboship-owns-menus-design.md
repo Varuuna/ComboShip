@@ -64,6 +64,28 @@ These are load-bearing; the design depends on them.
   differing `DisableOption` sets). Widget structs cannot be shared across the DLL
   boundary as-is.
 
+## Scope refinement (2026-06-10, from runtime testing)
+
+Runtime testing rescoped the goal. The hard requirement is narrower than "render every
+menu from combo": **only the Randomizer options must be accessible/editable at any
+time, in either game, regardless of which game is foreground** (because cross-game
+rando generation needs both games' rando options set before Generate). Every other
+menu surface (Enhancements, Settings, Dev Tools, etc.) rendering only while its game
+is foreground is acceptable.
+
+Consequences:
+- Custom-draw widgets and disable-evaluation are **foreground-only by default** — a
+  backgrounded game shows a placeholder for its custom widgets, because those probe
+  live game state (e.g. MM's rando `spoilerOptions`, `gPlayState`) that isn't alive
+  while backgrounded. Declarative CVar widgets still render and edit fine in any state.
+- **Exception: the Randomizer section is always rendered**, regardless of foreground.
+  Section labels (the `menuEntries`/CwSection key) are **"Randomizer"** in OOT
+  (soh/soh/SohGui/SohMenuRandomizer.cpp) and **"Rando"** in MM
+  (mm/2s2h/Rando/Menu.cpp `RegisterMenu`). The custom-draw guard exempts these
+  sections; their underlying init (rando subsystem, fonts) must be made available
+  independent of the owning game being foreground.
+- This aligns with the cross-game randomizer's combined settings + Generate flow.
+
 ## Architecture
 
 ### Ownership split

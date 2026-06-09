@@ -1044,12 +1044,15 @@ void Menu::DrawContent(const std::set<std::string>& onlyPaths, const std::set<st
     for (size_t i = 0; i < visibleHeaders.size(); ++i) {
         if (i != 0) ImGui::SameLine();
         const std::string& label = visibleHeaders[i];
+        // Defer the selection change to AFTER the Pop (mirrors DrawElement) — otherwise a click
+        // flips headerIndex mid-iteration and the guarded PopStyleColor is skipped (ImGui assert).
+        std::string nextHeader = "";
         UIWidgets::PushStyleButton(themeIndex);
         if (headerIndex != label) {
             ImGui::PushStyleColor(ImGuiCol_Button, { 0, 0, 0, 0 });
         }
         if (ModernMenuHeaderEntry(menuEntries.at(label).label)) {
-            headerIndex = label;
+            nextHeader = label;
             CVarSetString(headerCvar, label.c_str());
             CVarSave();
         }
@@ -1057,6 +1060,7 @@ void Menu::DrawContent(const std::set<std::string>& onlyPaths, const std::set<st
             ImGui::PopStyleColor();
         }
         UIWidgets::PopStyleButton();
+        if (!nextHeader.empty()) headerIndex = nextHeader;
     }
     ImGui::EndChild();
 
@@ -1101,12 +1105,15 @@ void Menu::DrawContent(const std::set<std::string>& onlyPaths, const std::set<st
                       ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysAutoResize,
                       ImGuiWindowFlags_NoTitleBar);
     for (auto& sidebarLabel : visibleSidebars) {
+        // Defer the selection change to AFTER the Pop (mirrors DrawElement) — otherwise a click
+        // flips sectionIndex mid-iteration and the guarded PopStyleColor is skipped (ImGui assert).
+        std::string nextSection = "";
         UIWidgets::PushStyleButton(themeIndex);
         if (sectionIndex != sidebarLabel) {
             ImGui::PushStyleColor(ImGuiCol_Button, { 0, 0, 0, 0 });
         }
         if (ModernMenuSidebarEntry(sidebarLabel)) {
-            sectionIndex = sidebarLabel;
+            nextSection = sidebarLabel;
             if (!sidebarCvarStr.empty()) CVarSetString(sidebarCvarStr.c_str(), sidebarLabel.c_str());
             CVarSave();
         }
@@ -1114,6 +1121,7 @@ void Menu::DrawContent(const std::set<std::string>& onlyPaths, const std::set<st
             ImGui::PopStyleColor();
         }
         UIWidgets::PopStyleButton();
+        if (!nextSection.empty()) sectionIndex = nextSection;
     }
     ImGui::EndChild();
     ImGui::PopFont(); // pop fontStandardLargest — content area uses default font (matches DrawElement)

@@ -2552,6 +2552,11 @@ extern "C" __declspec(dllexport) void SOH_NotifyComboReturn(void) {
 extern "C" __declspec(dllexport) void SOH_DrawSettings(const char* onlyCsv, const char* skipCsv) {
     auto menu = SohGui::GetSohMenu();
     if (!menu) return;
+    // ComboShip: in combo this menu is never installed as the active Gui menu, so libultraship never
+    // calls Init()/InitElement() — where disabledMap, window backends and the theme are set up. Init()
+    // is idempotent (guarded by mIsInitialized); call it once before drawing, else widget PreFuncs that
+    // do disabledMap.at(...) throw out_of_range.
+    menu->Init();
     std::set<std::string> only, skip;
     auto parseCsv = [](const char* csv, std::set<std::string>& out) {
         if (!csv || !csv[0]) return;

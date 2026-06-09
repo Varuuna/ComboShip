@@ -3052,6 +3052,9 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Restore(void) {
 extern "C" __declspec(dllexport) void MM_DrawSettings(const char* onlyCsv, const char* skipCsv) {
     auto menu = BenGui::GetBenMenu();
     if (!menu) return;
+    // ComboShip: comboui owns the active menu, so libultraship never Init()s this one. Init() is
+    // idempotent; run it once so InitElement-time setup exists before drawing.
+    menu->Init();
     std::set<std::string> only, skip;
     auto parseCsv = [](const char* csv, std::set<std::string>& out) {
         if (!csv || !csv[0]) return;

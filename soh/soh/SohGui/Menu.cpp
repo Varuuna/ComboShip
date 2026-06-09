@@ -954,6 +954,14 @@ void Menu::DrawContent(const std::set<std::string>& skipPaths) {
     std::string activeHeader = CVarGetString(activeHeaderCvar, "Settings");
     UIWidgets::Colors themeIndex = GetMenuThemeColor();
 
+    // ComboShip: in combo this is the only menu draw path (the game's own DrawElement never runs,
+    // since comboui owns the menu), so replicate DrawElement's per-frame setup that MenuDrawItem
+    // depends on: refresh disable evaluations and the race-disable flag.
+    for (auto& [reason, info] : disabledMap) {
+        info.active = info.evaluation(info);
+    }
+    raceDisableActive = CVarGetInteger(CVAR_SETTING("DisableChanges"), 0);
+
     auto isSkipped = [&](const std::string& path) { return skipPaths.count(path) > 0; };
 
     std::vector<std::string> headers;
@@ -1014,6 +1022,15 @@ void Menu::DrawContent(const std::set<std::string>& skipPaths) {
     ImGui::SameLine();
     ImGui::BeginChild("sohWidgets", ImVec2(0, 0), true);
     SidebarEntry& sb = entry.sidebars.at(activeSidebar);
+    // ComboShip: run any registered per-section update funcs (e.g. resolution mirrors) before
+    // drawing widgets, exactly as DrawElement does.
+    if (MenuInit::GetUpdateFuncs().contains(entry.label)) {
+        if (MenuInit::GetUpdateFuncs()[entry.label].contains(activeSidebar)) {
+            for (auto& updateFunc : MenuInit::GetUpdateFuncs()[entry.label][activeSidebar]) {
+                updateFunc();
+            }
+        }
+    }
     for (size_t col = 0; col < sb.columnWidgets.size(); ++col) {
         for (auto& w : sb.columnWidgets.at(col)) {
             MenuDrawItem(w, 90 / std::max<uint32_t>(sb.columnCount, 1), themeIndex);

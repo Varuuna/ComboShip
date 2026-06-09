@@ -15,6 +15,7 @@
 #include <unordered_set>
 #include <functional>
 #include <nlohmann/json.hpp>
+#include "gui/ComboGenProgress.h"
 
 namespace ComboRando {
 
@@ -78,16 +79,20 @@ struct CombinedFillResult {
 
 // portalCheckName: the OOT check/region name that gates access to MM (e.g. "Mido's House").
 // If empty, MM is reachable from start.
+// progress: optional thread-safe progress struct polled by the UI (Task 7). May be nullptr.
 inline CombinedFillResult CrossWorldCombinedFill(
     const std::string& sohDumpJson,
     const std::string& mmDumpJson,
     uint32_t masterSeed,
     const OracleFns& ootOracle,
     const OracleFns& mmOracle,
-    const std::string& portalCheckName = ""
+    const std::string& portalCheckName = "",
+    ComboRando::ComboGenProgress* progress = nullptr
 ) {
     CombinedFillResult result;
     result.success = false;
+
+    if (progress) progress->phase.store(1); // Preparing pools
 
     // --- Parse pools ---
     std::vector<CwItem> advancementItems, junkItems;
@@ -161,7 +166,13 @@ inline CombinedFillResult CrossWorldCombinedFill(
         return out;
     };
 
+    if (progress) {
+        progress->phase.store(2); // Placing items
+        progress->total.store(static_cast<int>(allItems.size()));
+    }
+
     for (size_t idx = 0; idx < allItems.size(); ++idx) {
+        if (progress) progress->placed.store(static_cast<int>(idx));
         CwItem& item = allItems[idx];
 
         // Build assumed-available sets (all items EXCEPT this one) partitioned by game
@@ -206,6 +217,11 @@ inline CombinedFillResult CrossWorldCombinedFill(
         size_t pick = candidates[rng.below(static_cast<uint32_t>(candidates.size()))];
         placements.push_back({allChecks[pick], item});
         filledChecks.insert(allChecks[pick].name);
+    }
+
+    if (progress) {
+        progress->placed.store(progress->total.load()); // all placed
+        progress->phase.store(3); // Finalizing
     }
 
     // --- Build spoiler (same shape as the no-logic generator) ---

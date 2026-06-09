@@ -2752,6 +2752,26 @@ extern "C" __declspec(dllexport) void SOH_SetOnComboGenerateCallback(void (*cb)(
     gComboGenerateCallback = cb;
 }
 
+// ComboShip Task 6: window-driven generate request — the UI calls SOH_TriggerComboGenerate
+// with a seed string and a progress struct; soh.dll forwards to the ComboShip handler which
+// runs the fill on a worker thread. gComboGenerateCallback (save-time) is RETAINED as a
+// symbol but is no longer invoked (generation is now fully window-driven).
+#include "gui/ComboGenProgress.h"
+extern "C" void (*gComboGenerateRequestCallback)(const char*, ComboRando::ComboGenProgress*) = nullptr;
+
+extern "C" __declspec(dllexport) void SOH_SetOnComboGenerateRequestCallback(void (*cb)(const char*, ComboRando::ComboGenProgress*)) {
+    gComboGenerateRequestCallback = cb;
+}
+
+extern "C" __declspec(dllexport) void SOH_TriggerComboGenerate(const char* seed, ComboRando::ComboGenProgress* p) {
+    if (gComboGenerateRequestCallback) gComboGenerateRequestCallback(seed, p);
+}
+
+extern "C" __declspec(dllexport) void SOH_SetSeedGenerated(uint8_t g) {
+    if (OTRGlobals::Instance && OTRGlobals::Instance->gRandoContext)
+        OTRGlobals::Instance->gRandoContext->SetSeedGenerated(g != 0);
+}
+
 // ComboShip Inc4: OOT combo-logic exports — thin wrappers around the existing logic engine.
 // The combined fill drives these to query "given owned items, which checks are reachable?"
 

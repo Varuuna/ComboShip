@@ -3,6 +3,7 @@
 #include <imgui.h>
 #include <memory>
 #include <string>
+#include <cstring>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -77,7 +78,7 @@ void ComboMenu::DrawElement() {
 // Placeholder bodies until later tasks.
 void ComboMenu::DrawSharedPanel() { ImGui::TextUnformatted("Shared engine settings (todo Phase 2)"); }
 void ComboMenu::DrawGamePanel(const char* gameKey) {
-    if (std::string(gameKey) == "oot") {
+    if (strcmp(gameKey, "oot") == 0) {
         if (!sSohDraw) sSohDraw = ResolveDraw("soh.dll", "SOH_DrawSettings");
         if (sSohDraw) sSohDraw(kSohSkip);
         else ImGui::TextUnformatted("OOT settings unavailable (SOH_DrawSettings not found).");

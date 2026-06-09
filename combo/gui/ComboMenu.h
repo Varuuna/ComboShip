@@ -4,6 +4,7 @@
 
 #include <libultraship/libultraship.h>
 #include <string>
+#include "gui/ComboGenProgress.h"
 
 namespace ComboRando {
 
@@ -22,9 +23,13 @@ class ComboMenu final : public Ship::GuiWindow {
     void UpdateElement() override {}
 
   private:
-    void DrawSharedPanel();            // ComboSharedPanel.cpp (later task)
-    void DrawGamePanel(const char* gameKey); // delegates to SOH_/MM_DrawSettings (later task)
-    void DrawComboPanel();             // Generate (later task)
+    void DrawSharedPanel();            // delegates to OOT's themed engine sidebars
+    void DrawGamePanel(const char* gameKey); // delegates to SOH_/MM_DrawSettings
+    void DrawComboPanel();             // cross-world Generate (seed + button + progress)
+
+    char             mSeedBuf[128] = { 0 };
+    ComboGenProgress mProgress;        // worker (in the exe) writes; this polls. Pointer handed across DLL.
+    std::string      mStatusLine;
 };
 
 } // namespace ComboRando

@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <cstring>
+#include <cstdio>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -23,6 +24,18 @@ FnDrawSettings sMmDraw  = nullptr;
 // Engine sidebars shown ONCE in the Shared tab (rendered by OOT, since they write the shared
 // gSettings.* engine CVars) and skipped from the per-game tabs to avoid duplication.
 const char* kEngineSidebars = "Settings/Graphics,Settings/General";
+
+// Generate trigger (soh.dll export); returns immediately, worker runs on a thread in the exe.
+typedef void (*FnTriggerGenerate)(const char*, ComboRando::ComboGenProgress*);
+FnTriggerGenerate sTrigger = nullptr;
+FnTriggerGenerate ResolveTrigger() {
+#ifdef _WIN32
+    HMODULE h = GetModuleHandleA("soh.dll");
+    return h ? (FnTriggerGenerate)GetProcAddress(h, "SOH_TriggerComboGenerate") : nullptr;
+#else
+    return nullptr;
+#endif
+}
 } // namespace
 
 namespace ComboRando {
@@ -94,7 +107,55 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
         else ImGui::TextUnformatted("MM settings unavailable (MM_DrawSettings not found).");
     }
 }
-void ComboMenu::DrawComboPanel() { ImGui::TextUnformatted("Cross-world Generate (todo Phase 3)"); }
+void ComboMenu::DrawComboPanel() {
+    ImGui::TextWrapped("Generate a cross-world randomizer seed spanning OOT and MM. "
+                       "You must Generate before starting a new file.");
+    ImGui::Separator();
+    ImGui::SetNextItemWidth(260.0f);
+    ImGui::InputTextWithHint("Seed", "(blank = random)", mSeedBuf, sizeof(mSeedBuf));
+    ImGui::SameLine();
+
+    const bool busy = mProgress.running.load();
+    if (busy) ImGui::BeginDisabled();
+    if (ImGui::Button("Generate")) {
+        if (!sTrigger) sTrigger = ResolveTrigger();
+        if (sTrigger) {
+            mProgress.Reset();
+            mProgress.done.store(false);
+            mProgress.running.store(true);
+            mStatusLine.clear();
+            sTrigger(mSeedBuf, &mProgress); // returns immediately; worker runs on a thread
+        } else {
+            mStatusLine = "Generate unavailable (SOH_TriggerComboGenerate not found).";
+        }
+    }
+    if (busy) ImGui::EndDisabled();
+
+    // Latch the result once the worker finishes. Branch on success, not just done — a done&&!success
+    // covers both real errors and a rejected duplicate request, so the UI never hangs on the bar.
+    if (mProgress.done.load() && mProgress.running.load()) {
+        if (mProgress.success.load()) {
+            char buf[160];
+            snprintf(buf, sizeof(buf), "Done: seed 0x%X - %d cross-world placements",
+                     mProgress.seed.load(), mProgress.foreignCount.load());
+            mStatusLine = buf;
+        } else {
+            mStatusLine = std::string("Error: ") + mProgress.error;
+        }
+        mProgress.running.store(false);
+    }
+
+    if (mProgress.running.load()) {
+        int placed = mProgress.placed.load();
+        int total = mProgress.total.load();
+        float frac = total > 0 ? (float)placed / (float)total : 0.0f;
+        ImGui::TextUnformatted(ComboGenProgress::PhaseLabel(mProgress.phase.load()));
+        ImGui::ProgressBar(frac, ImVec2(360.0f, 0.0f));
+        ImGui::Text("%d / %d", placed, total);
+    } else if (!mStatusLine.empty()) {
+        ImGui::TextUnformatted(mStatusLine.c_str());
+    }
+}
 
 } // namespace ComboRando
 

@@ -201,9 +201,11 @@ CwKind WidgetTypeToCwKind(WidgetType t) {
             return CW_SLIDER_FLOAT;
         case WIDGET_COMBOBOX:
         case WIDGET_CVAR_COMBOBOX:
-        case WIDGET_CVAR_BTN_SELECTOR:
-            // BtnSelector is a discrete int chooser; render as a combobox (no choices -> caller falls back).
             return CW_COMBOBOX;
+        case WIDGET_CVAR_BTN_SELECTOR:
+            // BtnSelector is a discrete int cycled by a button; its options are BtnSelectorOptions
+            // (no comboMap). Distinct kind so the emitter reads the correct options type.
+            return CW_BTN_SELECTOR;
         case WIDGET_INPUT:
         case WIDGET_CVAR_INPUT:
             return CW_INPUT_TEXT;
@@ -278,9 +280,11 @@ const CwMenu* SohMenu::ExportComboMenu() {
             for (auto& column : sbIt->second.columnWidgets) {
                 for (auto& w : column) {
                     widgetCount++;
-                    if ((w.type == WIDGET_COMBOBOX || w.type == WIDGET_CVAR_COMBOBOX ||
-                         w.type == WIDGET_AUDIO_BACKEND || w.type == WIDGET_VIDEO_BACKEND) &&
-                        w.options) {
+                    // Only CW_COMBOBOX contributes CwChoice entries (from ComboboxOptions::comboMap).
+                    // Pass-2 fill uses the exact same kind==CW_COMBOBOX rule, so reserve == fill and
+                    // mChoices never reallocates. Audio/Video backend emit zero choices here (their
+                    // ComboboxOptions is empty at export; populated by the game at runtime).
+                    if (WidgetTypeToCwKind(w.type) == CW_COMBOBOX && w.options) {
                         if (auto combo = std::static_pointer_cast<UIWidgets::ComboboxOptions>(w.options)) {
                             choiceCount += combo->comboMap.size();
                         }
@@ -418,6 +422,12 @@ const CwMenu* SohMenu::ExportComboMenu() {
                                         choiceCnt++;
                                     }
                                     cw.iDefault = (int32_t)o->defaultIndex;
+                                }
+                                break;
+                            }
+                            case CW_BTN_SELECTOR: {
+                                if (auto o = std::static_pointer_cast<UIWidgets::BtnSelectorOptions>(w.options)) {
+                                    cw.iDefault = o->defaultValue;
                                 }
                                 break;
                             }

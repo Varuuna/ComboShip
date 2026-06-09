@@ -23,6 +23,7 @@ typedef enum {
     CW_SLIDER_INT,      /* CVar int  */
     CW_SLIDER_FLOAT,    /* CVar float */
     CW_COMBOBOX,        /* CVar int, choices in options */
+    CW_BTN_SELECTOR,    /* CVar int cycled by a button; no choice list */
     CW_INPUT_TEXT,      /* OOT WIDGET_INPUT/CVAR_INPUT */
     CW_COLOR,           /* color picker (useAlpha flag distinguishes 24/32) */
     CW_BUTTON,          /* fires callback by index */

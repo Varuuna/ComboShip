@@ -9,7 +9,7 @@
 #endif
 
 namespace {
-typedef void (*FnDrawSettings)(const char*);
+typedef void (*FnDrawSettings)(const char*, const char*);
 FnDrawSettings ResolveDraw(const char* dll, const char* sym) {
 #ifdef _WIN32
     HMODULE h = GetModuleHandleA(dll); // already loaded by the exe
@@ -79,11 +79,11 @@ void ComboMenu::DrawElement() {
 void ComboMenu::DrawGamePanel(const char* gameKey) {
     if (strcmp(gameKey, "oot") == 0) {
         if (!sSohDraw) sSohDraw = ResolveDraw("soh.dll", "SOH_DrawSettings");
-        if (sSohDraw) sSohDraw(kSohSkip);
+        if (sSohDraw) sSohDraw("", kSohSkip);
         else ImGui::TextUnformatted("OOT settings unavailable (SOH_DrawSettings not found).");
     } else {
         if (!sMmDraw) sMmDraw = ResolveDraw("2ship.dll", "MM_DrawSettings");
-        if (sMmDraw) sMmDraw(kMmSkip);
+        if (sMmDraw) sMmDraw("", kMmSkip);
         else ImGui::TextUnformatted("MM settings unavailable (MM_DrawSettings not found).");
     }
 }

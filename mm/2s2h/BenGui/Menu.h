@@ -31,7 +31,7 @@ class Menu : public GuiWindow {
     UIWidgets::Colors GetMenuThemeColor();
 
     void MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors menuThemeIndex);
-    void DrawContent(const std::set<std::string>& skipPaths);
+    void DrawContent(const std::set<std::string>& onlyPaths, const std::set<std::string>& skipPaths);
     void AddMenuEntry(std::string entryName, const char* entryCvar);
     void AddSearchWidget(SearchWidget widget);
     std::unordered_map<uint32_t, disabledInfo>& GetDisabledMap();

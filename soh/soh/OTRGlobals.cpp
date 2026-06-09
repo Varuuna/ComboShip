@@ -2546,17 +2546,21 @@ extern "C" __declspec(dllexport) void SOH_NotifyComboReturn(void) {
     // Currently a no-op; kept for symmetry with the forward transition's notify call.
 }
 
-// ComboShip: draw OOT's menu content (content-only) into the current ImGui window, skipping the
-// comma-separated header / "Header/Sidebar" paths in skipCsv (comboui draws the engine sidebars itself).
-extern "C" __declspec(dllexport) void SOH_DrawSettings(const char* skipCsv) {
+// ComboShip: draw OOT's menu content (content-only, themed) into the current ImGui window.
+// onlyCsv: if non-empty, comma-separated allow-list of "Header" or "Header/Sidebar" paths to show.
+// skipCsv: if onlyCsv is empty, comma-separated block-list of paths to hide.
+extern "C" __declspec(dllexport) void SOH_DrawSettings(const char* onlyCsv, const char* skipCsv) {
     auto menu = SohGui::GetSohMenu();
     if (!menu) return;
-    std::set<std::string> skip;
-    if (skipCsv && skipCsv[0]) {
-        std::stringstream ss(skipCsv); std::string item;
-        while (std::getline(ss, item, ',')) if (!item.empty()) skip.insert(item);
-    }
-    menu->DrawContent(skip);
+    std::set<std::string> only, skip;
+    auto parseCsv = [](const char* csv, std::set<std::string>& out) {
+        if (!csv || !csv[0]) return;
+        std::stringstream ss(csv); std::string item;
+        while (std::getline(ss, item, ',')) if (!item.empty()) out.insert(item);
+    };
+    parseCsv(onlyCsv, only);
+    parseCsv(skipCsv, skip);
+    menu->DrawContent(only, skip);
 }
 
 // ComboShip MM->OOT return: re-enter OOT's game loop on the SAME shared context/window, swap

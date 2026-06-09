@@ -3046,16 +3046,21 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Restore(void) {
 }
 
 #ifdef COMBO_BUILD
-// ComboShip: draw MM's menu content (content-only), skipping the given paths.
-extern "C" __declspec(dllexport) void MM_DrawSettings(const char* skipCsv) {
+// ComboShip: draw MM's menu content (content-only, themed) into the current ImGui window.
+// onlyCsv: if non-empty, comma-separated allow-list of "Header" or "Header/Sidebar" paths to show.
+// skipCsv: if onlyCsv is empty, comma-separated block-list of paths to hide.
+extern "C" __declspec(dllexport) void MM_DrawSettings(const char* onlyCsv, const char* skipCsv) {
     auto menu = BenGui::GetBenMenu();
     if (!menu) return;
-    std::set<std::string> skip;
-    if (skipCsv && skipCsv[0]) {
-        std::stringstream ss(skipCsv); std::string item;
-        while (std::getline(ss, item, ',')) if (!item.empty()) skip.insert(item);
-    }
-    menu->DrawContent(skip);
+    std::set<std::string> only, skip;
+    auto parseCsv = [](const char* csv, std::set<std::string>& out) {
+        if (!csv || !csv[0]) return;
+        std::stringstream ss(csv); std::string item;
+        while (std::getline(ss, item, ',')) if (!item.empty()) out.insert(item);
+    };
+    parseCsv(onlyCsv, only);
+    parseCsv(skipCsv, skip);
+    menu->DrawContent(only, skip);
 }
 #endif
 

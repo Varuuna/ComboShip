@@ -896,96 +896,227 @@ void Menu::DrawElement() {
     ImGui::End();
 }
 
-void Menu::DrawContent(const std::set<std::string>& skipPaths) {
-    const char* activeHeaderCvar = "gSettings.Menu.ActiveHeader";
-    std::string activeHeader = CVarGetString(activeHeaderCvar, "Settings");
-    // ComboShip: menuThemeIndex is normally set by Init/UpdateElement, which never run in combo
-    // (the game's own menu isn't installed). Refresh it from the CVar here, as UpdateElement does,
-    // so MenuDrawItem gets a valid theme key (else ColorValues.at() throws out_of_range).
-    menuThemeIndex = static_cast<UIWidgets::Colors>(CVarGetInteger("gSettings.Menu.Theme", defaultThemeIndex));
-    UIWidgets::Colors themeIndex = menuThemeIndex;
+void Menu::DrawContent(const std::set<std::string>& onlyPaths, const std::set<std::string>& skipPaths) {
+    // ComboShip: guard — same as DrawElement.
+    if (OTRGlobals::Instance->fontStandardLargest == nullptr) return;
 
-    // ComboShip: in combo this is the only menu draw path (the game's own DrawElement never runs,
-    // since comboui owns the menu), so replicate DrawElement's per-frame disable-evaluation refresh
-    // that MenuDrawItem depends on.
+    // ComboShip: per-frame setup — replicate what DrawElement does at its top since
+    // DrawElement itself never runs in combo (comboui owns the menu).
     for (auto& [reason, info] : disabledMap) {
         info.active = info.evaluation(info);
     }
+    menuThemeIndex = static_cast<UIWidgets::Colors>(CVarGetInteger("gSettings.Menu.Theme", defaultThemeIndex));
+    UIWidgets::Colors themeIndex = menuThemeIndex;
 
-    auto isSkipped = [&](const std::string& path) { return skipPaths.count(path) > 0; };
+    // ComboShip: onlyPaths/skipPaths filtering helpers.
+    // onlyPaths non-empty → allow-list mode; empty → skip-list mode.
+    auto headerVisible = [&](const std::string& h) -> bool {
+        if (!menuEntries.count(h)) return false;
+        if (!onlyPaths.empty()) {
+            if (onlyPaths.count(h)) return true;
+            const std::string prefix = h + "/";
+            for (auto& p : onlyPaths) {
+                if (p.rfind(prefix, 0) == 0) return true;
+            }
+            return false;
+        }
+        return skipPaths.count(h) == 0;
+    };
 
-    std::vector<std::string> headers;
+    auto sidebarVisible = [&](const std::string& h, const std::string& s) -> bool {
+        if (!onlyPaths.empty()) {
+            bool hasSidebarEntries = false;
+            const std::string prefix = h + "/";
+            for (auto& p : onlyPaths) {
+                if (p.rfind(prefix, 0) == 0) { hasSidebarEntries = true; break; }
+            }
+            if (!hasSidebarEntries) return true;
+            return onlyPaths.count(h + "/" + s) > 0;
+        }
+        return skipPaths.count(h + "/" + s) == 0;
+    };
+
+    const char* headerCvar = "gSettings.Menu.ActiveHeader";
+    std::string headerIndex = CVarGetString(headerCvar, "Settings");
+
+    // Build visible header list; fall back to first if stored header is filtered out.
+    std::vector<std::string> visibleHeaders;
     for (auto& label : menuOrder) {
-        if (!menuEntries.count(label)) continue;
-        if (isSkipped(label)) continue;
-        headers.push_back(label);
+        if (headerVisible(label)) visibleHeaders.push_back(label);
     }
-    if (headers.empty()) {
+    if (visibleHeaders.empty()) {
         ImGui::TextUnformatted("No settings.");
         return;
     }
-    if (std::find(headers.begin(), headers.end(), activeHeader) == headers.end()) {
-        activeHeader = headers.front();
-        CVarSetString(activeHeaderCvar, activeHeader.c_str());
+    if (std::find(visibleHeaders.begin(), visibleHeaders.end(), headerIndex) == visibleHeaders.end()) {
+        headerIndex = visibleHeaders.front();
+        CVarSetString(headerCvar, headerIndex.c_str());
     }
 
-    // Header button row
-    for (size_t i = 0; i < headers.size(); ++i) {
+    // -----------------------------------------------------------------------
+    // Themed rendering — mirrors DrawElement layout without Begin/End wrapper
+    // (comboui's outer window is already open around us), search bar, or
+    // quit/reset/close buttons.
+    // -----------------------------------------------------------------------
+    ImGuiContext& g = *GImGui;
+    ImGuiWindow* window = g.CurrentWindow;
+    ImGuiStyle& style = ImGui::GetStyle();
+
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+    float availW = avail.x > 0 ? avail.x : 800.0f;
+    float availH = avail.y > 0 ? avail.y : 600.0f;
+
+    ImGui::PushFont(OTRGlobals::Instance->fontStandardLargest);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f, 8.0f));
+
+    ImVec2 firstSize = ImGui::CalcTextSize(visibleHeaders.front().c_str());
+    float headerHeight = firstSize.y + style.FramePadding.y * 2;
+
+    ImVec2 pos = window->DC.CursorPos;
+    ImGui::SetNextWindowPos(pos);
+    ImGui::BeginChild("MM Menu Block", ImVec2(availW, availH),
+                      ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysAutoResize,
+                      ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar);
+
+    ImGui::SetNextWindowSizeConstraints({ 0, headerHeight }, { availW, headerHeight });
+    ImGui::BeginChild("MM Header Selection", ImVec2(availW, headerHeight),
+                      ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysAutoResize,
+                      ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_HorizontalScrollbar);
+    for (size_t i = 0; i < visibleHeaders.size(); ++i) {
         if (i != 0) ImGui::SameLine();
-        bool sel = (headers[i] == activeHeader);
-        if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::Button(headers[i].c_str())) {
-            activeHeader = headers[i];
-            CVarSetString(activeHeaderCvar, activeHeader.c_str());
+        const std::string& label = visibleHeaders[i];
+        UIWidgets::PushStyleButton(themeIndex);
+        if (headerIndex != label) {
+            ImGui::PushStyleColor(ImGuiCol_Button, { 0, 0, 0, 0 });
         }
-        if (sel) ImGui::PopStyleColor();
-    }
-    ImGui::Separator();
-
-    MainMenuEntry& entry = menuEntries.at(activeHeader);
-    const char* rawSidebarCvar = entry.sidebarCvar;
-    std::string sidebarCvar = rawSidebarCvar ? rawSidebarCvar : "";
-    std::string activeSidebar = sidebarCvar.empty() ? "" : CVarGetString(sidebarCvar.c_str(), "");
-
-    std::vector<std::string> sidebars;
-    for (auto& s : entry.sidebarOrder) {
-        if (isSkipped(activeHeader + "/" + s)) continue;
-        sidebars.push_back(s);
-    }
-    if (sidebars.empty()) {
-        ImGui::TextUnformatted("No settings in this section.");
-        return;
-    }
-    if (std::find(sidebars.begin(), sidebars.end(), activeSidebar) == sidebars.end()) {
-        activeSidebar = sidebars.front();
-        if (!sidebarCvar.empty()) CVarSetString(sidebarCvar.c_str(), activeSidebar.c_str());
-    }
-
-    ImGui::BeginChild("mmSidebar", ImVec2(180, 0), true);
-    for (auto& s : sidebars) {
-        if (ImGui::Selectable(s.c_str(), s == activeSidebar)) {
-            activeSidebar = s;
-            if (!sidebarCvar.empty()) CVarSetString(sidebarCvar.c_str(), s.c_str());
+        if (ModernMenuHeaderEntry(menuEntries.at(label).label)) {
+            headerIndex = label;
+            CVarSetString(headerCvar, label.c_str());
+            CVarSave();
         }
+        if (headerIndex != label) {
+            ImGui::PopStyleColor();
+        }
+        UIWidgets::PopStyleButton();
     }
     ImGui::EndChild();
-    ImGui::SameLine();
-    ImGui::BeginChild("mmWidgets", ImVec2(0, 0), true);
-    SidebarEntry& sb = entry.sidebars.at(activeSidebar);
-    // ComboShip: run any registered per-section update funcs before drawing widgets, as DrawElement does.
+
+    // Divider line below header row (mirrors DrawElement).
+    {
+        ImGuiWindow* blk = g.CurrentWindow;
+        ImVec2 lp = blk->DC.CursorPos;
+        blk->DrawList->AddRectFilled(lp, lp + ImVec2{ availW, 4 },
+                                     ImGui::GetColorU32({ 255, 255, 255, 255 }), true, style.WindowRounding);
+        ImGui::Dummy(ImVec2(availW, 4));
+    }
+
+    float sectionHeight = availH - headerHeight - 4 - style.ItemSpacing.y * 2;
+    float columnHeight = sectionHeight - style.ItemSpacing.y * 4;
+    float sidebarWidth = 200 - style.ItemSpacing.x;
+    if (availW > 1600) sidebarWidth = availW * 0.15f;
+
+    MainMenuEntry& entry = menuEntries.at(headerIndex);
+    const char* rawSidebarCvar = entry.sidebarCvar;
+    std::string sidebarCvarStr = rawSidebarCvar ? rawSidebarCvar : "";
+    std::string sectionIndex = sidebarCvarStr.empty() ? "" : CVarGetString(sidebarCvarStr.c_str(), "");
+
+    std::vector<std::string> visibleSidebars;
+    for (auto& s : entry.sidebarOrder) {
+        if (sidebarVisible(headerIndex, s)) visibleSidebars.push_back(s);
+    }
+    if (visibleSidebars.empty()) {
+        ImGui::PopFont();
+        ImGui::PopStyleVar();
+        ImGui::EndChild();
+        return;
+    }
+    if (GetVectorIndexOf(entry.sidebarOrder, sectionIndex) == entry.sidebarOrder.size() ||
+        std::find(visibleSidebars.begin(), visibleSidebars.end(), sectionIndex) == visibleSidebars.end()) {
+        sectionIndex = visibleSidebars.front();
+        if (!sidebarCvarStr.empty()) CVarSetString(sidebarCvarStr.c_str(), sectionIndex.c_str());
+    }
+
+    ImGui::SetNextWindowSizeConstraints({ sidebarWidth, 0 }, { sidebarWidth, columnHeight });
+    ImGui::BeginChild((entry.label + " Section").c_str(), { sidebarWidth, columnHeight * 3 },
+                      ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysAutoResize,
+                      ImGuiWindowFlags_NoTitleBar);
+    for (auto& sidebarLabel : visibleSidebars) {
+        UIWidgets::PushStyleButton(themeIndex);
+        if (sectionIndex != sidebarLabel) {
+            ImGui::PushStyleColor(ImGuiCol_Button, { 0, 0, 0, 0 });
+        }
+        if (ModernMenuSidebarEntry(sidebarLabel)) {
+            sectionIndex = sidebarLabel;
+            if (!sidebarCvarStr.empty()) CVarSetString(sidebarCvarStr.c_str(), sidebarLabel.c_str());
+            CVarSave();
+        }
+        if (sectionIndex != sidebarLabel) {
+            ImGui::PopStyleColor();
+        }
+        UIWidgets::PopStyleButton();
+    }
+    ImGui::EndChild();
+    ImGui::PopFont(); // pop fontStandardLargest
+
+    // MM: push fontMonoLarger for content area (mirrors DrawElement line 813).
+    ImGui::PushFont(OTRGlobals::Instance->fontMonoLarger);
+
+    // Vertical divider between sidebar and content columns.
+    {
+        ImGuiWindow* blk = g.CurrentWindow;
+        ImVec2 dvPos = blk->DC.CursorPos;
+        blk->DrawList->AddRectFilled(dvPos, dvPos + ImVec2{ 4, sectionHeight - style.FramePadding.y * 2 },
+                                     ImGui::GetColorU32({ 255, 255, 255, 255 }), true, style.WindowRounding);
+    }
+
+    float sectionWidth = availW - sidebarWidth - 4 - style.ItemSpacing.x * 4;
+    std::string sectionMenuId = sectionIndex + " Settings";
+    SidebarEntry& sb = entry.sidebars.at(sectionIndex);
+    int columns = sb.columnCount;
+    size_t columnFuncs = sb.columnWidgets.size();
+    if (availW < 800) columns = 1;
+    float columnWidth = (sectionWidth - style.ItemSpacing.x * columns) / columns;
+    bool useColumns = columns > 1;
+
+    // ComboShip: run per-section update funcs before drawing widgets, as DrawElement does.
     if (MenuInit::GetUpdateFuncs().contains(entry.label)) {
-        if (MenuInit::GetUpdateFuncs()[entry.label].contains(activeSidebar)) {
-            for (auto& updateFunc : MenuInit::GetUpdateFuncs()[entry.label][activeSidebar]) {
+        if (MenuInit::GetUpdateFuncs()[entry.label].contains(sectionIndex)) {
+            for (auto& updateFunc : MenuInit::GetUpdateFuncs()[entry.label][sectionIndex]) {
                 updateFunc();
             }
         }
     }
-    for (size_t col = 0; col < sb.columnWidgets.size(); ++col) {
-        for (auto& w : sb.columnWidgets.at(col)) {
-            MenuDrawItem(w, 90 / std::max<uint32_t>(sb.columnCount, 1), themeIndex);
+
+    ImGui::SameLine();
+    if (!useColumns) {
+        ImGui::SetNextWindowSizeConstraints({ sectionWidth, 0 }, { sectionWidth, columnHeight });
+        ImGui::BeginChild(sectionMenuId.c_str(), { sectionWidth, availH * 4 }, ImGuiChildFlags_AutoResizeY,
+                          ImGuiWindowFlags_NoTitleBar);
+    }
+    for (size_t i = 0; i < columnFuncs; i++) {
+        std::string sectionId = fmt::format("{} Column {}", sectionMenuId, i);
+        if (useColumns) {
+            ImGui::SetNextWindowSizeConstraints({ columnWidth, 0 }, { columnWidth, columnHeight });
+            ImGui::BeginChild(sectionId.c_str(), { columnWidth, availH * 4 }, ImGuiChildFlags_AutoResizeY,
+                              ImGuiWindowFlags_NoTitleBar);
+        }
+        for (auto& w : sb.columnWidgets.at(i)) {
+            MenuDrawItem(w, 90 / std::max<int>(columns, 1), themeIndex);
+        }
+        if (useColumns) {
+            ImGui::EndChild();
+        }
+        if (i < (size_t)columns - 1) {
+            ImGui::SameLine();
         }
     }
-    ImGui::EndChild();
+    if (!useColumns) {
+        ImGui::EndChild();
+    }
+
+    ImGui::PopFont(); // pop fontMonoLarger
+    ImGui::PopStyleVar(); // FramePadding
+    ImGui::EndChild(); // MM Menu Block
     Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
 }
 

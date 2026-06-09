@@ -61,7 +61,6 @@ CrowdControl* CrowdControl::Instance;
 #include "2s2h/Enhancements/GfxPatcher/AuthenticGfxPatches.h"
 #include "2s2h/Enhancements/GfxPatcher/PlayerCustomFlipbooks.h"
 #include "2s2h/DeveloperTools/DebugConsole.h"
-#include "2s2h/DeveloperTools/DeveloperTools.h" // ComboShip SPIKE (Phase 0): RenderWarpPointSection
 #include "2s2h/Rando/Rando.h"
 #include "2s2h/Rando/Spoiler/Spoiler.h"
 #include "2s2h/Rando/Logic/Logic.h"
@@ -3077,37 +3076,6 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Restore(void) {
 }
 
 #ifdef COMBO_BUILD
-// ComboShip SPIKE (Phase 0, revert later): prove a backgrounded MM DLL can
-// render a custom widget and evaluate a preFunc under comboui's ImGui context.
-extern "C" __declspec(dllexport) void MM_SpikeDrawWarpCustom(void) {
-    auto sctx = Ship::Context::GetInstance();
-    if (sctx && sctx->GetWindow() && sctx->GetWindow()->GetGui()) {
-        ImGui::SetCurrentContext(sctx->GetWindow()->GetGui()->GetImGuiContext());
-    }
-    // mBenMenu must exist AND be Init()'d: RenderWarpPointSection -> theme color + UIWidgets style
-    // maps require InitElement-time setup (menuThemeIndex). comboui owns the active menu, so
-    // libultraship never Init()s this one — do it here (idempotent), mirroring MM_DrawSettings.
-    if (!BenGui::GetBenMenu()) {
-        BenGui::ActivateMenu();
-    }
-    if (auto menu = BenGui::GetBenMenu()) {
-        menu->Init();
-        // menuThemeIndex is set in UpdateElement(), not InitElement(). comboui owns the menu so the
-        // Gui loop never Update()s MM's menu -> menuThemeIndex stays uninitialized and THEME_COLOR
-        // (used by custom widgets via ColorValues.at) throws. Run Update() to set the theme member.
-        menu->Update();
-    }
-    // "Warp Point" custom body. In mm/2s2h/BenGui/BenMenu.cpp the "Warp Point"
-    // WIDGET_CUSTOM calls RenderWarpPointSection(). Call the same thing here.
-    RenderWarpPointSection();
-}
-
-// Returns 1 if the widget would be disabled (no save loaded), else 0.
-// Mirrors a DISABLE_FOR_NULL_PLAY_STATE-style preFunc; must NOT fault when MM is dormant.
-extern "C" __declspec(dllexport) int MM_SpikeEvalDisabled(void) {
-    return (gPlayState == nullptr) ? 1 : 0;
-}
-
 // ComboShip: draw MM's menu content (content-only, themed) into the current ImGui window.
 // onlyCsv: if non-empty, comma-separated allow-list of "Header" or "Header/Sidebar" paths to show.
 // skipCsv: if onlyCsv is empty, comma-separated block-list of paths to hide.

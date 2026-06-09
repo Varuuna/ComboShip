@@ -1,5 +1,7 @@
 // combo/gui/ComboMenu.cpp
 #include "ComboMenu.h"
+#include "ComboMenuModel.h"
+#include "ComboWidgetRender.h"
 #include <imgui.h>
 #include <memory>
 #include <string>
@@ -19,8 +21,7 @@ FnDrawSettings ResolveDraw(const char* dll, const char* sym) {
     return nullptr;
 #endif
 }
-FnDrawSettings sSohDraw = nullptr;
-FnDrawSettings sMmDraw  = nullptr;
+FnDrawSettings sSohDraw = nullptr; // still used by DrawSharedPanel for the engine sidebars
 // Engine sidebars shown ONCE in the Shared tab (rendered by OOT, since they write the shared
 // gSettings.* engine CVars) and skipped from the per-game tabs to avoid duplication.
 const char* kEngineSidebars = "Settings/Graphics,Settings/General";
@@ -96,15 +97,38 @@ void ComboMenu::DrawSharedPanel() {
     else ImGui::TextUnformatted("Shared settings unavailable (SOH_DrawSettings not found).");
 }
 
+// Per-game tab: render the game's menu from the combo-owned C-ABI model (CwMenu) using
+// comboui's own ImGui calls, instead of delegating to SOH_/MM_DrawSettings. The Shared tab
+// (DrawSharedPanel) still delegates to OOT for the shared engine sidebars.
 void ComboMenu::DrawGamePanel(const char* gameKey) {
-    if (strcmp(gameKey, "oot") == 0) {
-        if (!sSohDraw) sSohDraw = ResolveDraw("soh.dll", "SOH_DrawSettings");
-        if (sSohDraw) sSohDraw("", kEngineSidebars);
-        else ImGui::TextUnformatted("OOT settings unavailable (SOH_DrawSettings not found).");
-    } else {
-        if (!sMmDraw) sMmDraw = ResolveDraw("2ship.dll", "MM_DrawSettings");
-        if (sMmDraw) sMmDraw("", kEngineSidebars);
-        else ImGui::TextUnformatted("MM settings unavailable (MM_DrawSettings not found).");
+    auto& model = ComboMenuModel::Get();
+    model.EnsureLoaded();
+    const GameMenu& game = (strcmp(gameKey, "oot") == 0) ? model.Oot() : model.Mm();
+    if (!game.loaded || !game.menu) {
+        ImGui::TextUnformatted("Menu not available yet (game still initializing).");
+        return;
+    }
+    const CwMenu* m = game.menu;
+    // Section tab bar; within each section, each sidebar's widgets under a SeparatorText.
+    // NOTE: this renders widgets linearly and ignores CwSidebar::columnCount — multi-column
+    // layout is a later polish pass; a single column is fine for this milestone.
+    if (ImGui::BeginTabBar("ComboGameSections")) {
+        for (int s = 0; s < m->sectionCount; ++s) {
+            const CwSection& sec = m->sections[s];
+            if (ImGui::BeginTabItem(sec.sectionLabel && sec.sectionLabel[0] ? sec.sectionLabel : "Section")) {
+                ImGui::BeginChild("##secscroll");
+                for (int sb = 0; sb < sec.sidebarCount; ++sb) {
+                    const CwSidebar& side = sec.sidebars[sb];
+                    if (side.sidebarName && side.sidebarName[0]) ImGui::SeparatorText(side.sidebarName);
+                    for (int wdx = 0; wdx < side.widgetCount; ++wdx) {
+                        RenderWidget(side.widgets[wdx], game);
+                    }
+                }
+                ImGui::EndChild();
+                ImGui::EndTabItem();
+            }
+        }
+        ImGui::EndTabBar();
     }
 }
 void ComboMenu::DrawComboPanel() {

@@ -30,10 +30,11 @@ Ship::Context& TestContext() {
     return **ctx;
 }
 
+// These tests use ResourceManagers purely as identity tokens (pointer equality),
+// so we skip Init(): a default-constructed ResourceManager is a valid, destructible
+// object (ctor is empty, ~ResourceManager only logs) and never needs its subsystems.
 std::shared_ptr<Ship::ResourceManager> MakeRm() {
-    auto rm = std::make_shared<Ship::ResourceManager>();
-    rm->Init({}, {});
-    return rm;
+    return std::make_shared<Ship::ResourceManager>();
 }
 
 } // namespace

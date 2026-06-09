@@ -19,21 +19,30 @@ class ResourceManagerScope {
             if (mPrevious != target) {
                 ctx->SetResourceManager(target);
                 mSwapped = true;
+                // Capture the Context identity (non-owning — must NOT extend Context lifetime)
+                // so the dtor only restores into the same Context we swapped. The single-thread
+                // model is the norm; this is a cheap mechanical guard against ever writing
+                // mPrevious into a different Context if the active Context were swapped in-scope.
+                mCtx = ctx.get();
             }
         }
     }
     ~ResourceManagerScope() {
         if (mSwapped) {
-            if (auto ctx = Context::GetInstance()) {
+            if (auto ctx = Context::GetInstance(); ctx && ctx.get() == mCtx) {
                 ctx->SetResourceManager(mPrevious);
             }
         }
     }
     ResourceManagerScope(const ResourceManagerScope&) = delete;
     ResourceManagerScope& operator=(const ResourceManagerScope&) = delete;
+    // Strictly a stack-scoped RAII guard: not movable (no need to transfer the restore).
+    ResourceManagerScope(ResourceManagerScope&&) = delete;
+    ResourceManagerScope& operator=(ResourceManagerScope&&) = delete;
 
   private:
     std::shared_ptr<ResourceManager> mPrevious;
+    const Context* mCtx = nullptr;
     bool mSwapped = false;
 };
 } // namespace Ship

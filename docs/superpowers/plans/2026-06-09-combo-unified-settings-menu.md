@@ -1078,5 +1078,8 @@ Use superpowers:finishing-a-development-branch to decide merge/PR/cleanup for th
 | A game-specific widget callback touches live game state while that game is backgrounded | Task 4/8 | Note any misbehaving widget; pass a "foreground" flag into `*_DrawSettings` and disable-with-tooltip those widgets when not foreground. |
 | OOT rando `Context` reset between Generate and save create | Task 6/7 | Verify; if reset, stash `ootApply` and re-apply at save-init (mirror the MM stash). |
 | MM `OnFileCreate` self-generation double-runs | Task 7 | Verify; gate under `COMBO_BUILD` in `mm/2s2h/Rando/MiscBehavior/OnFileCreate.cpp` if it does. |
-```
+
+## Known runtime issues (found during execution; deprioritized by user)
+
+- **SoH `Dev Tools → General` sidebar crashes when selected** (found after Task 4, 2026-06-09; user deprioritized). Likely a widget there that depends on `DrawElement`-only setup `DrawContent` doesn't replicate, or one that dereferences live game state (e.g. `gPlayState`) that's invalid when drawn via the combo menu. Revisit at Phase 4 verification (Task 8): capture the crash trace, identify the offending widget, and either replicate the missing setup in `DrawContent` or skip/guard that sidebar. Phase 0–1 verified working otherwise (OOT panel renders + widgets respond).
 

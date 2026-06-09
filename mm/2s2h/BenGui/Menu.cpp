@@ -899,7 +899,11 @@ void Menu::DrawElement() {
 void Menu::DrawContent(const std::set<std::string>& skipPaths) {
     const char* activeHeaderCvar = "gSettings.Menu.ActiveHeader";
     std::string activeHeader = CVarGetString(activeHeaderCvar, "Settings");
-    UIWidgets::Colors themeIndex = GetMenuThemeColor();
+    // ComboShip: menuThemeIndex is normally set by Init/UpdateElement, which never run in combo
+    // (the game's own menu isn't installed). Refresh it from the CVar here, as UpdateElement does,
+    // so MenuDrawItem gets a valid theme key (else ColorValues.at() throws out_of_range).
+    menuThemeIndex = static_cast<UIWidgets::Colors>(CVarGetInteger("gSettings.Menu.Theme", defaultThemeIndex));
+    UIWidgets::Colors themeIndex = menuThemeIndex;
 
     // ComboShip: in combo this is the only menu draw path (the game's own DrawElement never runs,
     // since comboui owns the menu), so replicate DrawElement's per-frame disable-evaluation refresh

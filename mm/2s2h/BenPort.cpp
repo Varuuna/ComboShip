@@ -3089,11 +3089,19 @@ extern "C" __declspec(dllexport) void MM_DrawSettings(const char* onlyCsv, const
             ImGui::SetCurrentContext(sctx->GetWindow()->GetGui()->GetImGuiContext());
         }
     }
+    // ComboShip INTERIM GUARD: MM's menu render (BenMenu::DrawContent) depends on MM's live runtime
+    // state — fonts (OTRGlobals::Instance->fontStandardLargest) and per-widget disable evaluations that
+    // probe game state — which is only fully alive while MM is the FOREGROUND game. While MM is
+    // backgrounded behind OOT, that state isn't live and DrawContent faults. Until the planned rework
+    // where ComboShip OWNS the MM menu render independently of MM's lifecycle, show a note instead of
+    // crashing when MM isn't ready.
+    if (!OTRGlobals::Instance || OTRGlobals::Instance->fontStandardLargest == nullptr) {
+        ImGui::TextWrapped("MM settings aren't available here yet while MM runs in the background. "
+                           "ComboShip is being reworked to own the MM menu render directly.");
+        return;
+    }
     auto menu = BenGui::GetBenMenu();
     if (!menu) {
-        // ComboShip: the combo boot flow tears MM's menu down after the eager boot (DeinitOTR ->
-        // BenGui::Destroy() nulls mBenMenu), so build it on demand the first time the MM tab is drawn.
-        // ActivateMenu() (COMBO_BUILD) constructs mBenMenu via SetupMenu without installing it.
         BenGui::ActivateMenu();
         menu = BenGui::GetBenMenu();
     }

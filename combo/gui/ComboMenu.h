@@ -12,9 +12,13 @@ class ComboMenu final : public Ship::GuiWindow {
     using GuiWindow::GuiWindow;
     ~ComboMenu() override {}
 
+    // Override GuiWindow::Draw so we render as a fullscreen overlay (like the port menu)
+    // instead of a normal floating window. DrawElement opens its own window.
+    void Draw() override;
+
   protected:
     void InitElement() override {}
-    void DrawElement() override;       // draws the scope-tab strip + active panel
+    void DrawElement() override;       // fullscreen window: scope-tab strip + active panel
     void UpdateElement() override {}
 
   private:

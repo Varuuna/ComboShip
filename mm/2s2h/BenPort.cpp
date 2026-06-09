@@ -2638,12 +2638,26 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
         // we supply empty options/startingItems (defaults) and feed the combo placement as "checks".
         nlohmann::json spoiler;
         spoiler["finalSeed"] = (uint32_t)0; // Phase 1: not used for runtime delivery (driven by randoSaveChecks)
-        spoiler["options"] = nlohmann::json::object();
+        // ComboShip: persist the player's chosen MM options into the save (mirrors OnFileCreate) so MM
+        // honors its toggles at runtime; an empty options object would make ApplyToSaveContext default
+        // everything (the analog of OOT's SetAllToContext fix).
+        nlohmann::json options = nlohmann::json::object();
+        for (auto& [id, opt] : Rando::StaticData::Options) {
+            options[opt.name] = (uint32_t)CVarGetInteger(opt.cvar, opt.defaultValue);
+        }
+        spoiler["options"] = options;
         spoiler["startingItems"] = nlohmann::json::array();
         spoiler["checks"] = nlohmann::json::parse(placementJson); // { "RC_*": "<spoilerName>", ... }
 
         Rando::Spoiler::ApplyToSaveContext(spoiler);
-        // NOTE: deliberately NOT calling Rando::GrantStartingItems() — headless (Item_Give needs gPlayState).
+
+        // ComboShip: record the chosen starting items in the save (mirrors OnFileCreate). NOTE: we do
+        // NOT call Rando::GrantStartingItems() — it needs gPlayState (Item_Give) and this runs headless,
+        // so starting items are stored in the rando struct but not pushed into inventory here.
+        {
+            auto startingItems = Rando::GetStartingItemsFromConfig();
+            Rando::SetStartingItemsInSave(gSaveContext.save.shipSaveInfo.rando, startingItems);
+        }
 
         // The two always-eligible starting checks (mirrors OnFileCreate tail).
         RANDO_SAVE_CHECKS[RC_STARTING_ITEM_DEKU_MASK].eligible = true;

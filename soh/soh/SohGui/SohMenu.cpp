@@ -3,6 +3,7 @@
 #include <ship/window/gui/GuiElement.h>
 #include <ship/utils/StringHelper.h>
 #include <spdlog/fmt/fmt.h>
+#include "soh/OTRGlobals.h" // ComboShip: EvalDisabledByIndex foreground guard mirrors Menu::DrawElement
 
 extern "C" {
 extern PlayState* gPlayState;
@@ -505,6 +506,16 @@ int32_t SohMenu::EvalDisabledByIndex(int32_t i, const char** outReason) {
     auto* w = mFlat[i];
     if (!w || !w->preFunc) {
         return 0;
+    }
+    // ComboShip: preFuncs probe OOT live runtime + read disabledMap[*].active/.value (populated by the
+    // per-frame disable pass Menu::DrawElement runs). comboui bypasses DrawElement and a backgrounded OOT
+    // has no live state, so only evaluate when OOT is alive (same guard as Menu::DrawElement); else report
+    // enabled (CVars still apply on resume; disable-state reflects live gameplay that doesn't exist while bg).
+    if (OTRGlobals::Instance == nullptr || OTRGlobals::Instance->fontStandardLargest == nullptr) {
+        return 0;
+    }
+    for (auto& [reason, info] : disabledMap) {
+        info.active = info.evaluation(info);
     }
     if (w->options) {
         w->ResetDisables();

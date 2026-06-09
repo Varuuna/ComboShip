@@ -2575,6 +2575,42 @@ extern "C" __declspec(dllexport) void SOH_DrawSettings(const char* onlyCsv, cons
     menu->DrawContent(only, skip);
 }
 
+// ComboShip: expose OOT's SohMenu C-ABI emitter + invoke-by-index helpers so comboui can ingest the
+// flat CwMenu (combo/menu/ComboMenuABI.h) via GetProcAddress and drive widgets back by index. The
+// SohMenu instance is built at menu setup (SohGui::SetupMenu) and kept for process life; comboui owns
+// the menu slot, so libultraship's Gui loop never drives this menu — see SOH_MenuDrawCustom for why
+// Init()/Update() must run before invoking a custom widget.
+extern "C" __declspec(dllexport) const CwMenu* SOH_ExportMenu(void) {
+    auto menu = SohGui::GetSohMenu();
+    return menu ? menu->ExportComboMenu() : nullptr;
+}
+
+extern "C" __declspec(dllexport) void SOH_MenuInvokeCallback(int32_t i) {
+    if (auto menu = SohGui::GetSohMenu()) menu->InvokeCallbackByIndex(i);
+}
+
+extern "C" __declspec(dllexport) int32_t SOH_MenuEvalDisabled(int32_t i, const char** outReason) {
+    auto menu = SohGui::GetSohMenu();
+    return menu ? menu->EvalDisabledByIndex(i, outReason) : 0;
+}
+
+extern "C" __declspec(dllexport) void SOH_MenuDrawCustom(int32_t i) {
+    // Like SOH_DrawSettings: soh.dll's per-module ImGui GImGui isn't current when OOT is backgrounded,
+    // so point it at the shared context before any ImGui call.
+    auto ctx = Ship::Context::GetInstance();
+    if (ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
+        ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
+    }
+    // Phase 0 spike contract: comboui owns the menu slot so the Gui loop never drives this menu's
+    // lifecycle. A custom widget reads THEME_COLOR (menuThemeIndex), set in UpdateElement(), so
+    // Init()+Update() must run BEFORE invoking, else ColorValues.at() throws. Init() is idempotent.
+    if (auto menu = SohGui::GetSohMenu()) {
+        menu->Init();
+        menu->Update();
+        menu->DrawCustomByIndex(i);
+    }
+}
+
 // ComboShip MM->OOT return: re-enter OOT's game loop on the SAME shared context/window, swap
 // archives back to OOT, reload the OOT save, and spawn Link at the Mido's-House door in Kokiri
 // Forest. Counterpart to MM's sComboTransitionActive reuse path in BenPort.cpp.

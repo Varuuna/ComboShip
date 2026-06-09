@@ -8,6 +8,15 @@ namespace ComboRando {
 static std::shared_ptr<ComboMenu> sComboMenu;
 
 void ComboMenu::DrawElement() {
+    // ImGui's GImGui (current-context) is a per-module global; comboui.dll has its own,
+    // separate from libultraship.dll where the context actually lives. Point it at the shared
+    // context before any ImGui call here (same pattern soh.dll/2ship.dll use) — otherwise
+    // ImGui::BeginTabBar dereferences a null context and crashes.
+    auto ctx = Ship::Context::GetInstance();
+    if (ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
+        ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
+    }
+
     if (ImGui::BeginTabBar("ComboScopeTabs")) {
         if (ImGui::BeginTabItem("Shared")) { DrawSharedPanel(); ImGui::EndTabItem(); }
         if (ImGui::BeginTabItem("OOT"))    { DrawGamePanel("oot"); ImGui::EndTabItem(); }

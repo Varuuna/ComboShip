@@ -3092,6 +3092,10 @@ extern "C" __declspec(dllexport) void MM_SpikeDrawWarpCustom(void) {
     }
     if (auto menu = BenGui::GetBenMenu()) {
         menu->Init();
+        // menuThemeIndex is set in UpdateElement(), not InitElement(). comboui owns the menu so the
+        // Gui loop never Update()s MM's menu -> menuThemeIndex stays uninitialized and THEME_COLOR
+        // (used by custom widgets via ColorValues.at) throws. Run Update() to set the theme member.
+        menu->Update();
     }
     // "Warp Point" custom body. In mm/2s2h/BenGui/BenMenu.cpp the "Warp Point"
     // WIDGET_CUSTOM calls RenderWarpPointSection(). Call the same thing here.

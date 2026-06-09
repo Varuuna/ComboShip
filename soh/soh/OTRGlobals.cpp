@@ -2550,6 +2550,13 @@ extern "C" __declspec(dllexport) void SOH_NotifyComboReturn(void) {
 // onlyCsv: if non-empty, comma-separated allow-list of "Header" or "Header/Sidebar" paths to show.
 // skipCsv: if onlyCsv is empty, comma-separated block-list of paths to hide.
 extern "C" __declspec(dllexport) void SOH_DrawSettings(const char* onlyCsv, const char* skipCsv) {
+    // ComboShip: soh.dll's per-module ImGui GImGui isn't current when OOT is backgrounded (e.g. MM is
+    // foreground and the player opens the Shared/OOT tab) — point it at the shared context before any
+    // ImGui call, mirroring comboui, else ImGui::GetCurrentWindow() is null and we crash.
+    if (Ship::Context::GetInstance() && Ship::Context::GetInstance()->GetWindow() &&
+        Ship::Context::GetInstance()->GetWindow()->GetGui()) {
+        ImGui::SetCurrentContext(Ship::Context::GetInstance()->GetWindow()->GetGui()->GetImGuiContext());
+    }
     auto menu = SohGui::GetSohMenu();
     if (!menu) return;
     // ComboShip: in combo this menu is never installed as the active Gui menu, so libultraship never

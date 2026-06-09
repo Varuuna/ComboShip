@@ -3080,8 +3080,27 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Restore(void) {
 // onlyCsv: if non-empty, comma-separated allow-list of "Header" or "Header/Sidebar" paths to show.
 // skipCsv: if onlyCsv is empty, comma-separated block-list of paths to hide.
 extern "C" __declspec(dllexport) void MM_DrawSettings(const char* onlyCsv, const char* skipCsv) {
+    // ComboShip: comboui calls us from the draw thread, but 2ship.dll has its OWN per-module ImGui
+    // GImGui which is NOT current while MM is backgrounded — point it at the shared context before ANY
+    // ImGui call here (mirrors comboui/soh), else ImGui::GetCurrentWindow() is null and we crash.
+    {
+        auto sctx = Ship::Context::GetInstance();
+        if (sctx && sctx->GetWindow() && sctx->GetWindow()->GetGui()) {
+            ImGui::SetCurrentContext(sctx->GetWindow()->GetGui()->GetImGuiContext());
+        }
+    }
     auto menu = BenGui::GetBenMenu();
-    if (!menu) return;
+    if (!menu) {
+        // ComboShip: the combo boot flow tears MM's menu down after the eager boot (DeinitOTR ->
+        // BenGui::Destroy() nulls mBenMenu), so build it on demand the first time the MM tab is drawn.
+        // ActivateMenu() (COMBO_BUILD) constructs mBenMenu via SetupMenu without installing it.
+        BenGui::ActivateMenu();
+        menu = BenGui::GetBenMenu();
+    }
+    if (!menu) {
+        ImGui::TextUnformatted("MM settings unavailable (menu could not be built).");
+        return;
+    }
     // ComboShip: comboui owns the active menu, so libultraship never Init()s this one. Init() is
     // idempotent; run it once so InitElement-time setup exists before drawing.
     menu->Init();

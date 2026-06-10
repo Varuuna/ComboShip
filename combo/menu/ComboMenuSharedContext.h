@@ -9,7 +9,11 @@
 #ifndef COMBO_MENU_SHARED_CONTEXT_H
 #define COMBO_MENU_SHARED_CONTEXT_H
 
-namespace ComboMenuGlue {
+#ifndef IMGUI_VERSION
+#error "ComboMenuSharedContext.h is TU-glue: include imgui.h and libultraship.h before it"
+#endif
+
+namespace ComboMenuContext {
 
 inline void UseSharedImGuiContext() {
     auto ctx = Ship::Context::GetInstance();
@@ -18,6 +22,6 @@ inline void UseSharedImGuiContext() {
     }
 }
 
-} // namespace ComboMenuGlue
+} // namespace ComboMenuContext
 
 #endif // COMBO_MENU_SHARED_CONTEXT_H

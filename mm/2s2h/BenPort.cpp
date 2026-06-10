@@ -3110,20 +3110,20 @@ std::shared_ptr<BenGui::BenMenu> Combo_EnsureBenMenu() {
 // 2ship.dll has its own per-module ImGui GImGui — see combo/menu/ComboMenuSharedContext.h.
 
 extern "C" __declspec(dllexport) const CwMenu* MM_ExportMenu(void) {
-    ComboMenuGlue::UseSharedImGuiContext();
+    ComboMenuContext::UseSharedImGuiContext();
     auto menu = Combo_EnsureBenMenu();
     return menu ? menu->ExportComboMenu() : nullptr;
 }
 
 extern "C" __declspec(dllexport) void MM_MenuInvokeCallback(int32_t i) {
-    ComboMenuGlue::UseSharedImGuiContext();
+    ComboMenuContext::UseSharedImGuiContext();
     if (auto menu = Combo_EnsureBenMenu()) {
         menu->InvokeCallbackByIndex(i);
     }
 }
 
 extern "C" __declspec(dllexport) int32_t MM_MenuEvalDisabled(int32_t i, const char** outReason) {
-    ComboMenuGlue::UseSharedImGuiContext();
+    ComboMenuContext::UseSharedImGuiContext();
     auto menu = Combo_EnsureBenMenu();
     return menu ? menu->EvalDisabledByIndex(i, outReason) : 0;
 }
@@ -3132,7 +3132,7 @@ extern "C" __declspec(dllexport) void MM_MenuDrawCustom(int32_t i) {
     // comboui owns the active menu slot, so the Gui loop never drives MM's menu. A custom widget may read
     // THEME_COLOR (menuThemeIndex), which is set in UpdateElement(); skipping Update() makes ColorValues.at()
     // throw out_of_range (proven by the Phase 0 spike). So Init()+Update() before any custom draw.
-    ComboMenuGlue::UseSharedImGuiContext();
+    ComboMenuContext::UseSharedImGuiContext();
     auto menu = Combo_EnsureBenMenu();
     if (menu) {
         menu->Init();

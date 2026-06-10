@@ -2556,7 +2556,7 @@ extern "C" __declspec(dllexport) void SOH_DrawSettings(const char* onlyCsv, cons
     // ComboShip: soh.dll's per-module ImGui GImGui isn't current when OOT is backgrounded (e.g. MM is
     // foreground and the player opens the Shared/OOT tab) — point it at the shared context before any
     // ImGui call, mirroring comboui, else ImGui::GetCurrentWindow() is null and we crash.
-    ComboMenuGlue::UseSharedImGuiContext();
+    ComboMenuContext::UseSharedImGuiContext();
     auto menu = SohGui::GetSohMenu();
     if (!menu) return;
     // ComboShip: in combo this menu is never installed as the active Gui menu, so libultraship never
@@ -2583,18 +2583,18 @@ extern "C" __declspec(dllexport) void SOH_DrawSettings(const char* onlyCsv, cons
 // soh.dll has its own per-module ImGui GImGui — see combo/menu/ComboMenuSharedContext.h.
 
 extern "C" __declspec(dllexport) const CwMenu* SOH_ExportMenu(void) {
-    ComboMenuGlue::UseSharedImGuiContext();
+    ComboMenuContext::UseSharedImGuiContext();
     auto menu = SohGui::GetSohMenu();
     return menu ? menu->ExportComboMenu() : nullptr;
 }
 
 extern "C" __declspec(dllexport) void SOH_MenuInvokeCallback(int32_t i) {
-    ComboMenuGlue::UseSharedImGuiContext();
+    ComboMenuContext::UseSharedImGuiContext();
     if (auto menu = SohGui::GetSohMenu()) menu->InvokeCallbackByIndex(i);
 }
 
 extern "C" __declspec(dllexport) int32_t SOH_MenuEvalDisabled(int32_t i, const char** outReason) {
-    ComboMenuGlue::UseSharedImGuiContext();
+    ComboMenuContext::UseSharedImGuiContext();
     auto menu = SohGui::GetSohMenu();
     return menu ? menu->EvalDisabledByIndex(i, outReason) : 0;
 }
@@ -2602,7 +2602,7 @@ extern "C" __declspec(dllexport) int32_t SOH_MenuEvalDisabled(int32_t i, const c
 extern "C" __declspec(dllexport) void SOH_MenuDrawCustom(int32_t i) {
     // Like SOH_DrawSettings: soh.dll's per-module ImGui GImGui isn't current when OOT is backgrounded,
     // so point it at the shared context before any ImGui call.
-    ComboMenuGlue::UseSharedImGuiContext();
+    ComboMenuContext::UseSharedImGuiContext();
     // Phase 0 spike contract: comboui owns the menu slot so the Gui loop never drives this menu's
     // lifecycle. A custom widget reads THEME_COLOR (menuThemeIndex), set in UpdateElement(), so
     // Init()+Update() must run BEFORE invoking, else ColorValues.at() throws. Init() is idempotent.

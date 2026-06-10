@@ -534,3 +534,22 @@ no longer copied into owned-string storage (output still `""`); MM's redundant
 only below 800px window width).
 
 Net effect: vendored menu diff vs upstream shrank from ~1,630 to ~907 added lines across soh/ + mm/.
+
+## Eager-MM-boot export bug: SOH_PrepareForTransition was never exported (2026-06-11)
+
+**`soh/soh/OTRGlobals.cpp` (`SOH_PrepareForTransition`):** the founding-commit declaration put
+`__declspec(dllexport)` on its own line BEFORE `extern "C"` — MSVC silently ignores the declspec
+in that arrangement (warning C4091, invisible because soh compiles with `/w`). The function was
+never in soh.dll's export table, so ComboShip.exe's eager-MM-boot gate (which requires all four
+transition exports) failed on EVERY launch since 2026-06-05, printing one stderr line nobody saw.
+Consequences while hidden: `ShipInit::InitAll` never ran at startup, `Rando::Logic::Regions`
+stayed empty (0 of 315), the settings-scoped `MM_DumpRandoStaticData` emitted 0 checks, and the
+cross-world fill never placed a single cross-game item (`mmCount=0`, `foreign=[]`) — masked by
+graceful fallbacks everywhere else (boot-on-first-portal-transition, place-anywhere fill).
+Fixed by using the canonical `extern "C" __declspec(dllexport)` form. Verified: eager boot
+completes, 315 regions, MM dump 876 checks, spoiler mmCount=876 with populated foreign array.
+
+**`mm/2s2h/BenPort.cpp` (`MM_DumpRandoStaticData`):** kept a permanent file-based canary
+(`saves/combo/debug-mmdump.json`: pool sizes + per-reason emit-drop counters). File-based because
+2ship.dll's spdlog default logger is never configured in combo (the shared Context owns logging in
+soh's module) — SPDLOG_* calls from 2ship.dll go nowhere; remember this when adding MM-side logs.

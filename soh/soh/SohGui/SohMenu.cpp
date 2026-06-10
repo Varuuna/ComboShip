@@ -499,6 +499,9 @@ void SohMenu::InvokeCallbackByIndex(int32_t i) {
     }
     auto* w = mFlat[i];
     if (w && w->callback) {
+        // Ensure InitElement ran (comboui never installs this menu) so a callback that touches
+        // disabledMap/menu state doesn't fault. Idempotent.
+        Init();
         w->callback(*w);
     }
 }
@@ -518,6 +521,10 @@ int32_t SohMenu::EvalDisabledByIndex(int32_t i, const char** outReason) {
     if (OTRGlobals::Instance == nullptr || OTRGlobals::Instance->fontStandardLargest == nullptr) {
         return 0;
     }
+    // comboui owns the menu slot, so libultraship never installs/Init()s this menu — and OOT populates
+    // disabledMap in InitElement(). Without Init(), a preFunc that reads disabledMap.at(KEY) throws
+    // out_of_range (intermittent: only worked when a custom-draw happened to Init() first). Idempotent.
+    Init();
     for (auto& [reason, info] : disabledMap) {
         info.active = info.evaluation(info);
     }

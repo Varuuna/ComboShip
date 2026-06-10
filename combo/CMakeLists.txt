@@ -10,6 +10,7 @@ set(COMBOUI_SOURCES
     gui/ComboMenu.cpp
     gui/ComboMenuModel.cpp
     gui/ComboWidgetRender.cpp
+    gui/ComboWidgetStyle.cpp
 )
 add_library(comboui SHARED ${COMBOUI_SOURCES})
 set_target_properties(comboui PROPERTIES PREFIX "")

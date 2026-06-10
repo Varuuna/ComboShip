@@ -9,6 +9,7 @@
 // game.invokeCallback and game.drawCustom by index — no shared_ptr crosses the boundary.
 #include "ComboWidgetRender.h"
 #include "ComboMenuModel.h" // GameMenu (resolved export fn-ptrs)
+#include "ComboWidgetStyle.h" // combo-owned replication of OOT UIWidgets menu styling
 
 #include <libultraship/libultraship.h> // ImGui-adjacent + CVar bridge (CVarGet/Set*) + color.h
 #include <imgui.h>
@@ -34,6 +35,10 @@ void RenderWidget(const CwWidget& w, const GameMenu& game) {
     bool changed = false;
     const char* label = (w.name && w.name[0]) ? w.name : "###unnamed";
 
+    // Menu theme accent color (read each frame; clamped). Used to theme each widget kind to
+    // match the OOT-rendered Shared tab. See ComboWidgetStyle.{h,cpp}.
+    const ImVec4 themeColor = ComboMenu_ThemeColor();
+
     switch (w.kind) {
         case CW_SEPARATOR:
             ImGui::Separator();
@@ -46,26 +51,32 @@ void RenderWidget(const CwWidget& w, const GameMenu& game) {
             break;
         case CW_CHECKBOX: {
             bool v = CVarGetInteger(w.cvar, w.bDefault) != 0;
+            ComboMenu_PushCheckbox(themeColor);
             if (ImGui::Checkbox(label, &v)) {
                 CVarSetInteger(w.cvar, v ? 1 : 0);
                 changed = true;
             }
+            ComboMenu_PopCheckbox();
             break;
         }
         case CW_SLIDER_INT: {
             int v = CVarGetInteger(w.cvar, w.iDefault);
+            ComboMenu_PushSlider(themeColor);
             if (ImGui::SliderInt(label, &v, w.iMin, w.iMax)) {
                 CVarSetInteger(w.cvar, v);
                 changed = true;
             }
+            ComboMenu_PopSlider();
             break;
         }
         case CW_SLIDER_FLOAT: {
             float v = CVarGetFloat(w.cvar, w.fDefault);
+            ComboMenu_PushSlider(themeColor);
             if (ImGui::SliderFloat(label, &v, w.fMin, w.fMax)) {
                 CVarSetFloat(w.cvar, v);
                 changed = true;
             }
+            ComboMenu_PopSlider();
             break;
         }
         case CW_COMBOBOX: {
@@ -77,6 +88,7 @@ void RenderWidget(const CwWidget& w, const GameMenu& game) {
                     break;
                 }
             }
+            ComboMenu_PushCombobox(themeColor);
             if (ImGui::BeginCombo(label, curLabel)) {
                 for (int i = 0; i < w.choiceCount; ++i) {
                     const CwChoice& c = w.choices[i];
@@ -91,14 +103,17 @@ void RenderWidget(const CwWidget& w, const GameMenu& game) {
                 }
                 ImGui::EndCombo();
             }
+            ComboMenu_PopCombobox();
             break;
         }
         case CW_BTN_SELECTOR: {
             // Simplified rendering: the game owns the exact cycle semantics (wrap-around,
             // label set). Here we expose the backing CVar as an overflow-safe int stepper —
             // functional and clamped at >= 0. The post-change callback (routed below) lets
-            // the game react if it needs to.
+            // the game react if it needs to. Themed with the frame-input style so the field +
+            // +/- steppers pick up the menu accent color.
             int v = CVarGetInteger(w.cvar, w.iDefault);
+            ComboMenu_PushInput(themeColor);
             if (ImGui::InputInt(label, &v)) {
                 if (v < 0) {
                     v = 0;
@@ -106,6 +121,7 @@ void RenderWidget(const CwWidget& w, const GameMenu& game) {
                 CVarSetInteger(w.cvar, v);
                 changed = true;
             }
+            ComboMenu_PopInput();
             break;
         }
         case CW_INPUT_TEXT: {
@@ -151,9 +167,11 @@ void RenderWidget(const CwWidget& w, const GameMenu& game) {
             break;
         }
         case CW_BUTTON:
+            ComboMenu_PushButton(themeColor);
             if (ImGui::Button(label)) {
                 changed = true; // button => fire callback (below)
             }
+            ComboMenu_PopButton();
             break;
         case CW_WINDOW_BUTTON: {
             // Simplified: toggle the backing window CVar as a checkbox. The full menu uses a
@@ -161,10 +179,12 @@ void RenderWidget(const CwWidget& w, const GameMenu& game) {
             // is wired we can't toggle anything, so just show the label disabled.
             if (w.cvar && w.cvar[0]) {
                 bool v = CVarGetInteger(w.cvar, 0) != 0;
+                ComboMenu_PushCheckbox(themeColor);
                 if (ImGui::Checkbox(label, &v)) {
                     CVarSetInteger(w.cvar, v ? 1 : 0);
                     changed = true;
                 }
+                ComboMenu_PopCheckbox();
             } else {
                 ImGui::TextDisabled("%s", w.name ? w.name : "");
             }

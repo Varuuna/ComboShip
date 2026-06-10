@@ -1426,6 +1426,8 @@ git commit -m "refactor(mm): DrawContent delegates to combo-owned shared rendere
 
 ### Task 7: Shared ImGui-context helper
 
+> **ERRATUM (as implemented):** the namespace below shipped as `ComboMenuContext`, not `ComboMenuGlue` — do not instantiate `ComboMenuGlue::` from this text. The header also gained an `#ifndef IMGUI_VERSION` `#error` guard.
+
 `ComboMenu_UseSharedImGuiContext()` is duplicated verbatim in `soh/soh/OTRGlobals.cpp:2586-2591` and `mm/2s2h/BenPort.cpp:3110-3115`, plus two more inline copies inside `SOH_MenuDrawCustom` (OTRGlobals.cpp:2613-2616) and `MM_MenuDrawCustom` (BenPort.cpp:3140-3143).
 
 **Files:**

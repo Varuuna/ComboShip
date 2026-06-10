@@ -10,6 +10,8 @@
  *   menuEntries:  map<std::string, Entry>  with .find/.begin/.end
  *   Entry:        .label (std::string), .sidebarCvar (const char*),
  *                 .sidebarOrder (vector<std::string>), .sidebars (map<std::string, Sidebar>)
+ *                 NOTE: .sidebarCvar (like Widget .cVar/.windowName) is stored into the CwMenu
+ *                 WITHOUT copying into ownedStrings — it must be a string-literal/static pointer.
  *   Sidebar:      .columnCount (uint32_t), .columnWidgets (vector<vector<Widget>>)
  *   Widget:       .name (std::string), .cVar/.windowName (const char*),
  *                 .callback/.preFunc (nullptr-comparable), .sameLine/.hideInSearch (bool)

@@ -5,8 +5,7 @@
 #include "Menu.h"
 #include <fast/backends/gfx_rendering_api.h>
 #include "soh/cvar_prefixes.h"
-#include "ComboMenuABI.h"
-#include <deque>
+#include "ComboMenuExport.h"
 
 extern "C" {
 #include "z64.h"
@@ -64,18 +63,9 @@ class SohMenu : public Ship::Menu {
     bool mIsTaggedVersion;
     bool mMenuElementsInitialized = false;
 
-    // ComboShip menu-export backing storage. All of this lives as long as the SohMenu
-    // instance, so the const char* / array pointers handed across the C-ABI stay valid
-    // for the process lifetime (comboui caches the returned CwMenu*).
-    bool mExported = false;
-    CwMenu mMenu = {};
-    std::vector<WidgetInfo*> mFlat;     // index -> source widget (the invoke key)
-    std::vector<uint8_t> mFlatRando;    // parallel to mFlat: 1 if widget is in the "Randomizer" section
-    std::vector<CwSection> mSections;   // reserved up-front; .data() stable after fill
-    std::vector<CwSidebar> mSidebars;
-    std::vector<CwWidget> mWidgets;
-    std::vector<CwChoice> mChoices;
-    std::deque<std::string> mOwnedStrings; // deque: never relocates existing elements
+    // ComboShip menu-export backing storage (combo-owned serializer; see ComboMenuExport.h).
+    // Lives as long as this SohMenu instance so C-ABI pointers stay valid for process life.
+    ComboMenuExport::State<WidgetInfo> mComboExport;
 };
 } // namespace SohGui
 

@@ -7,6 +7,7 @@
 #include <variant>
 #include <spdlog/fmt/fmt.h>
 #include <tuple>
+#include "ComboMenuDrawContent.h" // ComboShip: shared DrawContent body (combo-owned)
 
 extern "C" {
 #include "z64.h"
@@ -949,6 +950,40 @@ void Menu::DrawElement() {
     ImGui::End();
 }
 
+// ComboShip: glue for the combo-owned shared DrawContent body (combo/menu/ComboMenuDrawContent.h).
+// Resolves OOT's own UIWidgets / draw functions for the template.
+// gSohDrawHooksMenu: set to 'this' in DrawContent so the static DrawItem shim can reach the
+// Menu instance (MenuDrawItem is a non-static member; shims must be static per THooks contract).
+static Menu* gSohDrawHooksMenu = nullptr;
+namespace {
+struct SohDrawHooks {
+    static bool HeaderEntry(const std::string& label) {
+        return ModernMenuHeaderEntry(label);
+    }
+    static bool SidebarEntry(const std::string& label) {
+        return ModernMenuSidebarEntry(label);
+    }
+    static void PushStyleButton(UIWidgets::Colors theme) {
+        UIWidgets::PushStyleButton(theme);
+    }
+    static void PopStyleButton() {
+        UIWidgets::PopStyleButton();
+    }
+    static void DrawItem(WidgetInfo& w, int labelWidth, UIWidgets::Colors theme) {
+        gSohDrawHooksMenu->MenuDrawItem(w, labelWidth, theme);
+    }
+    static void RunUpdateFuncs(const std::string& header, const std::string& section) {
+        if (MenuInit::GetUpdateFuncs().contains(header)) {
+            if (MenuInit::GetUpdateFuncs()[header].contains(section)) {
+                for (auto& updateFunc : MenuInit::GetUpdateFuncs()[header][section]) {
+                    updateFunc();
+                }
+            }
+        }
+    }
+};
+} // namespace
+
 void Menu::DrawContent(const std::set<std::string>& onlyPaths, const std::set<std::string>& skipPaths) {
     // ComboShip: guard — same as DrawElement.
     if (OTRGlobals::Instance->fontStandardLargest == nullptr) return;
@@ -960,229 +995,15 @@ void Menu::DrawContent(const std::set<std::string>& onlyPaths, const std::set<st
     }
     raceDisableActive = CVarGetInteger(CVAR_SETTING("DisableChanges"), 0);
     menuThemeIndex = static_cast<UIWidgets::Colors>(CVarGetInteger(CVAR_SETTING("Menu.Theme"), defaultThemeIndex));
-    UIWidgets::Colors themeIndex = menuThemeIndex;
 
-    // ComboShip: onlyPaths/skipPaths filtering helpers.
-    // onlyPaths non-empty → allow-list mode; empty → skip-list mode.
-    auto headerVisible = [&](const std::string& h) -> bool {
-        if (!menuEntries.count(h)) return false;
-        if (!onlyPaths.empty()) {
-            // Header shown iff onlyPaths contains "H" or any "H/..." entry.
-            if (onlyPaths.count(h)) return true;
-            const std::string prefix = h + "/";
-            for (auto& p : onlyPaths) {
-                if (p.rfind(prefix, 0) == 0) return true;
-            }
-            return false;
-        }
-        return skipPaths.count(h) == 0;
-    };
-
-    auto sidebarVisible = [&](const std::string& h, const std::string& s) -> bool {
-        if (!onlyPaths.empty()) {
-            // If onlyPaths has bare "H" with no "H/..." entries, show all sidebars.
-            bool hasSidebarEntries = false;
-            const std::string prefix = h + "/";
-            for (auto& p : onlyPaths) {
-                if (p.rfind(prefix, 0) == 0) { hasSidebarEntries = true; break; }
-            }
-            if (!hasSidebarEntries) return true; // bare "H" in onlyPaths → all sidebars
-            return onlyPaths.count(h + "/" + s) > 0;
-        }
-        return skipPaths.count(h + "/" + s) == 0;
-    };
-
-    const char* headerCvar = CVAR_SETTING("Menu.ActiveHeader");
-    std::string headerIndex = CVarGetString(headerCvar, "Settings");
-
-    // Build visible header list; fall back to first if stored header is filtered out.
-    std::vector<std::string> visibleHeaders;
-    for (auto& label : menuOrder) {
-        if (headerVisible(label)) visibleHeaders.push_back(label);
-    }
-    if (visibleHeaders.empty()) {
-        ImGui::TextUnformatted("No settings.");
-        return;
-    }
-    if (std::find(visibleHeaders.begin(), visibleHeaders.end(), headerIndex) == visibleHeaders.end()) {
-        headerIndex = visibleHeaders.front();
-        CVarSetString(headerCvar, headerIndex.c_str());
-    }
-
-    // -----------------------------------------------------------------------
-    // Themed rendering — mirrors DrawElement layout without Begin/End wrapper
-    // (comboui's outer window is already open around us), search bar, or
-    // quit/reset/close buttons.
-    // -----------------------------------------------------------------------
-    ImGuiContext& g = *GImGui;
-    ImGuiWindow* window = g.CurrentWindow;
-    ImGuiStyle& style = ImGui::GetStyle();
-
-    // Use available content area for sizing (DrawElement sizes off viewport WorkSize).
-    ImVec2 avail = ImGui::GetContentRegionAvail();
-    float availW = avail.x > 0 ? avail.x : 800.0f;
-    float availH = avail.y > 0 ? avail.y : 600.0f;
-
-    ImGui::PushFont(OTRGlobals::Instance->fontStandardLargest);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f, 8.0f));
-
-    // Compute header row height from text + padding (mirrors DrawElement).
-    ImVec2 firstSize = ImGui::CalcTextSize(visibleHeaders.front().c_str());
-    float headerHeight = firstSize.y + style.FramePadding.y * 2;
-
-    ImVec2 pos = window->DC.CursorPos;
-    ImGui::SetNextWindowPos(pos);
-    ImGui::BeginChild("SOH Menu Block", ImVec2(availW, availH),
-                      ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysAutoResize,
-                      ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar);
-
-    // Header selection child (no close/quit buttons — comboui handles those).
-    ImGui::SetNextWindowSizeConstraints({ 0, headerHeight }, { availW, headerHeight });
-    ImGui::BeginChild("SOH Header Selection", ImVec2(availW, headerHeight),
-                      ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysAutoResize,
-                      ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_HorizontalScrollbar);
-    for (size_t i = 0; i < visibleHeaders.size(); ++i) {
-        if (i != 0) ImGui::SameLine();
-        const std::string& label = visibleHeaders[i];
-        // Defer the selection change to AFTER the Pop (mirrors DrawElement) — otherwise a click
-        // flips headerIndex mid-iteration and the guarded PopStyleColor is skipped (ImGui assert).
-        std::string nextHeader = "";
-        UIWidgets::PushStyleButton(themeIndex);
-        if (headerIndex != label) {
-            ImGui::PushStyleColor(ImGuiCol_Button, { 0, 0, 0, 0 });
-        }
-        if (ModernMenuHeaderEntry(menuEntries.at(label).label)) {
-            nextHeader = label;
-            CVarSetString(headerCvar, label.c_str());
-            CVarSave();
-        }
-        if (headerIndex != label) {
-            ImGui::PopStyleColor();
-        }
-        UIWidgets::PopStyleButton();
-        if (!nextHeader.empty()) headerIndex = nextHeader;
-    }
-    ImGui::EndChild();
-
-    // Divider line below header row (mirrors DrawElement).
-    {
-        ImGuiWindow* blk = g.CurrentWindow;
-        ImVec2 lp = blk->DC.CursorPos;
-        blk->DrawList->AddRectFilled(lp, lp + ImVec2{ availW, 4 },
-                                     ImGui::GetColorU32({ 255, 255, 255, 255 }), true, style.WindowRounding);
-        ImGui::Dummy(ImVec2(availW, 4));
-    }
-
-    // Sidebar + content area layout (mirrors DrawElement).
-    float sectionHeight = availH - headerHeight - 4 - style.ItemSpacing.y * 2;
-    float columnHeight = sectionHeight - style.ItemSpacing.y * 4;
-    float sidebarWidth = 200 - style.ItemSpacing.x;
-    if (availW > 1600) sidebarWidth = availW * 0.15f;
-
-    MainMenuEntry& entry = menuEntries.at(headerIndex);
-    const char* rawSidebarCvar = entry.sidebarCvar;
-    std::string sidebarCvarStr = rawSidebarCvar ? rawSidebarCvar : "";
-    std::string sectionIndex = sidebarCvarStr.empty() ? "" : CVarGetString(sidebarCvarStr.c_str(), "");
-
-    // Build visible sidebars list for active header.
-    std::vector<std::string> visibleSidebars;
-    for (auto& s : entry.sidebarOrder) {
-        if (sidebarVisible(headerIndex, s)) visibleSidebars.push_back(s);
-    }
-    if (visibleSidebars.empty()) {
-        ImGui::PopFont();
-        ImGui::PopStyleVar();
-        ImGui::EndChild();
-        return;
-    }
-    if (std::find(visibleSidebars.begin(), visibleSidebars.end(), sectionIndex) == visibleSidebars.end()) {
-        sectionIndex = visibleSidebars.front();
-        if (!sidebarCvarStr.empty()) CVarSetString(sidebarCvarStr.c_str(), sectionIndex.c_str());
-    }
-
-    ImGui::SetNextWindowSizeConstraints({ sidebarWidth, 0 }, { sidebarWidth, columnHeight });
-    ImGui::BeginChild((entry.label + " Section").c_str(), { sidebarWidth, columnHeight * 3 },
-                      ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysAutoResize,
-                      ImGuiWindowFlags_NoTitleBar);
-    for (auto& sidebarLabel : visibleSidebars) {
-        // Defer the selection change to AFTER the Pop (mirrors DrawElement) — otherwise a click
-        // flips sectionIndex mid-iteration and the guarded PopStyleColor is skipped (ImGui assert).
-        std::string nextSection = "";
-        UIWidgets::PushStyleButton(themeIndex);
-        if (sectionIndex != sidebarLabel) {
-            ImGui::PushStyleColor(ImGuiCol_Button, { 0, 0, 0, 0 });
-        }
-        if (ModernMenuSidebarEntry(sidebarLabel)) {
-            nextSection = sidebarLabel;
-            if (!sidebarCvarStr.empty()) CVarSetString(sidebarCvarStr.c_str(), sidebarLabel.c_str());
-            CVarSave();
-        }
-        if (sectionIndex != sidebarLabel) {
-            ImGui::PopStyleColor();
-        }
-        UIWidgets::PopStyleButton();
-        if (!nextSection.empty()) sectionIndex = nextSection;
-    }
-    ImGui::EndChild();
-    ImGui::PopFont(); // pop fontStandardLargest — content area uses default font (matches DrawElement)
-
-    // Vertical divider between sidebar and content columns.
-    {
-        ImGuiWindow* blk = g.CurrentWindow;
-        ImVec2 dvPos = blk->DC.CursorPos;
-        blk->DrawList->AddRectFilled(dvPos, dvPos + ImVec2{ 4, sectionHeight - style.FramePadding.y * 2 },
-                                     ImGui::GetColorU32({ 255, 255, 255, 255 }), true, style.WindowRounding);
-    }
-
-    // Content columns (mirrors DrawElement).
-    float sectionWidth = availW - sidebarWidth - 4 - style.ItemSpacing.x * 4;
-    std::string sectionMenuId = sectionIndex + " Settings";
-    SidebarEntry& sb = entry.sidebars.at(sectionIndex);
-    size_t columns = sb.columnCount;
-    size_t columnFuncs = sb.columnWidgets.size();
-    if (availW < 800) columns = 1;
-    float columnWidth = (sectionWidth - style.ItemSpacing.x * columns) / columns;
-    bool useColumns = columns > 1;
-
-    // ComboShip: run per-section update funcs before drawing widgets, as DrawElement does.
-    if (MenuInit::GetUpdateFuncs().contains(entry.label)) {
-        if (MenuInit::GetUpdateFuncs()[entry.label].contains(sectionIndex)) {
-            for (auto& updateFunc : MenuInit::GetUpdateFuncs()[entry.label][sectionIndex]) {
-                updateFunc();
-            }
-        }
-    }
-
-    ImGui::SameLine();
-    if (!useColumns) {
-        ImGui::SetNextWindowSizeConstraints({ sectionWidth, 0 }, { sectionWidth, columnHeight });
-        ImGui::BeginChild(sectionMenuId.c_str(), { sectionWidth, availH * 4 }, ImGuiChildFlags_AutoResizeY,
-                          ImGuiWindowFlags_NoTitleBar);
-    }
-    for (size_t i = 0; i < columnFuncs; i++) {
-        std::string sectionId = fmt::format("{} Column {}", sectionMenuId, i);
-        if (useColumns) {
-            ImGui::SetNextWindowSizeConstraints({ columnWidth, 0 }, { columnWidth, columnHeight });
-            ImGui::BeginChild(sectionId.c_str(), { columnWidth, availH * 4 }, ImGuiChildFlags_AutoResizeY,
-                              ImGuiWindowFlags_NoTitleBar);
-        }
-        for (auto& w : sb.columnWidgets.at(i)) {
-            MenuDrawItem(w, 90 / std::max<size_t>(sb.columnCount, (size_t)1), themeIndex);
-        }
-        if (useColumns) {
-            ImGui::EndChild();
-        }
-        if (i < columns - 1) {
-            ImGui::SameLine();
-        }
-    }
-    if (!useColumns) {
-        ImGui::EndChild();
-    }
-
-    ImGui::PopStyleVar(); // FramePadding
-    ImGui::EndChild(); // SOH Menu Block
-    Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+    gSohDrawHooksMenu = this; // provide instance for SohDrawHooks::DrawItem
+    ComboMenuDraw::Config cfg = {};
+    cfg.idPrefix = "SOH";
+    cfg.headerCvar = CVAR_SETTING("Menu.ActiveHeader");
+    cfg.defaultHeader = "Settings";
+    cfg.headerFont = OTRGlobals::Instance->fontStandardLargest;
+    cfg.contentFont = nullptr; // OOT content area uses the default font (matches DrawElement)
+    ComboMenuDraw::DrawContent<SohDrawHooks>(cfg, menuThemeIndex, menuOrder, menuEntries, onlyPaths, skipPaths);
 }
 
 } // namespace Ship

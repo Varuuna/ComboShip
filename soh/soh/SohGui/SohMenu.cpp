@@ -3,6 +3,7 @@
 #include <ship/window/gui/GuiElement.h>
 #include <ship/utils/StringHelper.h>
 #include <spdlog/fmt/fmt.h>
+#include "soh/OTRGlobals.h" // ComboShip: EvalDisabledByIndex foreground guard mirrors Menu::DrawElement
 
 extern "C" {
 extern PlayState* gPlayState;
@@ -177,5 +178,221 @@ void SohMenu::DrawElement() {
     if (mMenuElementsInitialized) {
         Ship::Menu::DrawElement();
     }
+}
+
+// === ComboShip C-ABI menu export ============================================
+
+namespace {
+CwKind WidgetTypeToCwKind(WidgetType t) {
+    switch (t) {
+        case WIDGET_SEPARATOR:
+            return CW_SEPARATOR;
+        case WIDGET_SEPARATOR_TEXT:
+            return CW_SEPARATOR_TEXT;
+        case WIDGET_TEXT:
+            return CW_TEXT;
+        case WIDGET_CHECKBOX:
+        case WIDGET_CVAR_CHECKBOX:
+            return CW_CHECKBOX;
+        case WIDGET_SLIDER_INT:
+        case WIDGET_CVAR_SLIDER_INT:
+            return CW_SLIDER_INT;
+        case WIDGET_SLIDER_FLOAT:
+        case WIDGET_CVAR_SLIDER_FLOAT:
+            return CW_SLIDER_FLOAT;
+        case WIDGET_COMBOBOX:
+        case WIDGET_CVAR_COMBOBOX:
+            return CW_COMBOBOX;
+        case WIDGET_CVAR_BTN_SELECTOR:
+            // BtnSelector is a discrete int cycled by a button; its options are BtnSelectorOptions
+            // (no comboMap). Distinct kind so the emitter reads the correct options type.
+            return CW_BTN_SELECTOR;
+        case WIDGET_INPUT:
+        case WIDGET_CVAR_INPUT:
+            return CW_INPUT_TEXT;
+        case WIDGET_COLOR_PICKER:
+        case WIDGET_CVAR_COLOR_PICKER:
+            return CW_COLOR;
+        case WIDGET_BUTTON:
+            return CW_BUTTON;
+        case WIDGET_WINDOW_BUTTON:
+            return CW_WINDOW_BUTTON;
+        case WIDGET_AUDIO_BACKEND:
+            return CW_AUDIO_BACKEND;
+        case WIDGET_VIDEO_BACKEND:
+            return CW_VIDEO_BACKEND;
+        case WIDGET_SEARCH:
+            // comboui renders its own search box; expose as plain text so it isn't a live control.
+            return CW_TEXT;
+        case WIDGET_CUSTOM:
+        default:
+            return CW_CUSTOM;
+    }
+}
+
+// Policy for the combo-owned serializer (combo/menu/ComboMenuExport.h): OOT's enum mapping,
+// options structs, and section naming. The walk itself lives in combo/.
+struct SohExportPolicy {
+    using Widget = WidgetInfo;
+    static CwKind Kind(const Widget& w) {
+        return WidgetTypeToCwKind(w.type);
+    }
+    static bool IsRandoSection(const std::string& label) {
+        return label == "Randomizer";
+    }
+    static std::string Tooltip(const Widget& w) {
+        return w.options ? w.options->tooltip : std::string();
+    }
+    static size_t CountChoices(const Widget& w) {
+        // Only CW_COMBOBOX contributes CwChoice entries (from ComboboxOptions::comboMap).
+        // Audio/Video backend emit zero choices here (their ComboboxOptions is empty at
+        // export; populated by the game at runtime).
+        if (WidgetTypeToCwKind(w.type) != CW_COMBOBOX || !w.options) {
+            return 0;
+        }
+        auto o = std::static_pointer_cast<UIWidgets::ComboboxOptions>(w.options);
+        return o ? o->comboMap.size() : 0;
+    }
+    static void EmitChoices(const Widget& w, std::vector<CwChoice>& out) {
+        if (WidgetTypeToCwKind(w.type) != CW_COMBOBOX || !w.options) {
+            return;
+        }
+        auto o = std::static_pointer_cast<UIWidgets::ComboboxOptions>(w.options);
+        if (!o) {
+            return;
+        }
+        for (auto& mp : o->comboMap) {
+            CwChoice choice = {};
+            choice.value = mp.first;
+            choice.label = mp.second ? mp.second : "";
+            out.push_back(choice);
+        }
+    }
+    static void FillOptions(const Widget& w, CwWidget& cw) {
+        if (!w.options) {
+            return;
+        }
+        switch (cw.kind) {
+            case CW_CHECKBOX: {
+                if (auto o = std::static_pointer_cast<UIWidgets::CheckboxOptions>(w.options)) {
+                    cw.bDefault = o->defaultValue ? 1 : 0;
+                }
+                break;
+            }
+            case CW_SLIDER_INT: {
+                if (auto o = std::static_pointer_cast<UIWidgets::IntSliderOptions>(w.options)) {
+                    cw.iMin = o->min;
+                    cw.iMax = o->max;
+                    cw.iStep = o->step;
+                    cw.iDefault = o->defaultValue;
+                }
+                break;
+            }
+            case CW_SLIDER_FLOAT: {
+                if (auto o = std::static_pointer_cast<UIWidgets::FloatSliderOptions>(w.options)) {
+                    cw.fMin = o->min;
+                    cw.fMax = o->max;
+                    cw.fStep = o->step;
+                    cw.fDefault = o->defaultValue;
+                }
+                break;
+            }
+            case CW_COLOR: {
+                if (auto o = std::static_pointer_cast<UIWidgets::ColorPickerOptions>(w.options)) {
+                    cw.useAlpha = o->useAlpha ? 1 : 0;
+                }
+                break;
+            }
+            case CW_COMBOBOX: {
+                if (auto o = std::static_pointer_cast<UIWidgets::ComboboxOptions>(w.options)) {
+                    cw.iDefault = (int32_t)o->defaultIndex;
+                }
+                break;
+            }
+            case CW_BTN_SELECTOR: {
+                if (auto o = std::static_pointer_cast<UIWidgets::BtnSelectorOptions>(w.options)) {
+                    cw.iDefault = o->defaultValue;
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+};
+} // namespace
+
+const CwMenu* SohMenu::ExportComboMenu() {
+    // Walk + flatten live in the combo-owned serializer; this member just supplies the
+    // protected menu tree and OOT's policy.
+    return ComboMenuExport::Build<SohExportPolicy>(mComboExport, menuOrder, menuEntries);
+}
+
+void SohMenu::InvokeCallbackByIndex(int32_t i) {
+    if (i < 0 || i >= (int32_t)mComboExport.flat.size()) {
+        return;
+    }
+    auto* w = mComboExport.flat[i];
+    if (w && w->callback) {
+        // Ensure InitElement ran (comboui never installs this menu) so a callback that touches
+        // disabledMap/menu state doesn't fault. Idempotent.
+        Init();
+        w->callback(*w);
+    }
+}
+
+int32_t SohMenu::EvalDisabledByIndex(int32_t i, const char** outReason) {
+    if (i < 0 || i >= (int32_t)mComboExport.flat.size()) {
+        return 0;
+    }
+    auto* w = mComboExport.flat[i];
+    if (!w || !w->preFunc) {
+        return 0;
+    }
+    // ComboShip: preFuncs probe OOT live runtime + read disabledMap[*].active/.value (populated by the
+    // per-frame disable pass Menu::DrawElement runs). comboui bypasses DrawElement and a backgrounded OOT
+    // has no live state, so only evaluate when OOT is alive (same guard as Menu::DrawElement); else report
+    // enabled (CVars still apply on resume; disable-state reflects live gameplay that doesn't exist while bg).
+    if (OTRGlobals::Instance == nullptr || OTRGlobals::Instance->fontStandardLargest == nullptr) {
+        return 0;
+    }
+    // comboui owns the menu slot, so libultraship never installs/Init()s this menu — and OOT populates
+    // disabledMap in InitElement(). Without Init(), a preFunc that reads disabledMap.at(KEY) throws
+    // out_of_range (intermittent: only worked when a custom-draw happened to Init() first). Idempotent.
+    Init();
+    for (auto& [reason, info] : disabledMap) {
+        info.active = info.evaluation(info);
+    }
+    if (w->options) {
+        w->ResetDisables();
+    }
+    w->preFunc(*w);
+    bool d = (w->options && w->options->disabled);
+    if (d && outReason) {
+        *outReason = w->options->disabledTooltip.c_str();
+    }
+    return d ? 1 : 0;
+}
+
+void SohMenu::DrawCustomByIndex(int32_t i) {
+    if (i < 0 || i >= (int32_t)mComboExport.flat.size()) {
+        return;
+    }
+    auto* w = mComboExport.flat[i];
+    if (!w || !w->customFunction) {
+        return;
+    }
+    // Custom widgets can depend on OOT live subsystems. comboui owns the menu and may render this tab
+    // while OOT is backgrounded; those subsystems aren't initialized then. Only draw the real widget
+    // when OOT is live (same guard as DrawElement/EvalDisabledByIndex); otherwise show a placeholder.
+    // Declarative widgets + CVars still work while backgrounded.
+    // Rando widgets must be editable even while OOT is backgrounded, so they are exempt.
+    bool live = !(OTRGlobals::Instance == nullptr || OTRGlobals::Instance->fontStandardLargest == nullptr);
+    bool isRando = (i >= 0 && i < (int32_t)mComboExport.flatRando.size() && mComboExport.flatRando[i]);
+    if (!live && !isRando) {
+        ImGui::TextDisabled("Available while Ocarina of Time is the active game.");
+        return;
+    }
+    w->customFunction(*w);
 }
 } // namespace SohGui

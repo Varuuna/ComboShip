@@ -7,6 +7,7 @@
 #include <variant>
 #include <spdlog/fmt/fmt.h>
 #include <tuple>
+#include "ComboMenuDrawContent.h" // ComboShip: shared DrawContent body (combo-owned)
 
 extern "C" {
 #include "z64.h"
@@ -948,4 +949,65 @@ void Menu::DrawElement() {
     }
     ImGui::End();
 }
+
+// ComboShip: glue for the combo-owned shared DrawContent body (combo/menu/ComboMenuDrawContent.h).
+// Resolves OOT's own UIWidgets / draw functions for the template.
+namespace {
+// gSohDrawHooksMenu: set to 'this' in DrawContent so the static DrawItem shim can reach the
+// Menu instance (MenuDrawItem is a non-static member; shims must be static per THooks contract).
+// Safety: the only early return in DrawContent (null font guard) precedes the assignment, so
+// DrawItem is never called while the pointer is null. ImGui is single-threaded and DrawContent
+// is not reentrant; if multiple Menu instances ever exist they render sequentially, each setting
+// the pointer before its own ComboMenuDraw::DrawContent call.
+Menu* gSohDrawHooksMenu = nullptr;
+struct SohDrawHooks {
+    static bool HeaderEntry(const std::string& label) {
+        return ModernMenuHeaderEntry(label);
+    }
+    static bool SidebarEntry(const std::string& label) {
+        return ModernMenuSidebarEntry(label);
+    }
+    static void PushStyleButton(UIWidgets::Colors theme) {
+        UIWidgets::PushStyleButton(theme);
+    }
+    static void PopStyleButton() {
+        UIWidgets::PopStyleButton();
+    }
+    static void DrawItem(WidgetInfo& w, int labelWidth, UIWidgets::Colors theme) {
+        gSohDrawHooksMenu->MenuDrawItem(w, labelWidth, theme);
+    }
+    static void RunUpdateFuncs(const std::string& header, const std::string& section) {
+        if (MenuInit::GetUpdateFuncs().contains(header)) {
+            if (MenuInit::GetUpdateFuncs()[header].contains(section)) {
+                for (auto& updateFunc : MenuInit::GetUpdateFuncs()[header][section]) {
+                    updateFunc();
+                }
+            }
+        }
+    }
+};
+} // namespace
+
+void Menu::DrawContent(const std::set<std::string>& onlyPaths, const std::set<std::string>& skipPaths) {
+    // ComboShip: guard — same as DrawElement.
+    if (OTRGlobals::Instance->fontStandardLargest == nullptr) return;
+
+    // ComboShip: per-frame setup — replicate what DrawElement does at its top since
+    // DrawElement itself never runs in combo (comboui owns the menu).
+    for (auto& [reason, info] : disabledMap) {
+        info.active = info.evaluation(info);
+    }
+    raceDisableActive = CVarGetInteger(CVAR_SETTING("DisableChanges"), 0);
+    menuThemeIndex = static_cast<UIWidgets::Colors>(CVarGetInteger(CVAR_SETTING("Menu.Theme"), defaultThemeIndex));
+
+    gSohDrawHooksMenu = this; // provide instance for SohDrawHooks::DrawItem
+    ComboMenuDraw::Config cfg = {};
+    cfg.idPrefix = "SOH";
+    cfg.headerCvar = CVAR_SETTING("Menu.ActiveHeader");
+    cfg.defaultHeader = "Settings";
+    cfg.headerFont = OTRGlobals::Instance->fontStandardLargest;
+    cfg.contentFont = nullptr; // OOT content area uses the default font (matches DrawElement)
+    ComboMenuDraw::DrawContent<SohDrawHooks>(cfg, menuThemeIndex, menuOrder, menuEntries, onlyPaths, skipPaths);
+}
+
 } // namespace Ship

@@ -242,6 +242,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE assets
 	${CMAKE_CURRENT_SOURCE_DIR}/assets/
 	${dr_libs_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../combo
+    ${CMAKE_SOURCE_DIR}/combo/menu
 	.
 )
 

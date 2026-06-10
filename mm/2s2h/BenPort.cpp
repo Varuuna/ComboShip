@@ -4,6 +4,8 @@
 #include <filesystem>
 #include <fstream>
 #include <chrono>
+#include <set>
+#include <sstream>
 
 #include <ship/resource/ResourceManager.h>
 #include <fast/Fast3dWindow.h>
@@ -53,6 +55,9 @@ CrowdControl* CrowdControl::Instance;
 #include <fast/resource/ResourceType.h>
 #include <BenGui/BenGui.hpp>
 #include <BenGui/BenMenu.h>
+#ifdef COMBO_BUILD
+#include "ComboMenuSharedContext.h" // ComboShip: shared per-DLL ImGui context helper (combo-owned)
+#endif
 
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include "2s2h/Enhancements/Enhancements.h"
@@ -249,7 +254,7 @@ OTRGlobals::OTRGlobals() {
     // still holds OOT's SohMenu. Build/install MM's menu now that the ImGui context is current
     // (widgets populate lazily via BenMenu::InitElement).
     if (usingExistingCtx) {
-        BenGui::ActivateMenu();
+        BenGui::ActivateMenu(); // ComboShip: no-op under COMBO_BUILD (comboui owns the menu)
     }
 #endif
 
@@ -2573,7 +2578,7 @@ extern "C" __declspec(dllexport) void MM_ResumeGame(int fileNum) {
 
     // ComboShip: re-activate MM's menu in the shared Gui's single menu slot (OOT set it back to its
     // SohMenu while it was the active game). BenMenu persists (BenGui::Destroy isn't called in combo).
-    BenGui::ActivateMenu();
+    BenGui::ActivateMenu(); // ComboShip: no-op under COMBO_BUILD (comboui owns the menu)
 
     // 5. Re-arm the shared window so MM's `while (WindowIsRunning())` loop runs instead of returning
     //    immediately (OOT cleared mIsRunning when its loop exited).
@@ -2636,12 +2641,26 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
         // we supply empty options/startingItems (defaults) and feed the combo placement as "checks".
         nlohmann::json spoiler;
         spoiler["finalSeed"] = (uint32_t)0; // Phase 1: not used for runtime delivery (driven by randoSaveChecks)
-        spoiler["options"] = nlohmann::json::object();
+        // ComboShip: persist the player's chosen MM options into the save (mirrors OnFileCreate) so MM
+        // honors its toggles at runtime; an empty options object would make ApplyToSaveContext default
+        // everything (the analog of OOT's SetAllToContext fix).
+        nlohmann::json options = nlohmann::json::object();
+        for (auto& [id, opt] : Rando::StaticData::Options) {
+            options[opt.name] = (uint32_t)CVarGetInteger(opt.cvar, opt.defaultValue);
+        }
+        spoiler["options"] = options;
         spoiler["startingItems"] = nlohmann::json::array();
         spoiler["checks"] = nlohmann::json::parse(placementJson); // { "RC_*": "<spoilerName>", ... }
 
         Rando::Spoiler::ApplyToSaveContext(spoiler);
-        // NOTE: deliberately NOT calling Rando::GrantStartingItems() — headless (Item_Give needs gPlayState).
+
+        // ComboShip: record the chosen starting items in the save (mirrors OnFileCreate). NOTE: we do
+        // NOT call Rando::GrantStartingItems() — it needs gPlayState (Item_Give) and this runs headless,
+        // so starting items are stored in the rando struct but not pushed into inventory here.
+        {
+            auto startingItems = Rando::GetStartingItemsFromConfig();
+            Rando::SetStartingItemsInSave(gSaveContext.save.shipSaveInfo.rando, startingItems);
+        }
 
         // The two always-eligible starting checks (mirrors OnFileCreate tail).
         RANDO_SAVE_CHECKS[RC_STARTING_ITEM_DEKU_MASK].eligible = true;
@@ -2695,21 +2714,37 @@ extern "C" __declspec(dllexport) bool MM_Extract(const char* searchPath) {
 }
 #endif
 
-// ComboShip Inc2: headless dump of MM static rando tables (checks + items).
-// HEADLESS-SAFE: Rando::StaticData::Checks and ::Items are std::map instances
-// populated by static initializers in Checks.cpp / Items.cpp at DLL-load time —
-// before any function executes. No ShipInit::InitAll, no region graph, no
-// Context-dependent calls inside this function.
+// ComboShip Inc2: headless dump of MM rando tables (checks + items).
+// ComboShip Inc7: scoped to the current settings via Rando::Logic::GeneratePools — mirrors
+// RefreshMetrics() in Rando/Menu.cpp. Only checks that the current CVars actually shuffle
+// are emitted, so the cross-world fill sees the same pool as MM's own generator would use.
+// Cache removed (was static/permanent): result now depends on live CVar state so it must
+// recompute every call.
 // Caller MUST invoke this AFTER SOH_Init() returns (so the Context + logger exist
-// in the shared libultraship.dll), but the DATA itself is safe to read at any point.
+// in the shared libultraship.dll, and CVars are loaded).
 extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     static std::string cached;
-    if (!cached.empty()) return cached.c_str();
 
     nlohmann::json checks = nlohmann::json::array();
     nlohmann::json items  = nlohmann::json::array();
 
-    for (auto& [id, chk] : Rando::StaticData::Checks) {
+    // Build a RandoSaveInfo from current CVars — same pattern as Menu.cpp RefreshMetrics().
+    RandoSaveInfo saveInfo;
+    for (auto& [id, opt] : Rando::StaticData::Options) {
+        saveInfo.randoSaveOptions[id] = (uint32_t)CVarGetInteger(opt.cvar, opt.defaultValue);
+    }
+    auto startingItems = Rando::GetStartingItemsFromConfig();
+    Rando::SetStartingItemsInSave(saveInfo, startingItems);
+
+    std::vector<RandoCheckId> checkPool;
+    std::vector<RandoItemId> itemPool;
+    Rando::Logic::GeneratePools(saveInfo, checkPool, itemPool);
+
+    // Emit only the checks in the settings-scoped pool.
+    for (RandoCheckId id : checkPool) {
+        auto chkIt = Rando::StaticData::Checks.find(id);
+        if (chkIt == Rando::StaticData::Checks.end()) continue;
+        const auto& chk = chkIt->second;
         if (!chk.name || chk.name[0] == '\0') continue;
         nlohmann::json entry = { {"name", chk.name} };
 
@@ -3042,6 +3077,70 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Restore(void) {
     memcpy(&gSaveContext, &sMM_OracleSavedContext, sizeof(SaveContext));
     gCurrentRegionTime = sMM_OracleSavedRegionTime;
 }
+
+#ifdef COMBO_BUILD
+// ComboShip: MM analog of SOH_ExportMenu et al. (soh/soh/OTRGlobals.cpp). comboui resolves these by
+// GetProcAddress and ingests the CwMenu (combo/menu/ComboMenuABI.h), then invokes back by index.
+namespace {
+// Ensure mBenMenu exists; returns it (or nullptr if it couldn't be built).
+std::shared_ptr<BenGui::BenMenu> Combo_EnsureBenMenu() {
+    auto menu = BenGui::GetBenMenu();
+    if (!menu) {
+        BenGui::ActivateMenu();
+        menu = BenGui::GetBenMenu();
+    }
+    // MM populates its menu tree (AddSettings/AddEnhancements/AddDevTools) and disabledMap in
+    // BenMenu::InitElement() — NOT in the constructor. comboui owns the menu slot so the Gui loop
+    // never Init()s this menu, leaving menuEntries empty and ExportComboMenu walking nothing (empty
+    // MM tab). Init() here (idempotent) before any export/walk. OOT differs: it calls
+    // AddMenuElements() explicitly at boot, so SOH_ExportMenu needs no Init.
+    if (menu) {
+        menu->Init();
+    }
+    // ComboShip: MM's rando Seed combobox reads Rando::Spoiler::spoilerOptions, which is empty if the
+    // rando subsystem's RefreshOptions hasn't populated it in this (combo/backgrounded) context. Populate
+    // it on demand so the always-available rando menu renders. RefreshOptions is idempotent (clears+repopulates).
+    if (Rando::Spoiler::spoilerOptions.empty()) {
+        Rando::Spoiler::RefreshOptions();
+    }
+    return menu;
+}
+} // namespace
+
+// 2ship.dll has its own per-module ImGui GImGui — see combo/menu/ComboMenuSharedContext.h.
+
+extern "C" __declspec(dllexport) const CwMenu* MM_ExportMenu(void) {
+    ComboMenuContext::UseSharedImGuiContext();
+    auto menu = Combo_EnsureBenMenu();
+    return menu ? menu->ExportComboMenu() : nullptr;
+}
+
+extern "C" __declspec(dllexport) void MM_MenuInvokeCallback(int32_t i) {
+    ComboMenuContext::UseSharedImGuiContext();
+    if (auto menu = Combo_EnsureBenMenu()) {
+        menu->InvokeCallbackByIndex(i);
+    }
+}
+
+extern "C" __declspec(dllexport) int32_t MM_MenuEvalDisabled(int32_t i, const char** outReason) {
+    ComboMenuContext::UseSharedImGuiContext();
+    auto menu = Combo_EnsureBenMenu();
+    return menu ? menu->EvalDisabledByIndex(i, outReason) : 0;
+}
+
+extern "C" __declspec(dllexport) void MM_MenuDrawCustom(int32_t i) {
+    // comboui owns the active menu slot, so the Gui loop never drives MM's menu. A custom widget may read
+    // THEME_COLOR (menuThemeIndex), which is set in UpdateElement(); skipping Update() makes ColorValues.at()
+    // throw out_of_range (proven by the Phase 0 spike). So Init()+Update() before any custom draw.
+    ComboMenuContext::UseSharedImGuiContext();
+    auto menu = Combo_EnsureBenMenu();
+    if (menu) {
+        menu->Init();
+        menu->Update();
+        menu->DrawCustomByIndex(i);
+    }
+}
+#endif
 
 // Helper to redirect the user to the boot screen in place of known console crash scenarios, and emits a notification
 extern "C" bool Ship_HandleConsoleCrashAsReset() {

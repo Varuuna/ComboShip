@@ -4,6 +4,8 @@
 #include <atomic>
 #include <filesystem>
 #include <fstream>
+#include <set>
+#include <sstream>
 #include <vector>
 #include <chrono>
 #include <optional>
@@ -134,6 +136,9 @@
 
 #include "soh/config/ConfigUpdaters.h"
 #include "soh/ShipInit.hpp"
+#ifdef COMBO_BUILD
+#include "ComboMenuSharedContext.h" // ComboShip: shared per-DLL ImGui context helper (combo-owned)
+#endif
 
 #ifdef __WIIU__
 const uint32_t defaultImGuiScale = 3;
@@ -2533,12 +2538,79 @@ static void SOH_ReinitForResume() {
     // need to swap the active RM/audio (above) and restore OOT's menu (below).
     // Restore OOT's menu into the shared Gui's single menu slot (MM set it to its BenMenu while it was
     // the active game). mSohMenu persists.
+#ifndef COMBO_BUILD
     ctx->GetWindow()->GetGui()->SetMenu(SohGui::GetSohMenu());
+#endif
+    // ComboShip: comboui's menu stays installed across transitions; do not restore SohMenu.
 }
 
 // Symmetric marker, mirrors MM_NotifyComboTransition. ComboShip calls this before SOH_ResumeGame.
 extern "C" __declspec(dllexport) void SOH_NotifyComboReturn(void) {
     // Currently a no-op; kept for symmetry with the forward transition's notify call.
+}
+
+// ComboShip: draw OOT's menu content (content-only, themed) into the current ImGui window.
+// onlyCsv: if non-empty, comma-separated allow-list of "Header" or "Header/Sidebar" paths to show.
+// skipCsv: if onlyCsv is empty, comma-separated block-list of paths to hide.
+extern "C" __declspec(dllexport) void SOH_DrawSettings(const char* onlyCsv, const char* skipCsv) {
+    // ComboShip: soh.dll's per-module ImGui GImGui isn't current when OOT is backgrounded (e.g. MM is
+    // foreground and the player opens the Shared/OOT tab) — point it at the shared context before any
+    // ImGui call, mirroring comboui, else ImGui::GetCurrentWindow() is null and we crash.
+    ComboMenuContext::UseSharedImGuiContext();
+    auto menu = SohGui::GetSohMenu();
+    if (!menu) return;
+    // ComboShip: in combo this menu is never installed as the active Gui menu, so libultraship never
+    // calls Init()/InitElement() — where disabledMap, window backends and the theme are set up. Init()
+    // is idempotent (guarded by mIsInitialized); call it once before drawing, else widget PreFuncs that
+    // do disabledMap.at(...) throw out_of_range.
+    menu->Init();
+    std::set<std::string> only, skip;
+    auto parseCsv = [](const char* csv, std::set<std::string>& out) {
+        if (!csv || !csv[0]) return;
+        std::stringstream ss(csv); std::string item;
+        while (std::getline(ss, item, ',')) if (!item.empty()) out.insert(item);
+    };
+    parseCsv(onlyCsv, only);
+    parseCsv(skipCsv, skip);
+    menu->DrawContent(only, skip);
+}
+
+// ComboShip: expose OOT's SohMenu C-ABI emitter + invoke-by-index helpers so comboui can ingest the
+// flat CwMenu (combo/menu/ComboMenuABI.h) via GetProcAddress and drive widgets back by index. The
+// SohMenu instance is built at menu setup (SohGui::SetupMenu) and kept for process life; comboui owns
+// the menu slot, so libultraship's Gui loop never drives this menu — see SOH_MenuDrawCustom for why
+// Init()/Update() must run before invoking a custom widget.
+// soh.dll has its own per-module ImGui GImGui — see combo/menu/ComboMenuSharedContext.h.
+
+extern "C" __declspec(dllexport) const CwMenu* SOH_ExportMenu(void) {
+    ComboMenuContext::UseSharedImGuiContext();
+    auto menu = SohGui::GetSohMenu();
+    return menu ? menu->ExportComboMenu() : nullptr;
+}
+
+extern "C" __declspec(dllexport) void SOH_MenuInvokeCallback(int32_t i) {
+    ComboMenuContext::UseSharedImGuiContext();
+    if (auto menu = SohGui::GetSohMenu()) menu->InvokeCallbackByIndex(i);
+}
+
+extern "C" __declspec(dllexport) int32_t SOH_MenuEvalDisabled(int32_t i, const char** outReason) {
+    ComboMenuContext::UseSharedImGuiContext();
+    auto menu = SohGui::GetSohMenu();
+    return menu ? menu->EvalDisabledByIndex(i, outReason) : 0;
+}
+
+extern "C" __declspec(dllexport) void SOH_MenuDrawCustom(int32_t i) {
+    // Like SOH_DrawSettings: soh.dll's per-module ImGui GImGui isn't current when OOT is backgrounded,
+    // so point it at the shared context before any ImGui call.
+    ComboMenuContext::UseSharedImGuiContext();
+    // Phase 0 spike contract: comboui owns the menu slot so the Gui loop never drives this menu's
+    // lifecycle. A custom widget reads THEME_COLOR (menuThemeIndex), set in UpdateElement(), so
+    // Init()+Update() must run BEFORE invoking, else ColorValues.at() throws. Init() is idempotent.
+    if (auto menu = SohGui::GetSohMenu()) {
+        menu->Init();
+        menu->Update();
+        menu->DrawCustomByIndex(i);
+    }
 }
 
 // ComboShip MM->OOT return: re-enter OOT's game loop on the SAME shared context/window, swap
@@ -2609,31 +2681,64 @@ extern "C" __declspec(dllexport) bool SOH_Extract(const char* searchPath) {
 #endif
 
 // ComboShip Inc2 (Task 3): coherent OOT rando dump — runs the headless prep sequence
-// (GetLogic()->Reset, FinalizeSettings, GenerateLocationPool) so ctx->allLocations reflects
-// the real shuffled-check set for default settings, then dumps those checks + their vanilla
-// items. This makes the combo generator's permutation coherent (same set as Randomizer_InitSaveFile).
-// ItemReset/HintReset are NOT called here; the context is left in a state where allLocations
-// is valid but no items are placed yet — SOH_ApplyRandoPlacements fills the placements.
+// (GetLogic()->Reset, FinalizeSettings, RegionTable_Init, GenerateLocationPool) so
+// ctx->allLocations reflects the real shuffled-check set for the current settings, then
+// dumps those checks + their vanilla items. This makes the combo generator's permutation
+// coherent (same set as Randomizer_InitSaveFile).
+// ComboShip Inc7: scoped to current settings — iterates ctx->allLocations (populated by
+// GenerateLocationPool) instead of all RC_MAX, so only settings-enabled checks are emitted.
+// Cache removed (was static/permanent): result now depends on live CVar/settings state so
+// it must recompute every call.
+// Fallback: if RegionTable_Init+GenerateLocationPool throws, falls back to iterating all
+// RC_MAX (same as old behaviour) so the dump always succeeds.
 // Caller MUST invoke this AFTER SOH_Init() returns.
 extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
     static std::string cached;
-    if (!cached.empty()) return cached.c_str();
 
     nlohmann::json checks = nlohmann::json::array();
     nlohmann::json items  = nlohmann::json::array();
 
+    bool usedPool = false;
     try {
         auto ctx = OTRGlobals::Instance->gRandoContext;
 
-        // Headless prep: reset logic state, finalize default settings, fill allLocations.
-        // This mirrors the first part of the full generation sequence without filling items.
+        // Headless prep: reset logic state, finalize current settings, build region tables,
+        // then fill allLocations with only the checks the current settings shuffle.
+        // ComboShip: copy the player's chosen CVar settings into the Context FIRST (mirrors
+        // GenerateRandomizer), so the scoped pool, the fill's reachability, and the later
+        // Randomizer_InitSaveFile (settings + starting items) all honor the menu choices.
+        Rando::Settings::GetInstance()->SetAllToContext();
         ctx->GetLogic()->Reset();
         ctx->FinalizeSettings({}, {});
-        // NOTE: do NOT call ctx->GenerateLocationPool() here — it dereferences a file-global `ctx`
-        // raw pointer (location_access.cpp) that isn't initialized in this headless path and crashes
-        // in GetDungeons(). Dump every check that has a vanilla item instead; that's sufficient for
-        // Phase 1 (Randomizer_InitSaveFile needs only itemLocationTable populated + IsSeedGenerated,
-        // and OOT runtime delivery only intercepts the checks it actually shuffles).
+        RegionTable_Init();
+        ctx->GenerateLocationPool();
+
+        // Iterate allLocations (the settings-scoped check set) instead of all RC_MAX.
+        for (RandomizerCheck rc : ctx->allLocations) {
+            Rando::Location* loc = Rando::StaticData::GetLocation(rc);
+            if (!loc) continue;
+            const std::string& name = loc->GetName();
+            if (name.empty()) continue;
+
+            RandomizerGet vanillaRG = loc->GetVanillaItem();
+            if (vanillaRG == RG_NONE) continue;
+
+            const std::string& vigName = Rando::StaticData::RetrieveItem(vanillaRG).GetName().GetEnglish();
+            if (vigName.empty()) continue;
+
+            checks.push_back({ {"name", name}, {"vanillaItem", vigName} });
+        }
+        usedPool = true;
+    } catch (const std::exception& e) {
+        SPDLOG_WARN("[ComboShip] SOH_DumpRandoStaticData: RegionTable_Init/GenerateLocationPool threw ({}); "
+                    "falling back to full RC_MAX dump", e.what());
+    } catch (...) {
+        SPDLOG_WARN("[ComboShip] SOH_DumpRandoStaticData: RegionTable_Init/GenerateLocationPool threw unknown "
+                    "exception; falling back to full RC_MAX dump");
+    }
+
+    if (!usedPool) {
+        // Fallback: dump every check that has a vanilla item (old Inc2 behaviour).
         for (int i = 0; i < RC_MAX; ++i) {
             Rando::Location* loc = Rando::StaticData::GetLocation(static_cast<RandomizerCheck>(i));
             if (!loc) continue;
@@ -2641,17 +2746,13 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             if (name.empty()) continue;
 
             RandomizerGet vanillaRG = loc->GetVanillaItem();
-            if (vanillaRG == RG_NONE) continue; // skip checks with no vanilla item
+            if (vanillaRG == RG_NONE) continue;
 
             const std::string& vigName = Rando::StaticData::RetrieveItem(vanillaRG).GetName().GetEnglish();
             if (vigName.empty()) continue;
 
             checks.push_back({ {"name", name}, {"vanillaItem", vigName} });
         }
-    } catch (const std::exception& e) {
-        SPDLOG_ERROR("[ComboShip] SOH_DumpRandoStaticData: exception during headless prep: {}", e.what());
-    } catch (...) {
-        SPDLOG_ERROR("[ComboShip] SOH_DumpRandoStaticData: unknown exception during headless prep");
     }
 
     // Items list: full item table (for the generator's reference; vanillaItems come from checks above).
@@ -2725,6 +2826,26 @@ extern "C" __declspec(dllexport) void SOH_SetOnComboGenerateCallback(void (*cb)(
     gComboGenerateCallback = cb;
 }
 
+// ComboShip Task 6: window-driven generate request — the UI calls SOH_TriggerComboGenerate
+// with a seed string and a progress struct; soh.dll forwards to the ComboShip handler which
+// runs the fill on a worker thread. gComboGenerateCallback (save-time) is RETAINED as a
+// symbol but is no longer invoked (generation is now fully window-driven).
+#include "gui/ComboGenProgress.h"
+extern "C" void (*gComboGenerateRequestCallback)(const char*, ComboRando::ComboGenProgress*) = nullptr;
+
+extern "C" __declspec(dllexport) void SOH_SetOnComboGenerateRequestCallback(void (*cb)(const char*, ComboRando::ComboGenProgress*)) {
+    gComboGenerateRequestCallback = cb;
+}
+
+extern "C" __declspec(dllexport) void SOH_TriggerComboGenerate(const char* seed, ComboRando::ComboGenProgress* p) {
+    if (gComboGenerateRequestCallback) gComboGenerateRequestCallback(seed, p);
+}
+
+extern "C" __declspec(dllexport) void SOH_SetSeedGenerated(uint8_t g) {
+    if (OTRGlobals::Instance && OTRGlobals::Instance->gRandoContext)
+        OTRGlobals::Instance->gRandoContext->SetSeedGenerated(g != 0);
+}
+
 // ComboShip Inc4: OOT combo-logic exports — thin wrappers around the existing logic engine.
 // The combined fill drives these to query "given owned items, which checks are reachable?"
 
@@ -2733,6 +2854,7 @@ static bool sOracleInitialized = false;
 static void EnsureOracleInit() {
     if (sOracleInitialized) return;
     auto ctx = OTRGlobals::Instance->gRandoContext;
+    Rando::Settings::GetInstance()->SetAllToContext(); // ComboShip: apply chosen CVar settings before finalizing
     ctx->GetLogic()->Reset();
     ctx->FinalizeSettings({}, {});
     RegionTable_Init();

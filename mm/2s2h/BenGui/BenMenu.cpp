@@ -2272,4 +2272,239 @@ void BenMenu::Draw() {
 void BenMenu::DrawElement() {
     Ship::Menu::DrawElement();
 }
+
+// === ComboShip C-ABI menu export ============================================
+// EXACT MM analog of soh/soh/SohGui/SohMenu.cpp's export. See ComboMenuExport.h.
+
+namespace {
+CwKind WidgetTypeToCwKind(WidgetType t) {
+    switch (t) {
+        case WIDGET_SEPARATOR:
+            return CW_SEPARATOR;
+        case WIDGET_SEPARATOR_TEXT:
+            return CW_SEPARATOR_TEXT;
+        case WIDGET_TEXT:
+            return CW_TEXT;
+        case WIDGET_CHECKBOX:
+        case WIDGET_CVAR_CHECKBOX:
+            return CW_CHECKBOX;
+        case WIDGET_SLIDER_INT:
+        case WIDGET_CVAR_SLIDER_INT:
+            return CW_SLIDER_INT;
+        case WIDGET_SLIDER_FLOAT:
+        case WIDGET_CVAR_SLIDER_FLOAT:
+            return CW_SLIDER_FLOAT;
+        case WIDGET_COMBOBOX:
+        case WIDGET_CVAR_COMBOBOX:
+            return CW_COMBOBOX;
+        case WIDGET_CVAR_BTN_SELECTOR:
+            // BtnSelector is a discrete int cycled by a button; its options are BtnSelectorOptions
+            // (no comboMap). Distinct kind so the emitter reads the correct options type.
+            return CW_BTN_SELECTOR;
+        case WIDGET_COLOR_24:
+        case WIDGET_COLOR_32:
+            // MM has no ColorPicker*Options struct; useAlpha is derived from the WidgetType in the
+            // fill pass (32 -> alpha, 24 -> no alpha). No options read needed.
+            return CW_COLOR;
+        case WIDGET_BUTTON:
+            return CW_BUTTON;
+        case WIDGET_WINDOW_BUTTON:
+            return CW_WINDOW_BUTTON;
+        case WIDGET_AUDIO_BACKEND:
+            return CW_AUDIO_BACKEND;
+        case WIDGET_VIDEO_BACKEND:
+            return CW_VIDEO_BACKEND;
+        case WIDGET_SEARCH:
+            // comboui renders its own search box; expose as plain text so it isn't a live control.
+            return CW_TEXT;
+        case WIDGET_CUSTOM:
+        default:
+            return CW_CUSTOM;
+    }
+}
+
+// Policy for the combo-owned serializer (combo/menu/ComboMenuExport.h): MM's enum mapping,
+// comboVariant choices, and section naming. The walk itself lives in combo/. EXACT MM analog
+// of SohMenu.cpp's SohExportPolicy.
+struct BenExportPolicy {
+    using Widget = WidgetInfo;
+    static CwKind Kind(const Widget& w) {
+        return WidgetTypeToCwKind(w.type);
+    }
+    static bool IsRandoSection(const std::string& label) {
+        return label == "Rando";
+    }
+    static std::string Tooltip(const Widget& w) {
+        // MM's tooltip is const char* (string-literal backed); copy for uniform lifetime
+        // handling, matching the OOT emitter.
+        return (w.options && w.options->tooltip) ? std::string(w.options->tooltip) : std::string();
+    }
+    // Number of CwChoice entries a widget contributes. MUST equal what EmitChoices pushes so
+    // the serializer's reserve == fill and choices never reallocate. Only CW_COMBOBOX
+    // contributes; comboVariant holds either a (map*) or a (vec*) — null contributes zero.
+    static size_t CountChoices(const Widget& w) {
+        if (WidgetTypeToCwKind(w.type) != CW_COMBOBOX || !w.options) {
+            return 0;
+        }
+        auto o = std::static_pointer_cast<UIWidgets::ComboboxOptions>(w.options);
+        if (!o) {
+            return 0;
+        }
+        if (o->comboVariant.index() == 0) {
+            UIWidgets::ComboMap_t map = std::get<0>(o->comboVariant);
+            return map ? map->size() : 0;
+        } else {
+            UIWidgets::ComboVec_t vec = std::get<1>(o->comboVariant);
+            return vec ? vec->size() : 0;
+        }
+    }
+    static void EmitChoices(const Widget& w, std::vector<CwChoice>& out) {
+        if (WidgetTypeToCwKind(w.type) != CW_COMBOBOX || !w.options) {
+            return;
+        }
+        auto o = std::static_pointer_cast<UIWidgets::ComboboxOptions>(w.options);
+        if (!o) {
+            return;
+        }
+        if (o->comboVariant.index() == 0) {
+            UIWidgets::ComboMap_t map = std::get<0>(o->comboVariant);
+            if (map) {
+                for (auto& mp : *map) {
+                    CwChoice choice = {};
+                    choice.value = mp.first;
+                    choice.label = mp.second ? mp.second : "";
+                    out.push_back(choice);
+                }
+            }
+        } else {
+            UIWidgets::ComboVec_t vec = std::get<1>(o->comboVariant);
+            if (vec) {
+                for (size_t i = 0; i < vec->size(); i++) {
+                    CwChoice choice = {};
+                    choice.value = (int32_t)i;
+                    choice.label = (*vec)[i] ? (*vec)[i] : "";
+                    out.push_back(choice);
+                }
+            }
+        }
+    }
+    static void FillOptions(const Widget& w, CwWidget& cw) {
+        // options-branch wraps the switch (unlike OOT's early return): CW_COLOR is derived
+        // from the WidgetType below and must run even when options is null.
+        if (w.options) {
+            switch (cw.kind) {
+                case CW_CHECKBOX: {
+                    if (auto o = std::static_pointer_cast<UIWidgets::CheckboxOptions>(w.options)) {
+                        cw.bDefault = o->defaultValue ? 1 : 0;
+                    }
+                    break;
+                }
+                case CW_SLIDER_INT: {
+                    if (auto o = std::static_pointer_cast<UIWidgets::IntSliderOptions>(w.options)) {
+                        cw.iMin = o->min;
+                        cw.iMax = o->max;
+                        cw.iStep = o->step;
+                        cw.iDefault = o->defaultValue;
+                    }
+                    break;
+                }
+                case CW_SLIDER_FLOAT: {
+                    if (auto o = std::static_pointer_cast<UIWidgets::FloatSliderOptions>(w.options)) {
+                        cw.fMin = o->min;
+                        cw.fMax = o->max;
+                        cw.fStep = o->step;
+                        cw.fDefault = o->defaultValue;
+                    }
+                    break;
+                }
+                case CW_COMBOBOX: {
+                    if (auto o = std::static_pointer_cast<UIWidgets::ComboboxOptions>(w.options)) {
+                        cw.iDefault = (int32_t)o->defaultIndex;
+                    }
+                    break;
+                }
+                case CW_BTN_SELECTOR: {
+                    if (auto o = std::static_pointer_cast<UIWidgets::BtnSelectorOptions>(w.options)) {
+                        cw.iDefault = o->defaultValue;
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+        // MM has no ColorPickerOptions; derive useAlpha straight from the WidgetType.
+        if (cw.kind == CW_COLOR) {
+            cw.useAlpha = (w.type == WIDGET_COLOR_32) ? 1 : 0;
+        }
+    }
+};
+} // namespace
+
+const CwMenu* BenMenu::ExportComboMenu() {
+    // Walk + flatten live in the combo-owned serializer; this member just supplies the
+    // protected menu tree and MM's policy.
+    return ComboMenuExport::Build<BenExportPolicy>(mComboExport, menuOrder, menuEntries);
+}
+
+void BenMenu::InvokeCallbackByIndex(int32_t i) {
+    if (i < 0 || i >= (int32_t)mComboExport.flat.size()) {
+        return;
+    }
+    auto* w = mComboExport.flat[i];
+    if (w && w->callback) {
+        w->callback(*w);
+    }
+}
+
+int32_t BenMenu::EvalDisabledByIndex(int32_t i, const char** outReason) {
+    if (i < 0 || i >= (int32_t)mComboExport.flat.size()) {
+        return 0;
+    }
+    auto* w = mComboExport.flat[i];
+    if (!w || !w->preFunc) {
+        return 0;
+    }
+    // ComboShip: preFuncs probe MM live runtime + read disabledMap[*].active/.value (populated by the
+    // per-frame disable pass Menu::DrawElement runs). comboui bypasses DrawElement and a backgrounded MM
+    // has no live state, so only evaluate when MM is alive (same guard as Menu::DrawElement); else report
+    // enabled (CVars still apply on resume; disable-state reflects live gameplay that doesn't exist while bg).
+    if (OTRGlobals::Instance == nullptr || OTRGlobals::Instance->fontStandardLargest == nullptr) {
+        return 0;
+    }
+    for (auto& [reason, info] : disabledMap) {
+        info.active = info.evaluation(info);
+    }
+    if (w->options) {
+        w->ResetDisables();
+    }
+    w->preFunc(*w);
+    bool d = (w->options && w->options->disabled);
+    if (d && outReason) {
+        *outReason = w->options->disabledTooltip; // MM: const char* (no .c_str())
+    }
+    return d ? 1 : 0;
+}
+
+void BenMenu::DrawCustomByIndex(int32_t i) {
+    if (i < 0 || i >= (int32_t)mComboExport.flat.size()) {
+        return;
+    }
+    auto* w = mComboExport.flat[i];
+    if (!w || !w->customFunction) {
+        return;
+    }
+    // Custom widgets can depend on MM live subsystems (e.g. Rando spoilerOptions). comboui owns the
+    // menu and may render this tab while MM is backgrounded; those subsystems aren't initialized then.
+    // Only draw the real widget when MM is live (same guard as DrawElement/EvalDisabledByIndex);
+    // otherwise show a placeholder. Declarative widgets + CVars still work while backgrounded.
+    // Rando widgets must be editable even while MM is backgrounded, so they are exempt.
+    bool live = !(OTRGlobals::Instance == nullptr || OTRGlobals::Instance->fontStandardLargest == nullptr);
+    bool isRando = (i >= 0 && i < (int32_t)mComboExport.flatRando.size() && mComboExport.flatRando[i]);
+    if (!live && !isRando) {
+        ImGui::TextDisabled("Available while Majora's Mask is the active game.");
+        return;
+    }
+    w->customFunction(*w);
+}
 } // namespace BenGui

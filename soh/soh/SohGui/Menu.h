@@ -4,6 +4,9 @@
 #include <libultraship/libultraship.h>
 #include <fast/backends/gfx_rendering_api.h>
 #include "MenuTypes.h"
+#include <set>
+#include <string>
+#include <algorithm>
 
 namespace Ship {
 uint32_t GetVectorIndexOf(std::vector<std::string>& vector, std::string value);
@@ -25,6 +28,7 @@ class Menu : public GuiWindow {
     UIWidgets::Colors GetMenuThemeColor();
 
     void MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors menuThemeIndex);
+    void DrawContent(const std::set<std::string>& onlyPaths, const std::set<std::string>& skipPaths);
     void AddMenuEntry(std::string entryName, const char* entryCvar);
     void AddSearchWidget(SearchWidget widget);
     std::unordered_map<uint32_t, disabledInfo>& GetDisabledMap();

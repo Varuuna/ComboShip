@@ -681,7 +681,8 @@ bool Combobox(const char* label, T* value, const std::unordered_map<T, const cha
     ImGui::BeginGroup();
     ImGui::BeginDisabled(options.disabled);
     PushStyleCombobox(options.color);
-    const char* longest;
+    // ComboShip: must be initialized — comboMap can be empty, else CalcComboWidth derefs garbage.
+    const char* longest = "";
     size_t length = 0;
     const auto& iterableComboMap = *comboMap;
     for (const auto& [index, string] : iterableComboMap) {
@@ -761,7 +762,8 @@ bool Combobox(const char* label, T* value, const std::vector<const char*>& combo
     ImGui::BeginDisabled(options.disabled);
     PushStyleCombobox(options.color);
 
-    const char* longest;
+    // ComboShip: must be initialized — comboVector can be empty, else CalcComboWidth derefs garbage.
+    const char* longest = "";
     size_t length = 0;
     for (auto& string : comboVector) {
         size_t len = strlen(string);
@@ -845,7 +847,8 @@ bool Combobox(const char* label, T* value, const std::vector<std::string>& combo
     ImGui::BeginDisabled(options.disabled);
     PushStyleCombobox(options.color);
 
-    const char* longest;
+    // ComboShip: must be initialized — comboVector can be empty (e.g. rando spoilerOptions before refresh), else CalcComboWidth derefs garbage.
+    const char* longest = "";
     size_t length = 0;
     for (auto& string : comboVector) {
         size_t len = string.length();
@@ -932,7 +935,8 @@ bool Combobox(const char* label, T* value, const char* (&comboArray)[N], const C
     ImGui::BeginDisabled(options.disabled);
     PushStyleCombobox(options.color);
 
-    const char* longest;
+    // ComboShip: must be initialized — comboArray can be empty (N == 0), else CalcComboWidth derefs garbage.
+    const char* longest = "";
     size_t length = 0;
     for (size_t i = 0; i < N; i++) {
         size_t len = strlen(comboArray[i]);
@@ -1059,8 +1063,9 @@ bool ComboboxWithSearch(const char* label, T* value, const std::unordered_map<T,
     ImGui::BeginGroup();
     ImGui::BeginDisabled(options.disabled);
     PushStyleCombobox(options.color);
-    
-    const char* longest;
+
+    // ComboShip: must be initialized — comboMap can be empty, else CalcComboWidth derefs garbage.
+    const char* longest = "";
     size_t length = 0;
     const auto& iterableComboMap = *comboMap;
     for (const auto& [index, string] : iterableComboMap) {

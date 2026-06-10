@@ -24,6 +24,8 @@ add_executable(lus_tests
     path_diskfile_tests.cpp
     resource_type_tests.cpp
     archive_self_tests.cpp
+    resource_manager_scope_tests.cpp
+    combo_menu_export_tests.cpp
 )
 
 if(ENABLE_SCRIPTING)
@@ -45,6 +47,9 @@ target_link_libraries(lus_tests PRIVATE
 )
 
 target_compile_definitions(lus_tests PRIVATE SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_OFF)
+
+# ComboShip: combo-owned menu serializer is header-only; tests mock the game-side menu types.
+target_include_directories(lus_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../combo/menu)
 
 include(GoogleTest)
 gtest_discover_tests(lus_tests)

@@ -74,10 +74,14 @@ UIWidgets::Colors GetMenuThemeColor() {
     return mBenMenu->GetMenuThemeColor();
 }
 
+std::shared_ptr<BenMenu> GetBenMenu() { return mBenMenu; } // ComboShip
+
 void SetupMenu() {
     auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
     mBenMenu = std::make_shared<BenMenu>("gWindows.Menu", "Settings Menu");
-    gui->SetMenu(mBenMenu);
+#ifndef COMBO_BUILD
+    gui->SetMenu(mBenMenu); // ComboShip: comboui owns the menu; MM only builds its tree.
+#endif
 
     auto& style = ImGui::GetStyle();
     style.FramePadding = ImVec2(4.0f, 6.0f);
@@ -93,12 +97,22 @@ void SetupMenu() {
 // OTRGlobals ctor's SetupMenu() is skipped (it lives in the !usingExistingCtx block), so the slot
 // otherwise keeps OOT's SohMenu. First call constructs BenMenu (full setup); later calls just re-set it.
 void ActivateMenu() {
+#ifdef COMBO_BUILD
+    // ComboShip: comboui owns the single Gui menu slot, so we never gui->SetMenu here — BUT mBenMenu
+    // must still be BUILT (its headers/widgets populate via BenMenu::InitElement) so MM_ExportMenu /
+    // MM_MenuDrawCustom can build/walk it for the MM tab. SetupMenu's own gui->SetMenu is COMBO_BUILD-guarded out, so calling it
+    // here only constructs the menu. Without this, mBenMenu stays null in combo and the MM tab is empty.
+    if (mBenMenu == nullptr) {
+        SetupMenu();
+    }
+#else
     auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
     if (mBenMenu == nullptr) {
         SetupMenu();
     } else {
         gui->SetMenu(mBenMenu);
     }
+#endif
 }
 
 void SetupGuiElements() {

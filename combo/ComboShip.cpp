@@ -11,13 +11,17 @@
 
 #include <iostream>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <exception>
 #include <cstdlib>
+#include <atomic>
+#include <chrono>
 
 #include "rando/CrossMailbox.h"
 #include "rando/CrossForeign.h"
 #include "rando/CrossWorldRando.h"
+#include "gui/ComboGenProgress.h"
 
 // Surfaces the real exception behind a silent terminate()/exit(3). With the shared dynamic
 // CRT, exceptions thrown in soh.dll/2ship.dll propagate across the DLL boundary to here.
@@ -107,6 +111,10 @@ static FnDumpData MM_DumpRandoStaticData  = nullptr;
 static FnVoidArgless MM_BootForCombo      = nullptr;
 static FnVoidArgless SOH_ResumeForeground = nullptr;
 
+typedef void (*FnComboUIRegister)(void);
+static DllHandle           comboUIModule    = nullptr;
+static FnComboUIRegister   ComboUI_Register = nullptr;
+
 // ComboShip Inc4: per-game reachability oracle exports
 typedef void        (*FnOracleVoid)(void);
 typedef void        (*FnOracleSetItems)(const char*);
@@ -132,33 +140,58 @@ static FnSetGenerateCb    SOH_SetOnComboGenerateCallback = nullptr;
 static FnApplyPlacements  SOH_ApplyRandoPlacements       = nullptr;
 static FnMMInitRandoSave  MM_InitRandoSaveFile           = nullptr;
 
+// ComboShip Task 6: window-driven generate request (threaded, progress-reporting)
+typedef void (*FnSetGenReqCb)(void (*)(const char*, ComboRando::ComboGenProgress*));
+typedef void (*FnSetSeedGenerated)(uint8_t);
+static FnSetGenReqCb      SOH_SetOnComboGenerateRequestCallback = nullptr;
+static FnSetSeedGenerated SOH_SetSeedGenerated                  = nullptr;
+
+static std::atomic<bool>  g_GenerateBusy{ false };
+
+// Seed utilities — Ship_Hash/Ship_Random are not exported from libultraship, so implement inline.
+// FNV-1a 32-bit hash: deterministic string-to-uint32 used to derive the master seed.
+static uint32_t ComboHash(const char* str) {
+    if (!str) return 0;
+    uint32_t h = 2166136261u;
+    while (*str) { h ^= static_cast<unsigned char>(*str++); h *= 16777619u; }
+    return h;
+}
+// Simple xorshift32 used for a random seed when none is provided.
+static int ComboRandRange(int minV, int maxV) {
+    static uint32_t s = 0x9E3779B9u ^ static_cast<uint32_t>(
+        std::chrono::steady_clock::now().time_since_epoch().count() & 0xFFFFFFFFu);
+    s ^= s << 13; s ^= s >> 17; s ^= s << 5;
+    int range = maxV - minV + 1;
+    return minV + (range > 0 ? static_cast<int>(s % static_cast<uint32_t>(range)) : 0);
+}
+
 static int g_PendingMMFileNum = -1;
 
-// ComboShip Inc2 (Task 4): the "mm" placement slice from the most recent Combo_OnGenerate run, stashed
-// so the (later) Combo_OnOOTSaveInit callback can hand it to MM_InitRandoSaveFile. Generate fires before
-// save-init in the same new-save flow, so this is populated by the time the MM save is created.
+// ComboShip Inc2 (Task 4): the "mm" placement slice from the most recent generate run, stashed
+// so the (later) Combo_OnOOTSaveInit callback can hand it to MM_InitRandoSaveFile.
 static std::string g_PendingMMPlacements;
 
-// ComboShip: generate callback — called by Sram_InitSave (via gComboGenerateCallback)
-// before save creation. Runs the combined-logic fill (or no-logic fallback) and applies placements.
-static void Combo_OnGenerate(int fileNum) {
-    if (!SOH_DumpRandoStaticData || !MM_DumpRandoStaticData) {
-        std::cerr << "[ComboShip] Combo_OnGenerate: dump functions not resolved, cannot generate\n";
-        return;
-    }
+// ComboShip Task 6: worker function — runs the combined-logic fill (or no-logic fallback) on a
+// background thread, reports progress via the ComboGenProgress struct, and stashes placements.
+static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* progress) {
+    auto fail = [&](const char* msg) {
+        if (progress) { progress->SetError(msg); progress->success.store(false); progress->done.store(true); }
+        std::cerr << "[ComboShip] RunComboFill: " << msg << "\n";
+        g_GenerateBusy.store(false);
+    };
+
+    if (!SOH_DumpRandoStaticData || !MM_DumpRandoStaticData) { fail("dump functions not resolved"); return; }
 
     std::string sohDump = SOH_DumpRandoStaticData();
     std::string mmDump  = MM_DumpRandoStaticData();
+    if (sohDump.empty() || mmDump.empty()) { fail("empty static-data dump"); return; }
 
-    if (sohDump.empty() || mmDump.empty()) {
-        std::cerr << "[ComboShip] Combo_OnGenerate: empty dump, cannot generate\n";
-        return;
-    }
+    if (inputSeed.empty()) inputSeed = std::to_string(ComboRandRange(0, 1000000));
+    uint32_t masterSeed = ComboHash(inputSeed.c_str());
 
     std::string spoiler;
     bool usedCombinedFill = false;
 
-    // Use the combined-logic assumed fill when both oracles are available
     if (Combo_SOH_Rando_Reset && Combo_SOH_Rando_SetOwnedItems &&
         Combo_SOH_Rando_GetReachableChecks && Combo_SOH_Rando_PlaceItem &&
         Combo_MM_Rando_Reset && Combo_MM_Rando_SetOwnedItems &&
@@ -175,65 +208,82 @@ static void Combo_OnGenerate(int fileNum) {
         };
 
         auto result = ComboRando::CrossWorldCombinedFill(
-            sohDump, mmDump, 12345u, ootOracle, mmOracle);
+            sohDump, mmDump, masterSeed, ootOracle, mmOracle, "", progress);
 
         if (result.success) {
             spoiler = result.spoilerJson;
             usedCombinedFill = true;
-            std::cout << "[ComboShip] Combo_OnGenerate: combined-logic fill succeeded\n";
+            std::cout << "[ComboShip] RunComboFill: combined-logic fill succeeded (seed=" << masterSeed << ")\n";
         } else {
-            std::cerr << "[ComboShip] Combo_OnGenerate: combined fill failed ("
-                      << result.error << "), falling back to no-logic\n";
+            Combo_MM_Rando_Restore();
+            fail((std::string("combined fill failed: ") + result.error).c_str());
+            return;
         }
-
         Combo_MM_Rando_Restore();
     }
 
     if (!usedCombinedFill) {
-        spoiler = ComboRando::CrossWorldGenerateSpoiler(sohDump, mmDump, 12345u);
-        std::cout << "[ComboShip] Combo_OnGenerate: using no-logic fallback\n";
+        spoiler = ComboRando::CrossWorldGenerateSpoiler(sohDump, mmDump, masterSeed);
+        std::cout << "[ComboShip] RunComboFill: using no-logic fallback (seed=" << masterSeed << ")\n";
     }
 
-    // Write per-slot spoiler for debugging.
-    {
+    const int kCanonicalSlot = 0;
+    try {
         std::error_code ec;
         std::filesystem::create_directories("saves/combo", ec);
-        std::string path = "saves/combo/slot" + std::to_string(fileNum) + ".spoiler.json";
-        std::ofstream f(path, std::ios::trunc);
-        f << spoiler;
-        std::cout << "[ComboShip] Combo_OnGenerate: spoiler written to " << path << "\n";
+        std::ofstream(std::string("saves/combo/slot") + std::to_string(kCanonicalSlot) + ".spoiler.json",
+                      std::ios::trunc) << spoiler;
+
+        auto j = nlohmann::json::parse(spoiler);
+        auto foreignArr = j.value("foreign", nlohmann::json::array());
+        ComboRando::WriteForeignFromAnnotations(kCanonicalSlot, foreignArr);
+
+        nlohmann::json ootApply = j.value("oot", nlohmann::json::object());
+        nlohmann::json mmApply  = j.value("mm",  nlohmann::json::object());
+        for (const auto& fm : foreignArr) {
+            std::string cg = fm.value("checkGame", "");
+            std::string cn = fm.value("checkName", "");
+            if (cn.empty()) continue;
+            if (cg == "oot")     ootApply[cn] = ComboRando::kForeignSentinelNameOOT;
+            else if (cg == "mm") mmApply[cn]  = ComboRando::kForeignSentinelNameMM;
+        }
+
+        if (SOH_ApplyRandoPlacements) {
+            SOH_ApplyRandoPlacements(ootApply.dump().c_str());
+            std::cout << "[ComboShip] RunComboFill: OOT placements applied ("
+                      << foreignArr.size() << " foreign markers)\n";
+        } else if (SOH_SetSeedGenerated) {
+            SOH_SetSeedGenerated(1);
+        }
+
+        g_PendingMMPlacements = mmApply.dump();
+        std::cout << "[ComboShip] RunComboFill: MM placements stashed\n";
+
+        if (progress) {
+            progress->seed.store(masterSeed);
+            progress->foreignCount.store(static_cast<int>(foreignArr.size()));
+            progress->success.store(true);
+            progress->done.store(true);
+        }
+    } catch (const std::exception& e) {
+        fail((std::string("post-fill exception: ") + e.what()).c_str());
+        return;
     }
+    g_GenerateBusy.store(false);
+}
 
-    auto j = nlohmann::json::parse(spoiler);
-
-    // Write the cross-world foreign-item marker map, then build the per-game apply payloads with the
-    // foreign-check slots overwritten by each game's sentinel item. The spoiler keeps the real foreign
-    // item names (human-readable); the save only ever sees the sentinel for a foreign check, so the
-    // check's own game places it and the pickup code diverts the real item through the mailbox.
-    auto foreignArr = j.value("foreign", nlohmann::json::array());
-    ComboRando::WriteForeignFromAnnotations(fileNum, foreignArr);
-
-    nlohmann::json ootApply = j.value("oot", nlohmann::json::object());
-    nlohmann::json mmApply  = j.value("mm",  nlohmann::json::object());
-    for (const auto& fm : foreignArr) {
-        std::string cg = fm.value("checkGame", "");
-        std::string cn = fm.value("checkName", "");
-        if (cn.empty()) continue;
-        if (cg == "oot")     ootApply[cn] = ComboRando::kForeignSentinelNameOOT;
-        else if (cg == "mm") mmApply[cn]  = ComboRando::kForeignSentinelNameMM;
+// ComboShip Task 6 / Inc7: request handler — called by SOH_TriggerComboGenerate from the UI.
+// Runs synchronously on the calling (game) thread — the background thread was removed because
+// it raced the games' single-threaded rando logic and caused crashes.
+// A simple reentrancy guard prevents double-invocation (shouldn't happen with the one-frame
+// defer in ComboMenu, but guard anyway).
+static void Combo_OnGenerateRequest(const char* inputSeed, ComboRando::ComboGenProgress* progress) {
+    if (g_GenerateBusy.exchange(true)) {
+        // Already running — ignore the duplicate request.
+        if (progress) { progress->SetError("generate already in progress"); progress->done.store(true); }
+        return;
     }
-
-    if (SOH_ApplyRandoPlacements) {
-        SOH_ApplyRandoPlacements(ootApply.dump().c_str());
-        std::cout << "[ComboShip] Combo_OnGenerate: OOT placements applied for slot " << fileNum
-                  << " (" << foreignArr.size() << " foreign markers)\n";
-    }
-
-    // Stash the MM slice so Combo_OnOOTSaveInit (fires next in the new-save flow) can create a rando
-    // MM save. Cleared first so a generator failure can't leave a stale slice for the wrong slot.
-    g_PendingMMPlacements.clear();
-    g_PendingMMPlacements = mmApply.dump();
-    std::cout << "[ComboShip] Combo_OnGenerate: MM placements stashed for slot " << fileNum << "\n";
+    RunComboFill(std::string(inputSeed ? inputSeed : ""), progress);
 }
 
 static void Combo_OnOOTSaveInit(int fileNum) {
@@ -358,6 +408,8 @@ int main(int argc, char** argv) {
     MM_InitRandoSaveFile             = (FnMMInitRandoSave)    GetSym(mmModule,  "MM_InitRandoSaveFile");
     SOH_SetOnComboGenerateCallback   = (FnSetGenerateCb)      GetSym(sohModule, "SOH_SetOnComboGenerateCallback");
     SOH_ApplyRandoPlacements         = (FnApplyPlacements)    GetSym(sohModule, "SOH_ApplyRandoPlacements");
+    SOH_SetOnComboGenerateRequestCallback = (FnSetGenReqCb)      GetSym(sohModule, "SOH_SetOnComboGenerateRequestCallback");
+    SOH_SetSeedGenerated                  = (FnSetSeedGenerated) GetSym(sohModule, "SOH_SetSeedGenerated");
     MM_BootForCombo                  = (FnVoidArgless)        GetSym(mmModule,  "MM_BootForCombo");
     SOH_ResumeForeground             = (FnVoidArgless)        GetSym(sohModule, "SOH_ResumeForeground");
 
@@ -446,6 +498,21 @@ int main(int argc, char** argv) {
     }
     std::cout << "[ComboShip] OOT initialized." << std::endl;
 
+    // ComboShip: load the combo-owned menu DLL and install the unified menu now that
+    // OOT has created the shared Gui. comboui owns the menu for the whole process.
+    comboUIModule = LoadDll("comboui.dll");
+    if (comboUIModule) {
+        ComboUI_Register = (FnComboUIRegister)GetSym(comboUIModule, "ComboUI_Register");
+        if (ComboUI_Register) {
+            ComboUI_Register();
+            std::cout << "[ComboShip] comboui registered (unified menu installed)." << std::endl;
+        } else {
+            std::cerr << "[ComboShip] WARNING: comboui.dll missing ComboUI_Register" << std::endl;
+        }
+    } else {
+        std::cerr << "[ComboShip] WARNING: failed to load comboui.dll (" << DllError() << ")" << std::endl;
+    }
+
     // ComboShip: eagerly boot MM now (after OOT init) so the cross-world rando oracle runs against a
     // real, fully-initialized MM. This performs an OOT->MM->OOT transition once, with MM's game loop
     // skipped: hand the foreground from OOT to MM (SOH_PrepareForTransition), boot MM without its loop
@@ -494,11 +561,11 @@ int main(int argc, char** argv) {
     // requires a live context which doesn't exist until MM_RunMain runs InitOTR().
     // Archives are loaded correctly when MM_RunGame is called after OOT exits.
 
-    // ComboShip Inc2 (Task 3): register the generate callback BEFORE the save-init callback.
-    // Fired by Sram_InitSave before questType is read; generates the seed and applies OOT placements.
-    if (SOH_SetOnComboGenerateCallback) {
-        SOH_SetOnComboGenerateCallback(Combo_OnGenerate);
-        std::cout << "[ComboShip] OOT generate callback registered." << std::endl;
+    // ComboShip Task 6: register the window-driven generate-request handler.
+    // Generation is now window-driven + threaded; Sram_InitSave only forces QUEST_RANDOMIZER.
+    if (SOH_SetOnComboGenerateRequestCallback) {
+        SOH_SetOnComboGenerateRequestCallback(Combo_OnGenerateRequest);
+        std::cout << "[ComboShip] Combo generate-request handler registered." << std::endl;
     }
 
     if (SOH_SetOnNewSaveCallback && MM_InitSaveFile) {
@@ -570,6 +637,9 @@ int main(int argc, char** argv) {
 
     // --- 7. Cleanup ---
 
+    // Generate is now synchronous — no background thread to join before freeing DLLs.
+
+    if (comboUIModule) FreeDll(comboUIModule);
     FreeDll(mmModule);
     FreeDll(sohModule);
     return 0;

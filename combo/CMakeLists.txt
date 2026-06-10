@@ -5,6 +5,34 @@ project(ComboShip LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 23)
 
+# ─── comboui.dll: combo-owned unified settings menu (links libultraship + ImGui) ───
+set(COMBOUI_SOURCES
+    gui/ComboMenu.cpp
+    gui/ComboMenuModel.cpp
+    gui/ComboWidgetRender.cpp
+    gui/ComboWidgetStyle.cpp
+)
+add_library(comboui SHARED ${COMBOUI_SOURCES})
+set_target_properties(comboui PROPERTIES PREFIX "")
+# ComboShip: deploy comboui.dll directly into the shared runtime dir (x64/<config>),
+# matching how soh/2ship set their own RUNTIME_OUTPUT_DIRECTORY. Without this, a
+# per-target `--target comboui` build lands in build/x64/combo/<config> and never
+# reaches the exe's load path until the ComboShip exe is rebuilt — a stale-DLL trap.
+set_target_properties(comboui PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG   "${CMAKE_SOURCE_DIR}/x64/Debug"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/x64/Release"
+    ARCHIVE_OUTPUT_DIRECTORY_DEBUG   "${CMAKE_SOURCE_DIR}/x64/Debug"
+    ARCHIVE_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/x64/Release"
+)
+target_compile_definitions(comboui PRIVATE COMBO_BUILD)
+target_include_directories(comboui PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/menu
+    ${CMAKE_CURRENT_SOURCE_DIR}/../libultraship/include
+)
+target_link_libraries(comboui PRIVATE libultraship)
+add_dependencies(comboui libultraship)
+
 # Source files
 set(COMBO_SOURCES
     ComboShip.cpp
@@ -27,6 +55,7 @@ add_dependencies(ComboShip
     soh
     2ship
     libultraship
+    comboui
 )
 
 # Windows-specific settings
@@ -56,6 +85,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:libultraship>
             ${CMAKE_SOURCE_DIR}/x64/Debug/libultraship.dll
+        # Copy combo UI DLL to x64/Debug
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:comboui>
+            ${CMAKE_SOURCE_DIR}/x64/Debug/comboui.dll
         # Also copy DLLs to ComboShip's build directory for local testing
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:soh>
@@ -65,6 +98,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
             $<TARGET_FILE_DIR:ComboShip>
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:libultraship>
+            $<TARGET_FILE_DIR:ComboShip>
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:comboui>
             $<TARGET_FILE_DIR:ComboShip>
         # Copy the PORT/custom .o2r assets (config-independent) next to the exe and to x64/Debug.
         COMMAND ${CMAKE_COMMAND} -E copy_if_different

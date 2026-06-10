@@ -1,11 +1,14 @@
 #ifndef BenGui_hpp
 #define BenGui_hpp
 
+#include <memory>
 #include <BenGui/UIWidgets.hpp>
 #include "2s2h/BenGui/InputViewer.h"
 #include "BenModals.h"
 
 namespace BenGui {
+    class BenMenu; // ComboShip: forward-declare for GetBenMenu return type
+
     void SetupHooks();
     void SetupMenu();
     // ComboShip: ensure MM's BenMenu is the shared Gui's active menu (constructs it on first call,
@@ -21,6 +24,7 @@ namespace BenGui {
     bool DismissPopup(std::string title);
     UIWidgets::Colors GetMenuThemeColor();
     void SetDisplayOverlayVisibility(bool visible);
+    std::shared_ptr<BenMenu> GetBenMenu(); // ComboShip
 }
 
 #define THEME_COLOR BenGui::GetMenuThemeColor()

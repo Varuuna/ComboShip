@@ -2274,7 +2274,7 @@ void BenMenu::DrawElement() {
 }
 
 // === ComboShip C-ABI menu export ============================================
-// EXACT MM analog of soh/soh/SohGui/SohMenu.cpp's export. See ComboMenuABI.h.
+// EXACT MM analog of soh/soh/SohGui/SohMenu.cpp's export. See ComboMenuExport.h.
 
 namespace {
 CwKind WidgetTypeToCwKind(WidgetType t) {
@@ -2389,6 +2389,8 @@ struct BenExportPolicy {
         }
     }
     static void FillOptions(const Widget& w, CwWidget& cw) {
+        // options-branch wraps the switch (unlike OOT's early return): CW_COLOR is derived
+        // from the WidgetType below and must run even when options is null.
         if (w.options) {
             switch (cw.kind) {
                 case CW_CHECKBOX: {

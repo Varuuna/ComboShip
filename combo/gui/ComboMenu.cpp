@@ -98,8 +98,8 @@ void ComboMenu::DrawSharedPanel() {
 }
 
 // Per-game tab: render the game's menu from the combo-owned C-ABI model (CwMenu) using
-// comboui's own ImGui calls, instead of delegating to SOH_/MM_DrawSettings. The Shared tab
-// (DrawSharedPanel) still delegates to OOT for the shared engine sidebars.
+// comboui's own ImGui calls (ComboMenuModel + RenderWidget); the game DLLs no longer draw their
+// own tabs. Only the Shared tab (DrawSharedPanel) still delegates to OOT's SOH_DrawSettings.
 void ComboMenu::DrawGamePanel(const char* gameKey) {
     auto& model = ComboMenuModel::Get();
     model.EnsureLoaded();

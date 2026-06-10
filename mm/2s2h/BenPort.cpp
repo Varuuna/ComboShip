@@ -3076,53 +3076,6 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Restore(void) {
 }
 
 #ifdef COMBO_BUILD
-// ComboShip: draw MM's menu content (content-only, themed) into the current ImGui window.
-// onlyCsv: if non-empty, comma-separated allow-list of "Header" or "Header/Sidebar" paths to show.
-// skipCsv: if onlyCsv is empty, comma-separated block-list of paths to hide.
-extern "C" __declspec(dllexport) void MM_DrawSettings(const char* onlyCsv, const char* skipCsv) {
-    // ComboShip: comboui calls us from the draw thread, but 2ship.dll has its OWN per-module ImGui
-    // GImGui which is NOT current while MM is backgrounded — point it at the shared context before ANY
-    // ImGui call here (mirrors comboui/soh), else ImGui::GetCurrentWindow() is null and we crash.
-    {
-        auto sctx = Ship::Context::GetInstance();
-        if (sctx && sctx->GetWindow() && sctx->GetWindow()->GetGui()) {
-            ImGui::SetCurrentContext(sctx->GetWindow()->GetGui()->GetImGuiContext());
-        }
-    }
-    // ComboShip INTERIM GUARD: MM's menu render (BenMenu::DrawContent) depends on MM's live runtime
-    // state — fonts (OTRGlobals::Instance->fontStandardLargest) and per-widget disable evaluations that
-    // probe game state — which is only fully alive while MM is the FOREGROUND game. While MM is
-    // backgrounded behind OOT, that state isn't live and DrawContent faults. Until the planned rework
-    // where ComboShip OWNS the MM menu render independently of MM's lifecycle, show a note instead of
-    // crashing when MM isn't ready.
-    if (!OTRGlobals::Instance || OTRGlobals::Instance->fontStandardLargest == nullptr) {
-        ImGui::TextWrapped("MM settings aren't available here yet while MM runs in the background. "
-                           "ComboShip is being reworked to own the MM menu render directly.");
-        return;
-    }
-    auto menu = BenGui::GetBenMenu();
-    if (!menu) {
-        BenGui::ActivateMenu();
-        menu = BenGui::GetBenMenu();
-    }
-    if (!menu) {
-        ImGui::TextUnformatted("MM settings unavailable (menu could not be built).");
-        return;
-    }
-    // ComboShip: comboui owns the active menu, so libultraship never Init()s this one. Init() is
-    // idempotent; run it once so InitElement-time setup exists before drawing.
-    menu->Init();
-    std::set<std::string> only, skip;
-    auto parseCsv = [](const char* csv, std::set<std::string>& out) {
-        if (!csv || !csv[0]) return;
-        std::stringstream ss(csv); std::string item;
-        while (std::getline(ss, item, ',')) if (!item.empty()) out.insert(item);
-    };
-    parseCsv(onlyCsv, only);
-    parseCsv(skipCsv, skip);
-    menu->DrawContent(only, skip);
-}
-
 // ComboShip: MM analog of SOH_ExportMenu et al. (soh/soh/OTRGlobals.cpp). comboui resolves these by
 // GetProcAddress and ingests the CwMenu (combo/menu/ComboMenuABI.h), then invokes back by index.
 namespace {

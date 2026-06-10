@@ -99,8 +99,8 @@ void SetupMenu() {
 void ActivateMenu() {
 #ifdef COMBO_BUILD
     // ComboShip: comboui owns the single Gui menu slot, so we never gui->SetMenu here — BUT mBenMenu
-    // must still be BUILT (its headers/widgets populate via BenMenu::InitElement) so MM_DrawSettings
-    // can render the MM tab. SetupMenu's own gui->SetMenu is COMBO_BUILD-guarded out, so calling it
+    // must still be BUILT (its headers/widgets populate via BenMenu::InitElement) so MM_ExportMenu /
+    // MM_MenuDrawCustom can build/walk it for the MM tab. SetupMenu's own gui->SetMenu is COMBO_BUILD-guarded out, so calling it
     // here only constructs the menu. Without this, mBenMenu stays null in combo and the MM tab is empty.
     if (mBenMenu == nullptr) {
         SetupMenu();

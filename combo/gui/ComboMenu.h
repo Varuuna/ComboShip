@@ -23,8 +23,8 @@ class ComboMenu final : public Ship::GuiWindow {
     void UpdateElement() override {}
 
   private:
-    void DrawSharedPanel();            // delegates to OOT's themed engine sidebars
-    void DrawGamePanel(const char* gameKey); // delegates to SOH_/MM_DrawSettings
+    void DrawSharedPanel();            // engine sidebars, still drawn via SOH_DrawSettings
+    void DrawGamePanel(const char* gameKey); // renders from the C-ABI model (ComboMenuModel + RenderWidget)
     void DrawComboPanel();             // cross-world Generate (seed + button + progress)
 
     char             mSeedBuf[128] = { 0 };

@@ -49,7 +49,7 @@ class SohMenu : public Ship::Menu {
     void AddMenuNetwork();
     static void UpdateLanguageMap(std::map<int32_t, const char*>& languageMap);
 
-    // === ComboShip C-ABI menu export (see combo/menu/ComboMenuABI.h) ===
+    // === ComboShip C-ABI menu export (see combo/menu/ComboMenuExport.h) ===
     // Builds (once, cached) the flat CwMenu describing the whole SohMenu tree and
     // returns a pointer that is stable for the lifetime of this SohMenu instance.
     // comboui ingests the CwMenu and invokes back by index.

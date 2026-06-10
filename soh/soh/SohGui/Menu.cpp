@@ -952,10 +952,14 @@ void Menu::DrawElement() {
 
 // ComboShip: glue for the combo-owned shared DrawContent body (combo/menu/ComboMenuDrawContent.h).
 // Resolves OOT's own UIWidgets / draw functions for the template.
+namespace {
 // gSohDrawHooksMenu: set to 'this' in DrawContent so the static DrawItem shim can reach the
 // Menu instance (MenuDrawItem is a non-static member; shims must be static per THooks contract).
-static Menu* gSohDrawHooksMenu = nullptr;
-namespace {
+// Safety: the only early return in DrawContent (null font guard) precedes the assignment, so
+// DrawItem is never called while the pointer is null. ImGui is single-threaded and DrawContent
+// is not reentrant; if multiple Menu instances ever exist they render sequentially, each setting
+// the pointer before its own ComboMenuDraw::DrawContent call.
+Menu* gSohDrawHooksMenu = nullptr;
 struct SohDrawHooks {
     static bool HeaderEntry(const std::string& label) {
         return ModernMenuHeaderEntry(label);

@@ -21,6 +21,12 @@
 #ifndef COMBO_MENU_DRAW_CONTENT_H
 #define COMBO_MENU_DRAW_CONTENT_H
 
+// struct Config below uses ImFont* at parse time, not just at template instantiation —
+// fail loudly with the contract instead of a confusing "unknown type name ImFont".
+#ifndef IMGUI_VERSION
+#error "ComboMenuDrawContent.h is TU-glue: include imgui.h / imgui_internal.h (and libultraship) before it"
+#endif
+
 #include <algorithm>
 #include <set>
 #include <string>

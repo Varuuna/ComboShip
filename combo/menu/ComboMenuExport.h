@@ -33,6 +33,7 @@
 #include "ComboMenuABI.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
 #include <deque>
 #include <string>
@@ -48,7 +49,9 @@ template <typename TWidget>
 struct State {
     bool exported = false;
     CwMenu menu = {};
-    std::vector<TWidget*> flat;      // index -> source widget (the invoke key)
+    // index -> source widget (the invoke key). Raw pointers into the caller's menuEntries:
+    // menuEntries must outlive this State and must not be modified after Build() returns.
+    std::vector<TWidget*> flat;
     std::vector<uint8_t> flatRando;  // parallel to flat: 1 if widget is in the rando section
     std::vector<CwSection> sections; // reserved up-front; .data() stable after fill
     std::vector<CwSidebar> sidebars;
@@ -214,6 +217,11 @@ inline const CwMenu* Build(State<typename TPolicy::Widget>& st, const std::vecto
         sectionRanges.push_back(SectionRange{ ownStr(entry.label), entry.sidebarCvar ? entry.sidebarCvar : "",
                                               sectionSidebarStart, sidebarRanges.size() });
     }
+
+    // Reserve == fill is the pointer-stability invariant; a violation means some Policy's
+    // EmitChoices diverged from CountChoices and every wired pointer below would dangle.
+    assert(st.widgets.size() == widgetCount && "widget count mismatch between passes");
+    assert(st.choices.size() == choiceCount && "CountChoices/EmitChoices contract violated");
 
     // Now that st.choices and st.widgets are fully populated (no further pushes), wire pointers.
     for (size_t i = 0; i < st.widgets.size(); i++) {

@@ -235,4 +235,13 @@ TEST(ComboMenuExport, EmptyMenuOrderFallsBackToSortedKeys) {
     EXPECT_STREQ(menu->sections[1].sectionLabel, "Settings");
 }
 
+TEST(ComboMenuExport, ChoicesStorageIsExactFitSoWiredPointersStayStable) {
+    Fixture f;
+    f.Build();
+    // Pass-1 reserve was exact-fit: a Policy whose EmitChoices over-pushed would have
+    // grown past the reservation and reallocated, dangling every wired choices pointer
+    // (and tripping the asserts in Build in debug builds).
+    EXPECT_EQ(f.state.choices.size(), f.state.choices.capacity());
+}
+
 } // namespace

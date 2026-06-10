@@ -481,3 +481,27 @@ OOT↔MM round-trips now work.**
 - **Foreign `displayName` polish** (see Inc6 section above).
 - **Combo settings window (Increment 7):** without it, both games' rando options sit at defaults, so
   most non-chest checks aren't shuffled at runtime.
+
+## UIWidgets empty-combobox UB + combo-rendered MM rando menu (2026-06-09)
+
+**`mm/2s2h/BenGui/UIWidgets.hpp` (and `soh/soh/SohGui/UIWidgets.hpp`) — fix to a vendored upstream
+bug:** every `UIWidgets::Combobox` template overload declared `const char* longest;` **uninitialized**,
+then assigned it only inside the loop that scans the options for the widest entry. If the options
+container is empty, `longest` stays garbage and the immediately-following
+`CalcComboWidth(longest, ...)` → `ImGui::CalcTextSize` dereferences it → crash. Changed to
+`const char* longest = "";` in all overloads, with a `// ComboShip:` comment explaining why. This is a
+genuine upstream bug; OOT's `std::vector<std::string>` overload happened to already have the
+initializer, but its three other overloads (map / `vector<const char*>` / fixed array) did not — those
+were fixed too. WHY it surfaced: MM's rando "Seed" combobox reads `Rando::Spoiler::spoilerOptions`,
+which is empty when the combo layer renders MM's always-available rando menu while MM is backgrounded.
+
+**`mm/2s2h/BenPort.cpp` (`Combo_EnsureBenMenu()`):** belt-and-suspenders for the same symptom —
+`spoilerOptions` is populated by `Rando::Init()` → `RefreshOptions()` at boot, but in the
+combo/backgrounded render path that vector can be empty. `Combo_EnsureBenMenu()` (called by every MM
+menu export — ExportMenu / InvokeCallback / EvalDisabled / DrawCustom) now calls
+`Rando::Spoiler::RefreshOptions()` when `spoilerOptions.empty()`, so the menu has real options to draw.
+`RefreshOptions` is idempotent (clears + repopulates) and only runs when empty. No new include needed
+(`2s2h/Rando/Spoiler/Spoiler.h` was already included).
+
+**Note:** other MM rando tabs (Logic / Items / etc.) may have their own backgrounded-live-state crashes;
+out of scope here, handled as they surface.

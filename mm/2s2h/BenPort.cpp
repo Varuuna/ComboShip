@@ -3141,6 +3141,12 @@ std::shared_ptr<BenGui::BenMenu> Combo_EnsureBenMenu() {
     if (menu) {
         menu->Init();
     }
+    // ComboShip: MM's rando Seed combobox reads Rando::Spoiler::spoilerOptions, which is empty if the
+    // rando subsystem's RefreshOptions hasn't populated it in this (combo/backgrounded) context. Populate
+    // it on demand so the always-available rando menu renders. RefreshOptions is idempotent (clears+repopulates).
+    if (Rando::Spoiler::spoilerOptions.empty()) {
+        Rando::Spoiler::RefreshOptions();
+    }
     return menu;
 }
 } // namespace

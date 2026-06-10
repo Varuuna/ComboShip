@@ -178,9 +178,14 @@ void ComboMenu::DrawSharedPanel() {
                 ImGui::PushStyleColor(ImGuiCol_Header, theme);
                 ImGui::PushStyleColor(ImGuiCol_HeaderHovered, theme);
             }
+            // Unique ImGui ID per entry — multiple groups share labels like "General", so deriving
+            // the ID from the label alone collides. Visible text stays en.label; the ID comes from
+            // the unique group/label key via PushID.
+            ImGui::PushID(en.key().c_str());
             if (ImGui::Selectable(en.label.c_str(), selected)) {
                 mHubActive = en.key();
             }
+            ImGui::PopID();
             if (selected) ImGui::PopStyleColor(2);
         }
     }

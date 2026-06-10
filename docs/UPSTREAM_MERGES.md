@@ -505,3 +505,32 @@ menu export — ExportMenu / InvokeCallback / EvalDisabled / DrawCustom) now cal
 
 **Note:** other MM rando tabs (Logic / Items / etc.) may have their own backgrounded-live-state crashes;
 out of scope here, handled as they surface.
+
+## Menu code extraction to combo-owned headers (2026-06-10)
+
+The ComboShip-written menu glue that lived inside the vendored trees was consolidated into
+combo-owned, header-only units under `combo/menu/` (already on both games' include paths, so no
+game CMake changes). The headers compile INTO each game DLL — only the SOURCE ownership moved —
+so future upstream pulls conflict at most on small per-game glue blocks, never on the algorithms:
+
+- **`combo/menu/ComboMenuExport.h`** — the two-pass count/reserve/fill CwMenu serializer that was
+  copy-pasted in `soh/soh/SohGui/SohMenu.cpp` and `mm/2s2h/BenGui/BenMenu.cpp` (~260 lines each).
+  Each game now keeps only its `WidgetTypeToCwKind` mapping + a Policy struct
+  (`SohExportPolicy` / `BenExportPolicy`) + a one-line delegate. Pointer-stability invariant
+  (reserve == fill) is now assert-checked and unit-tested
+  (`libultraship/tests/combo_menu_export_tests.cpp`, mock-based, runs in `lus_tests`).
+- **`combo/menu/ComboMenuDrawContent.h`** — the shared `Menu::DrawContent` ImGui body (~230 lines
+  each) that mirrored the upstream `DrawElement` layout inside comboui's window. Each game keeps a
+  Hooks shim (`SohDrawHooks` / `BenDrawHooks`) + a ~30-line wrapper. Upstream `DrawElement` is
+  untouched. WHY a TU-glue header (`#error` guard, no own ImGui include): it must resolve each
+  game's OWN UIWidgets/draw functions and per-module compile context.
+- **`combo/menu/ComboMenuSharedContext.h`** — `ComboMenuContext::UseSharedImGuiContext()`, replacing
+  2 static + 3 inline duplicated copies in `soh/soh/OTRGlobals.cpp` / `mm/2s2h/BenPort.cpp`.
+
+Intentional micro-deviations from the pre-extraction bodies (do not "fix" back): empty tooltips are
+no longer copied into owned-string storage (output still `""`); MM's redundant
+`GetVectorIndexOf(sidebarOrder, …)` fallback clause was dropped (subsumed by the `std::find` over
+`visibleSidebars`); OOT's widget label width now uses the clamped column count like MM (visible
+only below 800px window width).
+
+Net effect: vendored menu diff vs upstream shrank from ~1,630 to ~907 added lines across soh/ + mm/.

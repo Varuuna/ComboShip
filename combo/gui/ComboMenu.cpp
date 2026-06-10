@@ -2,9 +2,11 @@
 #include "ComboMenu.h"
 #include "ComboMenuModel.h"
 #include "ComboWidgetRender.h"
+#include "ComboWidgetStyle.h"
 #include <imgui.h>
 #include <memory>
 #include <string>
+#include <vector>
 #include <cstring>
 #include <cstdio>
 #ifdef _WIN32
@@ -12,20 +14,6 @@
 #endif
 
 namespace {
-typedef void (*FnDrawSettings)(const char*, const char*);
-FnDrawSettings ResolveDraw(const char* dll, const char* sym) {
-#ifdef _WIN32
-    HMODULE h = GetModuleHandleA(dll); // already loaded by the exe
-    return h ? (FnDrawSettings)GetProcAddress(h, sym) : nullptr;
-#else
-    return nullptr;
-#endif
-}
-FnDrawSettings sSohDraw = nullptr; // still used by DrawSharedPanel for the engine sidebars
-// Engine sidebars shown ONCE in the Shared tab (rendered by OOT, since they write the shared
-// gSettings.* engine CVars) and skipped from the per-game tabs to avoid duplication.
-const char* kEngineSidebars = "Settings/Graphics,Settings/General";
-
 // Generate trigger (soh.dll export); runs synchronously on the calling thread (Inc7: thread removed).
 typedef void (*FnTriggerGenerate)(const char*, ComboRando::ComboGenProgress*);
 FnTriggerGenerate sTrigger = nullptr;
@@ -82,19 +70,138 @@ void ComboMenu::DrawElement() {
             if (ImGui::BeginTabItem("Shared")) { DrawSharedPanel(); ImGui::EndTabItem(); }
             if (ImGui::BeginTabItem("OOT"))    { DrawGamePanel("oot"); ImGui::EndTabItem(); }
             if (ImGui::BeginTabItem("MM"))     { DrawGamePanel("mm");  ImGui::EndTabItem(); }
-            if (ImGui::BeginTabItem("Combo"))  { DrawComboPanel(); ImGui::EndTabItem(); }
             ImGui::EndTabBar();
         }
     }
     ImGui::End();
 }
 
-// Shared tab: render OOT's themed engine sidebars (Graphics/General) via the only-list. They write
-// the shared gSettings.* engine CVars, so this one panel controls both games — and it looks native.
+// Shared tab: a left-panel navigation hub (mirrors the native menu's left sidebar). Groups of
+// entries on the left; selecting one renders its content on the right. Groups: engine "Shared"
+// settings (OOT-rendered, write shared gSettings.* CVars), "OOT Randomizer", "MM Rando", and a
+// single "Combo" → Generate entry. The HubEntry list is rebuilt each frame from the cached model
+// (cheap: just pointers/indices into the process-stable CwMenu); nothing is cached across frames.
+namespace {
+struct HubEntry {
+    std::string                    label;     // shown in the left panel
+    std::string                    group;     // owning group label (for the unique key)
+    enum Kind { ENGINE, OOT_RANDO, MM_RANDO, COMBO_GEN } kind;
+    const ComboRando::GameMenu*    game = nullptr; // ENGINE/OOT_RANDO/MM_RANDO
+    int                            sectionIndex = -1;
+    int                            sidebarIndex = -1;
+    std::string key() const { return group + "/" + label; }
+};
+
+// Append one entry per sidebar of the game's section whose sectionLabel == wantSection.
+// Skips (no-op) if the game isn't loaded or the section isn't present — defensive.
+void AppendSectionEntries(std::vector<HubEntry>& out, const char* groupLabel,
+                          HubEntry::Kind kind, const ComboRando::GameMenu& game,
+                          const char* wantSection) {
+    if (!game.loaded || !game.menu) return;
+    const CwMenu* m = game.menu;
+    for (int s = 0; s < m->sectionCount; ++s) {
+        const CwSection& sec = m->sections[s];
+        if (!sec.sectionLabel || strcmp(sec.sectionLabel, wantSection) != 0) continue;
+        for (int sb = 0; sb < sec.sidebarCount; ++sb) {
+            const CwSidebar& side = sec.sidebars[sb];
+            HubEntry e;
+            e.label = (side.sidebarName && side.sidebarName[0]) ? side.sidebarName : "Section";
+            e.group = groupLabel;
+            e.kind = kind;
+            e.game = &game;
+            e.sectionIndex = s;
+            e.sidebarIndex = sb;
+            out.push_back(std::move(e));
+        }
+        break; // first matching section only
+    }
+}
+} // namespace
+
 void ComboMenu::DrawSharedPanel() {
-    if (!sSohDraw) sSohDraw = ResolveDraw("soh.dll", "SOH_DrawSettings");
-    if (sSohDraw) sSohDraw(kEngineSidebars, "");
-    else ImGui::TextUnformatted("Shared settings unavailable (SOH_DrawSettings not found).");
+    auto& model = ComboMenuModel::Get();
+    model.EnsureLoaded();
+
+    // Build the navigation model fresh each frame (group order is the display order).
+    struct Group { std::string label; std::vector<HubEntry> entries; };
+    std::vector<Group> groups;
+
+    {
+        std::vector<HubEntry> e;
+        AppendSectionEntries(e, "Shared", HubEntry::ENGINE, model.Oot(), "Settings");
+        if (!e.empty()) groups.push_back({ "Shared", std::move(e) });
+    }
+    {
+        std::vector<HubEntry> e;
+        AppendSectionEntries(e, "OOT Randomizer", HubEntry::OOT_RANDO, model.Oot(), "Randomizer");
+        if (!e.empty()) groups.push_back({ "OOT Randomizer", std::move(e) });
+    }
+    {
+        std::vector<HubEntry> e;
+        AppendSectionEntries(e, "MM Rando", HubEntry::MM_RANDO, model.Mm(), "Rando");
+        if (!e.empty()) groups.push_back({ "MM Rando", std::move(e) });
+    }
+    {
+        HubEntry gen;
+        gen.label = "Generate";
+        gen.group = "Combo";
+        gen.kind = HubEntry::COMBO_GEN;
+        groups.push_back({ "Combo", { std::move(gen) } });
+    }
+
+    // Resolve the active entry; default to the first available, and recover if the prior
+    // selection vanished (e.g. a game finished loading and reshaped the list).
+    const HubEntry* active = nullptr;
+    const HubEntry* first = nullptr;
+    for (const auto& g : groups) {
+        for (const auto& en : g.entries) {
+            if (!first) first = &en;
+            if (en.key() == mHubActive) active = &en;
+        }
+    }
+    if (!active) {
+        active = first;
+        if (active) mHubActive = active->key();
+    }
+
+    const ImVec4 theme = ComboMenu_ThemeColor();
+
+    // Left navigation panel.
+    float availW = ImGui::GetContentRegionAvail().x;
+    float sidebarW = availW > 1600 ? availW * 0.15f : 200.0f;
+    ImGui::BeginChild("##HubSidebar", ImVec2(sidebarW, 0), ImGuiChildFlags_Borders);
+    for (const auto& g : groups) {
+        ImGui::SeparatorText(g.label.c_str());
+        for (const auto& en : g.entries) {
+            const bool selected = active && (active->key() == en.key());
+            if (selected) {
+                ImGui::PushStyleColor(ImGuiCol_Header, theme);
+                ImGui::PushStyleColor(ImGuiCol_HeaderHovered, theme);
+            }
+            if (ImGui::Selectable(en.label.c_str(), selected)) {
+                mHubActive = en.key();
+            }
+            if (selected) ImGui::PopStyleColor(2);
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    // Right content panel for the active entry.
+    ImGui::BeginChild("##HubContent", ImVec2(0, 0));
+    if (!active) {
+        ImGui::TextUnformatted("Select an option.");
+    } else if (active->kind == HubEntry::COMBO_GEN) {
+        DrawComboPanel();
+    } else {
+        const CwSidebar& side =
+            active->game->menu->sections[active->sectionIndex].sidebars[active->sidebarIndex];
+        for (int wdx = 0; wdx < side.widgetCount; ++wdx) {
+            RenderWidget(side.widgets[wdx], *active->game);
+        }
+    }
+    ImGui::EndChild();
 }
 
 // Per-game tab: render the game's menu from the combo-owned C-ABI model (CwMenu) using

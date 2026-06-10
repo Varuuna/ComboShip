@@ -23,7 +23,7 @@ class ComboMenu final : public Ship::GuiWindow {
     void UpdateElement() override {}
 
   private:
-    void DrawSharedPanel();            // engine sidebars, still drawn via SOH_DrawSettings
+    void DrawSharedPanel();            // left-panel hub: engine + OOT Rando + MM Rando + Combo
     void DrawGamePanel(const char* gameKey); // renders from the C-ABI model (ComboMenuModel + RenderWidget)
     void DrawComboPanel();             // cross-world Generate (seed + button + progress)
 
@@ -31,6 +31,7 @@ class ComboMenu final : public Ship::GuiWindow {
     ComboGenProgress mProgress;        // worker (in the exe) writes; this polls. Pointer handed across DLL.
     std::string      mStatusLine;
     bool             mGeneratePending = false; // one-frame defer: show "Generating…" before blocking fill
+    std::string      mHubActive;       // active hub entry key ("group/label"); persists across frames
 };
 
 } // namespace ComboRando

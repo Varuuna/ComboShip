@@ -2323,310 +2323,143 @@ CwKind WidgetTypeToCwKind(WidgetType t) {
     }
 }
 
-// Number of CwChoice entries a widget contributes. MUST be identical between the Pass-1 reserve
-// and the Pass-2 fill so mChoices never reallocates. Only CW_COMBOBOX contributes choices; its
-// comboVariant holds either a (map*) or a (vec*) — a null pointer contributes zero.
-size_t ComboboxChoiceCount(const WidgetInfo& w) {
-    if (WidgetTypeToCwKind(w.type) != CW_COMBOBOX || !w.options) {
-        return 0;
+// Policy for the combo-owned serializer (combo/menu/ComboMenuExport.h): MM's enum mapping,
+// comboVariant choices, and section naming. The walk itself lives in combo/. EXACT MM analog
+// of SohMenu.cpp's SohExportPolicy.
+struct BenExportPolicy {
+    using Widget = WidgetInfo;
+    static CwKind Kind(const Widget& w) {
+        return WidgetTypeToCwKind(w.type);
     }
-    auto o = std::static_pointer_cast<UIWidgets::ComboboxOptions>(w.options);
-    if (!o) {
-        return 0;
+    static bool IsRandoSection(const std::string& label) {
+        return label == "Rando";
     }
-    if (o->comboVariant.index() == 0) {
-        UIWidgets::ComboMap_t map = std::get<0>(o->comboVariant);
-        return map ? map->size() : 0;
-    } else {
-        UIWidgets::ComboVec_t vec = std::get<1>(o->comboVariant);
-        return vec ? vec->size() : 0;
+    static std::string Tooltip(const Widget& w) {
+        // MM's tooltip is const char* (string-literal backed); copy for uniform lifetime
+        // handling, matching the OOT emitter.
+        return (w.options && w.options->tooltip) ? std::string(w.options->tooltip) : std::string();
     }
-}
+    // Number of CwChoice entries a widget contributes. MUST equal what EmitChoices pushes so
+    // the serializer's reserve == fill and choices never reallocate. Only CW_COMBOBOX
+    // contributes; comboVariant holds either a (map*) or a (vec*) — null contributes zero.
+    static size_t CountChoices(const Widget& w) {
+        if (WidgetTypeToCwKind(w.type) != CW_COMBOBOX || !w.options) {
+            return 0;
+        }
+        auto o = std::static_pointer_cast<UIWidgets::ComboboxOptions>(w.options);
+        if (!o) {
+            return 0;
+        }
+        if (o->comboVariant.index() == 0) {
+            UIWidgets::ComboMap_t map = std::get<0>(o->comboVariant);
+            return map ? map->size() : 0;
+        } else {
+            UIWidgets::ComboVec_t vec = std::get<1>(o->comboVariant);
+            return vec ? vec->size() : 0;
+        }
+    }
+    static void EmitChoices(const Widget& w, std::vector<CwChoice>& out) {
+        if (WidgetTypeToCwKind(w.type) != CW_COMBOBOX || !w.options) {
+            return;
+        }
+        auto o = std::static_pointer_cast<UIWidgets::ComboboxOptions>(w.options);
+        if (!o) {
+            return;
+        }
+        if (o->comboVariant.index() == 0) {
+            UIWidgets::ComboMap_t map = std::get<0>(o->comboVariant);
+            if (map) {
+                for (auto& mp : *map) {
+                    CwChoice choice = {};
+                    choice.value = mp.first;
+                    choice.label = mp.second ? mp.second : "";
+                    out.push_back(choice);
+                }
+            }
+        } else {
+            UIWidgets::ComboVec_t vec = std::get<1>(o->comboVariant);
+            if (vec) {
+                for (size_t i = 0; i < vec->size(); i++) {
+                    CwChoice choice = {};
+                    choice.value = (int32_t)i;
+                    choice.label = (*vec)[i] ? (*vec)[i] : "";
+                    out.push_back(choice);
+                }
+            }
+        }
+    }
+    static void FillOptions(const Widget& w, CwWidget& cw) {
+        if (w.options) {
+            switch (cw.kind) {
+                case CW_CHECKBOX: {
+                    if (auto o = std::static_pointer_cast<UIWidgets::CheckboxOptions>(w.options)) {
+                        cw.bDefault = o->defaultValue ? 1 : 0;
+                    }
+                    break;
+                }
+                case CW_SLIDER_INT: {
+                    if (auto o = std::static_pointer_cast<UIWidgets::IntSliderOptions>(w.options)) {
+                        cw.iMin = o->min;
+                        cw.iMax = o->max;
+                        cw.iStep = o->step;
+                        cw.iDefault = o->defaultValue;
+                    }
+                    break;
+                }
+                case CW_SLIDER_FLOAT: {
+                    if (auto o = std::static_pointer_cast<UIWidgets::FloatSliderOptions>(w.options)) {
+                        cw.fMin = o->min;
+                        cw.fMax = o->max;
+                        cw.fStep = o->step;
+                        cw.fDefault = o->defaultValue;
+                    }
+                    break;
+                }
+                case CW_COMBOBOX: {
+                    if (auto o = std::static_pointer_cast<UIWidgets::ComboboxOptions>(w.options)) {
+                        cw.iDefault = (int32_t)o->defaultIndex;
+                    }
+                    break;
+                }
+                case CW_BTN_SELECTOR: {
+                    if (auto o = std::static_pointer_cast<UIWidgets::BtnSelectorOptions>(w.options)) {
+                        cw.iDefault = o->defaultValue;
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+        // MM has no ColorPickerOptions; derive useAlpha straight from the WidgetType.
+        if (cw.kind == CW_COLOR) {
+            cw.useAlpha = (w.type == WIDGET_COLOR_32) ? 1 : 0;
+        }
+    }
+};
 } // namespace
 
 const CwMenu* BenMenu::ExportComboMenu() {
-    if (mExported) {
-        return &mMenu;
-    }
-
-    // Deterministic walk order, matching the live render walk in Menu.cpp (DrawSearchResults /
-    // DrawContent: menuOrder -> MainMenuEntry.sidebarOrder -> SidebarEntry.columnWidgets in column
-    // order, then vector order). The position a widget gets in mFlat is its stable CwWidget.index.
-
-    // Build the section ordering.
-    std::vector<std::string> sectionKeys = menuOrder;
-    if (sectionKeys.empty()) {
-        for (auto& kv : menuEntries) {
-            sectionKeys.push_back(kv.first);
-        }
-        std::sort(sectionKeys.begin(), sectionKeys.end());
-    }
-
-    // ---- Pass 1: count everything so we can reserve and never reallocate. ----
-    size_t sectionCount = 0;
-    size_t sidebarCount = 0;
-    size_t widgetCount = 0;
-    size_t choiceCount = 0;
-
-    for (auto& secKey : sectionKeys) {
-        auto it = menuEntries.find(secKey);
-        if (it == menuEntries.end()) {
-            continue;
-        }
-        MainMenuEntry& entry = it->second;
-        sectionCount++;
-
-        std::vector<std::string> sidebarKeys = entry.sidebarOrder;
-        if (sidebarKeys.empty()) {
-            for (auto& kv : entry.sidebars) {
-                sidebarKeys.push_back(kv.first);
-            }
-            std::sort(sidebarKeys.begin(), sidebarKeys.end());
-        }
-        for (auto& sbKey : sidebarKeys) {
-            auto sbIt = entry.sidebars.find(sbKey);
-            if (sbIt == entry.sidebars.end()) {
-                continue;
-            }
-            sidebarCount++;
-            for (auto& column : sbIt->second.columnWidgets) {
-                for (auto& w : column) {
-                    widgetCount++;
-                    // Same count logic as Pass 2 (ComboboxChoiceCount) so reserve == fill.
-                    choiceCount += ComboboxChoiceCount(w);
-                }
-            }
-        }
-    }
-
-    // Reserve to final sizes. After this, .data() and element addresses are stable
-    // because we never push beyond the reserved capacity.
-    mSections.reserve(sectionCount);
-    mSidebars.reserve(sidebarCount);
-    mWidgets.reserve(widgetCount);
-    mChoices.reserve(choiceCount);
-    mFlat.reserve(widgetCount);
-    mFlatRando.reserve(widgetCount);
-
-    // ---- Pass 2: fill. ----
-    auto ownStr = [this](const std::string& s) -> const char* {
-        mOwnedStrings.push_back(s);
-        return mOwnedStrings.back().c_str();
-    };
-
-    struct SidebarRange {
-        const char* name;
-        uint32_t columnCount;
-        size_t widgetStart;
-        size_t widgetEnd;
-    };
-    struct SectionRange {
-        const char* label;
-        const char* sidebarCvar;
-        size_t sidebarStart;
-        size_t sidebarEnd;
-    };
-    std::vector<SidebarRange> sidebarRanges;
-    sidebarRanges.reserve(sidebarCount);
-    std::vector<SectionRange> sectionRanges;
-    sectionRanges.reserve(sectionCount);
-
-    // Track choice offsets per widget so we can wire choices->data() after mChoices is full.
-    std::vector<std::pair<size_t, size_t>> widgetChoiceRange; // (start, count) into mChoices
-    widgetChoiceRange.reserve(widgetCount);
-
-    for (auto& secKey : sectionKeys) {
-        auto it = menuEntries.find(secKey);
-        if (it == menuEntries.end()) {
-            continue;
-        }
-        MainMenuEntry& entry = it->second;
-
-        std::vector<std::string> sidebarKeys = entry.sidebarOrder;
-        if (sidebarKeys.empty()) {
-            for (auto& kv : entry.sidebars) {
-                sidebarKeys.push_back(kv.first);
-            }
-            std::sort(sidebarKeys.begin(), sidebarKeys.end());
-        }
-
-        size_t sectionSidebarStart = sidebarRanges.size();
-
-        for (auto& sbKey : sidebarKeys) {
-            auto sbIt = entry.sidebars.find(sbKey);
-            if (sbIt == entry.sidebars.end()) {
-                continue;
-            }
-            SidebarEntry& sb = sbIt->second;
-            size_t sidebarWidgetStart = mWidgets.size();
-
-            for (auto& column : sb.columnWidgets) {
-                for (auto& w : column) {
-                    int32_t index = (int32_t)mFlat.size();
-                    mFlat.push_back(&w);
-                    // Keep mFlatRando perfectly parallel to mFlat (same site, same count).
-                    // Rando widgets are exempt from the foreground-only placeholder in DrawCustomByIndex.
-                    mFlatRando.push_back(entry.label == "Rando" ? 1 : 0);
-
-                    CwWidget cw = {};
-                    cw.index = index;
-                    cw.kind = WidgetTypeToCwKind(w.type);
-                    cw.name = ownStr(w.name);
-                    cw.cvar = w.cVar ? w.cVar : "";
-                    // MM's tooltip/disabledTooltip are const char* (string-literal backed). Copy into
-                    // mOwnedStrings for uniform lifetime handling, matching the OOT emitter.
-                    cw.tooltip = (w.options && w.options->tooltip) ? ownStr(w.options->tooltip) : "";
-                    cw.windowName = w.windowName ? w.windowName : "";
-                    cw.hasCallback = (w.callback != nullptr) ? 1 : 0;
-                    cw.hasPreFunc = (w.preFunc != nullptr) ? 1 : 0;
-                    cw.gameLoopDependent = 0; // Phase 5 sets specific ones.
-                    cw.sameLine = w.sameLine ? 1 : 0;
-                    cw.hideInSearch = w.hideInSearch ? 1 : 0;
-
-                    size_t choiceStart = 0;
-                    size_t choiceCnt = 0;
-
-                    if (w.options) {
-                        switch (cw.kind) {
-                            case CW_CHECKBOX: {
-                                if (auto o = std::static_pointer_cast<UIWidgets::CheckboxOptions>(w.options)) {
-                                    cw.bDefault = o->defaultValue ? 1 : 0;
-                                }
-                                break;
-                            }
-                            case CW_SLIDER_INT: {
-                                if (auto o = std::static_pointer_cast<UIWidgets::IntSliderOptions>(w.options)) {
-                                    cw.iMin = o->min;
-                                    cw.iMax = o->max;
-                                    cw.iStep = o->step;
-                                    cw.iDefault = o->defaultValue;
-                                }
-                                break;
-                            }
-                            case CW_SLIDER_FLOAT: {
-                                if (auto o = std::static_pointer_cast<UIWidgets::FloatSliderOptions>(w.options)) {
-                                    cw.fMin = o->min;
-                                    cw.fMax = o->max;
-                                    cw.fStep = o->step;
-                                    cw.fDefault = o->defaultValue;
-                                }
-                                break;
-                            }
-                            case CW_COMBOBOX: {
-                                if (auto o = std::static_pointer_cast<UIWidgets::ComboboxOptions>(w.options)) {
-                                    choiceStart = mChoices.size();
-                                    // comboVariant holds either a map* (int32_t -> label) or a vec*
-                                    // (label list, value == index). A null pointer yields zero choices.
-                                    if (o->comboVariant.index() == 0) {
-                                        UIWidgets::ComboMap_t map = std::get<0>(o->comboVariant);
-                                        if (map) {
-                                            for (auto& mp : *map) {
-                                                CwChoice choice = {};
-                                                choice.value = mp.first;
-                                                choice.label = mp.second ? mp.second : "";
-                                                mChoices.push_back(choice);
-                                                choiceCnt++;
-                                            }
-                                        }
-                                    } else {
-                                        UIWidgets::ComboVec_t vec = std::get<1>(o->comboVariant);
-                                        if (vec) {
-                                            for (size_t i = 0; i < vec->size(); i++) {
-                                                CwChoice choice = {};
-                                                choice.value = (int32_t)i;
-                                                choice.label = (*vec)[i] ? (*vec)[i] : "";
-                                                mChoices.push_back(choice);
-                                                choiceCnt++;
-                                            }
-                                        }
-                                    }
-                                    cw.iDefault = (int32_t)o->defaultIndex;
-                                }
-                                break;
-                            }
-                            case CW_BTN_SELECTOR: {
-                                if (auto o = std::static_pointer_cast<UIWidgets::BtnSelectorOptions>(w.options)) {
-                                    cw.iDefault = o->defaultValue;
-                                }
-                                break;
-                            }
-                            default:
-                                break;
-                        }
-                    }
-
-                    // MM has no ColorPickerOptions; derive useAlpha straight from the WidgetType.
-                    if (cw.kind == CW_COLOR) {
-                        cw.useAlpha = (w.type == WIDGET_COLOR_32) ? 1 : 0;
-                    }
-
-                    cw.choices = nullptr; // wired after mChoices is fully populated
-                    cw.choiceCount = (int32_t)choiceCnt;
-                    widgetChoiceRange.emplace_back(choiceStart, choiceCnt);
-                    mWidgets.push_back(cw);
-                }
-            }
-
-            sidebarRanges.push_back(
-                SidebarRange{ ownStr(sbKey), sb.columnCount, sidebarWidgetStart, mWidgets.size() });
-        }
-
-        sectionRanges.push_back(SectionRange{ ownStr(entry.label),
-                                              entry.sidebarCvar ? entry.sidebarCvar : "", sectionSidebarStart,
-                                              sidebarRanges.size() });
-    }
-
-    // Now that mChoices and mWidgets are fully populated (no further pushes), wire pointers.
-    for (size_t i = 0; i < mWidgets.size(); i++) {
-        auto& range = widgetChoiceRange[i];
-        if (range.second > 0) {
-            mWidgets[i].choices = mChoices.data() + range.first;
-        }
-    }
-
-    // Build sidebars referencing mWidgets ranges.
-    for (auto& sr : sidebarRanges) {
-        CwSidebar sb = {};
-        sb.sidebarName = sr.name;
-        sb.columnCount = sr.columnCount;
-        sb.widgetCount = (int32_t)(sr.widgetEnd - sr.widgetStart);
-        sb.widgets = (sb.widgetCount > 0) ? (mWidgets.data() + sr.widgetStart) : nullptr;
-        mSidebars.push_back(sb);
-    }
-
-    // Build sections referencing mSidebars ranges.
-    for (auto& secR : sectionRanges) {
-        CwSection sec = {};
-        sec.sectionLabel = secR.label;
-        sec.sidebarCvar = secR.sidebarCvar;
-        sec.sidebarCount = (int32_t)(secR.sidebarEnd - secR.sidebarStart);
-        sec.sidebars = (sec.sidebarCount > 0) ? (mSidebars.data() + secR.sidebarStart) : nullptr;
-        mSections.push_back(sec);
-    }
-
-    mMenu.version = 1;
-    mMenu.sectionCount = (int32_t)mSections.size();
-    mMenu.sections = mSections.empty() ? nullptr : mSections.data();
-
-    mExported = true;
-    return &mMenu;
+    // Walk + flatten live in the combo-owned serializer; this member just supplies the
+    // protected menu tree and MM's policy.
+    return ComboMenuExport::Build<BenExportPolicy>(mComboExport, menuOrder, menuEntries);
 }
 
 void BenMenu::InvokeCallbackByIndex(int32_t i) {
-    if (i < 0 || i >= (int32_t)mFlat.size()) {
+    if (i < 0 || i >= (int32_t)mComboExport.flat.size()) {
         return;
     }
-    auto* w = mFlat[i];
+    auto* w = mComboExport.flat[i];
     if (w && w->callback) {
         w->callback(*w);
     }
 }
 
 int32_t BenMenu::EvalDisabledByIndex(int32_t i, const char** outReason) {
-    if (i < 0 || i >= (int32_t)mFlat.size()) {
+    if (i < 0 || i >= (int32_t)mComboExport.flat.size()) {
         return 0;
     }
-    auto* w = mFlat[i];
+    auto* w = mComboExport.flat[i];
     if (!w || !w->preFunc) {
         return 0;
     }
@@ -2652,10 +2485,10 @@ int32_t BenMenu::EvalDisabledByIndex(int32_t i, const char** outReason) {
 }
 
 void BenMenu::DrawCustomByIndex(int32_t i) {
-    if (i < 0 || i >= (int32_t)mFlat.size()) {
+    if (i < 0 || i >= (int32_t)mComboExport.flat.size()) {
         return;
     }
-    auto* w = mFlat[i];
+    auto* w = mComboExport.flat[i];
     if (!w || !w->customFunction) {
         return;
     }
@@ -2665,7 +2498,7 @@ void BenMenu::DrawCustomByIndex(int32_t i) {
     // otherwise show a placeholder. Declarative widgets + CVars still work while backgrounded.
     // Rando widgets must be editable even while MM is backgrounded, so they are exempt.
     bool live = !(OTRGlobals::Instance == nullptr || OTRGlobals::Instance->fontStandardLargest == nullptr);
-    bool isRando = (i >= 0 && i < (int32_t)mFlatRando.size() && mFlatRando[i]);
+    bool isRando = (i >= 0 && i < (int32_t)mComboExport.flatRando.size() && mComboExport.flatRando[i]);
     if (!live && !isRando) {
         ImGui::TextDisabled("Available while Majora's Mask is the active game.");
         return;

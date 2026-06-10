@@ -6,8 +6,7 @@
 #include "2s2h/Enhancements/Enhancements.h"
 #include "2s2h/DeveloperTools/DeveloperTools.h"
 #include <fast/backends/gfx_rendering_api.h>
-#include "ComboMenuABI.h"
-#include <deque>
+#include "ComboMenuExport.h"
 
 namespace BenGui {
 
@@ -27,7 +26,7 @@ class BenMenu : public Ship::Menu {
     void AddEnhancements();
     void AddDevTools();
 
-    // === ComboShip C-ABI menu export (see combo/menu/ComboMenuABI.h) ===
+    // === ComboShip C-ABI menu export (see combo/menu/ComboMenuExport.h) ===
     // Builds (once, cached) the flat CwMenu describing the whole BenMenu tree and
     // returns a pointer that is stable for the lifetime of this BenMenu instance.
     // comboui ingests the CwMenu and invokes back by index. EXACT MM analog of
@@ -40,18 +39,9 @@ class BenMenu : public Ship::Menu {
   private:
     bool mMenuElementsInitialized = false;
 
-    // ComboShip menu-export backing storage. All of this lives as long as the BenMenu
-    // instance, so the const char* / array pointers handed across the C-ABI stay valid
-    // for the process lifetime (comboui caches the returned CwMenu*).
-    bool mExported = false;
-    CwMenu mMenu = {};
-    std::vector<WidgetInfo*> mFlat;     // index -> source widget (the invoke key)
-    std::vector<uint8_t> mFlatRando;    // parallel to mFlat: 1 if widget is in the "Rando" section
-    std::vector<CwSection> mSections;   // reserved up-front; .data() stable after fill
-    std::vector<CwSidebar> mSidebars;
-    std::vector<CwWidget> mWidgets;
-    std::vector<CwChoice> mChoices;
-    std::deque<std::string> mOwnedStrings; // deque: never relocates existing elements
+    // ComboShip menu-export backing storage (combo-owned serializer; see ComboMenuExport.h).
+    // Lives as long as this BenMenu instance so C-ABI pointers stay valid for process life.
+    ComboMenuExport::State<WidgetInfo> mComboExport;
 };
 } // namespace BenGui
 

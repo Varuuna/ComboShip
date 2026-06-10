@@ -136,6 +136,9 @@
 
 #include "soh/config/ConfigUpdaters.h"
 #include "soh/ShipInit.hpp"
+#ifdef COMBO_BUILD
+#include "ComboMenuSharedContext.h" // ComboShip: shared per-DLL ImGui context helper (combo-owned)
+#endif
 
 #ifdef __WIIU__
 const uint32_t defaultImGuiScale = 3;
@@ -2553,10 +2556,7 @@ extern "C" __declspec(dllexport) void SOH_DrawSettings(const char* onlyCsv, cons
     // ComboShip: soh.dll's per-module ImGui GImGui isn't current when OOT is backgrounded (e.g. MM is
     // foreground and the player opens the Shared/OOT tab) — point it at the shared context before any
     // ImGui call, mirroring comboui, else ImGui::GetCurrentWindow() is null and we crash.
-    if (Ship::Context::GetInstance() && Ship::Context::GetInstance()->GetWindow() &&
-        Ship::Context::GetInstance()->GetWindow()->GetGui()) {
-        ImGui::SetCurrentContext(Ship::Context::GetInstance()->GetWindow()->GetGui()->GetImGuiContext());
-    }
+    ComboMenuGlue::UseSharedImGuiContext();
     auto menu = SohGui::GetSohMenu();
     if (!menu) return;
     // ComboShip: in combo this menu is never installed as the active Gui menu, so libultraship never
@@ -2580,29 +2580,21 @@ extern "C" __declspec(dllexport) void SOH_DrawSettings(const char* onlyCsv, cons
 // SohMenu instance is built at menu setup (SohGui::SetupMenu) and kept for process life; comboui owns
 // the menu slot, so libultraship's Gui loop never drives this menu — see SOH_MenuDrawCustom for why
 // Init()/Update() must run before invoking a custom widget.
-// soh.dll has its own per-module ImGui GImGui; when OOT is backgrounded it isn't current, so any
-// cross-DLL export that can reach an ImGui call (menu build, callbacks, disable eval) must point it
-// at the shared context first. SOH_MenuDrawCustom does this inline; the siblings use this helper.
-static void ComboMenu_UseSharedImGuiContext() {
-    auto ctx = Ship::Context::GetInstance();
-    if (ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
-        ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
-    }
-}
+// soh.dll has its own per-module ImGui GImGui — see combo/menu/ComboMenuSharedContext.h.
 
 extern "C" __declspec(dllexport) const CwMenu* SOH_ExportMenu(void) {
-    ComboMenu_UseSharedImGuiContext();
+    ComboMenuGlue::UseSharedImGuiContext();
     auto menu = SohGui::GetSohMenu();
     return menu ? menu->ExportComboMenu() : nullptr;
 }
 
 extern "C" __declspec(dllexport) void SOH_MenuInvokeCallback(int32_t i) {
-    ComboMenu_UseSharedImGuiContext();
+    ComboMenuGlue::UseSharedImGuiContext();
     if (auto menu = SohGui::GetSohMenu()) menu->InvokeCallbackByIndex(i);
 }
 
 extern "C" __declspec(dllexport) int32_t SOH_MenuEvalDisabled(int32_t i, const char** outReason) {
-    ComboMenu_UseSharedImGuiContext();
+    ComboMenuGlue::UseSharedImGuiContext();
     auto menu = SohGui::GetSohMenu();
     return menu ? menu->EvalDisabledByIndex(i, outReason) : 0;
 }
@@ -2610,10 +2602,7 @@ extern "C" __declspec(dllexport) int32_t SOH_MenuEvalDisabled(int32_t i, const c
 extern "C" __declspec(dllexport) void SOH_MenuDrawCustom(int32_t i) {
     // Like SOH_DrawSettings: soh.dll's per-module ImGui GImGui isn't current when OOT is backgrounded,
     // so point it at the shared context before any ImGui call.
-    auto ctx = Ship::Context::GetInstance();
-    if (ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
-        ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
-    }
+    ComboMenuGlue::UseSharedImGuiContext();
     // Phase 0 spike contract: comboui owns the menu slot so the Gui loop never drives this menu's
     // lifecycle. A custom widget reads THEME_COLOR (menuThemeIndex), set in UpdateElement(), so
     // Init()+Update() must run BEFORE invoking, else ColorValues.at() throws. Init() is idempotent.

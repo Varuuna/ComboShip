@@ -55,6 +55,9 @@ CrowdControl* CrowdControl::Instance;
 #include <fast/resource/ResourceType.h>
 #include <BenGui/BenGui.hpp>
 #include <BenGui/BenMenu.h>
+#ifdef COMBO_BUILD
+#include "ComboMenuSharedContext.h" // ComboShip: shared per-DLL ImGui context helper (combo-owned)
+#endif
 
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include "2s2h/Enhancements/Enhancements.h"
@@ -3104,31 +3107,23 @@ std::shared_ptr<BenGui::BenMenu> Combo_EnsureBenMenu() {
 }
 } // namespace
 
-// 2ship.dll has its own per-module ImGui GImGui; when MM is backgrounded it isn't current, so any
-// cross-DLL export that can reach an ImGui call (menu build, callbacks, disable eval) must point it
-// at the shared context first. MM_MenuDrawCustom does this inline; the siblings use this helper.
-static void ComboMenu_UseSharedImGuiContext() {
-    auto sctx = Ship::Context::GetInstance();
-    if (sctx && sctx->GetWindow() && sctx->GetWindow()->GetGui()) {
-        ImGui::SetCurrentContext(sctx->GetWindow()->GetGui()->GetImGuiContext());
-    }
-}
+// 2ship.dll has its own per-module ImGui GImGui — see combo/menu/ComboMenuSharedContext.h.
 
 extern "C" __declspec(dllexport) const CwMenu* MM_ExportMenu(void) {
-    ComboMenu_UseSharedImGuiContext();
+    ComboMenuGlue::UseSharedImGuiContext();
     auto menu = Combo_EnsureBenMenu();
     return menu ? menu->ExportComboMenu() : nullptr;
 }
 
 extern "C" __declspec(dllexport) void MM_MenuInvokeCallback(int32_t i) {
-    ComboMenu_UseSharedImGuiContext();
+    ComboMenuGlue::UseSharedImGuiContext();
     if (auto menu = Combo_EnsureBenMenu()) {
         menu->InvokeCallbackByIndex(i);
     }
 }
 
 extern "C" __declspec(dllexport) int32_t MM_MenuEvalDisabled(int32_t i, const char** outReason) {
-    ComboMenu_UseSharedImGuiContext();
+    ComboMenuGlue::UseSharedImGuiContext();
     auto menu = Combo_EnsureBenMenu();
     return menu ? menu->EvalDisabledByIndex(i, outReason) : 0;
 }
@@ -3137,10 +3132,7 @@ extern "C" __declspec(dllexport) void MM_MenuDrawCustom(int32_t i) {
     // comboui owns the active menu slot, so the Gui loop never drives MM's menu. A custom widget may read
     // THEME_COLOR (menuThemeIndex), which is set in UpdateElement(); skipping Update() makes ColorValues.at()
     // throw out_of_range (proven by the Phase 0 spike). So Init()+Update() before any custom draw.
-    auto sctx = Ship::Context::GetInstance();
-    if (sctx && sctx->GetWindow() && sctx->GetWindow()->GetGui()) {
-        ImGui::SetCurrentContext(sctx->GetWindow()->GetGui()->GetImGuiContext());
-    }
+    ComboMenuGlue::UseSharedImGuiContext();
     auto menu = Combo_EnsureBenMenu();
     if (menu) {
         menu->Init();

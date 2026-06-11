@@ -69,7 +69,10 @@ static void Rando_SendForeignCheck(RandoCheckId rc) {
         g_mmForeignMap = ComboRando::LoadForeignForGame(slot, ComboRando::GAME_MM);
         g_mmForeignSlot = slot;
     }
-    const std::string checkName = Rando::StaticData::CheckNames[rc];
+    // ComboShip: key by StaticData::Checks[].name (the "RC_*" identifier) — the SAME name the MM
+    // dump emits and the fill writes into the foreign map. CheckNames[rc] is the human-readable
+    // display name ("Termina Field Grass 160") and never matches the map keys.
+    const std::string checkName = Rando::StaticData::Checks[rc].name;
     auto it = g_mmForeignMap.find(checkName);
     if (it != g_mmForeignMap.end()) {
         ComboRando::MailboxEntry e{};

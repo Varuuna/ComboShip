@@ -3,6 +3,7 @@
 #ifdef COMBO_BUILD
 #include "global.h"
 #include "BenPort.h"
+#include "2s2h/GameInteractor/GameInteractor.h"
 #endif
 #include "z64save.h"
 
@@ -77,6 +78,15 @@ void Setup_InitImpl(SetupState* this) {
             gSaveContext.cycleSceneFlags[i].collectible =
                 gSaveContext.save.saveInfo.permanentSceneFlags[i].collectible;
         }
+        // ComboShip: fire OnSaveLoad exactly like every vanilla load path (file select / opening /
+        // debug select) does once the save is in gSaveContext. The rando runtime arms itself here:
+        // OnSaveLoadHandler re-registers all IS_RANDO-conditioned hooks (actor behaviors like
+        // grass/pot/crate shuffles, misc behaviors, check tracker, clock shuffle) and re-runs
+        // ShipInit::Init("IS_RANDO") enhancements. COND_* macros are unregister-then-register, so
+        // this is idempotent (incl. the boot-registered cross-mailbox drain). Without this call the
+        // combo force-spawn loads a perfect rando save whose behaviors never activate.
+        GameInteractor_ExecuteOnSaveLoad(gSaveContext.fileNum);
+
         gComboStartFileNum = -1;
         STOP_GAMESTATE(&this->state);
         SET_NEXT_GAMESTATE(&this->state, Play_Init, sizeof(PlayState));

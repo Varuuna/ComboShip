@@ -7,6 +7,9 @@
 #include "2s2h/Rando/StaticData/StaticData.h"
 #include "2s2h/BenPort.h"
 #include <cstring>
+#ifdef COMBO_BUILD
+#include "2s2h/Rando/MiscBehavior/MiscBehavior.h"  // ComboShip: MM_LookupForeign
+#endif
 
 // Image Icons
 #include "assets/2s2h_assets.h"
@@ -421,7 +424,22 @@ void CheckTrackerDrawNonLogicalList() {
                     ImGui::Text("%s", Rando::StaticData::CheckNames[randoCheckId].c_str());
                     if (randoSaveCheck.obtained) {
                         ImGui::SameLine();
+#ifdef COMBO_BUILD
+                        // ComboShip: show the real OOT item name for foreign-sentinel checks.
+                        if (randoSaveCheck.randoItemId == RI_COMBO_FOREIGN) {
+                            const ComboRando::ForeignItem* fi =
+                                Rando::MiscBehavior::MM_LookupForeign(randoCheckId);
+                            if (fi != nullptr) {
+                                ImGui::Text("(%s)", fi->displayName.c_str());
+                            } else {
+                                ImGui::Text("(%s)", Rando::StaticData::Items[randoSaveCheck.randoItemId].name);
+                            }
+                        } else {
+                            ImGui::Text("(%s)", Rando::StaticData::Items[randoSaveCheck.randoItemId].name);
+                        }
+#else
                         ImGui::Text("(%s)", Rando::StaticData::Items[randoSaveCheck.randoItemId].name);
+#endif
                     } else if (randoSaveCheck.skipped) {
                         ImGui::SameLine();
                         ImGui::Text("(Skipped)");

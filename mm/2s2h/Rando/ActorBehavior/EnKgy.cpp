@@ -1,6 +1,9 @@
 #include "ActorBehavior.h"
 #include "2s2h/CustomMessage/CustomMessage.h"
 #include "2s2h/ShipUtils.h"
+#ifdef COMBO_BUILD
+#include "2s2h/Rando/MiscBehavior/MiscBehavior.h"  // ComboShip: MM_LookupForeign
+#endif
 
 extern "C" {
 #include "variables.h"
@@ -129,9 +132,15 @@ void Rando::ActorBehavior::InitEnKgyBehavior() {
         entry.msg = "Gold dust can be found %p{location}%w.\x10";
         entry.msg += "Bring me that, and my %r{itemName}%w is all yours.\xE0";
         RandoCheckId randoCheckId = Rando::FindItemPlacement(RI_BOTTLE_GOLD_DUST);
-        CustomMessage::Replace(
-            &entry.msg, "{itemName}",
-            Rando::StaticData::Items[RANDO_SAVE_CHECKS[RC_MOUNTAIN_VILLAGE_SMITHY_GILDED_SWORD].randoItemId].name);
+        // ComboShip: show the real OOT item name if the gilded sword check holds a foreign item.
+        {
+            const ComboRando::ForeignItem* fi =
+                Rando::MiscBehavior::MM_LookupForeign(RC_MOUNTAIN_VILLAGE_SMITHY_GILDED_SWORD);
+            const char* itemDisplayName = (fi != nullptr)
+                ? fi->displayName.c_str()
+                : Rando::StaticData::Items[RANDO_SAVE_CHECKS[RC_MOUNTAIN_VILLAGE_SMITHY_GILDED_SWORD].randoItemId].name;
+            CustomMessage::Replace(&entry.msg, "{itemName}", itemDisplayName);
+        }
         CustomMessage::Replace(&entry.msg, "{location}",
                                Rando::StaticData::GetLocationNameForHint(randoCheckId, false));
 

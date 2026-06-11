@@ -3,6 +3,9 @@
 #include "2s2h/ShipUtils.h"
 #include "2s2h/Rando/Rando.h"
 #include "2s2h_assets.h"
+#ifdef COMBO_BUILD
+#include "2s2h/Rando/MiscBehavior/MiscBehavior.h"  // ComboShip: MM_LookupForeign for foreign-item name substitution
+#endif
 
 extern "C" {
 extern s16 D_801CFF94[250];
@@ -555,6 +558,17 @@ bool ShouldShowGetItemCutscene(RandoItemId itemId) {
 
 std::string GetItemName(RandoItemId randoItemId, bool includeArticle, RandoCheckId randoCheckId) {
     std::string result;
+
+#ifdef COMBO_BUILD
+    // ComboShip: substitute the real OOT item name for checks that hold the foreign sentinel.
+    // MM_LookupForeign returns nullptr for non-foreign checks; we fall through to the normal path.
+    if (randoItemId == RI_COMBO_FOREIGN && randoCheckId != RC_UNKNOWN) {
+        const ComboRando::ForeignItem* fi = Rando::MiscBehavior::MM_LookupForeign(randoCheckId);
+        if (fi != nullptr) {
+            return fi->displayName;
+        }
+    }
+#endif
 
     if (includeArticle && !Ship_IsCStringEmpty(Rando::StaticData::Items[randoItemId].article)) {
         result += Rando::StaticData::Items[randoItemId].article;

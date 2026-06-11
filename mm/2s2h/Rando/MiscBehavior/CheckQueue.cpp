@@ -60,6 +60,18 @@ static void Rando_CrossMailboxDrain() {
 static int g_mmForeignSlot = -1;
 static std::unordered_map<std::string, ComboRando::ForeignItem> g_mmForeignMap;
 
+// ComboShip: lookup for UI surfaces (tracker/shops) that want the real OOT item name behind
+// RI_COMBO_FOREIGN. Returns nullptr when the check isn't foreign. Keyed by Checks[].name (RC_*).
+const ComboRando::ForeignItem* Rando::MiscBehavior::MM_LookupForeign(RandoCheckId rc) {
+    int slot = gSaveContext.fileNum;
+    if (slot != g_mmForeignSlot) {
+        g_mmForeignMap = ComboRando::LoadForeignForGame(slot, ComboRando::GAME_MM);
+        g_mmForeignSlot = slot;
+    }
+    auto it = g_mmForeignMap.find(Rando::StaticData::Checks[rc].name);
+    return it != g_mmForeignMap.end() ? &it->second : nullptr;
+}
+
 // ComboShip: divert a foreign-marked MM check into the cross-world mailbox instead of granting
 // locally. Enqueues the real item for its home game, shows a "Sent to Hyrule" toast, and persists
 // the save (the caller has already marked the check obtained).

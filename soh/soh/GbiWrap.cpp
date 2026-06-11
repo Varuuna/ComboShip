@@ -68,6 +68,17 @@ extern "C" void gSPDisplayList(Gfx* pkt, Gfx* dl) {
     char* imgData = (char*)dl;
 
     if (ResourceMgr_OTRSigCheck(imgData) == 1) {
+#ifdef COMBO_BUILD
+        // ComboShip: "__OTR__@<game>:" cross-game paths must NOT be resolved here at submission
+        // time — this helper resolves through OOT's own RM (miss/alias for the other game's
+        // assets; crashes on the empty resource). Emit the raw string as a G_DL_OTR_FILEPATH
+        // command so the interpreter's routed handler resolves it against the named game's RM
+        // with scoped inner-reference resolution (see libultraship interpreter.cpp routing).
+        if (imgData[7] == '@') {
+            gDma1p(pkt, G_DL_OTR_FILEPATH, imgData, 0, G_DL_PUSH);
+            return;
+        }
+#endif
 
         // ResourceMgr_PushCurrentDirectory(imgData);
         // gsSPPushCD(pkt++, imgData);

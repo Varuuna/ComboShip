@@ -64,6 +64,7 @@ static std::unordered_map<std::string, ComboRando::ForeignItem> g_mmForeignMap;
 // RI_COMBO_FOREIGN. Returns nullptr when the check isn't foreign. Keyed by Checks[].name (RC_*).
 const ComboRando::ForeignItem* Rando::MiscBehavior::MM_LookupForeign(RandoCheckId rc) {
     int slot = gSaveContext.fileNum;
+    if (slot == 0xFF) return nullptr; // no real save loaded (title screen sentinel)
     if (slot != g_mmForeignSlot) {
         g_mmForeignMap = ComboRando::LoadForeignForGame(slot, ComboRando::GAME_MM);
         g_mmForeignSlot = slot;

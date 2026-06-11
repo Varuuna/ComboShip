@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <atomic>
 #include <chrono>
+#include <unordered_map>
 
 #include "rando/CrossMailbox.h"
 #include "rando/CrossForeign.h"
@@ -236,6 +237,34 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
 
         auto j = nlohmann::json::parse(spoiler);
         auto foreignArr = j.value("foreign", nlohmann::json::array());
+
+        // ComboShip: resolve human display names for foreign items from the dumps' items arrays
+        // (each entry: {name, displayName}). The fill only carries itemName (the grant key:
+        // English for OOT, RI_* for MM); displayName feeds toasts/shop text in the check's game.
+        auto buildNameMap = [](const std::string& dump) {
+            std::unordered_map<std::string, std::string> m;
+            try {
+                auto d = nlohmann::json::parse(dump);
+                for (auto& it : d.value("items", nlohmann::json::array())) {
+                    std::string n = it.value("name", "");
+                    std::string dn = it.value("displayName", "");
+                    if (!n.empty() && !dn.empty()) m.emplace(std::move(n), std::move(dn));
+                }
+            } catch (...) {}
+            return m;
+        };
+        auto ootNames = buildNameMap(sohDump);
+        auto mmNames  = buildNameMap(mmDump);
+        for (auto& fm : foreignArr) {
+            std::string itemGame = fm.value("itemGame", "");
+            std::string itemName = fm.value("itemName", "");
+            const auto& names = (itemGame == "mm") ? mmNames : ootNames;
+            auto it = names.find(itemName);
+            if (it != names.end()) {
+                fm["displayName"] = it->second;
+            }
+        }
+
         ComboRando::WriteForeignFromAnnotations(kCanonicalSlot, foreignArr);
 
         nlohmann::json ootApply = j.value("oot", nlohmann::json::object());

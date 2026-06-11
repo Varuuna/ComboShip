@@ -542,6 +542,9 @@ struct ComboForeignDrawInfo {
     bool ok = false;
     int32_t count = 0;
     int32_t xluStart = -1;                          // first XLU entry in dls[] order; -1 = all OPA
+    float scale = 0.0f;                             // extra model scale; 0 = none (MM remains: 0.02)
+    bool hasEnvColor = false;                       // emit env color before the DLs (MM song notes)
+    uint8_t envColor[4] = { 0, 0, 0, 0 };
     const char* dls[CW_DRAW_MAX_DLISTS] = { nullptr }; // interned "__OTR__@mm:..." routed paths
     // ComboShip: animated class (no static DL row — MM stray fairies). When animOk, anim describes
     // the item and ComboForeignAnim_Draw renders it; path strings point at 2ship.dll statics.
@@ -616,6 +619,11 @@ const ComboForeignDrawInfo* ComboResolveForeignDrawInfo(RandomizerCheck rc) {
     }
     info.count = n;
     info.xluStart = raw.xluStartIndex;
+    info.scale = raw.scale;
+    info.hasEnvColor = raw.hasEnvColor != 0;
+    for (int32_t i = 0; i < 4; i++) {
+        info.envColor[i] = raw.envColor[i];
+    }
     info.ok = true;
     return &info;
 #else
@@ -654,12 +662,21 @@ extern "C" void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getIt
 
     OPEN_DISPS(play->state.gfxCtx);
 
+    // ComboShip: extra model scale carried from MM's draw func (e.g. boss remains: 0.02).
+    if (info->scale > 0.0f) {
+        Matrix_Scale(info->scale, info->scale, info->scale, MTXMODE_APPLY);
+    }
+
     // Mirror MM's GetItem_DrawOpa*/Xlu* structure: one 25Opa setup + matrix for the OPA layers,
     // then one 25Xlu setup + matrix for the XLU layers.
     if (xs > 0) {
         Gfx_SetupDL_25Opa(play->state.gfxCtx);
         gSPMatrix(POLY_OPA_DISP++, Matrix_NewMtx(play->state.gfxCtx, (char*)__FILE__, __LINE__),
                   G_MTX_MODELVIEW | G_MTX_LOAD);
+        if (info->hasEnvColor) {
+            gDPSetEnvColor(POLY_OPA_DISP++, info->envColor[0], info->envColor[1], info->envColor[2],
+                           info->envColor[3]);
+        }
         for (int32_t i = 0; i < xs; i++) {
             gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[i]);
         }
@@ -668,6 +685,10 @@ extern "C" void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getIt
         Gfx_SetupDL_25Xlu(play->state.gfxCtx);
         gSPMatrix(POLY_XLU_DISP++, Matrix_NewMtx(play->state.gfxCtx, (char*)__FILE__, __LINE__),
                   G_MTX_MODELVIEW | G_MTX_LOAD);
+        if (info->hasEnvColor) {
+            gDPSetEnvColor(POLY_XLU_DISP++, info->envColor[0], info->envColor[1], info->envColor[2],
+                           info->envColor[3]);
+        }
         for (int32_t i = xs; i < n; i++) {
             gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[i]);
         }

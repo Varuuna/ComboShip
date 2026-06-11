@@ -58,8 +58,6 @@ CrowdControl* CrowdControl::Instance;
 #include <BenGui/BenMenu.h>
 #ifdef COMBO_BUILD
 #include "ComboMenuSharedContext.h" // ComboShip: shared per-DLL ImGui context helper (combo-owned)
-#include "ComboItemDrawABI.h"       // ComboShip: cross-game item draw info (combo-owned C ABI)
-#include "objects/gameplay_keep/gameplay_keep.h" // ComboShip: stray-fairy asset paths + STRAY_FAIRY_LIMB_* (MM_GetItemAnimDrawInfo)
 #endif
 
 #include "2s2h/GameInteractor/GameInteractor.h"
@@ -3117,83 +3115,9 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Restore(void) {
 }
 
 #ifdef COMBO_BUILD
-// ComboShip: portable slice of one sDrawItemTable row (defined in mm/src/code/z_draw.c).
-extern "C" s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart);
-
-// ComboShip: cross-game item draw info (combo/menu/ComboItemDrawABI.h). OOT resolves this via
-// GetProcAddress to learn which MM display lists render a foreign item, then submits them through
-// "__OTR__@mm:"-routed paths resolved against MM's ResourceManager (CrossRMRegistry). itemName is
-// the MM RI_* spoilerName — the same grant key the foreign map carries (GetItemIdFromName keys
-// spoilerName, see Rando/StaticData/Items.cpp). The returned dlists point at MM's static OTR
-// asset-path string literals ("__OTR__objects/..."), valid for the process lifetime. Returns 0
-// for unknown items or rows whose draw func isn't portable; the caller falls back to its sentinel.
-extern "C" __declspec(dllexport) int32_t MM_GetItemDrawInfo(const char* itemName, CwItemDrawInfo* out) {
-    if (itemName == nullptr || out == nullptr) {
-        return 0;
-    }
-    RandoItemId id = Rando::StaticData::GetItemIdFromName(itemName);
-    if (id == RI_UNKNOWN) {
-        return 0;
-    }
-    auto it = Rando::StaticData::Items.find(id);
-    if (it == Rando::StaticData::Items.end()) {
-        return 0;
-    }
-    void* dls[CW_DRAW_MAX_DLISTS] = {};
-    int32_t xluStart = -1;
-    int32_t n = GetItem_GetDrawTableEntry((s32)it->second.drawId, dls, CW_DRAW_MAX_DLISTS, &xluStart);
-    if (n <= 0) {
-        return 0;
-    }
-    out->dlistCount = n;
-    out->xluStartIndex = xluStart;
-    for (int32_t i = 0; i < n; i++) {
-        out->dlists[i] = (const char*)dls[i];
-    }
-    return 1;
-}
-
-// ComboShip: animated variant of MM_GetItemDrawInfo (combo/menu/ComboItemDrawABI.h). Items in the
-// animated class (currently the stray fairies, drawn by Rando/DrawItem.cpp:DrawStrayFairy in MM)
-// have no static DL row, so the static export returns 0 and OOT falls through to this one. MM only
-// DESCRIBES the item here — skeleton/animation/texanim paths (static asset-path literals from
-// gameplay_keep.h, process lifetime) plus the DrawStrayFairy parameters (0.03f scale, billboarded,
-// XLU, right-facing head limb nulled) — and the host's combo-owned ComboForeignAnim.h does the
-// loading and drawing. Returns 0 for items outside the animated class.
-extern "C" __declspec(dllexport) int32_t MM_GetItemAnimDrawInfo(const char* itemName, CwItemAnimDrawInfo* out) {
-    if (itemName == nullptr || out == nullptr) {
-        return 0;
-    }
-    const char* texAnim;
-    switch (Rando::StaticData::GetItemIdFromName(itemName)) {
-        case RI_WOODFALL_STRAY_FAIRY:
-            texAnim = gStrayFairyWoodfallTexAnim;
-            break;
-        case RI_SNOWHEAD_STRAY_FAIRY:
-            texAnim = gStrayFairySnowheadTexAnim;
-            break;
-        case RI_GREAT_BAY_STRAY_FAIRY:
-            texAnim = gStrayFairyGreatBayTexAnim;
-            break;
-        case RI_STONE_TOWER_STRAY_FAIRY:
-            texAnim = gStrayFairyStoneTowerTexAnim;
-            break;
-        case RI_CLOCK_TOWN_STRAY_FAIRY:
-            texAnim = gStrayFairyClockTownTexAnim;
-            break;
-        default:
-            return 0; // not in the animated class
-    }
-    out->skelPath = gStrayFairySkel;
-    out->animPath = gStrayFairyFlyingAnim;
-    out->texAnimPath = texAnim;
-    out->scale = 0.03f;
-    out->billboard = 1;
-    out->xlu = 1;
-    out->limbCount = STRAY_FAIRY_LIMB_MAX;
-    out->hiddenLimb = STRAY_FAIRY_LIMB_RIGHT_FACING_HEAD;
-    return 1;
-}
+// ComboShip: cross-game item-draw exports (MM_GetItemDrawInfo / MM_GetItemAnimDrawInfo) — bodies
+// live in the combo-owned TU-glue header to keep the vendored footprint to this include.
+#include "ComboItemDrawMM.h"
 #endif
 
 #ifdef COMBO_BUILD

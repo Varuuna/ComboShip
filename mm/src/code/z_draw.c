@@ -386,14 +386,17 @@ void GetItem_Draw(PlayState* play, s16 drawId) {
 #ifdef COMBO_BUILD
 // ComboShip: expose one sDrawItemTable row for cross-game rendering (see combo/menu/ComboItemDrawABI.h
 // and MM_GetItemDrawInfo in 2s2h/BenPort.cpp). Only "self-contained" draw funcs are exposed — funcs
-// that merely submit drawResources display lists under plain Gfx_SetupDL25 Opa/Xlu state. Funcs that
-// need extra MM runtime state (segment-8 texture scrolls, AnimatedMat_Draw, Mtx drawResources,
-// object-bank segments — e.g. RecoveryHeart/Fish/Potion/Poes/Seahorse/Remains) are NOT portable to
-// the other game's frame and return 0; the foreign game then falls back to its own sentinel model.
+// that merely submit drawResources display lists under plain Gfx_SetupDL25 Opa/Xlu state (plus an
+// optional uniform scale). Funcs that need extra MM runtime state (segment-8 texture scrolls,
+// AnimatedMat_Draw, Mtx drawResources — e.g. RecoveryHeart/Fish/Potion/Poes/Seahorse) are NOT
+// portable to the other game's frame and return 0; the foreign game then falls back to its own
+// sentinel model. Remains ARE portable: their object-segment setup is vestigial under OTR
+// extraction (the DL internals are path/hash refs; MM's own shops draw remains without the object
+// bank loaded) — only the 0.02 scale must carry across (*outScale).
 // outDlists is filled in SUBMISSION order (some funcs draw color DLs before geometry); *outXluStart
 // is the index of the first XLU-layer entry within that order (-1 = all layers OPA).
 // Returns the dlist count, or 0 if the row is unsupported/undrawable.
-s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart) {
+s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale) {
     static const s8 sOrder0[] = { 0 };
     static const s8 sOrder01[] = { 0, 1 };
     static const s8 sOrder012[] = { 0, 1, 2 };
@@ -407,13 +410,19 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
     s32 xluStart;
     s32 i;
 
-    if ((drawId < 0) || (drawId >= ARRAY_COUNT(sDrawItemTable)) || (outDlists == NULL) || (outXluStart == NULL)) {
+    if ((drawId < 0) || (drawId >= ARRAY_COUNT(sDrawItemTable)) || (outDlists == NULL) || (outXluStart == NULL) ||
+        (outScale == NULL)) {
         return 0;
     }
+    *outScale = 0.0f; // 0 = no extra scale
     drawFunc = sDrawItemTable[drawId].drawFunc;
     res = sDrawItemTable[drawId].drawResources;
 
-    if (drawFunc == GetItem_DrawOpa0) {
+    if (drawFunc == GetItem_DrawRemains) {
+        // Single OPA DL at 0.02 scale; see the portability note in the header comment.
+        order = sOrder0; count = 1; xluStart = -1;
+        *outScale = 0.02f;
+    } else if (drawFunc == GetItem_DrawOpa0) {
         order = sOrder0; count = 1; xluStart = -1;
     } else if (drawFunc == GetItem_DrawOpa01) {
         order = sOrder01; count = 2; xluStart = -1;

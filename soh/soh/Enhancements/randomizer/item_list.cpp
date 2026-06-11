@@ -463,6 +463,10 @@ void Rando::StaticData::InitItemTable() {
     // the entry is ever resolved before the divert. The English name is what the combo generator
     // writes into the OOT placement payload (itemNameToEnum -> RG_COMBO_FOREIGN).
     itemTable[RG_COMBO_FOREIGN] =                       Item(RG_COMBO_FOREIGN,                    Text{ "Combo Foreign Item", "Combo Foreign Item", "Combo Foreign Item" },                                            ITEMTYPE_ITEM,              GI_RUPEE_BLUE,        false, LOGIC_NONE,                         RHT_NONE,                              ITEM_NONE,                            OBJECT_GI_RUPY,          GID_RUPEE_BLUE,      0x4A,                        0x80, CHEST_ANIM_SHORT, ITEM_CATEGORY_JUNK,   MOD_NONE);
+#ifdef COMBO_BUILD
+    // ComboShip SPIKE: render foreign checks with a hardcoded MM model via "@mm:" cross-RM routing.
+    itemTable[RG_COMBO_FOREIGN].SetCustomDrawFunc(Randomizer_DrawComboForeign);
+#endif
 
     // clang-format on
 

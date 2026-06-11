@@ -494,6 +494,27 @@ extern "C" void Randomizer_DrawRocsFeather(PlayState* play, GetItemEntry* getIte
     CLOSE_DISPS(play->state.gfxCtx);
 }
 
+#ifdef COMBO_BUILD
+// ComboShip SPIKE: prove cross-RM rendering — draws a hardcoded MM item model (Kafei's Mask,
+// MM sDrawItemTable GID_MASK_KAFEIS_MASK, primary OPA DL only) via the "@mm:" routed path
+// resolved by the shared Fast3D interpreter against MM's ResourceManager (CrossRMRegistry).
+// Generalized in the next task; remove the hardcoding then.
+extern "C" void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getItemEntry) {
+    static const char sSpikeMMItemDL[] = "__OTR__@mm:objects/object_gi_mask05/gGiKafeiMaskDL";
+
+    OPEN_DISPS(play->state.gfxCtx);
+
+    Gfx_SetupDL_25Opa(play->state.gfxCtx);
+
+    gSPMatrix(POLY_OPA_DISP++, Matrix_NewMtx(play->state.gfxCtx, (char*)__FILE__, __LINE__),
+              G_MTX_MODELVIEW | G_MTX_LOAD);
+
+    gSPDisplayList(POLY_OPA_DISP++, (Gfx*)sSpikeMMItemDL);
+
+    CLOSE_DISPS(play->state.gfxCtx);
+}
+#endif
+
 Gfx* GetEmptyDlist(GraphicsContext* gfxCtx) {
     Gfx* dListHead;
     Gfx* dList;

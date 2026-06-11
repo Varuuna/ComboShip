@@ -34,6 +34,10 @@ void Randomizer_DrawBombchuBagInLogic(PlayState* play, GetItemEntry* getItemEntr
 void Randomizer_DrawBombchuBag(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawOverworldKey(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawRocsFeather(PlayState* play, GetItemEntry* getItemEntry);
+#ifdef COMBO_BUILD
+// ComboShip SPIKE: hardcoded MM item model drawn in OOT via "@mm:" cross-RM routing.
+void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getItemEntry);
+#endif
 
 #define GET_ITEM_MYSTERY                                                                                 \
     {                                                                                                    \

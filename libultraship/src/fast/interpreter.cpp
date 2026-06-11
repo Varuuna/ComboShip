@@ -112,9 +112,14 @@ static std::string GetPathWithoutFileName(char* filePath) {
 
 // ComboShip: cross-game resource routing. A "@<game>:" marker after "__OTR__" in a DL path
 // routes that DL — and everything it references (textures/vtx/sub-DLs, by path OR hash) — to the
-// named game's ResourceManager. The override is scoped to the routed DL via the exec stack depth:
-// pushed in gfx_dl_otr_filepath_handler_custom when entering a routed DL, popped in
-// gfx_end_dl_handler_common when g_exec_stack unwinds to/below the depth recorded at push time.
+// named game's ResourceManager. WHY: both games' archives share one path namespace
+// ("__OTR__objects/..." exists in soh.o2r AND mm.o2r with different data), so resolving an MM
+// path through the active (OOT) RM would silently return the wrong game's asset or null; per-game
+// RMs stay resident, so routing by name is safe. The override is scoped to the routed DL via the
+// exec stack depth: pushed in gfx_dl_otr_filepath_handler_custom when entering a routed DL, popped
+// in gfx_end_dl_handler_common when g_exec_stack unwinds to/below the depth recorded at push time.
+// NOTE (Task 9): only the FILEPATH DL handler recognizes the marker; hash-form outer DLs can't be
+// routed directly (they inherit an already-pushed override for sub-DLs, which is sufficient today).
 struct CrossRMOverride {
     std::shared_ptr<Ship::ResourceManager> rm;
     size_t execDepthAtPush;
@@ -3594,6 +3599,8 @@ bool gfx_dl_otr_filepath_handler_custom(F3DGfx** cmd0) {
                 // Rebuild the real path: "__OTR__" + path-after-colon. Heap-intern it: the
                 // interpreter may stash/re-walk command words across frames, so the stripped
                 // string must outlive this call.
+                // Bounded: one entry per unique routed DL path ever submitted — O(foreign item
+                // types across both games), a few hundred max; never grows per-frame.
                 static std::unordered_set<std::string> sInternedStrippedPaths;
                 const std::string& stripped =
                     *sInternedStrippedPaths.insert(std::string(kOtrPrefix) + (colon + 1)).first;
@@ -3608,6 +3615,7 @@ bool gfx_dl_otr_filepath_handler_custom(F3DGfx** cmd0) {
     if (hasRouteMarker && nDL == nullptr) {
         // ComboShip: a bad route (unknown game or missing resource) must not crash the game —
         // log once per path and skip this command. Without this, the null-DL path below asserts.
+        // Bounded: one entry per unique bad route; stays empty in a working build.
         static std::unordered_set<std::string> sReportedBadRoutes;
         if (sReportedBadRoutes.insert((const char*)cmd->words.w1).second) {
             SPDLOG_ERROR("G_DL_OTR_FILEPATH: routed DL '{}' failed to resolve ({}); skipping",
@@ -3985,8 +3993,7 @@ bool gfx_set_timg_otr_hash_handler_custom(F3DGfx** cmd0) {
     }
 
     std::shared_ptr<Fast::Texture> texture =
-        std::static_pointer_cast<Fast::Texture>(ActiveResMgr()->LoadResourceProcess(
-            ActiveResMgr()->GetArchiveManager()->HashToCString(hash)));
+        std::static_pointer_cast<Fast::Texture>(ActiveResMgr()->LoadResourceProcess(fileName));
     if (texture != nullptr) {
         texFlags = texture->Flags;
         rawTexMetadata.width = texture->Width;

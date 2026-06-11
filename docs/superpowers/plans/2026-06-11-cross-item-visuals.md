@@ -665,3 +665,88 @@ git commit -m "docs: cross-game item rendering mechanism + upstream-merge notes"
 - Tasks 7-8 are ONE spike: same engineer/subagent context if possible; the Task 8 gate decides Tasks 9-10.
 - Human verification points: after Task 5 (names everywhere), after Task 8 (gate), after Tasks 9/10 (model rendering each direction).
 - 2ship's spdlog goes nowhere in combo — any MM-side diagnostics during the spike must be file-writes (`saves/combo/debug-*.json` pattern) or routed through soh-side logging.
+
+---
+
+## Increment 3b — Animated foreign items (added 2026-06-11; see spec "Increment 3b")
+
+### Task 12: Interpreter bracket commands G_COMBO_RM_PUSH / G_COMBO_RM_POP
+
+**Files:**
+- Modify: `libultraship/include/libultraship/libultra/gbi.h` (two opcodes from the free 0x2A-0x30
+  range + g-form emit macros), `libultraship/include/fast/lus_gbi.h` (OTR_ opcode constants),
+  `libultraship/src/fast/interpreter.cpp` (two handlers + dispatch registration; read how existing
+  custom handlers register).
+
+Semantics: PUSH carries a game-name string in w1 (interned literal, e.g. "mm"); handler does
+`CrossRMRegistry::Get(name)` and pushes `{rm, BRACKET_SENTINEL}` onto `g_crossRMStack`, where
+`BRACKET_SENTINEL = SIZE_MAX` so the ENDDL pop loop (`cmd_stack.size() <= execDepthAtPush` — always
+false for SIZE_MAX) NEVER pops it. POP handler pops the top entry IFF it is a bracket entry
+(sentinel depth); log + ignore otherwise (unbalanced). Unknown game in PUSH: log-once + push
+NOTHING, and POP tolerates the imbalance via a per-frame bracket counter (track pushes that were
+skipped so POP skips symmetrically — simplest: a small `static int g_skippedBracketPushes` that POP
+decrements first). Frame-start `g_crossRMStack.clear()` (already present) covers leaks; reset the
+skip counter there too.
+
+Steps: implement; build lus + all targets; lus_tests green (436/437 incl. pre-existing failure);
+boot-smoke unchanged (no brackets emitted yet); commit `feat(lus): cross-RM bracket commands for
+raw-pointer DL spans`.
+
+### Task 13: ABI animated variant + MM stray-fairy description + combo-owned host draw + soh seam
+
+**Files:**
+- Modify: `combo/menu/ComboItemDrawABI.h` — add:
+```c
+typedef struct {
+    const char* skelPath;     /* FlexSkeleton resource (OTR path) */
+    const char* animPath;     /* Animation resource */
+    const char* texAnimPath;  /* AnimatedMaterial resource, or NULL */
+    float       scale;        /* model scale (stray fairy: 0.03f) */
+    int32_t     billboard;    /* 1 = face camera (Matrix_ReplaceRotation on billboard mtx) */
+    int32_t     xlu;          /* 1 = draw on XLU layer with 25Xlu setup */
+    int32_t     limbCount;    /* skeleton limb count (jointTable sizing) */
+    int32_t     hiddenLimb;   /* limb index to null out (stray fairy: right-facing head), -1 none */
+} CwItemAnimDrawInfo;
+typedef int32_t (*Fn_GetItemAnimDrawInfo)(const char* itemName, CwItemAnimDrawInfo* out);
+```
+- Modify: `mm/2s2h/BenPort.cpp` — `MM_GetItemAnimDrawInfo` export: stray-fairy RI_* ids map to
+  { gStrayFairySkel path, gStrayFairyFlyingAnim path, per-area gStrayFairy*TexAnim path, 0.03f,
+  billboard=1, xlu=1, STRAY_FAIRY_LIMB_MAX, STRAY_FAIRY_LIMB_RIGHT_FACING_HEAD }. Path strings come
+  from mm/assets headers (they ARE the path literals); limb constants from the EnElforg overlay
+  header (grep STRAY_FAIRY_LIMB_). Items not in the animated class → return 0.
+- Create: `combo/render/ComboForeignAnim.h` — TU-glue header (menu-extraction pattern: included by
+  the HOST game's draw TU; no own engine includes; documents its include-order contract). Contents:
+  - AnimatedMat handler subset ported from mm/src/code/z_scene_proc.c:59-414 (ONLY the types the
+    stray-fairy texanims use — inspect the resources/types first; likely TexCycle and/or ColorLerp;
+    port exactly those handlers + the dispatcher, parameterized on (gfxCtx, frames, segmentBase)).
+    The AnimatedMaterial struct is 8-byte pure data — define a local mirror struct.
+  - `ComboForeignAnim_Draw(const CwItemAnimDrawInfo* info, const char* game /*"mm"*/,
+     PlayState-ish host params...)`: loads skel/anim/texanim ONCE per item via
+    `Ship::CrossRMRegistry::Get(game)->LoadResource(<path minus __OTR__>)` (check the exact
+    LoadResource/GetResourceDataByName API + path form — the registry RM handle is a plain
+    ResourceManager; hold the shared_ptrs in a static cache so resources stay alive), then drives
+    the HOST's SkelAnime: host functions are visible because this header is included in the host
+    TU (SkelAnime_InitFlex/Update/DrawFlex, Matrix_*, OPEN_DISPS — same pattern as the host's own
+    draw funcs). Per-item static SkelAnime state keyed by itemName (mirror MM's
+    DrawStrayFairy:64-78 single-instance approach incl. its caveats comment).
+  - Brackets: emit G_COMBO_RM_PUSH("mm") before the texanim+skeletal submission, POP after
+    (host-side emit macros from Task 12).
+  - Segment hygiene: after the draw, restore segments the texanim touched — inspect what the
+    ported handlers write (likely one segment) and re-set it to the host's expected value or NULL
+    (verify what OOT expects: read OOT Play_Draw segment setup; document the choice).
+  - Failure ladder: any load/lookup failure → return 0 so the caller falls back (static-DL path →
+    sentinel).
+- Modify: `soh/soh/Enhancements/randomizer/draw.cpp` — in the foreign draw: when
+  `MM_GetItemDrawInfo` returns 0, try `MM_GetItemAnimDrawInfo` (GetProcAddress, cached); on
+  success call `ComboForeignAnim_Draw(...)`; on failure sentinel as today. Include the TU-glue
+  header. (~10-15 lines.)
+
+Steps: read-first (texanim resource type + handler set used by the fairy; EnElforg limb constants;
+CrossRMRegistry load API), implement, build mm+soh+lus chain, boot-smoke, commit
+`feat: animated cross-game item rendering (MM stray fairies in OOT)`.
+
+### Task 14: Gate + docs
+Human gate: a foreign OOT check/shop slot holding a stray fairy renders MM's animated fairy
+(billboarded, animated wings, per-area coloring), OOT scene visuals unaffected after viewing
+(segment check), no crash. Then fold Increment 3b into Task 11's UPSTREAM_MERGES.md entry
+(brackets + AnimatedMat port note). Stray-fairy timing constant divergence acceptable if visible.

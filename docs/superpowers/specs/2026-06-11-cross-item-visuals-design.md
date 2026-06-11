@@ -108,3 +108,32 @@ vice versa; sentinel only for unmapped/exotic cases.
 Get-item cutscene text boxes beyond the shop/tracker surfaces, item icons in ImGui trackers,
 spoiler-log formatting, and the rando-logic correctness work tracked separately
 (oracle options, assumed-fill soundness, portal gate).
+
+## Increment 3b — Animated foreign items (approved 2026-06-11, after Task 9)
+
+User rejected lookalikes for MM's animated items (stray fairies); investigation confirmed real
+cross-game animated rendering is feasible. Decisive facts: the games' skeleton/animation structs
+are byte-identical (SkelAnime 0x44, StandardLimb/LodLimb, FlexSkeletonHeader, AnimationHeader,
+identical SkelAnime_InitFlex/Update/DrawFlex implementations) — the HOST game's engine can run the
+FOREIGN game's skeleton as pure data. MM-hosted drawing is dead (GraphicsContext layouts diverged
+0x10 bytes past offset 0x1A0 — MM code writing OOT's frame corrupts it); OOT-hosted runs no MM code.
+
+**Architecture (user directive: minimal port seam, running code combo-owned):**
+1. **Interpreter bracket commands** `G_COMBO_RM_PUSH("<game>")` / `G_COMBO_RM_POP` (free opcodes in
+   0x2A-0x30): raw-pointer DL spans (skeletal limb DLs) get scoped cross-RM resolution at command-
+   processing time — the existing exec-stack routing can't cover raw submissions. Bracket overrides
+   carry a sentinel depth so ENDDL pops never remove them; only POP does; frame-start clear applies.
+2. **ABI extension** (combo/menu/ComboItemDrawABI.h): an animated variant — skeleton path, anim
+   path, texanim path, scale, billboard flag, XLU layer — so the owning game DESCRIBES the item and
+   the host's combo-owned code draws it. MM fills it for the stray-fairy class first.
+3. **Combo-owned TU-glue header** `combo/render/ComboForeignAnim.h` (included by the host game's
+   draw TU, menu-extraction pattern, zero CMake churn): loads foreign skeleton/anim/texanim via
+   `CrossRMRegistry::Get(game)` (load through the OWNING RM = its factories resolve limb DL pointers
+   correctly), drives the HOST's SkelAnime engine, ports the needed AnimatedMat handler subset
+   (~330 lines of engine-agnostic math+gfx; OOT has no AnimatedMat system), emits brackets around
+   the draw, restores segments 7-16 after.
+4. **soh seam** (~10 lines): animated branch in Randomizer_DrawComboForeign.
+
+Known risks to verify at the gate: interpreter-time inner hash refs inside limb DLs resolve under
+the bracket (the whole point); segment 7-16 restoration vs OOT's per-scene segment expectations;
+animation timing constants (R_UPDATE_RATE vs MM divisors) — cosmetic if off.

@@ -370,6 +370,14 @@ const ComboRando::ForeignItem* OOT_LookupForeign(int slot, const std::string& ch
     return it == g_ootForeignMap.end() ? nullptr : &it->second;
 }
 
+// ComboShip: expose the currently-queued check so Randomizer_DrawComboForeign (draw.cpp) can
+// identify the check behind a get-item draw. Note foreign checks are currently diverted to the
+// mailbox BEFORE queueing (OOT_SendForeignCheck above), so this is a defensive fallback; the
+// player-visible foreign draws (shop shelves) identify themselves via the explicit setter.
+RandomizerCheck OOT_GetQueuedDrawCheck() {
+    return randomizerQueuedCheck;
+}
+
 // ComboShip: divert a foreign-marked OOT check into the cross-world mailbox instead of granting
 // locally. Enqueues the real item for its home game, shows a "Sent to Termina" toast, and marks the
 // check collected so the normal grant pipeline is bypassed and it never re-queues.

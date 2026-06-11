@@ -7,6 +7,26 @@
 #include "soh/Enhancements/cosmetics/cosmeticsTypes.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
 
+#ifdef COMBO_BUILD
+// ComboShip: cross-game foreign-item rendering (Randomizer_DrawComboForeign below).
+#include "soh/Enhancements/randomizer/hook_handlers.h" // OOT_LookupForeign / OOT_GetQueuedDrawCheck
+#include "soh/Enhancements/randomizer/static_data.h"
+#include "ComboItemDrawABI.h" // combo-owned C ABI (combo/menu/)
+#include <cstring>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+#endif
+
 extern "C" {
 #include "z64.h"
 #include "macros.h"
@@ -495,21 +515,133 @@ extern "C" void Randomizer_DrawRocsFeather(PlayState* play, GetItemEntry* getIte
 }
 
 #ifdef COMBO_BUILD
-// ComboShip SPIKE: prove cross-RM rendering — draws a hardcoded MM item model (Kafei's Mask,
-// MM sDrawItemTable GID_MASK_KAFEIS_MASK, primary OPA DL only) via the "@mm:" routed path
-// resolved by the shared Fast3D interpreter against MM's ResourceManager (CrossRMRegistry).
-// Generalized in the next task; remove the hardcoding then.
+// ComboShip: cross-game foreign-item rendering. A check holding RG_COMBO_FOREIGN actually holds an
+// MM item; render the REAL MM model by asking 2ship.dll (MM_GetItemDrawInfo, C ABI in
+// combo/menu/ComboItemDrawABI.h) which display lists draw it, then submitting them as
+// "__OTR__@mm:"-routed paths that the shared Fast3D interpreter resolves against MM's
+// ResourceManager (CrossRMRegistry + scoped routing — see libultraship interpreter.cpp).
+
+// The GetItemEntry carries no check identity (all foreign checks share one sentinel entry), so call
+// sites that know their check announce it just before GetItemEntry_Draw (z_en_girla.c shop shelves).
+// The value is consumed by the next foreign draw. A stale value can only persist from a NON-foreign
+// shelf draw (no consumer), and a non-foreign check resolves to "no foreign entry" -> sentinel, so
+// staleness degrades safely.
+static RandomizerCheck sComboForeignDrawCheck = RC_UNKNOWN_CHECK;
+extern "C" void Randomizer_SetComboForeignDrawCheck(s32 randomizerCheck) {
+    sComboForeignDrawCheck = (RandomizerCheck)randomizerCheck;
+}
+
+namespace {
+struct ComboForeignDrawInfo {
+    bool ok = false;
+    int32_t count = 0;
+    int32_t xluStart = -1;                          // first XLU entry in dls[] order; -1 = all OPA
+    const char* dls[CW_DRAW_MAX_DLISTS] = { nullptr }; // interned "__OTR__@mm:..." routed paths
+};
+
+// Routed path strings must outlive the frame (the GBI wrapper emits the raw pointer into the
+// display list; the interpreter dereferences it later), so intern them for the process lifetime.
+const char* ComboInternRoutedPath(const std::string& s) {
+    static std::unordered_set<std::string> sPool; // node-based: c_str() stable across rehash
+    return sPool.insert(s).first->c_str();
+}
+
+// Full lookup chain (foreign map -> MM export -> routed strings), cached per check per slot so it
+// runs once per check instead of every frame.
+const ComboForeignDrawInfo* ComboResolveForeignDrawInfo(RandomizerCheck rc) {
+    static std::unordered_map<int32_t, ComboForeignDrawInfo> sCache;
+    static int sCacheSlot = -1;
+    int slot = gSaveContext.fileNum;
+    if (slot != sCacheSlot) {
+        sCache.clear();
+        sCacheSlot = slot;
+    }
+    auto cached = sCache.find(rc);
+    if (cached != sCache.end()) {
+        return cached->second.ok ? &cached->second : nullptr;
+    }
+    ComboForeignDrawInfo& info = sCache[rc]; // default ok=false caches negative results too
+
+    const std::string checkName = Rando::StaticData::GetLocation(rc)->GetName();
+    const ComboRando::ForeignItem* fi = OOT_LookupForeign(slot, checkName);
+    if (fi == nullptr || fi->itemGame != ComboRando::GAME_MM) {
+        return nullptr;
+    }
+
+#ifdef _WIN32
+    static Fn_GetItemDrawInfo sGetItemDrawInfo = nullptr;
+    if (sGetItemDrawInfo == nullptr) {
+        HMODULE h = GetModuleHandleA("2ship.dll"); // already loaded by the exe (ComboMenuModel pattern)
+        sGetItemDrawInfo = h ? (Fn_GetItemDrawInfo)GetProcAddress(h, "MM_GetItemDrawInfo") : nullptr;
+    }
+    if (sGetItemDrawInfo == nullptr) {
+        sCache.erase(rc); // 2ship.dll may simply not be resident yet — don't negative-cache, retry later
+        return nullptr;
+    }
+    CwItemDrawInfo raw{};
+    if (sGetItemDrawInfo(fi->itemName.c_str(), &raw) == 0 || raw.dlistCount <= 0) {
+        return nullptr; // unknown item or non-portable draw func: cached negative -> sentinel forever
+    }
+
+    static constexpr char kOtrPrefix[] = "__OTR__";
+    int32_t n = raw.dlistCount < CW_DRAW_MAX_DLISTS ? raw.dlistCount : CW_DRAW_MAX_DLISTS;
+    for (int32_t i = 0; i < n; i++) {
+        const char* p = raw.dlists[i];
+        if (p == nullptr || strncmp(p, kOtrPrefix, sizeof(kOtrPrefix) - 1) != 0) {
+            return nullptr; // not an OTR path literal — can't route it
+        }
+        info.dls[i] = ComboInternRoutedPath(std::string("__OTR__@mm:") + (p + sizeof(kOtrPrefix) - 1));
+    }
+    info.count = n;
+    info.xluStart = raw.xluStartIndex;
+    info.ok = true;
+    return &info;
+#else
+    return nullptr; // GetProcAddress resolution is Windows-only for now (matches ComboMenuModel)
+#endif
+}
+} // namespace
+
 extern "C" void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getItemEntry) {
-    static const char sSpikeMMItemDL[] = "__OTR__@mm:objects/object_gi_mask05/gGiKafeiMaskDL";
+    RandomizerCheck rc = sComboForeignDrawCheck;
+    sComboForeignDrawCheck = RC_UNKNOWN_CHECK; // consume
+    if (rc == RC_UNKNOWN_CHECK) {
+        // Get-item path fallback. Defensive: foreign checks are diverted before queueing today,
+        // so player-visible foreign draws come from call sites that used the explicit setter.
+        rc = OOT_GetQueuedDrawCheck();
+    }
+
+    const ComboForeignDrawInfo* info = (rc != RC_UNKNOWN_CHECK) ? ComboResolveForeignDrawInfo(rc) : nullptr;
+    if (info == nullptr) {
+        // Pre-routing sentinel behavior: the default GetItemEntry_Draw path for this entry
+        // (gid == GID_RUPEE_BLUE from the RG_COMBO_FOREIGN item-table row). Never draw blank.
+        GetItem_Draw(play, getItemEntry->gid);
+        return;
+    }
+
+    int32_t n = info->count;
+    int32_t xs = (info->xluStart < 0 || info->xluStart > n) ? n : info->xluStart;
 
     OPEN_DISPS(play->state.gfxCtx);
 
-    Gfx_SetupDL_25Opa(play->state.gfxCtx);
-
-    gSPMatrix(POLY_OPA_DISP++, Matrix_NewMtx(play->state.gfxCtx, (char*)__FILE__, __LINE__),
-              G_MTX_MODELVIEW | G_MTX_LOAD);
-
-    gSPDisplayList(POLY_OPA_DISP++, (Gfx*)sSpikeMMItemDL);
+    // Mirror MM's GetItem_DrawOpa*/Xlu* structure: one 25Opa setup + matrix for the OPA layers,
+    // then one 25Xlu setup + matrix for the XLU layers.
+    if (xs > 0) {
+        Gfx_SetupDL_25Opa(play->state.gfxCtx);
+        gSPMatrix(POLY_OPA_DISP++, Matrix_NewMtx(play->state.gfxCtx, (char*)__FILE__, __LINE__),
+                  G_MTX_MODELVIEW | G_MTX_LOAD);
+        for (int32_t i = 0; i < xs; i++) {
+            gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[i]);
+        }
+    }
+    if (xs < n) {
+        Gfx_SetupDL_25Xlu(play->state.gfxCtx);
+        gSPMatrix(POLY_XLU_DISP++, Matrix_NewMtx(play->state.gfxCtx, (char*)__FILE__, __LINE__),
+                  G_MTX_MODELVIEW | G_MTX_LOAD);
+        for (int32_t i = xs; i < n; i++) {
+            gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[i]);
+        }
+    }
 
     CLOSE_DISPS(play->state.gfxCtx);
 }

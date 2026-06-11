@@ -58,6 +58,7 @@ CrowdControl* CrowdControl::Instance;
 #include <BenGui/BenMenu.h>
 #ifdef COMBO_BUILD
 #include "ComboMenuSharedContext.h" // ComboShip: shared per-DLL ImGui context helper (combo-owned)
+#include "ComboItemDrawABI.h"       // ComboShip: cross-game item draw info (combo-owned C ABI)
 #endif
 
 #include "2s2h/GameInteractor/GameInteractor.h"
@@ -3113,6 +3114,44 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Restore(void) {
     memcpy(&gSaveContext, &sMM_OracleSavedContext, sizeof(SaveContext));
     gCurrentRegionTime = sMM_OracleSavedRegionTime;
 }
+
+#ifdef COMBO_BUILD
+// ComboShip: portable slice of one sDrawItemTable row (defined in mm/src/code/z_draw.c).
+extern "C" s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart);
+
+// ComboShip: cross-game item draw info (combo/menu/ComboItemDrawABI.h). OOT resolves this via
+// GetProcAddress to learn which MM display lists render a foreign item, then submits them through
+// "__OTR__@mm:"-routed paths resolved against MM's ResourceManager (CrossRMRegistry). itemName is
+// the MM RI_* spoilerName — the same grant key the foreign map carries (GetItemIdFromName keys
+// spoilerName, see Rando/StaticData/Items.cpp). The returned dlists point at MM's static OTR
+// asset-path string literals ("__OTR__objects/..."), valid for the process lifetime. Returns 0
+// for unknown items or rows whose draw func isn't portable; the caller falls back to its sentinel.
+extern "C" __declspec(dllexport) int32_t MM_GetItemDrawInfo(const char* itemName, CwItemDrawInfo* out) {
+    if (itemName == nullptr || out == nullptr) {
+        return 0;
+    }
+    RandoItemId id = Rando::StaticData::GetItemIdFromName(itemName);
+    if (id == RI_UNKNOWN) {
+        return 0;
+    }
+    auto it = Rando::StaticData::Items.find(id);
+    if (it == Rando::StaticData::Items.end()) {
+        return 0;
+    }
+    void* dls[CW_DRAW_MAX_DLISTS] = {};
+    int32_t xluStart = -1;
+    int32_t n = GetItem_GetDrawTableEntry((s32)it->second.drawId, dls, CW_DRAW_MAX_DLISTS, &xluStart);
+    if (n <= 0) {
+        return 0;
+    }
+    out->dlistCount = n;
+    out->xluStartIndex = xluStart;
+    for (int32_t i = 0; i < n; i++) {
+        out->dlists[i] = (const char*)dls[i];
+    }
+    return 1;
+}
+#endif
 
 #ifdef COMBO_BUILD
 // ComboShip: MM analog of SOH_ExportMenu et al. (soh/soh/OTRGlobals.cpp). comboui resolves these by

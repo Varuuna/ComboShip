@@ -6,6 +6,10 @@
 
 #ifdef COMBO_BUILD
 #include "rando/CrossForeign.h"
+#include "soh/Enhancements/randomizer/randomizerTypes.h"
 // ComboShip: per-slot foreign-item lookup (defined in hook_handlers.cpp).
 const ComboRando::ForeignItem* OOT_LookupForeign(int slot, const std::string& checkName);
+// ComboShip: currently-queued get-item check (RC_UNKNOWN_CHECK if none) — fallback identity for
+// the foreign draw func (defined in hook_handlers.cpp).
+RandomizerCheck OOT_GetQueuedDrawCheck();
 #endif

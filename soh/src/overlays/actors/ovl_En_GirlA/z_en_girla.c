@@ -1444,6 +1444,12 @@ void EnGirlA_Draw(Actor* thisx, PlayState* play) {
                                               shopItemIdentity.identity.randomizerCheck, shopItemIdentity.ogItemId);
 
         EnItem00_CustomItemsParticles(&this->actor, play, getItemEntry);
+#ifdef COMBO_BUILD
+        // ComboShip: tell the foreign draw func (Randomizer_DrawComboForeign) which check this
+        // shelf slot is, so it can render the real MM item model. Consumed by the draw call below.
+        extern void Randomizer_SetComboForeignDrawCheck(s32 randomizerCheck);
+        Randomizer_SetComboForeignDrawCheck(shopItemIdentity.identity.randomizerCheck);
+#endif
         GetItemEntry_Draw(play, getItemEntry);
         return;
     }

@@ -383,6 +383,74 @@ void GetItem_Draw(PlayState* play, s16 drawId) {
     sDrawItemTable[drawId].drawFunc(play, drawId);
 }
 
+#ifdef COMBO_BUILD
+// ComboShip: expose one sDrawItemTable row for cross-game rendering (see combo/menu/ComboItemDrawABI.h
+// and MM_GetItemDrawInfo in 2s2h/BenPort.cpp). Only "self-contained" draw funcs are exposed — funcs
+// that merely submit drawResources display lists under plain Gfx_SetupDL25 Opa/Xlu state. Funcs that
+// need extra MM runtime state (segment-8 texture scrolls, AnimatedMat_Draw, Mtx drawResources,
+// object-bank segments — e.g. RecoveryHeart/Fish/Potion/Poes/Seahorse/Remains) are NOT portable to
+// the other game's frame and return 0; the foreign game then falls back to its own sentinel model.
+// outDlists is filled in SUBMISSION order (some funcs draw color DLs before geometry); *outXluStart
+// is the index of the first XLU-layer entry within that order (-1 = all layers OPA).
+// Returns the dlist count, or 0 if the row is unsupported/undrawable.
+s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart) {
+    static const s8 sOrder0[] = { 0 };
+    static const s8 sOrder01[] = { 0, 1 };
+    static const s8 sOrder012[] = { 0, 1, 2 };
+    static const s8 sOrder1023[] = { 1, 0, 2, 3 };
+    static const s8 sOrder1032[] = { 1, 0, 3, 2 };
+    static const s8 sOrderWallet[] = { 1, 0, 2, 3, 4, 5, 6, 7 };
+    void (*drawFunc)(PlayState*, s16);
+    void** res;
+    const s8* order;
+    s32 count;
+    s32 xluStart;
+    s32 i;
+
+    if ((drawId < 0) || (drawId >= ARRAY_COUNT(sDrawItemTable)) || (outDlists == NULL) || (outXluStart == NULL)) {
+        return 0;
+    }
+    drawFunc = sDrawItemTable[drawId].drawFunc;
+    res = sDrawItemTable[drawId].drawResources;
+
+    if (drawFunc == GetItem_DrawOpa0) {
+        order = sOrder0; count = 1; xluStart = -1;
+    } else if (drawFunc == GetItem_DrawOpa01) {
+        order = sOrder01; count = 2; xluStart = -1;
+    } else if (drawFunc == GetItem_DrawOpa0Xlu1) {
+        order = sOrder01; count = 2; xluStart = 1;
+    } else if (drawFunc == GetItem_DrawXlu01) {
+        order = sOrder01; count = 2; xluStart = 0;
+    } else if (drawFunc == GetItem_DrawCompass) {
+        // The XLU layer really uses SETUPDL_5; the consumer's 25Xlu is a close approximation.
+        order = sOrder01; count = 2; xluStart = 1;
+    } else if (drawFunc == GetItem_DrawMagicArrow) {
+        order = sOrder012; count = 3; xluStart = 1;
+    } else if (drawFunc == GetItem_DrawUpgrades) {
+        order = sOrder1023; count = 4; xluStart = -1;
+    } else if (drawFunc == GetItem_DrawWallet) {
+        order = sOrderWallet; count = 8; xluStart = -1;
+    } else if ((drawFunc == GetItem_DrawRupee) || (drawFunc == GetItem_DrawSmallRupee)) {
+        // SmallRupee also applies a 0.7 model scale we cannot carry across; acceptable mismatch.
+        order = sOrder1032; count = 4; xluStart = 2;
+    } else {
+        return 0;
+    }
+
+    if (count > maxDlists) {
+        count = maxDlists;
+    }
+    for (i = 0; i < count; i++) {
+        if (res[order[i]] == NULL) {
+            return 0; // padded/unused rows (e.g. GID_37) are not drawable
+        }
+        outDlists[i] = res[order[i]];
+    }
+    *outXluStart = (xluStart > count) ? count : xluStart;
+    return count;
+}
+#endif
+
 void GetItem_DrawBombchu(PlayState* play, s16 drawId) {
     s32 pad;
 

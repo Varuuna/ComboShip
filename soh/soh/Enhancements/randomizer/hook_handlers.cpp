@@ -360,7 +360,8 @@ static Vec3f spawnPos = { 0.0f, -999.0f, 0.0f };
 static int g_ootForeignSlot = -1;
 static std::unordered_map<std::string, ComboRando::ForeignItem> g_ootForeignMap;
 
-static const ComboRando::ForeignItem* OOT_LookupForeign(int slot, const std::string& checkName) {
+// ComboShip: also used by MerchantMessages/check tracker to show the real foreign item name.
+const ComboRando::ForeignItem* OOT_LookupForeign(int slot, const std::string& checkName) {
     if (slot != g_ootForeignSlot) {
         g_ootForeignMap = ComboRando::LoadForeignForGame(slot, ComboRando::GAME_OOT);
         g_ootForeignSlot = slot;

@@ -9,6 +9,9 @@
 #include <soh/OTRGlobals.h>
 #include "soh/ObjectExtension/ObjectExtension.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
+#ifdef COMBO_BUILD
+#include "soh/Enhancements/randomizer/hook_handlers.h"
+#endif
 
 extern "C" {
 extern PlayState* gPlayState;
@@ -37,6 +40,22 @@ void BuildMerchantMessage(CustomMessage& msg, RandomizerCheck rc, bool mysteriou
         itemName = CustomMessage(RAND_GET_OVERRIDE(rc).GetTrickName());
         color = "%g";
     } else {
+#ifdef COMBO_BUILD
+        // ComboShip: a shop/merchant slot holding RG_COMBO_FOREIGN actually sells an MM item.
+        // Show the real item's name from the foreign map instead of "Combo Foreign Item".
+        if (rgid == RG_COMBO_FOREIGN) {
+            const ComboRando::ForeignItem* fi =
+                OOT_LookupForeign(gSaveContext.fileNum, Rando::StaticData::GetLocation(rc)->GetName());
+            if (fi != nullptr && !fi->displayName.empty()) {
+                itemName = CustomMessage(Text{ std::string(fi->displayName), std::string(fi->displayName),
+                                               std::string(fi->displayName) });
+                color = "%g";
+                msg.Replace("[[color]]", color);
+                msg.InsertNames({ itemName, CustomMessage(std::to_string(location->GetPrice())) });
+                return;
+            }
+        }
+#endif
         const Rando::Item& item = Rando::StaticData::RetrieveItem(rgid);
         if (Rando::StaticData::GetLocation(rc)->IsShop()) {
             itemName = CustomMessage(Rando::StaticData::RetrieveItem(rgid).GetName());

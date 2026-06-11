@@ -1,7 +1,7 @@
-# ComboShip Progress — updated 2026-06-11
+# ComboShip Progress — updated 2026-06-11 (evening)
 
 Quick-resume notes. Newest work first. Branch state at last update:
-**`fix/cross-item-visuals`** (active, 24 commits ahead of `develop`), `develop` is 79 commits
+**`fix/cross-item-visuals`** (active, ~30 commits ahead of `develop`), `develop` is 79 commits
 ahead of `origin/develop` (nothing pushed).
 
 ## Active branch: `fix/cross-item-visuals` — cross-game item visuals
@@ -31,26 +31,43 @@ Plan: `docs/superpowers/plans/2026-06-11-cross-item-visuals.md` (tasks checked o
      UPSTREAM BUG: every archive's `LoadFile(hash)` resolved hash→name via the globally-active
      RM (wrong manager under routing) — fixed in `ArchiveManager::LoadFile(hash)`.
    - User-verified: MM's Kafei's Mask renders on foreign slots in KF Shop, no crashes.
-5. **Generalized OOT←MM rendering** (Task 9, committed `9dbc375e9`, boot-smoked, NOT yet
-   in-game-verified): every foreign OOT check renders the real MM item model. Mechanism:
+5. **Generalized OOT←MM rendering** (Task 9, `9dbc375e9`, boot-smoked, in-game NOT yet
+   verified beyond the spike item): every foreign OOT check renders the real MM item model.
    EnGirlA announces its check → `Randomizer_DrawComboForeign` → foreign map →
    `MM_GetItemDrawInfo` (C ABI, `combo/menu/ComboItemDrawABI.h`) → routed `@mm:` paths,
-   OPA/XLU layers mirrored. Non-portable MM draw funcs (animated materials, texture scrolls,
-   object-bank segments: RecoveryHeart/Fish/Potion/Poes/Remains...) → Blue Rupee sentinel.
+   OPA/XLU layers mirrored. Non-portable MM draw funcs → sentinel (Blue Rupee).
+6. **Increment 3b — ANIMATED foreign items** (user-directed; spec/plan amended; Tasks 12-13
+   landed `adf8feabf` + `2b99749` + review fixes `17972f874`; **GATE PENDING — user has not
+   yet seen it in-game**): MM stray fairies render fully animated inside OOT.
+   - Investigation verdict: games' skeleton/animation structs BYTE-IDENTICAL → host game's
+     SkelAnime runs foreign skeletons as data. MM-hosted draw is dead (GraphicsContext layouts
+     diverged 0x10 bytes past 0x1A0).
+   - New interpreter bracket commands `G_COMBO_RM_PUSH("mm")`/`POP` (opcodes 0x2A/0x2B) scope
+     raw-pointer DL spans to a game's RM. REVIEW CAUGHT A CRITICAL: the sentinel-depth unwind
+     condition was a tautology (plan text had it inverted) — brackets were eaten by the first
+     ENDDL; fixed with explicit sentinel exclusion.
+   - `combo/menu/ComboForeignAnim.h` (TU-glue, host-compiled): loads MM skel/anim/texanim via
+     CrossRMRegistry (ResourceManagerScope RAII around loads — review fix), drives the HOST's
+     SkelAnime, ports MM's ColorChangeLagrange texanim handler (the only type the fairies use,
+     verified by hex-parsing the resources), rewrites limb DLs to `@mm:` routed strings,
+     restores segments 8/9 after. `MM_GetItemAnimDrawInfo` export describes the 5 fairy areas.
 
 ### Remaining on this branch
 
-- **Task 9 reviews** (spec + quality subagent reviews not yet run on `9dbc375e9`) and
-  **in-game verification**: shop with various MM items (rupees, hearts, masks, wallet) —
-  expect real models or sentinel, never blank/crash.
-- **Task 10**: the reverse direction — MM renders real OOT item models (`SOH_GetItemDrawInfo`
-  from soh's `sDrawItemTable` + `RI_COMBO_FOREIGN` case in `mm/2s2h/Rando/DrawItem.cpp` with
-  `@oot:` paths). Mirrors Task 9; the plan has the steps.
-- **Task 11**: `docs/UPSTREAM_MERGES.md` entries for the interpreter routing + ArchiveManager
-  fix + z_draw accessors; sweep leftover `SPIKE` markers; final full build + tests.
-- Cleanup: TEMPORARY actor-init crash tracer still in `mm/src/code/z_actor.c` (uncommitted,
-  from the one-off Termina Field crash investigation — remove once confident; crash never
-  reproduced). `soh/src/boot/build.c` is just the build stamp. `UI_COMPARISON.png` untracked.
+- **GATE (next step)**: user verifies in-game — a foreign OOT check/shop slot holding a
+  stray fairy shows MM's animated fairy (billboarded, wing animation, per-area colors);
+  OOT visuals intact afterward; no crash. Also general Task 9 verification: various MM items
+  in shops show real models or sentinel, never blank/crash.
+- **Task 9 reviews** were superseded-in-part by the Inc3b review (which covered draw.cpp);
+  a focused review of the Task 9 commit itself is still outstanding.
+- **Task 10**: reverse direction — MM renders real OOT item models (`SOH_GetItemDrawInfo` +
+  `RI_COMBO_FOREIGN` case in `mm/2s2h/Rando/DrawItem.cpp` with `@oot:` paths; the animated
+  machinery from Inc3b is symmetric if needed). Plan has the steps.
+- **Task 11/14**: `docs/UPSTREAM_MERGES.md` entries (interpreter routing, bracket commands,
+  ArchiveManager hash-resolution fix, z_draw accessors, AnimatedMat port note); sweep leftover
+  `SPIKE` markers; final full build + tests.
+- Cleanup: TEMPORARY actor-init crash tracer still in `mm/src/code/z_actor.c` (uncommitted;
+  crash never reproduced). `soh/src/boot/build.c` build stamp. `UI_COMPARISON.png` untracked.
 
 ## Earlier today (merged to develop)
 

@@ -2740,12 +2740,18 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     std::vector<RandoItemId> itemPool;
     Rando::Logic::GeneratePools(saveInfo, checkPool, itemPool);
 
+    // ComboShip canary: count every reason a pool check fails to emit (see debug-mmdump.json
+    // write below). An empty/near-empty pool here silently kills cross-game placement — that
+    // exact failure hid for weeks behind the fill's place-anywhere fallback (see UPSTREAM_MERGES.md
+    // "eager-boot export" entry), so keep this cheap per-Generate diagnostic.
+    int skippedNoStatic = 0, skippedNoName = 0, noVanillaItem = 0;
+
     // Emit only the checks in the settings-scoped pool.
     for (RandoCheckId id : checkPool) {
         auto chkIt = Rando::StaticData::Checks.find(id);
-        if (chkIt == Rando::StaticData::Checks.end()) continue;
+        if (chkIt == Rando::StaticData::Checks.end()) { skippedNoStatic++; continue; }
         const auto& chk = chkIt->second;
-        if (!chk.name || chk.name[0] == '\0') continue;
+        if (!chk.name || chk.name[0] == '\0') { skippedNoName++; continue; }
         nlohmann::json entry = { {"name", chk.name} };
 
         // MM stores vanilla item per check via randoItemId.
@@ -2756,8 +2762,30 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
                 entry["vanillaItem"] = it->second.spoilerName;
             }
         }
+        if (!entry.contains("vanillaItem")) noVanillaItem++;
         checks.push_back(std::move(entry));
     }
+
+    // ComboShip canary: written to a file because 2ship.dll's spdlog default logger is never
+    // configured in combo (shared context owns logging in soh's module), so SPDLOG_* here goes
+    // nowhere. regions==0 here means MM's eager boot / ShipInit::InitAll didn't run.
+    try {
+        std::error_code ec;
+        std::filesystem::create_directories("saves/combo", ec);
+        nlohmann::json diag = {
+            { "regions", Rando::Logic::Regions.size() },
+            { "staticChecks", Rando::StaticData::Checks.size() },
+            { "options", Rando::StaticData::Options.size() },
+            { "logicOpt", (uint32_t)saveInfo.randoSaveOptions[RO_LOGIC] },
+            { "checkPool", checkPool.size() },
+            { "itemPool", itemPool.size() },
+            { "emitted", checks.size() },
+            { "skippedNoStatic", skippedNoStatic },
+            { "skippedNoName", skippedNoName },
+            { "noVanillaItem", noVanillaItem },
+        };
+        std::ofstream("saves/combo/debug-mmdump.json", std::ios::trunc) << diag.dump(2);
+    } catch (...) {}
 
     for (auto& [id, item] : Rando::StaticData::Items) {
         if (!item.spoilerName || item.spoilerName[0] == '\0') continue;

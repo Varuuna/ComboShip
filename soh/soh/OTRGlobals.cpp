@@ -1644,10 +1644,11 @@ extern "C" void DeinitOTR() {
 #ifdef COMBO_BUILD
 // Stops OOT audio and waits for pending saves WITHOUT destroying the context or window.
 // Called by ComboShip before launching MM so archives can be safely swapped.
-#ifdef _WIN32
-__declspec(dllexport)
-#endif
-extern "C" void SOH_PrepareForTransition(void) {
+// ComboShip: declspec must follow the extern "C" specifier — the old split form
+// (`__declspec(dllexport)` on its own line BEFORE `extern "C"`) is silently ignored by MSVC
+// (C4091, invisible under /w), so this function was never actually exported and the eager
+// MM boot gate in ComboShip.cpp failed on every launch.
+extern "C" __declspec(dllexport) void SOH_PrepareForTransition(void) {
     SaveManager_ThreadPoolWait();
     OTRAudio_Exit();
     // ComboShip: do NOT SohGui::Destroy() here. The Gui is a single shared libultraship instance that

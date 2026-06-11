@@ -53,7 +53,16 @@ std::shared_ptr<File> ArchiveManager::LoadFile(uint64_t hash) {
         return nullptr;
     }
 
-    return archive->LoadFile(hash);
+    // ComboShip: resolve the hash with THIS manager's own table and hand the archive a plain
+    // string. The archives' LoadFile(uint64_t) overloads resolve hash->name through the GLOBAL
+    // active RM's ArchiveManager (Context::GetInstance()->...), which is the WRONG manager when
+    // a non-active game's RM services a routed cross-game load — the lookup misses and the
+    // unchecked dereference crashes. Latent upstream bug, exposed by "@game:" routing.
+    const std::string* filePath = HashToString(hash);
+    if (filePath == nullptr) {
+        return nullptr;
+    }
+    return archive->LoadFile(*filePath);
 }
 
 bool ArchiveManager::HasFile(const std::string& filePath) {

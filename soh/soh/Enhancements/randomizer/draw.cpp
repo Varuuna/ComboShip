@@ -62,6 +62,12 @@ extern PlayState* gPlayState;
 extern SaveContext gSaveContext;
 }
 
+#ifdef COMBO_BUILD
+// ComboShip: combo-owned animated cross-game item rendering (MM stray fairies). TU-glue: needs the
+// engine headers above (z64.h/macros.h/functions.h) already in scope.
+#include "ComboForeignAnim.h"
+#endif
+
 const char* SmallBodyCvarValue[10] = {
     CVAR_COSMETIC("Key.ForestSmallBody.Value"), CVAR_COSMETIC("Key.FireSmallBody.Value"),
     CVAR_COSMETIC("Key.WaterSmallBody.Value"),  CVAR_COSMETIC("Key.SpiritSmallBody.Value"),
@@ -537,6 +543,10 @@ struct ComboForeignDrawInfo {
     int32_t count = 0;
     int32_t xluStart = -1;                          // first XLU entry in dls[] order; -1 = all OPA
     const char* dls[CW_DRAW_MAX_DLISTS] = { nullptr }; // interned "__OTR__@mm:..." routed paths
+    // ComboShip: animated class (no static DL row — MM stray fairies). When animOk, anim describes
+    // the item and ComboForeignAnim_Draw renders it; path strings point at 2ship.dll statics.
+    bool animOk = false;
+    CwItemAnimDrawInfo anim{};
 };
 
 // Routed path strings must outlive the frame (the GBI wrapper emits the raw pointer into the
@@ -580,6 +590,18 @@ const ComboForeignDrawInfo* ComboResolveForeignDrawInfo(RandomizerCheck rc) {
     }
     CwItemDrawInfo raw{};
     if (sGetItemDrawInfo(fi->itemName.c_str(), &raw) == 0 || raw.dlistCount <= 0) {
+        // ComboShip: no static DL row — try the animated ABI (MM stray fairies). MM only describes
+        // the item; ComboForeignAnim_Draw (combo/menu/ComboForeignAnim.h) loads + draws it.
+        static Fn_GetItemAnimDrawInfo sGetItemAnimDrawInfo = nullptr;
+        if (sGetItemAnimDrawInfo == nullptr) {
+            HMODULE h = GetModuleHandleA("2ship.dll");
+            sGetItemAnimDrawInfo = h ? (Fn_GetItemAnimDrawInfo)GetProcAddress(h, "MM_GetItemAnimDrawInfo") : nullptr;
+        }
+        if (sGetItemAnimDrawInfo != nullptr && sGetItemAnimDrawInfo(fi->itemName.c_str(), &info.anim) != 0) {
+            info.animOk = true;
+            info.ok = true;
+            return &info;
+        }
         return nullptr; // unknown item or non-portable draw func: cached negative -> sentinel forever
     }
 
@@ -616,6 +638,14 @@ extern "C" void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getIt
         // Pre-routing sentinel behavior: the default GetItemEntry_Draw path for this entry
         // (gid == GID_RUPEE_BLUE from the RG_COMBO_FOREIGN item-table row). Never draw blank.
         GetItem_Draw(play, getItemEntry->gid);
+        return;
+    }
+
+    // ComboShip: animated class — combo-owned skeletal draw (any failure -> sentinel, never blank).
+    if (info->animOk) {
+        if (!ComboForeignAnim_Draw(&info->anim, "mm", play)) {
+            GetItem_Draw(play, getItemEntry->gid);
+        }
         return;
     }
 

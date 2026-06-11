@@ -23,6 +23,23 @@ typedef struct {
  * itemName is in the owning game's item namespace (MM: RI_* spoilerName; OOT: English name). */
 typedef int32_t (*Fn_GetItemDrawInfo)(const char* itemName, CwItemDrawInfo* out);
 
+/* ComboShip: animated variant — the owning game DESCRIBES a skeletal/animated item (skeleton +
+ * animation + texture-animation resource paths) and the HOST's combo-owned code
+ * (combo/menu/ComboForeignAnim.h) loads the resources via the owning game's ResourceManager
+ * (CrossRMRegistry) and drives the host's own SkelAnime engine. First class served: MM stray
+ * fairies. Path strings are the owning game's static asset-path literals (process lifetime). */
+typedef struct {
+    const char* skelPath;     /* FlexSkeleton resource (OTR path) */
+    const char* animPath;     /* Animation resource */
+    const char* texAnimPath;  /* AnimatedMaterial resource, or NULL */
+    float       scale;        /* model scale (stray fairy: 0.03f) */
+    int32_t     billboard;    /* 1 = face camera (Matrix_ReplaceRotation on billboard mtx) */
+    int32_t     xlu;          /* 1 = draw on XLU layer with 25Xlu setup */
+    int32_t     limbCount;    /* skeleton limb count (jointTable sizing) */
+    int32_t     hiddenLimb;   /* limb index to null out (stray fairy: right-facing head), -1 none */
+} CwItemAnimDrawInfo;
+typedef int32_t (*Fn_GetItemAnimDrawInfo)(const char* itemName, CwItemAnimDrawInfo* out);
+
 #ifdef __cplusplus
 }
 #endif

@@ -27,6 +27,7 @@
 #include "location.h"
 #include "item_location.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
+#include "soh/Enhancements/randomizer/hook_handlers.h"
 #include "z64item.h"
 
 extern "C" {
@@ -2072,6 +2073,16 @@ void DrawLocation(RandomizerCheck rc) {
                         }
                     } else if (revealItemName) {
                         txt = itemLoc->GetPlacedItem().GetName().GetForLanguage(gSaveContext.language);
+#ifdef COMBO_BUILD
+                        // ComboShip: reveal the real MM item behind the foreign sentinel.
+                        if (itemLoc->GetPlacedRandomizerGet() == RG_COMBO_FOREIGN) {
+                            const ComboRando::ForeignItem* fi = OOT_LookupForeign(
+                                gSaveContext.fileNum, Rando::StaticData::GetLocation(rc)->GetName());
+                            if (fi != nullptr && !fi->displayName.empty()) {
+                                txt = fi->displayName;
+                            }
+                        }
+#endif
                     }
                     if (IsVisibleInCheckTracker(rc) && status == RCSHOW_IDENTIFIED) {
                         auto price = OTRGlobals::Instance->gRandoContext->GetItemLocation(rc)->GetPrice();

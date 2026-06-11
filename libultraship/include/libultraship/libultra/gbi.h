@@ -168,6 +168,10 @@
 #define G_DL_OTR_FILEPATH 0x27
 #define G_PUSHCD 0x28
 #define G_MTX_OTR_FILEPATH 0x29
+// ComboShip: scope a span of raw-pointer DL submissions to a named game's ResourceManager
+// (see g_crossRMStack in src/fast/interpreter.cpp).
+#define G_COMBO_RM_PUSH 0x2a
+#define G_COMBO_RM_POP 0x2b
 #define G_DL_OTR_HASH 0x31
 #define G_VTX_OTR_HASH 0x32
 #define G_MARKER 0x33
@@ -2853,6 +2857,32 @@ typedef union Gfx {
                                                       \
         _g0->words.w0 = _SHIFTL(G_POP_SHADER, 24, 8); \
     }
+
+// ComboShip: bracket a span of RAW Gfx* submissions (no "__OTR__@game:" path marker, e.g. skeletal
+// limb DLs) so their inner hash/path resource refs resolve against the named game's
+// ResourceManager. gameStr must be an interned/static string (e.g. a literal "mm") — the
+// interpreter reads it by pointer. Always pair PUSH with POP in the same DL span.
+#define gSPComboRMPush(pkt, gameStr)                       \
+    {                                                      \
+        Gfx* _g0 = (Gfx*)(pkt);                            \
+                                                           \
+        _g0->words.w0 = _SHIFTL(G_COMBO_RM_PUSH, 24, 8);   \
+        _g0->words.w1 = (uintptr_t)(gameStr);              \
+    }
+
+#define gsSPComboRMPush(gameStr) \
+    { (_SHIFTL(G_COMBO_RM_PUSH, 24, 8)), (uintptr_t)(gameStr) }
+
+#define gSPComboRMPop(pkt)                              \
+    {                                                   \
+        Gfx* _g0 = (Gfx*)(pkt);                         \
+                                                        \
+        _g0->words.w0 = _SHIFTL(G_COMBO_RM_POP, 24, 8); \
+        _g0->words.w1 = 0;                              \
+    }
+
+#define gsSPComboRMPop() \
+    { (_SHIFTL(G_COMBO_RM_POP, 24, 8)), 0 }
 
 #define gSPExtraGeometryMode(pkt, c, s)                                                 \
     _DW({                                                                               \

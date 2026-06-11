@@ -46,6 +46,9 @@ constexpr int8_t OTR_G_TRI1_OTR = OPCODE(0x26);
 constexpr int8_t OTR_G_DL_OTR_FILEPATH = OPCODE(0x27);
 constexpr int8_t OTR_G_PUSHCD = OPCODE(0x28);
 constexpr int8_t OTR_G_MTX_OTR_FILEPATH = OPCODE(0x29);
+// ComboShip: cross-RM brackets for raw-pointer DL spans (see g_crossRMStack in interpreter.cpp).
+constexpr int8_t OTR_G_COMBO_RM_PUSH = OPCODE(0x2a);
+constexpr int8_t OTR_G_COMBO_RM_POP = OPCODE(0x2b);
 constexpr int8_t OTR_G_DL_OTR_HASH = OPCODE(0x31);
 constexpr int8_t OTR_G_VTX_OTR_HASH = OPCODE(0x32);
 constexpr int8_t OTR_G_MARKER = OPCODE(0x33);

@@ -126,6 +126,21 @@ struct CrossRMOverride {
 };
 static std::vector<CrossRMOverride> g_crossRMStack;
 
+// ComboShip: G_COMBO_RM_PUSH/POP bracket entries use this sentinel depth. The ENDDL pop condition
+// (cmd_stack.size() <= execDepthAtPush) is never true for SIZE_MAX, so only an explicit
+// G_COMBO_RM_POP removes a bracket entry. WHY brackets exist: skeletal draws submit limb DLs as
+// RAW Gfx* pointers — no "__OTR__@game:" path marker, so no override gets pushed and the limb
+// DLs' inner hash/path refs would resolve against the wrong game's RM. Host code scopes such
+// spans with PUSH("mm") ... raw submissions ... POP.
+// ASSUMPTION: brackets are only emitted by HOST game code at top-of-DL level, never inside
+// extracted resources. A bracket pushed inside a routed DL would sit ABOVE the routed entry and
+// stop the ENDDL unwind loop early, leaking the routed entry until the frame-start clear().
+static constexpr size_t kBracketSentinel = SIZE_MAX;
+// Balances POP against PUSHes that were skipped (unknown game name): each skipped PUSH increments,
+// the matching POP decrements instead of popping a real entry. Reset wherever g_crossRMStack is
+// cleared (GfxExecStack::start()/stop()).
+static int g_skippedBracketPushes = 0;
+
 static std::shared_ptr<Ship::ResourceManager> ActiveResMgr() {
     if (!g_crossRMStack.empty()) {
         return g_crossRMStack.back().rm;
@@ -3143,8 +3158,9 @@ void GfxExecStack::start(F3DGfx* dlist) {
     cmd_stack.push(dlist);
     disp_stack.clear();
     // ComboShip: a fresh run must never inherit cross-RM overrides (e.g. after a debugger break
-    // left the previous run's stack unpopped).
+    // left the previous run's stack unpopped). Same for the bracket skip counter.
     g_crossRMStack.clear();
+    g_skippedBracketPushes = 0;
 }
 
 void GfxExecStack::stop() {
@@ -3152,6 +3168,7 @@ void GfxExecStack::stop() {
         cmd_stack.pop();
     gfx_path.clear();
     g_crossRMStack.clear(); // ComboShip: see start()
+    g_skippedBracketPushes = 0;
 }
 
 F3DGfx*& GfxExecStack::currCmd() {
@@ -3727,6 +3744,45 @@ bool gfx_pushcd_handler_custom(F3DGfx** cmd0) {
     return false;
 }
 
+// ComboShip: G_COMBO_RM_PUSH — w1 is an interned game-name string (e.g. "mm"). Pushes a bracket
+// override (sentinel depth) so subsequent RAW Gfx* submissions resolve against that game's RM
+// until the matching G_COMBO_RM_POP. See kBracketSentinel above for semantics + assumptions.
+bool gfx_combo_rm_push_handler_custom(F3DGfx** cmd0) {
+    const char* gameName = (const char*)(*cmd0)->words.w1;
+    std::shared_ptr<Ship::ResourceManager> rm = Ship::CrossRMRegistry::Get(gameName);
+    if (rm != nullptr) {
+        g_crossRMStack.push_back({ rm, kBracketSentinel });
+    } else {
+        // Unknown game: log once per name, push nothing, and record the skip so the matching
+        // POP stays balanced. Bounded: one entry per unique bad name; empty in a working build.
+        static std::unordered_set<std::string> sReportedBadBracketGames;
+        if (sReportedBadBracketGames.insert(gameName).second) {
+            SPDLOG_ERROR("G_COMBO_RM_PUSH: no ResourceManager registered for game '{}'; ignoring bracket", gameName);
+        }
+        g_skippedBracketPushes++;
+    }
+    return false;
+}
+
+// ComboShip: G_COMBO_RM_POP — pops the top bracket entry. Tolerates a PUSH that was skipped
+// (unknown game) via g_skippedBracketPushes; logs once and ignores a truly unbalanced POP.
+bool gfx_combo_rm_pop_handler_custom(F3DGfx** cmd0) {
+    if (g_skippedBracketPushes > 0) {
+        g_skippedBracketPushes--;
+        return false;
+    }
+    if (!g_crossRMStack.empty() && g_crossRMStack.back().execDepthAtPush == kBracketSentinel) {
+        g_crossRMStack.pop_back();
+        return false;
+    }
+    static bool sReportedUnbalancedPop = false;
+    if (!sReportedUnbalancedPop) {
+        sReportedUnbalancedPop = true;
+        SPDLOG_ERROR("unbalanced G_COMBO_RM_POP (no bracket entry on the cross-RM stack); ignoring");
+    }
+    return false;
+}
+
 // TODO handle special OTR opcodes later...
 bool gfx_branch_z_otr_handler_f3dex2(F3DGfx** cmd0) {
     // Push return address
@@ -3760,6 +3816,10 @@ bool gfx_end_dl_handler_common(F3DGfx** cmd0) {
     g_exec_stack.ret();
     // ComboShip: pop cross-RM overrides whose routed DL just returned. ret() may pop multiple
     // stack slots (branch sentinels), so unwind every override at or above the new depth.
+    // Bracket entries (execDepthAtPush == kBracketSentinel) make the condition false and stop the
+    // loop — intentional: brackets outlive DL returns and are only removed by G_COMBO_RM_POP.
+    // Path-routed entries always sit ABOVE any bracket (they push later, pop earlier), so a
+    // bracket at the back can never shadow a routed entry that still needs popping here.
     while (!g_crossRMStack.empty() && g_exec_stack.cmd_stack.size() <= g_crossRMStack.back().execDepthAtPush) {
         g_crossRMStack.pop_back();
     }
@@ -4629,6 +4689,9 @@ static constexpr UcodeHandler otrHandlers = {
     { OTR_G_PUSHCD, { "G_PUSHCD", gfx_pushcd_handler_custom } },                            // G_PUSHCD (0x28)
     { OTR_G_MTX_OTR_FILEPATH,
       { "G_MTX_OTR_FILEPATH", gfx_mtx_otr_filepath_handler_custom } },          // G_MTX_OTR_FILEPATH (0x29)
+    { OTR_G_COMBO_RM_PUSH,
+      { "G_COMBO_RM_PUSH", gfx_combo_rm_push_handler_custom } },                // G_COMBO_RM_PUSH (0x2a)
+    { OTR_G_COMBO_RM_POP, { "G_COMBO_RM_POP", gfx_combo_rm_pop_handler_custom } }, // G_COMBO_RM_POP (0x2b)
     { OTR_G_DL_OTR_HASH, { "G_DL_OTR_HASH", gfx_dl_otr_hash_handler_custom } }, // G_DL_OTR_HASH (0x31)
     { OTR_G_VTX_OTR_HASH, { "G_VTX_OTR_HASH", gfx_vtx_hash_handler_custom } },  // G_VTX_OTR_HASH (0x32)
     { OTR_G_MARKER, { "G_MARKER", gfx_marker_handler_otr } },                   // G_MARKER (0X33)
@@ -4818,7 +4881,8 @@ static void gfx_step() {
         // OTR filepath handlers expect w1 to be a valid string pointer.
         // Guard against null or N64-segment addresses that would crash in strlen/strncmp.
         if (opcode == OTR_G_VTX_OTR_FILEPATH || opcode == OTR_G_SETTIMG_OTR_FILEPATH ||
-            opcode == OTR_G_DL_OTR_FILEPATH || opcode == OTR_G_PUSHCD || opcode == OTR_G_MTX_OTR_FILEPATH) {
+            opcode == OTR_G_DL_OTR_FILEPATH || opcode == OTR_G_PUSHCD || opcode == OTR_G_MTX_OTR_FILEPATH ||
+            opcode == OTR_G_COMBO_RM_PUSH) {
             uintptr_t w1 = (uintptr_t)cmd->words.w1;
             if (w1 < 0x10000
 #if UINTPTR_MAX > 0xFFFFFFFFu

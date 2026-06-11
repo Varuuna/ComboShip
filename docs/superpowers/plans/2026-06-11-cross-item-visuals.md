@@ -430,7 +430,7 @@ Add `#include "ship/resource/CrossRMRegistry.h"` (or `<ship/resource/CrossRMRegi
 - [ ] **Step 3: Build libultraship + both games** — zero errors. **Step 4: Commit**
 
 ```powershell
-git add libultraship/include/ship/resource/CrossRMRegistry.h soh/soh/OTRGlobals.cpp mm/2s2h/BenPort.cpp
+git add libultraship/include/ship/resource/CrossRMRegistry.h libultraship/src/ship/resource/CrossRMRegistry.cpp soh/soh/OTRGlobals.cpp mm/2s2h/BenPort.cpp
 git commit -m "feat(lus): named ResourceManager registry for cross-game resource routing"
 ```
 

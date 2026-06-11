@@ -6,6 +6,10 @@
 
 namespace Ship {
 
+// Thread-safety: Register() runs only at game-boot/transition time on the main thread, before
+// frame processing; Get() runs from the interpreter on the same thread. No concurrent
+// modification+read → no mutex needed. If a future caller registers after boot (hot reload),
+// add a std::shared_mutex here.
 static std::unordered_map<std::string, std::shared_ptr<ResourceManager>>& CrossRMMap() {
     static std::unordered_map<std::string, std::shared_ptr<ResourceManager>> sMap;
     return sMap;

@@ -553,3 +553,12 @@ completes, 315 regions, MM dump 876 checks, spoiler mmCount=876 with populated f
 (`saves/combo/debug-mmdump.json`: pool sizes + per-reason emit-drop counters). File-based because
 2ship.dll's spdlog default logger is never configured in combo (the shared Context owns logging in
 soh's module) — SPDLOG_* calls from 2ship.dll go nowhere; remember this when adding MM-side logs.
+
+## hook_handlers.h re-added (combo-owned) (2026-06-11)
+
+**`soh/soh/Enhancements/randomizer/hook_handlers.h`** — upstream has NO such header at our vendor
+tip (functions in hook_handlers.cpp are static/self-registered). ComboShip re-added it to expose
+`OOT_LookupForeign` (the per-slot foreign-item map lookup) to `Messages/MerchantMessages.cpp` and
+the check tracker for cross-game item display names. The file contains only `#ifdef COMBO_BUILD`
+declarations and MUST be preserved on future upstream merges — an upstream pull that "removes the
+deleted file" silently breaks the foreign shop/tracker name builds.

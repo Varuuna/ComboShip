@@ -2761,7 +2761,9 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         Rando::Item& item = Rando::StaticData::RetrieveItem(static_cast<RandomizerGet>(rg));
         const std::string& name = item.GetName().GetEnglish();
         if (name.empty()) continue;
-        items.push_back({ {"name", name} });
+        // ComboShip: OOT item names are already human English; displayName == name keeps the
+        // dump schema symmetric with MM's (which needs the distinction: RI_* vs human).
+        items.push_back({ {"name", name}, {"displayName", name} });
     }
 
     cached = nlohmann::json{ {"checks", std::move(checks)}, {"items", std::move(items)} }.dump();

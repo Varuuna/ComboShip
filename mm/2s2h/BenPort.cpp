@@ -2789,7 +2789,13 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
 
     for (auto& [id, item] : Rando::StaticData::Items) {
         if (!item.spoilerName || item.spoilerName[0] == '\0') continue;
-        items.push_back({ {"name", item.spoilerName} });
+        // ComboShip: "name" MUST stay spoilerName (RI_*) — grant lookup keys on it. "displayName"
+        // is the human string (StaticData's unused .name field) for toasts/shops in the OTHER game.
+        nlohmann::json entry = { {"name", item.spoilerName} };
+        if (item.name && item.name[0] != '\0') {
+            entry["displayName"] = item.name;
+        }
+        items.push_back(std::move(entry));
     }
 
     cached = nlohmann::json{ {"checks", std::move(checks)}, {"items", std::move(items)} }.dump();

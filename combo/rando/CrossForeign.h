@@ -53,10 +53,18 @@ inline bool WriteForeignFromAnnotations(int canonicalSlot, const nlohmann::json&
         std::string checkName = fm.value("checkName", "");
         if (checkGame.empty() || checkName.empty()) continue;
         std::string itemName = fm.value("itemName", "");
+        std::string itemGame = fm.value("itemGame", "");
+        std::string displayName = fm.value("displayName", itemName);
+        // ComboShip: tag foreign items with their home game — every display surface (shops, NPC
+        // hints, trackers, toasts) reads this displayName, so one tag here covers them all.
+        // Only tag known games (a malformed marker keeps its untagged name).
+        if (!displayName.empty() && (itemGame == "mm" || itemGame == "oot")) {
+            displayName += (itemGame == "mm") ? " (MM)" : " (OOT)";
+        }
         out[checkGame][checkName] = {
-            { "itemGame",    fm.value("itemGame", "") },
+            { "itemGame",    itemGame },
             { "itemName",    itemName },
-            { "displayName", fm.value("displayName", itemName) },
+            { "displayName", displayName },
         };
     }
 

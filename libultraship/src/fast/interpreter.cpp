@@ -126,10 +126,11 @@ struct CrossRMOverride {
 };
 static std::vector<CrossRMOverride> g_crossRMStack;
 
-// ComboShip: G_COMBO_RM_PUSH/POP bracket entries use this sentinel depth. The ENDDL pop condition
-// (cmd_stack.size() <= execDepthAtPush) is never true for SIZE_MAX, so only an explicit
-// G_COMBO_RM_POP removes a bracket entry. WHY brackets exist: skeletal draws submit limb DLs as
-// RAW Gfx* pointers — no "__OTR__@game:" path marker, so no override gets pushed and the limb
+// ComboShip: G_COMBO_RM_PUSH/POP bracket entries use this sentinel depth. NOTE the ENDDL unwind
+// loop must EXPLICITLY exclude sentinel entries (`size() <= SIZE_MAX` is a tautology, NOT false —
+// see gfx_end_dl_handler_common); with the exclusion, only an explicit G_COMBO_RM_POP (or the
+// frame-start clear) removes a bracket entry. WHY brackets exist: skeletal draws submit limb DLs
+// as RAW Gfx* pointers — no "__OTR__@game:" path marker, so no override gets pushed and the limb
 // DLs' inner hash/path refs would resolve against the wrong game's RM. Host code scopes such
 // spans with PUSH("mm") ... raw submissions ... POP.
 // ASSUMPTION: brackets are only emitted by HOST game code at top-of-DL level, never inside
@@ -3816,11 +3817,14 @@ bool gfx_end_dl_handler_common(F3DGfx** cmd0) {
     g_exec_stack.ret();
     // ComboShip: pop cross-RM overrides whose routed DL just returned. ret() may pop multiple
     // stack slots (branch sentinels), so unwind every override at or above the new depth.
-    // Bracket entries (execDepthAtPush == kBracketSentinel) make the condition false and stop the
-    // loop — intentional: brackets outlive DL returns and are only removed by G_COMBO_RM_POP.
-    // Path-routed entries always sit ABOVE any bracket (they push later, pop earlier), so a
-    // bracket at the back can never shadow a routed entry that still needs popping here.
-    while (!g_crossRMStack.empty() && g_exec_stack.cmd_stack.size() <= g_crossRMStack.back().execDepthAtPush) {
+    // Bracket entries (execDepthAtPush == kBracketSentinel == SIZE_MAX) must be EXPLICITLY
+    // excluded: `size() <= SIZE_MAX` is a tautology, so without the exclusion this loop would eat
+    // brackets on the first DL return inside their span. Brackets outlive DL returns and are only
+    // removed by G_COMBO_RM_POP (or the frame-start clear). Path-routed entries always sit ABOVE
+    // any bracket (they push later, pop earlier), so stopping at a bracket never strands a routed
+    // entry that still needs popping here.
+    while (!g_crossRMStack.empty() && g_crossRMStack.back().execDepthAtPush != kBracketSentinel &&
+           g_exec_stack.cmd_stack.size() <= g_crossRMStack.back().execDepthAtPush) {
         g_crossRMStack.pop_back();
     }
     return true;

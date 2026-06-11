@@ -30,6 +30,7 @@
 
 #include <ship/Context.h>
 #include <ship/resource/ResourceManager.h>
+#include <ship/resource/ResourceManagerScope.h>
 #include <ship/resource/CrossRMRegistry.h>
 #include <cstring>
 #include <memory>
@@ -282,15 +283,14 @@ inline int32_t ComboForeignAnim_Draw(const CwItemAnimDrawInfo* info, const char*
         if (auto rm = Ship::CrossRMRegistry::Get(game)) {
             // The foreign game's Skeleton/Animation factories nested-load their limbs/tables via
             // Context::GetInstance()->GetResourceManager() — the ACTIVE RM, i.e. the HOST's while
-            // the host game is running — so scope a swap to the owning RM around the loads. The
-            // loads are synchronous (this thread blocks on the RM's pool) and one-time per item;
-            // nothing else loads resources mid-frame on other threads in practice.
-            auto ctx = Ship::Context::GetInstance();
-            auto prevRm = ctx->GetResourceManager();
-            ctx->SetResourceManager(rm);
-            e.skelRes = rm->LoadResource(info->skelPath); // LoadResource strips "__OTR__" itself
-            e.animRes = rm->LoadResource(info->animPath);
-            ctx->SetResourceManager(prevRm);
+            // the host game is running — so scope a swap to the owning RM around the loads. RAII:
+            // restores on every exit path including a throwing factory; a leaked swap would leave
+            // the host permanently on the foreign RM. Loads are synchronous and one-time per item.
+            {
+                Ship::ResourceManagerScope rmScope(rm);
+                e.skelRes = rm->LoadResource(info->skelPath); // LoadResource strips "__OTR__" itself
+                e.animRes = rm->LoadResource(info->animPath);
+            }
 
             FlexSkeletonHeader* skel = e.skelRes ? (FlexSkeletonHeader*)e.skelRes->GetRawPointer() : NULL;
             AnimationHeader* anim = e.animRes ? (AnimationHeader*)e.animRes->GetRawPointer() : NULL;

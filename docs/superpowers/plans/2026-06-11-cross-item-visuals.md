@@ -680,8 +680,9 @@ git commit -m "docs: cross-game item rendering mechanism + upstream-merge notes"
 
 Semantics: PUSH carries a game-name string in w1 (interned literal, e.g. "mm"); handler does
 `CrossRMRegistry::Get(name)` and pushes `{rm, BRACKET_SENTINEL}` onto `g_crossRMStack`, where
-`BRACKET_SENTINEL = SIZE_MAX` so the ENDDL pop loop (`cmd_stack.size() <= execDepthAtPush` — always
-false for SIZE_MAX) NEVER pops it. POP handler pops the top entry IFF it is a bracket entry
+`BRACKET_SENTINEL = SIZE_MAX`; the ENDDL pop loop must EXPLICITLY exclude sentinel entries
+(`size() <= SIZE_MAX` is a tautology — CORRECTED post-review; the original text here inverted
+this and the bug shipped+was caught) so only POP removes brackets. POP handler pops the top entry IFF it is a bracket entry
 (sentinel depth); log + ignore otherwise (unbalanced). Unknown game in PUSH: log-once + push
 NOTHING, and POP tolerates the imbalance via a per-frame bracket counter (track pushes that were
 skipped so POP skips symmetrically — simplest: a small `static int g_skippedBracketPushes` that POP

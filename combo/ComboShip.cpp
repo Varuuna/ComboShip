@@ -258,6 +258,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         for (auto& fm : foreignArr) {
             std::string itemGame = fm.value("itemGame", "");
             std::string itemName = fm.value("itemName", "");
+            if (itemGame != "mm" && itemGame != "oot") continue; // malformed marker: leave unstamped
             const auto& names = (itemGame == "mm") ? mmNames : ootNames;
             auto it = names.find(itemName);
             if (it != names.end()) {

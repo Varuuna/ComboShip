@@ -7,6 +7,7 @@
 #include <set>
 #include <sstream>
 
+#include <ship/resource/CrossRMRegistry.h>
 #include <ship/resource/ResourceManager.h>
 #include <fast/Fast3dWindow.h>
 // ComboShip: upstream merge — our newer libultraship moved these; mm@develop assumed older paths/APIs.
@@ -196,6 +197,7 @@ OTRGlobals::OTRGlobals() {
             context->SetResourceManager(mmResourceManager);
             mmResourceManager->Init({ portArchivePath }, {}, 3);
             sMMResourceManager = mmResourceManager;
+            Ship::CrossRMRegistry::Register("mm", sMMResourceManager); // ComboShip: cross-game rendering
             // MM's fresh RM lacks the Gui-owned infra factories (Font, GuiTexture) the shared Gui
             // registered on OOT's RM at boot; register them so font/gui-texture loads work.
             context->GetWindow()->GetGui()->RegisterResourceFactories();

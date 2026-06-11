@@ -14,6 +14,7 @@
 #include "ResourceManagerHelpers.h"
 #include <fast/Fast3dWindow.h>
 #include <ship/Context.h>
+#include <ship/resource/CrossRMRegistry.h>
 #include <ship/resource/File.h>
 #include <ship/window/Window.h>
 #include <soh/GameVersions.h>
@@ -335,6 +336,7 @@ OTRGlobals::OTRGlobals() {
     // archives + resource cache stay resident the whole time — see SOH_ResumeGame). Upstream moved
     // RM creation into this constructor, so the capture moved here too (same RM object as before).
     sOOTResourceManager = context->GetResourceManager();
+    Ship::CrossRMRegistry::Register("oot", sOOTResourceManager); // ComboShip: cross-game rendering
 #endif
     context->InitConsole();
 

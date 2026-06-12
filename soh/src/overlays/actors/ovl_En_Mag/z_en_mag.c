@@ -498,6 +498,12 @@ bool EnMag_ShouldDrawPressStart(Font* font, Gfx** gfxP, bool isActualText) {
 #define COPYRIGHT_TEX_WIDTH (isGC ? 160 : 128)
 #define COPYRIGHT_TEX_LEFT (isGC ? 78 : 94)
 
+#ifdef COMBO_BUILD
+// ComboShip: dual-game title logos (OOT left, MM right) — combo-owned draw code; needs the
+// LOGO_* macros above and the EnMag_Draw* helpers, hence the include position.
+#include "ComboTitleLogos.h"
+#endif
+
 void EnMag_DrawInner(Actor* thisx, PlayState* play, Gfx** gfxP) {
     static s16 textAlpha = 0;
     static s16 textFadeDirection = 0;
@@ -533,6 +539,15 @@ void EnMag_DrawInner(Actor* thisx, PlayState* play, Gfx** gfxP) {
     Gfx_SetupDL_39Ptr(&gfx);
 
     this->effectScroll -= 2;
+
+#ifdef COMBO_BUILD
+    // ComboShip: dual-game title logos + flame effects (OOT left, MM right) draw instead of the
+    // original block below; the vendored code is kept untouched for upstream merges.
+    // See combo/title/ComboTitleLogos.h
+    if (ComboTitle_DrawLogos(&gfx, this, isMQ)) {
+        goto comboSkipOriginalLogoBlock;
+    }
+#endif
 
     gDPSetCycleType(gfx++, G_CYC_2CYCLE);
     gDPSetAlphaCompare(gfx++, G_AC_THRESHOLD);
@@ -609,6 +624,11 @@ void EnMag_DrawInner(Actor* thisx, PlayState* play, Gfx** gfxP) {
             }
         }
     }
+
+#ifdef COMBO_BUILD
+    // ComboShip: jump target for the combo-owned dual-logo draw above.
+comboSkipOriginalLogoBlock:;
+#endif
 
     if (gSaveContext.language == LANGUAGE_JPN) {
         this->unk_E30C++;

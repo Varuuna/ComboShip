@@ -625,3 +625,25 @@ GImGui still pointed at the freed context. Fixed: both games' DeinitOTR end with
 filter in ComboShip.cpp (`ComboLateCrashFilter` -> combo_late_crash.txt) which covers the
 post-Context window where lus's CrashHandler is gone/unusable; the filter + cerr shutdown markers
 are kept permanently.
+
+## Dual-game title screen logos (2026-06-12)
+
+**`soh/src/overlays/actors/ovl_En_Mag/z_en_mag.c`:** the OOT title screen now shows BOTH games'
+logos — OOT's shrunk and shifted left, MM's title logo (mask + Zelda logo + subtitle, ROM-extracted
+textures resolved against MM's ResourceManager via the G_COMBO_RM_PUSH/POP interpreter bracket) on
+the right. Both games' flame-effect mask grids (OOT 3x3 `gTitleEffectMask*`, MM 2x3
+`gTitleScreenDisplayEffectMask*` + per-cell `gTitleScreenFlame0-3`) draw behind their logos, scaled
+and repositioned with them; MM's oscillating effect colors are replicated in the combo header
+(OOT's EnMag doesn't carry MM state). The early-out therefore sits BEFORE the original effect-grid
+combiner setup, so the skipped vendored region spans from `gDPSetCycleType` through the MQ
+subtitle. All draw code
+is combo-owned (`combo/title/ComboTitleLogos.h`, included after the LOGO_* macros so it can reuse
+them and the EnMag_Draw* helpers). The vendored logo block in `EnMag_DrawInner` is left BYTE-INTACT
+for upstream merges; a `#ifdef COMBO_BUILD`-guarded early-out (`if (ComboTitle_DrawLogos(...))
+goto ...;` + a guarded label after the block) skips it at runtime, so non-combo builds compile the
+file unchanged. On future merges, keep the include + the goto wrapper and re-check
+that the duplicated OOT-logo draw sequence in ComboTitleLogos.h still matches upstream's (combiner
+setup, texture names, MQ subtitle branch).
+
+**`soh/CMakeLists.txt`:** added `${CMAKE_SOURCE_DIR}/combo/title` to the include dirs (next to the
+existing `combo/menu` entry).

@@ -562,3 +562,66 @@ tip (functions in hook_handlers.cpp are static/self-registered). ComboShip re-ad
 the check tracker for cross-game item display names. The file contains only `#ifdef COMBO_BUILD`
 declarations and MUST be preserved on future upstream merges — an upstream pull that "removes the
 deleted file" silently breaks the foreign shop/tracker name builds.
+
+## Sturdy shutdown: clean deinit of both games (2026-06-11)
+
+Closing the game on the window's X sometimes crashed or froze, and window resize/position changes
+were never saved. Three intertwined causes, all from MM staying resident (eager MM boot) while the
+shutdown path only deinitted SOH:
+
+**`soh/soh/OTRGlobals.cpp` + `mm/2s2h/BenPort.cpp` (`OTRAudio_Exit`):** the unconditional
+`audio.thread.join()` terminates (`std::system_error`) when the thread was already joined — which
+is exactly the case at combo shutdown for whichever game was BACKGROUND (its `*_PrepareForTransition`
+already ran `OTRAudio_Exit`). Guarded with `audio.thread.joinable()` in both games. This was the
+"crash on X" (deterministic when closing from MM; soh's `DeinitOTR` re-ran `OTRAudio_Exit` on the
+already-joined OOT audio thread).
+
+**`mm/2s2h/BenPort.cpp` (`MM_Deinit`, new export):** 2ship holds a `shared_ptr` to the SHARED
+Context (forward-transition reuse path in the OTRGlobals ctor) and nothing ever released it, so
+`~Ship::Context` — the ONLY place window geometry is saved (`SaveWindowToConfig` + `Config::Save`)
+and spdlog is shut down — never ran. `MM_Deinit` wraps MM's `DeinitOTR`. ComboShip.exe calls it
+BEFORE `SOH_Deinit` (BenGui::Destroy dereferences the live Context), so soh's `DeinitOTR` releases
+the LAST reference and `~Context` runs on the main thread. This is what fixed window-resize
+persistence.
+
+**`soh/soh/OTRGlobals.cpp` + `mm/2s2h/BenPort.cpp` (`DeinitOTR`), `libultraship`
+(`CrossRMRegistry::Unregister`, new):** both resident ResourceManagers were pinned by the
+`sOOT/sMMResourceManager` statics and the `CrossRMRegistry` map, deferring their destruction to
+DLL-unload static destructors — where `~ResourceManager`'s thread pool joins its worker threads
+UNDER THE LOADER LOCK and deadlocks. This was the "freeze on X". Each game's `DeinitOTR` now
+unregisters its RM and nulls its static (`#ifdef COMBO_BUILD`), so RM destruction happens during
+the explicit deinit calls on the main thread, before any `FreeLibrary`.
+
+Shutdown order (ComboShip.cpp cleanup): `MM_Deinit()` (if MM ever booted) → `SOH_Deinit()` →
+`FreeDll(comboui/2ship/soh)`. Everything thread-owning must be dead before the first FreeDll.
+
+**`mm/2s2h/DeveloperTools/MessageViewer.h` (follow-up — freeze moved here after the fixes above):**
+with MM_Deinit in place, BenGui::Destroy now actually destroys MM's window objects, and
+`~MessageViewerWindow` froze the debug heap: it does `free(mTextIdBuf)` / `free(mCustomMessageBuf)`,
+but those are only allocated in `InitElement()` — which NEVER ran in combo, because the shared Gui
+rejected MM's window as a duplicate name (OOT registers its own "Message Viewer" first;
+`Gui::AddGuiWindow` rejects + skips `Init()`). The members were raw uninitialized `char*` (0xCD
+debug fill) and freeing them hung `_free_dbg`. Fixed by null-initializing both members
+(`free(nullptr)` is a no-op). Audited all other MM GuiWindow destructors — MessageViewerWindow is
+the only one freeing InitElement-allocated raw pointers. The rejected-duplicate window class
+(known from the resume path) is worth remembering for any new MM window whose destructor frees
+state allocated in `InitElement()`.
+
+**`libultraship` `Gui::ImGuiWMShutdown`/`ImGuiBackendShutdown` (signature change — next crash in the
+chain):** with teardown actually reaching `~Context`, `Fast3dGui::ImGui{WM,Backend}Shutdown` AV'd:
+they called `Ship::Context::GetInstance()->GetWindow()`, but they run from `~Window` INSIDE
+`~Context`, where the Context weak_ptr is already expired (GetInstance() == nullptr). This killed
+the process BEFORE `~Context` reached `Config::Save()` — i.e. even with MM_Deinit in place, window
+geometry still wasn't persisted. Fixed by threading the `Ship::Window*` (which `ShutDownImGui`
+already received) through both virtuals instead of using GetInstance(). Affects Gui.h/Gui.cpp/
+Fast3dGui.h/Fast3dGui.cpp; a Gui.h change recompiles nearly everything in soh+mm.
+
+**`soh/soh/OTRGlobals.cpp` + `mm/2s2h/BenPort.cpp` (`DeinitOTR`, GImGui null-out — last crash in the
+chain):** after a fully clean main(), the process still AV'd in CRT exit: soh.dll's atexit dtor for
+`itemTrackerNotes` (static ImVector) called `ImGui::MemFree`, which dereferences the MODULE-LOCAL
+`GImGui` — `ImGui::DestroyContext` (in ~Context) only nulls libultraship's copy; each game DLL's
+GImGui still pointed at the freed context. Fixed: both games' DeinitOTR end with
+`ImGui::SetCurrentContext(nullptr)` (COMBO_BUILD-guarded). Found via the new last-chance crash
+filter in ComboShip.cpp (`ComboLateCrashFilter` -> combo_late_crash.txt) which covers the
+post-Context window where lus's CrashHandler is gone/unusable; the filter + cerr shutdown markers
+are kept permanently.

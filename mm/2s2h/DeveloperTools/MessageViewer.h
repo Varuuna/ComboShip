@@ -46,10 +46,13 @@ class MessageViewerWindow : public Ship::GuiWindow {
     static constexpr int HEXADECIMAL = 0;
     static constexpr int DECIMAL = 1;
 
-    char* mTextIdBuf;
+    // ComboShip: null-init — in combo the shared Gui rejects this window as a duplicate name (OOT
+    // registers its own "Message Viewer" first), so InitElement() never allocates these and the
+    // destructor would free 0xCD debug-heap garbage at MM_Deinit (the shutdown freeze).
+    char* mTextIdBuf = nullptr;
     uint16_t mTextId;
     int mTextIdBase = HEXADECIMAL;
-    char* mCustomMessageBuf;
+    char* mCustomMessageBuf = nullptr;
     std::string mCustomMessageString;
     bool mDisplayExistingMessageClicked = false;
     bool mDisplayCustomMessageClicked = false;

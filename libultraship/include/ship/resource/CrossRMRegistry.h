@@ -13,6 +13,7 @@ class ResourceManager;
 class CrossRMRegistry {
   public:
     static void Register(const std::string& name, std::shared_ptr<ResourceManager> rm);
+    static void Unregister(const std::string& name);
     static std::shared_ptr<ResourceManager> Get(const std::string& name);
 };
 } // namespace Ship

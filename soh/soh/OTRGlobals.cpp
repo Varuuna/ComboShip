@@ -1123,7 +1123,12 @@ extern "C" void OTRAudio_Exit() {
     audio.cv_to_thread.notify_all();
 
     // Wait until the audio thread quit
-    audio.thread.join();
+    // ComboShip: guard the join — at combo shutdown OTRAudio_Exit runs again after
+    // SOH_PrepareForTransition already joined the thread (OOT backgrounded, X pressed in MM);
+    // join() on a non-joinable thread throws std::system_error -> terminate.
+    if (audio.thread.joinable()) {
+        audio.thread.join();
+    }
 #if 0
     for (size_t i = 0; i < sequenceMapSize; i++) {
         free(sequenceMap[i]);
@@ -1640,7 +1645,23 @@ extern "C" void DeinitOTR() {
     SohGui::Destroy();
     sohFast3dWindow = nullptr;
 
+#ifdef COMBO_BUILD
+    // ComboShip: drop the resident-RM refs NOW so the ResourceManager is destroyed here on the
+    // main thread (releasing the context below destroys the last ref). Left in these statics /
+    // the registry, it would die in DLL-unload static destructors, where its thread pool joining
+    // its workers under the loader lock deadlocks (the shutdown freeze).
+    Ship::CrossRMRegistry::Unregister("oot");
+    sOOTResourceManager = nullptr;
+#endif
+
     OTRGlobals::Instance->context = nullptr;
+#ifdef COMBO_BUILD
+    // ComboShip: ~Context (above, on the last ref) ran ImGui::DestroyContext, but that only nulls
+    // libultraship's GImGui — this DLL's module-local GImGui still points at the freed context.
+    // soh statics destroyed at process exit (e.g. itemTrackerNotes, an ImVector) call
+    // ImGui::MemFree, which dereferences GImGui -> AV after main returns. Null it now.
+    ImGui::SetCurrentContext(nullptr);
+#endif
 }
 
 #ifdef COMBO_BUILD

@@ -120,8 +120,10 @@ void Fast3dGui::ImGuiWMInit() {
     RefreshImGuiGamepads();
 }
 
-void Fast3dGui::ImGuiWMShutdown() {
-    auto window = Ship::Context::GetInstance()->GetWindow();
+void Fast3dGui::ImGuiWMShutdown(Ship::Window* window) {
+    // ComboShip: use the passed window — Context::GetInstance() is already an expired weak_ptr here
+    // (this runs from ~Window inside ~Context) and dereferencing the null shared_ptr was an AV that
+    // killed the process BEFORE ~Context reached Config::Save (window geometry never persisted).
     switch (window->GetWindowBackend()) {
 #ifdef ENABLE_OPENGL
         case WindowBackend::FAST3D_SDL_OPENGL:
@@ -177,8 +179,8 @@ void Fast3dGui::ImGuiBackendInit() {
     }
 }
 
-void Fast3dGui::ImGuiBackendShutdown() {
-    auto window = Ship::Context::GetInstance()->GetWindow();
+void Fast3dGui::ImGuiBackendShutdown(Ship::Window* window) {
+    // ComboShip: use the passed window — see ImGuiWMShutdown.
     switch (window->GetWindowBackend()) {
 #ifdef ENABLE_OPENGL
         case WindowBackend::FAST3D_SDL_OPENGL:

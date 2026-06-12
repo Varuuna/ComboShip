@@ -213,16 +213,19 @@ class Gui {
     virtual void ImGuiWMInit();
 
     /** @brief Shuts down the platform/window-manager ImGui backend.
-     *  The base implementation is a no-op. */
-    virtual void ImGuiWMShutdown();
+     *  The base implementation is a no-op.
+     *  ComboShip: takes the window explicitly — this runs from ~Window inside ~Context, where
+     *  Context::GetInstance() is already an expired weak_ptr (null deref if used). */
+    virtual void ImGuiWMShutdown(Ship::Window* window);
 
     /** @brief Initialises the renderer ImGui backend (DX11 / OpenGL / Metal).
      *  The base implementation is a no-op. */
     virtual void ImGuiBackendInit();
 
     /** @brief Shuts down the renderer ImGui backend.
-     *  The base implementation is a no-op. */
-    virtual void ImGuiBackendShutdown();
+     *  The base implementation is a no-op.
+     *  ComboShip: takes the window explicitly — see ImGuiWMShutdown. */
+    virtual void ImGuiBackendShutdown(Ship::Window* window);
 
     /**
      * @brief Submits the ImGui draw data to the active graphics backend.

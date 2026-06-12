@@ -44,8 +44,68 @@ static void ComboTerminateHandler() {
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
+#include <DbgHelp.h>
+#pragma comment(lib, "dbghelp.lib")
 #else
 #include <dlfcn.h>
+#endif
+
+#ifdef _WIN32
+// Last-chance crash capture for LATE crashes (post-Context teardown, FreeLibrary, CRT exit /
+// static destructors). libultraship's CrashHandler can't cover this window: its seh_filter
+// dereferences Context::GetInstance(), which is already an expired weak_ptr by then, and the
+// handler itself is destroyed with the Context. Installed after the deinit calls in main;
+// ComboShip.exe stays loaded through process exit so the filter survives DLL unloads.
+// Writes module+symbol frames to combo_late_crash.txt (PDBs sit next to the DLLs in Debug).
+static LONG WINAPI ComboLateCrashFilter(PEXCEPTION_POINTERS ex) {
+    FILE* f = nullptr;
+    fopen_s(&f, "combo_late_crash.txt", "w");
+    if (!f) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    fprintf(f, "[ComboShip] late crash: exception 0x%08lX at %p\n", ex->ExceptionRecord->ExceptionCode,
+            ex->ExceptionRecord->ExceptionAddress);
+
+    HANDLE process = GetCurrentProcess();
+    SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
+    SymInitialize(process, nullptr, TRUE);
+
+    CONTEXT ctx = *ex->ContextRecord;
+    STACKFRAME64 frame = {};
+    frame.AddrPC.Offset = ctx.Rip;
+    frame.AddrPC.Mode = AddrModeFlat;
+    frame.AddrFrame.Offset = ctx.Rbp;
+    frame.AddrFrame.Mode = AddrModeFlat;
+    frame.AddrStack.Offset = ctx.Rsp;
+    frame.AddrStack.Mode = AddrModeFlat;
+
+    for (int i = 0; i < 64; i++) {
+        if (!StackWalk64(IMAGE_FILE_MACHINE_AMD64, process, GetCurrentThread(), &frame, &ctx, nullptr,
+                         SymFunctionTableAccess64, SymGetModuleBase64, nullptr) ||
+            frame.AddrPC.Offset == 0) {
+            break;
+        }
+        char module[MAX_PATH] = "???";
+        HMODULE hMod = nullptr;
+        GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           (LPCSTR)frame.AddrPC.Offset, &hMod);
+        if (hMod) {
+            GetModuleFileNameA(hMod, module, sizeof(module));
+        }
+        char symBuf[sizeof(SYMBOL_INFO) + 256] = {};
+        SYMBOL_INFO* sym = (SYMBOL_INFO*)symBuf;
+        sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+        sym->MaxNameLen = 255;
+        DWORD64 disp = 0;
+        if (SymFromAddr(process, frame.AddrPC.Offset, &disp, sym)) {
+            fprintf(f, "  %s + 0x%llx in %s\n", sym->Name, (unsigned long long)disp, module);
+        } else {
+            fprintf(f, "  0x%llx in %s\n", (unsigned long long)frame.AddrPC.Offset, module);
+        }
+    }
+    fclose(f);
+    return EXCEPTION_EXECUTE_HANDLER; // die quietly; the report is on disk
+}
 #endif
 
 // ---------- DLL helpers ----------
@@ -111,6 +171,7 @@ static FnDumpData MM_DumpRandoStaticData  = nullptr;
 // ComboShip: eager MM boot at startup (replaces the headless MM_InitRandoLogic warm-up).
 static FnVoidArgless MM_BootForCombo      = nullptr;
 static FnVoidArgless SOH_ResumeForeground = nullptr;
+static FnVoidArgless MM_Deinit            = nullptr;
 
 typedef void (*FnComboUIRegister)(void);
 static DllHandle           comboUIModule    = nullptr;
@@ -441,6 +502,7 @@ int main(int argc, char** argv) {
     SOH_SetOnComboGenerateRequestCallback = (FnSetGenReqCb)      GetSym(sohModule, "SOH_SetOnComboGenerateRequestCallback");
     SOH_SetSeedGenerated                  = (FnSetSeedGenerated) GetSym(sohModule, "SOH_SetSeedGenerated");
     MM_BootForCombo                  = (FnVoidArgless)        GetSym(mmModule,  "MM_BootForCombo");
+    MM_Deinit                        = (FnVoidArgless)        GetSym(mmModule,  "MM_Deinit");
     SOH_ResumeForeground             = (FnVoidArgless)        GetSym(sohModule, "SOH_ResumeForeground");
 
     // Inc4: oracle exports
@@ -660,17 +722,38 @@ int main(int argc, char** argv) {
         }
     }
 
-    // SOH context outlived MM (COMBO_BUILD keeps it alive across transition) — now fully tear it down.
+    // Teardown order matters: MM first (it holds a shared_ptr to the SHARED Context and BenGui::Destroy
+    // needs the Context alive), then SOH — its DeinitOTR releases the LAST Context reference, so
+    // ~Context runs here on the main thread: saves window geometry + config, destroys the window, and
+    // shuts down logging. Everything thread-owning (audio threads, ResourceManager thread pools) must
+    // be joined/destroyed before the FreeDll calls below — joining a thread during DLL unload runs
+    // under the loader lock and deadlocks.
+    // std::cerr (unbuffered) progress markers: spdlog is shut down by ~Context partway through this
+    // sequence, and a late crash otherwise leaves no trace of how far teardown got.
+    if (MM_Deinit && mmBooted) {
+        std::cerr << "[ComboShip] shutdown: MM_Deinit" << std::endl;
+        MM_Deinit();
+    }
     if (SOH_Deinit) {
+        std::cerr << "[ComboShip] shutdown: SOH_Deinit" << std::endl;
         SOH_Deinit();
     }
+    std::cerr << "[ComboShip] shutdown: deinit done" << std::endl;
+#ifdef _WIN32
+    // ~Context destroyed lus's CrashHandler (and its filter is Context-dependent anyway);
+    // install the late-crash filter for the FreeLibrary + CRT-exit window.
+    SetUnhandledExceptionFilter(ComboLateCrashFilter);
+#endif
 
     // --- 7. Cleanup ---
 
     // Generate is now synchronous — no background thread to join before freeing DLLs.
 
     if (comboUIModule) FreeDll(comboUIModule);
+    std::cerr << "[ComboShip] shutdown: comboui freed" << std::endl;
     FreeDll(mmModule);
+    std::cerr << "[ComboShip] shutdown: 2ship freed" << std::endl;
     FreeDll(sohModule);
+    std::cerr << "[ComboShip] shutdown: soh freed - exiting normally" << std::endl;
     return 0;
 }

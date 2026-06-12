@@ -19,6 +19,13 @@ void CrossRMRegistry::Register(const std::string& name, std::shared_ptr<Resource
     CrossRMMap()[name] = std::move(rm);
 }
 
+// Games unregister at deinit so the RM is destroyed on the main thread (its thread pool joins its
+// workers in the destructor); leaving it in this static map defers destruction to DLL unload,
+// where joining under the loader lock deadlocks.
+void CrossRMRegistry::Unregister(const std::string& name) {
+    CrossRMMap().erase(name);
+}
+
 std::shared_ptr<ResourceManager> CrossRMRegistry::Get(const std::string& name) {
     auto it = CrossRMMap().find(name);
     return it != CrossRMMap().end() ? it->second : nullptr;

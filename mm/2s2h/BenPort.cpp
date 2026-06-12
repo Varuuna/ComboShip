@@ -993,7 +993,12 @@ extern "C" void OTRAudio_Exit() {
     audio.cv_to_thread.notify_all();
 
     // Wait until the audio thread quit
-    audio.thread.join();
+    // ComboShip: guard the join — at combo shutdown MM_Deinit calls this again after
+    // MM_PrepareForTransition already joined the thread (MM backgrounded, X pressed in OOT);
+    // join() on a non-joinable thread throws std::system_error -> terminate.
+    if (audio.thread.joinable()) {
+        audio.thread.join();
+    }
 #ifndef COMBO_BUILD
     // In a combo build OTRAudio_Exit runs on every OOT<->MM transition, not just at shutdown. These
     // maps (gFontMap/gSequenceMap) + load-status arrays are populated once by AudioLoad_Init at boot
@@ -1174,9 +1179,36 @@ extern "C" void DeinitOTR() {
     BenGui::Destroy();
     benFast3dWindow = nullptr;
 
+#ifdef COMBO_BUILD
+    // ComboShip: drop the resident-RM refs NOW so MM's ResourceManager is destroyed on the main
+    // thread during shutdown (here, or in ~Context if MM's RM is still the active one). Left in
+    // these statics / the registry, it would die in DLL-unload static destructors, where its
+    // thread pool joining its workers under the loader lock deadlocks (the shutdown freeze).
+    Ship::CrossRMRegistry::Unregister("mm");
+    sMMResourceManager = nullptr;
+#endif
+
     OTRGlobals::Instance->context = nullptr;
     delete AudioCollection::Instance;
+#ifdef COMBO_BUILD
+    // ComboShip: this DLL's module-local GImGui still points at the shared ImGui context, which is
+    // destroyed when soh's DeinitOTR releases the last Context ref (right after this returns). Any
+    // 2ship static destroyed later that calls ImGui::MemFree would dereference the freed context
+    // (same class as soh's itemTrackerNotes AV). Null it now — MM is done with ImGui.
+    ImGui::SetCurrentContext(nullptr);
+#endif
 }
+
+#ifdef COMBO_BUILD
+// ComboShip: full MM teardown at process shutdown. MM holds a shared_ptr to the SHARED Context
+// (BenPort ctor reused OOT's), so without this the Context refcount never reaches zero, ~Context
+// never runs, and window geometry/config are never saved. ComboShip calls this BEFORE SOH_Deinit
+// (the Context must still be alive — BenGui::Destroy dereferences it) so SOH's DeinitOTR releases
+// the LAST reference and ~Context does its save/teardown on the main thread.
+extern "C" __declspec(dllexport) void MM_Deinit(void) {
+    DeinitOTR();
+}
+#endif
 
 #ifdef _WIN32
 extern "C" uint64_t GetFrequency() {

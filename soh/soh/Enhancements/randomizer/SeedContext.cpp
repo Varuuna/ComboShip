@@ -410,6 +410,9 @@ GetItemEntry Context::GetFinalGIEntry(const RandomizerCheck rc, const bool check
         giEntry.drawModIndex = fakeGiEntry->drawModIndex;
         giEntry.drawFunc = fakeGiEntry->drawFunc;
     }
+#ifdef COMBO_BUILD
+    giEntry.comboForeignCheck = rc; // ComboShip: see ItemTableTypes.h
+#endif
     return giEntry;
 }
 

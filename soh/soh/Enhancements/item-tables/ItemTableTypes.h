@@ -71,4 +71,10 @@ typedef struct GetItemEntry {
     /* 0x11 */ uint16_t drawModIndex; // Will be a copy of modIndex unless the item is an ice trap. Needed for particles
                                       // to function on ice traps.
     CustomDrawFunc drawFunc;
+#ifdef COMBO_BUILD
+    // ComboShip: originating RandomizerCheck (0 = RC_UNKNOWN_CHECK = none). All foreign checks share
+    // one sentinel entry; Randomizer_DrawComboForeign needs the check to resolve the real MM model.
+    // Trailing so every existing brace initializer zero-fills it; stamped in Context::GetFinalGIEntry.
+    int32_t comboForeignCheck;
+#endif
 } GetItemEntry; // size = 0x11

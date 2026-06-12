@@ -3,9 +3,6 @@
 #pragma once
 
 #include "../item-tables/ItemTableTypes.h"
-#ifdef COMBO_BUILD
-#include <stdint.h> // ComboShip: int32_t for Randomizer_SetComboForeignDrawCheck below
-#endif
 
 typedef struct PlayState PlayState;
 
@@ -39,11 +36,9 @@ void Randomizer_DrawOverworldKey(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawRocsFeather(PlayState* play, GetItemEntry* getItemEntry);
 #ifdef COMBO_BUILD
 // ComboShip: render a foreign (MM-bound) check with the real MM item model via "@mm:" cross-RM
-// routing; falls back to the blue-rupee sentinel when the model can't be resolved.
+// routing; falls back to the blue-rupee sentinel when the model can't be resolved. The check
+// identity rides in getItemEntry->comboForeignCheck (stamped by Context::GetFinalGIEntry).
 void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getItemEntry);
-// ComboShip: announce WHICH check the next foreign draw is for (the GetItemEntry carries no check
-// identity). Set by call sites that know their check (shop shelves); consumed by the draw.
-void Randomizer_SetComboForeignDrawCheck(int32_t randomizerCheck);
 #endif
 
 #define GET_ITEM_MYSTERY                                                                                 \

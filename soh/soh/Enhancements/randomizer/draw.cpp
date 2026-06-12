@@ -527,15 +527,11 @@ extern "C" void Randomizer_DrawRocsFeather(PlayState* play, GetItemEntry* getIte
 // "__OTR__@mm:"-routed paths that the shared Fast3D interpreter resolves against MM's
 // ResourceManager (CrossRMRegistry + scoped routing — see libultraship interpreter.cpp).
 
-// The GetItemEntry carries no check identity (all foreign checks share one sentinel entry), so call
-// sites that know their check announce it just before GetItemEntry_Draw (z_en_girla.c shop shelves).
-// The value is consumed by the next foreign draw. A stale value can only persist from a NON-foreign
-// shelf draw (no consumer), and a non-foreign check resolves to "no foreign entry" -> sentinel, so
-// staleness degrades safely.
-static RandomizerCheck sComboForeignDrawCheck = RC_UNKNOWN_CHECK;
-extern "C" void Randomizer_SetComboForeignDrawCheck(s32 randomizerCheck) {
-    sComboForeignDrawCheck = (RandomizerCheck)randomizerCheck;
-}
+// All foreign checks share one sentinel entry, so the check identity rides in the entry itself:
+// Context::GetFinalGIEntry stamps comboForeignCheck (ItemTableTypes.h) into every entry it returns,
+// which covers every draw path that knows its check (shop shelves, freestanding, chests, queued
+// get-item, ...). Entries built without a check (by-RandomizerGet copies) carry RC_UNKNOWN_CHECK
+// and degrade safely to the sentinel draw below.
 
 namespace {
 struct ComboForeignDrawInfo {
@@ -633,11 +629,10 @@ const ComboForeignDrawInfo* ComboResolveForeignDrawInfo(RandomizerCheck rc) {
 } // namespace
 
 extern "C" void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getItemEntry) {
-    RandomizerCheck rc = sComboForeignDrawCheck;
-    sComboForeignDrawCheck = RC_UNKNOWN_CHECK; // consume
+    RandomizerCheck rc = (RandomizerCheck)getItemEntry->comboForeignCheck;
     if (rc == RC_UNKNOWN_CHECK) {
-        // Get-item path fallback. Defensive: foreign checks are diverted before queueing today,
-        // so player-visible foreign draws come from call sites that used the explicit setter.
+        // Defensive: entries not built via GetFinalGIEntry carry no check; the queued get-item
+        // check is the only other identity source.
         rc = OOT_GetQueuedDrawCheck();
     }
 

@@ -2750,7 +2750,9 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             const std::string& vigName = Rando::StaticData::RetrieveItem(vanillaRG).GetName().GetEnglish();
             if (vigName.empty()) continue;
 
-            checks.push_back({ {"name", name}, {"vanillaItem", vigName} });
+            // ComboShip: advancement flag — the combined fill logic-places only progression items.
+            checks.push_back({ {"name", name}, {"vanillaItem", vigName},
+                               {"advancement", Rando::StaticData::RetrieveItem(vanillaRG).IsAdvancement()} });
         }
         usedPool = true;
     } catch (const std::exception& e) {
@@ -2775,7 +2777,9 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             const std::string& vigName = Rando::StaticData::RetrieveItem(vanillaRG).GetName().GetEnglish();
             if (vigName.empty()) continue;
 
-            checks.push_back({ {"name", name}, {"vanillaItem", vigName} });
+            // ComboShip: advancement flag — same as the pool path above.
+            checks.push_back({ {"name", name}, {"vanillaItem", vigName},
+                               {"advancement", Rando::StaticData::RetrieveItem(vanillaRG).IsAdvancement()} });
         }
     }
 

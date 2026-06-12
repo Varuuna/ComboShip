@@ -647,3 +647,29 @@ setup, texture names, MQ subtitle branch).
 
 **`soh/CMakeLists.txt`:** added `${CMAKE_SOURCE_DIR}/combo/title` to the include dirs (next to the
 existing `combo/menu` entry).
+
+## Cross-world fill rework: advancement flags + oracle lookup maps (2026-06-12)
+
+**Why:** the combined fill was rewritten (combo-owned `combo/rando/CrossWorldRando.h`) from
+"logic-place every pool item with a full oracle round-trip each" to the SoH-shaped assumed fill:
+logic-place only advancement items in batches, fast-fill junk, and fix the semantic bug where the
+assumed set included already-placed items (placed items are now collected by a driver-level
+cross-game sphere fixpoint — required because foreign placements can't be represented in either
+game's native state). Measured: 82s → ~6.5s per generate (Debug, 1151 checks), and the silent
+place-anywhere fallback is deleted (loud `result.error` after 10 failed passes instead).
+
+**`soh/soh/OTRGlobals.cpp` (`SOH_DumpRandoStaticData`, 2 sites):** each check entry now also emits
+`"advancement": RetrieveItem(vanillaRG).IsAdvancement()` so the combo fill can partition the pool.
+Inside the existing ComboShip export block.
+
+**`mm/2s2h/BenPort.cpp` (`MM_DumpRandoStaticData`):** same flag, MM predicate mirrors
+GlitchlessLogic's progression test: `randoItemType != RITYPE_JUNK && != RITYPE_HEALTH`.
+
+**`mm/2s2h/BenPort.cpp` (oracle block):** added build-once function-local-static lookup maps
+`Combo_MM_SpoilerNameToItemId` / `Combo_MM_CheckNameToCheckId`; `Combo_MM_Rando_SetOwnedItems` and
+`Combo_MM_Rando_PlaceItem` use them instead of per-name linear scans over `StaticData::Items` /
+`Checks` (SetOwnedItems runs once per reachability query — the fill's hot path). Plus
+`#include <unordered_map>` at the top. All inside the existing ComboShip export blocks.
+
+**On future merges:** if upstream reshapes `RandoItemType`, `StaticData::Items/Checks`, or SoH's
+`Item::IsAdvancement`, re-check the dump flag predicates and the two lookup-map builders.

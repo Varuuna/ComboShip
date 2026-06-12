@@ -6,6 +6,7 @@
 #include <chrono>
 #include <set>
 #include <sstream>
+#include <unordered_map> // ComboShip: oracle name->id lookup maps
 
 #include <ship/resource/CrossRMRegistry.h>
 #include <ship/resource/ResourceManager.h>
@@ -2794,6 +2795,10 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
             if (it != Rando::StaticData::Items.end() &&
                 it->second.spoilerName && it->second.spoilerName[0] != '\0') {
                 entry["vanillaItem"] = it->second.spoilerName;
+                // ComboShip: progression test mirrors GlitchlessLogic's (non-junk, non-health);
+                // the combined fill logic-places only these and fast-fills the rest.
+                entry["advancement"] = it->second.randoItemType != RITYPE_JUNK &&
+                                       it->second.randoItemType != RITYPE_HEALTH;
             }
         }
         if (!entry.contains("vanillaItem")) noVanillaItem++;
@@ -3068,17 +3073,41 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Reset(void) {
     memset(&gSaveContext, 0, sizeof(SaveContext));
 }
 
+// ComboShip: name->id lookup maps for the oracle hot path. SetOwnedItems runs once per
+// reachability query and PlaceItem once per commit entry; the previous per-name linear scans
+// over StaticData dominated fill time. StaticData is immutable after eager boot and the oracle
+// runs single-threaded, so build-once function-local statics are safe.
+static const std::unordered_map<std::string, RandoItemId>& Combo_MM_SpoilerNameToItemId() {
+    static const std::unordered_map<std::string, RandoItemId> map = [] {
+        std::unordered_map<std::string, RandoItemId> m;
+        for (auto& [id, item] : Rando::StaticData::Items) {
+            if (item.spoilerName && item.spoilerName[0] != '\0') m.emplace(item.spoilerName, id);
+        }
+        return m;
+    }();
+    return map;
+}
+
+static const std::unordered_map<std::string, RandoCheckId>& Combo_MM_CheckNameToCheckId() {
+    static const std::unordered_map<std::string, RandoCheckId> map = [] {
+        std::unordered_map<std::string, RandoCheckId> m;
+        for (auto& [id, chk] : Rando::StaticData::Checks) {
+            if (chk.name && chk.name[0] != '\0') m.emplace(chk.name, id);
+        }
+        return m;
+    }();
+    return map;
+}
+
 extern "C" __declspec(dllexport) void Combo_MM_Rando_SetOwnedItems(const char* itemNamesJson) {
     if (!itemNamesJson) return;
     try {
         auto items = nlohmann::json::parse(itemNamesJson);
+        const auto& nameToId = Combo_MM_SpoilerNameToItemId();
         for (const auto& name : items) {
-            std::string itemStr = name.get<std::string>();
-            for (auto& [id, item] : Rando::StaticData::Items) {
-                if (item.spoilerName && itemStr == item.spoilerName) {
-                    GiveItemForOracle(id);
-                    break;
-                }
+            auto it = nameToId.find(name.get<std::string>());
+            if (it != nameToId.end()) {
+                GiveItemForOracle(it->second);
             }
         }
     } catch (...) {}
@@ -3127,18 +3156,13 @@ extern "C" __declspec(dllexport) const char* Combo_MM_Rando_GetReachableChecks(v
 extern "C" __declspec(dllexport) void Combo_MM_Rando_PlaceItem(
     const char* checkName, const char* itemName) {
     if (!checkName || !itemName) return;
-    for (auto& [id, chk] : Rando::StaticData::Checks) {
-        if (chk.name && std::string(chk.name) == checkName) {
-            for (auto& [ri, item] : Rando::StaticData::Items) {
-                if (item.spoilerName && std::string(item.spoilerName) == itemName) {
-                    RANDO_SAVE_CHECKS[id].randoItemId = ri;
-                    RANDO_SAVE_CHECKS[id].shuffled = true;
-                    return;
-                }
-            }
-            return;
-        }
-    }
+    // ComboShip: map lookups replace the nested name scans (this runs once per committed check).
+    auto chkIt = Combo_MM_CheckNameToCheckId().find(checkName);
+    if (chkIt == Combo_MM_CheckNameToCheckId().end()) return;
+    auto itemIt = Combo_MM_SpoilerNameToItemId().find(itemName);
+    if (itemIt == Combo_MM_SpoilerNameToItemId().end()) return;
+    RANDO_SAVE_CHECKS[chkIt->second].randoItemId = itemIt->second;
+    RANDO_SAVE_CHECKS[chkIt->second].shuffled = true;
 }
 
 extern "C" __declspec(dllexport) void Combo_MM_Rando_Restore(void) {

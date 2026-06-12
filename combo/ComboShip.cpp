@@ -660,6 +660,17 @@ int main(int argc, char** argv) {
         std::cout << "[ComboShip] Combo generate-request handler registered." << std::endl;
     }
 
+    // ComboShip: env-gated headless generate — COMBO_AUTOGEN_SEED=<seed> runs the cross-world
+    // fill once at startup (timed) so fill changes are verifiable without driving the UI.
+    if (const char* autogenSeed = std::getenv("COMBO_AUTOGEN_SEED")) {
+        std::cout << "[ComboShip] COMBO_AUTOGEN_SEED='" << autogenSeed << "' — running fill\n";
+        auto t0 = std::chrono::steady_clock::now();
+        Combo_OnGenerateRequest(autogenSeed, nullptr);
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now() - t0).count();
+        std::cout << "[ComboShip] autogen fill finished in " << ms << " ms" << std::endl;
+    }
+
     if (SOH_SetOnNewSaveCallback && MM_InitSaveFile) {
         SOH_SetOnNewSaveCallback(Combo_OnOOTSaveInit);
         std::cout << "[ComboShip] OOT new-save callback registered." << std::endl;

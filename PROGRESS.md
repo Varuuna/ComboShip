@@ -1,4 +1,20 @@
-# ComboShip Progress — updated 2026-06-11 (evening)
+# ComboShip Progress — updated 2026-06-12
+
+## Latest: cross-world fill rework (2026-06-12, on develop, uncommitted)
+
+`CrossWorldCombinedFill` rewritten to a real SoH-shaped assumed fill: logic-places only
+advancement items (572 of 1151 at current settings) in conservative batches (cap 16, halves on
+shortfall), junk fast-fills with zero oracle calls, and a driver-level CROSS-GAME sphere fixpoint
+collects placed items (fixes the invalid "assume everything incl. placed" semantics; foreign
+placements can't live in either game's native state, so the fixpoint must span both games).
+Silent place-anywhere fallback DELETED — 10 retry passes then loud `result.error`. Post-fill
+validation: every advancement-holding check reachable from scratch (junk on oracle-unreachable
+checks is logged, not failed — 281 such checks today, 280 of them MM = the zeroed-save-options
+hole). Measured: **82s → ~6.5s** per generate (Debug), 8040 → ~340×2 oracle queries, byte-identical
+spoiler per seed, pass-1 success on tested seeds. Vendored (~44 lines, in ComboShip export blocks,
+see UPSTREAM_MERGES.md): `advancement` flag in both dumps; MM oracle name→id lookup maps.
+Headless verification: `COMBO_AUTOGEN_SEED=<seed> ComboShip.exe` runs the fill at startup, timed,
+with per-oracle query stats in the log.
 
 Quick-resume notes. Newest work first. Branch state at last update:
 **`fix/cross-item-visuals`** (active, ~30 commits ahead of `develop`), `develop` is 79 commits
@@ -83,9 +99,10 @@ Plan: `docs/superpowers/plans/2026-06-11-cross-item-visuals.md` (tasks checked o
 
 ## Known open items (not on any branch)
 
-- Rando logic-respect holes (assessed, unfixed; priority order): MM oracle evaluates logic
-  with ZEROED save options; combined fill's assumed set includes already-placed items (not
-  valid assumed fill); silent place-anywhere fallback; portal gate disabled (`portalCheckName=""`).
+- Rando logic-respect holes (remaining after the 2026-06-12 fill rework, which FIXED the
+  invalid assumed set + deleted the place-anywhere fallback): MM oracle evaluates logic with
+  ZEROED save options (manifests as 280 MM checks oracle-unreachable even with full inventory —
+  junk-only today); portal gate disabled (`portalCheckName=""`).
 - Within-category count/sub-rule settings bypassed by the wholesale fill (shopsanity counts/
   prices, scrubs, cows, tokens).
 - OOT check tracker has never worked (pre-existing, predates everything above).

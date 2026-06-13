@@ -12,7 +12,11 @@
 #include <iostream>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
+#include <vector>
+#include <set>
+#include <unordered_set>
 #include <exception>
 #include <cstdlib>
 #include <atomic>
@@ -423,6 +427,158 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
     return failures;
 }
 
+// ComboShip: headless cross-world PLAYTHROUGH log. Generates one seed, then replays it sphere by
+// sphere — a sphere is everything newly reachable given what you have so far — listing each item in
+// the order it becomes obtainable, across both games (OOT->MM portal honored), until the seed is
+// BEATABLE. Beatable is defined exactly as the user framed it: "can kill Ganon" AND "can kill Majora".
+//   - OOT "can kill Ganon": the "Ganon" goal location is reachable (SOH's win check).
+//   - MM "can kill Majora": Majora's Lair is reachable (gated on RemainsCount/MoonMaskCount in
+//     Logic.cpp); surfaced via its in-region check RC_MOON_MAJORA_POT_01.
+// Full sphere log is written to saves/combo/slot0.playthrough.txt; a summary prints to stdout.
+// Env-gated via COMBO_PLAYTHROUGH=<seed>.
+static void RunComboPlaythrough(const std::string& inputSeed) {
+    using namespace ComboRando; // GameId / GAME_OOT / GAME_MM / OracleFns / CrossWorldCombinedFill
+    // Endgame signals the oracles actually emit:
+    //   OOT — top of Ganon's Tower (all four trials cleared) reachable AND the Ganon's Castle Boss Key
+    //   owned = standing at Ganondorf's door, able to enter the fight. (The literal "Ganon" location
+    //   needs CanUse(RG_MASTER_SWORD), which gates on the master-sword EQUIP flag that the headless
+    //   reachability engine doesn't model, so it never reports reachable — this is the reliable proxy.)
+    //   MM  — Majora's Lair reachable (its access already encodes the remains/masks requirement),
+    //   surfaced via the in-lair check RC_MOON_MAJORA_POT_01.
+    static const char* kOotTowerTop = "Ganon's Castle Tower Boss Key Chest";
+    static const char* kOotBossKey  = "Ganon's Castle Boss Key";
+    static const char* kMmWin       = "RC_MOON_MAJORA_POT_01";
+
+    if (!(Combo_SOH_Rando_Reset && Combo_SOH_Rando_SetOwnedItems && Combo_SOH_Rando_GetReachableChecks &&
+          Combo_SOH_Rando_PlaceItem && Combo_MM_Rando_Reset && Combo_MM_Rando_SetOwnedItems &&
+          Combo_MM_Rando_GetReachableChecks && Combo_MM_Rando_PlaceItem && Combo_MM_Rando_Restore)) {
+        std::cerr << "[PLAYTHROUGH] oracle exports unavailable\n"; return;
+    }
+    if (!SOH_DumpRandoStaticData || !MM_DumpRandoStaticData) {
+        std::cerr << "[PLAYTHROUGH] dump functions not resolved\n"; return;
+    }
+    std::string sohDump = SOH_DumpRandoStaticData();
+    std::string mmDump  = MM_DumpRandoStaticData();
+
+    ComboRando::OracleFns ootOracle = {
+        Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
+        Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem
+    };
+    ComboRando::OracleFns mmOracle = {
+        Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
+        Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem
+    };
+
+    std::string seedStr = inputSeed.empty() ? "1" : inputSeed;
+    uint32_t masterSeed = ComboHash(seedStr.c_str());
+    auto fill = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle, "", nullptr);
+    Combo_MM_Rando_Restore();
+    if (!fill.success) {
+        std::cerr << "[PLAYTHROUGH] seed '" << seedStr << "' did not generate: " << fill.error << "\n";
+        return;
+    }
+
+    // Parse placements: check -> (itemName, itemGame). itemGame defaults to the check's game unless a
+    // foreign marker says otherwise (foreign = cross-game placement).
+    struct Placed { GameId checkGame; std::string check; GameId itemGame; std::string item; };
+    std::vector<Placed> placements;
+    std::unordered_set<std::string> foreignKey; // "<cg>:<cn>" -> item is from the other game
+    std::unordered_map<std::string, GameId> foreignItemGame;
+    try {
+        auto j = nlohmann::json::parse(fill.spoilerJson);
+        for (auto& fm : j.value("foreign", nlohmann::json::array())) {
+            std::string cg = fm.value("checkGame", ""), cn = fm.value("checkName", "");
+            std::string ig = fm.value("itemGame", "");
+            foreignKey.insert(cg + ":" + cn);
+            foreignItemGame[cg + ":" + cn] = (ig == "mm") ? GAME_MM : GAME_OOT;
+        }
+        auto addGame = [&](const char* key, GameId cg) {
+            if (!j.contains(key) || !j[key].is_object()) return;
+            for (auto& [cn, iv] : j[key].items()) { // iterate the lvalue, not a temporary copy
+                std::string fk = std::string(key) + ":" + cn;
+                GameId ig = foreignKey.count(fk) ? foreignItemGame[fk] : cg;
+                placements.push_back({ cg, cn, ig, iv.get<std::string>() });
+            }
+        };
+        addGame("oot", GAME_OOT);
+        addGame("mm", GAME_MM);
+    } catch (const std::exception& e) {
+        std::cerr << "[PLAYTHROUGH] spoiler parse error: " << e.what() << "\n"; return;
+    }
+
+    auto queryReachable = [&](const ComboRando::OracleFns& o, const std::vector<std::string>& owned) {
+        nlohmann::json arr = nlohmann::json::array();
+        for (auto& n : owned) arr.push_back(n);
+        o.Reset();
+        o.SetOwnedItems(arr.dump().c_str());
+        std::unordered_set<std::string> out;
+        try { for (auto& n : nlohmann::json::parse(o.GetReachableChecks())) out.insert(n.get<std::string>()); }
+        catch (...) {}
+        return out;
+    };
+
+    std::vector<std::string> ownedOot, ownedMm;
+    std::unordered_set<std::string> collected; // "<cg>:<cn>"
+    std::ostringstream log;
+    log << "Cross-world playthrough - seed '" << seedStr << "' (master " << masterSeed << ")\n"
+        << "Beatable when: Ganondorf reachable (OOT: all trials cleared + Boss Key owned)"
+        << " AND Majora's Lair reachable (MM).\n\n";
+
+    int beatableSphere = -1;
+    const int kMaxSpheres = 200;
+    for (int sphere = 0; sphere < kMaxSpheres; ++sphere) {
+        auto ootReach = queryReachable(ootOracle, ownedOot);
+        auto mmReach  = queryReachable(mmOracle, ownedMm);
+        bool canGanon  = ootReach.count(kOotTowerTop) > 0 &&
+                         std::find(ownedOot.begin(), ownedOot.end(), kOotBossKey) != ownedOot.end();
+        bool canMajora = mmReach.count(kMmWin) > 0;
+        if (canGanon && canMajora) { beatableSphere = sphere; break; }
+
+        std::vector<Placed> newly;
+        for (auto& p : placements) {
+            std::string key = (p.checkGame == GAME_OOT ? "oot:" : "mm:") + p.check;
+            if (collected.count(key)) continue;
+            const auto& reach = (p.checkGame == GAME_OOT) ? ootReach : mmReach;
+            if (reach.count(p.check)) newly.push_back(p);
+        }
+        if (newly.empty()) {
+            log << "Sphere " << sphere << ": (stuck — nothing new reachable, not yet beatable)\n";
+            break;
+        }
+        log << "Sphere " << sphere << "  (Ganon=" << (canGanon ? "Y" : "n")
+            << " Majora=" << (canMajora ? "Y" : "n") << ", +" << newly.size() << " items)\n";
+        for (auto& p : newly) {
+            std::string key = (p.checkGame == GAME_OOT ? "oot:" : "mm:") + p.check;
+            collected.insert(key);
+            (p.itemGame == GAME_OOT ? ownedOot : ownedMm).push_back(p.item);
+            log << "    [" << (p.checkGame == GAME_OOT ? "OOT" : "MM ") << "] " << p.check
+                << "  <-  " << p.item
+                << (p.checkGame != p.itemGame ? (p.itemGame == GAME_OOT ? "  (OOT item)" : "  (MM item)") : "")
+                << "\n";
+        }
+    }
+    Combo_MM_Rando_Restore();
+
+    if (beatableSphere >= 0) {
+        log << "\nBEATABLE at sphere " << beatableSphere
+            << ": Ganon AND Majora both reachable. Seed is completable.\n";
+    } else {
+        log << "\nNOT proven beatable within " << kMaxSpheres << " spheres (see stuck note above).\n";
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directories("saves/combo", ec);
+    std::string path = "saves/combo/slot0.playthrough.txt";
+    { std::ofstream f(path, std::ios::trunc); f << log.str(); }
+
+    std::cout << "[PLAYTHROUGH] seed '" << seedStr << "' — "
+              << (beatableSphere >= 0 ? "BEATABLE" : "NOT beatable")
+              << (beatableSphere >= 0 ? (" at sphere " + std::to_string(beatableSphere)) : "")
+              << "; full sphere log -> " << path << "\n";
+    std::cout << "[PLAYTHROUGH] collected " << collected.size() << " items across "
+              << (beatableSphere >= 0 ? beatableSphere : kMaxSpheres) << " spheres before the win\n";
+}
+
 // ComboShip Task 6 / Inc7: request handler — called by SOH_TriggerComboGenerate from the UI.
 // Runs synchronously on the calling (game) thread — the background thread was removed because
 // it raced the games' single-threaded rando logic and caused crashes.
@@ -745,6 +901,15 @@ int main(int argc, char** argv) {
         std::cout.flush();
         std::cerr.flush();
         std::exit(failures == 0 ? 0 : 1);
+    }
+
+    // ComboShip: env-gated playthrough log — COMBO_PLAYTHROUGH=<seed> generates that seed and writes a
+    // sphere-by-sphere "what you grab, in what order, until Ganon+Majora are both killable" log.
+    if (const char* ptSeed = std::getenv("COMBO_PLAYTHROUGH")) {
+        RunComboPlaythrough(std::string(ptSeed));
+        std::cout.flush();
+        std::cerr.flush();
+        std::exit(0);
     }
 
     if (SOH_SetOnNewSaveCallback && MM_InitSaveFile) {

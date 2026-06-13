@@ -7,6 +7,11 @@
 // DESIGN NOTE: NO ResourceManager usage here. RM scoping for invoke callbacks is GAME-SIDE
 // (inside each game's own invoke/draw/eval export). comboui only calls game.evalDisabled,
 // game.invokeCallback and game.drawCustom by index — no shared_ptr crosses the boundary.
+//
+// KNOWN ISSUE (docs/KNOWN_ISSUES.md): settings whose effect depends on a registered per-page
+// MenuUpdate function (e.g. SoH's Advanced Resolution editor — local-var bindings translated to
+// effective CVars by UpdateResolutionVars) do NOT apply through this generic CVar-write path.
+// Toggling them here writes the UI CVars but not the effective ones, so the viewport never changes.
 #include "ComboWidgetRender.h"
 #include "ComboMenuModel.h" // GameMenu (resolved export fn-ptrs)
 #include "ComboWidgetStyle.h" // combo-owned replication of OOT UIWidgets menu styling

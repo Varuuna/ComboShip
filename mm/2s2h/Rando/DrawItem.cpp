@@ -22,6 +22,15 @@ extern "C" {
 Gfx* ResourceMgr_LoadGfxByName(const char* path);
 }
 
+#ifdef COMBO_BUILD
+// ComboShip: cross-game foreign-item rendering. A check holding RI_COMBO_FOREIGN actually holds an
+// OOT item; MM_DrawComboForeign renders the real OOT model via "@oot:" cross-RM routing (sentinel
+// blue rupee when it can't be resolved). Bodies live in the combo-owned TU-glue header, included
+// after the engine headers above (outside the extern "C" block — it is C++). Mirror of soh's
+// Randomizer_DrawComboForeign.
+#include "ComboForeignDrawMM.h"
+#endif
+
 s32 StrayFairyOverrideLimbDraw(PlayState* play, s32 limbIndex, Gfx** dList, Vec3f* pos, Vec3s* rot, Actor* thisx,
                                Gfx** gfx) {
     if (limbIndex == STRAY_FAIRY_LIMB_RIGHT_FACING_HEAD) {
@@ -673,6 +682,13 @@ void Rando::DrawItem(RandoItemId randoItemId, RandoCheckId randoCheckId, Actor* 
         case RI_NONE:
         case RI_UNKNOWN:
             break;
+#ifdef COMBO_BUILD
+        case RI_COMBO_FOREIGN:
+            // ComboShip: this MM check holds an OOT item — render the real OOT model (sentinel blue
+            // rupee on any failure). The originating check identity is passed straight through.
+            MM_DrawComboForeign(randoCheckId);
+            break;
+#endif
         default:
             GetItem_Draw(gPlayState, Rando::StaticData::Items[randoItemId].drawId);
             break;

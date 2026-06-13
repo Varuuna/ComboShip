@@ -673,3 +673,41 @@ GlitchlessLogic's progression test: `randoItemType != RITYPE_JUNK && != RITYPE_H
 
 **On future merges:** if upstream reshapes `RandoItemType`, `StaticData::Items/Checks`, or SoH's
 `Item::IsAdvancement`, re-check the dump flag predicates and the two lookup-map builders.
+
+## Foreign OOT items render real models in the MM world (2026-06-13)
+
+**Why:** the mirror of the OOT-side foreign rendering (commit `164460dce`). An MM check holding the
+foreign sentinel (`RI_COMBO_FOREIGN`, an OOT-bound item) drew a blue rupee because `Rando::DrawItem`
+had no case for it. Now it renders the real OOT model via the same cross-RM mechanism OOT already
+uses for MM items, just in the opposite direction (`"__OTR__@oot:"` paths resolved against OOT's
+resident ResourceManager). All real logic is combo-owned; the game-source footprint is one guarded
+function plus one guarded include + case.
+
+**`soh/src/code/z_draw.c` (vendored, COMBO_BUILD-guarded — preserve on future soh merges):** added a
+self-contained `GetItem_GetDrawTableEntry(drawId, outDlists, maxDlists, outXluStart, outScale)`
+immediately after `GetItem_Draw`. The exact OOT analog of MM's same-named function
+(`mm/src/code/z_draw.c`, added earlier for the reverse direction): it decodes one `sDrawItemTable`
+row into submission-ordered OTR dlist paths + OPA/XLU split + optional uniform scale, for the
+"self-contained" draw funcs only (`GetItem_DrawOpa0`/`Opa0Xlu1`/`Xlu01`/`EggOrMedallion`/`Compass`/
+`MaskOrBombchu`/`MagicArrow`/`Opa10Xlu2`/`Opa1023`/`Opa10Xlu32`/`SmallRupee`(0.7 scale)/`BulletBag`/
+`Wallet`). Funcs needing extra runtime state (segment-8 scrolls, billboard, grayscale, per-instance
+prim/env globals, special matrices) return 0 → MM falls back to its sentinel. No original lines
+moved/deleted. On future merges: if upstream changes the `sDrawItemTable` draw-func set or row
+layout, re-check the func→order mapping here.
+
+**Combo-owned (no further vendored churn):**
+- `combo/menu/ComboItemDrawOOT.h` — soh.dll exports `OOT_GetItemDrawInfo` / `OOT_GetItemAnimDrawInfo`
+  (C ABI in `ComboItemDrawABI.h`). Mirror of `ComboItemDrawMM.h`. Resolves the foreign map's English
+  `itemName` → `itemNameToEnum` → `RetrieveItem(rg).GetGIEntry_Copy().gid` → `GetItem_GetDrawTableEntry`.
+  The anim export always returns 0 (OOT has no skeletal-animated foreign class). Included once from
+  `soh/soh/Enhancements/randomizer/item_list.cpp` under COMBO_BUILD (mirror of the `ComboItemDrawMM.h`
+  include in `mm/2s2h/BenPort.cpp`).
+- `combo/menu/ComboForeignDrawMM.h` — 2ship.dll consumer `MM_DrawComboForeign(RandoCheckId)`. Mirror
+  of `Randomizer_DrawComboForeign` (`soh/.../draw.cpp`): `MM_LookupForeign` → `GetProcAddress(soh.dll,
+  OOT_GetItemDrawInfo)` → route paths with `"__OTR__@oot:"` → submit OPA/XLU layers (per-check
+  per-slot cache + sentinel fallback). MM passes the `RandoCheckId` straight into `Rando::DrawItem`,
+  so no GetItemEntry-stamping analog is needed.
+
+**`mm/2s2h/Rando/DrawItem.cpp` (port code, COMBO_BUILD-guarded):** `#include "ComboForeignDrawMM.h"`
+(outside the `extern "C"` block) + a `case RI_COMBO_FOREIGN: MM_DrawComboForeign(randoCheckId);` in
+`Rando::DrawItem`.

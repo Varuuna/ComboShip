@@ -402,6 +402,92 @@ void GetItem_Draw(PlayState* play, s16 drawId) {
     sDrawItemTable[drawId].drawFunc(play, drawId);
 }
 
+#ifdef COMBO_BUILD
+// ComboShip: expose one sDrawItemTable row for cross-game rendering — the OOT analog of MM's
+// GetItem_GetDrawTableEntry (mm/src/code/z_draw.c). The OTHER game (MM) asks soh.dll which display
+// lists draw a foreign OOT item (OOT_GetItemDrawInfo in combo/menu/ComboItemDrawOOT.h) and submits
+// them through "__OTR__@oot:"-routed paths resolved against OOT's ResourceManager (CrossRMRegistry).
+//
+// Only "self-contained" draw funcs are exposed — funcs that merely submit dlists under plain
+// Gfx_SetupDL_25/26 Opa/Xlu state (plus an optional uniform scale). Funcs needing extra OOT runtime
+// state (segment-8 texture scrolls, billboard rotation, grayscale, per-instance prim/env globals,
+// special matrices — RecoveryHeart/Fish/Potion/Poes/Fairy/BlueFire/SkullToken/MirrorShield/Scale/
+// GoronSword/DekuNuts/MagicSpell/Jewel*/GenericMusicNote/TriforcePiece/FishingPole/SoldOut) are NOT
+// portable to the other game's frame and return 0; the foreign game then falls back to its sentinel.
+// The 26Opa funcs (MaskOrBombchu/EggOrMedallion) are exposed as 25Opa — a close approximation, like
+// MM's Compass note. outDlists is filled in SUBMISSION order (some funcs draw color DLs before
+// geometry); *outXluStart is the index of the first XLU-layer entry within that order (-1 = all OPA).
+// Returns the dlist count, or 0 if the row is unsupported/undrawable.
+s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale) {
+    static const s8 sOrder0[] = { 0 };
+    static const s8 sOrder01[] = { 0, 1 };
+    static const s8 sOrder012[] = { 0, 1, 2 };
+    static const s8 sOrder102[] = { 1, 0, 2 };
+    static const s8 sOrder1023[] = { 1, 0, 2, 3 };
+    static const s8 sOrder1032[] = { 1, 0, 3, 2 };
+    static const s8 sOrder10234[] = { 1, 0, 2, 3, 4 };
+    static const s8 sOrderWallet[] = { 1, 0, 2, 3, 4, 5, 6, 7 };
+    void (*drawFunc)(PlayState*, s16);
+    Gfx** res;
+    const s8* order;
+    s32 count;
+    s32 xluStart;
+    s32 i;
+
+    if ((drawId < 0) || (drawId >= (s32)(sizeof(sDrawItemTable) / sizeof(sDrawItemTable[0]))) ||
+        (outDlists == NULL) || (outXluStart == NULL) || (outScale == NULL)) {
+        return 0;
+    }
+    *outScale = 0.0f; // 0 = no extra scale
+    drawFunc = sDrawItemTable[drawId].drawFunc;
+    res = sDrawItemTable[drawId].dlists;
+
+    if (drawFunc == GetItem_DrawOpa0) {
+        order = sOrder0; count = 1; xluStart = -1;
+    } else if ((drawFunc == GetItem_DrawMaskOrBombchu)) {
+        order = sOrder0; count = 1; xluStart = -1; // 26Opa -> 25Opa approximation
+    } else if (drawFunc == GetItem_DrawOpa0Xlu1) {
+        order = sOrder01; count = 2; xluStart = 1;
+    } else if (drawFunc == GetItem_DrawXlu01) {
+        order = sOrder01; count = 2; xluStart = 0;
+    } else if (drawFunc == GetItem_DrawEggOrMedallion) {
+        order = sOrder01; count = 2; xluStart = -1; // 26Opa -> 25Opa approximation, both OPA
+    } else if (drawFunc == GetItem_DrawCompass) {
+        // The XLU layer really uses SETUPDL_5; the consumer's 25Xlu is a close approximation.
+        order = sOrder01; count = 2; xluStart = 1;
+    } else if (drawFunc == GetItem_DrawMagicArrow) {
+        order = sOrder012; count = 3; xluStart = 1;
+    } else if (drawFunc == GetItem_DrawOpa10Xlu2) {
+        order = sOrder102; count = 3; xluStart = 2;
+    } else if (drawFunc == GetItem_DrawOpa1023) {
+        order = sOrder1023; count = 4; xluStart = -1;
+    } else if (drawFunc == GetItem_DrawOpa10Xlu32) {
+        order = sOrder1032; count = 4; xluStart = 2;
+    } else if (drawFunc == GetItem_DrawSmallRupee) {
+        order = sOrder1032; count = 4; xluStart = 2;
+        *outScale = 0.7f; // SmallRupee applies a 0.7 uniform model scale; carry it across
+    } else if (drawFunc == GetItem_DrawBulletBag) {
+        order = sOrder10234; count = 5; xluStart = 2;
+    } else if (drawFunc == GetItem_DrawWallet) {
+        order = sOrderWallet; count = 8; xluStart = -1;
+    } else {
+        return 0;
+    }
+
+    if (count > maxDlists) {
+        count = maxDlists;
+    }
+    for (i = 0; i < count; i++) {
+        if (res[order[i]] == NULL) {
+            return 0; // padded/unused rows are not drawable
+        }
+        outDlists[i] = (void*)res[order[i]];
+    }
+    *outXluStart = (xluStart > count) ? count : xluStart;
+    return count;
+}
+#endif
+
 /**
  * Draw "Get Item" Model from a `GetItemEntry`
  * Uses the Custom Draw Function if it exists, or just calls `GetItem_Draw`

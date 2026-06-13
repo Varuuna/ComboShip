@@ -9,6 +9,13 @@
 
 using namespace Rando;
 
+#ifdef COMBO_BUILD
+// ComboShip: cross-game item-draw exports (OOT_GetItemDrawInfo / OOT_GetItemAnimDrawInfo) — bodies
+// live in the combo-owned TU-glue header to keep the vendored footprint to this include. Mirror of
+// mm/2s2h/BenPort.cpp's ComboItemDrawMM.h include, in the opposite direction.
+#include "ComboItemDrawOOT.h"
+#endif
+
 std::array<Item, RG_MAX> Rando::StaticData::itemTable;
 std::unordered_map<std::string, RandomizerGet> Rando::StaticData::itemNameToEnum;
 

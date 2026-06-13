@@ -2846,6 +2846,10 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
 
 static SaveContext sMM_OracleSavedContext;
 static uint64_t sMM_OracleSavedRegionTime;
+// ComboShip: Reset runs once PER REACHABILITY QUERY (dozens per fill) but Restore only once at the
+// end of the whole fill. Without this flag the second Reset snapshots the already-zeroed context,
+// so Restore would write garbage (zeros) back into MM's live save after generation.
+static bool sMM_OracleActive = false;
 using Rando::Logic::gCurrentRegionTime;
 
 // Headless item-give: sets gSaveContext fields without ever touching gPlayState.
@@ -3068,9 +3072,28 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Reset(void) {
     // ComboShip: MM's region graph + static data are now built by the real eager boot
     // (MM_BootForCombo -> ShipInit::InitAll), replacing the deleted headless MM_InitRandoLogic
     // warm-up; the oracle no longer needs a lazy init here.
-    memcpy(&sMM_OracleSavedContext, &gSaveContext, sizeof(SaveContext));
-    sMM_OracleSavedRegionTime = gCurrentRegionTime;
+    if (!sMM_OracleActive) { // snapshot the REAL live context only on the first Reset of a fill
+        memcpy(&sMM_OracleSavedContext, &gSaveContext, sizeof(SaveContext));
+        sMM_OracleSavedRegionTime = gCurrentRegionTime;
+        sMM_OracleActive = true;
+    }
     memset(&gSaveContext, 0, sizeof(SaveContext));
+
+    // ComboShip: the reachability logic reads RANDO_SAVE_OPTIONS (== gSaveContext.save.shipSaveInfo.
+    // rando.randoSaveOptions) and gates on IS_RANDO (saveType == SAVETYPE_RANDO). The memset above
+    // just wiped both, and NOTHING else populates them in the headless oracle path — the seed's
+    // options only ever land in a local RandoSaveInfo for the dump/pool (MM_DumpRandoStaticData),
+    // never in the live context the oracle evaluates against. Without this, MM reachability runs with
+    // every option at 0 (dungeons not open, all shuffles off), under-counting reachable checks; the
+    // cross-world fill then dead-ends once the OOT pool can't absorb the whole progression set (e.g.
+    // when grass/pots aren't shuffled). Mirror the dump's CVar->options loop so reachability matches
+    // the generated pool. (Unlike OOT, whose logic reads ctx->GetOption from the Rando::Context that
+    // survives Reset, MM's logic reads gSaveContext, so it must be re-seeded here every query.)
+    gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_RANDO;
+    for (auto& [id, opt] : Rando::StaticData::Options) {
+        gSaveContext.save.shipSaveInfo.rando.randoSaveOptions[id] =
+            (uint32_t)CVarGetInteger(opt.cvar, opt.defaultValue);
+    }
 }
 
 // ComboShip: name->id lookup maps for the oracle hot path. SetOwnedItems runs once per
@@ -3119,13 +3142,36 @@ extern "C" __declspec(dllexport) const char* Combo_MM_Rando_GetReachableChecks(v
     std::set<RandoRegionId> reachable = { RR_MAX };
     auto timeStates = Rando::Logic::InitializeRegionTimeStates(RR_MAX);
 
+    // ComboShip: mirror GlitchlessLogic's reachability fixpoint (Rando/Logic/GlitchlessLogic.cpp).
+    // Crawling region connections alone is NOT enough — MM's logic is event-gated (raising Woodfall,
+    // opening dungeon entrances, cutscene gates, ...). Those region events must be APPLIED as their
+    // regions become reachable (RANDO_EVENTS[event]++), which then unlocks the further region
+    // connections and checks that depend on them. Without this the oracle reported only the
+    // event-free overworld, so every dungeon/interior check looked unreachable even with a full
+    // inventory (the combined fill then dead-ended). Loop until regions AND events both stabilize —
+    // a newly-applied event can open new regions, and a newly-reached region can fire new events.
+    std::set<std::pair<RandoEvent, std::function<bool()>>*> eventsInLogic;
     bool changed = true;
     while (changed) {
+        changed = false;
         size_t prevSize = reachable.size();
         for (auto regionId : std::set<RandoRegionId>(reachable)) {
             Rando::Logic::FindReachableRegions(regionId, reachable, timeStates);
         }
-        changed = (reachable.size() != prevSize);
+        if (reachable.size() != prevSize) changed = true;
+
+        for (RandoRegionId regionId : reachable) {
+            auto regIt = Rando::Logic::Regions.find(regionId);
+            if (regIt == Rando::Logic::Regions.end()) continue;
+            Rando::Logic::SetCurrentRegionTime(timeStates, regionId);
+            for (auto& randoEvent : regIt->second.events) {
+                if (!eventsInLogic.contains(&randoEvent) && randoEvent.second()) {
+                    RANDO_EVENTS[randoEvent.first]++;
+                    eventsInLogic.insert(&randoEvent);
+                    changed = true;
+                }
+            }
+        }
     }
 
     nlohmann::json out = nlohmann::json::array();
@@ -3134,10 +3180,7 @@ extern "C" __declspec(dllexport) const char* Combo_MM_Rando_GetReachableChecks(v
         if (regIt == Rando::Logic::Regions.end()) continue;
         auto& region = regIt->second;
 
-        auto tsIt = timeStates.find(regionId);
-        if (tsIt != timeStates.end()) {
-            gCurrentRegionTime = tsIt->second.timeSlices;
-        }
+        Rando::Logic::SetCurrentRegionTime(timeStates, regionId);
 
         for (auto& [checkId, checkLogic] : region.checks) {
             if (checkLogic.first()) {
@@ -3166,8 +3209,12 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_PlaceItem(
 }
 
 extern "C" __declspec(dllexport) void Combo_MM_Rando_Restore(void) {
+    if (!sMM_OracleActive) {
+        return; // nothing snapshotted (double Restore / Restore without Reset)
+    }
     memcpy(&gSaveContext, &sMM_OracleSavedContext, sizeof(SaveContext));
     gCurrentRegionTime = sMM_OracleSavedRegionTime;
+    sMM_OracleActive = false;
 }
 
 #ifdef COMBO_BUILD

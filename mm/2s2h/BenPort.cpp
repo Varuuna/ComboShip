@@ -2989,6 +2989,24 @@ static void GiveItemForOracle(RandoItemId ri) {
         case RI_GREAT_SPIN_ATTACK: SET_WEEKEVENTREG(WEEKEVENTREG_RECEIVED_GREAT_SPIN_ATTACK); break;
         case RI_ABILITY_SWIM: Flags_SetRandoInf(RANDO_INF_OBTAINED_SWIM); break;
 
+        // ComboShip: owl-warp statues (Owl Statue Shuffle). Logic gates nearly every exit out of the
+        // root region on CAN_OWL_WARP (Logic.cpp RR_MAX) — the owl warp is the primary entry into each
+        // cardinal cluster (swamp/Woodfall/mountain/Snowhead/Great Bay/Zora/Ikana/Stone Tower). The
+        // gameplay GiveItem activates these via Sram_ActivateOwl; the default case below would only set
+        // INV_CONTENT and leave owlActivationFlags clear, so CAN_OWL_WARP stays false and the oracle
+        // can't leave Clock Town's walking radius (reachable stuck ~164/392). Sram_ActivateOwl is
+        // headless-safe (pure save-bit write). Mirrors GiveItem.cpp RI_OWL_* cases.
+        case RI_OWL_CLOCK_TOWN_SOUTH: Sram_ActivateOwl(OWL_WARP_CLOCK_TOWN); break;
+        case RI_OWL_GREAT_BAY_COAST: Sram_ActivateOwl(OWL_WARP_GREAT_BAY_COAST); break;
+        case RI_OWL_IKANA_CANYON: Sram_ActivateOwl(OWL_WARP_IKANA_CANYON); break;
+        case RI_OWL_MILK_ROAD: Sram_ActivateOwl(OWL_WARP_MILK_ROAD); break;
+        case RI_OWL_MOUNTAIN_VILLAGE: Sram_ActivateOwl(OWL_WARP_MOUNTAIN_VILLAGE); break;
+        case RI_OWL_SNOWHEAD: Sram_ActivateOwl(OWL_WARP_SNOWHEAD); break;
+        case RI_OWL_SOUTHERN_SWAMP: Sram_ActivateOwl(OWL_WARP_SOUTHERN_SWAMP); break;
+        case RI_OWL_STONE_TOWER: Sram_ActivateOwl(OWL_WARP_STONE_TOWER); break;
+        case RI_OWL_WOODFALL: Sram_ActivateOwl(OWL_WARP_WOODFALL); break;
+        case RI_OWL_ZORA_CAPE: Sram_ActivateOwl(OWL_WARP_ZORA_CAPE); break;
+
         // Ocarina buttons
         case RI_OCARINA_BUTTON_A:
         case RI_OCARINA_BUTTON_C_DOWN:
@@ -3001,6 +3019,14 @@ static void GiveItemForOracle(RandoItemId ri) {
         // Songs (song double/inverted time)
         case RI_SONG_DOUBLE_TIME: Flags_SetRandoInf(RANDO_INF_OBTAINED_SONG_DOUBLE_TIME); break;
         case RI_SONG_INVERTED_TIME: Flags_SetRandoInf(RANDO_INF_OBTAINED_SONG_INVERTED_TIME); break;
+
+        // ComboShip: Goron Lullaby Intro. Its itemId (ITEM_SONG_LULLABY_INTRO = 0x73) is outside the
+        // contiguous ITEM_SONG_SONATA..SUN block the default case maps to quest items, so it needs its
+        // own quest flag. ConvertItem(RI_PROGRESSIVE_LULLABY) returns the intro until
+        // QUEST_SONG_LULLABY_INTRO is set, then the full Goron Lullaby — without setting the intro flag
+        // the full lullaby is never granted, so CAN_PLAY_SONG(LULLABY) stayed false and Snowhead Temple
+        // (and the Moon, which needs all temples cleared) were unreachable.
+        case RI_SONG_LULLABY_INTRO: SET_QUEST_ITEM(QUEST_SONG_LULLABY_INTRO); break;
 
         // Clock items
         case RI_TIME_DAY_1: case RI_TIME_NIGHT_1:
@@ -3051,16 +3077,38 @@ static void GiveItemForOracle(RandoItemId ri) {
             break;
 
         default: {
-            // Standard items: set inventory slot directly (what HAS_ITEM checks).
+            // ComboShip: enemy souls (RI_SOUL_ENEMY_*) are flag-only items (itemId == ITEM_NONE), so
+            // the inventory path below can't grant them; set their RANDO_INF like the boss souls do.
+            // Logic gates on them — e.g. Great Bay Temple's RE_GREAT_BAY_RED_SWITCH_1 needs the Octorok
+            // soul to reverse the water flow — so without this the temple-internal switch events never
+            // fire, the boss room stays unreachable, the temple never clears, and the Moon (which needs
+            // all temples cleared) is locked. Mirrors GiveItem.cpp's soul handling.
+            if (ri >= RI_SOUL_ENEMY_ALIEN && ri <= RI_SOUL_ENEMY_WOLFOS) {
+                Flags_SetRandoInf(SOUL_RI_TO_RANDO_INF(ri));
+                break;
+            }
+            // Standard items: set the save-state that HAS_ITEM / CHECK_QUEST_ITEM read.
+            // ComboShip: INV_CONTENT(item) indexes gItemSlots[item], which is only defined for the
+            // 77 inventory-slot items (itemId 0x00..0x4C). Songs (0x61+), shields, remains, etc. have
+            // higher itemIds and are NOT stored in the items[] array — writing INV_CONTENT for them
+            // does an OUT-OF-BOUNDS gItemSlots read and corrupts a real slot. (ITEM_SONG_HEALING=0x68
+            // resolved to slot 0 and clobbered the ocarina, so HAS_ITEM(OCARINA)=false, CAN_PLAY_SONG
+            // was false, and every song/temple/owl-warp gate failed -> MM reachable stuck ~164/392.)
+            // Route songs to their quest-item flag; only write INV_CONTENT for items with a real slot.
             auto it = Rando::StaticData::Items.find(ri);
             if (it != Rando::StaticData::Items.end()) {
                 u8 itemId = it->second.itemId;
-                if (itemId != ITEM_NONE && itemId < ITEM_FD) {
+                if (itemId >= ITEM_SONG_SONATA && itemId <= ITEM_SONG_SUN) {
+                    SET_QUEST_ITEM(QUEST_SONG_SONATA + (itemId - ITEM_SONG_SONATA));
+                } else if (itemId >= ITEM_REMAINS_ODOLWA && itemId <= ITEM_REMAINS_TWINMOLD) {
+                    // ComboShip: boss remains are checked as quest items (RemainsCount() in Logic.h
+                    // gates Moon access), not inventory slots — their itemIds are out of gItemSlots
+                    // range. Set the quest flag instead. Without this, RemainsCount()==0 and the Moon
+                    // trials are unreachable. ITEM_REMAINS_* and QUEST_REMAINS_* share the same order.
+                    SET_QUEST_ITEM(QUEST_REMAINS_ODOLWA + (itemId - ITEM_REMAINS_ODOLWA));
+                } else if (itemId != ITEM_NONE && itemId < ARRAY_COUNT(gItemSlots) &&
+                           gItemSlots[itemId] != SLOT_NONE) {
                     INV_CONTENT(itemId) = itemId;
-                    // Songs go in quest items too
-                    if (itemId >= ITEM_SONG_SONATA && itemId <= ITEM_SONG_SUN) {
-                        SET_QUEST_ITEM(QUEST_SONG_SONATA + (itemId - ITEM_SONG_SONATA));
-                    }
                 }
             }
             break;
@@ -3093,6 +3141,28 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Reset(void) {
     for (auto& [id, opt] : Rando::StaticData::Options) {
         gSaveContext.save.shipSaveInfo.rando.randoSaveOptions[id] =
             (uint32_t)CVarGetInteger(opt.cvar, opt.defaultValue);
+    }
+
+    // ComboShip: grant the seed's STARTING ITEMS into the oracle inventory. These are deliberately
+    // NOT in the shuffled pool (so SetOwnedItems never grants them), yet logic depends on them: the
+    // default kit is { sword, shield, ocarina, Song of Time } plus computed items (ocarina BUTTONS,
+    // swim ability, maps/compasses, souls). Without the ocarina + buttons, CAN_PLAY_SONG / canPlaySong
+    // are false (Logic.h), so NO songs play — Soaring (owls), Sonata (Woodfall), Goron Lullaby
+    // (Snowhead), Bossa Nova (Great Bay) and Elegy (Stone Tower/Ikana) all fail and the oracle reports
+    // only the song-free overworld reachable (~162/392), dead-ending the cross-world fill. The real
+    // game grants these via Rando::GrantStartingItems(), but that calls the gameplay GiveItem (needs
+    // gPlayState) and is unsafe here (see the dump path at ~L2692), so reproduce it with the save-only
+    // GiveItemForOracle. Must run AFTER the option seeding above — GetComputedStartingItems reads the
+    // freshly-seeded randoSaveOptions; SetStartingItemsInSave first so its clock-shuffle branch sees
+    // the configured kit (mirrors the dump path).
+    {
+        auto startingItems = Rando::GetStartingItemsFromConfig();
+        Rando::SetStartingItemsInSave(gSaveContext.save.shipSaveInfo.rando, startingItems);
+        auto computed = Rando::GetComputedStartingItems(gSaveContext.save.shipSaveInfo.rando);
+        startingItems.insert(startingItems.end(), computed.begin(), computed.end());
+        for (RandoItemId si : startingItems) {
+            GiveItemForOracle(Rando::ConvertItem(si));
+        }
     }
 }
 

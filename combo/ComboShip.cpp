@@ -363,6 +363,66 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     g_GenerateBusy.store(false);
 }
 
+// ComboShip: headless cross-world generation TEST. Runs the combined assumed fill over a range of
+// seeds and asserts each one succeeds. "Success" here is the completability guarantee baked into
+// CrossWorldCombinedFill: after placing every item, it sphere-collects from an EMPTY start using only
+// the items it placed, across BOTH games (honoring the OOT->MM portal gate), and fails the seed unless
+// every advancement-holding check — in either game — is reachable. So a passing seed is provably
+// 100%-completable from scratch with both games randomized. The test drives the same oracles the real
+// generator uses and runs under the current CVar option set, so flipping shuffle options (grass/pots,
+// owl statues, dungeon shuffles, ...) in the menu and re-running exercises those configs too.
+// Returns the number of FAILED seeds (0 == all good). Env-gated via COMBO_GENTEST=<count>.
+static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
+    if (!(Combo_SOH_Rando_Reset && Combo_SOH_Rando_SetOwnedItems && Combo_SOH_Rando_GetReachableChecks &&
+          Combo_SOH_Rando_PlaceItem && Combo_MM_Rando_Reset && Combo_MM_Rando_SetOwnedItems &&
+          Combo_MM_Rando_GetReachableChecks && Combo_MM_Rando_PlaceItem && Combo_MM_Rando_Restore)) {
+        std::cerr << "[GENTEST] oracle exports unavailable — cannot run\n";
+        return -1;
+    }
+    if (!SOH_DumpRandoStaticData || !MM_DumpRandoStaticData) {
+        std::cerr << "[GENTEST] dump functions not resolved — cannot run\n";
+        return -1;
+    }
+    std::string sohDump = SOH_DumpRandoStaticData();
+    std::string mmDump  = MM_DumpRandoStaticData();
+    if (sohDump.empty() || mmDump.empty()) { std::cerr << "[GENTEST] empty dump — cannot run\n"; return -1; }
+
+    ComboRando::OracleFns ootOracle = {
+        Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
+        Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem
+    };
+    ComboRando::OracleFns mmOracle = {
+        Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
+        Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem
+    };
+
+    std::cout << "[GENTEST] running " << numSeeds << " cross-world generations (seedBase=" << seedBase
+              << ") — asserting every advancement item is reachable from an empty start in both games\n";
+    int failures = 0;
+    auto t0 = std::chrono::steady_clock::now();
+    for (int i = 0; i < numSeeds; ++i) {
+        uint32_t seed = seedBase + static_cast<uint32_t>(i);
+        auto result = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, seed, ootOracle, mmOracle, "", nullptr);
+        Combo_MM_Rando_Restore(); // reset the MM oracle's snapshot guard for the next fill
+        if (result.success) {
+            std::cout << "[GENTEST]   seed " << seed << " PASS\n";
+        } else {
+            std::cerr << "[GENTEST]   seed " << seed << " FAIL: " << result.error << "\n";
+            ++failures;
+        }
+    }
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                  std::chrono::steady_clock::now() - t0).count();
+    if (failures == 0) {
+        std::cout << "[GENTEST] RESULT: PASS — " << numSeeds << "/" << numSeeds
+                  << " seeds fully completable (cross-game), " << ms << " ms\n";
+    } else {
+        std::cerr << "[GENTEST] RESULT: FAIL — " << failures << "/" << numSeeds
+                  << " seeds could not place all progression reachably, " << ms << " ms\n";
+    }
+    return failures;
+}
+
 // ComboShip Task 6 / Inc7: request handler — called by SOH_TriggerComboGenerate from the UI.
 // Runs synchronously on the calling (game) thread — the background thread was removed because
 // it raced the games' single-threaded rando logic and caused crashes.
@@ -669,6 +729,22 @@ int main(int argc, char** argv) {
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                       std::chrono::steady_clock::now() - t0).count();
         std::cout << "[ComboShip] autogen fill finished in " << ms << " ms" << std::endl;
+    }
+
+    // ComboShip: env-gated cross-world generation TEST — COMBO_GENTEST=<count> generates <count>
+    // seeds and asserts each is fully completable (every advancement item reachable from an empty
+    // start across both games). Exits the process with the failure count so it can run in CI.
+    if (const char* genTest = std::getenv("COMBO_GENTEST")) {
+        int n = std::atoi(genTest);
+        if (n <= 0) n = 20;
+        uint32_t seedBase = 1;
+        if (const char* b = std::getenv("COMBO_GENTEST_SEED_BASE")) {
+            seedBase = static_cast<uint32_t>(std::strtoul(b, nullptr, 10));
+        }
+        int failures = RunComboGenTest(n, seedBase);
+        std::cout.flush();
+        std::cerr.flush();
+        std::exit(failures == 0 ? 0 : 1);
     }
 
     if (SOH_SetOnNewSaveCallback && MM_InitSaveFile) {

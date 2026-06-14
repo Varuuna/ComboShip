@@ -202,9 +202,11 @@ static FnOracleVoid      Combo_MM_Rando_Restore             = nullptr;
 typedef void (*FnSetGenerateCb)(void (*)(int));
 typedef void (*FnApplyPlacements)(const char*);
 typedef void (*FnMMInitRandoSave)(int, const char*);
+typedef void (*FnSetComboRandoSeed)(uint64_t);
 static FnSetGenerateCb    SOH_SetOnComboGenerateCallback = nullptr;
 static FnApplyPlacements  SOH_ApplyRandoPlacements       = nullptr;
 static FnMMInitRandoSave  MM_InitRandoSaveFile           = nullptr;
+static FnSetComboRandoSeed SOH_SetComboRandoSeed         = nullptr;
 
 // ComboShip Task 6: window-driven generate request (threaded, progress-reporting)
 typedef void (*FnSetGenReqCb)(void (*)(const char*, ComboRando::ComboGenProgress*));
@@ -254,12 +256,16 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
 
     if (!SOH_DumpRandoStaticData || !MM_DumpRandoStaticData) { fail("dump functions not resolved"); return; }
 
+    if (inputSeed.empty()) inputSeed = std::to_string(ComboRandRange(0, 1000000));
+    uint32_t masterSeed = ComboHash(inputSeed.c_str());
+
+    // ComboShip: seed OOT's rando RNG BEFORE the dump so its shop/scrub/merchant setup (run inside the
+    // dump and re-run at SOH_ApplyRandoPlacements) is reproducible and makes identical choices in both.
+    if (SOH_SetComboRandoSeed) SOH_SetComboRandoSeed(masterSeed);
+
     std::string sohDump = SOH_DumpRandoStaticData();
     std::string mmDump  = MM_DumpRandoStaticData();
     if (sohDump.empty() || mmDump.empty()) { fail("empty static-data dump"); return; }
-
-    if (inputSeed.empty()) inputSeed = std::to_string(ComboRandRange(0, 1000000));
-    uint32_t masterSeed = ComboHash(inputSeed.c_str());
 
     std::string spoiler;
     bool usedCombinedFill = false;
@@ -764,6 +770,7 @@ int main(int argc, char** argv) {
     MM_InitRandoSaveFile             = (FnMMInitRandoSave)    GetSym(mmModule,  "MM_InitRandoSaveFile");
     SOH_SetOnComboGenerateCallback   = (FnSetGenerateCb)      GetSym(sohModule, "SOH_SetOnComboGenerateCallback");
     SOH_ApplyRandoPlacements         = (FnApplyPlacements)    GetSym(sohModule, "SOH_ApplyRandoPlacements");
+    SOH_SetComboRandoSeed            = (FnSetComboRandoSeed)  GetSym(sohModule, "SOH_SetComboRandoSeed");
     SOH_SetOnComboGenerateRequestCallback = (FnSetGenReqCb)      GetSym(sohModule, "SOH_SetOnComboGenerateRequestCallback");
     SOH_SetSeedGenerated                  = (FnSetSeedGenerated) GetSym(sohModule, "SOH_SetSeedGenerated");
     MM_BootForCombo                  = (FnVoidArgless)        GetSym(mmModule,  "MM_BootForCombo");

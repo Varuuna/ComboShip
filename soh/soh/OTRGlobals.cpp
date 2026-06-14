@@ -38,6 +38,8 @@
 #include "soh/Enhancements/randomizer/settings.h"
 #include "soh/Enhancements/randomizer/logic.h"
 #include "soh/Enhancements/randomizer/3drando/fill.hpp"
+#include "soh/Enhancements/randomizer/3drando/shops.hpp"
+#include "soh/Enhancements/randomizer/3drando/random.hpp"
 #include "soh/Enhancements/randomizer/location_access.h"
 #include "soh/Enhancements/randomizer/3drando/item_pool.hpp"
 #include "soh/Enhancements/randomizer/3drando/starting_inventory.hpp"
@@ -1572,7 +1574,8 @@ extern "C" void InitOTR(int argc, char* argv[]) {
     static int  sComboSwitchFileNum = -1;
 
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnSceneInit>([](int16_t sceneNum) {
-        if (sceneNum == SCENE_MIDOS_HOUSE) { // TEMP: normally SCENE_HAPPY_MASK_SHOP
+        // Cross-game OOT->MM trigger: entering the Happy Mask Shop.
+        if (sceneNum == SCENE_HAPPY_MASK_SHOP) {
             sComboSwitchFileNum = (int)gSaveContext.fileNum;
             sComboSwitchPending = true;
         }
@@ -2704,6 +2707,135 @@ extern "C" __declspec(dllexport) bool SOH_Extract(const char* searchPath) {
 }
 #endif
 
+#ifdef COMBO_BUILD
+// ComboShip: SoH performs shop/scrub/merchant setup inline inside Fill() (fill.cpp, the shopsanity
+// block ~1288) — choosing which shopsanity slots are *shuffled* (given a custom price, then filled by
+// the main fill) versus left vanilla (a real RG_BUY_* item placed directly), and pricing scrubs and
+// merchants. The combo cross-world generator REPLACES Fill() and so skips all of this; without it the
+// combined fill drops arbitrary OOT/MM items into shop slots with no shop setup, producing blank slots
+// that crash on purchase (GetItemName(ITEM_NONE)). ComboShip owns the orchestration below but reuses
+// SoH's own primitives (shops.hpp: GetShopsanityReplaceAmount/GetRandomPrice/PlaceVanillaShopItems),
+// so fill.cpp stays byte-intact.
+//
+// Determinism: the dump (which decides which shop slots the cross-world fill may use) and the apply
+// (which sets the actual prices + vanilla items) must make IDENTICAL random choices, and re-running the
+// same combo seed must reproduce them exactly. So both seed SoH's rando RNG (Random_Init) from the
+// combo master seed via Combo_SeedShopRng() immediately before computing the shuffled-slot set. With
+// the same seed + same RNG consumption order, RO_SHOPSANITY_RANDOM counts and all prices match between
+// dump and apply and are fully reproducible. The combo seed is supplied by SOH_SetComboRandoSeed.
+static uint64_t sComboRandoSeed = 0;
+static bool     sComboRandoSeedSet = false;
+
+// Reseed SoH's rando RNG to the combo master seed. Call right before any shop-setup RNG use so the dump
+// and apply consume an identical random sequence (→ identical shuffled set + prices, reproducible).
+static void Combo_SeedShopRng() {
+    if (sComboRandoSeedSet) {
+        Random_Init(sComboRandoSeed);
+    }
+}
+static const PriceSettingsStruct kComboShopPrices = {
+    RSK_SHOPSANITY_PRICES,                  RSK_SHOPSANITY_PRICES_FIXED_PRICE,
+    RSK_SHOPSANITY_PRICES_RANGE_1,          RSK_SHOPSANITY_PRICES_RANGE_2,
+    RSK_SHOPSANITY_PRICES_NO_WALLET_WEIGHT, RSK_SHOPSANITY_PRICES_CHILD_WALLET_WEIGHT,
+    RSK_SHOPSANITY_PRICES_ADULT_WALLET_WEIGHT, RSK_SHOPSANITY_PRICES_GIANT_WALLET_WEIGHT,
+    RSK_SHOPSANITY_PRICES_TYCOON_WALLET_WEIGHT, RSK_SHOPSANITY_PRICES_AFFORDABLE,
+};
+static const PriceSettingsStruct kComboScrubPrices = {
+    RSK_SCRUBS_PRICES,                  RSK_SCRUBS_PRICES_FIXED_PRICE,
+    RSK_SCRUBS_PRICES_RANGE_1,          RSK_SCRUBS_PRICES_RANGE_2,
+    RSK_SCRUBS_PRICES_NO_WALLET_WEIGHT, RSK_SCRUBS_PRICES_CHILD_WALLET_WEIGHT,
+    RSK_SCRUBS_PRICES_ADULT_WALLET_WEIGHT, RSK_SCRUBS_PRICES_GIANT_WALLET_WEIGHT,
+    RSK_SCRUBS_PRICES_TYCOON_WALLET_WEIGHT, RSK_SCRUBS_PRICES_AFFORDABLE,
+};
+static const PriceSettingsStruct kComboMerchantPrices = {
+    RSK_MERCHANT_PRICES,                  RSK_MERCHANT_PRICES_FIXED_PRICE,
+    RSK_MERCHANT_PRICES_RANGE_1,          RSK_MERCHANT_PRICES_RANGE_2,
+    RSK_MERCHANT_PRICES_NO_WALLET_WEIGHT, RSK_MERCHANT_PRICES_CHILD_WALLET_WEIGHT,
+    RSK_MERCHANT_PRICES_ADULT_WALLET_WEIGHT, RSK_MERCHANT_PRICES_GIANT_WALLET_WEIGHT,
+    RSK_MERCHANT_PRICES_TYCOON_WALLET_WEIGHT, RSK_MERCHANT_PRICES_AFFORDABLE,
+};
+
+// The shop slots shopsanity shuffles, using SoH's exact per-shop index pattern. Deterministic for a
+// specific shopsanity count (GetShopsanityReplaceAmount returns a fixed value, no RNG), so the dump and
+// the apply compute an identical set.
+static std::unordered_set<RandomizerCheck> Combo_ShuffledShopSlots() {
+    std::unordered_set<RandomizerCheck> shuffled;
+    auto ctx = OTRGlobals::Instance->gRandoContext;
+    if (ctx->GetOption(RSK_SHOPSANITY).Is(RO_SHOPSANITY_OFF)) {
+        return shuffled;
+    }
+    static const std::array<int, 8> indices = { 7, 5, 8, 6, 3, 1, 4, 2 }; // matches fill.cpp
+    const auto& shopLocs = Rando::StaticData::GetShopLocations();
+    constexpr int kLocationsPerShop = 8;
+    for (size_t shop = 0; shop < shopLocs.size() / kLocationsPerShop; ++shop) {
+        int num = GetShopsanityReplaceAmount();
+        for (int j = 0; j < num && j < (int)indices.size(); ++j) {
+            shuffled.insert(shopLocs[shop * kLocationsPerShop + indices[j] - 1]);
+        }
+    }
+    return shuffled;
+}
+
+static bool Combo_IsShopSlot(RandomizerCheck rc, const std::unordered_set<RandomizerCheck>& shopSlots) {
+    return shopSlots.count(rc) > 0;
+}
+
+// Re-establish shop/scrub/merchant setup on the live rando context. Called from SOH_ApplyRandoPlacements
+// AFTER ItemReset() (which clears it) and BEFORE the combo placements are applied: shuffled shop slots
+// get a custom price (the combo fill's item is placed into them next), every other shop slot gets its
+// vanilla RG_BUY_* item, and scrubs/merchants get prices — exactly as SoH's Fill() would.
+static void Combo_SetupOOTShops() {
+    auto ctx = OTRGlobals::Instance->gRandoContext;
+
+    // Seed identically to the dump so the shuffled-slot set (and all prices below) match it exactly.
+    Combo_SeedShopRng();
+
+    if (ctx->GetOption(RSK_SHOPSANITY).Is(RO_SHOPSANITY_OFF)) {
+        PlaceVanillaShopItems();
+    } else {
+        auto shuffled = Combo_ShuffledShopSlots();
+        for (RandomizerCheck rc : Rando::StaticData::GetShopLocations()) {
+            Rando::ItemLocation* loc = ctx->GetItemLocation(rc);
+            if (shuffled.count(rc)) {
+                loc->SetCustomPrice(GetRandomPrice(Rando::StaticData::GetLocation(rc), kComboShopPrices));
+            } else {
+                loc->PlaceVanillaItem(); // vanilla RG_BUY_* — a valid, sellable shop item
+            }
+        }
+    }
+
+    // Scrub prices (only meaningful when scrubs are shuffled; harmless otherwise).
+    for (RandomizerCheck rc : Rando::StaticData::GetScrubLocations()) {
+        uint16_t price = ctx->GetOption(RSK_SHUFFLE_SCRUBS).Is(RO_SCRUBS_ALL)
+                             ? GetRandomPrice(Rando::StaticData::GetLocation(rc), kComboScrubPrices)
+                             : Rando::StaticData::GetLocation(rc)->GetVanillaPrice();
+        ctx->GetItemLocation(rc)->SetCustomPrice(price);
+    }
+
+    // Merchant + magic-bean prices.
+    const bool merchAll = ctx->GetOption(RSK_SHUFFLE_MERCHANTS).Is(RO_SHUFFLE_MERCHANTS_ALL);
+    const bool merchAllButBeans = ctx->GetOption(RSK_SHUFFLE_MERCHANTS).Is(RO_SHUFFLE_MERCHANTS_ALL_BUT_BEANS);
+    const bool beans = ctx->GetOption(RSK_SHUFFLE_MERCHANTS).Is(RO_SHUFFLE_MERCHANTS_BEANS_ONLY) || merchAll;
+    ctx->GetItemLocation(RC_ZR_MAGIC_BEAN_SALESMAN)
+        ->SetCustomPrice(beans ? GetRandomPrice(Rando::StaticData::GetLocation(RC_ZR_MAGIC_BEAN_SALESMAN),
+                                                kComboMerchantPrices)
+                               : Rando::StaticData::GetLocation(RC_ZR_MAGIC_BEAN_SALESMAN)->GetVanillaPrice());
+    for (RandomizerCheck rc : Rando::StaticData::GetMerchantLocations()) {
+        uint16_t price = (merchAll || merchAllButBeans)
+                             ? GetRandomPrice(Rando::StaticData::GetLocation(rc), kComboMerchantPrices)
+                             : Rando::StaticData::GetLocation(rc)->GetVanillaPrice();
+        ctx->GetItemLocation(rc)->SetCustomPrice(price);
+    }
+}
+
+// Combo master seed for OOT-side reproducible generation (shop/scrub/merchant RNG). Set by the combo
+// launcher before SOH_DumpRandoStaticData and reused at SOH_ApplyRandoPlacements so both agree.
+extern "C" __declspec(dllexport) void SOH_SetComboRandoSeed(uint64_t seed) {
+    sComboRandoSeed = seed;
+    sComboRandoSeedSet = true;
+}
+#endif
+
 // ComboShip Inc2 (Task 3): coherent OOT rando dump — runs the headless prep sequence
 // (GetLogic()->Reset, FinalizeSettings, RegionTable_Init, GenerateLocationPool) so
 // ctx->allLocations reflects the real shuffled-check set for the current settings, then
@@ -2737,12 +2869,31 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         RegionTable_Init();
         ctx->GenerateLocationPool();
 
+#ifdef COMBO_BUILD
+        // ComboShip: a non-shuffled shop slot holds a vanilla RG_BUY_* item (placed by
+        // Combo_SetupOOTShops at apply time). It must NOT enter the cross-world pool, or the combined
+        // fill would drop an arbitrary OOT/MM item there with no shop setup → crash on purchase. Emit
+        // ONLY the shuffled shop slots; leave the rest to SoH's vanilla shop setup. (Deterministic for
+        // a specific shopsanity count, so this matches what Combo_SetupOOTShops does at apply.)
+        Combo_SeedShopRng(); // seed identically to the apply so the shuffled set matches exactly
+        const auto comboShuffledShops = Combo_ShuffledShopSlots();
+        const auto& comboShopLocsVec = Rando::StaticData::GetShopLocations();
+        const std::unordered_set<RandomizerCheck> comboShopSlots(comboShopLocsVec.begin(),
+                                                                 comboShopLocsVec.end());
+#endif
+
         // Iterate allLocations (the settings-scoped check set) instead of all RC_MAX.
         for (RandomizerCheck rc : ctx->allLocations) {
             Rando::Location* loc = Rando::StaticData::GetLocation(rc);
             if (!loc) continue;
             const std::string& name = loc->GetName();
             if (name.empty()) continue;
+
+#ifdef COMBO_BUILD
+            if (Combo_IsShopSlot(rc, comboShopSlots) && !comboShuffledShops.count(rc)) {
+                continue; // vanilla shop slot — owned by SoH's shop setup, not the cross-world fill
+            }
+#endif
 
             RandomizerGet vanillaRG = loc->GetVanillaItem();
             if (vanillaRG == RG_NONE) continue;
@@ -2813,6 +2964,14 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
 
         // ItemReset so all locations start with RG_NONE before we apply our placement.
         ctx->ItemReset();
+
+        // ComboShip: ItemReset wipes shop prices + placements, so re-run SoH's shop/scrub/merchant
+        // setup here (vanilla shop slots get their RG_BUY_* item + prices; shuffled slots get a custom
+        // price). The combo placements below only cover the shuffled shop slots (the dump excluded the
+        // vanilla ones), so they land on validly-priced slots and don't clobber the vanilla items.
+#ifdef COMBO_BUILD
+        Combo_SetupOOTShops();
+#endif
 
         nlohmann::json placements = nlohmann::json::parse(json);
         int placed = 0, skipped = 0;

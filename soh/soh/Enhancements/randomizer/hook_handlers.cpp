@@ -1243,6 +1243,28 @@ void RandomizerOnVanillaBehaviorHandler(GIVanillaBehavior id, bool* should, va_l
             } else if (item00->actor.params == ITEM00_SOH_GIVE_ITEM_ENTRY) {
                 Audio_PlaySoundGeneral(NA_SE_SY_GET_ITEM, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
                                        &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+#ifdef COMBO_BUILD
+                // ComboShip: a foreign (MM-bound) sentinel should be diverted in the RC-queue handler
+                // (OOT_SendForeignCheck) and never reach a local item00 grant. If one does, its itemId
+                // is ITEM_NONE and the MOD_NONE branch below would call Item_Give(ITEM_NONE) /
+                // GetItemName(ITEM_NONE) and assert. Guard the crash and log everything we know about the
+                // escaping entry so we can trace which check produced it (e.g. a shopsanity slot).
+                if (item00->itemEntry.getItemId == RG_COMBO_FOREIGN ||
+                    static_cast<uint8_t>(item00->itemEntry.itemId) == ITEM_NONE) {
+                    SPDLOG_ERROR("[ComboShip] foreign/empty sentinel reached item00 grant and was NOT "
+                                 "diverted (getItemId={}, itemId={}, modIndex={}, randoInf={}, "
+                                 "collectibleFlag={}) — skipping local grant to avoid the "
+                                 "GetItemName(ITEM_NONE) crash. This foreign check escaped the RC-queue.",
+                                 static_cast<int>(item00->itemEntry.getItemId),
+                                 static_cast<int>(item00->itemEntry.itemId),
+                                 static_cast<int>(item00->itemEntry.modIndex),
+                                 static_cast<int>(item00->randoInf),
+                                 static_cast<int>(item00->collectibleFlag));
+                    Actor_Kill(&item00->actor);
+                    *should = false;
+                    break;
+                }
+#endif
                 if (item00->itemEntry.modIndex == MOD_NONE) {
                     if (item00->itemEntry.getItemId == GI_SWORD_BGS) {
                         gSaveContext.bgsFlag = true;

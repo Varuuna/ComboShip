@@ -237,6 +237,12 @@ static int g_PendingMMFileNum = -1;
 // so the (later) Combo_OnOOTSaveInit callback can hand it to MM_InitRandoSaveFile.
 static std::string g_PendingMMPlacements;
 
+// Forward decl: defined later, called from RunComboFill on every successful in-game generation.
+static void WriteComboPlaythrough(const std::string& spoilerJson,
+                                  const ComboRando::OracleFns& ootOracle,
+                                  const ComboRando::OracleFns& mmOracle,
+                                  const std::string& seedLabel);
+
 // ComboShip Task 6: worker function — runs the combined-logic fill (or no-logic fallback) on a
 // background thread, reports progress via the ComboGenProgress struct, and stashes placements.
 static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* progress) {
@@ -280,6 +286,10 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             spoiler = result.spoilerJson;
             usedCombinedFill = true;
             std::cout << "[ComboShip] RunComboFill: combined-logic fill succeeded (seed=" << masterSeed << ")\n";
+            // ComboShip: write the sphere-by-sphere playthrough log for this seed. Drives the oracles
+            // once more (independent reachability replay) BEFORE SOH_ApplyRandoPlacements re-establishes
+            // the live OOT context for play, so it can't corrupt the generated seed. Restores MM itself.
+            WriteComboPlaythrough(result.spoilerJson, ootOracle, mmOracle, inputSeed);
         } else {
             Combo_MM_Rando_Restore();
             fail((std::string("combined fill failed: ") + result.error).c_str());
@@ -436,8 +446,14 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
 //     Logic.cpp); surfaced via its in-region check RC_MOON_MAJORA_POT_01.
 // Full sphere log is written to saves/combo/slot0.playthrough.txt; a summary prints to stdout.
 // Env-gated via COMBO_PLAYTHROUGH=<seed>.
-static void RunComboPlaythrough(const std::string& inputSeed) {
-    using namespace ComboRando; // GameId / GAME_OOT / GAME_MM / OracleFns / CrossWorldCombinedFill
+// Writes the sphere-by-sphere log from an ALREADY-GENERATED spoiler, driving the oracles to
+// sphere-collect. Ends by restoring the MM oracle's pre-generation snapshot (it drives MM here).
+// Called both from the env-gated entry below and from RunComboFill on every in-game generation.
+static void WriteComboPlaythrough(const std::string& spoilerJson,
+                                  const ComboRando::OracleFns& ootOracle,
+                                  const ComboRando::OracleFns& mmOracle,
+                                  const std::string& seedLabel) {
+    using namespace ComboRando; // GameId / GAME_OOT / GAME_MM
     // Endgame signals the oracles actually emit:
     //   OOT — top of Ganon's Tower (all four trials cleared) reachable AND the Ganon's Castle Boss Key
     //   owned = standing at Ganondorf's door, able to enter the fight. (The literal "Ganon" location
@@ -449,35 +465,6 @@ static void RunComboPlaythrough(const std::string& inputSeed) {
     static const char* kOotBossKey  = "Ganon's Castle Boss Key";
     static const char* kMmWin       = "RC_MOON_MAJORA_POT_01";
 
-    if (!(Combo_SOH_Rando_Reset && Combo_SOH_Rando_SetOwnedItems && Combo_SOH_Rando_GetReachableChecks &&
-          Combo_SOH_Rando_PlaceItem && Combo_MM_Rando_Reset && Combo_MM_Rando_SetOwnedItems &&
-          Combo_MM_Rando_GetReachableChecks && Combo_MM_Rando_PlaceItem && Combo_MM_Rando_Restore)) {
-        std::cerr << "[PLAYTHROUGH] oracle exports unavailable\n"; return;
-    }
-    if (!SOH_DumpRandoStaticData || !MM_DumpRandoStaticData) {
-        std::cerr << "[PLAYTHROUGH] dump functions not resolved\n"; return;
-    }
-    std::string sohDump = SOH_DumpRandoStaticData();
-    std::string mmDump  = MM_DumpRandoStaticData();
-
-    ComboRando::OracleFns ootOracle = {
-        Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
-        Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem
-    };
-    ComboRando::OracleFns mmOracle = {
-        Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
-        Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem
-    };
-
-    std::string seedStr = inputSeed.empty() ? "1" : inputSeed;
-    uint32_t masterSeed = ComboHash(seedStr.c_str());
-    auto fill = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle, "", nullptr);
-    Combo_MM_Rando_Restore();
-    if (!fill.success) {
-        std::cerr << "[PLAYTHROUGH] seed '" << seedStr << "' did not generate: " << fill.error << "\n";
-        return;
-    }
-
     // Parse placements: check -> (itemName, itemGame). itemGame defaults to the check's game unless a
     // foreign marker says otherwise (foreign = cross-game placement).
     struct Placed { GameId checkGame; std::string check; GameId itemGame; std::string item; };
@@ -485,7 +472,7 @@ static void RunComboPlaythrough(const std::string& inputSeed) {
     std::unordered_set<std::string> foreignKey; // "<cg>:<cn>" -> item is from the other game
     std::unordered_map<std::string, GameId> foreignItemGame;
     try {
-        auto j = nlohmann::json::parse(fill.spoilerJson);
+        auto j = nlohmann::json::parse(spoilerJson);
         for (auto& fm : j.value("foreign", nlohmann::json::array())) {
             std::string cg = fm.value("checkGame", ""), cn = fm.value("checkName", "");
             std::string ig = fm.value("itemGame", "");
@@ -520,7 +507,7 @@ static void RunComboPlaythrough(const std::string& inputSeed) {
     std::vector<std::string> ownedOot, ownedMm;
     std::unordered_set<std::string> collected; // "<cg>:<cn>"
     std::ostringstream log;
-    log << "Cross-world playthrough - seed '" << seedStr << "' (master " << masterSeed << ")\n"
+    log << "Cross-world playthrough - seed '" << seedLabel << "'\n"
         << "Beatable when: Ganondorf reachable (OOT: all trials cleared + Boss Key owned)"
         << " AND Majora's Lair reachable (MM).\n\n";
 
@@ -571,12 +558,42 @@ static void RunComboPlaythrough(const std::string& inputSeed) {
     std::string path = "saves/combo/slot0.playthrough.txt";
     { std::ofstream f(path, std::ios::trunc); f << log.str(); }
 
-    std::cout << "[PLAYTHROUGH] seed '" << seedStr << "' — "
+    std::cout << "[PLAYTHROUGH] seed '" << seedLabel << "' - "
               << (beatableSphere >= 0 ? "BEATABLE" : "NOT beatable")
               << (beatableSphere >= 0 ? (" at sphere " + std::to_string(beatableSphere)) : "")
               << "; full sphere log -> " << path << "\n";
     std::cout << "[PLAYTHROUGH] collected " << collected.size() << " items across "
               << (beatableSphere >= 0 ? beatableSphere : kMaxSpheres) << " spheres before the win\n";
+}
+
+// Env-gated entry: COMBO_PLAYTHROUGH=<seed> generates that seed headless, then writes its log.
+static void RunComboPlaythrough(const std::string& inputSeed) {
+    if (!(Combo_SOH_Rando_Reset && Combo_SOH_Rando_SetOwnedItems && Combo_SOH_Rando_GetReachableChecks &&
+          Combo_SOH_Rando_PlaceItem && Combo_MM_Rando_Reset && Combo_MM_Rando_SetOwnedItems &&
+          Combo_MM_Rando_GetReachableChecks && Combo_MM_Rando_PlaceItem && Combo_MM_Rando_Restore)) {
+        std::cerr << "[PLAYTHROUGH] oracle exports unavailable\n"; return;
+    }
+    if (!SOH_DumpRandoStaticData || !MM_DumpRandoStaticData) {
+        std::cerr << "[PLAYTHROUGH] dump functions not resolved\n"; return;
+    }
+    ComboRando::OracleFns ootOracle = {
+        Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
+        Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem
+    };
+    ComboRando::OracleFns mmOracle = {
+        Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
+        Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem
+    };
+    std::string seedStr = inputSeed.empty() ? "1" : inputSeed;
+    auto fill = ComboRando::CrossWorldCombinedFill(
+        SOH_DumpRandoStaticData(), MM_DumpRandoStaticData(), ComboHash(seedStr.c_str()),
+        ootOracle, mmOracle, "", nullptr);
+    if (!fill.success) {
+        Combo_MM_Rando_Restore();
+        std::cerr << "[PLAYTHROUGH] seed '" << seedStr << "' did not generate: " << fill.error << "\n";
+        return;
+    }
+    WriteComboPlaythrough(fill.spoilerJson, ootOracle, mmOracle, seedStr); // restores MM at the end
 }
 
 // ComboShip Task 6 / Inc7: request handler — called by SOH_TriggerComboGenerate from the UI.

@@ -307,8 +307,9 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     try {
         std::error_code ec;
         std::filesystem::create_directories("saves/combo", ec);
-        std::ofstream(std::string("saves/combo/slot") + std::to_string(kCanonicalSlot) + ".spoiler.json",
-                      std::ios::trunc) << spoiler;
+        // ComboShip: the full placement record now lives in slot0.playthrough.txt (written by
+        // WriteComboPlaythrough above) — its "Full placement" section is a strict superset of the
+        // old slot0.spoiler.json dump (it also lists unreachable checks), so no separate file here.
 
         auto j = nlohmann::json::parse(spoiler);
         auto foreignArr = j.value("foreign", nlohmann::json::array());
@@ -544,6 +545,15 @@ static void WriteComboPlaythrough(const std::string& spoilerJson,
                 << "\n";
         }
     }
+    // ComboShip: true "ever reachable" sets — give each oracle the FULL placed-item set and ask what's
+    // reachable. Reachability is monotonic, so full inventory yields the maximal reachable set. Distinct
+    // from `collected`, which stops at the beatable sphere (post-win checks would look false-unreachable).
+    // Must run before the MM restore below, which rolls the MM oracle back to its pre-generation snapshot.
+    std::vector<std::string> allOot, allMm;
+    for (auto& p : placements) (p.itemGame == GAME_OOT ? allOot : allMm).push_back(p.item);
+    auto everReachOot = queryReachable(ootOracle, allOot);
+    auto everReachMm  = queryReachable(mmOracle,  allMm);
+
     Combo_MM_Rando_Restore();
 
     if (beatableSphere >= 0) {
@@ -552,6 +562,28 @@ static void WriteComboPlaythrough(const std::string& spoilerJson,
     } else {
         log << "\nNOT proven beatable within " << kMaxSpheres << " spheres (see stuck note above).\n";
     }
+
+    // ComboShip: full placement record — strict superset of the old slot0.spoiler.json dump. Lists
+    // EVERY check->item in both games, in placement order, flagging any check the oracles can never
+    // reach even with full inventory ([UNREACHABLE], via everReach* above — true reachability, not the
+    // pre-win `collected` set). This is the artifact for debugging reachability dead-ends: it shows what
+    // got placed in checks the oracles can't see. Kept here so spoiler.json no longer needs to exist.
+    auto emitGame = [&](GameId cg, const char* tag, const std::unordered_set<std::string>& everReach) {
+        size_t reached = 0, missing = 0;
+        log << "\n--- " << tag << " placements ---\n";
+        for (auto& p : placements) {
+            if (p.checkGame != cg) continue;
+            bool got = everReach.count(p.check) > 0;
+            got ? ++reached : ++missing;
+            log << "    " << (got ? "  " : "! ") << p.check << "  <-  " << p.item
+                << (p.checkGame != p.itemGame ? (p.itemGame == GAME_OOT ? "  (OOT item)" : "  (MM item)") : "")
+                << (got ? "" : "   [UNREACHABLE]") << "\n";
+        }
+        log << "  " << tag << ": " << reached << " reachable, " << missing << " unreachable\n";
+    };
+    log << "\n==== Full placement (all checks) ====\n";
+    emitGame(GAME_OOT, "OOT", everReachOot);
+    emitGame(GAME_MM,  "MM",  everReachMm);
 
     std::error_code ec;
     std::filesystem::create_directories("saves/combo", ec);
@@ -858,9 +890,11 @@ int main(int argc, char** argv) {
                   << std::endl;
     }
 
-    // ComboShip Inc2 de-risk: dump OOT static rando data (headless, safe AFTER SOH_Init).
-    // Write to saves/combo/oot_dump.json so the coherent check set is verifiable.
-    // Spoiler generation now happens per-save in Combo_OnGenerate (not at startup).
+    // ComboShip Inc2 de-risk: dump OOT/MM static rando data (headless, safe AFTER SOH_Init) to
+    // saves/combo/{oot,mm}_dump.json so the coherent check set is verifiable, and so an empty MM
+    // dump (eager-boot regression) is caught at startup. Pure diagnostic — generation re-dumps
+    // independently in Combo_OnGenerate. Debug-build only — absent in a Release ship.
+#ifndef NDEBUG
     {
         std::error_code ec;
         std::filesystem::create_directories("saves/combo", ec);
@@ -880,6 +914,7 @@ int main(int argc, char** argv) {
                       << j["items"].size() << " items -> saves/combo/mm_dump.json\n";
         }
     }
+#endif
 
     // --- 5. Register OOT callbacks ---
     // Note: MM_InitArchives (dormant archive pre-load) is skipped — Ship::ArchiveManager::Init

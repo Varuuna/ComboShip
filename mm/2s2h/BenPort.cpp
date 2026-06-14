@@ -2808,6 +2808,8 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     // ComboShip canary: written to a file because 2ship.dll's spdlog default logger is never
     // configured in combo (shared context owns logging in soh's module), so SPDLOG_* here goes
     // nowhere. regions==0 here means MM's eager boot / ShipInit::InitAll didn't run.
+    // Debug-build only — not present in a Release ship (see oot_dump/mm_dump gate in ComboShip.cpp).
+#ifndef NDEBUG
     try {
         std::error_code ec;
         std::filesystem::create_directories("saves/combo", ec);
@@ -2825,6 +2827,9 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         };
         std::ofstream("saves/combo/debug-mmdump.json", std::ios::trunc) << diag.dump(2);
     } catch (...) {}
+#else
+    (void)skippedNoStatic; (void)skippedNoName; (void)noVanillaItem;
+#endif
 
     for (auto& [id, item] : Rando::StaticData::Items) {
         if (!item.spoilerName || item.spoilerName[0] == '\0') continue;

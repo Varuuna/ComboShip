@@ -549,8 +549,10 @@ graceful fallbacks everywhere else (boot-on-first-portal-transition, place-anywh
 Fixed by using the canonical `extern "C" __declspec(dllexport)` form. Verified: eager boot
 completes, 315 regions, MM dump 876 checks, spoiler mmCount=876 with populated foreign array.
 
-**`mm/2s2h/BenPort.cpp` (`MM_DumpRandoStaticData`):** kept a permanent file-based canary
-(`saves/combo/debug-mmdump.json`: pool sizes + per-reason emit-drop counters). File-based because
+**`mm/2s2h/BenPort.cpp` (`MM_DumpRandoStaticData`):** a debug-build-only file-based canary
+(`saves/combo/debug-mmdump.json`: pool sizes + per-reason emit-drop counters), gated `#ifndef NDEBUG`
+so it never ships in a Release build (the drop counters are still computed; only the file write is
+gated). File-based because
 2ship.dll's spdlog default logger is never configured in combo (the shared Context owns logging in
 soh's module) — SPDLOG_* calls from 2ship.dll go nowhere; remember this when adding MM-side logs.
 

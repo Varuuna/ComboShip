@@ -48,6 +48,42 @@ no common ancestor for a 3-way merge. We manufacture one:
 
 All work happens on a throwaway branch (e.g. `testing-merging`).
 
+## Running a merge pass (tooling)
+
+The deterministic plumbing is automated. The semantic conflict resolution + build-fix chain stays
+manual (it's judgement work). Two pieces:
+
+- **`upstream-pins.json`** (repo root) — the source of truth: the last-merged upstream SHA per
+  folder. Updating it is the **final step of every merge**. Both the local orchestrator and CI read
+  it.
+- **`scripts/upstream-merge.ps1`** — fetches the three upstreams, hydrates blobs (the forced
+  filter-disabled refetch — HarbourMasters servers refuse by-SHA promisor fetches), rebuilds the
+  `vendor-*` branches at the current tips (parent = previous vendor tip), and prints the
+  **conflict-surface report** (which of *our* customized files upstream touched). With `-Merge` it
+  also runs the 3-way merges (`-c merge.renames=false` for mm), leaving conflicts for a human.
+- **CI** (`.github/workflows/`): `upstream-check.yml` (weekly + manual) opens/updates a GitHub issue
+  with new commits + conflict surface — **notify only, never merges**. `build.yml` is a
+  GitHub-hosted Windows compile gate (all four targets, Debug) on PRs touching the vendored trees.
+
+## Standing policy: libultraship branch (Kenix3 `main`)
+
+We **always** vendor Kenix3 `libultraship` `main`. soh/2ship are vendored as the `soh/`/`mm/`
+**source folders only** — we never adopt their submodule pins. If soh or 2ship *source* hits a
+build break around **window/Context init-deinit or other non-game infrastructure**, check whether
+that upstream pins a different LUS branch (e.g. soh@develop moved to Kenix3 `port-maintenance` for
+the "Untangle Context destructor" PR #1103) and **cherry-pick the specific commit(s) into our
+vendored `libultraship/` — additively where possible — rather than switching the branch we track.**
+Concrete instance handled in the 2026-06-15 pass: the `GetInstance()`→`GetRawInstance()` rename
+(see that section below).
+
+## Standing policy: mm asset headers are TRACKED (match upstream)
+
+Both upstream Shipwright (`soh/assets/**.h`) and 2ship (`mm/assets/**.h`) **commit** their
+ZAPD-generated asset headers. Track them in our tree too. Earlier passes slimmed mm's out with
+`git rm` (kept on disk only), which (a) diverged from upstream, (b) created a per-merge footgun, and
+(c) broke ROM-less compiles. On an mm merge, resolve the `mm/assets/**.h` modify/delete conflicts by
+**re-tracking from the vendor branch**: `git checkout vendor-mm -- mm/assets` (NOT `git rm`).
+
 ---
 
 # Post-merge change log
@@ -713,3 +749,56 @@ layout, re-check the func→order mapping here.
 **`mm/2s2h/Rando/DrawItem.cpp` (port code, COMBO_BUILD-guarded):** `#include "ComboForeignDrawMM.h"`
 (outside the `extern "C"` block) + a `case RI_COMBO_FOREIGN: MM_DrawComboForeign(randoCheckId);` in
 `Rando::DrawItem`.
+
+## Merge pass 2026-06-15 (libultraship a3f1e102e / soh adf31d5eb / mm 3545e62e0)
+
+Routine pull. Surfaces: **1 LUS commit** (CI-file only), **60 soh PRs**, **5 mm PRs**.
+
+### libultraship — `main` `6fdfab32f` → `a3f1e102e`
+Only conflict was the deleted CI workflow (kept deleted). No code change. Re-confirmed the
+`WINDOWS_EXPORT_ALL_SYMBOLS FALSE` guard.
+
+**Build-fix (additive, for soh): `Context::GetRawInstance()`.** Kenix3 PR #1103 ("Untangle the
+Context destructor") renamed `GetInstance()` (shared_ptr) → `GetRawInstance()` (raw `Context*`) and
+changed ownership shared_ptr→unique_ptr. That PR is on Kenix3 `port-maintenance` (which soh@develop
+pins) — **not** on `main`. soh@develop's source already migrated and calls `GetRawInstance()` in
+**~408 places**. Per the LUS-branch policy we did **not** switch branches or adopt the breaking
+unique_ptr ownership (our per-game Context-sharing + `MM_Deinit` "release the last reference"
+shutdown model depends on shared_ptr refcounting). Instead we added `GetRawInstance()` **additively**
+to our `main`-based LUS as a raw view over the existing shared instance
+(`libultraship/include/ship/Context.h`, `src/ship/Context.cpp` — `return mContext.lock().get();`).
+`GetInstance()` and the weak_ptr `mContext` are unchanged. **Expect on future merges:** any new
+`GetRawInstance`/`DestroyInstance`/`Create*`-returns-raw drift from soh tracking port-maintenance;
+keep extending the additive shim rather than adopting #1103 wholesale. (`DestroyInstance` had 0 soh
+call sites this pass.)
+
+### soh — `develop` `abcb3ad94` → `adf31d5eb` (5 content conflicts)
+- `soh/CMakeLists.txt` — kept dynamic CRT (`*DLL`); **adopted upstream's new `SOH_WINDOWS_64BIT`
+  gate** (replaced our `CMAKE_VS_PLATFORM_NAME STREQUAL "x64"` check). Only the `*DLL` suffix is ours.
+- `debugconsole.cpp`, `z_play_otr.cpp` — kept our COMBO_BUILD blocks (`cross_send`, the
+  OTRPlay_LoadFile try/catch crash-capture), switched their `Context::GetInstance()` to
+  `GetRawInstance()` to match the surrounding upstream code.
+- `hook_handlers.cpp` — both sides additive includes; kept both (our COMBO_BUILD
+  CrossMailbox/CrossForeign + upstream's `RCToRandInf.h`).
+- `OTRGlobals.cpp` — **dropped** an upstream-removed `audio.mutex`/`audio.processing` wait block (the
+  audio-stutter-fix PR #6704 consolidated audio sync elsewhere — it was base code, not a combo
+  customization); **kept `AltAssets` default `0`** (our documented deviation; upstream defaults `1`).
+- `OTRGlobals.h` — `context` member changed back to `std::shared_ptr<Ship::Context>` (upstream made
+  it raw `Context*` for #1103). OTRGlobals owns the **strong** reference because our LUS keeps only a
+  weak_ptr. **Expect on future merges:** this member type and any `Create*Instance()` return-type
+  mismatch will recur as long as soh tracks port-maintenance.
+
+All other customized soh files (the menu-extraction set, the rest of the rando set, z_message_OTR)
+auto-merged cleanly. OTRExporter/ZAPDTR submodule pins were unchanged upstream → no
+OTRExporter/ZAPD build-fix chain this pass.
+
+### mm — `develop` `04a1a4319` → `3545e62e0` (0 content conflicts)
+`BenMenu.cpp` auto-merged. Only the 2 asset-header modify/deletes
+(`title_static.h`, `object_mag.h`) conflicted → resolved by the **re-track policy**:
+`git checkout vendor-mm -- mm/assets` brought upstream's full ~960 `mm/assets/**.h` back into
+tracking (was: 4 tracked). No build-fix chain — mm@develop still uses `GetInstance()` (it pins an
+older LUS), which our LUS retains. Upstream reworked the MM title screen
+(`z_en_mag.c`/`object_mag`/`title_static`) and ported SoH warp points — no conflict with our
+OOT-side dual-title feature; **runtime-verify the title screen**.
+
+All four targets build green (Debug). `upstream-pins.json` updated to the three new tips.

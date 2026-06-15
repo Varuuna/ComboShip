@@ -1,0 +1,116 @@
+name: Upstream check
+
+# Weekly (+ manual) check of the three vendored upstreams. Reports new commits and the conflict
+# surface (which of our customized files upstream touched) by opening/updating a GitHub issue.
+# NOTIFY ONLY — never merges. A human then runs scripts/upstream-merge.ps1 locally.
+# See docs/UPSTREAM_MERGES.md.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'   # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need our vendored trees' history
+
+      - name: Compute new commits + conflict surface
+        id: report
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config gc.auto 0
+          REPORT=$(mktemp)
+          ANY_NEW=0
+
+          # key|remote-url|branch|prefix|subtree   (subtree empty => repo root maps to prefix)
+          jq -r '.upstreams | to_entries[] | "\(.key)|\(.value.remote)|\(.value.branch)|\(.value.prefix)|\(.value.subtree)|\(.value.mergedSha)"' upstream-pins.json |
+          while IFS='|' read -r key url branch prefix subtree merged; do
+            echo "::group::$key"
+            git remote add "up-$key" "$url" 2>/dev/null || true
+            # blob:none keeps it cheap; name-only diffs need only tree objects.
+            git -c remote.up-$key.promisor=true fetch --filter=blob:none --no-tags "up-$key" "$branch"
+            tip=$(git rev-parse FETCH_HEAD)
+
+            if [ "$(git rev-parse "$merged")" = "$tip" ]; then
+              echo "$key: up to date ($merged)" >> "$REPORT"
+              echo "::endgroup::"; continue
+            fi
+            ANY_NEW=1
+
+            # New commits (first-parent for readability).
+            count=$(git rev-list --count --first-parent "$merged..$tip")
+            {
+              echo ""
+              echo "### $key — \`$merged\` → \`$(git rev-parse --short=9 $tip)\` ($count merges)"
+              echo ""
+              echo '<details><summary>new commits</summary>'
+              echo ""
+              echo '```'
+              git log --oneline --first-parent "$merged..$tip" | head -100
+              echo '```'
+              echo '</details>'
+            } >> "$REPORT"
+
+            # Conflict surface = our customized files INTERSECT upstream-changed files.
+            if [ -n "$subtree" ]; then
+              ours=$(git diff --name-only "$merged:$subtree" "HEAD:$prefix" | sort)
+              theirs=$(git diff --name-only "$merged:$subtree" "$tip:$subtree" | sort)
+            else
+              ours=$(git diff --name-only "$merged^{tree}" "HEAD:$prefix" | sort)
+              theirs=$(git diff --name-only "$merged^{tree}" "$tip^{tree}" | sort)
+            fi
+            surface=$(comm -12 <(echo "$ours") <(echo "$theirs") || true)
+            {
+              echo ""
+              echo "**Conflict surface** (our customized files upstream touched):"
+              echo ""
+              if [ -n "$surface" ]; then echo '```'; echo "$surface"; echo '```'
+              else echo "_none — should auto-merge clean_"; fi
+            } >> "$REPORT"
+            echo "::endgroup::"
+          done
+
+          echo "any_new=$ANY_NEW" >> "$GITHUB_OUTPUT"
+          {
+            echo "report<<__EOF__"
+            if [ "$ANY_NEW" = "0" ]; then echo "All three upstreams are up to date as of this run."; fi
+            cat "$REPORT"
+            echo ""
+            echo "---"
+            echo "_Run \`pwsh scripts/upstream-merge.ps1\` locally to rebuild vendor branches and merge. Notify-only; this job never merges._"
+            echo "__EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open/update tracking issue
+        if: steps.report.outputs.any_new == '1'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = process.env.REPORT;
+            const title = 'Upstream updates available (libultraship / soh / mm)';
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'upstream-merge'
+            });
+            if (existing.data.length) {
+              await github.rest.issues.update({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.data[0].number, body
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title, body, labels: ['upstream-merge']
+              });
+            }
+        env:
+          REPORT: ${{ steps.report.outputs.report }}

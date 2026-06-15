@@ -1,0 +1,29 @@
+{
+  "_comment": "Last-merged upstream SHA per vendored folder. Source of truth for scripts/upstream-merge.ps1 and the CI upstream-check workflow. Update as the FINAL step of every merge pass. See docs/UPSTREAM_MERGES.md.",
+  "upstreams": {
+    "libultraship": {
+      "remote": "https://github.com/Kenix3/libultraship.git",
+      "branch": "main",
+      "prefix": "libultraship",
+      "subtree": "",
+      "mergedSha": "a3f1e102e",
+      "mergedDate": "2026-06-15"
+    },
+    "soh": {
+      "remote": "https://github.com/HarbourMasters/Shipwright.git",
+      "branch": "develop",
+      "prefix": "soh",
+      "subtree": "soh",
+      "mergedSha": "adf31d5eb",
+      "mergedDate": "2026-06-15"
+    },
+    "mm": {
+      "remote": "https://github.com/HarbourMasters/2ship2harkinian.git",
+      "branch": "develop",
+      "prefix": "mm",
+      "subtree": "mm",
+      "mergedSha": "3545e62e0",
+      "mergedDate": "2026-06-15"
+    }
+  }
+}

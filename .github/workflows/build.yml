@@ -1,0 +1,54 @@
+name: Build (Windows compile gate)
+
+# Compile-only gate for upstream merges. Builds all four targets in Debug on a GitHub-hosted
+# Windows runner. NO ROMs, NO .o2r generation, NO runtime — those stay local (ComboShip needs
+# copyrighted ROMs to extract assets and to run). The vendored mm/assets/**.h headers are tracked
+# (matching upstream), which is what lets 2ship.dll compile here without a ROM.
+# See docs/UPSTREAM_MERGES.md.
+
+on:
+  pull_request:
+    paths:
+      - 'libultraship/**'
+      - 'soh/**'
+      - 'mm/**'
+      - 'combo/**'
+      - 'CMakeLists.txt'
+      - 'CMake/**'
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # automate-vcpkg.cmake bootstraps + installs packages during configure; cache its output so
+      # only the first run pays the full vcpkg build cost.
+      - name: Cache build dir (vcpkg + CMake)
+        uses: actions/cache@v4
+        with:
+          path: build/x64
+          key: build-x64-${{ hashFiles('CMakeLists.txt', 'CMake/**', 'libultraship/cmake/**') }}
+          restore-keys: build-x64-
+
+      - name: Configure
+        run: cmake -B build/x64 -S . -G "Visual Studio 17 2022" -A x64
+
+      # Order matters: libultraship -> soh -> 2ship (soh before 2ship; they share OTRExporter/ZAPD).
+      - name: Build libultraship
+        run: cmake --build build/x64 --target libultraship --config Debug
+      - name: Build soh
+        run: cmake --build build/x64 --target soh --config Debug
+      - name: Build 2ship
+        run: cmake --build build/x64 --target 2ship --config Debug
+      - name: Build comboui
+        run: cmake --build build/x64 --target comboui --config Debug
+      - name: Build ComboShip
+        run: cmake --build build/x64 --target ComboShip --config Debug

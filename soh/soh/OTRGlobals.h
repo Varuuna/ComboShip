@@ -47,6 +47,10 @@ class OTRGlobals {
   public:
     static OTRGlobals* Instance;
 
+    // ComboShip: hold the STRONG reference to the Context. Upstream soh@develop adopted Kenix3 #1103
+    // (raw Ship::Context*, LUS owns it via unique_ptr). We track Kenix3 `main`, whose Context keeps
+    // only a weak_ptr (mContext), so OTRGlobals must own the shared_ptr to keep the Context alive —
+    // and our shutdown model (MM_Deinit releasing the last reference) depends on that refcounting.
     std::shared_ptr<Ship::Context> context;
     std::shared_ptr<SaveStateMgr> gSaveStateMgr;
     std::shared_ptr<Randomizer> gRandomizer;

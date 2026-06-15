@@ -50,6 +50,20 @@ class Context {
     static std::shared_ptr<Context> GetInstance();
 
     /**
+     * @brief Returns a raw (non-owning) pointer to the currently active global Context.
+     *
+     * ComboShip: upstream Kenix3 PR #1103 ("Untangle the Context destructor") renamed
+     * GetInstance()->GetRawInstance() and changed ownership to a unique_ptr. We track Kenix3
+     * `main` (which still has the shared_ptr GetInstance), but soh@develop adopted #1103 and
+     * now calls GetRawInstance() in ~408 places. Rather than adopt the breaking unique_ptr
+     * ownership (our combo per-game Context-sharing + MM_Deinit "release the last reference"
+     * shutdown model relies on shared_ptr refcounting), we add GetRawInstance() ADDITIVELY as a
+     * raw view over the existing shared instance. GetInstance() and the weak_ptr mContext are
+     * unchanged. See docs/UPSTREAM_MERGES.md and the comboship-upstream-updates LUS-branch rule.
+     */
+    static Context* GetRawInstance();
+
+    /**
      * @brief Sets the currently active global Context instance.
      *
      * ComboShip: lets a game swap which Context is "current" without going through CreateInstance(),

@@ -35,6 +35,12 @@ std::shared_ptr<Context> Context::GetInstance() {
     return mContext.lock();
 }
 
+// ComboShip: additive raw view over the shared instance — see Context.h GetRawInstance() comment.
+// soh@develop (Kenix3 #1103) calls this in ~408 places; we keep the shared_ptr ownership model.
+Context* Context::GetRawInstance() {
+    return mContext.lock().get();
+}
+
 void Context::SetInstance(std::shared_ptr<Context> ctx) {
     mContext = ctx;
 }

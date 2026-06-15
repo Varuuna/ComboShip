@@ -19,7 +19,7 @@ Ship::IResource* OTRPlay_LoadFile(PlayState* play, const char* fileName) {
     // backtrace. Catch it here, log exactly which file failed and why, and return nullptr so the caller
     // hits its existing fallback instead of dying silently.
     try {
-        auto res = Ship::Context::GetInstance()->GetResourceManager()->LoadResource(fileName);
+        auto res = Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(fileName);
         return res.get();
     } catch (const std::exception& e) {
         lusprintf(__FILE__, __LINE__, 2, "[ComboShip] OTRPlay_LoadFile FAILED for '%s': %s\n",
@@ -95,7 +95,7 @@ void OTRPlay_InitScene(PlayState* play, s32 spawn) {
 
     GameInteractor_ExecuteAfterSceneCommands(play->sceneNum);
     Play_InitEnvironment(play, play->skyboxId);
-    /* auto data = static_cast<LUS::Vertex*>(Ship::Context::GetInstance()
+    /* auto data = static_cast<LUS::Vertex*>(Ship::Context::GetRawInstance()
                                                ->GetResourceManager()
                                                ->ResourceLoad("object_link_child\\object_link_childVtx_01FE08")
                                                .get());

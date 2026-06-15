@@ -1663,6 +1663,11 @@ TexturePtr sWarningLabels[] = {
     gFileSelFileEmptyENGTex,    gFileSelFileInUseENGTex,
 };
 
+TexturePtr sWarningLabelsIA4[] = {
+    gFileSelNoFileToCopyIA4ENGTex, gFileSelNoFileToEraseIA4ENGTex, gFileSelNoEmptyFileIA4ENGTex,
+    gFileSelFileEmptyIA4ENGTex,    gFileSelFileInUseIA4ENGTex,
+};
+
 TexturePtr sFileButtonTextures[] = {
     gFileSelFile1ButtonENGTex,
     gFileSelFile2ButtonENGTex,
@@ -1846,7 +1851,7 @@ void FileSelect_DrawWindowContents(GameState* thisx) {
         gDPSetPrimColor(POLY_OPA_DISP++, 0, 0, 255, 255, 255, this->emptyFileTextAlpha);
         gDPSetEnvColor(POLY_OPA_DISP++, 0, 0, 0, 0);
         if (ResourceMgr_GetGameVersion(0) == MM_NTSC_US_GC) {
-            gDPLoadTextureBlock_4b(POLY_OPA_DISP++, sWarningLabels[this->warningLabel], G_IM_FMT_IA, 128, 16, 0,
+            gDPLoadTextureBlock_4b(POLY_OPA_DISP++, sWarningLabelsIA4[this->warningLabel], G_IM_FMT_IA, 128, 16, 0,
                                    G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK,
                                    G_TX_NOLOD, G_TX_NOLOD);
         } else { // MM_NTSC_US_10

@@ -1506,7 +1506,8 @@ void BenMenu::AddEnhancements() {
     AddWidget(path, "Skip to File Select", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Cutscenes.SkipToFileSelect")
         .Options(CheckboxOptions().Tooltip(
-            "Skip the opening title sequence and go straight to the file select menu after boot."));
+            "Skip the opening title sequence and go straight to the file select menu after boot.\n\n"
+            "Note: Takes priority over debug warp points with [Boot] enabled."));
     AddWidget(path, "Skip Intro Sequence", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Cutscenes.SkipIntroSequence")
         .Options(CheckboxOptions().Tooltip(

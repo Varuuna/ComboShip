@@ -1,4 +1,4 @@
-name: Build (Windows compile gate)
+name: Build (Windows)
 
 # Compile-only gate for upstream merges. Builds all four targets in Debug on a GitHub-hosted
 # Windows runner. NO ROMs, NO .o2r generation, NO runtime — those stay local (ComboShip needs

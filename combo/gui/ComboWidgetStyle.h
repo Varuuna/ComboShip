@@ -37,4 +37,12 @@ void ComboMenu_PopButton();
 void ComboMenu_PushInput(const ImVec4& color);
 void ComboMenu_PopInput();
 
+// Stylized menu-navigation buttons mirroring OOT's ModernMenuHeaderEntry / ModernMenuSidebarEntry
+// look (soh/soh/SohGui/Menu.cpp:153-199): rounded, theme-accent fill when selected, transparent
+// otherwise, with themed hover/active. Text is centered (ImGui::Button default ButtonTextAlign).
+// Each returns true on click. SOH's manual DrawList renderer needs imgui_internal + its large
+// fonts (neither available here), so these use the public Button API over the shared context.
+bool ComboMenu_StyledHeaderEntry(const char* label, bool selected);
+bool ComboMenu_StyledSidebarEntry(const char* label, bool selected, float width);
+
 } // namespace ComboRando

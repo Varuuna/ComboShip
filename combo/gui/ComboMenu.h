@@ -4,6 +4,8 @@
 
 #include <libultraship/libultraship.h>
 #include <string>
+#include <map>
+#include <utility>
 #include "gui/ComboGenProgress.h"
 
 namespace ComboRando {
@@ -32,6 +34,11 @@ class ComboMenu final : public Ship::GuiWindow {
     std::string      mStatusLine;
     bool             mGeneratePending = false; // one-frame defer: show "Generating…" before blocking fill
     std::string      mHubActive;       // active hub entry key ("group/label"); persists across frames
+    std::string      mScope;           // active top-level scope: "shared" | "oot" | "mm"; persists
+    // Per-game two-level nav selection (SOH-style top header + left sidebar): gameKey -> (header,
+    // sidebar). Combo-local — deliberately NOT the games' own gSettings.Menu.*SidebarSection CVars
+    // (writing those would perturb the games' native menus). Persists across frames.
+    std::map<std::string, std::pair<std::string, std::string>> mGameNav;
 };
 
 } // namespace ComboRando

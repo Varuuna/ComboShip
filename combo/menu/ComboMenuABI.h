@@ -59,6 +59,7 @@ typedef struct {
     int32_t      gameLoopDependent; /* action requires the game's frame loop; foreground-only */
     int32_t      sameLine;
     int32_t      hideInSearch;
+    int32_t      column;       /* 0-based column index within the sidebar (for faithful multi-column layout) */
 } CwWidget;
 
 typedef struct {

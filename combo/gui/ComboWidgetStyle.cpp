@@ -146,4 +146,29 @@ void ComboMenu_PopInput() {
     ImGui::PopStyleColor(7);
 }
 
+// --- Stylized nav buttons (see header). Selected → solid theme fill; unselected → transparent
+//     button (so only hover/active show the accent), matching SOH's transparent-inactive idiom
+//     (Menu.cpp:723/850). No frame border: SOH's manual renderer draws a borderless filled rect. ---
+static bool StyledNavButton(const char* label, bool selected, const ImVec2& size, const ImVec2& pad) {
+    const ImVec4 theme = ComboMenu_ThemeColor();
+    ImGui::PushStyleColor(ImGuiCol_Button, selected ? theme : ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(theme.x, theme.y, theme.z, 0.8f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(theme.x, theme.y, theme.z, 0.6f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, pad);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+    bool pressed = ImGui::Button(label, size);
+    ImGui::PopStyleVar(3);
+    ImGui::PopStyleColor(3);
+    return pressed;
+}
+
+bool ComboMenu_StyledHeaderEntry(const char* label, bool selected) {
+    return StyledNavButton(label, selected, ImVec2(0.0f, 0.0f), ImVec2(10.0f, 8.0f));
+}
+
+bool ComboMenu_StyledSidebarEntry(const char* label, bool selected, float width) {
+    return StyledNavButton(label, selected, ImVec2(width, 0.0f), ImVec2(10.0f, 6.0f));
+}
+
 } // namespace ComboRando

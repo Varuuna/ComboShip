@@ -231,4 +231,37 @@ void RenderWidget(const CwWidget& w, const GameMenu& game) {
     ImGui::PopID();
 }
 
+void RenderSidebarWidgets(const CwSidebar& side, const GameMenu& game) {
+    const uint32_t cols = side.columnCount > 0 ? side.columnCount : 1;
+    if (cols <= 1) {
+        for (int i = 0; i < side.widgetCount; ++i) {
+            RenderWidget(side.widgets[i], game);
+        }
+        return;
+    }
+    // Equal-width stretch columns (no resize/borders) mirror the native menu's per-column child
+    // windows. Widgets are flattened column-major (ComboMenuExport.h) and carry CwWidget.column,
+    // so we render one table cell per column, stacking that column's widgets vertically — the
+    // narrower cell width is exactly what stops the controls from spanning the whole panel.
+    const ImGuiTableFlags flags = ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings;
+    if (ImGui::BeginTable("##sidebarcols", (int)cols, flags)) {
+        ImGui::TableNextRow();
+        for (uint32_t c = 0; c < cols; ++c) {
+            ImGui::TableSetColumnIndex((int)c);
+            for (int i = 0; i < side.widgetCount; ++i) {
+                int wc = side.widgets[i].column;
+                if (wc < 0) {
+                    wc = 0;
+                } else if ((uint32_t)wc >= cols) {
+                    wc = (int)cols - 1; // clamp stray indices into the last column
+                }
+                if ((uint32_t)wc == c) {
+                    RenderWidget(side.widgets[i], game);
+                }
+            }
+        }
+        ImGui::EndTable();
+    }
+}
+
 } // namespace ComboRando

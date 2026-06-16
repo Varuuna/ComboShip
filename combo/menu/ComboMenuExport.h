@@ -177,6 +177,7 @@ inline const CwMenu* Build(State<typename TPolicy::Widget>& st, const std::vecto
             auto& sb = sbIt->second;
             size_t sidebarWidgetStart = st.widgets.size();
 
+            int32_t colIdx = 0;
             for (auto& column : sb.columnWidgets) {
                 for (auto& w : column) {
                     int32_t index = (int32_t)st.flat.size();
@@ -199,6 +200,7 @@ inline const CwMenu* Build(State<typename TPolicy::Widget>& st, const std::vecto
                     cw.gameLoopDependent = 0;
                     cw.sameLine = w.sameLine ? 1 : 0;
                     cw.hideInSearch = w.hideInSearch ? 1 : 0;
+                    cw.column = colIdx; // which columnWidgets[] column this widget came from
 
                     size_t choiceStart = st.choices.size();
                     TPolicy::EmitChoices(w, st.choices);
@@ -210,6 +212,7 @@ inline const CwMenu* Build(State<typename TPolicy::Widget>& st, const std::vecto
                     widgetChoiceRange.emplace_back(choiceStart, choiceCnt);
                     st.widgets.push_back(cw);
                 }
+                colIdx++;
             }
 
             sidebarRanges.push_back(SidebarRange{ ownStr(sbKey), sb.columnCount, sidebarWidgetStart,
@@ -253,7 +256,7 @@ inline const CwMenu* Build(State<typename TPolicy::Widget>& st, const std::vecto
         st.sections.push_back(sec);
     }
 
-    st.menu.version = 1;
+    st.menu.version = 2; // v2: CwWidget.column added for faithful multi-column layout
     st.menu.sectionCount = (int32_t)st.sections.size();
     st.menu.sections = st.sections.empty() ? nullptr : st.sections.data();
 

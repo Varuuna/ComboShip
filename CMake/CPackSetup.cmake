@@ -4,10 +4,10 @@ set(CPACK_PACKAGE_NAME "${PROJECT_NAME}"
     CACHE STRING "The resulting package name"
 )
 
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Simple C++ application"
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "ComboShip - Ocarina of Time + Majora's Mask combined port"
     CACHE STRING "Package description for the package metadata"
 )
-set(CPACK_PACKAGE_VENDOR "Some Company")
+set(CPACK_PACKAGE_VENDOR "ComboShip")
 
 set(CPACK_VERBATIM_VARIABLES YES)
 
@@ -40,6 +40,10 @@ set(CPACK_COMPONENTS_GROUPING ALL_COMPONENTS_IN_ONE)#ONE_PER_GROUP)
 # without this you won't be able to pack only specified component
 set(CPACK_DEB_COMPONENT_INSTALL YES)
 
+# ComboShip: TODO (Linux) — the AppImage below still targets the standalone `2ship` target
+# (--executable / desktop-file / icon-file all reference 2ship). Left intact deliberately; rework
+# to bundle the full combo runtime (ComboShip + libultraship.dll + comboui.dll) when enabling Linux
+# packaging, mirroring the Windows ZIP component set in CPackProjectConfig.cmake.
 set(CPACK_EXTERNAL_ENABLE_STAGING YES)
 set(CPACK_EXTERNAL_PACKAGE_SCRIPT "${PROJECT_BINARY_DIR}/appimage-generate.cmake")
 

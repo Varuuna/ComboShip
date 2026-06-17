@@ -57,10 +57,9 @@ set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT combo)
 # Compiler options
 add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/MP>)
 add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
-# ComboShip: upstream Shipwright/2ship set this in THEIR root CMakeLists; we have our own root,
-# so mirror it here. Required by soh's (and mm's) randomizer X-macro enum headers, which use the
-# C++20 __VA_OPT__ preprocessor feature that MSVC only supports under the conforming preprocessor.
-# Surfaced by the soh upstream merge (see docs/UPSTREAM_MERGES.md).
+# ComboShip: upstream sets this in its own root CMakeLists; we have our own root, so mirror it
+# here. soh/mm randomizer X-macro enum headers use C++20 __VA_OPT__, which MSVC only supports
+# under the conforming preprocessor. See docs/UPSTREAM_MERGES.md.
 add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/Zc:preprocessor>)
 
 # Warning suppression option (from OOT)
@@ -204,12 +203,10 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
 
-# ComboShip: spdlog log-level numeric values. libultraship/src/CMakeLists.txt sets these but only
-# in its own subdirectory scope, so sibling subdirs (soh, mm) don't inherit them -> their
-# LOG_LEVEL_GAME_PRINTS=${SPDLOG_LEVEL_OFF} compile-def expands to empty -> #if C1017 in
-# soh/include/functions.h. Define them here at root scope so every game subdir inherits them.
-# (Surfaced by the soh upstream merge once libultraship's logging CMake was rescoped. See
-# docs/UPSTREAM_MERGES.md.)
+# ComboShip: spdlog log-level values. libultraship sets these only in its own subdir scope, so
+# soh/mm don't inherit them -> their LOG_LEVEL_GAME_PRINTS=${SPDLOG_LEVEL_OFF} expands to empty
+# -> #if C1017 in soh/include/functions.h. Define them at root scope so every game subdir gets
+# them. See docs/UPSTREAM_MERGES.md.
 set(SPDLOG_LEVEL_TRACE 0)
 set(SPDLOG_LEVEL_DEBUG 1)
 set(SPDLOG_LEVEL_INFO 2)
@@ -257,7 +254,7 @@ add_custom_target(
     GenerateSohOtr
     COMMAND ${CMAKE_COMMAND} -E rm -f soh.o2r
     COMMAND ${CMAKE_COMMAND} -E rm -r -f ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/custom/shaders/
-    # ComboShip: libultraship upstream merge moved Fast3D shaders src/graphic/Fast3D/ -> src/fast/.
+    # ComboShip: an upstream merge moved Fast3D shaders from src/graphic/Fast3D/ to src/fast/.
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/libultraship/src/fast/shaders/ ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/custom/shaders/
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/OTRExporter/extract_assets.py -z "$<TARGET_FILE:ZAPD>" --norom --custom-otr-file soh.o2r "--custom-assets-path" ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/custom --port-ver "${CMAKE_PROJECT_VERSION}"
     COMMAND ${CMAKE_COMMAND} -DSYSTEM_NAME=${CMAKE_SYSTEM_NAME} -DTARGET_DIR="$<TARGET_FILE_DIR:ZAPD>" -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DBINARY_DIR=${CMAKE_BINARY_DIR} -DONLYSOHOTR=On -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/copy-existing-otrs.cmake
@@ -289,10 +286,21 @@ if("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
 endif()
 
 if ("${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
-    install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/extractor/" DESTINATION ./assets/oot COMPONENT combo)
-    install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/xml/" DESTINATION ./assets/xml/oot COMPONENT combo)
-    install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/extractor/" DESTINATION ./assets COMPONENT combo)
-    install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/xml/" DESTINATION ./assets/xml COMPONENT combo)
+    # ComboShip: the shared engine DLL and combo UI DLL are needed at runtime but had no install
+    # rule (only soh/2ship did). Use $<TARGET_FILE:> so this works from the top-level scope no
+    # matter which subdirectory defines the target.
+    install(FILES "$<TARGET_FILE:libultraship>" DESTINATION . COMPONENT combo)
+    install(FILES "$<TARGET_FILE:comboui>"      DESTINATION . COMPONENT combo)
+    # (soh.o2r is installed by soh/CMakeLists.txt; 2ship.o2r by mm/CMakeLists.txt.)
+
+    # Extractor assets. These MUST match the flat, merged layout the runtime POST_BUILD produces
+    # (combo/CMakeLists.txt): both games' extractor dirs merged into assets/, both xml dirs into
+    # assets/xml/ — that is what CallZapd expects at extraction time. The previous rules split soh
+    # into assets/oot, which does NOT match the runtime layout and would break ROM extraction.
+    install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/extractor/" DESTINATION ./assets     COMPONENT combo)
+    install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/xml/"       DESTINATION ./assets/xml COMPONENT combo)
+    install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/extractor/"  DESTINATION ./assets     COMPONENT combo)
+    install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/xml/"        DESTINATION ./assets/xml COMPONENT combo)
 endif()
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows|NintendoSwitch|CafeOS")
@@ -309,5 +317,9 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
     set(CPACK_GENERATOR "Bundle")
 endif()
 
-set(CPACK_PROJECT_CONFIG_FILE ${CMAKE_SOURCE_DIR}/CMake/Packaging-2.cmake)
-include(CMake/Packaging.cmake)
+# ComboShip: packaging is split across two CPack phases.
+#   CPackSetup.cmake         — included now at configure time: static metadata + include(CPack).
+#   CPackProjectConfig.cmake — NOT included here; its path is handed to CPack, which re-runs it at
+#                              pack time, once per generator, for generator-specific component logic.
+set(CPACK_PROJECT_CONFIG_FILE ${CMAKE_SOURCE_DIR}/CMake/CPackProjectConfig.cmake)
+include(CMake/CPackSetup.cmake)

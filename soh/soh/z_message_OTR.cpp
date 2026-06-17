@@ -18,11 +18,10 @@ extern "C" MessageTableEntry* sStaffMessageEntryTablePtr;
 #ifdef COMBO_BUILD
 extern "C" char* _message_0xFFFC_nes;
 extern "C" void OTRMessage_Init();
-// ComboShip MM->OOT resume: the forward transition's UnloadResources("*") freed the message-data
-// resources that these cached tables (and _message_0xFFFC_nes) point INTO, leaving them dangling.
-// OTRMessage_Init won't rebuild them because of its NULL guards, so Message_Init/Font_LoadOrderedFont
-// later strlen()s freed memory and crashes. Free + null them, then reload from the swapped-back OOT
-// archives.
+// ComboShip: MM->OOT resume fix. The forward transition's UnloadResources("*") freed the message-data
+// resources these cached tables (and _message_0xFFFC_nes) point into, leaving them dangling.
+// OTRMessage_Init won't rebuild them because of its NULL guards, so Message_Init later strlen()s freed
+// memory and crashes. Free + null them, then reload from the swapped-back OOT archives.
 extern "C" void OTRMessage_ResetForResume() {
     free(sNesMessageEntryTablePtr);
     free(sGerMessageEntryTablePtr);

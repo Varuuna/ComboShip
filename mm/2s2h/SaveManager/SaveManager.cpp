@@ -140,13 +140,11 @@ void SaveManager_WriteSaveFile(const std::filesystem::path& fileName, nlohmann::
 void SaveManager_InitNewSaveForSlot(int mmFileNum) {
     Sram_InitNewSave();
 #ifdef COMBO_BUILD
-    // ComboShip: a fresh MM save is always entered mid-playthrough from OOT, never via MM's own title/
-    // intro. Set it up post-first-cycle — Human Link in South Clock Town with no first-cycle intro and no
-    // Tatl arrival conversation — mirroring the SkipIntroSequence + SkipFirstCycle enhancements and the
-    // Rando port's OnFileCreate. Kept here in PORT code (not MM game source). gPlayState doesn't exist at
-    // save-creation time, so items are written directly via INV_CONTENT instead of Item_Give. Scene flags
-    // go in permanentSceneFlags because title_setup.c copies those into cycleSceneFlags when the combo
-    // save is loaded.
+    // ComboShip: a fresh MM save is always entered mid-playthrough from OOT, never via MM's title/intro.
+    // Set it up post-first-cycle — Human Link in South Clock Town, no intro, no Tatl arrival — mirroring
+    // the SkipIntroSequence + SkipFirstCycle enhancements and the Rando port's OnFileCreate. gPlayState
+    // doesn't exist yet at save-creation, so items go in via INV_CONTENT instead of Item_Give. Scene
+    // flags go in permanentSceneFlags because title_setup.c copies those into cycleSceneFlags on load.
     gSaveContext.save.hasTatl = true;
     gSaveContext.save.isFirstCycle = true;
     gSaveContext.save.playerForm = PLAYER_FORM_HUMAN;

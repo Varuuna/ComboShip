@@ -26,11 +26,10 @@ typedef struct {
  * itemName is in the owning game's item namespace (MM: RI_* spoilerName; OOT: English name). */
 typedef int32_t (*Fn_GetItemDrawInfo)(const char* itemName, CwItemDrawInfo* out);
 
-/* ComboShip: animated variant — the owning game DESCRIBES a skeletal/animated item (skeleton +
- * animation + texture-animation resource paths) and the HOST's combo-owned code
- * (combo/menu/ComboForeignAnim.h) loads the resources via the owning game's ResourceManager
- * (CrossRMRegistry) and drives the host's own SkelAnime engine. First class served: MM stray
- * fairies. Path strings are the owning game's static asset-path literals (process lifetime). */
+/* ComboShip: animated variant — the owning game describes a skeletal/animated item (skeleton,
+ * animation, texture-animation paths); the host's combo-owned code (combo/menu/ComboForeignAnim.h)
+ * loads the resources via the owning game's ResourceManager (CrossRMRegistry) and drives the host's
+ * own SkelAnime engine. First served: MM stray fairies. Paths are static literals (process lifetime). */
 typedef struct {
     const char* skelPath;     /* FlexSkeleton resource (OTR path) */
     const char* animPath;     /* Animation resource */

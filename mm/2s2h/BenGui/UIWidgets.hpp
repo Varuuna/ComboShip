@@ -847,7 +847,8 @@ bool Combobox(const char* label, T* value, const std::vector<std::string>& combo
     ImGui::BeginDisabled(options.disabled);
     PushStyleCombobox(options.color);
 
-    // ComboShip: must be initialized — comboVector can be empty (e.g. rando spoilerOptions before refresh), else CalcComboWidth derefs garbage.
+    // ComboShip: must be initialized — comboVector can be empty (e.g. rando spoilerOptions before
+    // refresh), else CalcComboWidth derefs garbage.
     const char* longest = "";
     size_t length = 0;
     for (auto& string : comboVector) {

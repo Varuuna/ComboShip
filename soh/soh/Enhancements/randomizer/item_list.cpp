@@ -10,9 +10,9 @@
 using namespace Rando;
 
 #ifdef COMBO_BUILD
-// ComboShip: cross-game item-draw exports (OOT_GetItemDrawInfo / OOT_GetItemAnimDrawInfo) — bodies
-// live in the combo-owned TU-glue header to keep the vendored footprint to this include. Mirror of
-// mm/2s2h/BenPort.cpp's ComboItemDrawMM.h include, in the opposite direction.
+// ComboShip: cross-game item-draw exports (OOT_GetItemDrawInfo / OOT_GetItemAnimDrawInfo). Bodies
+// live in the combo-owned header to keep the vendored footprint to this one include. Mirror of MM's
+// ComboItemDrawMM.h include, in the opposite direction.
 #include "ComboItemDrawOOT.h"
 #endif
 
@@ -464,11 +464,10 @@ void Rando::StaticData::InitItemTable() {
     itemTable[RG_ROCS_FEATHER] =                        Item(RG_ROCS_FEATHER,                     Text{ "Roc's Feather", "Plume de Roc", "Grefenfeider" },                                                                             ITEMTYPE_ITEM,              0xE0,                 true,  LOGIC_ROCS_FEATHER,                 RHT_ROCS_FEATHER,                      RG_ROCS_FEATHER,                      OBJECT_GI_BOMB_2,       GID_STONE_OF_AGONY,   TEXT_RANDOMIZER_CUSTOM_ITEM, 0x80, CHEST_ANIM_LONG,  ITEM_CATEGORY_MAJOR,  MOD_RANDOMIZER, {"a ", "la ", "ein "}).CustomIcon(gRocsFeatherTex);
     itemTable[RG_ROCS_FEATHER].SetCustomDrawFunc(Randomizer_DrawRocsFeather);
 
-    // ComboShip: sentinel for a check holding an item that belongs to MM. Never actually granted —
-    // the pickup code intercepts RG_COMBO_FOREIGN and diverts the real item through the cross-world
-    // mailbox. A valid (harmless) GIEntry is supplied so GetFinalGIEntry/RetrieveItem don't fault if
-    // the entry is ever resolved before the divert. The English name is what the combo generator
-    // writes into the OOT placement payload (itemNameToEnum -> RG_COMBO_FOREIGN).
+    // ComboShip: sentinel for a check holding an MM-bound item. Never actually granted — the pickup
+    // code intercepts RG_COMBO_FOREIGN and diverts the real item through the cross-world mailbox. A
+    // harmless GIEntry is supplied so GetFinalGIEntry/RetrieveItem don't fault if resolved before the
+    // divert. The English name is what the combo generator writes into the OOT placement payload.
     itemTable[RG_COMBO_FOREIGN] =                       Item(RG_COMBO_FOREIGN,                    Text{ "Combo Foreign Item", "Combo Foreign Item", "Combo Foreign Item" },                                            ITEMTYPE_ITEM,              GI_RUPEE_BLUE,        false, LOGIC_NONE,                         RHT_NONE,                              ITEM_NONE,                            OBJECT_GI_RUPY,          GID_RUPEE_BLUE,      0x4A,                        0x80, CHEST_ANIM_SHORT, ITEM_CATEGORY_JUNK,   MOD_NONE);
 #ifdef COMBO_BUILD
     // ComboShip: render foreign checks with the real MM item model via "@mm:" cross-RM routing

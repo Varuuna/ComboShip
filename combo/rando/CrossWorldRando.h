@@ -82,7 +82,7 @@ struct CombinedFillResult {
 
 // portalCheckName: the OOT check/region name that gates access to MM (e.g. "Mido's House").
 // If empty, MM is reachable from start.
-// progress: optional thread-safe progress struct polled by the UI (Task 7). May be nullptr.
+// progress: optional thread-safe progress struct polled by the UI. May be nullptr.
 inline CombinedFillResult CrossWorldCombinedFill(
     const std::string& sohDumpJson,
     const std::string& mmDumpJson,

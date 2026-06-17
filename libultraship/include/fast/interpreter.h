@@ -331,11 +331,11 @@ typedef enum Attribute {
     MV_LIGHT,
 } Attribute;
 
-// ComboShip: g_exec_stack is libultraship data referenced across the shared-DLL boundary by soh
+// ComboShip: g_exec_stack is libultraship data that soh references across the shared-DLL boundary
 // (CrashHandlerExt.cpp). Data symbols need explicit dllimport on the consumer side (functions
-// auto-thunk through the import lib, data does not -> LNK2001). libultraship itself exports it via
-// the all-symbols /DEF pipeline, so only the consumer needs marking. libultraship_EXPORTS is
-// auto-defined by CMake only while building libultraship. See docs/UPSTREAM_MERGES.md.
+// auto-thunk through the import lib, data does not -> LNK2001). libultraship exports it via the
+// all-symbols /DEF pipeline, so only the consumer needs marking; libultraship_EXPORTS is defined
+// by CMake only while building libultraship itself. See docs/UPSTREAM_MERGES.md.
 #if defined(_WIN32) && !defined(libultraship_EXPORTS)
 extern __declspec(dllimport) GfxExecStack g_exec_stack;
 #else

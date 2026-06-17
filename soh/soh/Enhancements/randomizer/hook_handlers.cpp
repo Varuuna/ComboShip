@@ -373,9 +373,9 @@ const ComboRando::ForeignItem* OOT_LookupForeign(int slot, const std::string& ch
 }
 
 // ComboShip: expose the currently-queued check so Randomizer_DrawComboForeign (draw.cpp) can
-// identify the check behind a get-item draw. Note foreign checks are currently diverted to the
-// mailbox BEFORE queueing (OOT_SendForeignCheck above), so this is a defensive fallback; the
-// player-visible foreign draws (shop shelves) identify themselves via the explicit setter.
+// identify the check behind a get-item draw. Foreign checks are diverted to the mailbox BEFORE
+// queueing, so this is a defensive fallback; player-visible foreign draws (shop shelves) identify
+// themselves via the explicit setter.
 RandomizerCheck OOT_GetQueuedDrawCheck() {
     return randomizerQueuedCheck;
 }
@@ -1336,9 +1336,8 @@ void RandomizerOnVanillaBehaviorHandler(GIVanillaBehavior id, bool* should, va_l
                                        &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
 #ifdef COMBO_BUILD
                 // ComboShip: a foreign (MM-bound) sentinel should be diverted in the RC-queue handler
-                // (OOT_SendForeignCheck) and never reach a local item00 grant. If one does, its itemId
-                // is ITEM_NONE and the MOD_NONE branch below would call Item_Give(ITEM_NONE) /
-                // GetItemName(ITEM_NONE) and assert. Guard the crash and log everything we know about the
+                // and never reach a local item00 grant. If one does, the MOD_NONE branch below would
+                // call Item_Give/GetItemName(ITEM_NONE) and assert. Guard the crash and log the
                 // escaping entry so we can trace which check produced it (e.g. a shopsanity slot).
                 if (item00->itemEntry.getItemId == RG_COMBO_FOREIGN ||
                     static_cast<uint8_t>(item00->itemEntry.itemId) == ITEM_NONE) {
@@ -3036,9 +3035,9 @@ static void RandomizerRegisterHooks() {
         onCuccoOrChickenHatchHook = 0;
 
 #ifdef COMBO_BUILD
-        // ComboShip: the cross-world mailbox drain is NOT rando-gated — ComboShip is a randomizer
-        // experience and the channel must deliver regardless of the local save's quest flag. Register
-        // it before the IS_RANDO gate below; it is a no-op when the mailbox is empty.
+        // ComboShip: the cross-world mailbox drain is NOT rando-gated — the channel must deliver
+        // regardless of the local save's quest flag. Register it before the IS_RANDO gate below;
+        // it is a no-op when the mailbox is empty.
         onPlayerUpdateForCrossMailboxHook = GameInteractor::Instance->RegisterGameHook<GameInteractor::OnPlayerUpdate>(
             RandomizerOnPlayerUpdateForCrossMailboxHandler);
 #endif

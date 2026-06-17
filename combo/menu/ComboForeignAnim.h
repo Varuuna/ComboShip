@@ -4,7 +4,7 @@
  * loads those resources through the OWNING game's resident ResourceManager (CrossRMRegistry) and
  * drives the HOST game's own SkelAnime engine on them. Feasible because the games' skeleton and
  * animation structs are byte-identical (SkelAnime 0x44, StandardLimb, FlexSkeletonHeader,
- * AnimationHeader) — verified for Increment 3b. First class served: MM stray fairies in OOT
+ * AnimationHeader). First class served: MM stray fairies in OOT
  * (reference implementation mirrored: mm/2s2h/Rando/DrawItem.cpp DrawStrayFairy).
  *
  * Also ports the minimal AnimatedMaterial subset the stray-fairy texanims need. OOT has no
@@ -353,7 +353,7 @@ inline int32_t ComboForeignAnim_Draw(const CwItemAnimDrawInfo* info, const char*
         SkelAnime_Update(&skelEntry.skelAnime);
     }
 
-    // RM bracket (Task 12): any RAW-pointer spans the skeletal draw submits resolve their inner
+    // RM bracket: any RAW-pointer spans the skeletal draw submits resolve their inner
     // hash/path refs against the owning game's RM at interpreter time. The limb DLs themselves go
     // out as "__OTR__@<game>:" routed strings (CfaRouteLimbDList), which carry their own scoped
     // override — the bracket is the safety net for everything else.

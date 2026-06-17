@@ -499,8 +499,8 @@ bool EnMag_ShouldDrawPressStart(Font* font, Gfx** gfxP, bool isActualText) {
 #define COPYRIGHT_TEX_LEFT (isGC ? 78 : 94)
 
 #ifdef COMBO_BUILD
-// ComboShip: dual-game title logos (OOT left, MM right) — combo-owned draw code; needs the
-// LOGO_* macros above and the EnMag_Draw* helpers, hence the include position.
+// ComboShip: dual-game title logos (OOT left, MM right). Included here because it needs the
+// LOGO_* macros above and the EnMag_Draw* helpers.
 #include "ComboTitleLogos.h"
 #endif
 
@@ -541,9 +541,8 @@ void EnMag_DrawInner(Actor* thisx, PlayState* play, Gfx** gfxP) {
     this->effectScroll -= 2;
 
 #ifdef COMBO_BUILD
-    // ComboShip: dual-game title logos + flame effects (OOT left, MM right) draw instead of the
-    // original block below; the vendored code is kept untouched for upstream merges.
-    // See combo/title/ComboTitleLogos.h
+    // ComboShip: draw dual-game logos + flame effects (OOT left, MM right) instead of the original
+    // block below, which is kept untouched for upstream merges. See combo/title/ComboTitleLogos.h
     if (ComboTitle_DrawLogos(&gfx, this, isMQ)) {
         goto comboSkipOriginalLogoBlock;
     }

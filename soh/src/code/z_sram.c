@@ -14,8 +14,8 @@
 
 #ifdef COMBO_BUILD
 extern void (*gComboSaveInitCallback)(int fileNum);
-// ComboShip Inc2 (Task 3): fired before questType is read so the combo generator can run
-// and call SOH_ApplyRandoPlacements before Randomizer_InitSaveFile consumes the placements.
+// ComboShip: fired before questType is read so the combo generator can run and call
+// SOH_ApplyRandoPlacements before Randomizer_InitSaveFile consumes the placements.
 extern void (*gComboGenerateCallback)(int fileNum);
 #endif
 
@@ -267,7 +267,7 @@ void Sram_InitSave(FileChooseContext* fileChooseCtx) {
     gSaveContext.n64ddFlag = fileChooseCtx->n64ddFlag;
 
 #ifdef COMBO_BUILD
-    // ComboShip Task 6: generation is window-driven now; only force the rando quest type here.
+    // ComboShip: generation is window-driven now; only force the rando quest type here.
     // The combined fill runs on a worker thread before save creation (triggered from the UI).
     fileChooseCtx->questType[fileChooseCtx->buttonIndex] = QUEST_RANDOMIZER;
     (void)gComboGenerateCallback; // retained symbol; no longer invoked

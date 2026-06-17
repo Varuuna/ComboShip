@@ -862,9 +862,8 @@ void OTRGlobals::Initialize() {
     context->InitFileDropMgr();
 
     // tell LUS to reserve 3 SoH specific threads (Game, Audio, Save)
-    // ComboShip: default Alternate Assets OFF. Upstream soh@develop flipped this default to ON, but
-    // combo ships no HD/alt asset pack, so the per-frame alt/ resource probe just spams the log with
-    // misses. See docs/UPSTREAM_MERGES.md.
+    // ComboShip: default Alternate Assets OFF (upstream defaults ON). We ship no HD/alt asset pack,
+    // so the per-frame alt/ resource probe just spams the log with misses. See docs/UPSTREAM_MERGES.md.
     prevAltAssets = CVarGetInteger(CVAR_SETTING("AltAssets"), 0);
     context->GetResourceManager()->SetAltAssetsEnabled(prevAltAssets);
 
@@ -1183,9 +1182,9 @@ extern "C" void OTRAudio_Exit() {
     audio.cv_to_thread.notify_all();
 
     // Wait until the audio thread quit
-    // ComboShip: guard the join — at combo shutdown OTRAudio_Exit runs again after
-    // SOH_PrepareForTransition already joined the thread (OOT backgrounded, X pressed in MM);
-    // join() on a non-joinable thread throws std::system_error -> terminate.
+    // ComboShip: guard the join. At shutdown OTRAudio_Exit can run again after
+    // SOH_PrepareForTransition already joined the thread; joining a non-joinable thread
+    // throws std::system_error -> terminate.
     if (audio.thread.joinable()) {
         audio.thread.join();
     }
@@ -1569,7 +1568,7 @@ bool VerifyArchiveVersion(OTRVersion version) {
     return version.major != INT16_MAX && version.major != gBuildVersionMajor;
 }
 
-// Forward declaration — defined further down in this file (ComboShip exports).
+// ComboShip: forward declaration — defined further down with the combo exports.
 extern "C" void (*gComboSceneSwitchCallback)(int fileNum);
 
 extern "C" void InitOTR(int argc, char* argv[]) {
@@ -1702,40 +1701,37 @@ extern "C" void DeinitOTR() {
     sohFast3dWindow = nullptr;
 
 #ifdef COMBO_BUILD
-    // ComboShip: drop the resident-RM refs NOW so the ResourceManager is destroyed here on the
-    // main thread (releasing the context below destroys the last ref). Left in these statics /
-    // the registry, it would die in DLL-unload static destructors, where its thread pool joining
-    // its workers under the loader lock deadlocks (the shutdown freeze).
+    // ComboShip: drop the resident-RM refs now so the ResourceManager is destroyed here on the
+    // main thread. Left in these statics / the registry, it would die during DLL-unload static
+    // destructors, where its thread pool joins workers under the loader lock and deadlocks.
     Ship::CrossRMRegistry::Unregister("oot");
     sOOTResourceManager = nullptr;
 #endif
 
     OTRGlobals::Instance->context = nullptr;
 #ifdef COMBO_BUILD
-    // ComboShip: ~Context (above, on the last ref) ran ImGui::DestroyContext, but that only nulls
-    // libultraship's GImGui — this DLL's module-local GImGui still points at the freed context.
-    // soh statics destroyed at process exit (e.g. itemTrackerNotes, an ImVector) call
-    // ImGui::MemFree, which dereferences GImGui -> AV after main returns. Null it now.
+    // ComboShip: ~Context ran ImGui::DestroyContext, but that only nulls libultraship's GImGui —
+    // this DLL's module-local GImGui still points at the freed context. soh statics destroyed at
+    // process exit call ImGui::MemFree, which derefs GImGui -> crash after main returns. Null it now.
     ImGui::SetCurrentContext(nullptr);
 #endif
 }
 
 #ifdef COMBO_BUILD
-// Stops OOT audio and waits for pending saves WITHOUT destroying the context or window.
-// Called by ComboShip before launching MM so archives can be safely swapped.
-// ComboShip: declspec must follow the extern "C" specifier — the old split form
-// (`__declspec(dllexport)` on its own line BEFORE `extern "C"`) is silently ignored by MSVC
-// (C4091, invisible under /w), so this function was never actually exported and the eager
-// MM boot gate in ComboShip.cpp failed on every launch.
+// ComboShip: stop OOT audio and wait for pending saves WITHOUT destroying the context or window.
+// Called before launching MM so archives can be safely swapped.
+// declspec must follow the extern "C" specifier: the split form (`__declspec(dllexport)` on its
+// own line BEFORE `extern "C"`) is silently ignored by MSVC (C4091), so this function would not be
+// exported and the MM boot gate would fail.
 extern "C" __declspec(dllexport) void SOH_PrepareForTransition(void) {
     SaveManager_ThreadPoolWait();
     OTRAudio_Exit();
     // ComboShip: do NOT SohGui::Destroy() here. The Gui is a single shared libultraship instance that
     // persists across transitions; OOT's windows are set up once at first boot and stay resident (same
-    // model MM uses — see MM_PrepareForTransition). Tearing them down forces a SetupGuiElements rebuild
-    // on resume, but the shared Gui still holds the old windows so AddGuiWindow rejects the duplicates;
-    // the rejected windows never get InitElement'd, and freeing their uninitialized buffers on the next
-    // rebuild crashes (0xCD heap marker). Context, window, and resource manager are kept alive for MM.
+    // model MM uses — see MM_PrepareForTransition). Tearing them down would force a rebuild on resume,
+    // but the shared Gui still holds the old windows so AddGuiWindow rejects the duplicates; the
+    // rejected windows never get InitElement'd, and freeing their uninitialized buffers crashes
+    // (0xCD heap marker). Context, window, and resource manager are kept alive for MM.
 }
 #endif
 
@@ -1959,8 +1955,8 @@ extern "C" void Graph_ProcessGfxCommands(Gfx* commands) {
     last_fps = fps;
     last_update_rate = R_UPDATE_RATE;
 
-    // ComboShip: AltAssets default OFF (0). Upstream defaults it ON (1), but combo ships no HD/alt
-    // asset pack, so ON makes the ResourceManager probe alt/<path> every resource every frame.
+    // ComboShip: AltAssets default OFF (upstream defaults ON). We ship no HD/alt asset pack, so ON
+    // makes the ResourceManager probe alt/<path> for every resource every frame.
     bool curAltAssets = CVarGetInteger(CVAR_SETTING("AltAssets"), 0);
     if (prevAltAssets != curAltAssets) {
         prevAltAssets = curAltAssets;
@@ -2564,8 +2560,8 @@ extern "C" void Gfx_TextureCacheDelete(const uint8_t* texAddr) {
 // ============================================================
 
 extern "C" __declspec(dllexport) void SOH_Init() {
-    // Upstream merge: InitOTR now takes (argc, argv) for CLI-driven extraction. ComboShip drives
-    // extraction separately (SOH_Extract) and has no CLI args here, so pass none.
+    // ComboShip: InitOTR takes (argc, argv) for CLI-driven extraction, but we drive extraction
+    // separately (SOH_Extract) and have no CLI args here, so pass none.
     InitOTR(0, nullptr);
 }
 
@@ -2607,11 +2603,10 @@ static void SOH_ReinitForResume() {
     // Restart OOT's audio thread (SOH_PrepareForTransition stopped it). Soundfonts/samples are still
     // resident in OOT's RM, so the thread resumes against valid data with no reload/heap reset.
     OTRAudio_Init();              // counterpart to OTRAudio_Exit() in SOH_PrepareForTransition
-    // ComboShip: do NOT SohGui::SetupGuiElements() here. OOT's windows persist across the transition
-    // (SOH_PrepareForTransition no longer destroys them), so re-creating them would hit AddGuiWindow's
-    // duplicate-name rejection -> the new windows never get InitElement'd -> freeing their uninitialized
-    // buffers on the next rebuild crashes. The resident windows are still fully initialized; we only
-    // need to swap the active RM/audio (above) and restore OOT's menu (below).
+    // ComboShip: do NOT SohGui::SetupGuiElements() here. OOT's windows persist across the transition,
+    // so re-creating them hits AddGuiWindow's duplicate-name rejection -> the new windows never get
+    // InitElement'd -> freeing their uninitialized buffers later crashes. The resident windows are
+    // still fully initialized; we only need to swap the active RM/audio (above) and restore the menu.
     // Restore OOT's menu into the shared Gui's single menu slot (MM set it to its BenMenu while it was
     // the active game). mSohMenu persists.
 #ifndef COMBO_BUILD
@@ -2620,7 +2615,7 @@ static void SOH_ReinitForResume() {
     // ComboShip: comboui's menu stays installed across transitions; do not restore SohMenu.
 }
 
-// Symmetric marker, mirrors MM_NotifyComboTransition. ComboShip calls this before SOH_ResumeGame.
+// ComboShip: symmetric marker mirroring MM_NotifyComboTransition; called before SOH_ResumeGame.
 extern "C" __declspec(dllexport) void SOH_NotifyComboReturn(void) {
     // Currently a no-op; kept for symmetry with the forward transition's notify call.
 }
@@ -2629,16 +2624,15 @@ extern "C" __declspec(dllexport) void SOH_NotifyComboReturn(void) {
 // onlyCsv: if non-empty, comma-separated allow-list of "Header" or "Header/Sidebar" paths to show.
 // skipCsv: if onlyCsv is empty, comma-separated block-list of paths to hide.
 extern "C" __declspec(dllexport) void SOH_DrawSettings(const char* onlyCsv, const char* skipCsv) {
-    // ComboShip: soh.dll's per-module ImGui GImGui isn't current when OOT is backgrounded (e.g. MM is
-    // foreground and the player opens the Shared/OOT tab) — point it at the shared context before any
-    // ImGui call, mirroring comboui, else ImGui::GetCurrentWindow() is null and we crash.
+    // ComboShip: soh.dll's per-module ImGui GImGui isn't current when OOT is backgrounded (MM is
+    // foreground and the player opens the Shared/OOT tab). Point it at the shared context before any
+    // ImGui call, else ImGui::GetCurrentWindow() is null and we crash.
     ComboMenuContext::UseSharedImGuiContext();
     auto menu = SohGui::GetSohMenu();
     if (!menu) return;
     // ComboShip: in combo this menu is never installed as the active Gui menu, so libultraship never
-    // calls Init()/InitElement() — where disabledMap, window backends and the theme are set up. Init()
-    // is idempotent (guarded by mIsInitialized); call it once before drawing, else widget PreFuncs that
-    // do disabledMap.at(...) throw out_of_range.
+    // calls Init()/InitElement() (which set up disabledMap, window backends, and the theme). Init() is
+    // idempotent; call it once before drawing, else widget PreFuncs doing disabledMap.at(...) throw.
     menu->Init();
     std::set<std::string> only, skip;
     auto parseCsv = [](const char* csv, std::set<std::string>& out) {
@@ -2653,10 +2647,10 @@ extern "C" __declspec(dllexport) void SOH_DrawSettings(const char* onlyCsv, cons
 
 // ComboShip: expose OOT's SohMenu C-ABI emitter + invoke-by-index helpers so comboui can ingest the
 // flat CwMenu (combo/menu/ComboMenuABI.h) via GetProcAddress and drive widgets back by index. The
-// SohMenu instance is built at menu setup (SohGui::SetupMenu) and kept for process life; comboui owns
-// the menu slot, so libultraship's Gui loop never drives this menu — see SOH_MenuDrawCustom for why
-// Init()/Update() must run before invoking a custom widget.
-// soh.dll has its own per-module ImGui GImGui — see combo/menu/ComboMenuSharedContext.h.
+// SohMenu instance is built at menu setup and kept for process life; comboui owns the menu slot, so
+// libultraship's Gui loop never drives this menu — see SOH_MenuDrawCustom for why Init()/Update()
+// must run before invoking a custom widget. soh.dll has its own per-module ImGui GImGui — see
+// combo/menu/ComboMenuSharedContext.h.
 
 extern "C" __declspec(dllexport) const CwMenu* SOH_ExportMenu(void) {
     ComboMenuContext::UseSharedImGuiContext();
@@ -2689,9 +2683,9 @@ extern "C" __declspec(dllexport) void SOH_MenuDrawCustom(int32_t i) {
     }
 }
 
-// ComboShip MM->OOT return: re-enter OOT's game loop on the SAME shared context/window, swap
+// ComboShip: MM->OOT return — re-enter OOT's game loop on the SAME shared context/window, swap
 // archives back to OOT, reload the OOT save, and spawn Link at the Mido's-House door in Kokiri
-// Forest. Counterpart to MM's sComboTransitionActive reuse path in BenPort.cpp.
+// Forest. Counterpart to MM's reuse path in BenPort.cpp.
 extern "C" bool WindowIsRunning(void);
 
 extern "C" __declspec(dllexport) void SOH_ResumeGame(void) {
@@ -2729,10 +2723,9 @@ extern "C" __declspec(dllexport) void SOH_ResumeGame(void) {
 }
 
 // ComboShip: re-activate OOT as the foreground game WITHOUT entering its game loop. Used once at
-// startup right after MM is eagerly booted (MM_BootForCombo), which left MM's RM active and tore down
-// OOT's audio/GUI (via SOH_PrepareForTransition). This restores OOT's RM/audio/GUI/menu so OOT's first
-// real boot (SOH_RunMain) renders correctly. Mirrors SOH_ResumeGame minus the frame-loop reset and
-// SOH_RunGameLoop — SOH_RunMain runs the loop.
+// startup right after MM is eagerly booted, which left MM's RM active and tore down OOT's audio/GUI.
+// Restores OOT's RM/audio/GUI/menu so OOT's first real boot (SOH_RunMain) renders correctly. Like
+// SOH_ResumeGame minus the frame-loop reset and game loop — SOH_RunMain runs the loop.
 extern "C" __declspec(dllexport) void SOH_ResumeForeground(void) {
     auto ctx = Ship::Context::GetInstance();
     SOH_ReinitForResume();  // OOT RM active, OOT audio, OOT GUI + menu
@@ -2757,14 +2750,12 @@ extern "C" __declspec(dllexport) bool SOH_Extract(const char* searchPath) {
 #endif
 
 #ifdef COMBO_BUILD
-// ComboShip: SoH performs shop/scrub/merchant setup inline inside Fill() (fill.cpp, the shopsanity
-// block ~1288) — choosing which shopsanity slots are *shuffled* (given a custom price, then filled by
-// the main fill) versus left vanilla (a real RG_BUY_* item placed directly), and pricing scrubs and
-// merchants. The combo cross-world generator REPLACES Fill() and so skips all of this; without it the
-// combined fill drops arbitrary OOT/MM items into shop slots with no shop setup, producing blank slots
-// that crash on purchase (GetItemName(ITEM_NONE)). ComboShip owns the orchestration below but reuses
-// SoH's own primitives (shops.hpp: GetShopsanityReplaceAmount/GetRandomPrice/PlaceVanillaShopItems),
-// so fill.cpp stays byte-intact.
+// ComboShip: SoH does shop/scrub/merchant setup inline inside Fill() — choosing which shopsanity slots
+// are shuffled (custom price, filled by the main fill) vs left vanilla (a real RG_BUY_* item placed
+// directly), and pricing scrubs and merchants. The combo cross-world generator REPLACES Fill() and
+// skips all of this; without it the combined fill drops arbitrary OOT/MM items into shop slots with no
+// shop setup, producing blank slots that crash on purchase (GetItemName(ITEM_NONE)). The orchestration
+// below reuses SoH's own primitives (shops.hpp), so fill.cpp stays byte-intact.
 //
 // Determinism: the dump (which decides which shop slots the cross-world fill may use) and the apply
 // (which sets the actual prices + vanilla items) must make IDENTICAL random choices, and re-running the
@@ -2885,18 +2876,12 @@ extern "C" __declspec(dllexport) void SOH_SetComboRandoSeed(uint64_t seed) {
 }
 #endif
 
-// ComboShip Inc2 (Task 3): coherent OOT rando dump — runs the headless prep sequence
-// (GetLogic()->Reset, FinalizeSettings, RegionTable_Init, GenerateLocationPool) so
-// ctx->allLocations reflects the real shuffled-check set for the current settings, then
-// dumps those checks + their vanilla items. This makes the combo generator's permutation
-// coherent (same set as Randomizer_InitSaveFile).
-// ComboShip Inc7: scoped to current settings — iterates ctx->allLocations (populated by
-// GenerateLocationPool) instead of all RC_MAX, so only settings-enabled checks are emitted.
-// Cache removed (was static/permanent): result now depends on live CVar/settings state so
-// it must recompute every call.
-// Fallback: if RegionTable_Init+GenerateLocationPool throws, falls back to iterating all
-// RC_MAX (same as old behaviour) so the dump always succeeds.
-// Caller MUST invoke this AFTER SOH_Init() returns.
+// ComboShip: coherent OOT rando dump for the combo generator. Runs the headless prep sequence
+// (GetLogic()->Reset, FinalizeSettings, RegionTable_Init, GenerateLocationPool) so ctx->allLocations
+// holds the real shuffled-check set for the current settings, then dumps those checks + their vanilla
+// items — keeping the generator's permutation coherent with Randomizer_InitSaveFile. Recomputes every
+// call (result depends on live CVar/settings). If the prep throws, falls back to iterating all RC_MAX
+// so the dump always succeeds. Caller MUST invoke this AFTER SOH_Init() returns.
 extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
     static std::string cached;
 
@@ -2911,7 +2896,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         // then fill allLocations with only the checks the current settings shuffle.
         // ComboShip: copy the player's chosen CVar settings into the Context FIRST (mirrors
         // GenerateRandomizer), so the scoped pool, the fill's reachability, and the later
-        // Randomizer_InitSaveFile (settings + starting items) all honor the menu choices.
+        // Randomizer_InitSaveFile all honor the menu choices.
         Rando::Settings::GetInstance()->SetAllToContext();
         ctx->GetLogic()->Reset();
         ctx->FinalizeSettings({}, {});
@@ -2921,9 +2906,9 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
 #ifdef COMBO_BUILD
         // ComboShip: a non-shuffled shop slot holds a vanilla RG_BUY_* item (placed by
         // Combo_SetupOOTShops at apply time). It must NOT enter the cross-world pool, or the combined
-        // fill would drop an arbitrary OOT/MM item there with no shop setup → crash on purchase. Emit
-        // ONLY the shuffled shop slots; leave the rest to SoH's vanilla shop setup. (Deterministic for
-        // a specific shopsanity count, so this matches what Combo_SetupOOTShops does at apply.)
+        // fill would drop an arbitrary OOT/MM item there with no shop setup -> crash on purchase. Emit
+        // ONLY the shuffled shop slots; leave the rest to SoH's vanilla shop setup. The shuffled set is
+        // deterministic for a given shopsanity count, so it matches what the apply does.
         Combo_SeedShopRng(); // seed identically to the apply so the shuffled set matches exactly
         const auto comboShuffledShops = Combo_ShuffledShopSlots();
         const auto& comboShopLocsVec = Rando::StaticData::GetShopLocations();
@@ -2997,12 +2982,11 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
     return cached.c_str();
 }
 
-// ComboShip Inc2 (Task 3): apply a placement mapping produced by the combo generator.
-// Input JSON: {"<checkName>":"<itemName>", ...}  (the "oot" object from the combined spoiler).
-// For each entry: look up rc = locationNameToEnum[name], rg = itemNameToEnum[item], place it.
-// After all placements: SetSeedGenerated(true) so Randomizer_IsSeedGenerated() returns true
-// and Sram_InitSave proceeds into Randomizer_InitSaveFile().
-// Does NOT call OOT's own Fill()/GenerateItemPool() — the combo generator owns the placement.
+// ComboShip: apply a placement mapping produced by the combo generator.
+// Input JSON: {"<checkName>":"<itemName>", ...} (the "oot" object from the combined spoiler).
+// For each entry, look up the check and item enums and place it. Then SetSeedGenerated(true) so
+// Sram_InitSave proceeds into Randomizer_InitSaveFile(). Does NOT call OOT's own
+// Fill()/GenerateItemPool() — the combo generator owns the placement.
 extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json) {
     if (!json) {
         SPDLOG_ERROR("[ComboShip] SOH_ApplyRandoPlacements: null JSON");
@@ -3015,8 +2999,8 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
         ctx->ItemReset();
 
         // ComboShip: ItemReset wipes shop prices + placements, so re-run SoH's shop/scrub/merchant
-        // setup here (vanilla shop slots get their RG_BUY_* item + prices; shuffled slots get a custom
-        // price). The combo placements below only cover the shuffled shop slots (the dump excluded the
+        // setup here (vanilla slots get their RG_BUY_* item + prices; shuffled slots get a custom
+        // price). The combo placements below only cover the shuffled slots (the dump excluded the
         // vanilla ones), so they land on validly-priced slots and don't clobber the vanilla items.
 #ifdef COMBO_BUILD
         Combo_SetupOOTShops();
@@ -3055,8 +3039,8 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
     }
 }
 
-// ComboShip Inc2 (Task 3): generate callback — fired by Sram_InitSave before save creation,
-// giving the combo orchestrator a chance to run the generator and apply placements before
+// ComboShip: generate callback — fired by Sram_InitSave before save creation, giving the combo
+// orchestrator a chance to run the generator and apply placements before
 // Randomizer_InitSaveFile() consumes them.
 extern "C" void (*gComboGenerateCallback)(int fileNum) = nullptr;
 
@@ -3064,10 +3048,10 @@ extern "C" __declspec(dllexport) void SOH_SetOnComboGenerateCallback(void (*cb)(
     gComboGenerateCallback = cb;
 }
 
-// ComboShip Task 6: window-driven generate request — the UI calls SOH_TriggerComboGenerate
-// with a seed string and a progress struct; soh.dll forwards to the ComboShip handler which
-// runs the fill on a worker thread. gComboGenerateCallback (save-time) is RETAINED as a
-// symbol but is no longer invoked (generation is now fully window-driven).
+// ComboShip: window-driven generate request — the UI calls SOH_TriggerComboGenerate with a seed
+// string and a progress struct; soh.dll forwards to the combo handler, which runs the fill on a
+// worker thread. The save-time gComboGenerateCallback is retained as a symbol but no longer
+// invoked (generation is now fully window-driven).
 #include "gui/ComboGenProgress.h"
 extern "C" void (*gComboGenerateRequestCallback)(const char*, ComboRando::ComboGenProgress*) = nullptr;
 
@@ -3084,8 +3068,8 @@ extern "C" __declspec(dllexport) void SOH_SetSeedGenerated(uint8_t g) {
         OTRGlobals::Instance->gRandoContext->SetSeedGenerated(g != 0);
 }
 
-// ComboShip Inc4: OOT combo-logic exports — thin wrappers around the existing logic engine.
-// The combined fill drives these to query "given owned items, which checks are reachable?"
+// ComboShip: OOT combo-logic exports — thin wrappers around the existing logic engine. The
+// combined fill drives these to query "given owned items, which checks are reachable?"
 
 static bool sOracleInitialized = false;
 
@@ -3097,12 +3081,10 @@ static void EnsureOracleInit() {
     ctx->FinalizeSettings({}, {});
     RegionTable_Init();
     ctx->GenerateLocationPool();
-    // ComboShip: deliberately do NOT call GenerateItemPool() here. It builds OOT's item pool purely for
-    // OOT's OWN fill (which the combo layer never runs — the combined cross-world fill owns placement),
-    // and it asserts `itemPool.size() <= locCount` as a fill precondition. Under the headless default
-    // settings the pool isn't balanced for a real fill, so that assert aborts. The oracle only needs
-    // reachability: ReachabilitySearch reads the logic/region state + allLocations (from
-    // GenerateLocationPool), and GenerateStartingInventory does not touch itemPool — neither needs it.
+    // ComboShip: deliberately do NOT call GenerateItemPool() here. It builds OOT's item pool for OOT's
+    // OWN fill (which the combo layer never runs), and asserts `itemPool.size() <= locCount`; under the
+    // headless default settings the pool isn't balanced, so that assert aborts. The oracle only needs
+    // reachability, which reads the logic/region state + allLocations — neither needs the item pool.
     GenerateStartingInventory();
     sOracleInitialized = true;
 }

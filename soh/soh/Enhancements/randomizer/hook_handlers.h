@@ -1,7 +1,6 @@
-// ComboShip: combo-owned, RE-ADDED file — upstream (HarbourMasters/Shipwright) has no
-// hook_handlers.h at our vendor tip. Do NOT delete on upstream merges (see
-// docs/UPSTREAM_MERGES.md "hook_handlers.h re-added"). Contains only COMBO_BUILD-guarded
-// declarations for cross-game randomizer consumers of hook_handlers.cpp.
+// ComboShip: combo-owned file that upstream does not have — do NOT delete on upstream merges (see
+// docs/UPSTREAM_MERGES.md "hook_handlers.h re-added"). Holds only COMBO_BUILD-guarded declarations
+// for cross-game randomizer consumers of hook_handlers.cpp.
 #pragma once
 
 #ifdef COMBO_BUILD

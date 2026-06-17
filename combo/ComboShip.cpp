@@ -167,7 +167,7 @@ typedef void (*FnMMResume)(int);
 static FnMMResume    MM_ResumeGame          = nullptr;
 static FnVoidArgless MM_PrepareForTransition = nullptr;
 
-// ComboShip Inc2: headless static-data dump exports
+// ComboShip: headless static-data dump exports
 typedef const char* (*FnDumpData)(void);
 static FnDumpData SOH_DumpRandoStaticData = nullptr;
 static FnDumpData MM_DumpRandoStaticData  = nullptr;
@@ -181,7 +181,7 @@ typedef void (*FnComboUIRegister)(void);
 static DllHandle           comboUIModule    = nullptr;
 static FnComboUIRegister   ComboUI_Register = nullptr;
 
-// ComboShip Inc4: per-game reachability oracle exports
+// ComboShip: per-game reachability oracle exports
 typedef void        (*FnOracleVoid)(void);
 typedef void        (*FnOracleSetItems)(const char*);
 typedef const char* (*FnOracleGetChecks)(void);
@@ -198,7 +198,7 @@ static FnOracleGetChecks Combo_MM_Rando_GetReachableChecks  = nullptr;
 static FnOraclePlaceItem Combo_MM_Rando_PlaceItem           = nullptr;
 static FnOracleVoid      Combo_MM_Rando_Restore             = nullptr;
 
-// ComboShip Inc2 (Task 3): placement injection exports
+// ComboShip: placement injection exports
 typedef void (*FnSetGenerateCb)(void (*)(int));
 typedef void (*FnApplyPlacements)(const char*);
 typedef void (*FnMMInitRandoSave)(int, const char*);
@@ -208,7 +208,7 @@ static FnApplyPlacements  SOH_ApplyRandoPlacements       = nullptr;
 static FnMMInitRandoSave  MM_InitRandoSaveFile           = nullptr;
 static FnSetComboRandoSeed SOH_SetComboRandoSeed         = nullptr;
 
-// ComboShip Task 6: window-driven generate request (threaded, progress-reporting)
+// ComboShip: window-driven generate request (threaded, progress-reporting)
 typedef void (*FnSetGenReqCb)(void (*)(const char*, ComboRando::ComboGenProgress*));
 typedef void (*FnSetSeedGenerated)(uint8_t);
 static FnSetGenReqCb      SOH_SetOnComboGenerateRequestCallback = nullptr;
@@ -235,8 +235,8 @@ static int ComboRandRange(int minV, int maxV) {
 
 static int g_PendingMMFileNum = -1;
 
-// ComboShip Inc2 (Task 4): the "mm" placement slice from the most recent generate run, stashed
-// so the (later) Combo_OnOOTSaveInit callback can hand it to MM_InitRandoSaveFile.
+// ComboShip: the "mm" placement slice from the most recent generate run, stashed so the
+// later Combo_OnOOTSaveInit callback can hand it to MM_InitRandoSaveFile.
 static std::string g_PendingMMPlacements;
 
 // Forward decl: defined later, called from RunComboFill on every successful in-game generation.
@@ -245,8 +245,8 @@ static void WriteComboPlaythrough(const std::string& spoilerJson,
                                   const ComboRando::OracleFns& mmOracle,
                                   const std::string& seedLabel);
 
-// ComboShip Task 6: worker function — runs the combined-logic fill (or no-logic fallback) on a
-// background thread, reports progress via the ComboGenProgress struct, and stashes placements.
+// ComboShip: worker that runs the combined-logic fill (or no-logic fallback) on a background
+// thread, reports progress via the ComboGenProgress struct, and stashes placements.
 static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* progress) {
     auto fail = [&](const char* msg) {
         if (progress) { progress->SetError(msg); progress->success.store(false); progress->done.store(true); }
@@ -259,8 +259,8 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     if (inputSeed.empty()) inputSeed = std::to_string(ComboRandRange(0, 1000000));
     uint32_t masterSeed = ComboHash(inputSeed.c_str());
 
-    // ComboShip: seed OOT's rando RNG BEFORE the dump so its shop/scrub/merchant setup (run inside the
-    // dump and re-run at SOH_ApplyRandoPlacements) is reproducible and makes identical choices in both.
+    // ComboShip: seed OOT's rando RNG BEFORE the dump so its shop/scrub/merchant setup (which runs
+    // both inside the dump and again at SOH_ApplyRandoPlacements) makes identical choices each time.
     if (SOH_SetComboRandoSeed) SOH_SetComboRandoSeed(masterSeed);
 
     std::string sohDump = SOH_DumpRandoStaticData();
@@ -292,9 +292,9 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             spoiler = result.spoilerJson;
             usedCombinedFill = true;
             std::cout << "[ComboShip] RunComboFill: combined-logic fill succeeded (seed=" << masterSeed << ")\n";
-            // ComboShip: write the sphere-by-sphere playthrough log for this seed. Drives the oracles
-            // once more (independent reachability replay) BEFORE SOH_ApplyRandoPlacements re-establishes
-            // the live OOT context for play, so it can't corrupt the generated seed. Restores MM itself.
+            // ComboShip: write the sphere-by-sphere playthrough log. Replays reachability via the
+            // oracles BEFORE SOH_ApplyRandoPlacements restores the live OOT context, so it can't
+            // corrupt the generated seed. Restores MM itself.
             WriteComboPlaythrough(result.spoilerJson, ootOracle, mmOracle, inputSeed);
         } else {
             Combo_MM_Rando_Restore();
@@ -313,9 +313,8 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     try {
         std::error_code ec;
         std::filesystem::create_directories("saves/combo", ec);
-        // ComboShip: the full placement record now lives in slot0.playthrough.txt (written by
-        // WriteComboPlaythrough above) — its "Full placement" section is a strict superset of the
-        // old slot0.spoiler.json dump (it also lists unreachable checks), so no separate file here.
+        // ComboShip: the full placement record now lives in slot0.playthrough.txt (its "Full
+        // placement" section supersedes the old slot0.spoiler.json), so no separate file here.
 
         auto j = nlohmann::json::parse(spoiler);
         auto foreignArr = j.value("foreign", nlohmann::json::array());
@@ -385,14 +384,13 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
 }
 
 // ComboShip: headless cross-world generation TEST. Runs the combined assumed fill over a range of
-// seeds and asserts each one succeeds. "Success" here is the completability guarantee baked into
-// CrossWorldCombinedFill: after placing every item, it sphere-collects from an EMPTY start using only
-// the items it placed, across BOTH games (honoring the OOT->MM portal gate), and fails the seed unless
-// every advancement-holding check — in either game — is reachable. So a passing seed is provably
-// 100%-completable from scratch with both games randomized. The test drives the same oracles the real
-// generator uses and runs under the current CVar option set, so flipping shuffle options (grass/pots,
-// owl statues, dungeon shuffles, ...) in the menu and re-running exercises those configs too.
-// Returns the number of FAILED seeds (0 == all good). Env-gated via COMBO_GENTEST=<count>.
+// seeds and asserts each succeeds. A seed "succeeds" via CrossWorldCombinedFill's completability
+// check: after placing every item it sphere-collects from an empty start, across both games and
+// honoring the OOT->MM portal gate, and fails unless every advancement check in either game is
+// reachable — i.e. a passing seed is provably 100%-completable from scratch. Uses the same oracles
+// as the real generator under the current CVar options, so changing shuffle options in the menu and
+// re-running exercises those configs too. Returns the FAILED seed count (0 == all good).
+// Env-gated via COMBO_GENTEST=<count>.
 static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
     if (!(Combo_SOH_Rando_Reset && Combo_SOH_Rando_SetOwnedItems && Combo_SOH_Rando_GetReachableChecks &&
           Combo_SOH_Rando_PlaceItem && Combo_MM_Rando_Reset && Combo_MM_Rando_SetOwnedItems &&
@@ -445,13 +443,13 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
 }
 
 // ComboShip: headless cross-world PLAYTHROUGH log. Generates one seed, then replays it sphere by
-// sphere — a sphere is everything newly reachable given what you have so far — listing each item in
-// the order it becomes obtainable, across both games (OOT->MM portal honored), until the seed is
-// BEATABLE. Beatable is defined exactly as the user framed it: "can kill Ganon" AND "can kill Majora".
-//   - OOT "can kill Ganon": the "Ganon" goal location is reachable (SOH's win check).
-//   - MM "can kill Majora": Majora's Lair is reachable (gated on RemainsCount/MoonMaskCount in
+// sphere (a sphere = everything newly reachable given what you have so far), listing each item in
+// the order it becomes obtainable across both games (OOT->MM portal honored), until the seed is
+// BEATABLE: can kill Ganon AND can kill Majora.
+//   - "can kill Ganon": the "Ganon" goal location is reachable (SOH's win check).
+//   - "can kill Majora": Majora's Lair is reachable (gated on RemainsCount/MoonMaskCount in
 //     Logic.cpp); surfaced via its in-region check RC_MOON_MAJORA_POT_01.
-// Full sphere log is written to saves/combo/slot0.playthrough.txt; a summary prints to stdout.
+// Full sphere log goes to saves/combo/slot0.playthrough.txt; a summary prints to stdout.
 // Env-gated via COMBO_PLAYTHROUGH=<seed>.
 // Writes the sphere-by-sphere log from an ALREADY-GENERATED spoiler, driving the oracles to
 // sphere-collect. Ends by restoring the MM oracle's pre-generation snapshot (it drives MM here).
@@ -551,10 +549,10 @@ static void WriteComboPlaythrough(const std::string& spoilerJson,
                 << "\n";
         }
     }
-    // ComboShip: true "ever reachable" sets — give each oracle the FULL placed-item set and ask what's
-    // reachable. Reachability is monotonic, so full inventory yields the maximal reachable set. Distinct
-    // from `collected`, which stops at the beatable sphere (post-win checks would look false-unreachable).
-    // Must run before the MM restore below, which rolls the MM oracle back to its pre-generation snapshot.
+    // ComboShip: true "ever reachable" sets — give each oracle the FULL placed-item set and ask
+    // what's reachable. Reachability is monotonic, so full inventory yields the maximal set. Differs
+    // from `collected`, which stops at the beatable sphere (post-win checks would look unreachable).
+    // Must run before the MM restore below, which rolls the MM oracle back to its pre-gen snapshot.
     std::vector<std::string> allOot, allMm;
     for (auto& p : placements) (p.itemGame == GAME_OOT ? allOot : allMm).push_back(p.item);
     auto everReachOot = queryReachable(ootOracle, allOot);
@@ -569,11 +567,10 @@ static void WriteComboPlaythrough(const std::string& spoilerJson,
         log << "\nNOT proven beatable within " << kMaxSpheres << " spheres (see stuck note above).\n";
     }
 
-    // ComboShip: full placement record — strict superset of the old slot0.spoiler.json dump. Lists
-    // EVERY check->item in both games, in placement order, flagging any check the oracles can never
-    // reach even with full inventory ([UNREACHABLE], via everReach* above — true reachability, not the
-    // pre-win `collected` set). This is the artifact for debugging reachability dead-ends: it shows what
-    // got placed in checks the oracles can't see. Kept here so spoiler.json no longer needs to exist.
+    // ComboShip: full placement record (supersedes the old slot0.spoiler.json). Lists every
+    // check->item in both games in placement order, flagging any check the oracles can never reach
+    // even with full inventory ([UNREACHABLE], via everReach* above). This is the artifact for
+    // debugging reachability dead-ends: it shows what got placed in checks the oracles can't see.
     auto emitGame = [&](GameId cg, const char* tag, const std::unordered_set<std::string>& everReach) {
         size_t reached = 0, missing = 0;
         log << "\n--- " << tag << " placements ---\n";
@@ -634,11 +631,9 @@ static void RunComboPlaythrough(const std::string& inputSeed) {
     WriteComboPlaythrough(fill.spoilerJson, ootOracle, mmOracle, seedStr); // restores MM at the end
 }
 
-// ComboShip Task 6 / Inc7: request handler — called by SOH_TriggerComboGenerate from the UI.
-// Runs synchronously on the calling (game) thread — the background thread was removed because
-// it raced the games' single-threaded rando logic and caused crashes.
-// A simple reentrancy guard prevents double-invocation (shouldn't happen with the one-frame
-// defer in ComboMenu, but guard anyway).
+// ComboShip: generate-request handler — called by SOH_TriggerComboGenerate from the UI. Runs
+// synchronously on the calling (game) thread; a background thread raced the games' single-threaded
+// rando logic and crashed. A reentrancy guard prevents double-invocation.
 static void Combo_OnGenerateRequest(const char* inputSeed, ComboRando::ComboGenProgress* progress) {
     if (g_GenerateBusy.exchange(true)) {
         // Already running — ignore the duplicate request.
@@ -777,7 +772,7 @@ int main(int argc, char** argv) {
     MM_Deinit                        = (FnVoidArgless)        GetSym(mmModule,  "MM_Deinit");
     SOH_ResumeForeground             = (FnVoidArgless)        GetSym(sohModule, "SOH_ResumeForeground");
 
-    // Inc4: oracle exports
+    // Oracle exports
     Combo_SOH_Rando_Reset             = (FnOracleVoid)      GetSym(sohModule, "Combo_SOH_Rando_Reset");
     Combo_SOH_Rando_SetOwnedItems     = (FnOracleSetItems)  GetSym(sohModule, "Combo_SOH_Rando_SetOwnedItems");
     Combo_SOH_Rando_GetReachableChecks = (FnOracleGetChecks) GetSym(sohModule, "Combo_SOH_Rando_GetReachableChecks");
@@ -878,11 +873,10 @@ int main(int argc, char** argv) {
     }
 
     // ComboShip: eagerly boot MM now (after OOT init) so the cross-world rando oracle runs against a
-    // real, fully-initialized MM. This performs an OOT->MM->OOT transition once, with MM's game loop
-    // skipped: hand the foreground from OOT to MM (SOH_PrepareForTransition), boot MM without its loop
-    // (MM_BootForCombo), then hand the foreground back to OOT (MM_PrepareForTransition stops MM's
-    // audio; SOH_ResumeForeground re-activates OOT's RM/audio/GUI). MM stays booted + resident, so the
-    // first portal transition is a normal MM_ResumeGame.
+    // fully-initialized MM. Does one OOT->MM->OOT transition with MM's game loop skipped: hand the
+    // foreground to MM (SOH_PrepareForTransition), boot MM without its loop (MM_BootForCombo), then
+    // hand it back to OOT (MM_PrepareForTransition stops MM's audio; SOH_ResumeForeground re-activates
+    // OOT's RM/audio/GUI). MM stays resident, so the first portal transition is a normal resume.
     bool mmEagerBooted = false;
     if (MM_BootForCombo && SOH_PrepareForTransition && MM_PrepareForTransition && SOH_ResumeForeground) {
         std::cout << "[ComboShip] Eager MM boot: begin" << std::endl;
@@ -897,10 +891,9 @@ int main(int argc, char** argv) {
                   << std::endl;
     }
 
-    // ComboShip Inc2 de-risk: dump OOT/MM static rando data (headless, safe AFTER SOH_Init) to
-    // saves/combo/{oot,mm}_dump.json so the coherent check set is verifiable, and so an empty MM
-    // dump (eager-boot regression) is caught at startup. Pure diagnostic — generation re-dumps
-    // independently in Combo_OnGenerate. Debug-build only — absent in a Release ship.
+    // ComboShip: dump OOT/MM static rando data (headless, safe AFTER SOH_Init) to
+    // saves/combo/{oot,mm}_dump.json so the check set is verifiable and an empty MM dump (eager-boot
+    // regression) is caught at startup. Pure diagnostic — generation re-dumps independently. Debug only.
 #ifndef NDEBUG
     {
         std::error_code ec;
@@ -928,8 +921,8 @@ int main(int argc, char** argv) {
     // requires a live context which doesn't exist until MM_RunMain runs InitOTR().
     // Archives are loaded correctly when MM_RunGame is called after OOT exits.
 
-    // ComboShip Task 6: register the window-driven generate-request handler.
-    // Generation is now window-driven + threaded; Sram_InitSave only forces QUEST_RANDOMIZER.
+    // ComboShip: register the window-driven generate-request handler.
+    // Generation is window-driven; Sram_InitSave only forces QUEST_RANDOMIZER.
     if (SOH_SetOnComboGenerateRequestCallback) {
         SOH_SetOnComboGenerateRequestCallback(Combo_OnGenerateRequest);
         std::cout << "[ComboShip] Combo generate-request handler registered." << std::endl;

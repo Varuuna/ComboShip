@@ -112,9 +112,9 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(prism)
 
-# ComboShip: two independent prism fixes are kept below — (1) our dynamic-CRT rewrite (required for
-# the shared-DLL combo build) and (2) upstream's sccache/PDB launcher fix. They touch different
-# target properties, so both apply.
+# ComboShip: two independent prism fixes below — (1) the dynamic-CRT rewrite (required for the
+# shared-DLL combo build) and (2) upstream's sccache/PDB launcher fix. They touch different target
+# properties, so both apply.
 # prism (as a non-standalone static lib) hard-codes the static CRT by passing /MTd and /MT
 # through target_compile_options — which overrides MSVC_RUNTIME_LIBRARY / CMP0091 entirely.
 # Rewrite those flags on the prism target to the dynamic CRT so it shares the one UCRT heap

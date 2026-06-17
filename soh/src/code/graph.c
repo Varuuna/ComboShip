@@ -513,7 +513,7 @@ static void RunFrame() {
 
     // Graph_Update(gfxCtxTest, gameStateTest);
 #ifdef COMBO_BUILD
-    WindowClose(); // Signal the loop to stop so we return cleanly to ComboShip instead of looping
+    WindowClose(); // ComboShip: stop the loop so we return cleanly to the launcher instead of exiting
 #else
     exit(0);
 #endif
@@ -526,10 +526,10 @@ void Graph_ThreadEntry(void* arg0) {
 }
 
 #ifdef COMBO_BUILD
-// ComboShip MM->OOT return: reset the frame state machine so the next SOH_RunGameLoop re-seeds from
+// ComboShip: MM->OOT return. Reset the frame state machine so the next SOH_RunGameLoop re-seeds from
 // the first overlay (TitleSetup) and re-runs Graph_Init, instead of resuming (state == 1) into the
-// gamestate that was destroyed when OOT first handed off to MM — which falls straight through to
-// WindowClose() and exits the process.
+// gamestate that was destroyed when OOT first handed off to MM (which would fall through to
+// WindowClose() and exit the process).
 void SOH_ResetFrameLoopForResume(void) {
     runFrameContext.state = 0;
 }

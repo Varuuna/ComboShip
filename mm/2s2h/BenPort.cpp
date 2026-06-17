@@ -11,7 +11,7 @@
 #include <ship/resource/CrossRMRegistry.h>
 #include <ship/resource/ResourceManager.h>
 #include <fast/Fast3dWindow.h>
-// ComboShip: upstream merge — our newer libultraship moved these; mm@develop assumed older paths/APIs.
+// ComboShip: our newer libultraship moved these headers; the mm baseline assumed older paths.
 #include <fast/debug/GfxDebugger.h>
 #include <stb_image.h>
 #include <ship/resource/File.h>
@@ -130,9 +130,8 @@ GameInteractor* GameInteractor::Instance;
 AudioCollection* AudioCollection::Instance;
 
 #ifdef COMBO_BUILD
-// Set by ComboShip before MM_RunGame to signal that the OOT context should be reused. With one
-// shared libultraship.dll, Context::mContext is the same instance in all DLLs, so GetInstance()
-// returns the OOT context — no injection needed.
+// ComboShip: set before MM_RunGame to reuse the OOT context. One shared libultraship.dll means
+// Context::mContext is the same instance in every DLL, so GetInstance() already returns it.
 static bool sComboTransitionActive = false;
 
 extern "C"
@@ -252,10 +251,9 @@ OTRGlobals::OTRGlobals() {
     // separate from libultraship.dll where the context lives. Point it at the shared context (works
     // for both the reuse path and standalone window creation) before any ImGui use here.
     ImGui::SetCurrentContext(context->GetInstance()->GetWindow()->GetGui()->GetImGuiContext());
-    // ComboShip: the reuse path above skipped BenGui::SetupMenu() (it only runs inside the
-    // !usingExistingCtx block), so MM's BenMenu was never built and the shared Gui's single menu slot
-    // still holds OOT's SohMenu. Build/install MM's menu now that the ImGui context is current
-    // (widgets populate lazily via BenMenu::InitElement).
+    // ComboShip: the reuse path skipped BenGui::SetupMenu(), so MM's BenMenu was never built and
+    // the shared Gui's single menu slot still holds OOT's SohMenu. Build MM's menu now that the
+    // ImGui context is current (widgets populate lazily via BenMenu::InitElement).
     if (usingExistingCtx) {
         BenGui::ActivateMenu(); // ComboShip: no-op under COMBO_BUILD (comboui owns the menu)
     }
@@ -710,7 +708,7 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
 }
 
 // ComboShip: our newer libultraship dropped Context::InitGfxDebugger; mirror soh's free helper
-// (mm@develop's pin still called it as a Context method).
+// (the mm baseline still called it as a Context method).
 static void InitGfxDebugger() {
     auto dbg =
         std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow())->GetGfxDebugger();
@@ -746,8 +744,8 @@ void OTRGlobals::Initialize() {
     context->InitFileDropMgr();
 
     // tell LUS to reserve 3 2S2H specific threads (Game, Audio, Save)
-    // ComboShip: default Alternate Assets OFF (same as soh side; upstream flipped it ON, combo ships
-    // no HD/alt asset pack -> per-frame alt/ probe just spams the log). See docs/UPSTREAM_MERGES.md.
+    // ComboShip: default Alternate Assets OFF — combo ships no HD/alt pack, so upstream's ON just
+    // spams per-frame probes. See docs/UPSTREAM_MERGES.md.
     prevAltAssets = CVarGetInteger("gEnhancements.Mods.AlternateAssets", 0);
     context->GetResourceManager()->SetAltAssetsEnabled(prevAltAssets);
 
@@ -995,8 +993,8 @@ extern "C" void OTRAudio_Exit() {
 
     // Wait until the audio thread quit
     // ComboShip: guard the join — at combo shutdown MM_Deinit calls this again after
-    // MM_PrepareForTransition already joined the thread (MM backgrounded, X pressed in OOT);
-    // join() on a non-joinable thread throws std::system_error -> terminate.
+    // MM_PrepareForTransition already joined the thread, and join() on a non-joinable thread
+    // throws std::system_error -> terminate.
     if (audio.thread.joinable()) {
         audio.thread.join();
     }
@@ -1181,10 +1179,9 @@ extern "C" void DeinitOTR() {
     benFast3dWindow = nullptr;
 
 #ifdef COMBO_BUILD
-    // ComboShip: drop the resident-RM refs NOW so MM's ResourceManager is destroyed on the main
-    // thread during shutdown (here, or in ~Context if MM's RM is still the active one). Left in
-    // these statics / the registry, it would die in DLL-unload static destructors, where its
-    // thread pool joining its workers under the loader lock deadlocks (the shutdown freeze).
+    // ComboShip: drop the resident-RM refs now so MM's ResourceManager dies on the main thread
+    // during shutdown. Left in these statics/registry, it would instead die in DLL-unload static
+    // destructors, where its thread pool joins workers under the loader lock and deadlocks.
     Ship::CrossRMRegistry::Unregister("mm");
     sMMResourceManager = nullptr;
 #endif
@@ -1193,19 +1190,17 @@ extern "C" void DeinitOTR() {
     delete AudioCollection::Instance;
 #ifdef COMBO_BUILD
     // ComboShip: this DLL's module-local GImGui still points at the shared ImGui context, which is
-    // destroyed when soh's DeinitOTR releases the last Context ref (right after this returns). Any
-    // 2ship static destroyed later that calls ImGui::MemFree would dereference the freed context
-    // (same class as soh's itemTrackerNotes AV). Null it now — MM is done with ImGui.
+    // freed when soh's DeinitOTR releases the last Context ref right after this returns. A later
+    // 2ship static destructor calling ImGui::MemFree would then touch freed memory. Null it now.
     ImGui::SetCurrentContext(nullptr);
 #endif
 }
 
 #ifdef COMBO_BUILD
-// ComboShip: full MM teardown at process shutdown. MM holds a shared_ptr to the SHARED Context
-// (BenPort ctor reused OOT's), so without this the Context refcount never reaches zero, ~Context
-// never runs, and window geometry/config are never saved. ComboShip calls this BEFORE SOH_Deinit
-// (the Context must still be alive — BenGui::Destroy dereferences it) so SOH's DeinitOTR releases
-// the LAST reference and ~Context does its save/teardown on the main thread.
+// ComboShip: full MM teardown at process shutdown. MM holds a shared_ptr to the shared Context
+// (the ctor reused OOT's), so without this its refcount never hits zero, ~Context never runs, and
+// window geometry/config are never saved. Call this before SOH_Deinit (the Context must stay alive
+// for BenGui::Destroy) so SOH's DeinitOTR releases the last ref and ~Context saves on the main thread.
 extern "C" __declspec(dllexport) void MM_Deinit(void) {
     DeinitOTR();
 }
@@ -2528,7 +2523,7 @@ extern "C" __declspec(dllexport) void MM_InitArchives() {
     }
 }
 
-// -1 = normal MM boot; >= 0 = ComboShip game-switch: skip title/file-select and load this slot.
+// ComboShip: -1 = normal MM boot; >= 0 = game-switch: skip title/file-select and load this slot.
 // extern "C" so title_setup.c (a C file) can link to it without name mangling.
 extern "C" int gComboStartFileNum = -1;
 
@@ -2546,16 +2541,15 @@ extern "C" __declspec(dllexport) void MM_RunGame(int fileNum) {
     MM_RunMain();
 }
 
-// ComboShip: read by mm/src/code/main.c's MM_RunMain to skip the blocking game loop. Set only for
-// the duration of MM_BootForCombo.
+// ComboShip: read by main.c's MM_RunMain to skip the blocking game loop. Set only during MM_BootForCombo.
 extern "C" int gComboBootOnly = 0;
 
-// ComboShip: eagerly boot MM at OOT startup (called once after SOH_Init) so the cross-world rando
-// oracle runs against a real, fully-initialized MM (region graph built by the real ShipInit::InitAll,
-// real GameInteractor/AudioCollection/RM) instead of a fragile headless fake. Reuses OOT's shared
-// Context (sComboTransitionActive) and runs MM_RunMain's full init while skipping its game loop
-// (gComboBootOnly). The caller (ComboShip main) brackets this with SOH_PrepareForTransition (before)
-// and MM_PrepareForTransition + SOH_ResumeForeground (after) to hand the foreground back to OOT.
+// ComboShip: eagerly boot MM once at OOT startup (after SOH_Init) so the cross-world rando oracle
+// queries a real, fully-initialized MM (region graph, GameInteractor, AudioCollection, RM) instead
+// of a fragile headless fake. Reuses OOT's shared Context (sComboTransitionActive) and runs
+// MM_RunMain's full init while skipping its game loop (gComboBootOnly). The caller brackets this
+// with SOH_PrepareForTransition / MM_PrepareForTransition + SOH_ResumeForeground to hand the
+// foreground back to OOT.
 extern "C" __declspec(dllexport) void MM_BootForCombo(void) {
     gComboStartFileNum = -1;        // boot only — no save load / Play jump
     sComboTransitionActive = true;  // OTRGlobals ctor reuses OOT's Context + creates MM's own RM
@@ -2577,8 +2571,8 @@ extern "C" void MM_ResetSystemHeapForResume(void);
 // freed by the forward (MM->OOT) transition's UnloadResources.
 extern "C" void OTRMessage_ResetForResume(void);
 
-// ComboShip OOT->MM forward transition: stop MM audio and tear down MM gui WITHOUT destroying the
-// shared context/window/resource-manager (OOT will reuse them). Mirrors SOH_PrepareForTransition.
+// ComboShip: OOT->MM forward transition. Stop MM audio without destroying the shared
+// context/window/resource-manager (OOT reuses them). Mirrors SOH_PrepareForTransition.
 extern "C" __declspec(dllexport) void MM_PrepareForTransition(void) {
     SaveManager_ThreadPoolWait();
     OTRAudio_Exit();
@@ -2589,9 +2583,8 @@ extern "C" __declspec(dllexport) void MM_PrepareForTransition(void) {
     // Context, window, and resource manager are intentionally kept alive for OOT to reuse.
 }
 
-// ComboShip OOT->MM return: re-enter MM's game loop on the SAME shared context/window, swap archives
-// back to MM, reload resources, and jump straight to Play in South Clock Town for the given slot.
-// Counterpart to OOT's SOH_ResumeGame in soh/soh/OTRGlobals.cpp.
+// ComboShip: OOT->MM return. Re-enter MM's game loop on the same shared context/window and jump
+// straight to Play in South Clock Town for the given slot. Counterpart to OOT's SOH_ResumeGame.
 extern "C" __declspec(dllexport) void MM_ResumeGame(int fileNum) {
     auto ctx = Ship::Context::GetInstance();
     ctx->GetLogger()->flush_on(spdlog::level::trace);
@@ -2611,8 +2604,8 @@ extern "C" __declspec(dllexport) void MM_ResumeGame(int fileNum) {
     //    re-creating them would re-register SaveManager load functions and assert.
     ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
 
-    // ComboShip: re-activate MM's menu in the shared Gui's single menu slot (OOT set it back to its
-    // SohMenu while it was the active game). BenMenu persists (BenGui::Destroy isn't called in combo).
+    // ComboShip: re-activate MM's menu in the shared Gui's single menu slot (OOT swapped in its
+    // SohMenu while it was active). BenMenu persists — BenGui::Destroy isn't called in combo.
     BenGui::ActivateMenu(); // ComboShip: no-op under COMBO_BUILD (comboui owns the menu)
 
     // 5. Re-arm the shared window so MM's `while (WindowIsRunning())` loop runs instead of returning
@@ -2637,20 +2630,19 @@ extern "C" __declspec(dllexport) void MM_ResumeGame(int fileNum) {
 }
 #endif
 
-// Initializes a default MM save for the given OOT file slot (0-indexed) and writes it to disk.
-// Called by ComboShip when OOT creates a new save, so MM has a matching save ready for the transition.
+// ComboShip: write a default MM save for the given OOT slot (0-indexed) to disk. Called when OOT
+// creates a new save, so MM has a matching save ready for the transition.
 extern "C" __declspec(dllexport) void MM_InitSaveFile(int fileNum) {
     // fileNum is OOT's 0-indexed slot; MM save files are 1-indexed (file1.json, file2.json, file3.json)
     SaveManager_InitNewSaveForSlot(fileNum + 1);
 }
 
-// ComboShip Inc2 (Task 4): create a RANDO MM save for the given OOT slot from a combo placement slice.
+// ComboShip: create a RANDO MM save for the given OOT slot from a combo placement slice.
 // placementJson is the "mm" object of the combined spoiler: { "<RC_name>": "<itemSpoilerName>", ... }.
-// We do NOT run MM's own generator (GeneratePools/logic) — the combo layer owns placement. Instead we
-// build the playable combo baseline (SaveManager_InitNewSaveForSlot, post-first-cycle Human Link in
-// South Clock Town), mark the save SAVETYPE_RANDO, and feed the placement through the existing
-// Rando::Spoiler::ApplyToSaveContext path (which writes randoSaveChecks). Headless-safe: never calls
-// GrantStartingItems / Item_Give (those need gPlayState). Falls back to a vanilla save on any error.
+// The combo layer owns placement, so we do NOT run MM's own generator. We build the playable baseline
+// (South Clock Town, post-first-cycle Human Link), mark the save SAVETYPE_RANDO, and feed the placement
+// through Rando::Spoiler::ApplyToSaveContext. Headless-safe: never calls GrantStartingItems / Item_Give
+// (those need gPlayState). Falls back to a vanilla save on any error.
 extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const char* placementJson) {
     // Playable combo baseline first (Human Link, South Clock Town, ocarina/songs, etc.).
     SaveManager_InitNewSaveForSlot(fileNum + 1);
@@ -2749,14 +2741,11 @@ extern "C" __declspec(dllexport) bool MM_Extract(const char* searchPath) {
 }
 #endif
 
-// ComboShip Inc2: headless dump of MM rando tables (checks + items).
-// ComboShip Inc7: scoped to the current settings via Rando::Logic::GeneratePools — mirrors
-// RefreshMetrics() in Rando/Menu.cpp. Only checks that the current CVars actually shuffle
-// are emitted, so the cross-world fill sees the same pool as MM's own generator would use.
-// Cache removed (was static/permanent): result now depends on live CVar state so it must
-// recompute every call.
-// Caller MUST invoke this AFTER SOH_Init() returns (so the Context + logger exist
-// in the shared libultraship.dll, and CVars are loaded).
+// ComboShip: headless dump of MM rando tables (checks + items), scoped to the current settings via
+// Rando::Logic::GeneratePools (mirrors RefreshMetrics() in Rando/Menu.cpp). Only checks the current
+// CVars actually shuffle are emitted, so the cross-world fill sees the same pool MM's own generator
+// would. Recomputes every call since the result depends on live CVar state. Caller MUST invoke this
+// after SOH_Init() returns (so the shared Context, logger, and CVars exist).
 extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     static std::string cached;
 
@@ -2775,10 +2764,10 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     std::vector<RandoItemId> itemPool;
     Rando::Logic::GeneratePools(saveInfo, checkPool, itemPool);
 
-    // ComboShip canary: count every reason a pool check fails to emit (see debug-mmdump.json
-    // write below). An empty/near-empty pool here silently kills cross-game placement — that
-    // exact failure hid for weeks behind the fill's place-anywhere fallback (see UPSTREAM_MERGES.md
-    // "eager-boot export" entry), so keep this cheap per-Generate diagnostic.
+    // ComboShip canary: count every reason a pool check fails to emit (see debug-mmdump.json below).
+    // An empty/near-empty pool silently kills cross-game placement — a failure that once hid behind
+    // the fill's place-anywhere fallback (see docs/UPSTREAM_MERGES.md "eager-boot export"), so keep
+    // this cheap per-Generate diagnostic.
     int skippedNoStatic = 0, skippedNoName = 0, noVanillaItem = 0;
 
     // Emit only the checks in the settings-scoped pool.
@@ -2806,9 +2795,9 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     }
 
     // ComboShip canary: written to a file because 2ship.dll's spdlog default logger is never
-    // configured in combo (shared context owns logging in soh's module), so SPDLOG_* here goes
-    // nowhere. regions==0 here means MM's eager boot / ShipInit::InitAll didn't run.
-    // Debug-build only — not present in a Release ship (see oot_dump/mm_dump gate in ComboShip.cpp).
+    // configured in combo (soh's module owns the shared logging), so SPDLOG_* here goes nowhere.
+    // regions==0 means MM's eager boot / ShipInit::InitAll didn't run. Debug-build only (see the
+    // oot_dump/mm_dump gate in ComboShip.cpp).
 #ifndef NDEBUG
     try {
         std::error_code ec;
@@ -2846,8 +2835,8 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     return cached.c_str();
 }
 
-// ComboShip Inc4: MM reachability oracle — headless logic engine wrappers.
-// The combined fill drives these to query "given owned items, which checks are reachable?"
+// ComboShip: MM reachability oracle — headless logic-engine wrappers. The combined fill drives
+// these to query "given owned items, which checks are reachable?"
 
 static SaveContext sMM_OracleSavedContext;
 static uint64_t sMM_OracleSavedRegionTime;
@@ -2994,13 +2983,11 @@ static void GiveItemForOracle(RandoItemId ri) {
         case RI_GREAT_SPIN_ATTACK: SET_WEEKEVENTREG(WEEKEVENTREG_RECEIVED_GREAT_SPIN_ATTACK); break;
         case RI_ABILITY_SWIM: Flags_SetRandoInf(RANDO_INF_OBTAINED_SWIM); break;
 
-        // ComboShip: owl-warp statues (Owl Statue Shuffle). Logic gates nearly every exit out of the
-        // root region on CAN_OWL_WARP (Logic.cpp RR_MAX) — the owl warp is the primary entry into each
-        // cardinal cluster (swamp/Woodfall/mountain/Snowhead/Great Bay/Zora/Ikana/Stone Tower). The
-        // gameplay GiveItem activates these via Sram_ActivateOwl; the default case below would only set
-        // INV_CONTENT and leave owlActivationFlags clear, so CAN_OWL_WARP stays false and the oracle
-        // can't leave Clock Town's walking radius (reachable stuck ~164/392). Sram_ActivateOwl is
-        // headless-safe (pure save-bit write). Mirrors GiveItem.cpp RI_OWL_* cases.
+        // ComboShip: owl-warp statues. Logic gates nearly every exit from the root region on
+        // CAN_OWL_WARP, the primary entry into each cardinal cluster. The default case below would set
+        // only INV_CONTENT and leave owlActivationFlags clear, so CAN_OWL_WARP stays false and the
+        // oracle can't leave Clock Town. Sram_ActivateOwl is headless-safe (pure save-bit write).
+        // Mirrors GiveItem.cpp RI_OWL_* cases.
         case RI_OWL_CLOCK_TOWN_SOUTH: Sram_ActivateOwl(OWL_WARP_CLOCK_TOWN); break;
         case RI_OWL_GREAT_BAY_COAST: Sram_ActivateOwl(OWL_WARP_GREAT_BAY_COAST); break;
         case RI_OWL_IKANA_CANYON: Sram_ActivateOwl(OWL_WARP_IKANA_CANYON); break;
@@ -3025,12 +3012,11 @@ static void GiveItemForOracle(RandoItemId ri) {
         case RI_SONG_DOUBLE_TIME: Flags_SetRandoInf(RANDO_INF_OBTAINED_SONG_DOUBLE_TIME); break;
         case RI_SONG_INVERTED_TIME: Flags_SetRandoInf(RANDO_INF_OBTAINED_SONG_INVERTED_TIME); break;
 
-        // ComboShip: Goron Lullaby Intro. Its itemId (ITEM_SONG_LULLABY_INTRO = 0x73) is outside the
-        // contiguous ITEM_SONG_SONATA..SUN block the default case maps to quest items, so it needs its
-        // own quest flag. ConvertItem(RI_PROGRESSIVE_LULLABY) returns the intro until
-        // QUEST_SONG_LULLABY_INTRO is set, then the full Goron Lullaby — without setting the intro flag
-        // the full lullaby is never granted, so CAN_PLAY_SONG(LULLABY) stayed false and Snowhead Temple
-        // (and the Moon, which needs all temples cleared) were unreachable.
+        // ComboShip: Goron Lullaby Intro. Its itemId (0x73) is outside the contiguous
+        // ITEM_SONG_SONATA..SUN block the default case maps to quest items, so it needs its own flag.
+        // ConvertItem(RI_PROGRESSIVE_LULLABY) returns the intro until QUEST_SONG_LULLABY_INTRO is set,
+        // then the full lullaby — so without this flag the full lullaby is never granted and Snowhead
+        // Temple (and the Moon) stay unreachable.
         case RI_SONG_LULLABY_INTRO: SET_QUEST_ITEM(QUEST_SONG_LULLABY_INTRO); break;
 
         // Clock items
@@ -3083,33 +3069,29 @@ static void GiveItemForOracle(RandoItemId ri) {
 
         default: {
             // ComboShip: enemy souls (RI_SOUL_ENEMY_*) are flag-only items (itemId == ITEM_NONE), so
-            // the inventory path below can't grant them; set their RANDO_INF like the boss souls do.
-            // Logic gates on them — e.g. Great Bay Temple's RE_GREAT_BAY_RED_SWITCH_1 needs the Octorok
-            // soul to reverse the water flow — so without this the temple-internal switch events never
-            // fire, the boss room stays unreachable, the temple never clears, and the Moon (which needs
-            // all temples cleared) is locked. Mirrors GiveItem.cpp's soul handling.
+            // the inventory path below can't grant them; set their RANDO_INF like boss souls. Logic
+            // gates on them (e.g. Great Bay Temple needs the Octorok soul to reverse the water flow),
+            // so without this the temple never clears and the Moon stays locked. Mirrors GiveItem.cpp.
             if (ri >= RI_SOUL_ENEMY_ALIEN && ri <= RI_SOUL_ENEMY_WOLFOS) {
                 Flags_SetRandoInf(SOUL_RI_TO_RANDO_INF(ri));
                 break;
             }
             // Standard items: set the save-state that HAS_ITEM / CHECK_QUEST_ITEM read.
-            // ComboShip: INV_CONTENT(item) indexes gItemSlots[item], which is only defined for the
-            // 77 inventory-slot items (itemId 0x00..0x4C). Songs (0x61+), shields, remains, etc. have
-            // higher itemIds and are NOT stored in the items[] array — writing INV_CONTENT for them
-            // does an OUT-OF-BOUNDS gItemSlots read and corrupts a real slot. (ITEM_SONG_HEALING=0x68
-            // resolved to slot 0 and clobbered the ocarina, so HAS_ITEM(OCARINA)=false, CAN_PLAY_SONG
-            // was false, and every song/temple/owl-warp gate failed -> MM reachable stuck ~164/392.)
-            // Route songs to their quest-item flag; only write INV_CONTENT for items with a real slot.
+            // ComboShip: INV_CONTENT(item) indexes gItemSlots[item], defined only for the 77
+            // inventory-slot items (itemId 0x00..0x4C). Songs, shields, remains, etc. have higher
+            // itemIds not stored in items[], so writing INV_CONTENT for them reads gItemSlots out of
+            // bounds and corrupts a real slot (e.g. ITEM_SONG_HEALING clobbered the ocarina, breaking
+            // every song gate). Route songs to their quest flag; only write INV_CONTENT for real slots.
             auto it = Rando::StaticData::Items.find(ri);
             if (it != Rando::StaticData::Items.end()) {
                 u8 itemId = it->second.itemId;
                 if (itemId >= ITEM_SONG_SONATA && itemId <= ITEM_SONG_SUN) {
                     SET_QUEST_ITEM(QUEST_SONG_SONATA + (itemId - ITEM_SONG_SONATA));
                 } else if (itemId >= ITEM_REMAINS_ODOLWA && itemId <= ITEM_REMAINS_TWINMOLD) {
-                    // ComboShip: boss remains are checked as quest items (RemainsCount() in Logic.h
-                    // gates Moon access), not inventory slots — their itemIds are out of gItemSlots
-                    // range. Set the quest flag instead. Without this, RemainsCount()==0 and the Moon
-                    // trials are unreachable. ITEM_REMAINS_* and QUEST_REMAINS_* share the same order.
+                    // ComboShip: boss remains are checked as quest items (RemainsCount() gates Moon
+                    // access), not inventory slots, and their itemIds are out of gItemSlots range. Set
+                    // the quest flag instead, else RemainsCount()==0 and the Moon trials are unreachable.
+                    // ITEM_REMAINS_* and QUEST_REMAINS_* share the same order.
                     SET_QUEST_ITEM(QUEST_REMAINS_ODOLWA + (itemId - ITEM_REMAINS_ODOLWA));
                 } else if (itemId != ITEM_NONE && itemId < ARRAY_COUNT(gItemSlots) &&
                            gItemSlots[itemId] != SLOT_NONE) {
@@ -3122,9 +3104,8 @@ static void GiveItemForOracle(RandoItemId ri) {
 }
 
 extern "C" __declspec(dllexport) void Combo_MM_Rando_Reset(void) {
-    // ComboShip: MM's region graph + static data are now built by the real eager boot
-    // (MM_BootForCombo -> ShipInit::InitAll), replacing the deleted headless MM_InitRandoLogic
-    // warm-up; the oracle no longer needs a lazy init here.
+    // ComboShip: MM's region graph + static data are built by the eager boot
+    // (MM_BootForCombo -> ShipInit::InitAll), so the oracle needs no lazy init here.
     if (!sMM_OracleActive) { // snapshot the REAL live context only on the first Reset of a fill
         memcpy(&sMM_OracleSavedContext, &gSaveContext, sizeof(SaveContext));
         sMM_OracleSavedRegionTime = gCurrentRegionTime;
@@ -3132,34 +3113,27 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Reset(void) {
     }
     memset(&gSaveContext, 0, sizeof(SaveContext));
 
-    // ComboShip: the reachability logic reads RANDO_SAVE_OPTIONS (== gSaveContext.save.shipSaveInfo.
-    // rando.randoSaveOptions) and gates on IS_RANDO (saveType == SAVETYPE_RANDO). The memset above
-    // just wiped both, and NOTHING else populates them in the headless oracle path — the seed's
-    // options only ever land in a local RandoSaveInfo for the dump/pool (MM_DumpRandoStaticData),
-    // never in the live context the oracle evaluates against. Without this, MM reachability runs with
-    // every option at 0 (dungeons not open, all shuffles off), under-counting reachable checks; the
-    // cross-world fill then dead-ends once the OOT pool can't absorb the whole progression set (e.g.
-    // when grass/pots aren't shuffled). Mirror the dump's CVar->options loop so reachability matches
-    // the generated pool. (Unlike OOT, whose logic reads ctx->GetOption from the Rando::Context that
-    // survives Reset, MM's logic reads gSaveContext, so it must be re-seeded here every query.)
+    // ComboShip: the reachability logic reads RANDO_SAVE_OPTIONS (randoSaveOptions) and gates on
+    // IS_RANDO (saveType == SAVETYPE_RANDO). The memset above wiped both, and nothing else repopulates
+    // them in the headless oracle path. Without re-seeding here, reachability runs with every option at
+    // 0 (dungeons closed, shuffles off), under-counts reachable checks, and the cross-world fill
+    // dead-ends. Mirror the dump's CVar->options loop so reachability matches the generated pool.
+    // (OOT's logic reads ctx->GetOption, which survives Reset; MM's reads gSaveContext, so it must be
+    // re-seeded every query.)
     gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_RANDO;
     for (auto& [id, opt] : Rando::StaticData::Options) {
         gSaveContext.save.shipSaveInfo.rando.randoSaveOptions[id] =
             (uint32_t)CVarGetInteger(opt.cvar, opt.defaultValue);
     }
 
-    // ComboShip: grant the seed's STARTING ITEMS into the oracle inventory. These are deliberately
-    // NOT in the shuffled pool (so SetOwnedItems never grants them), yet logic depends on them: the
-    // default kit is { sword, shield, ocarina, Song of Time } plus computed items (ocarina BUTTONS,
-    // swim ability, maps/compasses, souls). Without the ocarina + buttons, CAN_PLAY_SONG / canPlaySong
-    // are false (Logic.h), so NO songs play — Soaring (owls), Sonata (Woodfall), Goron Lullaby
-    // (Snowhead), Bossa Nova (Great Bay) and Elegy (Stone Tower/Ikana) all fail and the oracle reports
-    // only the song-free overworld reachable (~162/392), dead-ending the cross-world fill. The real
-    // game grants these via Rando::GrantStartingItems(), but that calls the gameplay GiveItem (needs
-    // gPlayState) and is unsafe here (see the dump path at ~L2692), so reproduce it with the save-only
-    // GiveItemForOracle. Must run AFTER the option seeding above — GetComputedStartingItems reads the
-    // freshly-seeded randoSaveOptions; SetStartingItemsInSave first so its clock-shuffle branch sees
-    // the configured kit (mirrors the dump path).
+    // ComboShip: grant the seed's STARTING ITEMS into the oracle inventory. These aren't in the
+    // shuffled pool (so SetOwnedItems never grants them), but logic depends on them: the default kit
+    // (sword, shield, ocarina, Song of Time, plus computed buttons/swim/maps/souls). Without the
+    // ocarina + buttons, CAN_PLAY_SONG is false, so no songs play and the oracle reports only the
+    // song-free overworld reachable, dead-ending the fill. The real game uses GrantStartingItems(),
+    // which needs gPlayState and is unsafe here, so reproduce it with the save-only GiveItemForOracle.
+    // Must run after the option seeding above (GetComputedStartingItems reads randoSaveOptions); call
+    // SetStartingItemsInSave first so its clock-shuffle branch sees the configured kit.
     {
         auto startingItems = Rando::GetStartingItemsFromConfig();
         Rando::SetStartingItemsInSave(gSaveContext.save.shipSaveInfo.rando, startingItems);
@@ -3171,10 +3145,9 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Reset(void) {
     }
 }
 
-// ComboShip: name->id lookup maps for the oracle hot path. SetOwnedItems runs once per
-// reachability query and PlaceItem once per commit entry; the previous per-name linear scans
-// over StaticData dominated fill time. StaticData is immutable after eager boot and the oracle
-// runs single-threaded, so build-once function-local statics are safe.
+// ComboShip: name->id lookup maps for the oracle hot path, replacing per-name linear scans over
+// StaticData that dominated fill time. StaticData is immutable after eager boot and the oracle runs
+// single-threaded, so build-once function-local statics are safe.
 static const std::unordered_map<std::string, RandoItemId>& Combo_MM_SpoilerNameToItemId() {
     static const std::unordered_map<std::string, RandoItemId> map = [] {
         std::unordered_map<std::string, RandoItemId> m;
@@ -3218,13 +3191,11 @@ extern "C" __declspec(dllexport) const char* Combo_MM_Rando_GetReachableChecks(v
     auto timeStates = Rando::Logic::InitializeRegionTimeStates(RR_MAX);
 
     // ComboShip: mirror GlitchlessLogic's reachability fixpoint (Rando/Logic/GlitchlessLogic.cpp).
-    // Crawling region connections alone is NOT enough — MM's logic is event-gated (raising Woodfall,
-    // opening dungeon entrances, cutscene gates, ...). Those region events must be APPLIED as their
-    // regions become reachable (RANDO_EVENTS[event]++), which then unlocks the further region
-    // connections and checks that depend on them. Without this the oracle reported only the
-    // event-free overworld, so every dungeon/interior check looked unreachable even with a full
-    // inventory (the combined fill then dead-ended). Loop until regions AND events both stabilize —
-    // a newly-applied event can open new regions, and a newly-reached region can fire new events.
+    // Crawling region connections alone isn't enough — MM's logic is event-gated (raising Woodfall,
+    // opening dungeon entrances, cutscenes). Those events must be applied (RANDO_EVENTS[event]++) as
+    // their regions become reachable, which then unlocks the connections and checks that depend on
+    // them. Without it the oracle saw only the event-free overworld and the fill dead-ended. Loop
+    // until regions and events both stabilize (each can unlock the other).
     std::set<std::pair<RandoEvent, std::function<bool()>>*> eventsInLogic;
     bool changed = true;
     while (changed) {
@@ -3274,7 +3245,7 @@ extern "C" __declspec(dllexport) const char* Combo_MM_Rando_GetReachableChecks(v
 extern "C" __declspec(dllexport) void Combo_MM_Rando_PlaceItem(
     const char* checkName, const char* itemName) {
     if (!checkName || !itemName) return;
-    // ComboShip: map lookups replace the nested name scans (this runs once per committed check).
+    // ComboShip: map lookups replace nested name scans (runs once per committed check).
     auto chkIt = Combo_MM_CheckNameToCheckId().find(checkName);
     if (chkIt == Combo_MM_CheckNameToCheckId().end()) return;
     auto itemIt = Combo_MM_SpoilerNameToItemId().find(itemName);
@@ -3293,14 +3264,14 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Restore(void) {
 }
 
 #ifdef COMBO_BUILD
-// ComboShip: cross-game item-draw exports (MM_GetItemDrawInfo / MM_GetItemAnimDrawInfo) — bodies
-// live in the combo-owned TU-glue header to keep the vendored footprint to this include.
+// ComboShip: cross-game item-draw exports (MM_GetItemDrawInfo / MM_GetItemAnimDrawInfo). Bodies
+// live in the combo-owned header so the vendored footprint stays this one include.
 #include "ComboItemDrawMM.h"
 #endif
 
 #ifdef COMBO_BUILD
-// ComboShip: MM analog of SOH_ExportMenu et al. (soh/soh/OTRGlobals.cpp). comboui resolves these by
-// GetProcAddress and ingests the CwMenu (combo/menu/ComboMenuABI.h), then invokes back by index.
+// ComboShip: MM analog of SOH_ExportMenu et al. comboui resolves these by GetProcAddress, ingests
+// the CwMenu (combo/menu/ComboMenuABI.h), then invokes back by index.
 namespace {
 // Ensure mBenMenu exists; returns it (or nullptr if it couldn't be built).
 std::shared_ptr<BenGui::BenMenu> Combo_EnsureBenMenu() {
@@ -3317,9 +3288,9 @@ std::shared_ptr<BenGui::BenMenu> Combo_EnsureBenMenu() {
     if (menu) {
         menu->Init();
     }
-    // ComboShip: MM's rando Seed combobox reads Rando::Spoiler::spoilerOptions, which is empty if the
-    // rando subsystem's RefreshOptions hasn't populated it in this (combo/backgrounded) context. Populate
-    // it on demand so the always-available rando menu renders. RefreshOptions is idempotent (clears+repopulates).
+    // ComboShip: MM's rando Seed combobox reads Rando::Spoiler::spoilerOptions, empty until
+    // RefreshOptions runs (it hasn't in this backgrounded context). Populate it on demand so the
+    // always-available rando menu renders. RefreshOptions is idempotent.
     if (Rando::Spoiler::spoilerOptions.empty()) {
         Rando::Spoiler::RefreshOptions();
     }

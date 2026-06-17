@@ -30,8 +30,8 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	# As a shared DLL, C++ objects (shared_ptr<Context>, std::string, …) cross the module
 	# boundary; a static CRT would give libultraship its own heap and trip the debug-heap
 	# assert `__acrt_first_block == header` when such objects are freed in another module.
-	# ComboShip: keep the DLL CRT (upstream switched to the static CRT here) — the combo build
-	# links libultraship as a shared library, so all modules must share one runtime/heap.
+	# ComboShip: keep the DLL CRT (upstream uses the static CRT here). libultraship is a shared
+	# library in the combo build, so all modules must share one runtime/heap.
 	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 	# Default to embedded debug info (/Z7) so sccache can cache object files
 	# without multiple CL.EXE processes racing over a shared .pdb file. (kept from upstream)

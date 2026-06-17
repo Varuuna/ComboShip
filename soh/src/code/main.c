@@ -44,14 +44,13 @@ void Main_LogSystemHeap(void) {
     osSyncPrintf(VT_RST);
 }
 
-// ComboShip export: run the OOT game loop. SOH_Init() must be called first.
-// Blocks until OOT exits.
+// ComboShip: export that runs the OOT game loop. SOH_Init() must be called first. Blocks until OOT exits.
 #ifdef _WIN32
 __declspec(dllexport)
 #endif
 void SOH_RunMain(int argc, char** argv) {
     GameConsole_Init();
-    // SOH_Init() (i.e. InitOTR) was already called by ComboShip before this.
+    // ComboShip: SOH_Init() (i.e. InitOTR) was already called by the launcher before this.
     // TODO: Was moved to below InitOTR because it requires window to be setup. But will be late to catch crashes.
     CrashHandlerRegisterCallback(CrashHandler_PrintSohData);
     BootCommands_Init();
@@ -73,12 +72,10 @@ void SOH_Deinit(void) {
     Heaps_Free();
 }
 
-// ComboShip resume: re-enter ONLY the OOT game loop on the existing (already-booted)
-// process. The one-time heap/thread/IRQ setup done by Main() persists for the process
-// lifetime, so we must NOT re-run Heaps_Alloc()/Main(). Main() itself calls
-// Graph_ThreadEntry(0) on the main thread after its setup (main.c:170); re-entering only
-// that loop mirrors that call. Graph_ThreadEntry runs `while (WindowIsRunning()) RunFrame();`
-// and returns once the shared window's running flag is cleared again.
+// ComboShip: resume — re-enter ONLY the OOT game loop on the already-booted process. The one-time
+// heap/thread/IRQ setup from Main() persists for the process lifetime, so we must NOT re-run
+// Heaps_Alloc()/Main(). Main() itself calls Graph_ThreadEntry(0) after its setup; re-entering only
+// that loop mirrors that call and returns once the shared window's running flag is cleared.
 #ifdef _WIN32
 __declspec(dllexport)
 #endif

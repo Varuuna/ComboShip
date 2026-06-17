@@ -78,13 +78,11 @@ void Setup_InitImpl(SetupState* this) {
             gSaveContext.cycleSceneFlags[i].collectible =
                 gSaveContext.save.saveInfo.permanentSceneFlags[i].collectible;
         }
-        // ComboShip: fire OnSaveLoad exactly like every vanilla load path (file select / opening /
-        // debug select) does once the save is in gSaveContext. The rando runtime arms itself here:
-        // OnSaveLoadHandler re-registers all IS_RANDO-conditioned hooks (actor behaviors like
-        // grass/pot/crate shuffles, misc behaviors, check tracker, clock shuffle) and re-runs
-        // ShipInit::Init("IS_RANDO") enhancements. COND_* macros are unregister-then-register, so
-        // this is idempotent (incl. the boot-registered cross-mailbox drain). Without this call the
-        // combo force-spawn loads a perfect rando save whose behaviors never activate.
+        // ComboShip: fire OnSaveLoad like every vanilla load path does once the save is in
+        // gSaveContext. This arms the rando runtime: OnSaveLoadHandler re-registers all
+        // IS_RANDO-conditioned hooks (grass/pot/crate shuffles, check tracker, clock shuffle, etc.)
+        // and re-runs ShipInit::Init("IS_RANDO"). COND_* macros are unregister-then-register, so it's
+        // idempotent. Without it the combo force-spawn loads a rando save whose behaviors never activate.
         GameInteractor_ExecuteOnSaveLoad(gSaveContext.fileNum);
 
         gComboStartFileNum = -1;

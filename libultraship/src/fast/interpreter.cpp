@@ -110,32 +110,32 @@ static std::string GetPathWithoutFileName(char* filePath) {
     return filePath;
 }
 
-// ComboShip: cross-game resource routing. A "@<game>:" marker after "__OTR__" in a DL path
-// routes that DL — and everything it references (textures/vtx/sub-DLs, by path OR hash) — to the
-// named game's ResourceManager. WHY: both games' archives share one path namespace
-// ("__OTR__objects/..." exists in soh.o2r AND mm.o2r with different data), so resolving an MM
-// path through the active (OOT) RM would silently return the wrong game's asset or null; per-game
-// RMs stay resident, so routing by name is safe. The override is scoped to the routed DL via the
-// exec stack depth: pushed in gfx_dl_otr_filepath_handler_custom when entering a routed DL, popped
-// in gfx_end_dl_handler_common when g_exec_stack unwinds to/below the depth recorded at push time.
-// NOTE (Task 9): only the FILEPATH DL handler recognizes the marker; hash-form outer DLs can't be
-// routed directly (they inherit an already-pushed override for sub-DLs, which is sufficient today).
+// ComboShip: cross-game resource routing. A "@<game>:" marker after "__OTR__" in a DL path routes
+// that DL — and everything it references (textures/vtx/sub-DLs, by path OR hash) — to the named
+// game's ResourceManager. Both games' archives share one path namespace ("__OTR__objects/..."
+// exists in soh.o2r AND mm.o2r with different data), so resolving an MM path through the active
+// (OOT) RM would return the wrong asset or null; per-game RMs stay resident, so routing by name is
+// safe. The override is scoped to the routed DL by exec-stack depth: pushed in
+// gfx_dl_otr_filepath_handler_custom on entry, popped in gfx_end_dl_handler_common when
+// g_exec_stack unwinds to/below the push depth.
+// Only the FILEPATH DL handler recognizes the marker; hash-form outer DLs aren't routed directly
+// (they inherit an already-pushed override for sub-DLs, which suffices today).
 struct CrossRMOverride {
     std::shared_ptr<Ship::ResourceManager> rm;
     size_t execDepthAtPush;
 };
 static std::vector<CrossRMOverride> g_crossRMStack;
 
-// ComboShip: G_COMBO_RM_PUSH/POP bracket entries use this sentinel depth. NOTE the ENDDL unwind
-// loop must EXPLICITLY exclude sentinel entries (`size() <= SIZE_MAX` is a tautology, NOT false —
-// see gfx_end_dl_handler_common); with the exclusion, only an explicit G_COMBO_RM_POP (or the
-// frame-start clear) removes a bracket entry. WHY brackets exist: skeletal draws submit limb DLs
-// as RAW Gfx* pointers — no "__OTR__@game:" path marker, so no override gets pushed and the limb
-// DLs' inner hash/path refs would resolve against the wrong game's RM. Host code scopes such
-// spans with PUSH("mm") ... raw submissions ... POP.
-// ASSUMPTION: brackets are only emitted by HOST game code at top-of-DL level, never inside
-// extracted resources. A bracket pushed inside a routed DL would sit ABOVE the routed entry and
-// stop the ENDDL unwind loop early, leaking the routed entry until the frame-start clear().
+// ComboShip: G_COMBO_RM_PUSH/POP bracket entries use this sentinel depth. The ENDDL unwind loop
+// must explicitly exclude sentinel entries (`size() <= SIZE_MAX` is always true — see
+// gfx_end_dl_handler_common); with the exclusion, only an explicit G_COMBO_RM_POP (or the
+// frame-start clear) removes a bracket. Brackets exist because skeletal draws submit limb DLs as
+// raw Gfx* pointers (no "__OTR__@game:" path marker, so no override is pushed) whose inner
+// hash/path refs would otherwise resolve against the wrong game's RM. Host code scopes such spans
+// with PUSH("mm") ... raw submissions ... POP.
+// Assumes brackets come only from host game code at top-of-DL level, never inside extracted
+// resources: a bracket pushed inside a routed DL would sit above the routed entry and stop the
+// ENDDL unwind loop early, leaking the routed entry until the frame-start clear().
 static constexpr size_t kBracketSentinel = SIZE_MAX;
 // Balances POP against PUSHes that were skipped (unknown game name): each skipped PUSH increments,
 // the matching POP decrements instead of popping a real entry. Reset wherever g_crossRMStack is
@@ -3815,14 +3815,13 @@ bool gfx_end_dl_handler_common(F3DGfx** cmd0) {
     Interpreter* gfx = mInstance.lock().get();
     gfx->mMarkerOn = false;
     g_exec_stack.ret();
-    // ComboShip: pop cross-RM overrides whose routed DL just returned. ret() may pop multiple
-    // stack slots (branch sentinels), so unwind every override at or above the new depth.
-    // Bracket entries (execDepthAtPush == kBracketSentinel == SIZE_MAX) must be EXPLICITLY
-    // excluded: `size() <= SIZE_MAX` is a tautology, so without the exclusion this loop would eat
-    // brackets on the first DL return inside their span. Brackets outlive DL returns and are only
-    // removed by G_COMBO_RM_POP (or the frame-start clear). Path-routed entries always sit ABOVE
-    // any bracket (they push later, pop earlier), so stopping at a bracket never strands a routed
-    // entry that still needs popping here.
+    // ComboShip: pop cross-RM overrides whose routed DL just returned. ret() may pop multiple stack
+    // slots (branch sentinels), so unwind every override at or above the new depth. Bracket entries
+    // (execDepthAtPush == kBracketSentinel == SIZE_MAX) must be excluded — `size() <= SIZE_MAX` is
+    // always true, so without the check this loop would eat brackets on the first DL return inside
+    // their span. Brackets outlive DL returns and are removed only by G_COMBO_RM_POP (or the
+    // frame-start clear). Path-routed entries always sit above any bracket (pushed later, popped
+    // earlier), so stopping at a bracket never strands a routed entry.
     while (!g_crossRMStack.empty() && g_crossRMStack.back().execDepthAtPush != kBracketSentinel &&
            g_exec_stack.cmd_stack.size() <= g_crossRMStack.back().execDepthAtPush) {
         g_crossRMStack.pop_back();

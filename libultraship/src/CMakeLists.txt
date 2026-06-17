@@ -5,11 +5,10 @@ set_target_properties(libultraship PROPERTIES PREFIX "")
 set_property(TARGET libultraship PROPERTY CXX_STANDARD 20)
 # Need to set C11 for libgfxd (_Alignas)
 set_property(TARGET libultraship PROPERTY C_STANDARD 11)
-# ComboShip: force CMake's auto-export OFF. Upstream sets WINDOWS_EXPORT_ALL_SYMBOLS here, and the
-# merged-in libtcc dependency sets CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON globally — but that property
-# is incompatible with our custom /DEF pipeline below (it appends its own __create_def AFTER our
-# '='-stripping filter, leaving the bogus '=' COFF symbol → LNK2001: unresolved external symbol =).
-# We own the export .def ourselves (see the block below), so this must stay FALSE.
+# ComboShip: force auto-export OFF. Upstream sets WINDOWS_EXPORT_ALL_SYMBOLS and libtcc sets it ON
+# globally, but that conflicts with our custom /DEF pipeline below: it appends its own __create_def
+# AFTER our '='-stripping filter, leaving a bogus '=' COFF symbol (LNK2001: unresolved external
+# symbol =). We own the export .def ourselves, so this must stay FALSE.
 set_target_properties(libultraship PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS FALSE)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 

@@ -11,7 +11,7 @@
 #include "2s2h/ShipUtils.h"
 #ifdef COMBO_BUILD
 #include <spdlog/spdlog.h>
-#include "rando/CrossMailbox.h"  // ComboShip
+#include "rando/CrossMailbox.h" // ComboShip: cross-world mailbox
 #endif
 
 #include "interface/icon_item_dungeon_static/icon_item_dungeon_static.h"

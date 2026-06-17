@@ -433,10 +433,10 @@ void Graph_ThreadEntry(void* arg0) {
 }
 
 #ifdef COMBO_BUILD
-// ComboShip OOT->MM return: reset the frame state machine so the next MM_RunGameLoop re-seeds from
-// the first overlay (Setup) and re-runs Graph_Init, instead of resuming (state == 1) into the
-// gamestate that was destroyed when MM first handed off to OOT — which falls straight through to
-// WindowClose() and exits the process. Mirrors SOH_ResetFrameLoopForResume in soh/src/code/graph.c.
+// ComboShip: on OOT->MM return, reset the frame state machine so the next MM_RunGameLoop re-seeds
+// from the first overlay (Setup) and re-runs Graph_Init. Otherwise it resumes (state == 1) into the
+// gamestate destroyed when MM first handed off to OOT, which falls through to WindowClose() and exits
+// the process. Mirrors SOH_ResetFrameLoopForResume.
 void MM_ResetFrameLoopForResume(void) {
     runFrameContext.state = 0;
 }

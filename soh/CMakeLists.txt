@@ -265,10 +265,9 @@ endif()
 # MSVC runtime library
 ################################################################################
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
-	# ComboShip: keep DYNAMIC CRT (MultiThreaded*DLL) — required so soh.dll, 2ship.dll
-	# and the shared libultraship.dll all share one CRT heap. Upstream uses the static
-	# MultiThreaded* variants here; do not revert. See docs/UPSTREAM_MERGES.md.
-	# (Adopted upstream's new SOH_WINDOWS_64BIT gate; only the *DLL suffix is ours.)
+	# ComboShip: keep the DYNAMIC CRT (MultiThreaded*DLL) so soh.dll, 2ship.dll, and the shared
+	# libultraship.dll all share one CRT heap. Upstream uses the static variants here; do NOT revert.
+	# Only the *DLL suffix is ours. See docs/UPSTREAM_MERGES.md.
 	get_property(MSVC_RUNTIME_LIBRARY_DEFAULT TARGET ${PROJECT_NAME} PROPERTY MSVC_RUNTIME_LIBRARY)
 	if(SOH_WINDOWS_64BIT)
 		string(CONCAT "MSVC_RUNTIME_LIBRARY_STR"
@@ -723,11 +722,15 @@ else()
 endif()
 
 if(NOT CMAKE_SYSTEM_NAME MATCHES "Darwin|NintendoSwitch|CafeOS")
-INSTALL(TARGETS soh DESTINATION . COMPONENT ship)
+# ComboShip: install RUNTIME + LIBRARY only (the .dll / .so), NOT ARCHIVE — a bare `DESTINATION .`
+# would also install the import library (soh.lib), a build artifact that was leaking into the package.
+INSTALL(TARGETS soh RUNTIME DESTINATION . COMPONENT ship LIBRARY DESTINATION . COMPONENT ship)
 endif()
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
-INSTALL(FILES $<TARGET_PDB_FILE:soh> DESTINATION ./debug COMPONENT ship)
+# ComboShip: PDB goes to the "debugsymbols" component, which is NOT in the packaged components, so
+# the large soh.pdb stays out of the tester zip while the install rule itself stays intact.
+INSTALL(FILES $<TARGET_PDB_FILE:soh> DESTINATION ./debug COMPONENT debugsymbols)
 INSTALL(FILES ${CMAKE_BINARY_DIR}/soh/soh.o2r DESTINATION . COMPONENT ship)
 endif()
 

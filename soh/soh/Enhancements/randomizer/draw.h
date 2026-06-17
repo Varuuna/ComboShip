@@ -37,7 +37,7 @@ void Randomizer_DrawRocsFeather(PlayState* play, GetItemEntry* getItemEntry);
 #ifdef COMBO_BUILD
 // ComboShip: render a foreign (MM-bound) check with the real MM item model via "@mm:" cross-RM
 // routing; falls back to the blue-rupee sentinel when the model can't be resolved. The check
-// identity rides in getItemEntry->comboForeignCheck (stamped by Context::GetFinalGIEntry).
+// identity rides in getItemEntry->comboForeignCheck.
 void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getItemEntry);
 #endif
 

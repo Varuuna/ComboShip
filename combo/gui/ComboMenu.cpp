@@ -15,7 +15,7 @@
 #endif
 
 namespace {
-// Generate trigger (soh.dll export); runs synchronously on the calling thread (Inc7: thread removed).
+// Generate trigger (soh.dll export); runs synchronously on the calling thread.
 typedef void (*FnTriggerGenerate)(const char*, ComboRando::ComboGenProgress*);
 FnTriggerGenerate sTrigger = nullptr;
 FnTriggerGenerate ResolveTrigger() {

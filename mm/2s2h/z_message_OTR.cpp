@@ -66,13 +66,11 @@ extern "C" void OTRMessage_Init() {
 }
 
 #ifdef COMBO_BUILD
-// ComboShip MM->OOT->MM resume: the forward transition's UnloadResources("*") freed the message
-// resources that these tables reference. The NES table's per-message segments are malloc'd copies,
-// but sMessageTableCredits[i].segment points directly INTO the loaded credits resource, which the
-// unload frees -> a later Message text read strlen()s freed memory. Free + null both tables, then
-// rebuild them from the swapped-back MM archives. Must run AFTER archives are swapped back.
-// Mirrors OTRMessage_ResetForResume in soh/soh/z_message_OTR.cpp. NOTE: OTRMessage_Init here has no
-// NULL guards (unlike OOT's), so a plain re-call would leak the old tables; we free them first.
+// ComboShip: on MM->OOT->MM resume the forward transition's UnloadResources("*") freed the message
+// resources these tables reference. sMessageTableCredits[i].segment points directly into the freed
+// credits resource, so a later text read strlen()s freed memory. Free + null both tables, then
+// rebuild from the swapped-back MM archives (must run after the swap). Mirrors OOT's
+// OTRMessage_ResetForResume. OTRMessage_Init here has no NULL guards, so we free first to avoid a leak.
 extern "C" void OTRMessage_ResetForResume() {
     if (sMessageTableNES != nullptr) {
         free(sMessageTableNES);

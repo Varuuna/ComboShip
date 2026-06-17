@@ -603,11 +603,15 @@ else()
 endif()
 
 if(NOT CMAKE_SYSTEM_NAME MATCHES "Darwin|NintendoSwitch|CafeOS")
-INSTALL(TARGETS 2ship DESTINATION . COMPONENT 2s2h)
+# ComboShip: RUNTIME + LIBRARY only (the .dll / .so), NOT ARCHIVE — bare `DESTINATION .` also
+# installs the import library (2ship.lib), a build artifact that was leaking into the package.
+INSTALL(TARGETS 2ship RUNTIME DESTINATION . COMPONENT 2s2h LIBRARY DESTINATION . COMPONENT 2s2h)
 endif()
 
 if ("${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
-INSTALL(FILES $<TARGET_PDB_FILE:2ship> DESTINATION ./debug COMPONENT 2s2h)
+# ComboShip: PDB to the non-packaged "debugsymbols" component — keeps the ~120 MB 2ship.pdb out of
+# the tester zip (see soh/CMakeLists.txt for the matching change).
+INSTALL(FILES $<TARGET_PDB_FILE:2ship> DESTINATION ./debug COMPONENT debugsymbols)
 INSTALL(FILES ${CMAKE_BINARY_DIR}/mm/2ship.o2r DESTINATION . COMPONENT 2s2h)
 endif()
 

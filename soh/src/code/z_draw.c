@@ -404,19 +404,15 @@ void GetItem_Draw(PlayState* play, s16 drawId) {
 
 #ifdef COMBO_BUILD
 // ComboShip: expose one sDrawItemTable row for cross-game rendering — the OOT analog of MM's
-// GetItem_GetDrawTableEntry (mm/src/code/z_draw.c). The OTHER game (MM) asks soh.dll which display
-// lists draw a foreign OOT item (OOT_GetItemDrawInfo in combo/menu/ComboItemDrawOOT.h) and submits
-// them through "__OTR__@oot:"-routed paths resolved against OOT's ResourceManager (CrossRMRegistry).
+// GetItem_GetDrawTableEntry. The other game (MM) asks soh.dll which display lists draw a foreign OOT
+// item and submits them through "__OTR__@oot:"-routed paths resolved against OOT's ResourceManager.
 //
-// Only "self-contained" draw funcs are exposed — funcs that merely submit dlists under plain
+// Only "self-contained" draw funcs are exposed — those that merely submit dlists under plain
 // Gfx_SetupDL_25/26 Opa/Xlu state (plus an optional uniform scale). Funcs needing extra OOT runtime
-// state (segment-8 texture scrolls, billboard rotation, grayscale, per-instance prim/env globals,
-// special matrices — RecoveryHeart/Fish/Potion/Poes/Fairy/BlueFire/SkullToken/MirrorShield/Scale/
-// GoronSword/DekuNuts/MagicSpell/Jewel*/GenericMusicNote/TriforcePiece/FishingPole/SoldOut) are NOT
-// portable to the other game's frame and return 0; the foreign game then falls back to its sentinel.
-// The 26Opa funcs (MaskOrBombchu/EggOrMedallion) are exposed as 25Opa — a close approximation, like
-// MM's Compass note. outDlists is filled in SUBMISSION order (some funcs draw color DLs before
-// geometry); *outXluStart is the index of the first XLU-layer entry within that order (-1 = all OPA).
+// state (texture scrolls, billboard rotation, grayscale, per-instance prim/env globals, special
+// matrices) are NOT portable to the other game's frame and return 0; the foreign game then falls
+// back to its sentinel. The 26Opa funcs are exposed as 25Opa — a close approximation. outDlists is
+// filled in SUBMISSION order; *outXluStart is the index of the first XLU-layer entry (-1 = all OPA).
 // Returns the dlist count, or 0 if the row is unsupported/undrawable.
 s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale) {
     static const s8 sOrder0[] = { 0 };

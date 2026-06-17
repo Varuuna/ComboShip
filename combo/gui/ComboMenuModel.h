@@ -2,7 +2,7 @@
 //
 // ComboShip: comboui-side model that resolves each game's flat C-ABI menu exports
 // (SOH_*/MM_* in soh.dll/2ship.dll, see combo/menu/ComboMenuABI.h) and caches the
-// returned CwMenu pointer + invoke/eval/draw fn-ptrs. Task 4.2/4.3 render from these.
+// returned CwMenu pointer + invoke/eval/draw fn-ptrs. The renderer draws from these.
 //
 // DESIGN NOTE: this model deliberately does NOT touch ResourceManagers. RM scoping for
 // the invoke callbacks lives GAME-SIDE, inside each game's own invoke export — so no

@@ -94,14 +94,14 @@ void SetupMenu() {
 }
 
 // ComboShip: install MM's menu into the shared Gui's single menu slot. On the combo transition the
-// OTRGlobals ctor's SetupMenu() is skipped (it lives in the !usingExistingCtx block), so the slot
-// otherwise keeps OOT's SohMenu. First call constructs BenMenu (full setup); later calls just re-set it.
+// ctor's SetupMenu() is skipped, so the slot otherwise keeps OOT's SohMenu. First call constructs
+// BenMenu; later calls re-set it.
 void ActivateMenu() {
 #ifdef COMBO_BUILD
-    // ComboShip: comboui owns the single Gui menu slot, so we never gui->SetMenu here — BUT mBenMenu
-    // must still be BUILT (its headers/widgets populate via BenMenu::InitElement) so MM_ExportMenu /
-    // MM_MenuDrawCustom can build/walk it for the MM tab. SetupMenu's own gui->SetMenu is COMBO_BUILD-guarded out, so calling it
-    // here only constructs the menu. Without this, mBenMenu stays null in combo and the MM tab is empty.
+    // ComboShip: comboui owns the single Gui menu slot, so we never gui->SetMenu here — but mBenMenu
+    // must still be built (widgets populate via BenMenu::InitElement) so MM_ExportMenu / MM_MenuDrawCustom
+    // can walk it for the MM tab. SetupMenu's own gui->SetMenu is guarded out, so calling it here only
+    // constructs the menu. Without this, mBenMenu stays null in combo and the MM tab is empty.
     if (mBenMenu == nullptr) {
         SetupMenu();
     }

@@ -2274,8 +2274,8 @@ void BenMenu::DrawElement() {
     Ship::Menu::DrawElement();
 }
 
-// === ComboShip C-ABI menu export ============================================
-// EXACT MM analog of soh/soh/SohGui/SohMenu.cpp's export. See ComboMenuExport.h.
+// === C-ABI menu export ======================================================
+// ComboShip: MM analog of soh's SohMenu export. See ComboMenuExport.h.
 
 namespace {
 CwKind WidgetTypeToCwKind(WidgetType t) {
@@ -2466,10 +2466,10 @@ int32_t BenMenu::EvalDisabledByIndex(int32_t i, const char** outReason) {
     if (!w || !w->preFunc) {
         return 0;
     }
-    // ComboShip: preFuncs probe MM live runtime + read disabledMap[*].active/.value (populated by the
-    // per-frame disable pass Menu::DrawElement runs). comboui bypasses DrawElement and a backgrounded MM
-    // has no live state, so only evaluate when MM is alive (same guard as Menu::DrawElement); else report
-    // enabled (CVars still apply on resume; disable-state reflects live gameplay that doesn't exist while bg).
+    // ComboShip: preFuncs probe MM's live runtime and disabledMap (filled by Menu::DrawElement's
+    // per-frame disable pass). comboui bypasses DrawElement and a backgrounded MM has no live state,
+    // so only evaluate when MM is alive (same guard as DrawElement); else report enabled (CVars still
+    // apply on resume; disable-state reflects live gameplay that doesn't exist while backgrounded).
     if (OTRGlobals::Instance == nullptr || OTRGlobals::Instance->fontStandardLargest == nullptr) {
         return 0;
     }

@@ -26,11 +26,9 @@ class BenMenu : public Ship::Menu {
     void AddEnhancements();
     void AddDevTools();
 
-    // === ComboShip C-ABI menu export (see combo/menu/ComboMenuExport.h) ===
-    // Builds (once, cached) the flat CwMenu describing the whole BenMenu tree and
-    // returns a pointer that is stable for the lifetime of this BenMenu instance.
-    // comboui ingests the CwMenu and invokes back by index. EXACT MM analog of
-    // SohMenu's exports.
+    // ComboShip: C-ABI menu export (see combo/menu/ComboMenuExport.h). Builds (once, cached) the flat
+    // CwMenu describing the whole BenMenu tree and returns a pointer stable for this instance's
+    // lifetime. comboui ingests the CwMenu and invokes back by index. MM analog of SohMenu's exports.
     const CwMenu* ExportComboMenu();
     void InvokeCallbackByIndex(int32_t i);                          // runs widget i's .callback(*w)
     int32_t EvalDisabledByIndex(int32_t i, const char** outReason); // runs widget i's preFunc; 1 if disabled

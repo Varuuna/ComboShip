@@ -51,7 +51,7 @@ void InitOTR(int argc, char* argv[]);
 void Heaps_Free(void);
 #ifdef COMBO_BUILD
 // ComboShip: when nonzero, MM_RunMain initializes MM but skips its blocking game loop
-// (Graph_ThreadEntry). Set by MM_BootForCombo (mm/2s2h/BenPort.cpp) for the eager OOT-startup boot.
+// (Graph_ThreadEntry). Set by MM_BootForCombo for the eager OOT-startup boot.
 extern int gComboBootOnly;
 #endif
 #ifdef __GNUC__
@@ -159,8 +159,8 @@ int SDL_main(int argc, char* argv[] /* void* arg*/) {
 }
 
 #ifdef COMBO_BUILD
-// ComboShip entry point — same as SDL_main but skips AllocConsole/FreeConsole
-// since ComboShip.exe already owns the console.
+// ComboShip: entry point — same as SDL_main but skips AllocConsole/FreeConsole, since the combo
+// executable already owns the console.
 #ifdef _WIN32
 __declspec(dllexport)
 #endif
@@ -169,8 +169,8 @@ void MM_RunMain(void) {
 
     setlocale(LC_ALL, ".UTF8");
 
-    // ComboShip: upstream InitOTR now takes (argc, argv) for CLI extraction; the combo MM boot has
-    // no CLI args (extraction is driven separately via MM_Extract).
+    // ComboShip: InitOTR now takes (argc, argv) for CLI extraction; the combo MM boot has no CLI
+    // args (extraction runs separately via MM_Extract).
     InitOTR(0, NULL);
     Heaps_Alloc();
 
@@ -210,12 +210,10 @@ void MM_RunMain(void) {
 #endif
 }
 
-// ComboShip resume: re-enter ONLY the MM game loop on the existing (already-booted) process.
-// The one-time heap/thread/IRQ setup done by MM_RunMain() persists for the process lifetime, so
-// we must NOT re-run it. MM_RunMain itself calls Graph_ThreadEntry(0) on the main thread after its
-// setup; re-entering only that loop mirrors that call. Graph_ThreadEntry runs
-// `while (WindowIsRunning()) RunFrame();` and returns once the shared window's running flag is
-// cleared again. Mirrors SOH_RunGameLoop in soh/src/code/main.c.
+// ComboShip: on resume, re-enter only the MM game loop on the already-booted process. The one-time
+// heap/thread/IRQ setup from MM_RunMain() persists for the process lifetime and must NOT re-run.
+// Graph_ThreadEntry runs `while (WindowIsRunning()) RunFrame();` and returns once the shared
+// window's running flag is cleared again. Mirrors SOH_RunGameLoop.
 #ifdef _WIN32
 __declspec(dllexport)
 #endif

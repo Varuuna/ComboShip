@@ -1,6 +1,6 @@
 // combo/gui/ComboGenProgress.h
 // ComboShip: thread-safe progress state for the cross-world generate worker.
-// Written by the worker thread; polled by the UI thread (Task 7).
+// Written by the worker thread; polled by the UI thread.
 #pragma once
 #include <atomic>
 #include <cstdint>

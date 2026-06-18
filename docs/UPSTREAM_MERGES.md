@@ -685,3 +685,21 @@ future mm merges):** at the existing local check-grant point, one guarded call
 `CUSTOM_ITEM_PARAM` still holds the checkId, before it's overwritten with the item id on the next
 line) + one extern declaration in the file's existing COMBO_BUILD include block. No original lines
 moved/deleted. The function is a no-op unless Anchor is active, so non-co-op rando play is unaffected.
+
+## MM Anchor adapter — Phase 2d (late-join / reconnect resync) (2026-06-18)
+
+**Why:** bring a late-joining or reconnecting co-op client up to the team's current progression.
+
+**Combo-owned (MMAnchor, no vendored churn):** ported the canonical `UPDATE_TEAM_STATE` /
+`REQUEST_TEAM_STATE` (2S2H PR #1349) onto the launcher transport. On save (`AfterEndOfCycleSave`) and
+in reply to a `REQUEST_TEAM_STATE`, a client serializes its whole `gSaveContext.save` (via
+`BenJsonConversions`, with the rando-check array compacted — **7 fields**, dropping the canonical's
+`multiWorldTeamIndex` since ComboShip is shared-progression, not multiworld). A client requests team
+state on `OnSaveLoad` and on connect-while-in-game. On receive it restores receiver-local fields
+(bottle contents, non-zero ammo, checksum, fileCreatedAt, `newf`, dpad/button layout, playerName),
+then commits **only** `saveInfo` + `shipSaveInfo` — top-level `Save` fields (scene/entrance/time/day/
+`playerForm`/cycle) are intentionally left untouched so the receiver isn't relocated — then re-runs
+`Rando::CheckTracker::OnFileLoad` / `ActorBehavior::OnFileLoad` / `ShipInit::Init("IS_RANDO")`. Queued
+packets ride along and are replayed through the normal incoming queue. Known canonical tradeoff
+(accepted): the resync overwrites the receiver's HP/magic/rupees/respawn/scene-flags with the team's.
+Same-game only (MM `permanentSceneFlags`/commit-hash layout). No vendored MM source modified for 2d.

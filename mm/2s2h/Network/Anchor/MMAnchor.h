@@ -95,6 +95,11 @@ class MMAnchor {
     // (+ its check id) to teammates; receivers ConvertItem against their own state and grant.
     void SendPacket_GiveItem(int16_t randoItemId, int32_t randoCheckId);
     bool applyingRemoteItem = false; // guards against re-broadcasting items granted from the network
+    // Phase 2d: late-join / reconnect resync. Mirrors the canonical UPDATE_TEAM_STATE: push the whole
+    // Save to teammates; on receive, commit saveInfo + shipSaveInfo (top-level Save fields like
+    // scene/time/form are left untouched so the receiver isn't teleported).
+    void SendPacket_UpdateTeamState(const std::string& targetTeamId);
+    void SendPacket_RequestTeamState();
 
     bool isActive = false;
     uint32_t ownClientId = 0;
@@ -116,6 +121,8 @@ class MMAnchor {
     void HandlePacket_PlayerUpdate(const nlohmann::json& payload);
     void HandlePacket_DamagePlayer(const nlohmann::json& payload);
     void HandlePacket_GiveItem(const nlohmann::json& payload);
+    void HandlePacket_UpdateTeamState(nlohmann::json& payload); // mutates payload (rando check unpack)
+    void HandlePacket_RequestTeamState(const nlohmann::json& payload);
 
     bool hooksRegistered = false;
     bool shouldRefreshActors = false;

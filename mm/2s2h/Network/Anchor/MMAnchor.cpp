@@ -5,7 +5,11 @@
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include "2s2h/NameTag/NameTag.h"
 #include "2s2h/Rando/Rando.h" // Rando::GiveItem / ConvertItem / CurrentJunkItem / RANDO_SAVE_CHECKS / IS_RANDO
-#include "BenJsonConversions.hpp" // to_json/from_json for Vec3f/Vec3s/PosRot
+#include "2s2h/Rando/CheckTracker/CheckTracker.h"  // Phase 2d: re-derive after team-state apply
+#include "2s2h/Rando/ActorBehavior/ActorBehavior.h"
+#include "2s2h/ShipInit.hpp"
+#include "2s2h/BenGui/Notification.h"
+#include "BenJsonConversions.hpp" // to_json/from_json for Vec3f/Vec3s/PosRot AND Save (Phase 2d)
 
 extern "C" {
 #include "macros.h"
@@ -29,6 +33,8 @@ static const std::string PKT_UPDATE_CLIENT_STATE = "UPDATE_CLIENT_STATE";
 static const std::string PKT_PLAYER_UPDATE = "PLAYER_UPDATE";
 static const std::string PKT_DAMAGE_PLAYER = "DAMAGE_PLAYER";
 static const std::string PKT_GIVE_ITEM = "GIVE_ITEM";
+static const std::string PKT_UPDATE_TEAM_STATE = "UPDATE_TEAM_STATE";
+static const std::string PKT_REQUEST_TEAM_STATE = "REQUEST_TEAM_STATE";
 
 // Launcher-registered outbound transport (set via MM_SetAnchorSend). Null until the exe wires it.
 extern "C" {
@@ -49,6 +55,9 @@ void MMAnchor::Activate() {
     RegisterHooks();
     SendUpdateClientState();    // announce MM presence / live location
     shouldRefreshActors = true; // spawn puppets for already-known peers
+    if (IsSaveLoaded()) {
+        SendPacket_RequestTeamState(); // connected while already in-game -> catch up to the team
+    }
     SPDLOG_INFO("[MMAnchor] activated (ownClientId={})", ownClientId);
 }
 
@@ -115,6 +124,18 @@ void MMAnchor::RegisterHooks() {
             ProcessIncomingPacketQueue();
         }
     });
+
+    // Phase 2d: catch up to the team's progression when loading a file; push our state when we save.
+    GameInteractor::Instance->RegisterGameHook<GameInteractor::OnSaveLoad>([this](s16 fileNum) {
+        if (isActive) {
+            SendPacket_RequestTeamState();
+        }
+    });
+    GameInteractor::Instance->RegisterGameHook<GameInteractor::AfterEndOfCycleSave>([this]() {
+        if (isActive && gPlayState != nullptr) {
+            SendPacket_UpdateTeamState(CVarGetString(kCvarTeamId, "default"));
+        }
+    });
 }
 
 // MARK: - Transport
@@ -166,6 +187,10 @@ void MMAnchor::ProcessIncomingPacketQueue() {
                 HandlePacket_DamagePlayer(payload);
             } else if (type == PKT_GIVE_ITEM) {
                 HandlePacket_GiveItem(payload);
+            } else if (type == PKT_UPDATE_TEAM_STATE) {
+                HandlePacket_UpdateTeamState(payload);
+            } else if (type == PKT_REQUEST_TEAM_STATE) {
+                HandlePacket_RequestTeamState(payload);
             }
             // Flag sync intentionally deferred (mirrors canonical, which stubs it).
         } catch (const std::exception& e) {
@@ -491,6 +516,128 @@ void MMAnchor::RefreshClientActors() {
         client.player = (Player*)dummy;
     }
     refreshingActors = false;
+}
+
+// MARK: - Team state resync (late-join / reconnect; Phase 2d, ported from 2S2H PR #1349)
+
+void MMAnchor::SendPacket_RequestTeamState() {
+    if (!isActive || !roomState.syncItemsAndFlags) {
+        return;
+    }
+    nlohmann::json payload;
+    payload["type"] = PKT_REQUEST_TEAM_STATE;
+    payload["targetTeamId"] = CVarGetString(kCvarTeamId, "default");
+    SendJson(payload);
+}
+
+void MMAnchor::HandlePacket_RequestTeamState(const nlohmann::json& payload) {
+    if (!IsSaveLoaded() || !roomState.syncItemsAndFlags) {
+        return;
+    }
+    SendPacket_UpdateTeamState(CVarGetString(kCvarTeamId, "default"));
+}
+
+void MMAnchor::SendPacket_UpdateTeamState(const std::string& targetTeamId) {
+    if (!isActive || !roomState.syncItemsAndFlags) {
+        return;
+    }
+    nlohmann::json payload;
+    payload["type"] = PKT_UPDATE_TEAM_STATE;
+    payload["targetTeamId"] = targetTeamId;
+    payload["queue"] = nlohmann::json::array(); // assume our team queue is now empty
+    payload["state"] = gSaveContext.save;        // to_json(Save) from BenJsonConversions
+
+    // Byte-reduction: replace the rando check array with a compact array-of-arrays. 7 fields here —
+    // ComboShip's RandoSaveCheck has no multiWorldTeamIndex (shared-progression, not multiworld).
+    if (IS_RANDO) {
+        auto& rando = payload["state"]["shipSaveInfo"]["rando"];
+        rando.erase("randoSaveChecks");
+        rando["randoSaveChecksCopy"] = nlohmann::json::array();
+        for (int i = 0; i < RC_MAX; i++) {
+            nlohmann::json e = nlohmann::json::array();
+            e[0] = RANDO_SAVE_CHECKS[i].randoItemId;
+            e[1] = (u8)RANDO_SAVE_CHECKS[i].shuffled;
+            e[2] = (u8)RANDO_SAVE_CHECKS[i].eligible;
+            e[3] = (u8)RANDO_SAVE_CHECKS[i].cycleObtained;
+            e[4] = (u8)RANDO_SAVE_CHECKS[i].obtained;
+            e[5] = (u8)RANDO_SAVE_CHECKS[i].skipped;
+            e[6] = RANDO_SAVE_CHECKS[i].price;
+            rando["randoSaveChecksCopy"][i] = e;
+        }
+    }
+    SendJson(payload);
+}
+
+void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
+    if (!roomState.syncItemsAndFlags || !payload.contains("state")) {
+        return;
+    }
+
+    // Unpack the compact rando check array back into the shape from_json(Save) expects.
+    if (IS_RANDO && payload["state"]["shipSaveInfo"].contains("rando")) {
+        auto stuff =
+            payload["state"]["shipSaveInfo"]["rando"]["randoSaveChecksCopy"].get<std::vector<std::vector<s32>>>();
+        for (int i = 0; i < RC_MAX; i++) {
+            payload["state"]["shipSaveInfo"]["rando"]["randoSaveChecks"][i] = RandoSaveCheck{
+                (RandoItemId)stuff[i][0], (bool)stuff[i][1], (bool)stuff[i][2], (bool)stuff[i][3],
+                (bool)stuff[i][4],        (bool)stuff[i][5], (u16)stuff[i][6],
+            };
+        }
+    }
+
+    Save loadedData = payload["state"].get<Save>();
+
+    // Restore bottle contents (unless Deku Princess).
+    for (int i = 0; i < 6; i++) {
+        if (gSaveContext.save.saveInfo.inventory.items[SLOT_BOTTLE_1 + i] != ITEM_NONE &&
+            gSaveContext.save.saveInfo.inventory.items[SLOT_BOTTLE_1 + i] != ITEM_DEKU_PRINCESS) {
+            loadedData.saveInfo.inventory.items[SLOT_BOTTLE_1 + i] =
+                gSaveContext.save.saveInfo.inventory.items[SLOT_BOTTLE_1 + i];
+        }
+    }
+    // Restore non-zero ammo, except beans.
+    for (int i = 0; i < ARRAY_COUNT(gSaveContext.save.saveInfo.inventory.ammo); i++) {
+        if (gSaveContext.save.saveInfo.inventory.ammo[i] != 0 && i != SLOT(ITEM_MAGIC_BEANS)) {
+            loadedData.saveInfo.inventory.ammo[i] = gSaveContext.save.saveInfo.inventory.ammo[i];
+        }
+    }
+    // Restore receiver-local fields that shouldn't be synced.
+    loadedData.saveInfo.checksum = gSaveContext.save.saveInfo.checksum;
+    loadedData.shipSaveInfo.fileCreatedAt = gSaveContext.save.shipSaveInfo.fileCreatedAt;
+    memcpy(loadedData.saveInfo.playerData.newf, gSaveContext.save.saveInfo.playerData.newf,
+           sizeof(loadedData.saveInfo.playerData.newf));
+    memcpy(&loadedData.shipSaveInfo.dpadEquips, &gSaveContext.save.shipSaveInfo.dpadEquips,
+           sizeof(loadedData.shipSaveInfo.dpadEquips));
+    memcpy(loadedData.saveInfo.equips.cButtonSlots, gSaveContext.save.saveInfo.equips.cButtonSlots,
+           sizeof(loadedData.saveInfo.equips.cButtonSlots));
+    memcpy(loadedData.saveInfo.equips.buttonItems, gSaveContext.save.saveInfo.equips.buttonItems,
+           sizeof(loadedData.saveInfo.equips.buttonItems));
+    memcpy(loadedData.saveInfo.playerData.playerName, gSaveContext.save.saveInfo.playerData.playerName,
+           sizeof(loadedData.saveInfo.playerData.playerName));
+
+    // Commit only the two progression sub-structs; top-level Save fields (scene/entrance/time/day/
+    // playerForm/cycle) are intentionally left untouched so the receiver isn't relocated.
+    gSaveContext.save.saveInfo = loadedData.saveInfo;
+    gSaveContext.save.shipSaveInfo = loadedData.shipSaveInfo;
+
+    Notification::Emit({
+        .message = "Save updated from team",
+    });
+    Rando::CheckTracker::OnFileLoad();
+    Rando::ActorBehavior::OnFileLoad();
+    ShipInit::Init("IS_RANDO");
+
+    // Replay any packets queued on the server while we were away, through the normal incoming path.
+    if (payload.contains("queue") && payload["queue"].is_array()) {
+        std::lock_guard<std::mutex> lock(incomingMutex);
+        for (auto& item : payload["queue"]) {
+            try {
+                incomingQueue.push(nlohmann::json::parse(item.get<std::string>()));
+            } catch (const std::exception& e) {
+                SPDLOG_ERROR("[MMAnchor] failed to parse queued team-state packet: {}", e.what());
+            }
+        }
+    }
 }
 
 // MARK: - Launcher-facing C ABI (mirrors soh's SOH_Anchor_* exports)

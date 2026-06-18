@@ -42,6 +42,11 @@ jobs:
           restore-keys: build-x64-
 
       - name: Configure
+        # vcvars (Set up MSVC) sets VCPKG_ROOT to the VS-bundled vcpkg, which isn't a git repo, so
+        # CMake/automate-vcpkg.cmake aborts trying to `git pull` it ("Could not clone vcpkg"). Point
+        # VCPKG_ROOT at the build-dir vcpkg the script is designed to clone+cache itself.
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/build/x64/vcpkg
         run: cmake -B build/x64 -S . -G "Visual Studio 17 2022" -A x64
 
       # Order matters: libultraship -> soh -> 2ship (soh before 2ship; they share OTRExporter/ZAPD).

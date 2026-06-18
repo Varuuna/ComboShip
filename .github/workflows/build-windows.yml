@@ -15,12 +15,15 @@ on:
       - 'combo/**'
       - 'CMakeLists.txt'
       - 'CMake/**'
-      - '.github/workflows/build.yml'
+      - '.github/workflows/build-windows.yml'
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: windows-latest
+    # Pin to the VS 2022 image (matches local dev + the "Visual Studio 17 2022" generator below).
+    # "windows-latest" is a moving label that has rolled forward to VS 18, which the pinned generator
+    # can't find ("could not find any instance of Visual Studio").
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v5
 

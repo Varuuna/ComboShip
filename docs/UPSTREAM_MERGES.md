@@ -664,3 +664,24 @@ renders remote players' Link across all five transformation forms.
 No vendored MM source was modified for 2b (unlike the canonical PR, which added `OnSceneSpawnActors`/
 `OnPlayerSfx` hooks to `z_actor.c` — ComboShip uses the existing `OnSceneInit`/`OnActorUpdate` hooks
 instead, avoiding any vendored edit).
+
+## MM Anchor adapter — Phase 2c (shared-progression item sync) (2026-06-18)
+
+**Why:** make a check collected by one co-op player benefit the whole team. ComboShip chose
+*shared-progression* co-op (decided 2026-06-17), not the canonical PR's *multiworld/routed-ownership*
+model — so a locally-obtained check's item is broadcast to all teammates rather than released to an
+owner. The apply path still mirrors the canonical (`ConvertItem` → junk fallback → `Rando::GiveItem`).
+
+**Combo-owned (MMAnchor):** `SendPacket_GiveItem`/`HandlePacket_GiveItem` + `GIVE_ITEM` dispatch. The
+wire carries the **raw** `randoItemId` + its `randoCheckId`; each receiver runs `ConvertItem` against
+its *own* progressive state (so progressive items resolve to the receiver's correct tier) and marks
+`RANDO_SAVE_CHECKS[rc]` obtained to avoid double-collection. `applyingRemoteItem` guards the
+grant→broadcast loop; `targetTeamId` scopes to the team; self-broadcasts are ignored by clientId.
+Flag sync is intentionally deferred (mirrors the canonical, whose `HandlePacket_SetFlag` is stubbed).
+
+**`mm/2s2h/Rando/MiscBehavior/CheckQueue.cpp` (vendored MM rando, COMBO_BUILD-guarded — preserve on
+future mm merges):** at the existing local check-grant point, one guarded call
+`MMAnchor_BroadcastCheckItem((int)CUSTOM_ITEM_PARAM, (int)randoSaveCheck.randoItemId)` (placed while
+`CUSTOM_ITEM_PARAM` still holds the checkId, before it's overwritten with the item id on the next
+line) + one extern declaration in the file's existing COMBO_BUILD include block. No original lines
+moved/deleted. The function is a no-op unless Anchor is active, so non-co-op rando play is unaffected.

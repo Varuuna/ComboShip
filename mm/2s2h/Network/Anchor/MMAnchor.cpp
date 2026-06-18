@@ -4,6 +4,7 @@
 #include <spdlog/spdlog.h>
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include "2s2h/NameTag/NameTag.h"
+#include "2s2h/Rando/Rando.h" // Rando::GiveItem / ConvertItem / CurrentJunkItem / RANDO_SAVE_CHECKS / IS_RANDO
 #include "BenJsonConversions.hpp" // to_json/from_json for Vec3f/Vec3s/PosRot
 
 extern "C" {
@@ -27,6 +28,7 @@ static const std::string PKT_ALL_CLIENT_STATE = "ALL_CLIENT_STATE";
 static const std::string PKT_UPDATE_CLIENT_STATE = "UPDATE_CLIENT_STATE";
 static const std::string PKT_PLAYER_UPDATE = "PLAYER_UPDATE";
 static const std::string PKT_DAMAGE_PLAYER = "DAMAGE_PLAYER";
+static const std::string PKT_GIVE_ITEM = "GIVE_ITEM";
 
 // Launcher-registered outbound transport (set via MM_SetAnchorSend). Null until the exe wires it.
 extern "C" {
@@ -162,8 +164,10 @@ void MMAnchor::ProcessIncomingPacketQueue() {
                 HandlePacket_PlayerUpdate(payload);
             } else if (type == PKT_DAMAGE_PLAYER) {
                 HandlePacket_DamagePlayer(payload);
+            } else if (type == PKT_GIVE_ITEM) {
+                HandlePacket_GiveItem(payload);
             }
-            // Item/flag packet types handled in later Phase-2 increments.
+            // Flag sync intentionally deferred (mirrors canonical, which stubs it).
         } catch (const std::exception& e) {
             SPDLOG_ERROR("[MMAnchor] exception handling packet {}: {}", type, e.what());
         }
@@ -242,6 +246,10 @@ void MMAnchor::HandlePacket_AllClientState(const nlohmann::json& payload) {
     }
     shouldRefreshActors = true;
     SPDLOG_INFO("[MMAnchor] ALL_CLIENT_STATE: {} client(s), ownClientId={}", clients.size(), ownClientId);
+    // Re-announce now that we know our client id + the roster. This is what makes presence work when
+    // Anchor is enabled while already in MM (no transition/scene-load to trigger the announce, and the
+    // initial Activate announce ran before we had a client id).
+    SendUpdateClientState();
 }
 
 void MMAnchor::HandlePacket_UpdateClientState(const nlohmann::json& payload) {
@@ -387,6 +395,68 @@ void MMAnchor::SendPacket_DamagePlayer(uint32_t clientId, uint8_t damageEffect, 
 
 void MMAnchor::HandlePacket_DamagePlayer(const nlohmann::json& payload) {
     // Applying damage to the local player is a later increment; plumbing kept for parity.
+}
+
+// MARK: - Item sync (shared-progression co-op; Phase 2c)
+
+void MMAnchor::SendPacket_GiveItem(int16_t randoItemId, int32_t randoCheckId) {
+    if (!isActive || !roomState.syncItemsAndFlags) {
+        return;
+    }
+    nlohmann::json payload;
+    payload["type"] = PKT_GIVE_ITEM;
+    payload["targetTeamId"] = CVarGetString(kCvarTeamId, "default");
+    payload["getItemId"] = randoItemId;     // RAW rando item id; receiver ConvertItems for its own state
+    payload["randoCheckId"] = randoCheckId; // so receivers can mark the check obtained (no double-collect)
+    SendJson(payload);
+}
+
+void MMAnchor::HandlePacket_GiveItem(const nlohmann::json& payload) {
+    if (!roomState.syncItemsAndFlags || !IsSaveLoaded()) {
+        return;
+    }
+    uint32_t clientId = payload.value("clientId", (uint32_t)0);
+    if (clientId == ownClientId) {
+        return; // never re-apply our own broadcast
+    }
+    // Shared progression is per-team; ignore items for other teams.
+    if (payload.value("targetTeamId", std::string("default")) != CVarGetString(kCvarTeamId, "default")) {
+        return;
+    }
+
+    int32_t checkId = payload.value("randoCheckId", -1);
+    RandoCheckId rc = (checkId >= 0 && checkId < RC_MAX) ? (RandoCheckId)checkId : RC_UNKNOWN;
+    // Idempotent per check: if we already collected this check locally (both players reached it, or a
+    // duplicate/late broadcast), don't grant its item again.
+    if (rc != RC_UNKNOWN && RANDO_SAVE_CHECKS[rc].obtained) {
+        return;
+    }
+    RandoItemId raw = (RandoItemId)payload.value("getItemId", (int)RI_JUNK);
+    RandoItemId rid = Rando::ConvertItem(raw, rc);
+    if (rid == RI_JUNK) {
+        rid = Rando::CurrentJunkItem(rc);
+    }
+
+    // Guard against the grant path re-triggering a broadcast.
+    applyingRemoteItem = true;
+    Rando::GiveItem(rid);
+    applyingRemoteItem = false;
+
+    // Mark the originating check obtained so this client won't also collect it and double-grant.
+    if (rc != RC_UNKNOWN) {
+        RANDO_SAVE_CHECKS[rc].obtained = true;
+        RANDO_SAVE_CHECKS[rc].cycleObtained = true;
+        RANDO_SAVE_CHECKS[rc].eligible = false;
+    }
+}
+
+// Called from the rando check-obtain seam (CheckQueue.cpp) under COMBO_BUILD when the LOCAL player
+// collects a check. Broadcasts the raw item to teammates; no-op when Anchor is inactive or we're
+// currently applying a remotely-received item (prevents a re-broadcast loop).
+extern "C" void MMAnchor_BroadcastCheckItem(int randoCheckId, int randoItemId) {
+    if (MMAnchor::Instance && MMAnchor::Instance->isActive && !MMAnchor::Instance->applyingRemoteItem) {
+        MMAnchor::Instance->SendPacket_GiveItem((int16_t)randoItemId, randoCheckId);
+    }
 }
 
 // MARK: - Puppet refresh (spawn ACTOR_PLAYER per peer; ShouldActorInit re-tags them)

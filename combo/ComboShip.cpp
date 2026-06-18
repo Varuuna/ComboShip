@@ -276,6 +276,10 @@ namespace ComboAnchor {
             TCPsocket socket = nullptr;
             while (sEnabled && !socket) {
                 socket = SDLNet_TCP_Open(&address);
+                if (!socket && sEnabled) {
+                    // Back off between attempts so an unreachable server doesn't spin a core at 100%.
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                }
             }
             if (!sEnabled) {
                 if (socket) SDLNet_TCP_Close(socket);
@@ -284,7 +288,12 @@ namespace ComboAnchor {
 
             received.clear();
             sConnected = true;
+            // OOT's OnConnected sends the room HANDSHAKE (establishes our client id) regardless of
+            // which game is foreground. If MM is the active game (e.g. we connected while already in
+            // MM, or resumed straight into it), also activate MM so it announces its presence — MM
+            // otherwise only announces on a transition or scene load, neither of which happens here.
             if (SOH_Anchor_OnConnected) SOH_Anchor_OnConnected();
+            if (sActiveGame.load() == 1 && MM_Anchor_Activate) MM_Anchor_Activate();
 
             SDLNet_SocketSet set = SDLNet_AllocSocketSet(1);
             SDLNet_TCP_AddSocket(set, socket);
@@ -1026,6 +1035,21 @@ int main(int argc, char** argv) {
         }
     }
 
+    // Wire the Anchor transport to the launcher-owned connection BEFORE SOH_Init(): OOT auto-enables
+    // Anchor during init when the persisted "Enabled" CVar is set (OTRGlobals.cpp). If the connect
+    // callback isn't registered yet, that auto-enable sets isEnabled without ever opening a socket,
+    // wedging on "Connecting..." after a restart.
+    if (SOH_SetAnchorSend && SOH_SetAnchorConnect && SOH_SetAnchorDisconnect) {
+        SOH_SetAnchorSend(ComboAnchor::Send);
+        SOH_SetAnchorConnect(ComboAnchor::Connect);
+        SOH_SetAnchorDisconnect(ComboAnchor::Disconnect);
+        std::cout << "[ComboShip] OOT Anchor transport seam registered." << std::endl;
+    }
+    if (MM_SetAnchorSend) {
+        MM_SetAnchorSend(ComboAnchor::Send);
+        std::cout << "[ComboShip] MM Anchor transport seam registered." << std::endl;
+    }
+
     // --- 4. Initialize OOT game ---
 
     std::cout << "[ComboShip] Initializing Ship of Harkinian (OOT)..." << std::endl;
@@ -1157,20 +1181,7 @@ int main(int argc, char** argv) {
         std::cout << "[ComboShip] OOT scene-switch callback registered." << std::endl;
     }
 
-    // Wire OOT's Anchor transport to the launcher-owned connection (Phase 1).
-    if (SOH_SetAnchorSend && SOH_SetAnchorConnect && SOH_SetAnchorDisconnect) {
-        SOH_SetAnchorSend(ComboAnchor::Send);
-        SOH_SetAnchorConnect(ComboAnchor::Connect);
-        SOH_SetAnchorDisconnect(ComboAnchor::Disconnect);
-        std::cout << "[ComboShip] OOT Anchor transport seam registered." << std::endl;
-    }
-
-    // Wire MM's Anchor outbound transport to the same launcher-owned connection (Phase 2). MM uses
-    // the connection OOT establishes; it has no Connect/Disconnect of its own.
-    if (MM_SetAnchorSend) {
-        MM_SetAnchorSend(ComboAnchor::Send);
-        std::cout << "[ComboShip] MM Anchor transport seam registered." << std::endl;
-    }
+    // (Anchor transport seam is registered earlier, before SOH_Init — see above.)
 
     // --- 6. Bidirectional game-switch loop ---
     // OOT boots first (SOH_RunMain), then each game's loop returns when it signals a switch:

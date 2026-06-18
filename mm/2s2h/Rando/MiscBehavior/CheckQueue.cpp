@@ -11,6 +11,8 @@
 #include "rando/CrossMailbox.h"  // ComboShip: cross-world mailbox
 #include "rando/CrossForeign.h"  // ComboShip: cross-world foreign-item marker map
 #include "2s2h/SaveManager/SaveManager.h"  // ComboShip: persist delivered cross items into the MM save
+// ComboShip: Anchor shared-progression co-op — broadcast a locally-obtained check to teammates.
+extern "C" void MMAnchor_BroadcastCheckItem(int randoCheckId, int randoItemId);
 #endif
 
 extern "C" {
@@ -203,6 +205,12 @@ void Rando::MiscBehavior::CheckQueue() {
                         randoSaveCheck.obtained = true;
                         randoSaveCheck.eligible = false;
                         queued = false;
+#ifdef COMBO_BUILD
+                        // ComboShip: shared-progression co-op — broadcast this obtained check's RAW
+                        // item to Anchor teammates (CUSTOM_ITEM_PARAM is still the checkId here; it is
+                        // overwritten with the item id on the next line). No-op if Anchor is inactive.
+                        MMAnchor_BroadcastCheckItem((int)CUSTOM_ITEM_PARAM, (int)randoSaveCheck.randoItemId);
+#endif
                         CUSTOM_ITEM_PARAM = randoItemId;
                     },
                 .drawItem =

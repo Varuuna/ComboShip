@@ -73,7 +73,8 @@ struct MMAnchorClient {
 };
 
 struct MMAnchorRoomState {
-    uint8_t pvpMode = 0; // 0 = off, 1 = on (same-team friendly off), 2 = on with friendly fire
+    uint8_t pvpMode = 0;           // 0 = off, 1 = on (same-team friendly off), 2 = on with friendly fire
+    uint8_t syncItemsAndFlags = 1; // 0 = off, 1 = on (Phase 2c)
 };
 
 class MMAnchor {
@@ -90,6 +91,10 @@ class MMAnchor {
     void SendUpdateClientState();
     void SendPlayerUpdate();
     void SendPacket_DamagePlayer(uint32_t clientId, uint8_t damageEffect, uint8_t damage);
+    // Phase 2c: shared-progression item sync. Broadcast a locally-obtained check's RAW rando item id
+    // (+ its check id) to teammates; receivers ConvertItem against their own state and grant.
+    void SendPacket_GiveItem(int16_t randoItemId, int32_t randoCheckId);
+    bool applyingRemoteItem = false; // guards against re-broadcasting items granted from the network
 
     bool isActive = false;
     uint32_t ownClientId = 0;
@@ -110,6 +115,7 @@ class MMAnchor {
     void HandlePacket_UpdateClientState(const nlohmann::json& payload);
     void HandlePacket_PlayerUpdate(const nlohmann::json& payload);
     void HandlePacket_DamagePlayer(const nlohmann::json& payload);
+    void HandlePacket_GiveItem(const nlohmann::json& payload);
 
     bool hooksRegistered = false;
     bool shouldRefreshActors = false;

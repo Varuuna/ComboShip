@@ -2578,6 +2578,36 @@ extern "C" __declspec(dllexport) void SOH_SetOnSceneSwitchCallback(void (*cb)(in
 }
 
 #ifdef COMBO_BUILD
+// ComboShip: Anchor transport seam. The persistent socket lives in ComboShip.exe; these exports
+// wire the launcher's connection to soh's in-place Anchor (declspec must follow extern "C" or the
+// symbol isn't exported). See docs/UPSTREAM_MERGES.md.
+extern "C" __declspec(dllexport) void SOH_SetAnchorSend(void (*cb)(const char*)) {
+    gComboAnchorSend = cb;
+}
+extern "C" __declspec(dllexport) void SOH_SetAnchorConnect(void (*cb)(const char*, uint16_t)) {
+    gComboAnchorConnect = cb;
+}
+extern "C" __declspec(dllexport) void SOH_SetAnchorDisconnect(void (*cb)(void)) {
+    gComboAnchorDisconnect = cb;
+}
+extern "C" __declspec(dllexport) void SOH_Anchor_RecvJson(const char* json) {
+    if (Anchor::Instance && json) {
+        Anchor::Instance->InjectIncomingJson(json);
+    }
+}
+extern "C" __declspec(dllexport) void SOH_Anchor_OnConnected(void) {
+    if (Anchor::Instance) {
+        Anchor::Instance->SetConnectedFromCombo(true);
+    }
+}
+extern "C" __declspec(dllexport) void SOH_Anchor_OnDisconnected(void) {
+    if (Anchor::Instance) {
+        Anchor::Instance->SetConnectedFromCombo(false);
+    }
+}
+#endif
+
+#ifdef COMBO_BUILD
 // Defined in soh/src/code/main.c: re-enters ONLY OOT's game loop (no heap/thread re-init).
 extern "C" void SOH_RunGameLoop(void);
 // Defined in soh/src/code/graph.c: resets the frame state machine so SOH_RunGameLoop restarts the

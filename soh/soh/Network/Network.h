@@ -6,6 +6,18 @@
 #include <SDL2/SDL_net.h>
 #include <nlohmann/json.hpp>
 
+#ifdef COMBO_BUILD
+// ComboShip: under the combo build the persistent socket lives in ComboShip.exe, not here. The
+// launcher registers these hooks at boot; Network redirects its transport through them instead of
+// owning an SDL_net socket + receive thread, so the connection survives OOT<->MM transitions.
+// See docs/UPSTREAM_MERGES.md.
+extern "C" {
+extern void (*gComboAnchorSend)(const char* json);
+extern void (*gComboAnchorConnect)(const char* host, uint16_t port);
+extern void (*gComboAnchorDisconnect)(void);
+}
+#endif
+
 class Network {
   private:
     IPaddress networkAddress;
@@ -43,6 +55,13 @@ class Network {
     virtual void ProcessOutgoingPackets();
     void SendDataToRemote(const char* payload);
     virtual void SendJsonToRemote(nlohmann::json packet);
+
+#ifdef COMBO_BUILD
+    // ComboShip: inbound JSON pushed in by the launcher's receive thread (mirrors the socket path),
+    // and connection-state transitions driven by the launcher.
+    void InjectIncomingJson(const std::string& payload);
+    void SetConnectedFromCombo(bool connected);
+#endif
 };
 
 #endif // __cplusplus

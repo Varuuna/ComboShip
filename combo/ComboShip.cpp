@@ -22,6 +22,14 @@
 #include <atomic>
 #include <chrono>
 #include <unordered_map>
+#include <thread>
+#include <mutex>
+#include <queue>
+
+// SDL_net.h pulls in SDL.h -> SDL_main.h, which #defines main -> SDL_main unless we opt out.
+// ComboShip provides its own main(), so suppress SDL's entry-point hijack.
+#define SDL_MAIN_HANDLED
+#include <SDL2/SDL_net.h>
 
 #include "rando/CrossMailbox.h"
 #include "rando/CrossForeign.h"
@@ -215,6 +223,169 @@ static FnSetGenReqCb      SOH_SetOnComboGenerateRequestCallback = nullptr;
 static FnSetSeedGenerated SOH_SetSeedGenerated                  = nullptr;
 
 static std::atomic<bool>  g_GenerateBusy{ false };
+
+// ---------- ComboShip-owned Anchor connection (Phase 1) ----------
+// The persistent TCP socket + receive thread live HERE, in the launcher, so the online connection
+// survives OOT<->MM portal transitions instead of being torn down with each game. soh's in-place
+// Anchor keeps all its packet/handler/menu logic but redirects its transport through the callbacks
+// we register below (SOH_SetAnchorSend/Connect/Disconnect) and receives inbound packets via the
+// SOH_Anchor_RecvJson export. See docs/UPSTREAM_MERGES.md.
+typedef void (*FnSetAnchorSend)(void (*)(const char*));
+typedef void (*FnSetAnchorConnect)(void (*)(const char*, uint16_t));
+typedef void (*FnSetAnchorDisconnect)(void (*)(void));
+typedef void (*FnAnchorRecv)(const char*);
+static FnSetAnchorSend       SOH_SetAnchorSend         = nullptr;
+static FnSetAnchorConnect    SOH_SetAnchorConnect      = nullptr;
+static FnSetAnchorDisconnect SOH_SetAnchorDisconnect   = nullptr;
+static FnAnchorRecv          SOH_Anchor_RecvJson       = nullptr;
+static FnVoidArgless         SOH_Anchor_OnConnected    = nullptr;
+static FnVoidArgless         SOH_Anchor_OnDisconnected = nullptr;
+
+// MM Anchor adapter exports (Phase 2). MM piggybacks on the same launcher-owned connection; it is
+// activated/deactivated on transitions and receives inbound packets when it is the active game.
+static FnSetAnchorSend       MM_SetAnchorSend          = nullptr;
+static FnAnchorRecv          MM_Anchor_RecvJson        = nullptr;
+static FnVoidArgless         MM_Anchor_Activate        = nullptr;
+static FnVoidArgless         MM_Anchor_Deactivate      = nullptr;
+
+namespace ComboAnchor {
+    static std::thread             sThread;
+    static std::atomic<bool>       sEnabled{ false };
+    static std::atomic<bool>       sConnected{ false };
+    static std::string             sHost;
+    static uint16_t                sPort = 0;
+    static std::mutex              sOutMutex;
+    static std::queue<std::string> sOutQueue;
+    // Which game inbound packets are dispatched to. 0 = OOT, 1 = MM. Updated by the game-switch loop
+    // via SetActiveGame on each transition. Phase 3 will route per-packet by TARGET game instead.
+    static std::atomic<int>        sActiveGame{ 0 };
+
+    // Background loop: connect, then relay outbound packets and feed inbound packets to the active
+    // game. Mirrors soh's original Network::ReceiveFromServer framing (NUL-delimited JSON), only the
+    // socket now lives in the launcher so it persists across transitions.
+    static void ReceiveLoop() {
+        IPaddress address;
+        if (SDLNet_ResolveHost(&address, sHost.c_str(), sPort) == -1) {
+            std::cerr << "[ComboShip][Anchor] ResolveHost failed: " << SDLNet_GetError() << std::endl;
+            sEnabled = false;
+            return;
+        }
+
+        std::string received;
+        while (sEnabled) {
+            TCPsocket socket = nullptr;
+            while (sEnabled && !socket) {
+                socket = SDLNet_TCP_Open(&address);
+            }
+            if (!sEnabled) {
+                if (socket) SDLNet_TCP_Close(socket);
+                break;
+            }
+
+            received.clear();
+            sConnected = true;
+            if (SOH_Anchor_OnConnected) SOH_Anchor_OnConnected();
+
+            SDLNet_SocketSet set = SDLNet_AllocSocketSet(1);
+            SDLNet_TCP_AddSocket(set, socket);
+
+            while (sEnabled && sConnected) {
+                int ready = SDLNet_CheckSockets(set, 0);
+                if (ready == -1) break;
+
+                // Drain outbound queue (packets handed to us by the game via Send()).
+                std::queue<std::string> toSend;
+                {
+                    std::lock_guard<std::mutex> lk(sOutMutex);
+                    toSend.swap(sOutQueue);
+                }
+                while (!toSend.empty()) {
+                    const std::string& p = toSend.front();
+                    // Include the NUL delimiter in the framing (matches Network::SendDataToRemote).
+                    SDLNet_TCP_Send(socket, p.c_str(), (int)p.size() + 1);
+                    toSend.pop();
+                }
+
+                if (ready == 0) continue;
+
+                char buf[512];
+                memset(buf, 0, sizeof(buf));
+                int len = SDLNet_TCP_Recv(socket, buf, sizeof(buf));
+                if (len <= 0) break;
+                received.append(buf, len);
+
+                size_t pos = received.find('\0');
+                while (pos != std::string::npos) {
+                    std::string packet = received.substr(0, pos);
+                    received.erase(0, pos + 1);
+                    // Dispatch to whichever game is currently active (Phase 2). Phase 3 will route
+                    // per-packet by target game so dormant-game items/flags still apply.
+                    if (sActiveGame.load() == 1) {
+                        if (MM_Anchor_RecvJson) MM_Anchor_RecvJson(packet.c_str());
+                    } else {
+                        if (SOH_Anchor_RecvJson) SOH_Anchor_RecvJson(packet.c_str());
+                    }
+                    pos = received.find('\0');
+                }
+            }
+
+            SDLNet_FreeSocketSet(set);
+            SDLNet_TCP_Close(socket);
+            sConnected = false;
+            if (SOH_Anchor_OnDisconnected) SOH_Anchor_OnDisconnected();
+        }
+    }
+
+    // Registered into the game as the connect request (Network::Enable redirects here).
+    static void Connect(const char* host, uint16_t port) {
+        if (sEnabled) return;
+        static bool sNetInit = false;
+        if (!sNetInit) {
+            SDLNet_Init();
+            sNetInit = true;
+        }
+        sHost = host ? host : "";
+        sPort = port;
+        sEnabled = true;
+        if (sThread.joinable()) sThread.join();
+        sThread = std::thread(ReceiveLoop);
+    }
+
+    // Registered into the game as the disconnect request (Network::Disable redirects here).
+    static void Disconnect() {
+        if (!sEnabled) return;
+        sEnabled = false;
+        sConnected = false;
+        if (sThread.joinable()) sThread.join();
+        std::lock_guard<std::mutex> lk(sOutMutex);
+        std::queue<std::string> empty;
+        sOutQueue.swap(empty);
+    }
+
+    // Registered into the game as the send callback (Network::SendDataToRemote redirects here).
+    static void Send(const char* json) {
+        if (!json) return;
+        std::lock_guard<std::mutex> lk(sOutMutex);
+        sOutQueue.push(json);
+    }
+
+    // Called during launcher shutdown, BEFORE any game DLL is unloaded: the receive thread calls
+    // into soh.dll exports, so it must be joined while soh.dll is still mapped (joining across a
+    // FreeDll boundary would run under the loader lock).
+    static void Shutdown() { Disconnect(); }
+
+    // Called by the game-switch loop on every transition. Routes inbound packets to the new active
+    // game and activates/deactivates MM's Anchor. OOT self-reactivates through its own GameInteractor
+    // hooks (OnSceneSpawnActors/OnPlayerUpdate) when it resumes, so it needs no explicit activate.
+    static void SetActiveGame(int game /* 0 = OOT, 1 = MM */) {
+        sActiveGame.store(game);
+        if (game == 1) {
+            if (MM_Anchor_Activate) MM_Anchor_Activate();
+        } else {
+            if (MM_Anchor_Deactivate) MM_Anchor_Deactivate();
+        }
+    }
+}
 
 // Seed utilities — Ship_Hash/Ship_Random are not exported from libultraship, so implement inline.
 // FNV-1a 32-bit hash: deterministic string-to-uint32 used to derive the master seed.
@@ -772,6 +943,18 @@ int main(int argc, char** argv) {
     MM_Deinit                        = (FnVoidArgless)        GetSym(mmModule,  "MM_Deinit");
     SOH_ResumeForeground             = (FnVoidArgless)        GetSym(sohModule, "SOH_ResumeForeground");
 
+    // Anchor transport seam exports (Phase 1)
+    SOH_SetAnchorSend         = (FnSetAnchorSend)       GetSym(sohModule, "SOH_SetAnchorSend");
+    SOH_SetAnchorConnect      = (FnSetAnchorConnect)    GetSym(sohModule, "SOH_SetAnchorConnect");
+    SOH_SetAnchorDisconnect   = (FnSetAnchorDisconnect) GetSym(sohModule, "SOH_SetAnchorDisconnect");
+    SOH_Anchor_RecvJson       = (FnAnchorRecv)          GetSym(sohModule, "SOH_Anchor_RecvJson");
+    SOH_Anchor_OnConnected    = (FnVoidArgless)         GetSym(sohModule, "SOH_Anchor_OnConnected");
+    SOH_Anchor_OnDisconnected = (FnVoidArgless)         GetSym(sohModule, "SOH_Anchor_OnDisconnected");
+    MM_SetAnchorSend          = (FnSetAnchorSend)       GetSym(mmModule,  "MM_SetAnchorSend");
+    MM_Anchor_RecvJson        = (FnAnchorRecv)          GetSym(mmModule,  "MM_Anchor_RecvJson");
+    MM_Anchor_Activate        = (FnVoidArgless)         GetSym(mmModule,  "MM_Anchor_Activate");
+    MM_Anchor_Deactivate      = (FnVoidArgless)         GetSym(mmModule,  "MM_Anchor_Deactivate");
+
     // Oracle exports
     Combo_SOH_Rando_Reset             = (FnOracleVoid)      GetSym(sohModule, "Combo_SOH_Rando_Reset");
     Combo_SOH_Rando_SetOwnedItems     = (FnOracleSetItems)  GetSym(sohModule, "Combo_SOH_Rando_SetOwnedItems");
@@ -974,6 +1157,21 @@ int main(int argc, char** argv) {
         std::cout << "[ComboShip] OOT scene-switch callback registered." << std::endl;
     }
 
+    // Wire OOT's Anchor transport to the launcher-owned connection (Phase 1).
+    if (SOH_SetAnchorSend && SOH_SetAnchorConnect && SOH_SetAnchorDisconnect) {
+        SOH_SetAnchorSend(ComboAnchor::Send);
+        SOH_SetAnchorConnect(ComboAnchor::Connect);
+        SOH_SetAnchorDisconnect(ComboAnchor::Disconnect);
+        std::cout << "[ComboShip] OOT Anchor transport seam registered." << std::endl;
+    }
+
+    // Wire MM's Anchor outbound transport to the same launcher-owned connection (Phase 2). MM uses
+    // the connection OOT establishes; it has no Connect/Disconnect of its own.
+    if (MM_SetAnchorSend) {
+        MM_SetAnchorSend(ComboAnchor::Send);
+        std::cout << "[ComboShip] MM Anchor transport seam registered." << std::endl;
+    }
+
     // --- 6. Bidirectional game-switch loop ---
     // OOT boots first (SOH_RunMain), then each game's loop returns when it signals a switch:
     //   OOT sets g_PendingMMFileNum (Mask Shop) -> hand off / resume MM.
@@ -1002,6 +1200,7 @@ int main(int argc, char** argv) {
                 if (SOH_PrepareForTransition) SOH_PrepareForTransition();
                 if (MM_NotifyComboTransition) MM_NotifyComboTransition();
                 if (MM_SetOnComboReturnCallback) MM_SetOnComboReturnCallback(Combo_OnMMReturn);
+                ComboAnchor::SetActiveGame(1); // route Anchor to MM, activate MM's adapter
                 current = GAME_MM;
             } else {
                 break;
@@ -1019,6 +1218,7 @@ int main(int argc, char** argv) {
             if (g_pendingOOTReturn) {
                 if (MM_PrepareForTransition) MM_PrepareForTransition();
                 if (SOH_NotifyComboReturn) SOH_NotifyComboReturn();
+                ComboAnchor::SetActiveGame(0); // route Anchor back to OOT, deactivate MM's adapter
                 current = GAME_OOT;
             } else {
                 break;
@@ -1034,6 +1234,12 @@ int main(int argc, char** argv) {
     // under the loader lock and deadlocks.
     // std::cerr (unbuffered) progress markers: spdlog is shut down by ~Context partway through this
     // sequence, and a late crash otherwise leaves no trace of how far teardown got.
+
+    // Stop the Anchor receive thread first: it calls into soh.dll exports, so it must be joined
+    // while soh.dll is still mapped and before SOH_Deinit tears Anchor down.
+    std::cerr << "[ComboShip] shutdown: Anchor disconnect" << std::endl;
+    ComboAnchor::Shutdown();
+
     if (MM_Deinit && mmBooted) {
         std::cerr << "[ComboShip] shutdown: MM_Deinit" << std::endl;
         MM_Deinit();

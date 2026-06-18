@@ -50,6 +50,17 @@ target_include_directories(ComboShip PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 find_package(nlohmann_json REQUIRED)
 target_link_libraries(ComboShip PRIVATE nlohmann_json::nlohmann_json)
 
+# ComboShip owns the persistent Anchor network connection (Phase 1), so it links SDL_net directly.
+# Mirrors soh's linkage (SDL2_net::SDL2_net-static on the static-md triplet, plain otherwise). We do
+# NOT link SDL2main here — ComboShip provides its own main().
+find_package(SDL2 REQUIRED)
+find_package(SDL2_net REQUIRED)
+if(TARGET SDL2_net::SDL2_net-static)
+    target_link_libraries(ComboShip PRIVATE SDL2::SDL2 SDL2_net::SDL2_net-static)
+else()
+    target_link_libraries(ComboShip PRIVATE SDL2::SDL2 SDL2_net::SDL2_net)
+endif()
+
 # Add dependencies to ensure games are built first
 add_dependencies(ComboShip
     soh

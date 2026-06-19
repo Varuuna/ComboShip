@@ -550,6 +550,39 @@ layout, re-check the func→order mapping here.
 (outside the `extern "C"` block) + a `case RI_COMBO_FOREIGN: MM_DrawComboForeign(randoCheckId);` in
 `Rando::DrawItem`.
 
+## Cross-game erase: deleting a slot wipes both OOT and MM saves (issue #1, 2026-06-19)
+
+**Why:** a ComboShip save *slot* (file 1/2/3) is one combined OOT+MM playthrough, but each game's
+"Erase" only deleted its own save, orphaning the other. Issue #1 asks OOT's Erase to also delete MM's
+save for the slot; implemented **bidirectionally** (either game's Erase wipes both). Same launcher-owned
+seam shape as the cross-item delivery work: the erasing game fires a launcher-registered callback with
+the 0-based slot, and the launcher calls the OTHER game's save-only delete export. The launcher does no
+index math — MM's 1-based JSON naming (`file{N+1}.json`) is hidden inside `MM_DeleteSaveFile`. No loop:
+the delete exports remove files directly and never re-enter a menu erase path.
+
+**soh (`soh/soh/SaveManager.cpp`, all `#ifdef COMBO_BUILD`):**
+- `SOH_DeleteSaveFile(int fileNum)` export — calls `DeleteZeldaFile` directly (NOT `Save_DeleteFile`,
+  so OOT's own erase seam does not re-fire). Called by the launcher when MM erases.
+- `gComboDeleteForeignSave` fn-pointer + `SOH_SetDeleteForeignSave` setter export (mirrors the
+  cross-item `SOH_SetCrossDeliver` seam shape).
+- `Save_DeleteFile` (the erase-only choke; sole caller is `z_file_copy_erase.c`, NOT `CopyZeldaFile`)
+  fires `gComboDeleteForeignSave(fileNum)` after the local delete.
+
+**mm (`mm/2s2h/BenPort.cpp`):**
+- `MM_DeleteSaveFile(int fileNum)` export — `fileNum` is the 0-based slot; deletes both
+  `SaveManager_GetFileName(fileNum + 1, false)` and the `(…, true)` backup (mirrors
+  `Enhancements/DifficultyOptions/DeleteFileOnDeath.cpp`). Called by the launcher when OOT erases.
+- `gMMComboDeleteForeignSave` fn-pointer + `MM_SetDeleteForeignSave` setter export.
+
+**mm game-source (`mm/src/overlays/gamestates/ovl_file_choose/z_file_copy_erase.c`, COMBO_BUILD-guarded —
+the only vendored-source touch):** `FileSelect_EraseConfirm` fires `gMMComboDeleteForeignSave(selectedFileIndex)`
+right after `Sram_EraseSave` on erase confirm. Unavoidable because MM has no port-level erase choke —
+`Sram_EraseSave` only zeroes the flash buffer; the JSON is deleted later via the flash-write validation
+path. On future merges, keep this guarded block in the erase-confirm branch.
+
+**combo (`combo/ComboShip.cpp`):** resolves the four new symbols, defines `DeleteForeignSaveFromOOT` /
+`DeleteForeignSaveFromMM` (route 0-based slot to the other game), and registers them via
+`SOH_SetDeleteForeignSave` / `MM_SetDeleteForeignSave` alongside the other startup callbacks.
 ## Anchor transport moved to the launcher (combo-owned connection) — Phase 1 (2026-06-17)
 
 **Why:** Anchor (upstream SoH online co-op) owned its own TCP socket + receive thread inside

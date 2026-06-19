@@ -16,8 +16,12 @@
 #include "item_category_adj.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
 #ifdef COMBO_BUILD
-#include "rando/CrossMailbox.h" // ComboShip: cross-world mailbox
 #include "rando/CrossForeign.h" // ComboShip: cross-world foreign-item marker map
+// ComboShip (issue #3): immediate cross-game delivery. gComboCrossDeliver (defined in OTRGlobals.cpp)
+// routes a foreign item to the OTHER game's resident save NOW; Anchor_BroadcastCrossItem shares it
+// with networked teammates (no-op when Anchor is inactive).
+extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName);
+extern "C" void Anchor_BroadcastCrossItem(int targetGame, const char* itemName, const char* srcCheckName);
 #endif
 #include "soh/Enhancements/randomizer/RCToRandInf.h"
 
@@ -389,16 +393,13 @@ static void OOT_SendForeignCheck(RandomizerCheck rc, Rando::ItemLocation* loc) {
     const ComboRando::ForeignItem* fi = OOT_LookupForeign(slot, checkName);
 
     if (fi) {
-        ComboRando::MailboxEntry e{};
-        e.srcGame = ComboRando::GAME_OOT;
-        e.dstGame = fi->itemGame;
-        e.itemName = fi->itemName;
-        e.displayName = fi->displayName;
-        e.srcCheckName = checkName;
-        e.delivered = false;
-        ComboRando::Enqueue(slot, e);
+        // Grant straight into the dormant target game's resident save (and persist it there), then
+        // share with networked teammates. Replaces the old JSON mailbox + per-frame drain.
+        if (gComboCrossDeliver)
+            gComboCrossDeliver((int)fi->itemGame, fi->itemName.c_str());
+        Anchor_BroadcastCrossItem((int)fi->itemGame, fi->itemName.c_str(), checkName.c_str());
         Notification::Emit({ .message = "Sent to Termina:", .suffix = fi->displayName });
-        SPDLOG_INFO("[ComboShip] OOT sent foreign item '{}' to MM (from check '{}')", fi->itemName, checkName);
+        SPDLOG_INFO("[ComboShip] OOT delivered foreign item '{}' to MM (from check '{}')", fi->itemName, checkName);
     } else {
         SPDLOG_WARN("[ComboShip] OOT foreign sentinel at '{}' but no foreign-map entry; dropping", checkName);
     }
@@ -2922,46 +2923,11 @@ void RandomizerOnCuccoOrChickenHatch() {
     }
 }
 
-#ifdef COMBO_BUILD
-// ComboShip: grant any cross-world items addressed to OOT for the current slot.
-static void RandomizerOnPlayerUpdateForCrossMailboxHandler() {
-    if (gPlayState == nullptr)
-        return;
-    if (gSaveContext.fileNum == 0xFF)
-        return;                      // no real save loaded
-    int slot = gSaveContext.fileNum; // OOT's file number is the canonical slot
-    auto pending = ComboRando::LoadPending(slot, ComboRando::GAME_OOT);
-    if (pending.empty())
-        return;
-
-    for (const auto& e : pending) {
-        // The item's home is OOT (itemName is an OOT English name). Map it to its RandomizerGet and
-        // grant the real item via the same path the rando item-queue uses.
-        auto rgIt = Rando::StaticData::itemNameToEnum.find(e.itemName);
-        if (rgIt == Rando::StaticData::itemNameToEnum.end()) {
-            SPDLOG_WARN("[ComboShip] OOT received cross item '{}' (from MM): unknown OOT item, skipping", e.itemName);
-            continue;
-        }
-        GetItemEntry gie = Rando::StaticData::RetrieveItem(rgIt->second).GetGIEntry_Copy();
-        GiveItemEntryWithoutActor(gPlayState, gie);
-        Notification::Emit(
-            { .message = "Received from Termina:", .suffix = e.displayName.empty() ? e.itemName : e.displayName });
-        SPDLOG_INFO("[ComboShip] OOT received cross item '{}' (from MM): granted", e.itemName);
-    }
-    if (!ComboRando::MarkAllDelivered(slot, ComboRando::GAME_OOT)) {
-        SPDLOG_WARN("[ComboShip] OOT: failed to persist mailbox delivery for slot {}", slot);
-    }
-}
-#endif
-
 static void RandomizerRegisterHooks() {
     static uint32_t onFlagSetHook = 0;
     static uint32_t onSceneFlagSetHook = 0;
     static uint32_t onPlayerUpdateForRCQueueHook = 0;
     static uint32_t onPlayerUpdateForItemQueueHook = 0;
-#ifdef COMBO_BUILD
-    static uint32_t onPlayerUpdateForCrossMailboxHook = 0;
-#endif
     static uint32_t onItemReceiveHook = 0;
     static uint32_t onDialogMessageHook = 0;
     static uint32_t onVanillaBehaviorHook = 0;
@@ -2995,9 +2961,6 @@ static void RandomizerRegisterHooks() {
         GameInteractor::Instance->UnregisterGameHook<GameInteractor::OnSceneFlagSet>(onSceneFlagSetHook);
         GameInteractor::Instance->UnregisterGameHook<GameInteractor::OnPlayerUpdate>(onPlayerUpdateForRCQueueHook);
         GameInteractor::Instance->UnregisterGameHook<GameInteractor::OnPlayerUpdate>(onPlayerUpdateForItemQueueHook);
-#ifdef COMBO_BUILD
-        GameInteractor::Instance->UnregisterGameHook<GameInteractor::OnPlayerUpdate>(onPlayerUpdateForCrossMailboxHook);
-#endif
         GameInteractor::Instance->UnregisterGameHook<GameInteractor::OnItemReceive>(onItemReceiveHook);
         GameInteractor::Instance->UnregisterGameHook<GameInteractor::OnItemReceive>(onDialogMessageHook);
         GameInteractor::Instance->UnregisterGameHook<GameInteractor::OnVanillaBehavior>(onVanillaBehaviorHook);
@@ -3017,9 +2980,6 @@ static void RandomizerRegisterHooks() {
         onSceneFlagSetHook = 0;
         onPlayerUpdateForRCQueueHook = 0;
         onPlayerUpdateForItemQueueHook = 0;
-#ifdef COMBO_BUILD
-        onPlayerUpdateForCrossMailboxHook = 0;
-#endif
         onItemReceiveHook = 0;
         onDialogMessageHook = 0;
         onVanillaBehaviorHook = 0;
@@ -3034,14 +2994,6 @@ static void RandomizerRegisterHooks() {
         onExitGameHook = 0;
         onKaleidoUpdateHook = 0;
         onCuccoOrChickenHatchHook = 0;
-
-#ifdef COMBO_BUILD
-        // ComboShip: the cross-world mailbox drain is NOT rando-gated — the channel must deliver
-        // regardless of the local save's quest flag. Register it before the IS_RANDO gate below;
-        // it is a no-op when the mailbox is empty.
-        onPlayerUpdateForCrossMailboxHook = GameInteractor::Instance->RegisterGameHook<GameInteractor::OnPlayerUpdate>(
-            RandomizerOnPlayerUpdateForCrossMailboxHandler);
-#endif
 
         if (!IS_RANDO)
             return;

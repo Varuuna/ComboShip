@@ -16,7 +16,6 @@ void OnFileLoad();
 void CheckQueue();
 void CheckQueueReset();
 #ifdef COMBO_BUILD
-void InitCrossMailboxDrain(); // ComboShip: register cross-world mailbox drain hook
 // ComboShip: Returns the ForeignItem metadata for an MM check that holds a foreign OOT item,
 // or nullptr if the check is not foreign. Keyed by Checks[].name (RC_*), NOT CheckNames[rc].
 const ComboRando::ForeignItem* MM_LookupForeign(RandoCheckId rc);

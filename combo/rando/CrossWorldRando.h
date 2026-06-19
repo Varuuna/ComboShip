@@ -19,6 +19,7 @@
 #include <functional>
 #include <nlohmann/json.hpp>
 #include "gui/ComboGenProgress.h"
+#include "CrossForeign.h"  // for ComboRando::GameId
 
 namespace ComboRando {
 
@@ -53,7 +54,7 @@ struct OracleFns {
 
 // ---------- Data types ----------
 
-// Reuses GameId from CrossMailbox.h (GAME_OOT = 0, GAME_MM = 1)
+// Reuses GameId from CrossForeign.h (GAME_OOT = 0, GAME_MM = 1)
 using Game = GameId;
 
 struct CwItem {

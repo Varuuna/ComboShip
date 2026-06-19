@@ -3,7 +3,8 @@
 // One JSON file per canonical OOT slot records which checks (in each game) hold an item that
 // belongs to the OTHER game. At pickup, the check's own game places a sentinel item; the
 // pickup code consults this map to learn the real foreign item + its destination game, then
-// diverts it through the CrossMailbox instead of granting locally.
+// delivers it immediately into that game's resident save (see issue #3; the old JSON CrossMailbox
+// stash + per-frame drain was replaced by immediate cross-DLL grant).
 //
 // Schema (saves/combo/slot{N}.foreign.json):
 //   { "oot": { "<checkName>": {"itemGame":"mm","itemName":"RI_DEKU_MASK","displayName":"Deku Mask"} },
@@ -17,11 +18,13 @@
 #include <unordered_map>
 #include <filesystem>
 #include <fstream>
+#include <cstdint>
 #include <nlohmann/json.hpp>
 
-#include "CrossMailbox.h"  // for ComboRando::GameId
-
 namespace ComboRando {
+
+// Game identity used across the cross-world rando layer (soh.dll, 2ship.dll, ComboShip.exe).
+enum GameId : uint8_t { GAME_OOT = 0, GAME_MM = 1 };
 
 // Sentinel item names written into each game's own placement table for a foreign check.
 // They differ because the two games use different item-name namespaces (see header note).

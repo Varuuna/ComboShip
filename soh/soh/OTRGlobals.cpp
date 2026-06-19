@@ -2606,6 +2606,63 @@ extern "C" __declspec(dllexport) void SOH_Anchor_OnDisconnected(void) {
         Anchor::Instance->SetConnectedFromCombo(false);
     }
 }
+
+// ComboShip: cross-game item delivery seam (issue #3). When the other game collects a check whose
+// item belongs to OOT, the launcher calls SOH_GrantCrossItem to grant it straight into OOT's
+// resident save — even when OOT is the dormant (frozen) game. We use Randomizer_Item_Give, which
+// writes gSaveContext directly and is play-state-independent (Magic_Fill ignores `play`,
+// Rupees_ChangeBy null-guards gPlayState), so it is safe against a frozen gPlayState. The save is
+// persisted immediately so the item survives quitting before ever switching into OOT. See
+// docs/UPSTREAM_MERGES.md.
+extern "C" __declspec(dllexport) void SOH_GrantCrossItem(const char* itemName) {
+    if (!itemName)
+        return;
+    auto it = Rando::StaticData::itemNameToEnum.find(itemName);
+    if (it == Rando::StaticData::itemNameToEnum.end()) {
+        SPDLOG_WARN("[ComboShip] SOH_GrantCrossItem: unknown OOT item '{}'", itemName);
+        return;
+    }
+    GetItemEntry gie = Rando::StaticData::RetrieveItem(it->second).GetGIEntry_Copy();
+    Randomizer_Item_Give(gPlayState, gie); // save-direct, dormant-safe
+    if (SaveManager::Instance && gSaveContext.fileNum != 0xFF) {
+        SaveManager::Instance->SaveFile(gSaveContext.fileNum); // persist NOW
+    }
+    SPDLOG_INFO("[ComboShip] SOH_GrantCrossItem: granted '{}' into OOT save", itemName);
+}
+
+// ComboShip: mark a foreign OOT check obtained without re-delivering — used on the NETWORK receive
+// path so a client that gets a teammate's broadcast won't later physically collect the same check
+// and double-deliver. Save-only (no grant), persisted immediately.
+extern "C" __declspec(dllexport) void SOH_MarkForeignObtained(const char* checkName) {
+    if (!checkName)
+        return;
+    auto it = Rando::StaticData::locationNameToEnum.find(checkName);
+    if (it == Rando::StaticData::locationNameToEnum.end()) {
+        SPDLOG_WARN("[ComboShip] SOH_MarkForeignObtained: unknown OOT check '{}'", checkName);
+        return;
+    }
+    auto loc = OTRGlobals::Instance->gRandoContext->GetItemLocation(it->second);
+    loc->SetCheckStatus(RCSHOW_COLLECTED);
+    CheckTracker::SpoilAreaFromCheck(it->second);
+    CheckTracker::RecalculateAllAreaTotals();
+    CheckTracker::RecalculateAvailableChecks();
+    if (SaveManager::Instance && gSaveContext.fileNum != 0xFF) {
+        SaveManager::Instance->SaveSection(gSaveContext.fileNum, SECTION_ID_TRACKER_DATA, true);
+    }
+    SPDLOG_INFO("[ComboShip] SOH_MarkForeignObtained: marked OOT check '{}' collected", checkName);
+}
+
+// ComboShip: routing seam — the launcher registers DeliverCrossItem here so OOT's foreign-check
+// detection can hand an item to the OTHER game immediately (mirrors SOH_SetAnchorSend).
+extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName) = nullptr;
+extern "C" __declspec(dllexport) void SOH_SetCrossDeliver(void (*cb)(int, const char*)) {
+    gComboCrossDeliver = cb;
+}
+// ComboShip: routing seam for the network-receive idempotency mark (see SOH_MarkForeignObtained).
+extern "C" void (*gComboMarkForeignObtained)(int srcGame, const char* checkName) = nullptr;
+extern "C" __declspec(dllexport) void SOH_SetMarkForeignObtained(void (*cb)(int, const char*)) {
+    gComboMarkForeignObtained = cb;
+}
 #endif
 
 #ifdef COMBO_BUILD

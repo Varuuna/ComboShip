@@ -3286,6 +3286,59 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_SetOwnedItems(const char* i
     } catch (...) {}
 }
 
+// ComboShip: cross-game item delivery seam (issue #3). When the other game collects a check whose
+// item belongs to MM, the launcher calls MM_GrantCrossItem to grant it straight into MM's resident
+// save — even when MM is the dormant (frozen) game. We use GiveItemForOracle, the save-only grant
+// that never touches gPlayState, so it is safe against a frozen play state. The save is persisted
+// immediately so the item survives quitting before ever switching into MM. See docs/UPSTREAM_MERGES.md.
+extern "C" __declspec(dllexport) void MM_GrantCrossItem(const char* itemName) {
+    if (!itemName)
+        return;
+    const auto& nameToId = Combo_MM_SpoilerNameToItemId();
+    auto it = nameToId.find(itemName);
+    if (it == nameToId.end()) {
+        SPDLOG_WARN("[ComboShip] MM_GrantCrossItem: unknown MM item '{}'", itemName);
+        return;
+    }
+    GiveItemForOracle(it->second); // save-only, dormant-safe
+    if (gSaveContext.fileNum != 0xFF) {
+        SaveManager_SaveCurrentForCombo(); // persist NOW
+    }
+    SPDLOG_INFO("[ComboShip] MM_GrantCrossItem: granted '{}' into MM save", itemName);
+}
+
+// ComboShip: mark a foreign MM check obtained without re-delivering — used on the NETWORK receive
+// path so a client that gets a teammate's broadcast won't later physically collect the same check
+// and double-deliver. Save-only (no grant), persisted immediately.
+extern "C" __declspec(dllexport) void MM_MarkForeignObtained(const char* checkName) {
+    if (!checkName)
+        return;
+    const auto& nameToId = Combo_MM_CheckNameToCheckId();
+    auto it = nameToId.find(checkName);
+    if (it == nameToId.end()) {
+        SPDLOG_WARN("[ComboShip] MM_MarkForeignObtained: unknown MM check '{}'", checkName);
+        return;
+    }
+    RANDO_SAVE_CHECKS[it->second].obtained = true;
+    RANDO_SAVE_CHECKS[it->second].cycleObtained = true;
+    RANDO_SAVE_CHECKS[it->second].eligible = false;
+    if (gSaveContext.fileNum != 0xFF) {
+        SaveManager_SaveCurrentForCombo();
+    }
+    SPDLOG_INFO("[ComboShip] MM_MarkForeignObtained: marked MM check '{}' collected", checkName);
+}
+
+// ComboShip: routing seams — the launcher registers DeliverCrossItem / MarkForeignObtained here so
+// MM's foreign-check detection can hand an item to the OTHER game immediately (mirrors MM_SetAnchorSend).
+extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName) = nullptr;
+extern "C" __declspec(dllexport) void MM_SetCrossDeliver(void (*cb)(int, const char*)) {
+    gMMComboCrossDeliver = cb;
+}
+extern "C" void (*gMMComboMarkForeignObtained)(int srcGame, const char* checkName) = nullptr;
+extern "C" __declspec(dllexport) void MM_SetMarkForeignObtained(void (*cb)(int, const char*)) {
+    gMMComboMarkForeignObtained = cb;
+}
+
 extern "C" __declspec(dllexport) const char* Combo_MM_Rando_GetReachableChecks(void) {
     static std::string buf;
 

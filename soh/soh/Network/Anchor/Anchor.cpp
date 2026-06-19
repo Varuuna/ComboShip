@@ -71,6 +71,13 @@ void Anchor::SendJsonToRemote(nlohmann::json payload) {
         SPDLOG_DEBUG("[Anchor] Queuing payload:\n{}", payload.dump());
     }
 
+#ifdef COMBO_BUILD
+    // ComboShip: the launcher owns the socket and its own thread-safe outgoing queue, so hand every
+    // packet straight to it. There is no game-side network thread to drain a local queue under the
+    // combo build (ProcessOutgoingPackets is never pumped). See docs/UPSTREAM_MERGES.md.
+    Network::SendJsonToRemote(payload);
+    return;
+#else
     if (payload["type"] == HANDSHAKE) {
         Network::SendJsonToRemote(payload);
         return;
@@ -79,6 +86,7 @@ void Anchor::SendJsonToRemote(nlohmann::json payload) {
     // Queue the packet to be sent on the network thread
     std::lock_guard<std::mutex> lock(outgoingPacketQueueMutex);
     outgoingPacketQueue.push(payload);
+#endif
 }
 
 void Anchor::OnIncomingJson(nlohmann::json payload) {

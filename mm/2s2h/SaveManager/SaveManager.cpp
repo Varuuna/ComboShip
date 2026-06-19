@@ -12,7 +12,7 @@ extern "C" {
 #include "z64save.h"
 #include "macros.h"
 #include "functions.h" // Flags_SetWeekEventReg (used by SET_WEEKEVENTREG)
-#include "variables.h"  // gItemSlots (used by INV_CONTENT)
+#include "variables.h" // gItemSlots (used by INV_CONTENT)
 #include "src/overlays/gamestates/ovl_file_choose/z_file_select.h"
 extern FileSelectState* gFileSelectState;
 extern SaveContext gSaveContext;
@@ -132,9 +132,7 @@ void SaveManager_WriteSaveFile(const std::filesystem::path& fileName, nlohmann::
         SPDLOG_INFO("[ComboShip] Wrote MM save file: {}", std::filesystem::absolute(filePath).string());
     } catch (const std::exception& e) {
         SPDLOG_ERROR("[ComboShip] Failed to write save file {}: {}", filePath.string(), e.what());
-    } catch (...) {
-        SPDLOG_ERROR("[ComboShip] Failed to write save file {}", filePath.string());
-    }
+    } catch (...) { SPDLOG_ERROR("[ComboShip] Failed to write save file {}", filePath.string()); }
 }
 
 void SaveManager_InitNewSaveForSlot(int mmFileNum) {
@@ -211,9 +209,7 @@ void SaveManager_LoadSaveFile(int mmFileNum) {
         gSaveContext.fileNum = (s16)(mmFileNum - 1);
     } catch (nlohmann::json::exception& je) {
         SPDLOG_ERROR("[ComboShip] Failed to parse MM save: {}", je.what());
-    } catch (...) {
-        SPDLOG_ERROR("[ComboShip] Failed to parse MM save");
-    }
+    } catch (...) { SPDLOG_ERROR("[ComboShip] Failed to parse MM save"); }
 }
 
 void SaveManager_DeleteSaveFile(const std::filesystem::path& fileName) {

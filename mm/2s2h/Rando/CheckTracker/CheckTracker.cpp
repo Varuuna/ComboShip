@@ -8,7 +8,7 @@
 #include "2s2h/BenPort.h"
 #include <cstring>
 #ifdef COMBO_BUILD
-#include "2s2h/Rando/MiscBehavior/MiscBehavior.h"  // ComboShip: MM_LookupForeign
+#include "2s2h/Rando/MiscBehavior/MiscBehavior.h" // ComboShip: MM_LookupForeign
 #endif
 
 // Image Icons
@@ -167,7 +167,8 @@ std::string GetTotalCheckCount() {
 
 void DrawCheckTypeIcon(RandoCheckId randoCheckId) {
     RandoCheckType checkType = Rando::StaticData::Checks[randoCheckId].randoCheckType;
-    ImGui::Image(std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())->GetTextureByName(checkTypeIconList[checkType]),
+    ImGui::Image(std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())
+                     ->GetTextureByName(checkTypeIconList[checkType]),
                  checkType == RCTYPE_SONG  ? ImVec2(12.0f * trackerScale, 18.0f * trackerScale)
                  : checkType == RCTYPE_OWL ? ImVec2(18.0f * trackerScale, 9.0f * trackerScale)
                                            : ImVec2(18.0f * trackerScale, 18.0f * trackerScale),
@@ -427,8 +428,7 @@ void CheckTrackerDrawNonLogicalList() {
 #ifdef COMBO_BUILD
                         // ComboShip: show the real OOT item name for foreign-sentinel checks.
                         if (randoSaveCheck.randoItemId == RI_COMBO_FOREIGN) {
-                            const ComboRando::ForeignItem* fi =
-                                Rando::MiscBehavior::MM_LookupForeign(randoCheckId);
+                            const ComboRando::ForeignItem* fi = Rando::MiscBehavior::MM_LookupForeign(randoCheckId);
                             if (fi != nullptr) {
                                 ImGui::Text("(%s)", fi->displayName.c_str());
                             } else {
@@ -575,9 +575,11 @@ void CheckTrackerWindow::Draw() {
                 ImGui::PushStyleColor(ImGuiCol_Button, buttonCol);
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 1.0f, 1.0f, 0.2f));
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.0f, 1.0f, 1.0f, 0.1f));
-                TexturePtr textureId = std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())->GetTextureByName(
-                    randoCheckType == RCTYPE_UNKNOWN ? (const char*)gShootingGalleryOctorokCrossTex
-                                                     : checkTypeIconList[randoCheckType]);
+                TexturePtr textureId =
+                    std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())
+                        ->GetTextureByName(randoCheckType == RCTYPE_UNKNOWN
+                                               ? (const char*)gShootingGalleryOctorokCrossTex
+                                               : checkTypeIconList[randoCheckType]);
                 if (randoCheckType == RCTYPE_OWL) {
                     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f);
                 } else if (randoCheckType == RCTYPE_SONG) {

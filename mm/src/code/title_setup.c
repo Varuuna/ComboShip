@@ -70,13 +70,11 @@ void Setup_InitImpl(SetupState* this) {
         gSaveContext.save.cutsceneIndex = 0;
         // Copy permanent flags into cycle flags, the same way Sram_OpenSave does.
         for (int i = 0; i < ARRAY_COUNT(gSaveContext.cycleSceneFlags); i++) {
-            gSaveContext.cycleSceneFlags[i].chest     = gSaveContext.save.saveInfo.permanentSceneFlags[i].chest;
-            gSaveContext.cycleSceneFlags[i].switch0   = gSaveContext.save.saveInfo.permanentSceneFlags[i].switch0;
-            gSaveContext.cycleSceneFlags[i].switch1   = gSaveContext.save.saveInfo.permanentSceneFlags[i].switch1;
-            gSaveContext.cycleSceneFlags[i].clearedRoom =
-                gSaveContext.save.saveInfo.permanentSceneFlags[i].clearedRoom;
-            gSaveContext.cycleSceneFlags[i].collectible =
-                gSaveContext.save.saveInfo.permanentSceneFlags[i].collectible;
+            gSaveContext.cycleSceneFlags[i].chest = gSaveContext.save.saveInfo.permanentSceneFlags[i].chest;
+            gSaveContext.cycleSceneFlags[i].switch0 = gSaveContext.save.saveInfo.permanentSceneFlags[i].switch0;
+            gSaveContext.cycleSceneFlags[i].switch1 = gSaveContext.save.saveInfo.permanentSceneFlags[i].switch1;
+            gSaveContext.cycleSceneFlags[i].clearedRoom = gSaveContext.save.saveInfo.permanentSceneFlags[i].clearedRoom;
+            gSaveContext.cycleSceneFlags[i].collectible = gSaveContext.save.saveInfo.permanentSceneFlags[i].collectible;
         }
         // ComboShip: fire OnSaveLoad like every vanilla load path does once the save is in
         // gSaveContext. This arms the rando runtime: OnSaveLoadHandler re-registers all

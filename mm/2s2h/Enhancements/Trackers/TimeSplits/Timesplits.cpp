@@ -194,9 +194,10 @@ void DrawSplitsList(bool isMain) {
                 SplitsPushImageButtonStyle();
                 if (ImGui::ImageButton(
                         std::to_string(i).c_str(),
-                        std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())->GetTextureByName(
-                            splitList[i].splitType == SPLIT_TYPE_NORMAL ? GetItemImageById(splitList[i].splitId)
-                                                                        : gPauseUnusedCursorTex),
+                        std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())
+                            ->GetTextureByName(splitList[i].splitType == SPLIT_TYPE_NORMAL
+                                                   ? GetItemImageById(splitList[i].splitId)
+                                                   : gPauseUnusedCursorTex),
                         splitList[i].splitType == SPLIT_TYPE_NORMAL ? GetItemImageSizeById(splitList[i].splitId)
                                                                     : ImVec2(32.0f, 32.0f),
                         ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0),

@@ -937,7 +937,8 @@ struct BenDrawHooks {
 
 void Menu::DrawContent(const std::set<std::string>& onlyPaths, const std::set<std::string>& skipPaths) {
     // ComboShip: guard — same as DrawElement.
-    if (OTRGlobals::Instance->fontStandardLargest == nullptr) return;
+    if (OTRGlobals::Instance->fontStandardLargest == nullptr)
+        return;
 
     // ComboShip: per-frame setup — replicate what DrawElement does at its top since
     // DrawElement itself never runs in combo (comboui owns the menu).

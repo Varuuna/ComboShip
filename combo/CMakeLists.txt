@@ -43,12 +43,23 @@ add_executable(ComboShip ${COMBO_SOURCES})
 
 # Portable relative-include fix: MSVC VS generator implicitly adds the source file's directory,
 # but Ninja/Unix builds do not. Explicitly add the combo source dir so that includes like
-# "rando/CrossMailbox.h" resolve on all generators.
+# "rando/CrossForeign.h" resolve on all generators.
 target_include_directories(ComboShip PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-# nlohmann/json is used by combo/rando/CrossMailbox.h (header-only, pulled transitively through vcpkg)
+# nlohmann/json is used by combo/rando/CrossForeign.h (header-only, pulled transitively through vcpkg)
 find_package(nlohmann_json REQUIRED)
 target_link_libraries(ComboShip PRIVATE nlohmann_json::nlohmann_json)
+
+# ComboShip owns the persistent Anchor network connection (Phase 1), so it links SDL_net directly.
+# Mirrors soh's linkage (SDL2_net::SDL2_net-static on the static-md triplet, plain otherwise). We do
+# NOT link SDL2main here — ComboShip provides its own main().
+find_package(SDL2 REQUIRED)
+find_package(SDL2_net REQUIRED)
+if(TARGET SDL2_net::SDL2_net-static)
+    target_link_libraries(ComboShip PRIVATE SDL2::SDL2 SDL2_net::SDL2_net-static)
+else()
+    target_link_libraries(ComboShip PRIVATE SDL2::SDL2 SDL2_net::SDL2_net)
+endif()
 
 # Add dependencies to ensure games are built first
 add_dependencies(ComboShip
@@ -65,10 +76,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     )
     
     # Copy ComboShip.exe, game DLLs, and libultraship.dll to Combo/x64/Debug and to ComboShip's build dir.
-    # The PORT/custom asset archives (soh.o2r, 2ship.o2r) are checked into the source tree
-    # (soh/soh.o2r, mm/2ship.o2r) and are copied alongside the exe here so the build is runnable.
-    # The ROM-extracted archives (oot.o2r, mm.o2r) are NOT our responsibility — the user generates
-    # those from their own ROMs at first launch.
+    # The PORT/custom asset archives (soh/soh.o2r, mm/2ship.o2r) are produced by the GenerateSohOtr /
+    # Generate2ShipOtr targets (extract_assets.py --norom — NO ROM needed; they pack the tracked
+    # assets/custom tree). They are gitignored as large generated binaries, so they exist on a dev
+    # machine that has run those targets but are absent on the compile-only CI gate, which runs neither.
+    # Their copy is therefore guarded by an EXISTS check below (separate POST_BUILD block) so that gate
+    # does not fail. The ROM-extracted archives (oot.o2r, mm.o2r) are the user's to generate at first launch.
     add_custom_command(TARGET ComboShip POST_BUILD
         # Copy ComboShip.exe to x64/Debug
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -102,19 +115,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:comboui>
             $<TARGET_FILE_DIR:ComboShip>
-        # Copy the PORT/custom .o2r assets (config-independent) next to the exe and to x64/Debug.
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/soh/soh.o2r
-            $<TARGET_FILE_DIR:ComboShip>/soh.o2r
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/mm/2ship.o2r
-            $<TARGET_FILE_DIR:ComboShip>/2ship.o2r
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/soh/soh.o2r
-            ${CMAKE_SOURCE_DIR}/x64/Debug/soh.o2r
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/mm/2ship.o2r
-            ${CMAKE_SOURCE_DIR}/x64/Debug/2ship.o2r
         # Extractor assets (flat structure matching CallZapd expectations). ComboShip runs BOTH
         # the OOT (soh) and MM (2ship) extractors, so merge both games' extractor + xml dirs into
         # one assets/ tree. copy_directory merges (no delete), so soh + mm coexist.
@@ -145,6 +145,31 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
             ${CMAKE_SOURCE_DIR}/mm/assets/xml
             ${CMAKE_SOURCE_DIR}/x64/Debug/assets/xml
     )
+
+    # PORT/custom .o2r deploy — guarded so a missing archive doesn't fail the build (see comment above).
+    # copy_if_different aborts if the source is absent; only emit these commands when the files exist at
+    # configure time. A dev who has run GenerateSohOtr/Generate2ShipOtr has them; the compile-only CI
+    # gate has neither and skips this block. If CI later generates the .o2r, reconfigure picks them up.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/soh/soh.o2r")
+        add_custom_command(TARGET ComboShip POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${CMAKE_SOURCE_DIR}/soh/soh.o2r $<TARGET_FILE_DIR:ComboShip>/soh.o2r
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${CMAKE_SOURCE_DIR}/soh/soh.o2r ${CMAKE_SOURCE_DIR}/x64/Debug/soh.o2r
+        )
+    else()
+        message(STATUS "ComboShip: soh/soh.o2r not found — skipping .o2r deploy (run GenerateSohOtr to produce it).")
+    endif()
+    if(EXISTS "${CMAKE_SOURCE_DIR}/mm/2ship.o2r")
+        add_custom_command(TARGET ComboShip POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${CMAKE_SOURCE_DIR}/mm/2ship.o2r $<TARGET_FILE_DIR:ComboShip>/2ship.o2r
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${CMAKE_SOURCE_DIR}/mm/2ship.o2r ${CMAKE_SOURCE_DIR}/x64/Debug/2ship.o2r
+        )
+    else()
+        message(STATUS "ComboShip: mm/2ship.o2r not found — skipping .o2r deploy (run Generate2ShipOtr to produce it).")
+    endif()
 endif()
 
 # Install

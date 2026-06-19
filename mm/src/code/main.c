@@ -164,7 +164,7 @@ int SDL_main(int argc, char* argv[] /* void* arg*/) {
 #ifdef _WIN32
 __declspec(dllexport)
 #endif
-void MM_RunMain(void) {
+    void MM_RunMain(void) {
     intptr_t sysHeap;
 
     setlocale(LC_ALL, ".UTF8");
@@ -217,7 +217,7 @@ void MM_RunMain(void) {
 #ifdef _WIN32
 __declspec(dllexport)
 #endif
-void MM_RunGameLoop(void) {
+    void MM_RunGameLoop(void) {
     Graph_ThreadEntry(0);
 }
 

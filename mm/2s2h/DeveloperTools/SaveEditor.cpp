@@ -11,7 +11,9 @@
 #include "2s2h/ShipUtils.h"
 #ifdef COMBO_BUILD
 #include <spdlog/spdlog.h>
-#include "rando/CrossMailbox.h" // ComboShip: cross-world mailbox
+#include "rando/CrossForeign.h" // ComboShip: GameId
+// ComboShip (issue #3): immediate cross-game delivery seam (defined in BenPort.cpp).
+extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName);
 #endif
 
 #include "interface/icon_item_dungeon_static/icon_item_dungeon_static.h"
@@ -2289,22 +2291,15 @@ void DrawFlagsTab() {
 void DrawRandoTab() {
 #ifdef COMBO_BUILD
     if (UIWidgets::Button("Cross-send debug item to OOT", { .size = UIWidgets::Sizes::Inline })) {
-        // MM runtime fileNum is already the 0-based canonical slot (== OOT's); only the on-disk MM
-        // file number carries the +1 offset.
-        int slot = gSaveContext.fileNum;
         if (gSaveContext.fileNum == 0xFF) {
             SPDLOG_WARN("[ComboShip] MM cross-send: no save loaded (fileNum=0x{:X})", (unsigned)gSaveContext.fileNum);
-        } else {
-            ComboRando::MailboxEntry e{ ComboRando::GAME_MM, ComboRando::GAME_OOT, "DEBUG_ITEM",
-                                        "DEBUG_ITEM",        "DEBUG_MM_MENU",      false };
-            if (!ComboRando::Enqueue(slot, e)) {
-                SPDLOG_WARN("[ComboShip] MM cross-send: failed to write mailbox (slot {})", slot);
-            } else {
-                SPDLOG_INFO("[ComboShip] MM cross-send: queued DEBUG_ITEM for OOT (slot {})", slot);
-            }
+        } else if (gMMComboCrossDeliver) {
+            // Deliver an OOT-bound item straight into OOT's resident save NOW (issue #3).
+            gMMComboCrossDeliver(ComboRando::GAME_OOT, "DEBUG_ITEM");
+            SPDLOG_INFO("[ComboShip] MM cross-send: delivered DEBUG_ITEM to OOT (slot {})", (int)gSaveContext.fileNum);
         }
     }
-    UIWidgets::Tooltip("ComboShip: enqueue a cross-world debug item addressed to OOT for the current save slot");
+    UIWidgets::Tooltip("ComboShip: deliver a cross-world debug item to OOT's save for the current slot");
 #endif
     if (UIWidgets::Button("Generate Spoiler from Save", { .size = UIWidgets::Sizes::Inline })) {
         nlohmann::json spoiler = Rando::Spoiler::GenerateFromSaveContext();

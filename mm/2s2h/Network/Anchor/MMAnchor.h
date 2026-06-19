@@ -95,6 +95,9 @@ class MMAnchor {
     // (+ its check id) to teammates; receivers ConvertItem against their own state and grant.
     void SendPacket_GiveItem(int16_t randoItemId, int32_t randoCheckId);
     bool applyingRemoteItem = false; // guards against re-broadcasting items granted from the network
+    // Issue #3: cross-game item delivery. Broadcast a locally-collected foreign item to teammates so
+    // their TARGET game's save receives it; receivers route through the launcher's DeliverCrossItem.
+    void SendPacket_CrossItem(int targetGame, const char* itemName, const char* srcCheckName);
     // Phase 2d: late-join / reconnect resync. Mirrors the canonical UPDATE_TEAM_STATE: push the whole
     // Save to teammates; on receive, commit saveInfo + shipSaveInfo (top-level Save fields like
     // scene/time/form are left untouched so the receiver isn't teleported).
@@ -121,6 +124,7 @@ class MMAnchor {
     void HandlePacket_PlayerUpdate(const nlohmann::json& payload);
     void HandlePacket_DamagePlayer(const nlohmann::json& payload);
     void HandlePacket_GiveItem(const nlohmann::json& payload);
+    void HandlePacket_CrossItem(const nlohmann::json& payload); // issue #3 cross-game delivery
     void HandlePacket_UpdateTeamState(nlohmann::json& payload); // mutates payload (rando check unpack)
     void HandlePacket_RequestTeamState(const nlohmann::json& payload);
 

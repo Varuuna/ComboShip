@@ -31,7 +31,6 @@
 #define SDL_MAIN_HANDLED
 #include <SDL2/SDL_net.h>
 
-#include "rando/CrossMailbox.h"
 #include "rando/CrossForeign.h"
 #include "rando/CrossWorldRando.h"
 #include "gui/ComboGenProgress.h"
@@ -308,6 +307,21 @@ static FnAnchorRecv MM_Anchor_RecvJson = nullptr;
 static FnVoidArgless MM_Anchor_Activate = nullptr;
 static FnVoidArgless MM_Anchor_Deactivate = nullptr;
 
+// Cross-game item delivery seam (issue #3). Each game's foreign-check detection (and the Anchor
+// receive path) routes an item to the OTHER game through one launcher-owned dispatcher, which calls
+// the target DLL's save-only grant export. The same dispatcher serves the single-player and
+// networked paths. targetGame/srcGame use the GameId convention 0 = OOT, 1 = MM (== sActiveGame).
+typedef void (*FnSetCrossRoute)(void (*)(int, const char*));
+typedef void (*FnGrantCrossItem)(const char*);
+static FnSetCrossRoute  SOH_SetCrossDeliver        = nullptr;
+static FnSetCrossRoute  MM_SetCrossDeliver         = nullptr;
+static FnGrantCrossItem SOH_GrantCrossItem         = nullptr;
+static FnGrantCrossItem MM_GrantCrossItem          = nullptr;
+static FnSetCrossRoute  SOH_SetMarkForeignObtained = nullptr;
+static FnSetCrossRoute  MM_SetMarkForeignObtained  = nullptr;
+static FnGrantCrossItem SOH_MarkForeignObtained    = nullptr;
+static FnGrantCrossItem MM_MarkForeignObtained     = nullptr;
+
 namespace ComboAnchor {
 static std::thread sThread;
 static std::atomic<bool> sEnabled{ false };
@@ -473,6 +487,29 @@ static void SetActiveGame(int game /* 0 = OOT, 1 = MM */) {
     }
 }
 } // namespace ComboAnchor
+
+// Cross-game delivery dispatcher (issue #3). Registered into BOTH game DLLs; invoked by the
+// collector game's foreign-check detection (local) and by the active game's Anchor receive handler
+// (network). Grants the item into the TARGET game's resident save via its save-only export — the
+// target is normally the dormant game, which isn't ticking, so its save struct isn't being mutated
+// underneath us. The grant export persists the target save immediately.
+static void DeliverCrossItem(int targetGame, const char* itemName) {
+    if (targetGame == 1) {
+        if (MM_GrantCrossItem) MM_GrantCrossItem(itemName);
+    } else {
+        if (SOH_GrantCrossItem) SOH_GrantCrossItem(itemName);
+    }
+}
+
+// Network-receive idempotency: mark the SOURCE check obtained in the source game so this client
+// won't later physically collect the same check and double-deliver. Save-only; persists.
+static void MarkForeignObtained(int srcGame, const char* checkName) {
+    if (srcGame == 1) {
+        if (MM_MarkForeignObtained) MM_MarkForeignObtained(checkName);
+    } else {
+        if (SOH_MarkForeignObtained) SOH_MarkForeignObtained(checkName);
+    }
+}
 
 // Seed utilities — Ship_Hash/Ship_Random are not exported from libultraship, so implement inline.
 // FNV-1a 32-bit hash: deterministic string-to-uint32 used to derive the master seed.
@@ -984,16 +1021,6 @@ int main(int argc, char** argv) {
 
     std::set_terminate(ComboTerminateHandler);
 
-    // ComboShip: surface any mailbox left from a previous session (debug aid; harmless if absent).
-    {
-        // Slot 0 only for now; expand when multi-slot save is wired.
-        auto leftover = ComboRando::LoadAll(0);
-        if (!leftover.empty()) {
-            std::cout << "[ComboShip] mailbox slot0 has " << leftover.size() << " entr"
-                      << (leftover.size() == 1 ? "y" : "ies") << " on startup\n";
-        }
-    }
-
     // --- 1. Load DLLs ---
 
 #ifdef _WIN32
@@ -1083,6 +1110,16 @@ int main(int argc, char** argv) {
     MM_Anchor_RecvJson = (FnAnchorRecv)GetSym(mmModule, "MM_Anchor_RecvJson");
     MM_Anchor_Activate = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_Activate");
     MM_Anchor_Deactivate = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_Deactivate");
+
+    // Cross-game item delivery seam (issue #3)
+    SOH_SetCrossDeliver        = (FnSetCrossRoute)  GetSym(sohModule, "SOH_SetCrossDeliver");
+    MM_SetCrossDeliver         = (FnSetCrossRoute)  GetSym(mmModule,  "MM_SetCrossDeliver");
+    SOH_GrantCrossItem         = (FnGrantCrossItem) GetSym(sohModule, "SOH_GrantCrossItem");
+    MM_GrantCrossItem          = (FnGrantCrossItem) GetSym(mmModule,  "MM_GrantCrossItem");
+    SOH_SetMarkForeignObtained = (FnSetCrossRoute)  GetSym(sohModule, "SOH_SetMarkForeignObtained");
+    MM_SetMarkForeignObtained  = (FnSetCrossRoute)  GetSym(mmModule,  "MM_SetMarkForeignObtained");
+    SOH_MarkForeignObtained    = (FnGrantCrossItem) GetSym(sohModule, "SOH_MarkForeignObtained");
+    MM_MarkForeignObtained     = (FnGrantCrossItem) GetSym(mmModule,  "MM_MarkForeignObtained");
 
     // Oracle exports
     Combo_SOH_Rando_Reset = (FnOracleVoid)GetSym(sohModule, "Combo_SOH_Rando_Reset");
@@ -1189,6 +1226,16 @@ int main(int argc, char** argv) {
     if (MM_SetAnchorSend) {
         MM_SetAnchorSend(ComboAnchor::Send);
         std::cout << "[ComboShip] MM Anchor transport seam registered." << std::endl;
+    }
+
+    // Register the cross-game delivery dispatcher into both DLLs (issue #3). Done before SOH_Init so
+    // a resumed save that immediately drains a queued foreign item has the route available.
+    if (SOH_SetCrossDeliver) SOH_SetCrossDeliver(DeliverCrossItem);
+    if (MM_SetCrossDeliver)  MM_SetCrossDeliver(DeliverCrossItem);
+    if (SOH_SetMarkForeignObtained) SOH_SetMarkForeignObtained(MarkForeignObtained);
+    if (MM_SetMarkForeignObtained)  MM_SetMarkForeignObtained(MarkForeignObtained);
+    if (SOH_SetCrossDeliver || MM_SetCrossDeliver) {
+        std::cout << "[ComboShip] Cross-game item delivery seam registered." << std::endl;
     }
 
     // --- 4. Initialize OOT game ---

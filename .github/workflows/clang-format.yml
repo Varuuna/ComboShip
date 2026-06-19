@@ -1,0 +1,28 @@
+name: clang-format
+
+# Style gate. Runs run-clang-format.sh (clang-format-14) over both games' port code (soh/ + mm/),
+# then fails if anything changed. Mirrors HarbourMasters/Shipwright and HarbourMasters/2ship2harkinian.
+# clang-format reads each file's nearest .clang-format (soh/.clang-format, mm/.clang-format), so the
+# vendored decomp — already formatted upstream — stays a no-op; only our own edits get flagged.
+
+on: [pull_request]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  clang-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format-14
+      - name: Run clang-format
+        run: |
+          ./run-clang-format.sh
+          git diff --exit-code

@@ -174,7 +174,8 @@ void DummyPlayer_Update(Actor* actor, PlayState* play) {
             CollisionCheck_SetOC(play, &play->colChkCtx, &player->cylinder.base);
         }
 
-        if (!(player->stateFlags1 & (PLAYER_STATE1_DEAD | PLAYER_STATE1_4000000)) && (player->invincibilityTimer <= 0)) {
+        if (!(player->stateFlags1 & (PLAYER_STATE1_DEAD | PLAYER_STATE1_4000000)) &&
+            (player->invincibilityTimer <= 0)) {
             CollisionCheck_SetAC(play, &play->colChkCtx, &player->cylinder.base);
 
             if (player->invincibilityTimer < 0) {

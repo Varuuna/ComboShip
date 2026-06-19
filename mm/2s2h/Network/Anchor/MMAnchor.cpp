@@ -5,7 +5,7 @@
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include "2s2h/NameTag/NameTag.h"
 #include "2s2h/Rando/Rando.h" // Rando::GiveItem / ConvertItem / CurrentJunkItem / RANDO_SAVE_CHECKS / IS_RANDO
-#include "2s2h/Rando/CheckTracker/CheckTracker.h"  // Phase 2d: re-derive after team-state apply
+#include "2s2h/Rando/CheckTracker/CheckTracker.h" // Phase 2d: re-derive after team-state apply
 #include "2s2h/Rando/ActorBehavior/ActorBehavior.h"
 #include "2s2h/ShipInit.hpp"
 #include "2s2h/BenGui/Notification.h"
@@ -106,17 +106,16 @@ void MMAnchor::RegisterHooks() {
 
     // Local-player update: broadcast our pose and service a pending puppet refresh. Puppets are
     // ACTOR_ITEM_INBOX, so this ACTOR_PLAYER-filtered hook only fires for the real local player.
-    GameInteractor::Instance->RegisterGameHookForID<GameInteractor::OnActorUpdate>(
-        ACTOR_PLAYER, [this](Actor* actor) {
-            if (!isActive) {
-                return;
-            }
-            SendPlayerUpdate();
-            if (shouldRefreshActors) {
-                shouldRefreshActors = false;
-                RefreshClientActors();
-            }
-        });
+    GameInteractor::Instance->RegisterGameHookForID<GameInteractor::OnActorUpdate>(ACTOR_PLAYER, [this](Actor* actor) {
+        if (!isActive) {
+            return;
+        }
+        SendPlayerUpdate();
+        if (shouldRefreshActors) {
+            shouldRefreshActors = false;
+            RefreshClientActors();
+        }
+    });
 
     // Drain inbound packets on the MM game thread (the launcher's receive thread only enqueues).
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameStateUpdate>([this]() {
@@ -511,8 +510,8 @@ void MMAnchor::RefreshClientActors() {
         actorIndexToClientId.push_back(clientId);
         // params = index into actorIndexToClientId; DummyPlayer_Init reads it back to find the client.
         Actor* dummy = Actor_Spawn(&gPlayState->actorCtx, gPlayState, ACTOR_PLAYER, client.posRot.pos.x,
-                                   client.posRot.pos.y, client.posRot.pos.z, client.posRot.rot.x,
-                                   client.posRot.rot.y, client.posRot.rot.z, (int)actorIndexToClientId.size() - 1);
+                                   client.posRot.pos.y, client.posRot.pos.z, client.posRot.rot.x, client.posRot.rot.y,
+                                   client.posRot.rot.z, (int)actorIndexToClientId.size() - 1);
         client.player = (Player*)dummy;
     }
     refreshingActors = false;
@@ -545,7 +544,7 @@ void MMAnchor::SendPacket_UpdateTeamState(const std::string& targetTeamId) {
     payload["type"] = PKT_UPDATE_TEAM_STATE;
     payload["targetTeamId"] = targetTeamId;
     payload["queue"] = nlohmann::json::array(); // assume our team queue is now empty
-    payload["state"] = gSaveContext.save;        // to_json(Save) from BenJsonConversions
+    payload["state"] = gSaveContext.save;       // to_json(Save) from BenJsonConversions
 
     // Byte-reduction: replace the rando check array with a compact array-of-arrays. 7 fields here —
     // ComboShip's RandoSaveCheck has no multiWorldTeamIndex (shared-progression, not multiworld).

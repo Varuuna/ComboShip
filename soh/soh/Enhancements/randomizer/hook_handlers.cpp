@@ -16,8 +16,8 @@
 #include "item_category_adj.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
 #ifdef COMBO_BUILD
-#include "rando/CrossMailbox.h"  // ComboShip: cross-world mailbox
-#include "rando/CrossForeign.h"  // ComboShip: cross-world foreign-item marker map
+#include "rando/CrossMailbox.h" // ComboShip: cross-world mailbox
+#include "rando/CrossForeign.h" // ComboShip: cross-world foreign-item marker map
 #endif
 #include "soh/Enhancements/randomizer/RCToRandInf.h"
 
@@ -1347,8 +1347,7 @@ void RandomizerOnVanillaBehaviorHandler(GIVanillaBehavior id, bool* should, va_l
                                  "GetItemName(ITEM_NONE) crash. This foreign check escaped the RC-queue.",
                                  static_cast<int>(item00->itemEntry.getItemId),
                                  static_cast<int>(item00->itemEntry.itemId),
-                                 static_cast<int>(item00->itemEntry.modIndex),
-                                 static_cast<int>(item00->randoInf),
+                                 static_cast<int>(item00->itemEntry.modIndex), static_cast<int>(item00->randoInf),
                                  static_cast<int>(item00->collectibleFlag));
                     Actor_Kill(&item00->actor);
                     *should = false;
@@ -2926,25 +2925,27 @@ void RandomizerOnCuccoOrChickenHatch() {
 #ifdef COMBO_BUILD
 // ComboShip: grant any cross-world items addressed to OOT for the current slot.
 static void RandomizerOnPlayerUpdateForCrossMailboxHandler() {
-    if (gPlayState == nullptr) return;
-    if (gSaveContext.fileNum == 0xFF) return;  // no real save loaded
-    int slot = gSaveContext.fileNum;   // OOT's file number is the canonical slot
+    if (gPlayState == nullptr)
+        return;
+    if (gSaveContext.fileNum == 0xFF)
+        return;                      // no real save loaded
+    int slot = gSaveContext.fileNum; // OOT's file number is the canonical slot
     auto pending = ComboRando::LoadPending(slot, ComboRando::GAME_OOT);
-    if (pending.empty()) return;
+    if (pending.empty())
+        return;
 
     for (const auto& e : pending) {
         // The item's home is OOT (itemName is an OOT English name). Map it to its RandomizerGet and
         // grant the real item via the same path the rando item-queue uses.
         auto rgIt = Rando::StaticData::itemNameToEnum.find(e.itemName);
         if (rgIt == Rando::StaticData::itemNameToEnum.end()) {
-            SPDLOG_WARN("[ComboShip] OOT received cross item '{}' (from MM): unknown OOT item, skipping",
-                        e.itemName);
+            SPDLOG_WARN("[ComboShip] OOT received cross item '{}' (from MM): unknown OOT item, skipping", e.itemName);
             continue;
         }
         GetItemEntry gie = Rando::StaticData::RetrieveItem(rgIt->second).GetGIEntry_Copy();
         GiveItemEntryWithoutActor(gPlayState, gie);
-        Notification::Emit({ .message = "Received from Termina:",
-                             .suffix = e.displayName.empty() ? e.itemName : e.displayName });
+        Notification::Emit(
+            { .message = "Received from Termina:", .suffix = e.displayName.empty() ? e.itemName : e.displayName });
         SPDLOG_INFO("[ComboShip] OOT received cross item '{}' (from MM): granted", e.itemName);
     }
     if (!ComboRando::MarkAllDelivered(slot, ComboRando::GAME_OOT)) {

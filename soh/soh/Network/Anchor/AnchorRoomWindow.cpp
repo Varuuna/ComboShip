@@ -97,8 +97,7 @@ void AnchorRoomWindow::DrawElement() {
                     } else
 #endif
                     {
-                        ImGui::TextColored(ImVec4(1, 1, 1, 0.5f), "- %s",
-                                           SohUtils::GetSceneName(sceneNum).c_str());
+                        ImGui::TextColored(ImVec4(1, 1, 1, 0.5f), "- %s", SohUtils::GetSceneName(sceneNum).c_str());
                     }
                 }
             }
@@ -134,8 +133,8 @@ void AnchorRoomWindow::DrawElement() {
                 seedComparable = false;
             }
 #endif
-            if (seedComparable && client.isSaveLoaded && Anchor::Instance->IsSaveLoaded() &&
-                client.seed != seed && client.online && !client.self) {
+            if (seedComparable && client.isSaveLoaded && Anchor::Instance->IsSaveLoaded() && client.seed != seed &&
+                client.online && !client.self) {
                 ImGui::SameLine();
                 ImGui::TextColored(ImVec4(1, 0, 0, 1), ICON_FA_EXCLAMATION_TRIANGLE);
                 if (ImGui::IsItemHovered()) {

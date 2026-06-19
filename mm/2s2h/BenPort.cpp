@@ -136,9 +136,9 @@ static bool sComboTransitionActive = false;
 
 extern "C"
 #ifdef _WIN32
-__declspec(dllexport)
+    __declspec(dllexport)
 #endif
-void MM_NotifyComboTransition(void) {
+        void MM_NotifyComboTransition(void) {
     sComboTransitionActive = true;
 }
 
@@ -212,39 +212,41 @@ OTRGlobals::OTRGlobals() {
     }
     if (!usingExistingCtx) {
 #endif
-    context = Ship::Context::CreateUninitializedInstance("2 Ship 2 Harkinian", appShortName, "2ship2harkinian.json");
+        context =
+            Ship::Context::CreateUninitializedInstance("2 Ship 2 Harkinian", appShortName, "2ship2harkinian.json");
 
-    portArchivePath = Ship::Context::LocateFileAcrossAppDirs("2ship.o2r");
-    ArchiveVersion portArchiveVersion = DetectArchiveVersion("2ship.o2r", true);
-    shipArchiveVersionMatch = portArchiveVersion.major == gBuildVersionMajor &&
-                              portArchiveVersion.minor == gBuildVersionMinor &&
-                              portArchiveVersion.patch == gBuildVersionPatch;
+        portArchivePath = Ship::Context::LocateFileAcrossAppDirs("2ship.o2r");
+        ArchiveVersion portArchiveVersion = DetectArchiveVersion("2ship.o2r", true);
+        shipArchiveVersionMatch = portArchiveVersion.major == gBuildVersionMajor &&
+                                  portArchiveVersion.minor == gBuildVersionMinor &&
+                                  portArchiveVersion.patch == gBuildVersionPatch;
 
-    context->InitConfiguration();
-    context->InitConsoleVariables();
+        context->InitConfiguration();
+        context->InitConsoleVariables();
 
-    auto controlDeck = std::make_shared<LUS::ControlDeck>(std::vector<CONTROLLERBUTTONS_T>({
-        BTN_CUSTOM_MODIFIER1,
-        BTN_CUSTOM_MODIFIER2,
-        BTN_CUSTOM_OCARINA_NOTE_D4,
-        BTN_CUSTOM_OCARINA_NOTE_F4,
-        BTN_CUSTOM_OCARINA_NOTE_A4,
-        BTN_CUSTOM_OCARINA_NOTE_B4,
-        BTN_CUSTOM_OCARINA_NOTE_D5,
-        BTN_CUSTOM_OCARINA_DISABLE_SONGS,
-        BTN_CUSTOM_OCARINA_PITCH_UP,
-        BTN_CUSTOM_OCARINA_PITCH_DOWN,
-    }));
-    context->InitControlDeck(controlDeck);
-    context->InitResourceManager({ portArchivePath }, {}, 3, true);
-    context->InitConsole();
+        auto controlDeck = std::make_shared<LUS::ControlDeck>(std::vector<CONTROLLERBUTTONS_T>({
+            BTN_CUSTOM_MODIFIER1,
+            BTN_CUSTOM_MODIFIER2,
+            BTN_CUSTOM_OCARINA_NOTE_D4,
+            BTN_CUSTOM_OCARINA_NOTE_F4,
+            BTN_CUSTOM_OCARINA_NOTE_A4,
+            BTN_CUSTOM_OCARINA_NOTE_B4,
+            BTN_CUSTOM_OCARINA_NOTE_D5,
+            BTN_CUSTOM_OCARINA_DISABLE_SONGS,
+            BTN_CUSTOM_OCARINA_PITCH_UP,
+            BTN_CUSTOM_OCARINA_PITCH_DOWN,
+        }));
+        context->InitControlDeck(controlDeck);
+        context->InitResourceManager({ portArchivePath }, {}, 3, true);
+        context->InitConsole();
 
-    auto benInputEditorWindow = std::make_shared<BenInputEditorWindow>("gWindows.BenInputEditor", "2S2H Input Editor");
-    benFast3dWindow =
-        std::make_shared<Fast::Fast3dWindow>(std::vector<std::shared_ptr<Ship::GuiWindow>>({ benInputEditorWindow }));
-    context->InitWindow(benFast3dWindow);
+        auto benInputEditorWindow =
+            std::make_shared<BenInputEditorWindow>("gWindows.BenInputEditor", "2S2H Input Editor");
+        benFast3dWindow = std::make_shared<Fast::Fast3dWindow>(
+            std::vector<std::shared_ptr<Ship::GuiWindow>>({ benInputEditorWindow }));
+        context->InitWindow(benFast3dWindow);
 
-    BenGui::SetupMenu();
+        BenGui::SetupMenu();
 #ifdef COMBO_BUILD
     } // end if (!usingExistingCtx)
     // ImGui's current-context global (GImGui) is a per-module static; this 2ship.dll has its own,
@@ -1111,12 +1113,13 @@ extern "C" void InitOTR(int argc, char* argv[]) {
         }
     });
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameStateMainStart>([]() {
-        if (!sComboReturnPending) return;
+        if (!sComboReturnPending)
+            return;
         sComboReturnPending = false;
         SaveManager_SaveCurrentForCombo();
-        if (gComboReturnCallback) gComboReturnCallback();
-        if (auto fast3d =
-                std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow())) {
+        if (gComboReturnCallback)
+            gComboReturnCallback();
+        if (auto fast3d = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow())) {
             fast3d->SetIsRunning(false);
         }
     });
@@ -2551,10 +2554,10 @@ extern "C" int gComboBootOnly = 0;
 // with SOH_PrepareForTransition / MM_PrepareForTransition + SOH_ResumeForeground to hand the
 // foreground back to OOT.
 extern "C" __declspec(dllexport) void MM_BootForCombo(void) {
-    gComboStartFileNum = -1;        // boot only — no save load / Play jump
-    sComboTransitionActive = true;  // OTRGlobals ctor reuses OOT's Context + creates MM's own RM
+    gComboStartFileNum = -1;       // boot only — no save load / Play jump
+    sComboTransitionActive = true; // OTRGlobals ctor reuses OOT's Context + creates MM's own RM
     gComboBootOnly = 1;
-    MM_RunMain();                   // full init; main.c skips Graph_ThreadEntry due to gComboBootOnly
+    MM_RunMain(); // full init; main.c skips Graph_ThreadEntry due to gComboBootOnly
     gComboBootOnly = 0;
 }
 
@@ -2658,8 +2661,7 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
     // Mark the save as rando and zero the rando struct (mirrors Rando::MiscBehavior::OnFileCreate).
     gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_RANDO;
     memset(&gSaveContext.save.shipSaveInfo.rando, 0, sizeof(gSaveContext.save.shipSaveInfo.rando));
-    memcpy(&gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys,
-           &gSaveContext.save.saveInfo.inventory.dungeonKeys,
+    memcpy(&gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys, &gSaveContext.save.saveInfo.inventory.dungeonKeys,
            sizeof(gSaveContext.save.saveInfo.inventory.dungeonKeys));
 
     try {
@@ -2693,11 +2695,11 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
         RANDO_SAVE_CHECKS[RC_STARTING_ITEM_DEKU_MASK].eligible = true;
         RANDO_SAVE_CHECKS[RC_STARTING_ITEM_SONG_OF_HEALING].eligible = true;
 
-        SPDLOG_INFO("[ComboShip] MM_InitRandoSaveFile: applied {} placements for slot {}",
-                    spoiler["checks"].size(), fileNum);
+        SPDLOG_INFO("[ComboShip] MM_InitRandoSaveFile: applied {} placements for slot {}", spoiler["checks"].size(),
+                    fileNum);
     } catch (const std::exception& e) {
-        SPDLOG_ERROR("[ComboShip] MM_InitRandoSaveFile: {} — falling back to vanilla save for slot {}",
-                     e.what(), fileNum);
+        SPDLOG_ERROR("[ComboShip] MM_InitRandoSaveFile: {} — falling back to vanilla save for slot {}", e.what(),
+                     fileNum);
         gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_VANILLA;
     }
 
@@ -2708,7 +2710,8 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
 // Returns the number of archives open in the MM-private ArchiveManager.
 // 0 means MM_InitArchives was not called or found no files.
 extern "C" __declspec(dllexport) int MM_ArchiveCount() {
-    if (!gMMArchiveManager) return 0;
+    if (!gMMArchiveManager)
+        return 0;
     auto archives = gMMArchiveManager->GetArchives();
     return archives ? static_cast<int>(archives->size()) : 0;
 }
@@ -2750,7 +2753,7 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     static std::string cached;
 
     nlohmann::json checks = nlohmann::json::array();
-    nlohmann::json items  = nlohmann::json::array();
+    nlohmann::json items = nlohmann::json::array();
 
     // Build a RandoSaveInfo from current CVars — same pattern as Menu.cpp RefreshMetrics().
     RandoSaveInfo saveInfo;
@@ -2773,24 +2776,30 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     // Emit only the checks in the settings-scoped pool.
     for (RandoCheckId id : checkPool) {
         auto chkIt = Rando::StaticData::Checks.find(id);
-        if (chkIt == Rando::StaticData::Checks.end()) { skippedNoStatic++; continue; }
+        if (chkIt == Rando::StaticData::Checks.end()) {
+            skippedNoStatic++;
+            continue;
+        }
         const auto& chk = chkIt->second;
-        if (!chk.name || chk.name[0] == '\0') { skippedNoName++; continue; }
-        nlohmann::json entry = { {"name", chk.name} };
+        if (!chk.name || chk.name[0] == '\0') {
+            skippedNoName++;
+            continue;
+        }
+        nlohmann::json entry = { { "name", chk.name } };
 
         // MM stores vanilla item per check via randoItemId.
         if (chk.randoItemId != RI_UNKNOWN) {
             auto it = Rando::StaticData::Items.find(chk.randoItemId);
-            if (it != Rando::StaticData::Items.end() &&
-                it->second.spoilerName && it->second.spoilerName[0] != '\0') {
+            if (it != Rando::StaticData::Items.end() && it->second.spoilerName && it->second.spoilerName[0] != '\0') {
                 entry["vanillaItem"] = it->second.spoilerName;
                 // ComboShip: progression test mirrors GlitchlessLogic's (non-junk, non-health);
                 // the combined fill logic-places only these and fast-fills the rest.
-                entry["advancement"] = it->second.randoItemType != RITYPE_JUNK &&
-                                       it->second.randoItemType != RITYPE_HEALTH;
+                entry["advancement"] =
+                    it->second.randoItemType != RITYPE_JUNK && it->second.randoItemType != RITYPE_HEALTH;
             }
         }
-        if (!entry.contains("vanillaItem")) noVanillaItem++;
+        if (!entry.contains("vanillaItem"))
+            noVanillaItem++;
         checks.push_back(std::move(entry));
     }
 
@@ -2817,21 +2826,24 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         std::ofstream("saves/combo/debug-mmdump.json", std::ios::trunc) << diag.dump(2);
     } catch (...) {}
 #else
-    (void)skippedNoStatic; (void)skippedNoName; (void)noVanillaItem;
+    (void)skippedNoStatic;
+    (void)skippedNoName;
+    (void)noVanillaItem;
 #endif
 
     for (auto& [id, item] : Rando::StaticData::Items) {
-        if (!item.spoilerName || item.spoilerName[0] == '\0') continue;
+        if (!item.spoilerName || item.spoilerName[0] == '\0')
+            continue;
         // ComboShip: "name" MUST stay spoilerName (RI_*) — grant lookup keys on it. "displayName"
         // is the human string (StaticData's unused .name field) for toasts/shops in the OTHER game.
-        nlohmann::json entry = { {"name", item.spoilerName} };
+        nlohmann::json entry = { { "name", item.spoilerName } };
         if (item.name && item.name[0] != '\0') {
             entry["displayName"] = item.name;
         }
         items.push_back(std::move(entry));
     }
 
-    cached = nlohmann::json{ {"checks", std::move(checks)}, {"items", std::move(items)} }.dump();
+    cached = nlohmann::json{ { "checks", std::move(checks) }, { "items", std::move(items) } }.dump();
     return cached.c_str();
 }
 
@@ -2935,69 +2947,136 @@ static void GiveItemForOracle(RandoItemId ri) {
         }
 
         // Dungeon items
-        case RI_WOODFALL_BOSS_KEY: case RI_WOODFALL_MAP: case RI_WOODFALL_COMPASS:
+        case RI_WOODFALL_BOSS_KEY:
+        case RI_WOODFALL_MAP:
+        case RI_WOODFALL_COMPASS:
             SET_DUNGEON_ITEM(Rando::StaticData::Items[ri].itemId - ITEM_KEY_BOSS, DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE);
             break;
-        case RI_SNOWHEAD_BOSS_KEY: case RI_SNOWHEAD_MAP: case RI_SNOWHEAD_COMPASS:
+        case RI_SNOWHEAD_BOSS_KEY:
+        case RI_SNOWHEAD_MAP:
+        case RI_SNOWHEAD_COMPASS:
             SET_DUNGEON_ITEM(Rando::StaticData::Items[ri].itemId - ITEM_KEY_BOSS, DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE);
             break;
-        case RI_GREAT_BAY_BOSS_KEY: case RI_GREAT_BAY_MAP: case RI_GREAT_BAY_COMPASS:
+        case RI_GREAT_BAY_BOSS_KEY:
+        case RI_GREAT_BAY_MAP:
+        case RI_GREAT_BAY_COMPASS:
             SET_DUNGEON_ITEM(Rando::StaticData::Items[ri].itemId - ITEM_KEY_BOSS, DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE);
             break;
-        case RI_STONE_TOWER_BOSS_KEY: case RI_STONE_TOWER_MAP: case RI_STONE_TOWER_COMPASS:
-            SET_DUNGEON_ITEM(Rando::StaticData::Items[ri].itemId - ITEM_KEY_BOSS, DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE);
+        case RI_STONE_TOWER_BOSS_KEY:
+        case RI_STONE_TOWER_MAP:
+        case RI_STONE_TOWER_COMPASS:
+            SET_DUNGEON_ITEM(Rando::StaticData::Items[ri].itemId - ITEM_KEY_BOSS,
+                             DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE);
             break;
 
         // Small keys
         case RI_WOODFALL_SMALL_KEY:
-            DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE) = std::max(0, (int)DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE)) + 1;
+            DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE) =
+                std::max(0, (int)DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE)) + 1;
             break;
         case RI_SNOWHEAD_SMALL_KEY:
-            DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE) = std::max(0, (int)DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE)) + 1;
+            DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE) =
+                std::max(0, (int)DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE)) + 1;
             break;
         case RI_GREAT_BAY_SMALL_KEY:
-            DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE) = std::max(0, (int)DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE)) + 1;
+            DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE) =
+                std::max(0, (int)DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE)) + 1;
             break;
         case RI_STONE_TOWER_SMALL_KEY:
-            DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE) = std::max(0, (int)DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE)) + 1;
+            DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE) =
+                std::max(0, (int)DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE)) + 1;
             break;
 
         // Stray fairies
-        case RI_CLOCK_TOWN_STRAY_FAIRY: SET_WEEKEVENTREG(WEEKEVENTREG_08_80); break;
-        case RI_WOODFALL_STRAY_FAIRY: gSaveContext.save.saveInfo.inventory.strayFairies[DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE]++; break;
-        case RI_SNOWHEAD_STRAY_FAIRY: gSaveContext.save.saveInfo.inventory.strayFairies[DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE]++; break;
-        case RI_GREAT_BAY_STRAY_FAIRY: gSaveContext.save.saveInfo.inventory.strayFairies[DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE]++; break;
-        case RI_STONE_TOWER_STRAY_FAIRY: gSaveContext.save.saveInfo.inventory.strayFairies[DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE]++; break;
+        case RI_CLOCK_TOWN_STRAY_FAIRY:
+            SET_WEEKEVENTREG(WEEKEVENTREG_08_80);
+            break;
+        case RI_WOODFALL_STRAY_FAIRY:
+            gSaveContext.save.saveInfo.inventory.strayFairies[DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE]++;
+            break;
+        case RI_SNOWHEAD_STRAY_FAIRY:
+            gSaveContext.save.saveInfo.inventory.strayFairies[DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE]++;
+            break;
+        case RI_GREAT_BAY_STRAY_FAIRY:
+            gSaveContext.save.saveInfo.inventory.strayFairies[DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE]++;
+            break;
+        case RI_STONE_TOWER_STRAY_FAIRY:
+            gSaveContext.save.saveInfo.inventory.strayFairies[DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE]++;
+            break;
 
         // Rando-flag items (deeds, keys, letters, etc.)
-        case RI_MOONS_TEAR: Flags_SetRandoInf(RANDO_INF_OBTAINED_MOONS_TEAR); break;
-        case RI_DEED_LAND: Flags_SetRandoInf(RANDO_INF_OBTAINED_DEED_LAND); break;
-        case RI_DEED_SWAMP: Flags_SetRandoInf(RANDO_INF_OBTAINED_DEED_SWAMP); break;
-        case RI_DEED_MOUNTAIN: Flags_SetRandoInf(RANDO_INF_OBTAINED_DEED_MOUNTAIN); break;
-        case RI_DEED_OCEAN: Flags_SetRandoInf(RANDO_INF_OBTAINED_DEED_OCEAN); break;
-        case RI_ROOM_KEY: Flags_SetRandoInf(RANDO_INF_OBTAINED_ROOM_KEY); break;
-        case RI_LETTER_TO_MAMA: Flags_SetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_MAMA); break;
-        case RI_LETTER_TO_KAFEI: Flags_SetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_KAFEI); break;
-        case RI_PENDANT_OF_MEMORIES: Flags_SetRandoInf(RANDO_INF_OBTAINED_PENDANT_OF_MEMORIES); break;
-        case RI_POWDER_KEG: Flags_SetWeekEventReg(WEEKEVENTREG_HAS_POWDERKEG_PRIVILEGES); break;
-        case RI_GREAT_SPIN_ATTACK: SET_WEEKEVENTREG(WEEKEVENTREG_RECEIVED_GREAT_SPIN_ATTACK); break;
-        case RI_ABILITY_SWIM: Flags_SetRandoInf(RANDO_INF_OBTAINED_SWIM); break;
+        case RI_MOONS_TEAR:
+            Flags_SetRandoInf(RANDO_INF_OBTAINED_MOONS_TEAR);
+            break;
+        case RI_DEED_LAND:
+            Flags_SetRandoInf(RANDO_INF_OBTAINED_DEED_LAND);
+            break;
+        case RI_DEED_SWAMP:
+            Flags_SetRandoInf(RANDO_INF_OBTAINED_DEED_SWAMP);
+            break;
+        case RI_DEED_MOUNTAIN:
+            Flags_SetRandoInf(RANDO_INF_OBTAINED_DEED_MOUNTAIN);
+            break;
+        case RI_DEED_OCEAN:
+            Flags_SetRandoInf(RANDO_INF_OBTAINED_DEED_OCEAN);
+            break;
+        case RI_ROOM_KEY:
+            Flags_SetRandoInf(RANDO_INF_OBTAINED_ROOM_KEY);
+            break;
+        case RI_LETTER_TO_MAMA:
+            Flags_SetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_MAMA);
+            break;
+        case RI_LETTER_TO_KAFEI:
+            Flags_SetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_KAFEI);
+            break;
+        case RI_PENDANT_OF_MEMORIES:
+            Flags_SetRandoInf(RANDO_INF_OBTAINED_PENDANT_OF_MEMORIES);
+            break;
+        case RI_POWDER_KEG:
+            Flags_SetWeekEventReg(WEEKEVENTREG_HAS_POWDERKEG_PRIVILEGES);
+            break;
+        case RI_GREAT_SPIN_ATTACK:
+            SET_WEEKEVENTREG(WEEKEVENTREG_RECEIVED_GREAT_SPIN_ATTACK);
+            break;
+        case RI_ABILITY_SWIM:
+            Flags_SetRandoInf(RANDO_INF_OBTAINED_SWIM);
+            break;
 
         // ComboShip: owl-warp statues. Logic gates nearly every exit from the root region on
         // CAN_OWL_WARP, the primary entry into each cardinal cluster. The default case below would set
         // only INV_CONTENT and leave owlActivationFlags clear, so CAN_OWL_WARP stays false and the
         // oracle can't leave Clock Town. Sram_ActivateOwl is headless-safe (pure save-bit write).
         // Mirrors GiveItem.cpp RI_OWL_* cases.
-        case RI_OWL_CLOCK_TOWN_SOUTH: Sram_ActivateOwl(OWL_WARP_CLOCK_TOWN); break;
-        case RI_OWL_GREAT_BAY_COAST: Sram_ActivateOwl(OWL_WARP_GREAT_BAY_COAST); break;
-        case RI_OWL_IKANA_CANYON: Sram_ActivateOwl(OWL_WARP_IKANA_CANYON); break;
-        case RI_OWL_MILK_ROAD: Sram_ActivateOwl(OWL_WARP_MILK_ROAD); break;
-        case RI_OWL_MOUNTAIN_VILLAGE: Sram_ActivateOwl(OWL_WARP_MOUNTAIN_VILLAGE); break;
-        case RI_OWL_SNOWHEAD: Sram_ActivateOwl(OWL_WARP_SNOWHEAD); break;
-        case RI_OWL_SOUTHERN_SWAMP: Sram_ActivateOwl(OWL_WARP_SOUTHERN_SWAMP); break;
-        case RI_OWL_STONE_TOWER: Sram_ActivateOwl(OWL_WARP_STONE_TOWER); break;
-        case RI_OWL_WOODFALL: Sram_ActivateOwl(OWL_WARP_WOODFALL); break;
-        case RI_OWL_ZORA_CAPE: Sram_ActivateOwl(OWL_WARP_ZORA_CAPE); break;
+        case RI_OWL_CLOCK_TOWN_SOUTH:
+            Sram_ActivateOwl(OWL_WARP_CLOCK_TOWN);
+            break;
+        case RI_OWL_GREAT_BAY_COAST:
+            Sram_ActivateOwl(OWL_WARP_GREAT_BAY_COAST);
+            break;
+        case RI_OWL_IKANA_CANYON:
+            Sram_ActivateOwl(OWL_WARP_IKANA_CANYON);
+            break;
+        case RI_OWL_MILK_ROAD:
+            Sram_ActivateOwl(OWL_WARP_MILK_ROAD);
+            break;
+        case RI_OWL_MOUNTAIN_VILLAGE:
+            Sram_ActivateOwl(OWL_WARP_MOUNTAIN_VILLAGE);
+            break;
+        case RI_OWL_SNOWHEAD:
+            Sram_ActivateOwl(OWL_WARP_SNOWHEAD);
+            break;
+        case RI_OWL_SOUTHERN_SWAMP:
+            Sram_ActivateOwl(OWL_WARP_SOUTHERN_SWAMP);
+            break;
+        case RI_OWL_STONE_TOWER:
+            Sram_ActivateOwl(OWL_WARP_STONE_TOWER);
+            break;
+        case RI_OWL_WOODFALL:
+            Sram_ActivateOwl(OWL_WARP_WOODFALL);
+            break;
+        case RI_OWL_ZORA_CAPE:
+            Sram_ActivateOwl(OWL_WARP_ZORA_CAPE);
+            break;
 
         // Ocarina buttons
         case RI_OCARINA_BUTTON_A:
@@ -3009,20 +3088,29 @@ static void GiveItemForOracle(RandoItemId ri) {
             break;
 
         // Songs (song double/inverted time)
-        case RI_SONG_DOUBLE_TIME: Flags_SetRandoInf(RANDO_INF_OBTAINED_SONG_DOUBLE_TIME); break;
-        case RI_SONG_INVERTED_TIME: Flags_SetRandoInf(RANDO_INF_OBTAINED_SONG_INVERTED_TIME); break;
+        case RI_SONG_DOUBLE_TIME:
+            Flags_SetRandoInf(RANDO_INF_OBTAINED_SONG_DOUBLE_TIME);
+            break;
+        case RI_SONG_INVERTED_TIME:
+            Flags_SetRandoInf(RANDO_INF_OBTAINED_SONG_INVERTED_TIME);
+            break;
 
         // ComboShip: Goron Lullaby Intro. Its itemId (0x73) is outside the contiguous
         // ITEM_SONG_SONATA..SUN block the default case maps to quest items, so it needs its own flag.
         // ConvertItem(RI_PROGRESSIVE_LULLABY) returns the intro until QUEST_SONG_LULLABY_INTRO is set,
         // then the full lullaby — so without this flag the full lullaby is never granted and Snowhead
         // Temple (and the Moon) stay unreachable.
-        case RI_SONG_LULLABY_INTRO: SET_QUEST_ITEM(QUEST_SONG_LULLABY_INTRO); break;
+        case RI_SONG_LULLABY_INTRO:
+            SET_QUEST_ITEM(QUEST_SONG_LULLABY_INTRO);
+            break;
 
         // Clock items
-        case RI_TIME_DAY_1: case RI_TIME_NIGHT_1:
-        case RI_TIME_DAY_2: case RI_TIME_NIGHT_2:
-        case RI_TIME_DAY_3: case RI_TIME_NIGHT_3: {
+        case RI_TIME_DAY_1:
+        case RI_TIME_NIGHT_1:
+        case RI_TIME_DAY_2:
+        case RI_TIME_NIGHT_2:
+        case RI_TIME_DAY_3:
+        case RI_TIME_NIGHT_3: {
             int index = Rando::ClockItems::GetHalfDayIndexFromClockItem(ri);
             if (index != Rando::ClockItems::INVALID) {
                 Flags_SetRandoInf(static_cast<RandoInf>(RANDO_INF_OBTAINED_CLOCK_DAY_1 + index));
@@ -3031,13 +3119,17 @@ static void GiveItemForOracle(RandoItemId ri) {
         }
         case RI_TIME_PROGRESSIVE: {
             RandoItemId concrete = Rando::ConvertItem(RI_TIME_PROGRESSIVE);
-            if (concrete != RI_JUNK) GiveItemForOracle(concrete);
+            if (concrete != RI_JUNK)
+                GiveItemForOracle(concrete);
             break;
         }
 
         // Souls
-        case RI_SOUL_BOSS_GOHT: case RI_SOUL_BOSS_GYORG: case RI_SOUL_BOSS_MAJORA:
-        case RI_SOUL_BOSS_ODOLWA: case RI_SOUL_BOSS_TWINMOLD:
+        case RI_SOUL_BOSS_GOHT:
+        case RI_SOUL_BOSS_GYORG:
+        case RI_SOUL_BOSS_MAJORA:
+        case RI_SOUL_BOSS_ODOLWA:
+        case RI_SOUL_BOSS_TWINMOLD:
             Flags_SetRandoInf(SOUL_RI_TO_RANDO_INF(ri));
             break;
 
@@ -3052,10 +3144,18 @@ static void GiveItemForOracle(RandoItemId ri) {
             break;
 
         // Frogs
-        case RI_FROG_BLUE: SET_WEEKEVENTREG(WEEKEVENTREG_33_01); break;
-        case RI_FROG_CYAN: SET_WEEKEVENTREG(WEEKEVENTREG_32_40); break;
-        case RI_FROG_PINK: SET_WEEKEVENTREG(WEEKEVENTREG_32_80); break;
-        case RI_FROG_WHITE: SET_WEEKEVENTREG(WEEKEVENTREG_33_02); break;
+        case RI_FROG_BLUE:
+            SET_WEEKEVENTREG(WEEKEVENTREG_33_01);
+            break;
+        case RI_FROG_CYAN:
+            SET_WEEKEVENTREG(WEEKEVENTREG_32_40);
+            break;
+        case RI_FROG_PINK:
+            SET_WEEKEVENTREG(WEEKEVENTREG_32_80);
+            break;
+        case RI_FROG_WHITE:
+            SET_WEEKEVENTREG(WEEKEVENTREG_33_02);
+            break;
 
         // GS tokens
         case RI_GS_TOKEN_SWAMP:
@@ -3093,8 +3193,7 @@ static void GiveItemForOracle(RandoItemId ri) {
                     // the quest flag instead, else RemainsCount()==0 and the Moon trials are unreachable.
                     // ITEM_REMAINS_* and QUEST_REMAINS_* share the same order.
                     SET_QUEST_ITEM(QUEST_REMAINS_ODOLWA + (itemId - ITEM_REMAINS_ODOLWA));
-                } else if (itemId != ITEM_NONE && itemId < ARRAY_COUNT(gItemSlots) &&
-                           gItemSlots[itemId] != SLOT_NONE) {
+                } else if (itemId != ITEM_NONE && itemId < ARRAY_COUNT(gItemSlots) && gItemSlots[itemId] != SLOT_NONE) {
                     INV_CONTENT(itemId) = itemId;
                 }
             }
@@ -3152,7 +3251,8 @@ static const std::unordered_map<std::string, RandoItemId>& Combo_MM_SpoilerNameT
     static const std::unordered_map<std::string, RandoItemId> map = [] {
         std::unordered_map<std::string, RandoItemId> m;
         for (auto& [id, item] : Rando::StaticData::Items) {
-            if (item.spoilerName && item.spoilerName[0] != '\0') m.emplace(item.spoilerName, id);
+            if (item.spoilerName && item.spoilerName[0] != '\0')
+                m.emplace(item.spoilerName, id);
         }
         return m;
     }();
@@ -3163,7 +3263,8 @@ static const std::unordered_map<std::string, RandoCheckId>& Combo_MM_CheckNameTo
     static const std::unordered_map<std::string, RandoCheckId> map = [] {
         std::unordered_map<std::string, RandoCheckId> m;
         for (auto& [id, chk] : Rando::StaticData::Checks) {
-            if (chk.name && chk.name[0] != '\0') m.emplace(chk.name, id);
+            if (chk.name && chk.name[0] != '\0')
+                m.emplace(chk.name, id);
         }
         return m;
     }();
@@ -3171,7 +3272,8 @@ static const std::unordered_map<std::string, RandoCheckId>& Combo_MM_CheckNameTo
 }
 
 extern "C" __declspec(dllexport) void Combo_MM_Rando_SetOwnedItems(const char* itemNamesJson) {
-    if (!itemNamesJson) return;
+    if (!itemNamesJson)
+        return;
     try {
         auto items = nlohmann::json::parse(itemNamesJson);
         const auto& nameToId = Combo_MM_SpoilerNameToItemId();
@@ -3204,11 +3306,13 @@ extern "C" __declspec(dllexport) const char* Combo_MM_Rando_GetReachableChecks(v
         for (auto regionId : std::set<RandoRegionId>(reachable)) {
             Rando::Logic::FindReachableRegions(regionId, reachable, timeStates);
         }
-        if (reachable.size() != prevSize) changed = true;
+        if (reachable.size() != prevSize)
+            changed = true;
 
         for (RandoRegionId regionId : reachable) {
             auto regIt = Rando::Logic::Regions.find(regionId);
-            if (regIt == Rando::Logic::Regions.end()) continue;
+            if (regIt == Rando::Logic::Regions.end())
+                continue;
             Rando::Logic::SetCurrentRegionTime(timeStates, regionId);
             for (auto& randoEvent : regIt->second.events) {
                 if (!eventsInLogic.contains(&randoEvent) && randoEvent.second()) {
@@ -3223,7 +3327,8 @@ extern "C" __declspec(dllexport) const char* Combo_MM_Rando_GetReachableChecks(v
     nlohmann::json out = nlohmann::json::array();
     for (RandoRegionId regionId : reachable) {
         auto regIt = Rando::Logic::Regions.find(regionId);
-        if (regIt == Rando::Logic::Regions.end()) continue;
+        if (regIt == Rando::Logic::Regions.end())
+            continue;
         auto& region = regIt->second;
 
         Rando::Logic::SetCurrentRegionTime(timeStates, regionId);
@@ -3242,14 +3347,16 @@ extern "C" __declspec(dllexport) const char* Combo_MM_Rando_GetReachableChecks(v
     return buf.c_str();
 }
 
-extern "C" __declspec(dllexport) void Combo_MM_Rando_PlaceItem(
-    const char* checkName, const char* itemName) {
-    if (!checkName || !itemName) return;
+extern "C" __declspec(dllexport) void Combo_MM_Rando_PlaceItem(const char* checkName, const char* itemName) {
+    if (!checkName || !itemName)
+        return;
     // ComboShip: map lookups replace nested name scans (runs once per committed check).
     auto chkIt = Combo_MM_CheckNameToCheckId().find(checkName);
-    if (chkIt == Combo_MM_CheckNameToCheckId().end()) return;
+    if (chkIt == Combo_MM_CheckNameToCheckId().end())
+        return;
     auto itemIt = Combo_MM_SpoilerNameToItemId().find(itemName);
-    if (itemIt == Combo_MM_SpoilerNameToItemId().end()) return;
+    if (itemIt == Combo_MM_SpoilerNameToItemId().end())
+        return;
     RANDO_SAVE_CHECKS[chkIt->second].randoItemId = itemIt->second;
     RANDO_SAVE_CHECKS[chkIt->second].shuffled = true;
 }

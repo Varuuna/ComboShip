@@ -47,8 +47,8 @@ void BuildMerchantMessage(CustomMessage& msg, RandomizerCheck rc, bool mysteriou
             const ComboRando::ForeignItem* fi =
                 OOT_LookupForeign(gSaveContext.fileNum, Rando::StaticData::GetLocation(rc)->GetName());
             if (fi != nullptr && !fi->displayName.empty()) {
-                itemName = CustomMessage(Text{ std::string(fi->displayName), std::string(fi->displayName),
-                                               std::string(fi->displayName) });
+                itemName = CustomMessage(
+                    Text{ std::string(fi->displayName), std::string(fi->displayName), std::string(fi->displayName) });
                 color = "%g";
                 msg.Replace("[[color]]", color);
                 msg.InsertNames({ itemName, CustomMessage(std::to_string(location->GetPrice())) });

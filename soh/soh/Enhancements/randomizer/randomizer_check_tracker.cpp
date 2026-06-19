@@ -2087,8 +2087,8 @@ void DrawLocation(RandomizerCheck rc) {
 #ifdef COMBO_BUILD
                         // ComboShip: reveal the real MM item behind the foreign sentinel.
                         if (itemLoc->GetPlacedRandomizerGet() == RG_COMBO_FOREIGN) {
-                            const ComboRando::ForeignItem* fi = OOT_LookupForeign(
-                                gSaveContext.fileNum, Rando::StaticData::GetLocation(rc)->GetName());
+                            const ComboRando::ForeignItem* fi =
+                                OOT_LookupForeign(gSaveContext.fileNum, Rando::StaticData::GetLocation(rc)->GetName());
                             if (fi != nullptr && !fi->displayName.empty()) {
                                 txt = fi->displayName;
                             }

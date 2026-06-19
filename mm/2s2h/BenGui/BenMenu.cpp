@@ -412,8 +412,9 @@ void BenMenu::AddSettings() {
         ImGui::SeparatorText("Thank You");
         ImGui::PopStyleColor();
         ImGui::SameLine();
-        ImTextureID heartTextureId = std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())->GetTextureByName(
-            (const char*)gQuestIconHeartContainer2Tex);
+        ImTextureID heartTextureId =
+            std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())
+                ->GetTextureByName((const char*)gQuestIconHeartContainer2Tex);
         ImGui::Image(heartTextureId, ImVec2(25.0f, 25.0f));
         ImGui::TextWrapped("Special thanks to our contributors, playtesters, artists, moderators, helpers, and "
                            "everyone in the larger decomp & N64 communities who make this project possible.\n\n");

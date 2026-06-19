@@ -430,8 +430,8 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
     s32 xluStart;
     s32 i;
 
-    if ((drawId < 0) || (drawId >= (s32)(sizeof(sDrawItemTable) / sizeof(sDrawItemTable[0]))) ||
-        (outDlists == NULL) || (outXluStart == NULL) || (outScale == NULL)) {
+    if ((drawId < 0) || (drawId >= (s32)(sizeof(sDrawItemTable) / sizeof(sDrawItemTable[0]))) || (outDlists == NULL) ||
+        (outXluStart == NULL) || (outScale == NULL)) {
         return 0;
     }
     *outScale = 0.0f; // 0 = no extra scale
@@ -439,33 +439,59 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
     res = sDrawItemTable[drawId].dlists;
 
     if (drawFunc == GetItem_DrawOpa0) {
-        order = sOrder0; count = 1; xluStart = -1;
+        order = sOrder0;
+        count = 1;
+        xluStart = -1;
     } else if ((drawFunc == GetItem_DrawMaskOrBombchu)) {
-        order = sOrder0; count = 1; xluStart = -1; // 26Opa -> 25Opa approximation
+        order = sOrder0;
+        count = 1;
+        xluStart = -1; // 26Opa -> 25Opa approximation
     } else if (drawFunc == GetItem_DrawOpa0Xlu1) {
-        order = sOrder01; count = 2; xluStart = 1;
+        order = sOrder01;
+        count = 2;
+        xluStart = 1;
     } else if (drawFunc == GetItem_DrawXlu01) {
-        order = sOrder01; count = 2; xluStart = 0;
+        order = sOrder01;
+        count = 2;
+        xluStart = 0;
     } else if (drawFunc == GetItem_DrawEggOrMedallion) {
-        order = sOrder01; count = 2; xluStart = -1; // 26Opa -> 25Opa approximation, both OPA
+        order = sOrder01;
+        count = 2;
+        xluStart = -1; // 26Opa -> 25Opa approximation, both OPA
     } else if (drawFunc == GetItem_DrawCompass) {
         // The XLU layer really uses SETUPDL_5; the consumer's 25Xlu is a close approximation.
-        order = sOrder01; count = 2; xluStart = 1;
+        order = sOrder01;
+        count = 2;
+        xluStart = 1;
     } else if (drawFunc == GetItem_DrawMagicArrow) {
-        order = sOrder012; count = 3; xluStart = 1;
+        order = sOrder012;
+        count = 3;
+        xluStart = 1;
     } else if (drawFunc == GetItem_DrawOpa10Xlu2) {
-        order = sOrder102; count = 3; xluStart = 2;
+        order = sOrder102;
+        count = 3;
+        xluStart = 2;
     } else if (drawFunc == GetItem_DrawOpa1023) {
-        order = sOrder1023; count = 4; xluStart = -1;
+        order = sOrder1023;
+        count = 4;
+        xluStart = -1;
     } else if (drawFunc == GetItem_DrawOpa10Xlu32) {
-        order = sOrder1032; count = 4; xluStart = 2;
+        order = sOrder1032;
+        count = 4;
+        xluStart = 2;
     } else if (drawFunc == GetItem_DrawSmallRupee) {
-        order = sOrder1032; count = 4; xluStart = 2;
+        order = sOrder1032;
+        count = 4;
+        xluStart = 2;
         *outScale = 0.7f; // SmallRupee applies a 0.7 uniform model scale; carry it across
     } else if (drawFunc == GetItem_DrawBulletBag) {
-        order = sOrder10234; count = 5; xluStart = 2;
+        order = sOrder10234;
+        count = 5;
+        xluStart = 2;
     } else if (drawFunc == GetItem_DrawWallet) {
-        order = sOrderWallet; count = 8; xluStart = -1;
+        order = sOrderWallet;
+        count = 8;
+        xluStart = -1;
     } else {
         return 0;
     }

@@ -417,28 +417,48 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
 
     if (drawFunc == GetItem_DrawRemains) {
         // Single OPA DL at 0.02 scale; see the portability note in the header comment.
-        order = sOrder0; count = 1; xluStart = -1;
+        order = sOrder0;
+        count = 1;
+        xluStart = -1;
         *outScale = 0.02f;
     } else if (drawFunc == GetItem_DrawOpa0) {
-        order = sOrder0; count = 1; xluStart = -1;
+        order = sOrder0;
+        count = 1;
+        xluStart = -1;
     } else if (drawFunc == GetItem_DrawOpa01) {
-        order = sOrder01; count = 2; xluStart = -1;
+        order = sOrder01;
+        count = 2;
+        xluStart = -1;
     } else if (drawFunc == GetItem_DrawOpa0Xlu1) {
-        order = sOrder01; count = 2; xluStart = 1;
+        order = sOrder01;
+        count = 2;
+        xluStart = 1;
     } else if (drawFunc == GetItem_DrawXlu01) {
-        order = sOrder01; count = 2; xluStart = 0;
+        order = sOrder01;
+        count = 2;
+        xluStart = 0;
     } else if (drawFunc == GetItem_DrawCompass) {
         // The XLU layer really uses SETUPDL_5; the consumer's 25Xlu is a close approximation.
-        order = sOrder01; count = 2; xluStart = 1;
+        order = sOrder01;
+        count = 2;
+        xluStart = 1;
     } else if (drawFunc == GetItem_DrawMagicArrow) {
-        order = sOrder012; count = 3; xluStart = 1;
+        order = sOrder012;
+        count = 3;
+        xluStart = 1;
     } else if (drawFunc == GetItem_DrawUpgrades) {
-        order = sOrder1023; count = 4; xluStart = -1;
+        order = sOrder1023;
+        count = 4;
+        xluStart = -1;
     } else if (drawFunc == GetItem_DrawWallet) {
-        order = sOrderWallet; count = 8; xluStart = -1;
+        order = sOrderWallet;
+        count = 8;
+        xluStart = -1;
     } else if ((drawFunc == GetItem_DrawRupee) || (drawFunc == GetItem_DrawSmallRupee)) {
         // SmallRupee also applies a 0.7 model scale we cannot carry across; acceptable mismatch.
-        order = sOrder1032; count = 4; xluStart = 2;
+        order = sOrder1032;
+        count = 4;
+        xluStart = 2;
     } else {
         return 0;
     }

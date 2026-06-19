@@ -82,8 +82,8 @@ class MMAnchor {
     static MMAnchor* Instance;
 
     // Launcher-facing lifecycle / transport.
-    void Activate();   // MM became the active game
-    void Deactivate(); // MM backgrounded
+    void Activate();                                 // MM became the active game
+    void Deactivate();                               // MM backgrounded
     void OnIncomingJson(const std::string& payload); // launcher recv thread -> enqueue
     void ProcessIncomingPacketQueue();               // MM game thread -> drain + dispatch
 

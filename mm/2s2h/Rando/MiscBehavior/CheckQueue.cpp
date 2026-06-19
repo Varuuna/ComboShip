@@ -8,9 +8,9 @@
 #include "2s2h/ShipUtils.h"
 #include "Traps.h"
 #ifdef COMBO_BUILD
-#include "rando/CrossMailbox.h"  // ComboShip: cross-world mailbox
-#include "rando/CrossForeign.h"  // ComboShip: cross-world foreign-item marker map
-#include "2s2h/SaveManager/SaveManager.h"  // ComboShip: persist delivered cross items into the MM save
+#include "rando/CrossMailbox.h"           // ComboShip: cross-world mailbox
+#include "rando/CrossForeign.h"           // ComboShip: cross-world foreign-item marker map
+#include "2s2h/SaveManager/SaveManager.h" // ComboShip: persist delivered cross items into the MM save
 // ComboShip: Anchor shared-progression co-op — broadcast a locally-obtained check to teammates.
 extern "C" void MMAnchor_BroadcastCheckItem(int randoCheckId, int randoItemId);
 #endif
@@ -25,26 +25,28 @@ extern s16 D_801CFF94[250];
 #ifdef COMBO_BUILD
 // ComboShip: grant any cross-world items addressed to MM for the current slot.
 static void Rando_CrossMailboxDrain() {
-    if (gPlayState == nullptr) return;
-    if (gSaveContext.fileNum == 0xFF) return;  // no real save loaded (title / debug sentinel)
+    if (gPlayState == nullptr)
+        return;
+    if (gSaveContext.fileNum == 0xFF)
+        return; // no real save loaded (title / debug sentinel)
     // MM's runtime gSaveContext.fileNum is already the 0-based canonical slot (SaveManager_LoadSaveFile
     // stores mmFileNum-1), identical to OOT's. The N+1 offset is only the on-disk MM file number.
     int slot = gSaveContext.fileNum;
     auto pending = ComboRando::LoadPending(slot, ComboRando::GAME_MM);
-    if (pending.empty()) return;
+    if (pending.empty())
+        return;
 
     for (const auto& e : pending) {
         // The item's home is MM (itemName is an MM RI_* spoiler name). Map it to its RandoItemId and
         // grant the real item.
         RandoItemId ri = Rando::StaticData::GetItemIdFromName(e.itemName.c_str());
         if (ri == RI_UNKNOWN) {
-            SPDLOG_WARN("[ComboShip] MM received cross item '{}' (from OOT): unknown MM item, skipping",
-                        e.itemName);
+            SPDLOG_WARN("[ComboShip] MM received cross item '{}' (from OOT): unknown MM item, skipping", e.itemName);
             continue;
         }
         Rando::GiveItem(ri);
-        Notification::Emit({ .message = "Received from Hyrule:",
-                             .suffix = e.displayName.empty() ? e.itemName : e.displayName });
+        Notification::Emit(
+            { .message = "Received from Hyrule:", .suffix = e.displayName.empty() ? e.itemName : e.displayName });
         SPDLOG_INFO("[ComboShip] MM received cross item '{}' (from OOT): granted", e.itemName);
     }
     // ComboShip: persist the granted items straight into the MM save file so they survive even if the
@@ -66,7 +68,8 @@ static std::unordered_map<std::string, ComboRando::ForeignItem> g_mmForeignMap;
 // RI_COMBO_FOREIGN. Returns nullptr when the check isn't foreign. Keyed by Checks[].name (RC_*).
 const ComboRando::ForeignItem* Rando::MiscBehavior::MM_LookupForeign(RandoCheckId rc) {
     int slot = gSaveContext.fileNum;
-    if (slot == 0xFF) return nullptr; // no real save loaded (title screen sentinel)
+    if (slot == 0xFF)
+        return nullptr; // no real save loaded (title screen sentinel)
     if (slot != g_mmForeignSlot) {
         g_mmForeignMap = ComboRando::LoadForeignForGame(slot, ComboRando::GAME_MM);
         g_mmForeignSlot = slot;
@@ -99,8 +102,7 @@ static void Rando_SendForeignCheck(RandoCheckId rc) {
         e.delivered = false;
         ComboRando::Enqueue(slot, e);
         Notification::Emit({ .message = "Sent to Hyrule:", .suffix = it->second.displayName });
-        SPDLOG_INFO("[ComboShip] MM sent foreign item '{}' to OOT (from check '{}')", it->second.itemName,
-                    checkName);
+        SPDLOG_INFO("[ComboShip] MM sent foreign item '{}' to OOT (from check '{}')", it->second.itemName, checkName);
     } else {
         SPDLOG_WARN("[ComboShip] MM foreign sentinel at '{}' but no foreign-map entry; dropping", checkName);
     }

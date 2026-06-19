@@ -48,7 +48,7 @@ void Main_LogSystemHeap(void) {
 #ifdef _WIN32
 __declspec(dllexport)
 #endif
-void SOH_RunMain(int argc, char** argv) {
+    void SOH_RunMain(int argc, char** argv) {
     GameConsole_Init();
     // ComboShip: SOH_Init() (i.e. InitOTR) was already called by the launcher before this.
     // TODO: Was moved to below InitOTR because it requires window to be setup. But will be late to catch crashes.
@@ -67,7 +67,7 @@ void SOH_RunMain(int argc, char** argv) {
 #ifdef _WIN32
 __declspec(dllexport)
 #endif
-void SOH_Deinit(void) {
+    void SOH_Deinit(void) {
     DeinitOTR();
     Heaps_Free();
 }
@@ -79,7 +79,7 @@ void SOH_Deinit(void) {
 #ifdef _WIN32
 __declspec(dllexport)
 #endif
-void SOH_RunGameLoop(void) {
+    void SOH_RunGameLoop(void) {
     Graph_ThreadEntry(0);
 }
 #endif

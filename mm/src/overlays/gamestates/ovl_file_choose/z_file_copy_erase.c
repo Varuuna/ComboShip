@@ -977,6 +977,18 @@ void FileSelect_EraseConfirm(GameState* thisx) {
         Audio_PlaySfx(NA_SE_SY_FSEL_CLOSE);
     } else if (CHECK_BTN_ANY(input->press.button, BTN_A | BTN_START)) {
         Sram_EraseSave(this, sramCtx, this->selectedFileIndex);
+#ifdef COMBO_BUILD
+        // ComboShip (issue #1): a save slot is one combined OOT+MM playthrough, so erasing it here
+        // also wipes OOT's save for the slot. The launcher registers the routing via
+        // MM_SetDeleteForeignSave; selectedFileIndex is the 0-based slot. (MM has no port-level erase
+        // choke — Sram_EraseSave only zeroes the flash buffer — so the seam fires from the menu.)
+        {
+            extern void (*gMMComboDeleteForeignSave)(int fileNum);
+            if (gMMComboDeleteForeignSave) {
+                gMMComboDeleteForeignSave(this->selectedFileIndex);
+            }
+        }
+#endif
         if (!gSaveContext.flashSaveAvailable) {
             this->configMode = CM_ERASE_ANIM_1;
         } else {

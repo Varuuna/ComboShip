@@ -2835,8 +2835,33 @@ extern "C" void Save_CopyFile(int from, int to) {
     SaveManager::Instance->CopyZeldaFile(from, to);
 }
 
+#ifdef COMBO_BUILD
+// ComboShip (issue #1): cross-game erase seam. A save slot is one combined OOT+MM playthrough, so
+// erasing it from either game's file-select must wipe both saves. The launcher (ComboShip.cpp)
+// registers routing via SOH_SetDeleteForeignSave so OOT's erase forwards the slot to MM, and calls
+// SOH_DeleteSaveFile so MM's erase can wipe OOT's matching save. See docs/UPSTREAM_MERGES.md.
+extern "C" void (*gComboDeleteForeignSave)(int fileNum) = nullptr;
+extern "C" __declspec(dllexport) void SOH_SetDeleteForeignSave(void (*cb)(int)) {
+    gComboDeleteForeignSave = cb;
+}
+// Inbound: launcher calls this when MM erases a slot. Goes straight to DeleteZeldaFile (NOT
+// Save_DeleteFile) so it does not re-fire OOT's own erase seam and loop back into MM.
+extern "C" __declspec(dllexport) void SOH_DeleteSaveFile(int fileNum) {
+    if (SaveManager::Instance) {
+        SaveManager::Instance->DeleteZeldaFile(fileNum);
+    }
+}
+#endif
+
 extern "C" void Save_DeleteFile(int fileNum) {
     SaveManager::Instance->DeleteZeldaFile(fileNum);
+#ifdef COMBO_BUILD
+    // ComboShip (issue #1): erasing this OOT slot also wipes MM's save for the slot. Sole caller is
+    // the erase menu (z_file_copy_erase.c), NOT CopyZeldaFile, so copy never triggers a cross-delete.
+    if (gComboDeleteForeignSave) {
+        gComboDeleteForeignSave(fileNum);
+    }
+#endif
 }
 
 extern "C" u32 Save_Exist(int fileNum) {

@@ -2705,6 +2705,28 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
     SaveManager_SaveCurrentForCombo();
 }
 
+// ComboShip (issue #1): cross-game erase seam. A save slot is one combined OOT+MM playthrough, so
+// erasing it from either game's file-select must wipe both saves. Inbound: the launcher calls
+// MM_DeleteSaveFile when OOT erases a slot. fileNum is the 0-based file-select slot; MM's JSON naming
+// is 1-based (file1.json...), so the +1 lives here and the launcher does no index math. Deletes both
+// the main and backup files (mirrors Enhancements/DifficultyOptions/DeleteFileOnDeath.cpp). This goes
+// straight to the file system; it never re-enters MM's erase menu, so it cannot loop back into OOT.
+// See docs/UPSTREAM_MERGES.md.
+void SaveManager_DeleteSaveFile(const std::filesystem::path& fileName);
+std::string SaveManager_GetFileName(int fileNum, bool isBackup);
+extern "C" __declspec(dllexport) void MM_DeleteSaveFile(int fileNum) {
+    SaveManager_DeleteSaveFile(SaveManager_GetFileName(fileNum + 1, false));
+    SaveManager_DeleteSaveFile(SaveManager_GetFileName(fileNum + 1, true));
+    SPDLOG_INFO("[ComboShip] MM_DeleteSaveFile: erased MM save slot {}", fileNum);
+}
+
+// Outbound seam: the launcher registers routing here so MM's own erase can wipe OOT's matching save.
+// Fired from z_file_copy_erase.c on erase confirm with the 0-based slot.
+extern "C" void (*gMMComboDeleteForeignSave)(int fileNum) = nullptr;
+extern "C" __declspec(dllexport) void MM_SetDeleteForeignSave(void (*cb)(int)) {
+    gMMComboDeleteForeignSave = cb;
+}
+
 // Returns the number of archives open in the MM-private ArchiveManager.
 // 0 means MM_InitArchives was not called or found no files.
 extern "C" __declspec(dllexport) int MM_ArchiveCount() {

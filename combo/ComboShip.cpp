@@ -198,6 +198,27 @@ static FnOracleGetChecks Combo_MM_Rando_GetReachableChecks  = nullptr;
 static FnOraclePlaceItem Combo_MM_Rando_PlaceItem           = nullptr;
 static FnOracleVoid      Combo_MM_Rando_Restore             = nullptr;
 
+// ComboShip (issue #1): cross-game erase seam. A save slot is one combined OOT+MM playthrough, so
+// erasing it from either game's file-select wipes both saves. Each game fires its Set*-registered
+// callback with the 0-based slot when the user erases; the launcher routes it to the OTHER game's
+// save-only delete export. The exports never re-enter a menu erase path, so there is no loop.
+typedef void (*FnSetDeleteForeignSave)(void (*)(int));
+typedef void (*FnDeleteSaveFile)(int);
+static FnSetDeleteForeignSave SOH_SetDeleteForeignSave = nullptr;
+static FnSetDeleteForeignSave MM_SetDeleteForeignSave  = nullptr;
+static FnDeleteSaveFile       SOH_DeleteSaveFile        = nullptr;
+static FnDeleteSaveFile       MM_DeleteSaveFile         = nullptr;
+
+// Registered into each game; invoked when that game erases a slot. Routes the (0-based) slot to the
+// OTHER game's delete export. The launcher does no index math — MM's 1-based JSON naming is handled
+// inside MM_DeleteSaveFile.
+static void DeleteForeignSaveFromOOT(int slot) {
+    if (MM_DeleteSaveFile) MM_DeleteSaveFile(slot);
+}
+static void DeleteForeignSaveFromMM(int slot) {
+    if (SOH_DeleteSaveFile) SOH_DeleteSaveFile(slot);
+}
+
 // ComboShip: placement injection exports
 typedef void (*FnSetGenerateCb)(void (*)(int));
 typedef void (*FnApplyPlacements)(const char*);
@@ -783,6 +804,12 @@ int main(int argc, char** argv) {
     Combo_MM_Rando_PlaceItem           = (FnOraclePlaceItem) GetSym(mmModule,  "Combo_MM_Rando_PlaceItem");
     Combo_MM_Rando_Restore             = (FnOracleVoid)      GetSym(mmModule,  "Combo_MM_Rando_Restore");
 
+    // Cross-game erase seam (issue #1)
+    SOH_SetDeleteForeignSave = (FnSetDeleteForeignSave) GetSym(sohModule, "SOH_SetDeleteForeignSave");
+    MM_SetDeleteForeignSave  = (FnSetDeleteForeignSave) GetSym(mmModule,  "MM_SetDeleteForeignSave");
+    SOH_DeleteSaveFile       = (FnDeleteSaveFile)       GetSym(sohModule, "SOH_DeleteSaveFile");
+    MM_DeleteSaveFile        = (FnDeleteSaveFile)       GetSym(mmModule,  "MM_DeleteSaveFile");
+
     if (!MM_InitArchives) {
         std::cerr << "ERROR: 2ship.dll is missing required ComboShip exports (MM_InitArchives)." << std::endl;
         std::cerr << "       Rebuild 2ship.dll from this ComboShip branch." << std::endl;
@@ -973,6 +1000,10 @@ int main(int argc, char** argv) {
         SOH_SetOnSceneSwitchCallback(Combo_OnOOTSceneSwitch);
         std::cout << "[ComboShip] OOT scene-switch callback registered." << std::endl;
     }
+
+    // Cross-game erase seam (issue #1): erasing a save slot in either game wipes both saves.
+    if (SOH_SetDeleteForeignSave) SOH_SetDeleteForeignSave(DeleteForeignSaveFromOOT);
+    if (MM_SetDeleteForeignSave)  MM_SetDeleteForeignSave(DeleteForeignSaveFromMM);
 
     // --- 6. Bidirectional game-switch loop ---
     // OOT boots first (SOH_RunMain), then each game's loop returns when it signals a switch:

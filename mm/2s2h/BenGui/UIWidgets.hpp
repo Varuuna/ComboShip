@@ -313,7 +313,7 @@ struct IntSliderOptions : WidgetOptions {
     Colors color = Colors::Gray;
     ImGuiSliderFlags flags = 0;
     ImVec2 size = { 0, 0 };
-    
+
     IntSliderOptions& ShowAdjustmentButtons(bool showAdjustmentButtons_) {
         showAdjustmentButtons = showAdjustmentButtons_;
         return *this;
@@ -1077,7 +1077,7 @@ bool ComboboxWithSearch(const char* label, T* value, const std::unordered_map<T,
         }
     }
     float comboWidth = CalcComboWidth(longest, options.flags);
-    
+
     ImGui::AlignTextToFramePadding();
     if (options.labelPosition != LabelPosition::None) {
         if (options.alignment == ComponentAlignment::Right) {
@@ -1096,40 +1096,40 @@ bool ComboboxWithSearch(const char* label, T* value, const std::unordered_map<T,
             }
         }
     }
-    
+
     ImGui::SetNextItemWidth(options.width.value_or(comboWidth));
     if (ImGui::BeginCombo(invisibleLabel, comboMap->at(*value), options.flags)) {
         // Use static map to maintain filter state per combobox instance
         static std::unordered_map<ImGuiID, ImGuiTextFilter> filters;
         ImGuiID filterId = ImGui::GetID("##search");
         ImGuiTextFilter& filter = filters[filterId];
-        
+
         // Focus search input when dropdown first opens
         if (ImGui::IsWindowAppearing()) {
             ImGui::SetKeyboardFocusHere();
         }
-        
+
         ImGui::SetNextItemWidth(-FLT_MIN);
         filter.Draw("##search", -FLT_MIN);
-        
+
         ImGui::Separator();
-        
+
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10.0f, 10.0f));
         for (const auto& [itemId, itemName] : *comboMap) {
             if (!filter.PassFilter(itemName)) {
                 continue;
             }
-            
+
             if (ImGui::Selectable(itemName, itemId == *value)) {
                 *value = itemId;
                 dirty = true;
             }
         }
         ImGui::PopStyleVar();
-        
+
         ImGui::EndCombo();
     }
-    
+
     if (options.labelPosition != LabelPosition::None) {
         if (options.alignment == ComponentAlignment::Left) {
             if (options.labelPosition == LabelPosition::Near) {
@@ -1180,8 +1180,7 @@ bool CVarInputString(const char* label, const char* cvarName, const InputOptions
 bool InputInt(const char* label, int32_t* value, const InputOptions& options = {});
 bool CVarInputInt(const char* label, const char* cvarName, const InputOptions& options = {});
 bool CVarColorPicker(const char* label, const char* valueCvar, Color_RGBA8 defaultColor, bool hasAlpha = false,
-                     const char* lockedCvar = nullptr,
-                     UIWidgets::Colors themeColor = UIWidgets::Colors::LightBlue);
+                     const char* lockedCvar = nullptr, UIWidgets::Colors themeColor = UIWidgets::Colors::LightBlue);
 bool RadioButton(const char* label, bool active);
 bool CVarRadioButton(const char* text, const char* cvarName, int32_t id, const RadioButtonsOptions& options);
 bool StateButton(const char* str_id, const char* label, ImVec2 size, UIWidgets::ButtonOptions options,

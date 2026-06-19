@@ -7,25 +7,25 @@
 #include "BenModals.h"
 
 namespace BenGui {
-    class BenMenu; // ComboShip: forward-declare for GetBenMenu return type
+class BenMenu; // ComboShip: forward-declare for GetBenMenu return type
 
-    void SetupHooks();
-    void SetupMenu();
-    // ComboShip: ensure MM's BenMenu is the shared Gui's active menu (constructs it on first call,
-    // re-installs it thereafter). Used on the combo transition where the ctor's SetupMenu() is skipped.
-    void ActivateMenu();
-    void SetupMenuElements();
-    void SetupGuiElements();
-    void Draw();
-    void Destroy();
-    size_t PopupsQueued();
-    void RegisterPopup(std::string title, std::string message, std::string button1 = "OK", std::string button2 = "",
+void SetupHooks();
+void SetupMenu();
+// ComboShip: ensure MM's BenMenu is the shared Gui's active menu (constructs it on first call,
+// re-installs it thereafter). Used on the combo transition where the ctor's SetupMenu() is skipped.
+void ActivateMenu();
+void SetupMenuElements();
+void SetupGuiElements();
+void Draw();
+void Destroy();
+size_t PopupsQueued();
+void RegisterPopup(std::string title, std::string message, std::string button1 = "OK", std::string button2 = "",
                    std::function<void()> button1callback = nullptr, std::function<void()> button2callback = nullptr);
-    bool DismissPopup(std::string title);
-    UIWidgets::Colors GetMenuThemeColor();
-    void SetDisplayOverlayVisibility(bool visible);
-    std::shared_ptr<BenMenu> GetBenMenu(); // ComboShip
-}
+bool DismissPopup(std::string title);
+UIWidgets::Colors GetMenuThemeColor();
+void SetDisplayOverlayVisibility(bool visible);
+std::shared_ptr<BenMenu> GetBenMenu(); // ComboShip
+} // namespace BenGui
 
 #define THEME_COLOR BenGui::GetMenuThemeColor()
 

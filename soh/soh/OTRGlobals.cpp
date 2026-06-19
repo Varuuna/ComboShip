@@ -1627,7 +1627,7 @@ extern "C" void InitOTR(int argc, char* argv[]) {
 #ifdef COMBO_BUILD
     // Flag set when we want to switch to MM. Acted on at the start of the next clean frame.
     static bool sComboSwitchPending = false;
-    static int  sComboSwitchFileNum = -1;
+    static int sComboSwitchFileNum = -1;
 
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnSceneInit>([](int16_t sceneNum) {
         // Cross-game OOT->MM trigger: entering the Happy Mask Shop.
@@ -1638,7 +1638,8 @@ extern "C" void InitOTR(int argc, char* argv[]) {
     });
 
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameFrameUpdate>([]() {
-        if (!sComboSwitchPending) return;
+        if (!sComboSwitchPending)
+            return;
         sComboSwitchPending = false;
         SaveManager::Instance->SaveFile(sComboSwitchFileNum);
         SaveManager::Instance->ThreadPoolWait();
@@ -2578,6 +2579,36 @@ extern "C" __declspec(dllexport) void SOH_SetOnSceneSwitchCallback(void (*cb)(in
 }
 
 #ifdef COMBO_BUILD
+// ComboShip: Anchor transport seam. The persistent socket lives in ComboShip.exe; these exports
+// wire the launcher's connection to soh's in-place Anchor (declspec must follow extern "C" or the
+// symbol isn't exported). See docs/UPSTREAM_MERGES.md.
+extern "C" __declspec(dllexport) void SOH_SetAnchorSend(void (*cb)(const char*)) {
+    gComboAnchorSend = cb;
+}
+extern "C" __declspec(dllexport) void SOH_SetAnchorConnect(void (*cb)(const char*, uint16_t)) {
+    gComboAnchorConnect = cb;
+}
+extern "C" __declspec(dllexport) void SOH_SetAnchorDisconnect(void (*cb)(void)) {
+    gComboAnchorDisconnect = cb;
+}
+extern "C" __declspec(dllexport) void SOH_Anchor_RecvJson(const char* json) {
+    if (Anchor::Instance && json) {
+        Anchor::Instance->InjectIncomingJson(json);
+    }
+}
+extern "C" __declspec(dllexport) void SOH_Anchor_OnConnected(void) {
+    if (Anchor::Instance) {
+        Anchor::Instance->SetConnectedFromCombo(true);
+    }
+}
+extern "C" __declspec(dllexport) void SOH_Anchor_OnDisconnected(void) {
+    if (Anchor::Instance) {
+        Anchor::Instance->SetConnectedFromCombo(false);
+    }
+}
+#endif
+
+#ifdef COMBO_BUILD
 // Defined in soh/src/code/main.c: re-enters ONLY OOT's game loop (no heap/thread re-init).
 extern "C" void SOH_RunGameLoop(void);
 // Defined in soh/src/code/graph.c: resets the frame state machine so SOH_RunGameLoop restarts the
@@ -2602,7 +2633,7 @@ static void SOH_ReinitForResume() {
 
     // Restart OOT's audio thread (SOH_PrepareForTransition stopped it). Soundfonts/samples are still
     // resident in OOT's RM, so the thread resumes against valid data with no reload/heap reset.
-    OTRAudio_Init();              // counterpart to OTRAudio_Exit() in SOH_PrepareForTransition
+    OTRAudio_Init(); // counterpart to OTRAudio_Exit() in SOH_PrepareForTransition
     // ComboShip: do NOT SohGui::SetupGuiElements() here. OOT's windows persist across the transition,
     // so re-creating them hits AddGuiWindow's duplicate-name rejection -> the new windows never get
     // InitElement'd -> freeing their uninitialized buffers later crashes. The resident windows are
@@ -2629,16 +2660,21 @@ extern "C" __declspec(dllexport) void SOH_DrawSettings(const char* onlyCsv, cons
     // ImGui call, else ImGui::GetCurrentWindow() is null and we crash.
     ComboMenuContext::UseSharedImGuiContext();
     auto menu = SohGui::GetSohMenu();
-    if (!menu) return;
+    if (!menu)
+        return;
     // ComboShip: in combo this menu is never installed as the active Gui menu, so libultraship never
     // calls Init()/InitElement() (which set up disabledMap, window backends, and the theme). Init() is
     // idempotent; call it once before drawing, else widget PreFuncs doing disabledMap.at(...) throw.
     menu->Init();
     std::set<std::string> only, skip;
     auto parseCsv = [](const char* csv, std::set<std::string>& out) {
-        if (!csv || !csv[0]) return;
-        std::stringstream ss(csv); std::string item;
-        while (std::getline(ss, item, ',')) if (!item.empty()) out.insert(item);
+        if (!csv || !csv[0])
+            return;
+        std::stringstream ss(csv);
+        std::string item;
+        while (std::getline(ss, item, ','))
+            if (!item.empty())
+                out.insert(item);
     };
     parseCsv(onlyCsv, only);
     parseCsv(skipCsv, skip);
@@ -2660,7 +2696,8 @@ extern "C" __declspec(dllexport) const CwMenu* SOH_ExportMenu(void) {
 
 extern "C" __declspec(dllexport) void SOH_MenuInvokeCallback(int32_t i) {
     ComboMenuContext::UseSharedImGuiContext();
-    if (auto menu = SohGui::GetSohMenu()) menu->InvokeCallbackByIndex(i);
+    if (auto menu = SohGui::GetSohMenu())
+        menu->InvokeCallbackByIndex(i);
 }
 
 extern "C" __declspec(dllexport) int32_t SOH_MenuEvalDisabled(int32_t i, const char** outReason) {
@@ -2728,7 +2765,7 @@ extern "C" __declspec(dllexport) void SOH_ResumeGame(void) {
 // SOH_ResumeGame minus the frame-loop reset and game loop — SOH_RunMain runs the loop.
 extern "C" __declspec(dllexport) void SOH_ResumeForeground(void) {
     auto ctx = Ship::Context::GetInstance();
-    SOH_ReinitForResume();  // OOT RM active, OOT audio, OOT GUI + menu
+    SOH_ReinitForResume(); // OOT RM active, OOT audio, OOT GUI + menu
     // Re-sync this DLL's ImGui current-context (GImGui is per-module).
     ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
 }
@@ -2764,7 +2801,7 @@ extern "C" __declspec(dllexport) bool SOH_Extract(const char* searchPath) {
 // the same seed + same RNG consumption order, RO_SHOPSANITY_RANDOM counts and all prices match between
 // dump and apply and are fully reproducible. The combo seed is supplied by SOH_SetComboRandoSeed.
 static uint64_t sComboRandoSeed = 0;
-static bool     sComboRandoSeedSet = false;
+static bool sComboRandoSeedSet = false;
 
 // Reseed SoH's rando RNG to the combo master seed. Call right before any shop-setup RNG use so the dump
 // and apply consume an identical random sequence (→ identical shuffled set + prices, reproducible).
@@ -2774,25 +2811,40 @@ static void Combo_SeedShopRng() {
     }
 }
 static const PriceSettingsStruct kComboShopPrices = {
-    RSK_SHOPSANITY_PRICES,                  RSK_SHOPSANITY_PRICES_FIXED_PRICE,
-    RSK_SHOPSANITY_PRICES_RANGE_1,          RSK_SHOPSANITY_PRICES_RANGE_2,
-    RSK_SHOPSANITY_PRICES_NO_WALLET_WEIGHT, RSK_SHOPSANITY_PRICES_CHILD_WALLET_WEIGHT,
-    RSK_SHOPSANITY_PRICES_ADULT_WALLET_WEIGHT, RSK_SHOPSANITY_PRICES_GIANT_WALLET_WEIGHT,
-    RSK_SHOPSANITY_PRICES_TYCOON_WALLET_WEIGHT, RSK_SHOPSANITY_PRICES_AFFORDABLE,
+    RSK_SHOPSANITY_PRICES,
+    RSK_SHOPSANITY_PRICES_FIXED_PRICE,
+    RSK_SHOPSANITY_PRICES_RANGE_1,
+    RSK_SHOPSANITY_PRICES_RANGE_2,
+    RSK_SHOPSANITY_PRICES_NO_WALLET_WEIGHT,
+    RSK_SHOPSANITY_PRICES_CHILD_WALLET_WEIGHT,
+    RSK_SHOPSANITY_PRICES_ADULT_WALLET_WEIGHT,
+    RSK_SHOPSANITY_PRICES_GIANT_WALLET_WEIGHT,
+    RSK_SHOPSANITY_PRICES_TYCOON_WALLET_WEIGHT,
+    RSK_SHOPSANITY_PRICES_AFFORDABLE,
 };
 static const PriceSettingsStruct kComboScrubPrices = {
-    RSK_SCRUBS_PRICES,                  RSK_SCRUBS_PRICES_FIXED_PRICE,
-    RSK_SCRUBS_PRICES_RANGE_1,          RSK_SCRUBS_PRICES_RANGE_2,
-    RSK_SCRUBS_PRICES_NO_WALLET_WEIGHT, RSK_SCRUBS_PRICES_CHILD_WALLET_WEIGHT,
-    RSK_SCRUBS_PRICES_ADULT_WALLET_WEIGHT, RSK_SCRUBS_PRICES_GIANT_WALLET_WEIGHT,
-    RSK_SCRUBS_PRICES_TYCOON_WALLET_WEIGHT, RSK_SCRUBS_PRICES_AFFORDABLE,
+    RSK_SCRUBS_PRICES,
+    RSK_SCRUBS_PRICES_FIXED_PRICE,
+    RSK_SCRUBS_PRICES_RANGE_1,
+    RSK_SCRUBS_PRICES_RANGE_2,
+    RSK_SCRUBS_PRICES_NO_WALLET_WEIGHT,
+    RSK_SCRUBS_PRICES_CHILD_WALLET_WEIGHT,
+    RSK_SCRUBS_PRICES_ADULT_WALLET_WEIGHT,
+    RSK_SCRUBS_PRICES_GIANT_WALLET_WEIGHT,
+    RSK_SCRUBS_PRICES_TYCOON_WALLET_WEIGHT,
+    RSK_SCRUBS_PRICES_AFFORDABLE,
 };
 static const PriceSettingsStruct kComboMerchantPrices = {
-    RSK_MERCHANT_PRICES,                  RSK_MERCHANT_PRICES_FIXED_PRICE,
-    RSK_MERCHANT_PRICES_RANGE_1,          RSK_MERCHANT_PRICES_RANGE_2,
-    RSK_MERCHANT_PRICES_NO_WALLET_WEIGHT, RSK_MERCHANT_PRICES_CHILD_WALLET_WEIGHT,
-    RSK_MERCHANT_PRICES_ADULT_WALLET_WEIGHT, RSK_MERCHANT_PRICES_GIANT_WALLET_WEIGHT,
-    RSK_MERCHANT_PRICES_TYCOON_WALLET_WEIGHT, RSK_MERCHANT_PRICES_AFFORDABLE,
+    RSK_MERCHANT_PRICES,
+    RSK_MERCHANT_PRICES_FIXED_PRICE,
+    RSK_MERCHANT_PRICES_RANGE_1,
+    RSK_MERCHANT_PRICES_RANGE_2,
+    RSK_MERCHANT_PRICES_NO_WALLET_WEIGHT,
+    RSK_MERCHANT_PRICES_CHILD_WALLET_WEIGHT,
+    RSK_MERCHANT_PRICES_ADULT_WALLET_WEIGHT,
+    RSK_MERCHANT_PRICES_GIANT_WALLET_WEIGHT,
+    RSK_MERCHANT_PRICES_TYCOON_WALLET_WEIGHT,
+    RSK_MERCHANT_PRICES_AFFORDABLE,
 };
 
 // The shop slots shopsanity shuffles, using SoH's exact per-shop index pattern. Deterministic for a
@@ -2857,9 +2909,9 @@ static void Combo_SetupOOTShops() {
     const bool merchAllButBeans = ctx->GetOption(RSK_SHUFFLE_MERCHANTS).Is(RO_SHUFFLE_MERCHANTS_ALL_BUT_BEANS);
     const bool beans = ctx->GetOption(RSK_SHUFFLE_MERCHANTS).Is(RO_SHUFFLE_MERCHANTS_BEANS_ONLY) || merchAll;
     ctx->GetItemLocation(RC_ZR_MAGIC_BEAN_SALESMAN)
-        ->SetCustomPrice(beans ? GetRandomPrice(Rando::StaticData::GetLocation(RC_ZR_MAGIC_BEAN_SALESMAN),
-                                                kComboMerchantPrices)
-                               : Rando::StaticData::GetLocation(RC_ZR_MAGIC_BEAN_SALESMAN)->GetVanillaPrice());
+        ->SetCustomPrice(
+            beans ? GetRandomPrice(Rando::StaticData::GetLocation(RC_ZR_MAGIC_BEAN_SALESMAN), kComboMerchantPrices)
+                  : Rando::StaticData::GetLocation(RC_ZR_MAGIC_BEAN_SALESMAN)->GetVanillaPrice());
     for (RandomizerCheck rc : Rando::StaticData::GetMerchantLocations()) {
         uint16_t price = (merchAll || merchAllButBeans)
                              ? GetRandomPrice(Rando::StaticData::GetLocation(rc), kComboMerchantPrices)
@@ -2886,7 +2938,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
     static std::string cached;
 
     nlohmann::json checks = nlohmann::json::array();
-    nlohmann::json items  = nlohmann::json::array();
+    nlohmann::json items = nlohmann::json::array();
 
     bool usedPool = false;
     try {
@@ -2912,16 +2964,17 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         Combo_SeedShopRng(); // seed identically to the apply so the shuffled set matches exactly
         const auto comboShuffledShops = Combo_ShuffledShopSlots();
         const auto& comboShopLocsVec = Rando::StaticData::GetShopLocations();
-        const std::unordered_set<RandomizerCheck> comboShopSlots(comboShopLocsVec.begin(),
-                                                                 comboShopLocsVec.end());
+        const std::unordered_set<RandomizerCheck> comboShopSlots(comboShopLocsVec.begin(), comboShopLocsVec.end());
 #endif
 
         // Iterate allLocations (the settings-scoped check set) instead of all RC_MAX.
         for (RandomizerCheck rc : ctx->allLocations) {
             Rando::Location* loc = Rando::StaticData::GetLocation(rc);
-            if (!loc) continue;
+            if (!loc)
+                continue;
             const std::string& name = loc->GetName();
-            if (name.empty()) continue;
+            if (name.empty())
+                continue;
 
 #ifdef COMBO_BUILD
             if (Combo_IsShopSlot(rc, comboShopSlots) && !comboShuffledShops.count(rc)) {
@@ -2930,19 +2983,23 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
 #endif
 
             RandomizerGet vanillaRG = loc->GetVanillaItem();
-            if (vanillaRG == RG_NONE) continue;
+            if (vanillaRG == RG_NONE)
+                continue;
 
             const std::string& vigName = Rando::StaticData::RetrieveItem(vanillaRG).GetName().GetEnglish();
-            if (vigName.empty()) continue;
+            if (vigName.empty())
+                continue;
 
             // ComboShip: advancement flag — the combined fill logic-places only progression items.
-            checks.push_back({ {"name", name}, {"vanillaItem", vigName},
-                               {"advancement", Rando::StaticData::RetrieveItem(vanillaRG).IsAdvancement()} });
+            checks.push_back({ { "name", name },
+                               { "vanillaItem", vigName },
+                               { "advancement", Rando::StaticData::RetrieveItem(vanillaRG).IsAdvancement() } });
         }
         usedPool = true;
     } catch (const std::exception& e) {
         SPDLOG_WARN("[ComboShip] SOH_DumpRandoStaticData: RegionTable_Init/GenerateLocationPool threw ({}); "
-                    "falling back to full RC_MAX dump", e.what());
+                    "falling back to full RC_MAX dump",
+                    e.what());
     } catch (...) {
         SPDLOG_WARN("[ComboShip] SOH_DumpRandoStaticData: RegionTable_Init/GenerateLocationPool threw unknown "
                     "exception; falling back to full RC_MAX dump");
@@ -2952,19 +3009,24 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         // Fallback: dump every check that has a vanilla item (old Inc2 behaviour).
         for (int i = 0; i < RC_MAX; ++i) {
             Rando::Location* loc = Rando::StaticData::GetLocation(static_cast<RandomizerCheck>(i));
-            if (!loc) continue;
+            if (!loc)
+                continue;
             const std::string& name = loc->GetName();
-            if (name.empty()) continue;
+            if (name.empty())
+                continue;
 
             RandomizerGet vanillaRG = loc->GetVanillaItem();
-            if (vanillaRG == RG_NONE) continue;
+            if (vanillaRG == RG_NONE)
+                continue;
 
             const std::string& vigName = Rando::StaticData::RetrieveItem(vanillaRG).GetName().GetEnglish();
-            if (vigName.empty()) continue;
+            if (vigName.empty())
+                continue;
 
             // ComboShip: advancement flag — same as the pool path above.
-            checks.push_back({ {"name", name}, {"vanillaItem", vigName},
-                               {"advancement", Rando::StaticData::RetrieveItem(vanillaRG).IsAdvancement()} });
+            checks.push_back({ { "name", name },
+                               { "vanillaItem", vigName },
+                               { "advancement", Rando::StaticData::RetrieveItem(vanillaRG).IsAdvancement() } });
         }
     }
 
@@ -2972,13 +3034,14 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
     for (int rg = 0; rg < RG_MAX; ++rg) {
         Rando::Item& item = Rando::StaticData::RetrieveItem(static_cast<RandomizerGet>(rg));
         const std::string& name = item.GetName().GetEnglish();
-        if (name.empty()) continue;
+        if (name.empty())
+            continue;
         // ComboShip: OOT item names are already human English; displayName == name keeps the
         // dump schema symmetric with MM's (which needs the distinction: RI_* vs human).
-        items.push_back({ {"name", name}, {"displayName", name} });
+        items.push_back({ { "name", name }, { "displayName", name } });
     }
 
-    cached = nlohmann::json{ {"checks", std::move(checks)}, {"items", std::move(items)} }.dump();
+    cached = nlohmann::json{ { "checks", std::move(checks) }, { "items", std::move(items) } }.dump();
     return cached.c_str();
 }
 
@@ -3009,34 +3072,36 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
         nlohmann::json placements = nlohmann::json::parse(json);
         int placed = 0, skipped = 0;
         for (auto& [name, itemVal] : placements.items()) {
-            if (!itemVal.is_string()) { ++skipped; continue; }
+            if (!itemVal.is_string()) {
+                ++skipped;
+                continue;
+            }
             const std::string itemName = itemVal.get<std::string>();
 
             auto rcIt = Rando::StaticData::locationNameToEnum.find(name);
             if (rcIt == Rando::StaticData::locationNameToEnum.end()) {
                 SPDLOG_WARN("[ComboShip] SOH_ApplyRandoPlacements: unknown location '{}'", name);
-                ++skipped; continue;
+                ++skipped;
+                continue;
             }
             auto rgIt = Rando::StaticData::itemNameToEnum.find(itemName);
             if (rgIt == Rando::StaticData::itemNameToEnum.end()) {
                 SPDLOG_WARN("[ComboShip] SOH_ApplyRandoPlacements: unknown item '{}' at '{}'", itemName, name);
-                ++skipped; continue;
+                ++skipped;
+                continue;
             }
 
             RandomizerCheck rc = rcIt->second;
-            RandomizerGet   rg = rgIt->second;
+            RandomizerGet rg = rgIt->second;
             ctx->PlaceItemInLocation(rc, rg, false, false);
             ++placed;
         }
 
         ctx->SetSeedGenerated(true);
-        SPDLOG_INFO("[ComboShip] SOH_ApplyRandoPlacements: placed={} skipped={} seedGenerated=true",
-                    placed, skipped);
+        SPDLOG_INFO("[ComboShip] SOH_ApplyRandoPlacements: placed={} skipped={} seedGenerated=true", placed, skipped);
     } catch (const std::exception& e) {
         SPDLOG_ERROR("[ComboShip] SOH_ApplyRandoPlacements: exception: {}", e.what());
-    } catch (...) {
-        SPDLOG_ERROR("[ComboShip] SOH_ApplyRandoPlacements: unknown exception");
-    }
+    } catch (...) { SPDLOG_ERROR("[ComboShip] SOH_ApplyRandoPlacements: unknown exception"); }
 }
 
 // ComboShip: generate callback — fired by Sram_InitSave before save creation, giving the combo
@@ -3055,12 +3120,14 @@ extern "C" __declspec(dllexport) void SOH_SetOnComboGenerateCallback(void (*cb)(
 #include "gui/ComboGenProgress.h"
 extern "C" void (*gComboGenerateRequestCallback)(const char*, ComboRando::ComboGenProgress*) = nullptr;
 
-extern "C" __declspec(dllexport) void SOH_SetOnComboGenerateRequestCallback(void (*cb)(const char*, ComboRando::ComboGenProgress*)) {
+extern "C" __declspec(dllexport) void SOH_SetOnComboGenerateRequestCallback(void (*cb)(const char*,
+                                                                                       ComboRando::ComboGenProgress*)) {
     gComboGenerateRequestCallback = cb;
 }
 
 extern "C" __declspec(dllexport) void SOH_TriggerComboGenerate(const char* seed, ComboRando::ComboGenProgress* p) {
-    if (gComboGenerateRequestCallback) gComboGenerateRequestCallback(seed, p);
+    if (gComboGenerateRequestCallback)
+        gComboGenerateRequestCallback(seed, p);
 }
 
 extern "C" __declspec(dllexport) void SOH_SetSeedGenerated(uint8_t g) {
@@ -3074,7 +3141,8 @@ extern "C" __declspec(dllexport) void SOH_SetSeedGenerated(uint8_t g) {
 static bool sOracleInitialized = false;
 
 static void EnsureOracleInit() {
-    if (sOracleInitialized) return;
+    if (sOracleInitialized)
+        return;
     auto ctx = OTRGlobals::Instance->gRandoContext;
     Rando::Settings::GetInstance()->SetAllToContext(); // ComboShip: apply chosen CVar settings before finalizing
     ctx->GetLogic()->Reset();
@@ -3100,13 +3168,15 @@ extern "C" __declspec(dllexport) void Combo_SOH_Rando_Reset(void) {
 }
 
 extern "C" __declspec(dllexport) void Combo_SOH_Rando_SetOwnedItems(const char* itemNamesJson) {
-    if (!itemNamesJson) return;
+    if (!itemNamesJson)
+        return;
     auto ctx = OTRGlobals::Instance->gRandoContext;
     try {
         auto items = nlohmann::json::parse(itemNamesJson);
         for (const auto& name : items) {
             auto it = Rando::StaticData::itemNameToEnum.find(name.get<std::string>());
-            if (it == Rando::StaticData::itemNameToEnum.end()) continue;
+            if (it == Rando::StaticData::itemNameToEnum.end())
+                continue;
             Rando::Item& item = Rando::StaticData::RetrieveItem(it->second);
             item.ApplyEffect();
         }
@@ -3120,20 +3190,23 @@ extern "C" __declspec(dllexport) const char* Combo_SOH_Rando_GetReachableChecks(
     nlohmann::json out = nlohmann::json::array();
     for (RandomizerCheck rc : reachable) {
         const std::string& name = Rando::StaticData::GetLocation(rc)->GetName();
-        if (!name.empty()) out.push_back(name);
+        if (!name.empty())
+            out.push_back(name);
     }
     buf = out.dump();
     return buf.c_str();
 }
 
-extern "C" __declspec(dllexport) void Combo_SOH_Rando_PlaceItem(
-    const char* checkName, const char* itemName) {
-    if (!checkName || !itemName) return;
+extern "C" __declspec(dllexport) void Combo_SOH_Rando_PlaceItem(const char* checkName, const char* itemName) {
+    if (!checkName || !itemName)
+        return;
     auto ctx = OTRGlobals::Instance->gRandoContext;
     auto rcIt = Rando::StaticData::locationNameToEnum.find(checkName);
-    if (rcIt == Rando::StaticData::locationNameToEnum.end()) return;
+    if (rcIt == Rando::StaticData::locationNameToEnum.end())
+        return;
     auto rgIt = Rando::StaticData::itemNameToEnum.find(itemName);
-    if (rgIt == Rando::StaticData::itemNameToEnum.end()) return;
+    if (rgIt == Rando::StaticData::itemNameToEnum.end())
+        return;
     ctx->PlaceItemInLocation(rcIt->second, rgIt->second, false, false);
 }
 

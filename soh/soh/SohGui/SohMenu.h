@@ -55,9 +55,9 @@ class SohMenu : public Ship::Menu {
     // returns a pointer that is stable for the lifetime of this SohMenu instance.
     // comboui ingests the CwMenu and invokes back by index.
     const CwMenu* ExportComboMenu();
-    void InvokeCallbackByIndex(int32_t i);                       // runs widget i's .callback(*w)
+    void InvokeCallbackByIndex(int32_t i);                          // runs widget i's .callback(*w)
     int32_t EvalDisabledByIndex(int32_t i, const char** outReason); // runs widget i's preFunc; 1 if disabled
-    void DrawCustomByIndex(int32_t i);                           // runs widget i's customFunction(*w)
+    void DrawCustomByIndex(int32_t i);                              // runs widget i's customFunction(*w)
 
   private:
     char mGitCommitHashTruncated[8];

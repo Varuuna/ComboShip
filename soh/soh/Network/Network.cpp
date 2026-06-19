@@ -2,6 +2,16 @@
 #include <spdlog/spdlog.h>
 #include <libultraship/libultraship.h>
 
+#ifdef COMBO_BUILD
+// ComboShip: transport hooks registered by ComboShip.exe at boot (see Network.h). When unset (e.g.
+// a standalone non-launcher run), Enable/Disable/Send become no-ops rather than touching a socket.
+extern "C" {
+void (*gComboAnchorSend)(const char* json) = nullptr;
+void (*gComboAnchorConnect)(const char* host, uint16_t port) = nullptr;
+void (*gComboAnchorDisconnect)(void) = nullptr;
+}
+#endif
+
 // MARK: - Public
 
 void Network::Enable(const char* host, uint16_t port) {
@@ -9,6 +19,13 @@ void Network::Enable(const char* host, uint16_t port) {
         return;
     }
 
+#ifdef COMBO_BUILD
+    // ComboShip: ask the launcher to open/keep the shared connection; no local socket or thread.
+    isEnabled = true;
+    if (gComboAnchorConnect) {
+        gComboAnchorConnect(host, port);
+    }
+#else
     if (SDLNet_ResolveHost(&networkAddress, host, port) == -1) {
         SPDLOG_ERROR("[Network] SDLNet_ResolveHost: {}", SDLNet_GetError());
     }
@@ -21,6 +38,7 @@ void Network::Enable(const char* host, uint16_t port) {
     }
 
     receiveThread = std::thread(&Network::ReceiveFromServer, this);
+#endif
 }
 
 void Network::Disable() {
@@ -28,8 +46,17 @@ void Network::Disable() {
         return;
     }
 
+#ifdef COMBO_BUILD
+    // ComboShip: ask the launcher to drop the shared connection.
+    isEnabled = false;
+    isConnected = false;
+    if (gComboAnchorDisconnect) {
+        gComboAnchorDisconnect();
+    }
+#else
     isEnabled = false;
     receiveThread.join();
+#endif
 }
 
 void Network::OnIncomingData(char payload[512]) {
@@ -48,13 +75,39 @@ void Network::ProcessOutgoingPackets() {
 }
 
 void Network::SendDataToRemote(const char* payload) {
+#ifdef COMBO_BUILD
+    // ComboShip: hand the payload to the launcher's outgoing queue; it owns the socket + framing.
+    if (gComboAnchorSend) {
+        gComboAnchorSend(payload);
+    }
+#else
     SPDLOG_DEBUG("[Network] Sending data: {}", payload);
     SDLNet_TCP_Send(networkSocket, payload, strlen(payload) + 1);
+#endif
 }
 
 void Network::SendJsonToRemote(nlohmann::json payload) {
     SendDataToRemote(payload.dump().c_str());
 }
+
+#ifdef COMBO_BUILD
+// ComboShip: launcher receive-thread entry points (replace the local socket + ReceiveFromServer).
+
+void Network::InjectIncomingJson(const std::string& payload) {
+    // Reuse the same parse + dispatch path the socket build uses (parse, OnIncomingJson, try/catch).
+    HandleRemoteJson(payload);
+}
+
+void Network::SetConnectedFromCombo(bool connected) {
+    bool wasConnected = isConnected;
+    isConnected = connected;
+    if (connected && !wasConnected) {
+        OnConnected();
+    } else if (!connected && wasConnected) {
+        OnDisconnected();
+    }
+}
+#endif
 
 // MARK: - Private
 

@@ -1,0 +1,90 @@
+name: Build Artifacts (Windows)
+
+# Produces a runnable ComboShip Release ZIP for download from PRs (via the pr-artifacts workflow)
+# and manual dispatch. Unlike the compile-only "Build (Windows)" gate, this job DOES generate the
+# port asset archives (soh.o2r / 2ship.o2r) — those are built with extract_assets.py --norom from the
+# tracked assets/custom tree, so NO ROM and NO copyrighted content are involved. The ROM-extracted
+# archives (oot.o2r / mm.o2r) are still the tester's job: extracted from their own ROMs at first launch.
+# See docs/UPSTREAM_MERGES.md and CMake/CPackProjectConfig.cmake (the combo/ship/2s2h ZIP component set).
+
+on:
+  pull_request:
+    paths:
+      - 'libultraship/**'
+      - 'soh/**'
+      - 'mm/**'
+      - 'combo/**'
+      - 'CMakeLists.txt'
+      - 'CMake/**'
+      - 'OTRExporter/**'
+      - 'ZAPDTR/**'
+      - '.github/workflows/build-artifacts.yml'
+  workflow_dispatch:
+
+jobs:
+  build-artifacts:
+    # Pin to VS 2022 image — matches the "Visual Studio 17 2022" generator below (see build-windows.yml).
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # The GenerateSohOtr / Generate2ShipOtr targets run OTRExporter/extract_assets.py via Python3.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Shared with the compile gate: caches the expensive vcpkg build + CMake tree.
+      - name: Cache build dir (vcpkg + CMake)
+        uses: actions/cache@v5
+        with:
+          path: build/x64
+          key: build-x64-${{ hashFiles('CMakeLists.txt', 'CMake/**', 'libultraship/cmake/**') }}
+          restore-keys: build-x64-
+
+      - name: Configure
+        # See build-windows.yml: vcvars points VCPKG_ROOT at the (non-git) VS-bundled vcpkg, which
+        # breaks automate-vcpkg.cmake's git pull. Point it at the build-dir vcpkg it clones+caches.
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/build/x64/vcpkg
+        run: cmake -B build/x64 -S . -G "Visual Studio 17 2022" -A x64
+
+      # Order matters: libultraship -> soh -> 2ship (soh before 2ship; they share OTRExporter/ZAPD).
+      # comboui + ComboShip pull the rest of the runtime in as dependencies.
+      - name: Build libultraship
+        run: cmake --build build/x64 --target libultraship --config Release
+      - name: Build soh
+        run: cmake --build build/x64 --target soh --config Release
+      - name: Build 2ship
+        run: cmake --build build/x64 --target 2ship --config Release
+      - name: Build comboui
+        run: cmake --build build/x64 --target comboui --config Release
+      - name: Build ComboShip
+        run: cmake --build build/x64 --target ComboShip --config Release
+
+      # Port asset archives (--norom). GenerateSohOtr/Generate2ShipOtr DEPEND on ZAPD, which these
+      # steps build on demand. They must run before cpack — the ship/2s2h ZIP components install
+      # ${CMAKE_BINARY_DIR}/soh/soh.o2r and .../mm/2ship.o2r.
+      - name: Generate soh.o2r
+        run: cmake --build build/x64 --target GenerateSohOtr --config Release
+      - name: Generate 2ship.o2r
+        run: cmake --build build/x64 --target Generate2ShipOtr --config Release
+
+      # cpack -G ZIP merges the combo/ship/2s2h components into one archive under _packages/.
+      # Call cpack directly with -C Release so the multi-config generator can't package Debug by
+      # mistake (the build-tree CPackConfig.cmake carries CPACK_PROJECT_CONFIG_FILE from configure).
+      - name: Package (cpack ZIP)
+        working-directory: build/x64
+        run: cpack -G ZIP -C Release
+
+      - name: Upload ComboShip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ComboShip-windows
+          path: _packages/*.zip
+          if-no-files-found: error

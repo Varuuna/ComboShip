@@ -4,7 +4,7 @@
 #include "2s2h/Rando/Rando.h"
 #include "2s2h_assets.h"
 #ifdef COMBO_BUILD
-#include "2s2h/Rando/MiscBehavior/MiscBehavior.h"  // ComboShip: MM_LookupForeign for foreign-item name substitution
+#include "2s2h/Rando/MiscBehavior/MiscBehavior.h" // ComboShip: MM_LookupForeign for foreign-item name substitution
 #endif
 
 extern "C" {

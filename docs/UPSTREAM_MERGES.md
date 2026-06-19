@@ -583,3 +583,156 @@ path. On future merges, keep this guarded block in the erase-confirm branch.
 **combo (`combo/ComboShip.cpp`):** resolves the four new symbols, defines `DeleteForeignSaveFromOOT` /
 `DeleteForeignSaveFromMM` (route 0-based slot to the other game), and registers them via
 `SOH_SetDeleteForeignSave` / `MM_SetDeleteForeignSave` alongside the other startup callbacks.
+## Anchor transport moved to the launcher (combo-owned connection) — Phase 1 (2026-06-17)
+
+**Why:** Anchor (upstream SoH online co-op) owned its own TCP socket + receive thread inside
+`soh.dll`, so the connection died on every OOT↔MM portal transition and could never be shared with
+MM. ComboShip now owns ONE persistent connection in `ComboShip.exe` that survives transitions and
+will later route packets to whichever game is active. OOT's Anchor is **not relocated** — only its
+transport is redirected through a minimal COMBO_BUILD seam; all packet/handler/menu/dummy-player
+logic stays byte-intact in `soh/soh/Network/Anchor/`. A relay probe (since removed) confirmed the
+public hm64 server relays our packet types peer-to-peer, so no server changes are needed.
+
+**`soh/soh/Network/Network.h` + `Network.cpp` (vendored, COMBO_BUILD-guarded — preserve on future
+soh merges):** under `COMBO_BUILD`, `Enable`/`Disable` no longer open a socket or spawn
+`ReceiveFromServer`; they call launcher-registered hooks `gComboAnchorConnect`/`gComboAnchorDisconnect`.
+`SendDataToRemote` routes to `gComboAnchorSend` instead of `SDLNet_TCP_Send`. Two new members feed
+the launcher's receive thread back in: `InjectIncomingJson` (reuses `HandleRemoteJson`) and
+`SetConnectedFromCombo` (drives `OnConnected`/`OnDisconnected`). The original socket bodies are kept
+intact under `#else` for non-combo builds. No original lines deleted.
+
+**`soh/soh/Network/Anchor/Anchor.cpp` (vendored, COMBO_BUILD-guarded):** `SendJsonToRemote` sends
+immediately via `Network::SendJsonToRemote` under `COMBO_BUILD` (the launcher owns the thread-safe
+outgoing queue), instead of pushing to the game-side `outgoingPacketQueue` that nothing would drain
+without the local receive thread. Non-combo path unchanged.
+
+**`soh/soh/OTRGlobals.cpp` (vendored, COMBO_BUILD-guarded):** six new exports — `SOH_SetAnchorSend`,
+`SOH_SetAnchorConnect`, `SOH_SetAnchorDisconnect` (store the launcher's transport hooks),
+`SOH_Anchor_RecvJson`, `SOH_Anchor_OnConnected`, `SOH_Anchor_OnDisconnected` (drive the in-place
+Anchor). `declspec` follows `extern "C"` (the export-visibility ordering trap).
+
+**Combo-owned (no further vendored churn):**
+- `combo/ComboShip.cpp` — `namespace ComboAnchor` owns the SDL_net socket + receive thread + a
+  thread-safe outgoing queue, framing NUL-delimited JSON exactly like the old `Network`. It
+  registers `Send`/`Connect`/`Disconnect` into soh at boot and dispatches inbound packets via
+  `SOH_Anchor_RecvJson`. `ComboAnchor::Shutdown()` joins the thread BEFORE any `FreeDll` (the thread
+  calls into soh.dll). `#define SDL_MAIN_HANDLED` precedes the SDL include so SDL doesn't hijack
+  `main`.
+- `combo/CMakeLists.txt` — `ComboShip` now links `SDL2_net` (`-static` on the static-md triplet),
+  mirroring soh's linkage; SDL2main is intentionally not linked.
+
+On future merges: if upstream restructures `Network`/`Anchor` transport, re-apply the COMBO_BUILD
+`#else` split. The launcher-side connection and dispatch are combo-owned and merge-independent.
+
+## MM cross-RM display lists must not be eagerly resolved (foreign-draw crash fix) (2026-06-17)
+
+**Why:** entering MM with a cross-world seed that placed a foreign OOT item at an MM check crashed on
+the first MM draw: `Rando::DrawItem → MM_DrawComboForeign → gSPDisplayList → ResourceMgr_LoadGfxByName
+→ std::vector<Gfx>::operator[]` out of bounds. `MM_DrawComboForeign` submits the OOT model's display
+lists as `__OTR__@oot:…` routed paths. MM's `gSPDisplayList` stub eagerly resolves any `__OTR__`
+pointer via `ResourceMgr_LoadGfxByName` (→ MM's own RM), but a cross-game `@oot:` path isn't in MM's
+archives, so it returned a DisplayList with an empty `Instructions` vector and `&Instructions[0]`
+crashed. Cross-RM-routed paths must instead reach the Fast3D interpreter
+(`gfx_dl_otr_filepath_handler_custom`, `libultraship/src/fast/interpreter.cpp`), which parses
+`@<game>:`, routes via `CrossRMRegistry`, and already null-guards bad routes. This is also the likely
+cause of the "corrupted MM save" reports (a crash mid-MM leaves a half-written save).
+
+**`mm/src/code/stubs.c` (vendored, COMBO_BUILD-guarded — preserve on future mm merges):** in
+`gSPDisplayList`, when the OTR-signature path is a route marker (`imgData[7] == '@'`), emit it as a
+`G_DL_OTR_FILEPATH` command (`gDma1p(pkt, G_DL_OTR_FILEPATH, imgData, 0, G_DL_PUSH)`) and return,
+instead of eager-resolving. This is the **exact mirror** of the OOT-side guard already present in
+`soh/soh/GbiWrap.cpp:gSPDisplayList` (commit for the OOT-foreign-in-MM feature) — MM was simply
+missing the symmetric half. No original lines deleted; non-combo builds keep eager resolution.
+
+## MM Anchor adapter — Phase 2a (MM joins the shared connection) (2026-06-17)
+
+**Why:** MM had no online presence — when a co-op player crossed into MM, peers saw their stale last
+OOT location ("Happy Mask Shop") because OOT's Anchor went dormant and nothing on the MM side sent
+updates. Phase 2a adds an MM-side Anchor adapter that piggybacks on the launcher-owned connection
+(no second socket, no MM Anchor menu) and sends MM client-state with a namespaced scene id.
+
+**Combo-owned / new (no vendored churn):**
+- `mm/2s2h/Network/Anchor/MMAnchor.{h,cpp}` (new) — standalone MM Anchor adapter. Sends via the
+  launcher callback `gMMComboAnchorSend`, receives via the `MM_Anchor_RecvJson` export, is
+  activated/deactivated by the launcher on transitions. Emits JSON shapes matching soh's Anchor
+  (`UPDATE_CLIENT_STATE`/`ALL_CLIENT_STATE`) for cross-client interop. Reads the same process-global
+  `gRemote.Anchor.*` CVars OOT's menu wrote (literals spelled out — MM lacks soh's prefix macro).
+  Scene ids are namespaced (`MM_ANCHOR_SCENE_NAMESPACE = 1000`, fits `s16`) so MM and OOT scene
+  numbers never collide in the shared roster / presence matching. Exports: `MM_SetAnchorSend`,
+  `MM_Anchor_RecvJson`, `MM_Anchor_Activate`, `MM_Anchor_Deactivate`. Picked up by MM's existing
+  `GLOB_RECURSE 2s2h/*.cpp` (CMake reconfigure required after adding the files).
+- `combo/ComboShip.cpp` — `ComboAnchor` now tracks `sActiveGame`, routes inbound packets to the
+  active game, registers `MM_SetAnchorSend`, and calls `SetActiveGame(0|1)` at each transition
+  (activates MM's adapter on OOT→MM, deactivates on the way back). OOT self-reactivates via its own
+  GameInteractor hooks, so it needs no explicit activate.
+
+**`soh/soh/Network/Anchor/AnchorRoomWindow.cpp` (vendored, COMBO_BUILD-guarded — preserve on future
+soh merges):** the room window labels a peer whose `sceneNum >= 1000` (an MM peer) as "Majora's Mask"
+instead of running its namespaced id through OOT's `SohUtils::GetSceneName` (which would render a
+bogus OOT scene name). It also suppresses the seed-mismatch warning for MM peers (`sceneNum >= 1000`)
+— OOT's rando seed and MM's seed aren't comparable, so the check would always false-positive;
+real cross-game seed verification (both games reporting the shared combo masterSeed) is Phase 3.
+Minimal stopgap; Phase 4 moves the room window into the unified combo UI with real MM scene names.
+No original lines deleted.
+
+## MM Anchor adapter — Phase 2b (remote-player puppet + PLAYER_UPDATE) (2026-06-17)
+
+**Why:** make co-op partners visible in MM. Adds per-frame pose broadcast and a "puppet" actor that
+renders remote players' Link across all five transformation forms.
+
+**Combo-owned / new (no vendored churn):**
+- `mm/2s2h/Network/Anchor/MMAnchor.{h,cpp}` extended to the canonical Anchor field set + `PLAYER_UPDATE`
+  send/receive, `RefreshClientActors`, and the `ShouldActorInit`/`OnActorUpdate` hooks.
+- `mm/2s2h/Network/Anchor/DummyPlayer.cpp` (new) — the puppet actor. **Ported from the canonical
+  2S2H Anchor PR (HarbourMasters/2ship2harkinian#1349, by the SoH Anchor author)**, adapted to
+  ComboShip's launcher-owned transport (`MMAnchor` instead of a socket-owning `Anchor`) and
+  `gRemote.Anchor.*` CVar keys. Spawns `ACTOR_PLAYER` → re-tags to `ACTOR_ITEM_INBOX`/`ACTORCAT_NPC`
+  with `DummyPlayer_*` funcs; inits with `gPlayerSkeletons[transformation]` + a mask segment; reuses
+  vanilla `Player_DrawGameplay`; respawns on form change. All five forms render through stock code.
+- Implementation notes vs canonical: joint buffers are serialized as plain int arrays (nlohmann
+  reserves `std::vector<u8>` for its binary type); `posRot` is read via the existing `Vec3f`/`Vec3s`
+  converters (no `from_json<PosRot>` in this project's `BenJsonConversions.hpp`); client-state carries
+  BOTH a namespaced `sceneNum` (OOT roster display) and a raw `sceneId` (MM same-scene puppet match).
+
+No vendored MM source was modified for 2b (unlike the canonical PR, which added `OnSceneSpawnActors`/
+`OnPlayerSfx` hooks to `z_actor.c` — ComboShip uses the existing `OnSceneInit`/`OnActorUpdate` hooks
+instead, avoiding any vendored edit).
+
+## MM Anchor adapter — Phase 2c (shared-progression item sync) (2026-06-18)
+
+**Why:** make a check collected by one co-op player benefit the whole team. ComboShip chose
+*shared-progression* co-op (decided 2026-06-17), not the canonical PR's *multiworld/routed-ownership*
+model — so a locally-obtained check's item is broadcast to all teammates rather than released to an
+owner. The apply path still mirrors the canonical (`ConvertItem` → junk fallback → `Rando::GiveItem`).
+
+**Combo-owned (MMAnchor):** `SendPacket_GiveItem`/`HandlePacket_GiveItem` + `GIVE_ITEM` dispatch. The
+wire carries the **raw** `randoItemId` + its `randoCheckId`; each receiver runs `ConvertItem` against
+its *own* progressive state (so progressive items resolve to the receiver's correct tier) and marks
+`RANDO_SAVE_CHECKS[rc]` obtained to avoid double-collection. `applyingRemoteItem` guards the
+grant→broadcast loop; `targetTeamId` scopes to the team; self-broadcasts are ignored by clientId.
+Flag sync is intentionally deferred (mirrors the canonical, whose `HandlePacket_SetFlag` is stubbed).
+
+**`mm/2s2h/Rando/MiscBehavior/CheckQueue.cpp` (vendored MM rando, COMBO_BUILD-guarded — preserve on
+future mm merges):** at the existing local check-grant point, one guarded call
+`MMAnchor_BroadcastCheckItem((int)CUSTOM_ITEM_PARAM, (int)randoSaveCheck.randoItemId)` (placed while
+`CUSTOM_ITEM_PARAM` still holds the checkId, before it's overwritten with the item id on the next
+line) + one extern declaration in the file's existing COMBO_BUILD include block. No original lines
+moved/deleted. The function is a no-op unless Anchor is active, so non-co-op rando play is unaffected.
+
+## MM Anchor adapter — Phase 2d (late-join / reconnect resync) (2026-06-18)
+
+**Why:** bring a late-joining or reconnecting co-op client up to the team's current progression.
+
+**Combo-owned (MMAnchor, no vendored churn):** ported the canonical `UPDATE_TEAM_STATE` /
+`REQUEST_TEAM_STATE` (2S2H PR #1349) onto the launcher transport. On save (`AfterEndOfCycleSave`) and
+in reply to a `REQUEST_TEAM_STATE`, a client serializes its whole `gSaveContext.save` (via
+`BenJsonConversions`, with the rando-check array compacted — **7 fields**, dropping the canonical's
+`multiWorldTeamIndex` since ComboShip is shared-progression, not multiworld). A client requests team
+state on `OnSaveLoad` and on connect-while-in-game. On receive it restores receiver-local fields
+(bottle contents, non-zero ammo, checksum, fileCreatedAt, `newf`, dpad/button layout, playerName),
+then commits **only** `saveInfo` + `shipSaveInfo` — top-level `Save` fields (scene/entrance/time/day/
+`playerForm`/cycle) are intentionally left untouched so the receiver isn't relocated — then re-runs
+`Rando::CheckTracker::OnFileLoad` / `ActorBehavior::OnFileLoad` / `ShipInit::Init("IS_RANDO")`. Queued
+packets ride along and are replayed through the normal incoming queue. Known canonical tradeoff
+(accepted): the resync overwrites the receiver's HP/magic/rupees/respawn/scene-flags with the team's.
+Same-game only (MM `permanentSceneFlags`/commit-hash layout). No vendored MM source modified for 2d.

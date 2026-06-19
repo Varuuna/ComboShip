@@ -132,10 +132,10 @@ void Rando::ActorBehavior::InitEnKgyBehavior() {
         // ComboShip: route through GetItemName (like the 0xc3b/0xc3d hooks above) so a foreign
         // (OOT-bound) item shows its real name; GetItemName's combo-guarded chokepoint handles it.
         // includeArticle=false matches the original raw .name rendering.
-        CustomMessage::Replace(&entry.msg, "{itemName}",
-                               Rando::StaticData::GetItemName(
-                                   RANDO_SAVE_CHECKS[RC_MOUNTAIN_VILLAGE_SMITHY_GILDED_SWORD].randoItemId, false,
-                                   RC_MOUNTAIN_VILLAGE_SMITHY_GILDED_SWORD));
+        CustomMessage::Replace(
+            &entry.msg, "{itemName}",
+            Rando::StaticData::GetItemName(RANDO_SAVE_CHECKS[RC_MOUNTAIN_VILLAGE_SMITHY_GILDED_SWORD].randoItemId,
+                                           false, RC_MOUNTAIN_VILLAGE_SMITHY_GILDED_SWORD));
         CustomMessage::Replace(&entry.msg, "{location}",
                                Rando::StaticData::GetLocationNameForHint(randoCheckId, false));
 

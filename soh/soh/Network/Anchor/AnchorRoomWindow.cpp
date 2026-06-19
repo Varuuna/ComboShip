@@ -86,9 +86,19 @@ void AnchorRoomWindow::DrawElement() {
                 (Anchor::Instance->roomState.showLocationsMode == 1 && isOwnTeam)) {
                 if ((client.self ? Anchor::Instance->IsSaveLoaded() : client.isSaveLoaded)) {
                     ImGui::SameLine();
-                    ImGui::TextColored(
-                        ImVec4(1, 1, 1, 0.5f), "- %s",
-                        SohUtils::GetSceneName(client.self ? gPlayState->sceneNum : client.sceneNum).c_str());
+                    s16 sceneNum = client.self ? gPlayState->sceneNum : client.sceneNum;
+#ifdef COMBO_BUILD
+                    // ComboShip: MM peers namespace their scene id (>= 1000) so it can't collide with
+                    // OOT's in the shared roster. OOT has no MM scene-name table, so label MM peers
+                    // plainly rather than rendering a bogus OOT scene name. (Phase 4 moves this into
+                    // the unified combo room window with proper MM scene names.)
+                    if (!client.self && sceneNum >= 1000) {
+                        ImGui::TextColored(ImVec4(1, 1, 1, 0.5f), "- Majora's Mask");
+                    } else
+#endif
+                    {
+                        ImGui::TextColored(ImVec4(1, 1, 1, 0.5f), "- %s", SohUtils::GetSceneName(sceneNum).c_str());
+                    }
                 }
             }
 
@@ -113,8 +123,18 @@ void AnchorRoomWindow::DrawElement() {
                 }
             }
             uint32_t seed = IS_RANDO ? Rando::Context::GetInstance()->GetSeed() : 0;
-            if (client.isSaveLoaded && Anchor::Instance->IsSaveLoaded() && client.seed != seed && client.online &&
-                !client.self) {
+            bool seedComparable = true;
+#ifdef COMBO_BUILD
+            // ComboShip: a peer in MM (namespaced sceneNum >= 1000) reports an MM-side seed that
+            // isn't comparable to OOT's rando seed, so the cross-game comparison is meaningless and
+            // would always false-positive. Proper cross-game seed verification (both games reporting
+            // the shared combo masterSeed) is Phase 3; until then, don't warn for MM peers.
+            if (client.sceneNum >= 1000) {
+                seedComparable = false;
+            }
+#endif
+            if (seedComparable && client.isSaveLoaded && Anchor::Instance->IsSaveLoaded() && client.seed != seed &&
+                client.online && !client.self) {
                 ImGui::SameLine();
                 ImGui::TextColored(ImVec4(1, 0, 0, 1), ICON_FA_EXCLAMATION_TRIANGLE);
                 if (ImGui::IsItemHovered()) {

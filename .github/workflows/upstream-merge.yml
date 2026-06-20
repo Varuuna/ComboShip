@@ -1,0 +1,304 @@
+name: Upstream merge (draft PR)
+
+# Weekly (+ manual) sync of the three vendored upstreams (libultraship / soh / mm).
+# Always reports up-to-date vs updates-found in the run's Step Summary. When upstream has moved it
+# AUTO-DRAFTS a PR against develop: runs the mechanical 3-way merge (reusing scripts/upstream-merge.ps1
+# for the git plumbing), COMMITS conflict markers (PR flagged `has-conflicts`), bumps upstream-pins.json,
+# and scaffolds docs/merges/<date>.md. The semantic conflict resolution + build-fix chain is finished by
+# a human on the `bot/upstream-merge` branch — the build gate fails until then. See docs/UPSTREAM_MERGES.md.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'   # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write            # addLabels on the PR
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # need our vendored trees' full history (merge-base derivation)
+          # PAT so the drafted PR triggers build-artifacts.yml / clang-format.yml (a PR opened by the
+          # default GITHUB_TOKEN does NOT trigger other workflows). Falls back to GITHUB_TOKEN if unset
+          # (PR is still created; a maintainer push then triggers the build). See docs/UPSTREAM_MERGES.md.
+          token: ${{ secrets.UPSTREAM_PR_PAT || github.token }}
+
+      # 1. Detect new upstream commits + build the changelog / conflict-surface report. Always runs.
+      - name: Detect updates + changelog
+        id: report
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config gc.auto 0
+          REPORT_FILE="$RUNNER_TEMP/upstream-report.md"
+          : > "$REPORT_FILE"
+          ANY_NEW=0
+
+          # key|remote-url|branch|prefix|subtree|mergedSha   (subtree empty => repo root maps to prefix)
+          jq -r '.upstreams | to_entries[] | "\(.key)|\(.value.remote)|\(.value.branch)|\(.value.prefix)|\(.value.subtree)|\(.value.mergedSha)"' upstream-pins.json |
+          while IFS='|' read -r key url branch prefix subtree merged; do
+            echo "::group::$key"
+            git remote add "up-$key" "$url" 2>/dev/null || true
+            git -c remote.up-$key.promisor=true fetch --filter=blob:none --no-tags "up-$key" "$branch"
+            tip=$(git rev-parse FETCH_HEAD)
+
+            if [ "$(git rev-parse "$merged")" = "$tip" ]; then
+              echo "- **$key**: up to date (\`$merged\`)" >> "$REPORT_FILE"
+              echo "::endgroup::"; continue
+            fi
+            ANY_NEW=1
+
+            count=$(git rev-list --count --first-parent "$merged..$tip")
+            {
+              echo ""
+              echo "### $key — \`$merged\` → \`$(git rev-parse --short=9 $tip)\` ($count merges)"
+              echo ""
+              echo '<details><summary>new commits</summary>'
+              echo ""
+              echo '```'
+              git log --oneline --first-parent "$merged..$tip" | head -100
+              echo '```'
+              echo '</details>'
+            } >> "$REPORT_FILE"
+
+            # Conflict surface = our customized files INTERSECT upstream-changed files.
+            if [ -n "$subtree" ]; then
+              ours=$(git diff --name-only "$merged:$subtree" "HEAD:$prefix" | sort)
+              theirs=$(git diff --name-only "$merged:$subtree" "$tip:$subtree" | sort)
+            else
+              ours=$(git diff --name-only "$merged^{tree}" "HEAD:$prefix" | sort)
+              theirs=$(git diff --name-only "$merged^{tree}" "$tip^{tree}" | sort)
+            fi
+            surface=$(comm -12 <(echo "$ours") <(echo "$theirs") || true)
+            {
+              echo ""
+              echo "**Conflict surface** (our customized files upstream touched):"
+              echo ""
+              if [ -n "$surface" ]; then echo '```'; echo "$surface"; echo '```'
+              else echo "_none — should auto-merge clean_"; fi
+            } >> "$REPORT_FILE"
+            echo "::endgroup::"
+          done
+
+          # The while-loop runs in a subshell (pipe), so re-derive ANY_NEW from the report contents.
+          if grep -q '^### ' "$REPORT_FILE"; then ANY_NEW=1; fi
+
+          echo "any_new=$ANY_NEW" >> "$GITHUB_OUTPUT"
+          echo "report_path=$REPORT_FILE" >> "$GITHUB_OUTPUT"
+
+          # Always make the result unambiguous on the run's summary page.
+          {
+            if [ "$ANY_NEW" = "0" ]; then echo "## ✅ Upstream check — all three up to date"; \
+            else echo "## 🔔 Upstream updates found — drafting PR to develop"; fi
+            echo ""
+            cat "$REPORT_FILE"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # 2-guard. Never clobber an in-progress draft: if a PR is already open, leave the branch alone.
+      # (Pins on develop stay old until the PR merges, so any_new stays 1 across weekly re-runs.)
+      - name: Check for in-progress PR
+        id: guard
+        if: steps.report.outputs.any_new == '1'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const existing = await github.rest.pulls.list({
+              owner, repo, state: 'open', head: `${owner}:bot/upstream-merge`
+            });
+            const exists = existing.data.length > 0;
+            core.setOutput('pr_exists', String(exists));
+            if (exists) {
+              const n = existing.data[0].number;
+              core.notice(`Draft PR #${n} already open — leaving it untouched. Close it to regenerate a fresh draft.`);
+              await core.summary.addRaw(`\n> ℹ️ Draft PR #${n} is already open — left untouched. New upstream commits may have landed since it was drafted; close it (and delete the branch) to regenerate.\n`).write();
+            }
+
+      # 2a. Prepare the PR branch + per-folder merge bases (derived from develop's own history).
+      - name: Prepare branch + merge bases
+        if: steps.report.outputs.any_new == '1' && steps.guard.outputs.pr_exists != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name  'comboship-bot'
+          git config user.email 'comboship-bot@users.noreply.github.com'
+          git switch -C bot/upstream-merge
+
+          # vendor-<key> must point at the PREVIOUS vendor commit so the upcoming 3-way merge finds the
+          # right base (= upstream tree at the last-merged SHA). That commit is the 2nd parent of the most
+          # recent per-folder merge on develop — self-healing, no dependence on pushed vendor-* branches.
+          for key in libultraship soh mm; do
+            prev=$(git log --merges -n1 --format=%H --grep="merge(${key}):" origin/develop || true)
+            if [ -z "$prev" ]; then echo "::error::no prior merge($key) commit on develop"; exit 1; fi
+            git branch -f "vendor-${key}" "${prev}^2"
+            echo "vendor-${key} base = $(git rev-parse --short=9 ${prev}^2)"
+          done
+
+      # 2b. Reuse the local merge engine for the hard git plumbing: fetch + blob-hydrate + rebuild the
+      #     vendor-<key> branches to the new upstream tips. NO -Merge (the merge/commit policy is below).
+      - name: Rebuild vendor branches
+        if: steps.report.outputs.any_new == '1' && steps.guard.outputs.pr_exists != 'true'
+        shell: pwsh
+        run: |
+          # Guard: PS 7.4 treats native-command stderr as terminating under ErrorActionPreference=Stop;
+          # git writes progress to stderr. Keep the engine's own behavior identical to a local run.
+          $PSNativeCommandUseErrorActionPreference = $false
+          ./scripts/upstream-merge.ps1 -Depth 1000
+
+      # 2c. Mechanical 3-way merge (order: libultraship → soh → mm), one commit per folder. Commit conflict
+      #     markers so the PR is always a complete unit; flag them for the human to resolve on the branch.
+      - name: Merge + bookkeeping
+        id: merge
+        if: steps.report.outputs.any_new == '1' && steps.guard.outputs.pr_exists != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATE=$(date -u +%F)
+          CONFLICTS_FILE="$RUNNER_TEMP/conflicts.txt"
+          : > "$CONFLICTS_FILE"
+          HAD_CONFLICTS=0
+          declare -A REMOTE=( [libultraship]=up-lus [soh]=up-soh [mm]=up-mm )
+          declare -A NEWSHA=()
+
+          # One merge commit per changed folder (order matters: libultraship -> soh -> mm).
+          for key in libultraship soh mm; do
+            branch=$(jq -r ".upstreams.\"$key\".branch" upstream-pins.json)
+            old=$(jq -r ".upstreams.\"$key\".mergedSha" upstream-pins.json)
+            tip=$(git rev-parse "${REMOTE[$key]}/$branch")
+            new=$(git rev-parse --short=9 "$tip")
+            if [ "$(git rev-parse "$old")" = "$tip" ]; then continue; fi   # nothing new for this folder
+            NEWSHA[$key]=$new
+
+            msg="merge($key): $branch $old -> $new"
+            if [ "$key" = "mm" ]; then
+              MERGE=(git -c merge.renames=false merge --no-ff -m "$msg" "vendor-$key")
+            else
+              MERGE=(git merge --no-ff -m "$msg" "vendor-$key")
+            fi
+            if "${MERGE[@]}"; then
+              echo "  $key: clean"
+            else
+              echo "## $key" >> "$CONFLICTS_FILE"
+              git diff --name-only --diff-filter=U >> "$CONFLICTS_FILE"
+              git add -A
+              git commit --no-edit
+              HAD_CONFLICTS=1
+              echo "  $key: CONFLICTS committed as markers"
+            fi
+          done
+
+          # Bump pins for the folders that moved (after the merges, so it lands in one bookkeeping commit).
+          for key in "${!NEWSHA[@]}"; do
+            tmp=$(mktemp)
+            jq --arg k "$key" --arg sha "${NEWSHA[$key]}" --arg d "$DATE" \
+               '.upstreams[$k].mergedSha=$sha | .upstreams[$k].mergedDate=$d' \
+               upstream-pins.json > "$tmp" && mv "$tmp" upstream-pins.json
+          done
+
+          # Scaffold the merge log from the changelog for the human to flesh out.
+          mkdir -p docs/merges
+          {
+            echo "# Upstream merge — $DATE"
+            echo ""
+            echo "> Auto-drafted by \`upstream-merge.yml\`. Fill in the per-folder post-merge changes"
+            echo "> (build-fix chain, COMBO_BUILD guards, runtime fixes) before merging, then link this"
+            echo "> file from docs/UPSTREAM_MERGES.md. See that doc for the policy."
+            echo ""
+            cat "${{ steps.report.outputs.report_path }}"
+          } > "docs/merges/$DATE.md"
+
+          git add -A
+          git commit -m "chore(upstream): bump pins + merge log $DATE"
+          git push --force origin HEAD:bot/upstream-merge
+
+          echo "had_conflicts=$HAD_CONFLICTS" >> "$GITHUB_OUTPUT"
+          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+          echo "conflicts_path=$CONFLICTS_FILE" >> "$GITHUB_OUTPUT"
+
+      # 2d. Create or update the draft PR.
+      - name: Open/update draft PR
+        if: steps.report.outputs.any_new == '1' && steps.guard.outputs.pr_exists != 'true'
+        uses: actions/github-script@v8
+        env:
+          REPORT_PATH: ${{ steps.report.outputs.report_path }}
+          CONFLICTS_PATH: ${{ steps.merge.outputs.conflicts_path }}
+          HAD_CONFLICTS: ${{ steps.merge.outputs.had_conflicts }}
+          DATE: ${{ steps.merge.outputs.date }}
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const head = 'bot/upstream-merge';
+            const title = `Upstream merge → ${process.env.DATE}`;
+
+            let body = fs.readFileSync(process.env.REPORT_PATH, 'utf8');
+            if (process.env.HAD_CONFLICTS === '1') {
+              let conf = '';
+              try { conf = fs.readFileSync(process.env.CONFLICTS_PATH, 'utf8'); } catch (e) {}
+              body = '> ⚠️ **Conflict markers were committed** — this PR will not build until they are '
+                   + 'resolved on the `bot/upstream-merge` branch.\n\n'
+                   + '<details><summary>conflicted files</summary>\n\n```\n' + conf + '```\n</details>\n\n'
+                   + body;
+            }
+            body += '\n\n---\n### Finish checklist (on the `bot/upstream-merge` branch)\n'
+                 + '- [ ] Resolve any conflict markers (keep COMBO_BUILD blocks; see docs/UPSTREAM_MERGES.md)\n'
+                 + '- [ ] Work the build-fix chain until all four targets build green\n'
+                 + '- [ ] Flesh out `docs/merges/' + process.env.DATE + '.md` and link it from docs/UPSTREAM_MERGES.md\n'
+                 + '- [ ] Confirm the boot/transition loop still runs\n'
+                 + '- [ ] Mark ready for review\n\n'
+                 + '_Auto-drafted by upstream-merge.yml. Pins + merge-log scaffold are already committed._';
+
+            const existing = await github.rest.pulls.list({
+              owner, repo, state: 'open', head: `${owner}:${head}`
+            });
+
+            let number;
+            if (existing.data.length) {
+              number = existing.data[0].number;
+              await github.rest.pulls.update({ owner, repo, pull_number: number, title, body });
+            } else {
+              const pr = await github.rest.pulls.create({
+                owner, repo, head, base: 'develop', title, body, draft: true
+              });
+              number = pr.data.number;
+            }
+
+            await github.rest.issues.addLabels({
+              owner, repo, issue_number: number, labels: ['upstream-merge']
+            });
+            if (process.env.HAD_CONFLICTS === '1') {
+              await github.rest.issues.addLabels({
+                owner, repo, issue_number: number, labels: ['has-conflicts']
+              });
+            } else {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner, repo, issue_number: number, name: 'has-conflicts'
+                });
+              } catch (e) { /* label not present */ }
+            }
+            core.notice(`Draft PR #${number} ready: ${title}`);
+
+      # 3. Nothing new: tidy up any stale bot PR/branch so it doesn't linger after a finished merge.
+      - name: Close stale PR (up to date)
+        if: steps.report.outputs.any_new == '0'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const head = 'bot/upstream-merge';
+            const existing = await github.rest.pulls.list({
+              owner, repo, state: 'open', head: `${owner}:${head}`
+            });
+            for (const pr of existing.data) {
+              await github.rest.pulls.update({ owner, repo, pull_number: pr.number, state: 'closed' });
+            }
+            try {
+              await github.rest.git.deleteRef({ owner, repo, ref: `heads/${head}` });
+            } catch (e) { /* branch already gone */ }

@@ -51,7 +51,7 @@ All work happens on a throwaway branch (e.g. `testing-merging`).
 ## Running a merge pass (tooling)
 
 The deterministic plumbing is automated. The semantic conflict resolution + build-fix chain stays
-manual (it's judgement work). Two pieces:
+manual (it's judgement work). Three pieces:
 
 - **`upstream-pins.json`** (repo root) — the source of truth: the last-merged upstream SHA per
   folder. Updating it is the **final step of every merge**. Both the local orchestrator and CI read
@@ -61,9 +61,21 @@ manual (it's judgement work). Two pieces:
   `vendor-*` branches at the current tips (parent = previous vendor tip), and prints the
   **conflict-surface report** (which of *our* customized files upstream touched). With `-Merge` it
   also runs the 3-way merges (`-c merge.renames=false` for mm), leaving conflicts for a human.
-- **CI** (`.github/workflows/`): `upstream-check.yml` (weekly + manual) opens/updates a GitHub issue
-  with new commits + conflict surface — **notify only, never merges**. `build.yml` is a
-  GitHub-hosted Windows compile gate (all four targets, Debug) on PRs touching the vendored trees.
+- **CI** (`.github/workflows/upstream-merge.yml`, weekly + manual) — **auto-drafts the merge PR.**
+  Every run writes a Step Summary (up-to-date vs updates-found, so the result is never ambiguous).
+  When upstream has moved it reuses `upstream-merge.ps1` for the plumbing, runs the mechanical 3-way
+  merge on a stable `bot/upstream-merge` branch (**committing conflict markers** — the PR is labelled
+  `has-conflicts`), bumps `upstream-pins.json`, scaffolds `docs/merges/<date>.md`, and opens/updates a
+  **draft PR to `develop`**. You finish it on that branch: resolve markers, work the build-fix chain,
+  flesh out the merge log, then mark ready. The merge base is derived from `develop`'s own history
+  (the 2nd parent of the most recent `merge(<key>):` commit), so it's correct without relying on
+  pushed `vendor-*` branches. `build-artifacts.yml` / `clang-format.yml` are the PR gates.
+  - **Secret:** set `UPSTREAM_PR_PAT` (a fine-grained PAT with **contents + pull-requests: write**) so
+    the drafted PR triggers the build/format gates — a PR opened by the default `GITHUB_TOKEN` does
+    **not** trigger other workflows. Without it the PR is still created; push any commit to the branch
+    (or close/reopen) to kick the gates.
+  - Running the local `scripts/upstream-merge.ps1` by hand still works exactly as before — use it when
+    you'd rather drive the pass locally instead of finishing the bot's draft.
 
 ## Standing policy: libultraship branch (Kenix3 `main`)
 

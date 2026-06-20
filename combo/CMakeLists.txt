@@ -5,6 +5,24 @@ project(ComboShip LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 23)
 
+# ── ComboShip builds soh/2ship as SHARED DLLs (upstream builds them as exes), so MSVC emits DLL-boundary
+#    warnings their exe build never sees — and soh's /WX (#6733) makes them hard errors (e.g. C4273
+#    'inconsistent dll linkage' on the CRT floorf/ceilf forward-decls in OTRGlobals.cpp). Silence that
+#    *class* only for the shared game targets; /WX still catches genuine issues (it caught a real
+#    float->ImDrawFlags bug in our menu code). Combo-owned — no edits to the vendored CMake. We append
+#    after soh's /WX (combo/ is add_subdirectory'd last), so /wd wins for these codes. See docs/UPSTREAM_MERGES.md.
+if(MSVC)
+    foreach(_combo_shared_target soh 2ship)
+        if(TARGET ${_combo_shared_target})
+            target_compile_options(${_combo_shared_target} PRIVATE
+                /wd4273   # inconsistent dll linkage (CRT fns re-declared in a DLL TU)
+                /wd4251   # needs to have dll-interface to be used by clients (STL in exported class)
+                /wd4275   # non dll-interface class used as base for dll-interface class
+            )
+        endif()
+    endforeach()
+endif()
+
 # ─── comboui.dll: combo-owned unified settings menu (links libultraship + ImGui) ───
 set(COMBOUI_SOURCES
     gui/ComboMenu.cpp

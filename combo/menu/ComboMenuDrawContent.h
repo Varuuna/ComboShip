@@ -172,7 +172,7 @@ inline void DrawContent(const Config& cfg, TTheme themeIndex, const std::vector<
     {
         ImGuiWindow* blk = g.CurrentWindow;
         ImVec2 lp = blk->DC.CursorPos;
-        blk->DrawList->AddRectFilled(lp, lp + ImVec2{ availW, 4 }, ImGui::GetColorU32({ 255, 255, 255, 255 }), true,
+        blk->DrawList->AddRectFilled(lp, lp + ImVec2{ availW, 4 }, ImGui::GetColorU32({ 255, 255, 255, 255 }),
                                      style.WindowRounding);
         ImGui::Dummy(ImVec2(availW, 4));
     }
@@ -248,7 +248,7 @@ inline void DrawContent(const Config& cfg, TTheme themeIndex, const std::vector<
         ImGuiWindow* blk = g.CurrentWindow;
         ImVec2 dvPos = blk->DC.CursorPos;
         blk->DrawList->AddRectFilled(dvPos, dvPos + ImVec2{ 4, sectionHeight - style.FramePadding.y * 2 },
-                                     ImGui::GetColorU32({ 255, 255, 255, 255 }), true, style.WindowRounding);
+                                     ImGui::GetColorU32({ 255, 255, 255, 255 }), style.WindowRounding);
     }
 
     // Content columns (mirrors DrawElement).

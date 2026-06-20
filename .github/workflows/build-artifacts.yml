@@ -9,7 +9,7 @@ name: Build Artifacts (Windows)
 
 on:
   pull_request:
-    paths:
+    paths: &code_paths
       - 'libultraship/**'
       - 'soh/**'
       - 'mm/**'
@@ -19,6 +19,9 @@ on:
       - 'OTRExporter/**'
       - 'ZAPDTR/**'
       - '.github/workflows/build-artifacts.yml'
+  push:
+    branches: [develop]
+    paths: *code_paths
   workflow_dispatch:
 
 jobs:

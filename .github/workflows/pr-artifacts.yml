@@ -10,6 +10,13 @@ on:
     types:
       - completed
 
+# The repo's default workflow token is read-only, so pr-section can't edit the PR body
+# ("Resource not accessible by integration"). Grant just this workflow PR write (least privilege;
+# workflow_run is a trusted context). contents:read keeps actions/checkout-style reads working.
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   pr-artifacts:
     runs-on: ubuntu-latest

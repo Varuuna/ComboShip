@@ -1,0 +1,52 @@
+name: conflict-markers
+
+# Fast, explicit gate: fails a PR that contains committed merge-conflict markers. The upstream-merge
+# workflow deliberately COMMITS conflict markers into its draft PR (so the PR is always a complete unit),
+# which git/GitHub then see as ordinary text — the PR shows "no conflicts / ready to merge" even though it
+# must NOT be merged. This check is the clear, named signal that says exactly what is wrong, and where.
+# Make it a REQUIRED status check on develop so GitHub blocks the merge button. See docs/UPSTREAM_MERGES.md.
+
+on:
+  pull_request:
+
+jobs:
+  conflict-markers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Scan for unresolved conflict markers
+        shell: bash
+        run: |
+          set -uo pipefail
+          # Hunk-start markers (and the diff3 base marker). These never occur in real source/docs, so a
+          # plain "=======" line is intentionally NOT matched (it appears in Markdown / comment dividers).
+          pattern='^(<{7}|>{7}|\|{7})( |$)'
+          hits=$(git grep -nE "$pattern" -- . ':(exclude).github/workflows/conflict-check.yml' || true)
+
+          if [ -z "$hits" ]; then
+            echo "✅ No unresolved conflict markers." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          count=$(printf '%s\n' "$hits" | wc -l | tr -d ' ')
+          {
+            echo "## ⛔ Unresolved merge-conflict markers ($count)"
+            echo ""
+            echo "This PR has committed conflict markers and **must not be merged** until they are resolved."
+            echo "GitHub's \"ready to merge\" / \"no conflicts\" is misleading here — the markers are plain text"
+            echo "inside the files, not a git-level conflict. Resolve them on the source branch, then this"
+            echo "check goes green."
+            echo ""
+            echo '```'
+            printf '%s\n' "$hits"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Inline red annotations on the exact lines (visible in the Files-changed tab).
+          while IFS=: read -r file line _; do
+            [ -n "$file" ] && echo "::error file=${file},line=${line}::Unresolved merge-conflict marker — resolve before merging"
+          done <<< "$hits"
+
+          echo "::error::Found $count conflict-marker line(s). See annotations and the job summary."
+          exit 1

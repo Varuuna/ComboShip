@@ -33,6 +33,8 @@ jobs:
       - name: Detect updates + changelog
         id: report
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}   # for the libultraship-pin compare (gh api)
         run: |
           set -euo pipefail
           git config gc.auto 0
@@ -88,6 +90,40 @@ jobs:
 
           # The while-loop runs in a subshell (pipe), so re-derive ANY_NEW from the report contents.
           if grep -q '^### ' "$REPORT_FILE"; then ANY_NEW=1; fi
+
+          # When soh moved, cross-check the libultraship commit soh pins (its git submodule) against the
+          # one we vendor. We track Kenix3 `main`; soh tracks the diverged `port-maintenance`, which carries
+          # fixes we need AND the #1103 Context-destructor change we deliberately skip. Surface the delta so
+          # cherry-picks happen up front instead of via a cryptic /WX build failure. See docs/UPSTREAM_MERGES.md.
+          if grep -q '^### soh ' "$REPORT_FILE"; then
+            git remote add up-soh "$(jq -r '.upstreams.soh.remote' upstream-pins.json)" 2>/dev/null || true
+            git -c remote.up-soh.promisor=true fetch --filter=blob:none --no-tags up-soh \
+              "$(jq -r '.upstreams.soh.branch' upstream-pins.json)" 2>/dev/null || true
+            soh_tip=$(git rev-parse FETCH_HEAD)
+            lus_expected=$(git ls-tree "$soh_tip" libultraship 2>/dev/null | awk '{print $3}' || true)
+            lus_ours=$(jq -r '.upstreams.libultraship.mergedSha' upstream-pins.json)
+            if [ -n "$lus_expected" ] && [ "${lus_expected:0:9}" != "${lus_ours:0:9}" ]; then
+              {
+                echo ""
+                echo "### ⚠️ libultraship pin: soh expects a different LUS"
+                echo ""
+                echo "soh pins libultraship \`${lus_expected:0:9}\`; ComboShip vendors \`${lus_ours}\` (Kenix3 \`main\`)."
+                echo "soh tracks the diverged \`port-maintenance\` branch. **Cherry-pick the fixes you need** into"
+                echo "\`libultraship/\` — do NOT blanket-switch (e.g. #1103 Context destructor is intentionally skipped):"
+                echo ""
+                echo "<https://github.com/Kenix3/libultraship/compare/${lus_ours}...${lus_expected}>"
+                echo ""
+                echo '<details><summary>LUS commits soh expects that you may be missing</summary>'
+                echo ""
+                echo '```'
+                gh api "repos/Kenix3/libultraship/compare/${lus_ours}...${lus_expected}" \
+                  -q '.commits[] | "\(.sha[0:9])  \(.commit.message | split("\n")[0])"' 2>/dev/null | head -40 \
+                  || echo "(compare unavailable — open the link above)"
+                echo '```'
+                echo '</details>'
+              } >> "$REPORT_FILE"
+            fi
+          fi
 
           echo "any_new=$ANY_NEW" >> "$GITHUB_OUTPUT"
           echo "report_path=$REPORT_FILE" >> "$GITHUB_OUTPUT"

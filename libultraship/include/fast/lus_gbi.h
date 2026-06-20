@@ -137,6 +137,11 @@ constexpr int8_t RDP_G_TRI1_WIDE = OPCODE(0x49);
 
 /* macros for command parsing: */
 #define GDMACMD(x) (x)
+// ComboShip: back-port of Kenix3 libultraship #1126 (Fix warnings). soh@develop tracks LUS
+// port-maintenance which has this; we vendor LUS main which doesn't yet. Drop once main gains #1126.
+#ifdef GIMMCMD
+#undef GIMMCMD
+#endif
 #define GIMMCMD(x) = OPCODE(G_IMMFIRST - (x))
 #define GRDPCMD(x) (0xff - (x))
 

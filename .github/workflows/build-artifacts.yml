@@ -56,24 +56,27 @@ jobs:
 
       # Order matters: libultraship -> soh -> 2ship (soh before 2ship; they share OTRExporter/ZAPD).
       # comboui + ComboShip pull the rest of the runtime in as dependencies.
+      # --parallel => MSBuild /m (build independent projects concurrently). Per-file parallelism within
+      # each target is already on via /MP (CMakeLists.txt:58), so this mainly helps the multi-project
+      # dependency fan-out; gains are bounded by the hosted runner's core count.
       - name: Build libultraship
-        run: cmake --build build/x64 --target libultraship --config Release
+        run: cmake --build build/x64 --target libultraship --config Release --parallel
       - name: Build soh
-        run: cmake --build build/x64 --target soh --config Release
+        run: cmake --build build/x64 --target soh --config Release --parallel
       - name: Build 2ship
-        run: cmake --build build/x64 --target 2ship --config Release
+        run: cmake --build build/x64 --target 2ship --config Release --parallel
       - name: Build comboui
-        run: cmake --build build/x64 --target comboui --config Release
+        run: cmake --build build/x64 --target comboui --config Release --parallel
       - name: Build ComboShip
-        run: cmake --build build/x64 --target ComboShip --config Release
+        run: cmake --build build/x64 --target ComboShip --config Release --parallel
 
       # Port asset archives (--norom). GenerateSohOtr/Generate2ShipOtr DEPEND on ZAPD, which these
       # steps build on demand. They must run before cpack — the ship/2s2h ZIP components install
       # ${CMAKE_BINARY_DIR}/soh/soh.o2r and .../mm/2ship.o2r.
       - name: Generate soh.o2r
-        run: cmake --build build/x64 --target GenerateSohOtr --config Release
+        run: cmake --build build/x64 --target GenerateSohOtr --config Release --parallel
       - name: Generate 2ship.o2r
-        run: cmake --build build/x64 --target Generate2ShipOtr --config Release
+        run: cmake --build build/x64 --target Generate2ShipOtr --config Release --parallel
 
       # cpack -G ZIP merges the combo/ship/2s2h components into one archive under _packages/.
       # Call cpack directly with -C Release so the multi-config generator can't package Debug by

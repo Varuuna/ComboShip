@@ -82,8 +82,12 @@ void Network::SendDataToRemote(const char* payload) {
     }
 #else
     SPDLOG_DEBUG("[Network] Sending data: {}", payload);
+<<<<<<< HEAD
     SDLNet_TCP_Send(networkSocket, payload, strlen(payload) + 1);
 #endif
+=======
+    SDLNet_TCP_Send(networkSocket, payload, static_cast<int>(strlen(payload) + 1));
+>>>>>>> vendor-soh
 }
 
 void Network::SendJsonToRemote(nlohmann::json payload) {

@@ -107,6 +107,8 @@ jobs:
         if: steps.report.outputs.any_new == '1'
         uses: actions/github-script@v8
         with:
+          # PAT so pulls.create is allowed — GITHUB_TOKEN is blocked from creating PRs.
+          github-token: ${{ secrets.UPSTREAM_PR_PAT || github.token }}
           script: |
             const { owner, repo } = context.repo;
             const existing = await github.rest.pulls.list({
@@ -231,6 +233,8 @@ jobs:
           HAD_CONFLICTS: ${{ steps.merge.outputs.had_conflicts }}
           DATE: ${{ steps.merge.outputs.date }}
         with:
+          # PAT so pulls.create is allowed — GITHUB_TOKEN is blocked from creating PRs.
+          github-token: ${{ secrets.UPSTREAM_PR_PAT || github.token }}
           script: |
             const fs = require('fs');
             const { owner, repo } = context.repo;
@@ -290,6 +294,8 @@ jobs:
         if: steps.report.outputs.any_new == '0'
         uses: actions/github-script@v8
         with:
+          # PAT so pulls.create is allowed — GITHUB_TOKEN is blocked from creating PRs.
+          github-token: ${{ secrets.UPSTREAM_PR_PAT || github.token }}
           script: |
             const { owner, repo } = context.repo;
             const head = 'bot/upstream-merge';

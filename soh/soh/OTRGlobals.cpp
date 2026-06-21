@@ -2860,9 +2860,8 @@ extern "C" __declspec(dllexport) int SOH_StartExtraction(const char* romPath) {
     return 1;
 }
 
-extern "C" __declspec(dllexport) void SOH_GetExtractionProgress(unsigned long long* count,
-                                                                unsigned long long* total, int* done,
-                                                                int* success) {
+extern "C" __declspec(dllexport) void SOH_GetExtractionProgress(unsigned long long* count, unsigned long long* total,
+                                                                int* done, int* success) {
     if (count) {
         *count = (unsigned long long)gComboExtractCount.load();
     }

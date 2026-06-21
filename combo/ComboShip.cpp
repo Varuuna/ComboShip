@@ -44,9 +44,7 @@ static void ComboTerminateHandler() {
     if (auto ep = std::current_exception()) {
         try {
             std::rethrow_exception(ep);
-        } catch (const std::exception& e) {
-            std::cerr << " — uncaught std::exception: " << e.what();
-        } catch (...) {
+        } catch (const std::exception& e) { std::cerr << " — uncaught std::exception: " << e.what(); } catch (...) {
             std::cerr << " — uncaught non-std exception";
         }
     }
@@ -125,99 +123,115 @@ static LONG WINAPI ComboLateCrashFilter(PEXCEPTION_POINTERS ex) {
 
 #ifdef _WIN32
 typedef HMODULE DllHandle;
-static DllHandle LoadDll(const char* name) { return LoadLibraryA(name); }
-static void* GetSym(DllHandle h, const char* sym) { return (void*)GetProcAddress(h, sym); }
-static void FreeDll(DllHandle h) { FreeLibrary(h); }
-static std::string DllError() { return std::to_string(GetLastError()); }
+static DllHandle LoadDll(const char* name) {
+    return LoadLibraryA(name);
+}
+static void* GetSym(DllHandle h, const char* sym) {
+    return (void*)GetProcAddress(h, sym);
+}
+static void FreeDll(DllHandle h) {
+    FreeLibrary(h);
+}
+static std::string DllError() {
+    return std::to_string(GetLastError());
+}
 #else
 typedef void* DllHandle;
-static DllHandle LoadDll(const char* name) { return dlopen(name, RTLD_NOW | RTLD_GLOBAL); }
-static void* GetSym(DllHandle h, const char* sym) { return dlsym(h, sym); }
-static void FreeDll(DllHandle h) { dlclose(h); }
-static std::string DllError() { return dlerror(); }
+static DllHandle LoadDll(const char* name) {
+    return dlopen(name, RTLD_NOW | RTLD_GLOBAL);
+}
+static void* GetSym(DllHandle h, const char* sym) {
+    return dlsym(h, sym);
+}
+static void FreeDll(DllHandle h) {
+    dlclose(h);
+}
+static std::string DllError() {
+    return dlerror();
+}
 #endif
 
 // ---------- Function pointer types ----------
 
-typedef void  (*FnVoid)();
-typedef bool  (*FnExtract)(const char*);
-typedef void  (*FnRunMain)(int, char**);
-typedef int   (*FnInt)();
-typedef void  (*FnSetSaveCallback)(void (*)(int));
-typedef void  (*FnMMInitSave)(int);
-typedef void  (*FnSetSceneSwitchCallback)(void (*)(int));
-typedef void  (*FnMMRunGame)(int);
-typedef void  (*FnSOHDeinit)();
-typedef void  (*FnSOHPrepare)();
-typedef void  (*FnMMNotify)();
-static FnVoid                    SOH_Init                    = nullptr;
-static FnExtract                 SOH_Extract                 = nullptr;
-static FnRunMain                 SOH_RunMain                 = nullptr;
-static FnVoid                    MM_InitArchives             = nullptr;
-static FnExtract                 MM_Extract                  = nullptr;
-static FnInt                     MM_ArchiveCount             = nullptr;
-static FnSetSaveCallback         SOH_SetOnNewSaveCallback    = nullptr;
-static FnMMInitSave              MM_InitSaveFile             = nullptr;
-static FnSetSceneSwitchCallback  SOH_SetOnSceneSwitchCallback = nullptr;
-static FnMMRunGame               MM_RunGame                  = nullptr;
-static FnSOHDeinit               SOH_Deinit                  = nullptr;
-static FnSOHPrepare              SOH_PrepareForTransition    = nullptr;
-static FnMMNotify                MM_NotifyComboTransition    = nullptr;
+typedef void (*FnVoid)();
+typedef bool (*FnExtract)(const char*);
+typedef void (*FnRunMain)(int, char**);
+typedef int (*FnInt)();
+typedef void (*FnSetSaveCallback)(void (*)(int));
+typedef void (*FnMMInitSave)(int);
+typedef void (*FnSetSceneSwitchCallback)(void (*)(int));
+typedef void (*FnMMRunGame)(int);
+typedef void (*FnSOHDeinit)();
+typedef void (*FnSOHPrepare)();
+typedef void (*FnMMNotify)();
+static FnVoid SOH_Init = nullptr;
+static FnExtract SOH_Extract = nullptr;
+static FnRunMain SOH_RunMain = nullptr;
+static FnVoid MM_InitArchives = nullptr;
+static FnExtract MM_Extract = nullptr;
+static FnInt MM_ArchiveCount = nullptr;
+static FnSetSaveCallback SOH_SetOnNewSaveCallback = nullptr;
+static FnMMInitSave MM_InitSaveFile = nullptr;
+static FnSetSceneSwitchCallback SOH_SetOnSceneSwitchCallback = nullptr;
+static FnMMRunGame MM_RunGame = nullptr;
+static FnSOHDeinit SOH_Deinit = nullptr;
+static FnSOHPrepare SOH_PrepareForTransition = nullptr;
+static FnMMNotify MM_NotifyComboTransition = nullptr;
 
 typedef void (*FnMMSetReturnCb)(void (*)(void));
 static FnMMSetReturnCb MM_SetOnComboReturnCallback = nullptr;
 static bool g_pendingOOTReturn = false;
 
 typedef void (*FnVoidArgless)(void);
-static FnVoidArgless SOH_ResumeGame      = nullptr;
+static FnVoidArgless SOH_ResumeGame = nullptr;
 static FnVoidArgless SOH_NotifyComboReturn = nullptr;
 
 typedef void (*FnMMResume)(int);
-static FnMMResume    MM_ResumeGame          = nullptr;
+static FnMMResume MM_ResumeGame = nullptr;
 static FnVoidArgless MM_PrepareForTransition = nullptr;
 
 // ComboShip: headless static-data dump exports
 typedef const char* (*FnDumpData)(void);
 static FnDumpData SOH_DumpRandoStaticData = nullptr;
-static FnDumpData MM_DumpRandoStaticData  = nullptr;
+static FnDumpData MM_DumpRandoStaticData = nullptr;
 
 // ComboShip: eager MM boot at startup (replaces the headless MM_InitRandoLogic warm-up).
-static FnVoidArgless MM_BootForCombo      = nullptr;
+static FnVoidArgless MM_BootForCombo = nullptr;
 static FnVoidArgless SOH_ResumeForeground = nullptr;
-static FnVoidArgless MM_Deinit            = nullptr;
+static FnVoidArgless MM_Deinit = nullptr;
 
 typedef void (*FnComboUIRegister)(void);
-static DllHandle           comboUIModule    = nullptr;
-static FnComboUIRegister   ComboUI_Register = nullptr;
+static DllHandle comboUIModule = nullptr;
+static FnComboUIRegister ComboUI_Register = nullptr;
 
 // ComboShip-owned unified ROM extraction (see ComboExtract.h). The split init lets us create the
 // shared window from soh.o2r before any ROM exists, run the extraction screen, then finish.
-static FnVoid                 SOH_InitWindowOnly        = nullptr;
-static FnVoid                 SOH_FinishInit            = nullptr;
-static ComboFnValidateRom     SOH_ValidateRom           = nullptr;
-static ComboFnStartExtraction SOH_StartExtraction       = nullptr;
-static ComboFnGetProgress     SOH_GetExtractionProgress = nullptr;
-static ComboFnValidateRom     MM_ValidateRom            = nullptr;
-static ComboFnStartExtraction MM_StartExtraction        = nullptr;
-static ComboFnGetProgress     MM_GetExtractionProgress  = nullptr;
-static ComboFnRunExtraction   ComboUI_RunExtraction     = nullptr;
+static FnVoid SOH_InitWindowOnly = nullptr;
+static FnVoid SOH_FinishInit = nullptr;
+static ComboFnValidateRom SOH_ValidateRom = nullptr;
+static ComboFnStartExtraction SOH_StartExtraction = nullptr;
+static ComboFnGetProgress SOH_GetExtractionProgress = nullptr;
+static ComboFnValidateRom MM_ValidateRom = nullptr;
+static ComboFnStartExtraction MM_StartExtraction = nullptr;
+static ComboFnGetProgress MM_GetExtractionProgress = nullptr;
+static ComboFnRunExtraction ComboUI_RunExtraction = nullptr;
 
 // ComboShip: per-game reachability oracle exports
-typedef void        (*FnOracleVoid)(void);
-typedef void        (*FnOracleSetItems)(const char*);
+typedef void (*FnOracleVoid)(void);
+typedef void (*FnOracleSetItems)(const char*);
 typedef const char* (*FnOracleGetChecks)(void);
-typedef void        (*FnOraclePlaceItem)(const char*, const char*);
+typedef void (*FnOraclePlaceItem)(const char*, const char*);
 
-static FnOracleVoid      Combo_SOH_Rando_Reset             = nullptr;
-static FnOracleSetItems  Combo_SOH_Rando_SetOwnedItems     = nullptr;
+static FnOracleVoid Combo_SOH_Rando_Reset = nullptr;
+static FnOracleSetItems Combo_SOH_Rando_SetOwnedItems = nullptr;
 static FnOracleGetChecks Combo_SOH_Rando_GetReachableChecks = nullptr;
-static FnOraclePlaceItem Combo_SOH_Rando_PlaceItem          = nullptr;
+static FnOraclePlaceItem Combo_SOH_Rando_PlaceItem = nullptr;
 
-static FnOracleVoid      Combo_MM_Rando_Reset              = nullptr;
-static FnOracleSetItems  Combo_MM_Rando_SetOwnedItems      = nullptr;
-static FnOracleGetChecks Combo_MM_Rando_GetReachableChecks  = nullptr;
-static FnOraclePlaceItem Combo_MM_Rando_PlaceItem           = nullptr;
-static FnOracleVoid      Combo_MM_Rando_Restore             = nullptr;
+static FnOracleVoid Combo_MM_Rando_Reset = nullptr;
+static FnOracleSetItems Combo_MM_Rando_SetOwnedItems = nullptr;
+static FnOracleGetChecks Combo_MM_Rando_GetReachableChecks = nullptr;
+static FnOraclePlaceItem Combo_MM_Rando_PlaceItem = nullptr;
+static FnOracleVoid Combo_MM_Rando_Restore = nullptr;
 
 // ComboShip (issue #1): cross-game erase seam. A save slot is one combined OOT+MM playthrough, so
 // erasing it from either game's file-select wipes both saves. Each game fires its Set*-registered
@@ -226,18 +240,20 @@ static FnOracleVoid      Combo_MM_Rando_Restore             = nullptr;
 typedef void (*FnSetDeleteForeignSave)(void (*)(int));
 typedef void (*FnDeleteSaveFile)(int);
 static FnSetDeleteForeignSave SOH_SetDeleteForeignSave = nullptr;
-static FnSetDeleteForeignSave MM_SetDeleteForeignSave  = nullptr;
-static FnDeleteSaveFile       SOH_DeleteSaveFile        = nullptr;
-static FnDeleteSaveFile       MM_DeleteSaveFile         = nullptr;
+static FnSetDeleteForeignSave MM_SetDeleteForeignSave = nullptr;
+static FnDeleteSaveFile SOH_DeleteSaveFile = nullptr;
+static FnDeleteSaveFile MM_DeleteSaveFile = nullptr;
 
 // Registered into each game; invoked when that game erases a slot. Routes the (0-based) slot to the
 // OTHER game's delete export. The launcher does no index math — MM's 1-based JSON naming is handled
 // inside MM_DeleteSaveFile.
 static void DeleteForeignSaveFromOOT(int slot) {
-    if (MM_DeleteSaveFile) MM_DeleteSaveFile(slot);
+    if (MM_DeleteSaveFile)
+        MM_DeleteSaveFile(slot);
 }
 static void DeleteForeignSaveFromMM(int slot) {
-    if (SOH_DeleteSaveFile) SOH_DeleteSaveFile(slot);
+    if (SOH_DeleteSaveFile)
+        SOH_DeleteSaveFile(slot);
 }
 
 // ComboShip: placement injection exports
@@ -245,18 +261,18 @@ typedef void (*FnSetGenerateCb)(void (*)(int));
 typedef void (*FnApplyPlacements)(const char*);
 typedef void (*FnMMInitRandoSave)(int, const char*);
 typedef void (*FnSetComboRandoSeed)(uint64_t);
-static FnSetGenerateCb    SOH_SetOnComboGenerateCallback = nullptr;
-static FnApplyPlacements  SOH_ApplyRandoPlacements       = nullptr;
-static FnMMInitRandoSave  MM_InitRandoSaveFile           = nullptr;
-static FnSetComboRandoSeed SOH_SetComboRandoSeed         = nullptr;
+static FnSetGenerateCb SOH_SetOnComboGenerateCallback = nullptr;
+static FnApplyPlacements SOH_ApplyRandoPlacements = nullptr;
+static FnMMInitRandoSave MM_InitRandoSaveFile = nullptr;
+static FnSetComboRandoSeed SOH_SetComboRandoSeed = nullptr;
 
 // ComboShip: window-driven generate request (threaded, progress-reporting)
 typedef void (*FnSetGenReqCb)(void (*)(const char*, ComboRando::ComboGenProgress*));
 typedef void (*FnSetSeedGenerated)(uint8_t);
-static FnSetGenReqCb      SOH_SetOnComboGenerateRequestCallback = nullptr;
-static FnSetSeedGenerated SOH_SetSeedGenerated                  = nullptr;
+static FnSetGenReqCb SOH_SetOnComboGenerateRequestCallback = nullptr;
+static FnSetSeedGenerated SOH_SetSeedGenerated = nullptr;
 
-static std::atomic<bool>  g_GenerateBusy{ false };
+static std::atomic<bool> g_GenerateBusy{ false };
 
 // ---------- ComboShip-owned Anchor connection (Phase 1) ----------
 // The persistent TCP socket + receive thread live HERE, in the launcher, so the online connection
@@ -268,181 +284,205 @@ typedef void (*FnSetAnchorSend)(void (*)(const char*));
 typedef void (*FnSetAnchorConnect)(void (*)(const char*, uint16_t));
 typedef void (*FnSetAnchorDisconnect)(void (*)(void));
 typedef void (*FnAnchorRecv)(const char*);
-static FnSetAnchorSend       SOH_SetAnchorSend         = nullptr;
-static FnSetAnchorConnect    SOH_SetAnchorConnect      = nullptr;
-static FnSetAnchorDisconnect SOH_SetAnchorDisconnect   = nullptr;
-static FnAnchorRecv          SOH_Anchor_RecvJson       = nullptr;
-static FnVoidArgless         SOH_Anchor_OnConnected    = nullptr;
-static FnVoidArgless         SOH_Anchor_OnDisconnected = nullptr;
+static FnSetAnchorSend SOH_SetAnchorSend = nullptr;
+static FnSetAnchorConnect SOH_SetAnchorConnect = nullptr;
+static FnSetAnchorDisconnect SOH_SetAnchorDisconnect = nullptr;
+static FnAnchorRecv SOH_Anchor_RecvJson = nullptr;
+static FnVoidArgless SOH_Anchor_OnConnected = nullptr;
+static FnVoidArgless SOH_Anchor_OnDisconnected = nullptr;
 
 // MM Anchor adapter exports (Phase 2). MM piggybacks on the same launcher-owned connection; it is
 // activated/deactivated on transitions and receives inbound packets when it is the active game.
-static FnSetAnchorSend       MM_SetAnchorSend          = nullptr;
-static FnAnchorRecv          MM_Anchor_RecvJson        = nullptr;
-static FnVoidArgless         MM_Anchor_Activate        = nullptr;
-static FnVoidArgless         MM_Anchor_Deactivate      = nullptr;
+static FnSetAnchorSend MM_SetAnchorSend = nullptr;
+static FnAnchorRecv MM_Anchor_RecvJson = nullptr;
+static FnVoidArgless MM_Anchor_Activate = nullptr;
+static FnVoidArgless MM_Anchor_Deactivate = nullptr;
 
 namespace ComboAnchor {
-    static std::thread             sThread;
-    static std::atomic<bool>       sEnabled{ false };
-    static std::atomic<bool>       sConnected{ false };
-    static std::string             sHost;
-    static uint16_t                sPort = 0;
-    static std::mutex              sOutMutex;
-    static std::queue<std::string> sOutQueue;
-    // Which game inbound packets are dispatched to. 0 = OOT, 1 = MM. Updated by the game-switch loop
-    // via SetActiveGame on each transition. Phase 3 will route per-packet by TARGET game instead.
-    static std::atomic<int>        sActiveGame{ 0 };
+static std::thread sThread;
+static std::atomic<bool> sEnabled{ false };
+static std::atomic<bool> sConnected{ false };
+static std::string sHost;
+static uint16_t sPort = 0;
+static std::mutex sOutMutex;
+static std::queue<std::string> sOutQueue;
+// Which game inbound packets are dispatched to. 0 = OOT, 1 = MM. Updated by the game-switch loop
+// via SetActiveGame on each transition. Phase 3 will route per-packet by TARGET game instead.
+static std::atomic<int> sActiveGame{ 0 };
 
-    // Background loop: connect, then relay outbound packets and feed inbound packets to the active
-    // game. Mirrors soh's original Network::ReceiveFromServer framing (NUL-delimited JSON), only the
-    // socket now lives in the launcher so it persists across transitions.
-    static void ReceiveLoop() {
-        IPaddress address;
-        if (SDLNet_ResolveHost(&address, sHost.c_str(), sPort) == -1) {
-            std::cerr << "[ComboShip][Anchor] ResolveHost failed: " << SDLNet_GetError() << std::endl;
-            sEnabled = false;
-            return;
-        }
-
-        std::string received;
-        while (sEnabled) {
-            TCPsocket socket = nullptr;
-            while (sEnabled && !socket) {
-                socket = SDLNet_TCP_Open(&address);
-                if (!socket && sEnabled) {
-                    // Back off between attempts so an unreachable server doesn't spin a core at 100%.
-                    std::this_thread::sleep_for(std::chrono::seconds(1));
-                }
-            }
-            if (!sEnabled) {
-                if (socket) SDLNet_TCP_Close(socket);
-                break;
-            }
-
-            received.clear();
-            sConnected = true;
-            // OOT's OnConnected sends the room HANDSHAKE (establishes our client id) regardless of
-            // which game is foreground. If MM is the active game (e.g. we connected while already in
-            // MM, or resumed straight into it), also activate MM so it announces its presence — MM
-            // otherwise only announces on a transition or scene load, neither of which happens here.
-            if (SOH_Anchor_OnConnected) SOH_Anchor_OnConnected();
-            if (sActiveGame.load() == 1 && MM_Anchor_Activate) MM_Anchor_Activate();
-
-            SDLNet_SocketSet set = SDLNet_AllocSocketSet(1);
-            SDLNet_TCP_AddSocket(set, socket);
-
-            while (sEnabled && sConnected) {
-                int ready = SDLNet_CheckSockets(set, 0);
-                if (ready == -1) break;
-
-                // Drain outbound queue (packets handed to us by the game via Send()).
-                std::queue<std::string> toSend;
-                {
-                    std::lock_guard<std::mutex> lk(sOutMutex);
-                    toSend.swap(sOutQueue);
-                }
-                while (!toSend.empty()) {
-                    const std::string& p = toSend.front();
-                    // Include the NUL delimiter in the framing (matches Network::SendDataToRemote).
-                    SDLNet_TCP_Send(socket, p.c_str(), (int)p.size() + 1);
-                    toSend.pop();
-                }
-
-                if (ready == 0) continue;
-
-                char buf[512];
-                memset(buf, 0, sizeof(buf));
-                int len = SDLNet_TCP_Recv(socket, buf, sizeof(buf));
-                if (len <= 0) break;
-                received.append(buf, len);
-
-                size_t pos = received.find('\0');
-                while (pos != std::string::npos) {
-                    std::string packet = received.substr(0, pos);
-                    received.erase(0, pos + 1);
-                    // Dispatch to whichever game is currently active (Phase 2). Phase 3 will route
-                    // per-packet by target game so dormant-game items/flags still apply.
-                    if (sActiveGame.load() == 1) {
-                        if (MM_Anchor_RecvJson) MM_Anchor_RecvJson(packet.c_str());
-                    } else {
-                        if (SOH_Anchor_RecvJson) SOH_Anchor_RecvJson(packet.c_str());
-                    }
-                    pos = received.find('\0');
-                }
-            }
-
-            SDLNet_FreeSocketSet(set);
-            SDLNet_TCP_Close(socket);
-            sConnected = false;
-            if (SOH_Anchor_OnDisconnected) SOH_Anchor_OnDisconnected();
-        }
-    }
-
-    // Registered into the game as the connect request (Network::Enable redirects here).
-    static void Connect(const char* host, uint16_t port) {
-        if (sEnabled) return;
-        static bool sNetInit = false;
-        if (!sNetInit) {
-            SDLNet_Init();
-            sNetInit = true;
-        }
-        sHost = host ? host : "";
-        sPort = port;
-        sEnabled = true;
-        if (sThread.joinable()) sThread.join();
-        sThread = std::thread(ReceiveLoop);
-    }
-
-    // Registered into the game as the disconnect request (Network::Disable redirects here).
-    static void Disconnect() {
-        if (!sEnabled) return;
+// Background loop: connect, then relay outbound packets and feed inbound packets to the active
+// game. Mirrors soh's original Network::ReceiveFromServer framing (NUL-delimited JSON), only the
+// socket now lives in the launcher so it persists across transitions.
+static void ReceiveLoop() {
+    IPaddress address;
+    if (SDLNet_ResolveHost(&address, sHost.c_str(), sPort) == -1) {
+        std::cerr << "[ComboShip][Anchor] ResolveHost failed: " << SDLNet_GetError() << std::endl;
         sEnabled = false;
-        sConnected = false;
-        if (sThread.joinable()) sThread.join();
-        std::lock_guard<std::mutex> lk(sOutMutex);
-        std::queue<std::string> empty;
-        sOutQueue.swap(empty);
+        return;
     }
 
-    // Registered into the game as the send callback (Network::SendDataToRemote redirects here).
-    static void Send(const char* json) {
-        if (!json) return;
-        std::lock_guard<std::mutex> lk(sOutMutex);
-        sOutQueue.push(json);
-    }
-
-    // Called during launcher shutdown, BEFORE any game DLL is unloaded: the receive thread calls
-    // into soh.dll exports, so it must be joined while soh.dll is still mapped (joining across a
-    // FreeDll boundary would run under the loader lock).
-    static void Shutdown() { Disconnect(); }
-
-    // Called by the game-switch loop on every transition. Routes inbound packets to the new active
-    // game and activates/deactivates MM's Anchor. OOT self-reactivates through its own GameInteractor
-    // hooks (OnSceneSpawnActors/OnPlayerUpdate) when it resumes, so it needs no explicit activate.
-    static void SetActiveGame(int game /* 0 = OOT, 1 = MM */) {
-        sActiveGame.store(game);
-        if (game == 1) {
-            if (MM_Anchor_Activate) MM_Anchor_Activate();
-        } else {
-            if (MM_Anchor_Deactivate) MM_Anchor_Deactivate();
+    std::string received;
+    while (sEnabled) {
+        TCPsocket socket = nullptr;
+        while (sEnabled && !socket) {
+            socket = SDLNet_TCP_Open(&address);
+            if (!socket && sEnabled) {
+                // Back off between attempts so an unreachable server doesn't spin a core at 100%.
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
         }
+        if (!sEnabled) {
+            if (socket)
+                SDLNet_TCP_Close(socket);
+            break;
+        }
+
+        received.clear();
+        sConnected = true;
+        // OOT's OnConnected sends the room HANDSHAKE (establishes our client id) regardless of
+        // which game is foreground. If MM is the active game (e.g. we connected while already in
+        // MM, or resumed straight into it), also activate MM so it announces its presence — MM
+        // otherwise only announces on a transition or scene load, neither of which happens here.
+        if (SOH_Anchor_OnConnected)
+            SOH_Anchor_OnConnected();
+        if (sActiveGame.load() == 1 && MM_Anchor_Activate)
+            MM_Anchor_Activate();
+
+        SDLNet_SocketSet set = SDLNet_AllocSocketSet(1);
+        SDLNet_TCP_AddSocket(set, socket);
+
+        while (sEnabled && sConnected) {
+            int ready = SDLNet_CheckSockets(set, 0);
+            if (ready == -1)
+                break;
+
+            // Drain outbound queue (packets handed to us by the game via Send()).
+            std::queue<std::string> toSend;
+            {
+                std::lock_guard<std::mutex> lk(sOutMutex);
+                toSend.swap(sOutQueue);
+            }
+            while (!toSend.empty()) {
+                const std::string& p = toSend.front();
+                // Include the NUL delimiter in the framing (matches Network::SendDataToRemote).
+                SDLNet_TCP_Send(socket, p.c_str(), (int)p.size() + 1);
+                toSend.pop();
+            }
+
+            if (ready == 0)
+                continue;
+
+            char buf[512];
+            memset(buf, 0, sizeof(buf));
+            int len = SDLNet_TCP_Recv(socket, buf, sizeof(buf));
+            if (len <= 0)
+                break;
+            received.append(buf, len);
+
+            size_t pos = received.find('\0');
+            while (pos != std::string::npos) {
+                std::string packet = received.substr(0, pos);
+                received.erase(0, pos + 1);
+                // Dispatch to whichever game is currently active (Phase 2). Phase 3 will route
+                // per-packet by target game so dormant-game items/flags still apply.
+                if (sActiveGame.load() == 1) {
+                    if (MM_Anchor_RecvJson)
+                        MM_Anchor_RecvJson(packet.c_str());
+                } else {
+                    if (SOH_Anchor_RecvJson)
+                        SOH_Anchor_RecvJson(packet.c_str());
+                }
+                pos = received.find('\0');
+            }
+        }
+
+        SDLNet_FreeSocketSet(set);
+        SDLNet_TCP_Close(socket);
+        sConnected = false;
+        if (SOH_Anchor_OnDisconnected)
+            SOH_Anchor_OnDisconnected();
     }
 }
+
+// Registered into the game as the connect request (Network::Enable redirects here).
+static void Connect(const char* host, uint16_t port) {
+    if (sEnabled)
+        return;
+    static bool sNetInit = false;
+    if (!sNetInit) {
+        SDLNet_Init();
+        sNetInit = true;
+    }
+    sHost = host ? host : "";
+    sPort = port;
+    sEnabled = true;
+    if (sThread.joinable())
+        sThread.join();
+    sThread = std::thread(ReceiveLoop);
+}
+
+// Registered into the game as the disconnect request (Network::Disable redirects here).
+static void Disconnect() {
+    if (!sEnabled)
+        return;
+    sEnabled = false;
+    sConnected = false;
+    if (sThread.joinable())
+        sThread.join();
+    std::lock_guard<std::mutex> lk(sOutMutex);
+    std::queue<std::string> empty;
+    sOutQueue.swap(empty);
+}
+
+// Registered into the game as the send callback (Network::SendDataToRemote redirects here).
+static void Send(const char* json) {
+    if (!json)
+        return;
+    std::lock_guard<std::mutex> lk(sOutMutex);
+    sOutQueue.push(json);
+}
+
+// Called during launcher shutdown, BEFORE any game DLL is unloaded: the receive thread calls
+// into soh.dll exports, so it must be joined while soh.dll is still mapped (joining across a
+// FreeDll boundary would run under the loader lock).
+static void Shutdown() {
+    Disconnect();
+}
+
+// Called by the game-switch loop on every transition. Routes inbound packets to the new active
+// game and activates/deactivates MM's Anchor. OOT self-reactivates through its own GameInteractor
+// hooks (OnSceneSpawnActors/OnPlayerUpdate) when it resumes, so it needs no explicit activate.
+static void SetActiveGame(int game /* 0 = OOT, 1 = MM */) {
+    sActiveGame.store(game);
+    if (game == 1) {
+        if (MM_Anchor_Activate)
+            MM_Anchor_Activate();
+    } else {
+        if (MM_Anchor_Deactivate)
+            MM_Anchor_Deactivate();
+    }
+}
+} // namespace ComboAnchor
 
 // Seed utilities — Ship_Hash/Ship_Random are not exported from libultraship, so implement inline.
 // FNV-1a 32-bit hash: deterministic string-to-uint32 used to derive the master seed.
 static uint32_t ComboHash(const char* str) {
-    if (!str) return 0;
+    if (!str)
+        return 0;
     uint32_t h = 2166136261u;
-    while (*str) { h ^= static_cast<unsigned char>(*str++); h *= 16777619u; }
+    while (*str) {
+        h ^= static_cast<unsigned char>(*str++);
+        h *= 16777619u;
+    }
     return h;
 }
 // Simple xorshift32 used for a random seed when none is provided.
 static int ComboRandRange(int minV, int maxV) {
-    static uint32_t s = 0x9E3779B9u ^ static_cast<uint32_t>(
-        std::chrono::steady_clock::now().time_since_epoch().count() & 0xFFFFFFFFu);
-    s ^= s << 13; s ^= s >> 17; s ^= s << 5;
+    static uint32_t s =
+        0x9E3779B9u ^ static_cast<uint32_t>(std::chrono::steady_clock::now().time_since_epoch().count() & 0xFFFFFFFFu);
+    s ^= s << 13;
+    s ^= s >> 17;
+    s ^= s << 5;
     int range = maxV - minV + 1;
     return minV + (range > 0 ? static_cast<int>(s % static_cast<uint32_t>(range)) : 0);
 }
@@ -454,53 +494,57 @@ static int g_PendingMMFileNum = -1;
 static std::string g_PendingMMPlacements;
 
 // Forward decl: defined later, called from RunComboFill on every successful in-game generation.
-static void WriteComboPlaythrough(const std::string& spoilerJson,
-                                  const ComboRando::OracleFns& ootOracle,
-                                  const ComboRando::OracleFns& mmOracle,
-                                  const std::string& seedLabel);
+static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRando::OracleFns& ootOracle,
+                                  const ComboRando::OracleFns& mmOracle, const std::string& seedLabel);
 
 // ComboShip: worker that runs the combined-logic fill (or no-logic fallback) on a background
 // thread, reports progress via the ComboGenProgress struct, and stashes placements.
 static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* progress) {
     auto fail = [&](const char* msg) {
-        if (progress) { progress->SetError(msg); progress->success.store(false); progress->done.store(true); }
+        if (progress) {
+            progress->SetError(msg);
+            progress->success.store(false);
+            progress->done.store(true);
+        }
         std::cerr << "[ComboShip] RunComboFill: " << msg << "\n";
         g_GenerateBusy.store(false);
     };
 
-    if (!SOH_DumpRandoStaticData || !MM_DumpRandoStaticData) { fail("dump functions not resolved"); return; }
+    if (!SOH_DumpRandoStaticData || !MM_DumpRandoStaticData) {
+        fail("dump functions not resolved");
+        return;
+    }
 
-    if (inputSeed.empty()) inputSeed = std::to_string(ComboRandRange(0, 1000000));
+    if (inputSeed.empty())
+        inputSeed = std::to_string(ComboRandRange(0, 1000000));
     uint32_t masterSeed = ComboHash(inputSeed.c_str());
 
     // ComboShip: seed OOT's rando RNG BEFORE the dump so its shop/scrub/merchant setup (which runs
     // both inside the dump and again at SOH_ApplyRandoPlacements) makes identical choices each time.
-    if (SOH_SetComboRandoSeed) SOH_SetComboRandoSeed(masterSeed);
+    if (SOH_SetComboRandoSeed)
+        SOH_SetComboRandoSeed(masterSeed);
 
     std::string sohDump = SOH_DumpRandoStaticData();
-    std::string mmDump  = MM_DumpRandoStaticData();
-    if (sohDump.empty() || mmDump.empty()) { fail("empty static-data dump"); return; }
+    std::string mmDump = MM_DumpRandoStaticData();
+    if (sohDump.empty() || mmDump.empty()) {
+        fail("empty static-data dump");
+        return;
+    }
 
     std::string spoiler;
     bool usedCombinedFill = false;
 
-    if (Combo_SOH_Rando_Reset && Combo_SOH_Rando_SetOwnedItems &&
-        Combo_SOH_Rando_GetReachableChecks && Combo_SOH_Rando_PlaceItem &&
-        Combo_MM_Rando_Reset && Combo_MM_Rando_SetOwnedItems &&
-        Combo_MM_Rando_GetReachableChecks && Combo_MM_Rando_PlaceItem &&
-        Combo_MM_Rando_Restore) {
+    if (Combo_SOH_Rando_Reset && Combo_SOH_Rando_SetOwnedItems && Combo_SOH_Rando_GetReachableChecks &&
+        Combo_SOH_Rando_PlaceItem && Combo_MM_Rando_Reset && Combo_MM_Rando_SetOwnedItems &&
+        Combo_MM_Rando_GetReachableChecks && Combo_MM_Rando_PlaceItem && Combo_MM_Rando_Restore) {
 
-        ComboRando::OracleFns ootOracle = {
-            Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
-            Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem
-        };
-        ComboRando::OracleFns mmOracle = {
-            Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
-            Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem
-        };
+        ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
+                                            Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem };
+        ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
+                                           Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
 
-        auto result = ComboRando::CrossWorldCombinedFill(
-            sohDump, mmDump, masterSeed, ootOracle, mmOracle, "", progress);
+        auto result =
+            ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle, "", progress);
 
         if (result.success) {
             spoiler = result.spoilerJson;
@@ -543,17 +587,19 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
                 for (auto& it : d.value("items", nlohmann::json::array())) {
                     std::string n = it.value("name", "");
                     std::string dn = it.value("displayName", "");
-                    if (!n.empty() && !dn.empty()) m.emplace(std::move(n), std::move(dn));
+                    if (!n.empty() && !dn.empty())
+                        m.emplace(std::move(n), std::move(dn));
                 }
             } catch (...) {}
             return m;
         };
         auto ootNames = buildNameMap(sohDump);
-        auto mmNames  = buildNameMap(mmDump);
+        auto mmNames = buildNameMap(mmDump);
         for (auto& fm : foreignArr) {
             std::string itemGame = fm.value("itemGame", "");
             std::string itemName = fm.value("itemName", "");
-            if (itemGame != "mm" && itemGame != "oot") continue; // malformed marker: leave unstamped
+            if (itemGame != "mm" && itemGame != "oot")
+                continue; // malformed marker: leave unstamped
             const auto& names = (itemGame == "mm") ? mmNames : ootNames;
             auto it = names.find(itemName);
             if (it != names.end()) {
@@ -564,19 +610,22 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         ComboRando::WriteForeignFromAnnotations(kCanonicalSlot, foreignArr);
 
         nlohmann::json ootApply = j.value("oot", nlohmann::json::object());
-        nlohmann::json mmApply  = j.value("mm",  nlohmann::json::object());
+        nlohmann::json mmApply = j.value("mm", nlohmann::json::object());
         for (const auto& fm : foreignArr) {
             std::string cg = fm.value("checkGame", "");
             std::string cn = fm.value("checkName", "");
-            if (cn.empty()) continue;
-            if (cg == "oot")     ootApply[cn] = ComboRando::kForeignSentinelNameOOT;
-            else if (cg == "mm") mmApply[cn]  = ComboRando::kForeignSentinelNameMM;
+            if (cn.empty())
+                continue;
+            if (cg == "oot")
+                ootApply[cn] = ComboRando::kForeignSentinelNameOOT;
+            else if (cg == "mm")
+                mmApply[cn] = ComboRando::kForeignSentinelNameMM;
         }
 
         if (SOH_ApplyRandoPlacements) {
             SOH_ApplyRandoPlacements(ootApply.dump().c_str());
-            std::cout << "[ComboShip] RunComboFill: OOT placements applied ("
-                      << foreignArr.size() << " foreign markers)\n";
+            std::cout << "[ComboShip] RunComboFill: OOT placements applied (" << foreignArr.size()
+                      << " foreign markers)\n";
         } else if (SOH_SetSeedGenerated) {
             SOH_SetSeedGenerated(1);
         }
@@ -617,17 +666,16 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
         return -1;
     }
     std::string sohDump = SOH_DumpRandoStaticData();
-    std::string mmDump  = MM_DumpRandoStaticData();
-    if (sohDump.empty() || mmDump.empty()) { std::cerr << "[GENTEST] empty dump — cannot run\n"; return -1; }
+    std::string mmDump = MM_DumpRandoStaticData();
+    if (sohDump.empty() || mmDump.empty()) {
+        std::cerr << "[GENTEST] empty dump — cannot run\n";
+        return -1;
+    }
 
-    ComboRando::OracleFns ootOracle = {
-        Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
-        Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem
-    };
-    ComboRando::OracleFns mmOracle = {
-        Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
-        Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem
-    };
+    ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
+                                        Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem };
+    ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
+                                       Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
 
     std::cout << "[GENTEST] running " << numSeeds << " cross-world generations (seedBase=" << seedBase
               << ") — asserting every advancement item is reachable from an empty start in both games\n";
@@ -644,8 +692,7 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
             ++failures;
         }
     }
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                  std::chrono::steady_clock::now() - t0).count();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
     if (failures == 0) {
         std::cout << "[GENTEST] RESULT: PASS — " << numSeeds << "/" << numSeeds
                   << " seeds fully completable (cross-game), " << ms << " ms\n";
@@ -668,10 +715,8 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
 // Writes the sphere-by-sphere log from an ALREADY-GENERATED spoiler, driving the oracles to
 // sphere-collect. Ends by restoring the MM oracle's pre-generation snapshot (it drives MM here).
 // Called both from the env-gated entry below and from RunComboFill on every in-game generation.
-static void WriteComboPlaythrough(const std::string& spoilerJson,
-                                  const ComboRando::OracleFns& ootOracle,
-                                  const ComboRando::OracleFns& mmOracle,
-                                  const std::string& seedLabel) {
+static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRando::OracleFns& ootOracle,
+                                  const ComboRando::OracleFns& mmOracle, const std::string& seedLabel) {
     using namespace ComboRando; // GameId / GAME_OOT / GAME_MM
     // Endgame signals the oracles actually emit:
     //   OOT — top of Ganon's Tower (all four trials cleared) reachable AND the Ganon's Castle Boss Key
@@ -681,12 +726,17 @@ static void WriteComboPlaythrough(const std::string& spoilerJson,
     //   MM  — Majora's Lair reachable (its access already encodes the remains/masks requirement),
     //   surfaced via the in-lair check RC_MOON_MAJORA_POT_01.
     static const char* kOotTowerTop = "Ganon's Castle Tower Boss Key Chest";
-    static const char* kOotBossKey  = "Ganon's Castle Boss Key";
-    static const char* kMmWin       = "RC_MOON_MAJORA_POT_01";
+    static const char* kOotBossKey = "Ganon's Castle Boss Key";
+    static const char* kMmWin = "RC_MOON_MAJORA_POT_01";
 
     // Parse placements: check -> (itemName, itemGame). itemGame defaults to the check's game unless a
     // foreign marker says otherwise (foreign = cross-game placement).
-    struct Placed { GameId checkGame; std::string check; GameId itemGame; std::string item; };
+    struct Placed {
+        GameId checkGame;
+        std::string check;
+        GameId itemGame;
+        std::string item;
+    };
     std::vector<Placed> placements;
     std::unordered_set<std::string> foreignKey; // "<cg>:<cn>" -> item is from the other game
     std::unordered_map<std::string, GameId> foreignItemGame;
@@ -699,7 +749,8 @@ static void WriteComboPlaythrough(const std::string& spoilerJson,
             foreignItemGame[cg + ":" + cn] = (ig == "mm") ? GAME_MM : GAME_OOT;
         }
         auto addGame = [&](const char* key, GameId cg) {
-            if (!j.contains(key) || !j[key].is_object()) return;
+            if (!j.contains(key) || !j[key].is_object())
+                return;
             for (auto& [cn, iv] : j[key].items()) { // iterate the lvalue, not a temporary copy
                 std::string fk = std::string(key) + ":" + cn;
                 GameId ig = foreignKey.count(fk) ? foreignItemGame[fk] : cg;
@@ -709,17 +760,21 @@ static void WriteComboPlaythrough(const std::string& spoilerJson,
         addGame("oot", GAME_OOT);
         addGame("mm", GAME_MM);
     } catch (const std::exception& e) {
-        std::cerr << "[PLAYTHROUGH] spoiler parse error: " << e.what() << "\n"; return;
+        std::cerr << "[PLAYTHROUGH] spoiler parse error: " << e.what() << "\n";
+        return;
     }
 
     auto queryReachable = [&](const ComboRando::OracleFns& o, const std::vector<std::string>& owned) {
         nlohmann::json arr = nlohmann::json::array();
-        for (auto& n : owned) arr.push_back(n);
+        for (auto& n : owned)
+            arr.push_back(n);
         o.Reset();
         o.SetOwnedItems(arr.dump().c_str());
         std::unordered_set<std::string> out;
-        try { for (auto& n : nlohmann::json::parse(o.GetReachableChecks())) out.insert(n.get<std::string>()); }
-        catch (...) {}
+        try {
+            for (auto& n : nlohmann::json::parse(o.GetReachableChecks()))
+                out.insert(n.get<std::string>());
+        } catch (...) {}
         return out;
     };
 
@@ -734,33 +789,36 @@ static void WriteComboPlaythrough(const std::string& spoilerJson,
     const int kMaxSpheres = 200;
     for (int sphere = 0; sphere < kMaxSpheres; ++sphere) {
         auto ootReach = queryReachable(ootOracle, ownedOot);
-        auto mmReach  = queryReachable(mmOracle, ownedMm);
-        bool canGanon  = ootReach.count(kOotTowerTop) > 0 &&
-                         std::find(ownedOot.begin(), ownedOot.end(), kOotBossKey) != ownedOot.end();
+        auto mmReach = queryReachable(mmOracle, ownedMm);
+        bool canGanon = ootReach.count(kOotTowerTop) > 0 &&
+                        std::find(ownedOot.begin(), ownedOot.end(), kOotBossKey) != ownedOot.end();
         bool canMajora = mmReach.count(kMmWin) > 0;
-        if (canGanon && canMajora) { beatableSphere = sphere; break; }
+        if (canGanon && canMajora) {
+            beatableSphere = sphere;
+            break;
+        }
 
         std::vector<Placed> newly;
         for (auto& p : placements) {
             std::string key = (p.checkGame == GAME_OOT ? "oot:" : "mm:") + p.check;
-            if (collected.count(key)) continue;
+            if (collected.count(key))
+                continue;
             const auto& reach = (p.checkGame == GAME_OOT) ? ootReach : mmReach;
-            if (reach.count(p.check)) newly.push_back(p);
+            if (reach.count(p.check))
+                newly.push_back(p);
         }
         if (newly.empty()) {
             log << "Sphere " << sphere << ": (stuck — nothing new reachable, not yet beatable)\n";
             break;
         }
-        log << "Sphere " << sphere << "  (Ganon=" << (canGanon ? "Y" : "n")
-            << " Majora=" << (canMajora ? "Y" : "n") << ", +" << newly.size() << " items)\n";
+        log << "Sphere " << sphere << "  (Ganon=" << (canGanon ? "Y" : "n") << " Majora=" << (canMajora ? "Y" : "n")
+            << ", +" << newly.size() << " items)\n";
         for (auto& p : newly) {
             std::string key = (p.checkGame == GAME_OOT ? "oot:" : "mm:") + p.check;
             collected.insert(key);
             (p.itemGame == GAME_OOT ? ownedOot : ownedMm).push_back(p.item);
-            log << "    [" << (p.checkGame == GAME_OOT ? "OOT" : "MM ") << "] " << p.check
-                << "  <-  " << p.item
-                << (p.checkGame != p.itemGame ? (p.itemGame == GAME_OOT ? "  (OOT item)" : "  (MM item)") : "")
-                << "\n";
+            log << "    [" << (p.checkGame == GAME_OOT ? "OOT" : "MM ") << "] " << p.check << "  <-  " << p.item
+                << (p.checkGame != p.itemGame ? (p.itemGame == GAME_OOT ? "  (OOT item)" : "  (MM item)") : "") << "\n";
         }
     }
     // ComboShip: true "ever reachable" sets — give each oracle the FULL placed-item set and ask
@@ -768,15 +826,15 @@ static void WriteComboPlaythrough(const std::string& spoilerJson,
     // from `collected`, which stops at the beatable sphere (post-win checks would look unreachable).
     // Must run before the MM restore below, which rolls the MM oracle back to its pre-gen snapshot.
     std::vector<std::string> allOot, allMm;
-    for (auto& p : placements) (p.itemGame == GAME_OOT ? allOot : allMm).push_back(p.item);
+    for (auto& p : placements)
+        (p.itemGame == GAME_OOT ? allOot : allMm).push_back(p.item);
     auto everReachOot = queryReachable(ootOracle, allOot);
-    auto everReachMm  = queryReachable(mmOracle,  allMm);
+    auto everReachMm = queryReachable(mmOracle, allMm);
 
     Combo_MM_Rando_Restore();
 
     if (beatableSphere >= 0) {
-        log << "\nBEATABLE at sphere " << beatableSphere
-            << ": Ganon AND Majora both reachable. Seed is completable.\n";
+        log << "\nBEATABLE at sphere " << beatableSphere << ": Ganon AND Majora both reachable. Seed is completable.\n";
     } else {
         log << "\nNOT proven beatable within " << kMaxSpheres << " spheres (see stuck note above).\n";
     }
@@ -789,7 +847,8 @@ static void WriteComboPlaythrough(const std::string& spoilerJson,
         size_t reached = 0, missing = 0;
         log << "\n--- " << tag << " placements ---\n";
         for (auto& p : placements) {
-            if (p.checkGame != cg) continue;
+            if (p.checkGame != cg)
+                continue;
             bool got = everReach.count(p.check) > 0;
             got ? ++reached : ++missing;
             log << "    " << (got ? "  " : "! ") << p.check << "  <-  " << p.item
@@ -800,15 +859,17 @@ static void WriteComboPlaythrough(const std::string& spoilerJson,
     };
     log << "\n==== Full placement (all checks) ====\n";
     emitGame(GAME_OOT, "OOT", everReachOot);
-    emitGame(GAME_MM,  "MM",  everReachMm);
+    emitGame(GAME_MM, "MM", everReachMm);
 
     std::error_code ec;
     std::filesystem::create_directories("saves/combo", ec);
     std::string path = "saves/combo/slot0.playthrough.txt";
-    { std::ofstream f(path, std::ios::trunc); f << log.str(); }
+    {
+        std::ofstream f(path, std::ios::trunc);
+        f << log.str();
+    }
 
-    std::cout << "[PLAYTHROUGH] seed '" << seedLabel << "' - "
-              << (beatableSphere >= 0 ? "BEATABLE" : "NOT beatable")
+    std::cout << "[PLAYTHROUGH] seed '" << seedLabel << "' - " << (beatableSphere >= 0 ? "BEATABLE" : "NOT beatable")
               << (beatableSphere >= 0 ? (" at sphere " + std::to_string(beatableSphere)) : "")
               << "; full sphere log -> " << path << "\n";
     std::cout << "[PLAYTHROUGH] collected " << collected.size() << " items across "
@@ -820,23 +881,20 @@ static void RunComboPlaythrough(const std::string& inputSeed) {
     if (!(Combo_SOH_Rando_Reset && Combo_SOH_Rando_SetOwnedItems && Combo_SOH_Rando_GetReachableChecks &&
           Combo_SOH_Rando_PlaceItem && Combo_MM_Rando_Reset && Combo_MM_Rando_SetOwnedItems &&
           Combo_MM_Rando_GetReachableChecks && Combo_MM_Rando_PlaceItem && Combo_MM_Rando_Restore)) {
-        std::cerr << "[PLAYTHROUGH] oracle exports unavailable\n"; return;
+        std::cerr << "[PLAYTHROUGH] oracle exports unavailable\n";
+        return;
     }
     if (!SOH_DumpRandoStaticData || !MM_DumpRandoStaticData) {
-        std::cerr << "[PLAYTHROUGH] dump functions not resolved\n"; return;
+        std::cerr << "[PLAYTHROUGH] dump functions not resolved\n";
+        return;
     }
-    ComboRando::OracleFns ootOracle = {
-        Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
-        Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem
-    };
-    ComboRando::OracleFns mmOracle = {
-        Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
-        Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem
-    };
+    ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
+                                        Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem };
+    ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
+                                       Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
     std::string seedStr = inputSeed.empty() ? "1" : inputSeed;
-    auto fill = ComboRando::CrossWorldCombinedFill(
-        SOH_DumpRandoStaticData(), MM_DumpRandoStaticData(), ComboHash(seedStr.c_str()),
-        ootOracle, mmOracle, "", nullptr);
+    auto fill = ComboRando::CrossWorldCombinedFill(SOH_DumpRandoStaticData(), MM_DumpRandoStaticData(),
+                                                   ComboHash(seedStr.c_str()), ootOracle, mmOracle, "", nullptr);
     if (!fill.success) {
         Combo_MM_Rando_Restore();
         std::cerr << "[PLAYTHROUGH] seed '" << seedStr << "' did not generate: " << fill.error << "\n";
@@ -851,7 +909,10 @@ static void RunComboPlaythrough(const std::string& inputSeed) {
 static void Combo_OnGenerateRequest(const char* inputSeed, ComboRando::ComboGenProgress* progress) {
     if (g_GenerateBusy.exchange(true)) {
         // Already running — ignore the duplicate request.
-        if (progress) { progress->SetError("generate already in progress"); progress->done.store(true); }
+        if (progress) {
+            progress->SetError("generate already in progress");
+            progress->done.store(true);
+        }
         return;
     }
     RunComboFill(std::string(inputSeed ? inputSeed : ""), progress);
@@ -887,15 +948,12 @@ static bool OOTArchivesExist() {
     // archive (assets/fonts) that always ships with the build — it must NOT count here, or a genuine
     // first run (port archive present, ROM not yet extracted) would skip extraction and then hard-exit
     // inside Initialize() when oot.o2r is missing.
-    return std::filesystem::exists("oot-mq.o2r") ||
-           std::filesystem::exists("oot.o2r");
+    return std::filesystem::exists("oot-mq.o2r") || std::filesystem::exists("oot.o2r");
 }
 
 // ROM-derived archive (must be extracted from the player's MM ROM)
 static bool MMRomArchiveExists() {
-    return std::filesystem::exists("mm.o2r") ||
-           std::filesystem::exists("mm.zip") ||
-           std::filesystem::exists("mm.otr");
+    return std::filesystem::exists("mm.o2r") || std::filesystem::exists("mm.zip") || std::filesystem::exists("mm.otr");
 }
 
 // Any MM archive at all (used for general "is MM set up" check)
@@ -915,21 +973,21 @@ int main(int argc, char** argv) {
         // Slot 0 only for now; expand when multi-slot save is wired.
         auto leftover = ComboRando::LoadAll(0);
         if (!leftover.empty()) {
-            std::cout << "[ComboShip] mailbox slot0 has " << leftover.size()
-                      << " entr" << (leftover.size() == 1 ? "y" : "ies") << " on startup\n";
+            std::cout << "[ComboShip] mailbox slot0 has " << leftover.size() << " entr"
+                      << (leftover.size() == 1 ? "y" : "ies") << " on startup\n";
         }
     }
 
     // --- 1. Load DLLs ---
 
 #ifdef _WIN32
-    const char* sohDll    = "soh.dll";
+    const char* sohDll = "soh.dll";
     const char* twoShipDll = "2ship.dll";
 #elif defined(__APPLE__)
-    const char* sohDll    = "libsoh.dylib";
+    const char* sohDll = "libsoh.dylib";
     const char* twoShipDll = "lib2ship.dylib";
 #else
-    const char* sohDll    = "libsoh.so";
+    const char* sohDll = "libsoh.so";
     const char* twoShipDll = "lib2ship.so";
 #endif
 
@@ -947,9 +1005,9 @@ int main(int argc, char** argv) {
     }
 
     // Resolve soh.dll exports
-    SOH_Init         = (FnVoid)        GetSym(sohModule, "SOH_Init");
-    SOH_RunMain      = (FnRunMain)     GetSym(sohModule, "SOH_RunMain");
-    SOH_Extract      = (FnExtract)     GetSym(sohModule, "SOH_Extract");
+    SOH_Init = (FnVoid)GetSym(sohModule, "SOH_Init");
+    SOH_RunMain = (FnRunMain)GetSym(sohModule, "SOH_RunMain");
+    SOH_Extract = (FnExtract)GetSym(sohModule, "SOH_Extract");
 
     if (!SOH_Init || !SOH_RunMain) {
         std::cerr << "ERROR: soh.dll is missing required ComboShip exports (SOH_Init / SOH_RunMain)." << std::endl;
@@ -960,71 +1018,71 @@ int main(int argc, char** argv) {
     }
 
     // Resolve 2ship.dll exports
-    MM_InitArchives          = (FnVoid)           GetSym(mmModule,  "MM_InitArchives");
-    MM_Extract               = (FnExtract)        GetSym(mmModule,  "MM_Extract");
-    MM_ArchiveCount          = (FnInt)            GetSym(mmModule,  "MM_ArchiveCount");
-    SOH_SetOnNewSaveCallback     = (FnSetSaveCallback)        GetSym(sohModule, "SOH_SetOnNewSaveCallback");
-    MM_InitSaveFile              = (FnMMInitSave)             GetSym(mmModule,  "MM_InitSaveFile");
-    SOH_SetOnSceneSwitchCallback = (FnSetSceneSwitchCallback) GetSym(sohModule, "SOH_SetOnSceneSwitchCallback");
-    MM_RunGame                   = (FnMMRunGame)              GetSym(mmModule,  "MM_RunGame");
-    SOH_Deinit                   = (FnSOHDeinit)              GetSym(sohModule, "SOH_Deinit");
-    SOH_PrepareForTransition     = (FnSOHPrepare)             GetSym(sohModule, "SOH_PrepareForTransition");
-    MM_NotifyComboTransition     = (FnMMNotify)               GetSym(mmModule,  "MM_NotifyComboTransition");
-    MM_SetOnComboReturnCallback  = (FnMMSetReturnCb)          GetSym(mmModule,  "MM_SetOnComboReturnCallback");
-    SOH_ResumeGame               = (FnVoidArgless)            GetSym(sohModule, "SOH_ResumeGame");
-    SOH_NotifyComboReturn        = (FnVoidArgless)            GetSym(sohModule, "SOH_NotifyComboReturn");
-    MM_ResumeGame                = (FnMMResume)               GetSym(mmModule,  "MM_ResumeGame");
-    MM_PrepareForTransition      = (FnVoidArgless)            GetSym(mmModule,  "MM_PrepareForTransition");
-    SOH_DumpRandoStaticData          = (FnDumpData)           GetSym(sohModule, "SOH_DumpRandoStaticData");
-    MM_DumpRandoStaticData           = (FnDumpData)           GetSym(mmModule,  "MM_DumpRandoStaticData");
-    MM_InitRandoSaveFile             = (FnMMInitRandoSave)    GetSym(mmModule,  "MM_InitRandoSaveFile");
-    SOH_SetOnComboGenerateCallback   = (FnSetGenerateCb)      GetSym(sohModule, "SOH_SetOnComboGenerateCallback");
-    SOH_ApplyRandoPlacements         = (FnApplyPlacements)    GetSym(sohModule, "SOH_ApplyRandoPlacements");
-    SOH_SetComboRandoSeed            = (FnSetComboRandoSeed)  GetSym(sohModule, "SOH_SetComboRandoSeed");
-    SOH_SetOnComboGenerateRequestCallback = (FnSetGenReqCb)      GetSym(sohModule, "SOH_SetOnComboGenerateRequestCallback");
-    SOH_SetSeedGenerated                  = (FnSetSeedGenerated) GetSym(sohModule, "SOH_SetSeedGenerated");
-    MM_BootForCombo                  = (FnVoidArgless)        GetSym(mmModule,  "MM_BootForCombo");
-    MM_Deinit                        = (FnVoidArgless)        GetSym(mmModule,  "MM_Deinit");
-    SOH_ResumeForeground             = (FnVoidArgless)        GetSym(sohModule, "SOH_ResumeForeground");
+    MM_InitArchives = (FnVoid)GetSym(mmModule, "MM_InitArchives");
+    MM_Extract = (FnExtract)GetSym(mmModule, "MM_Extract");
+    MM_ArchiveCount = (FnInt)GetSym(mmModule, "MM_ArchiveCount");
+    SOH_SetOnNewSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnNewSaveCallback");
+    MM_InitSaveFile = (FnMMInitSave)GetSym(mmModule, "MM_InitSaveFile");
+    SOH_SetOnSceneSwitchCallback = (FnSetSceneSwitchCallback)GetSym(sohModule, "SOH_SetOnSceneSwitchCallback");
+    MM_RunGame = (FnMMRunGame)GetSym(mmModule, "MM_RunGame");
+    SOH_Deinit = (FnSOHDeinit)GetSym(sohModule, "SOH_Deinit");
+    SOH_PrepareForTransition = (FnSOHPrepare)GetSym(sohModule, "SOH_PrepareForTransition");
+    MM_NotifyComboTransition = (FnMMNotify)GetSym(mmModule, "MM_NotifyComboTransition");
+    MM_SetOnComboReturnCallback = (FnMMSetReturnCb)GetSym(mmModule, "MM_SetOnComboReturnCallback");
+    SOH_ResumeGame = (FnVoidArgless)GetSym(sohModule, "SOH_ResumeGame");
+    SOH_NotifyComboReturn = (FnVoidArgless)GetSym(sohModule, "SOH_NotifyComboReturn");
+    MM_ResumeGame = (FnMMResume)GetSym(mmModule, "MM_ResumeGame");
+    MM_PrepareForTransition = (FnVoidArgless)GetSym(mmModule, "MM_PrepareForTransition");
+    SOH_DumpRandoStaticData = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoStaticData");
+    MM_DumpRandoStaticData = (FnDumpData)GetSym(mmModule, "MM_DumpRandoStaticData");
+    MM_InitRandoSaveFile = (FnMMInitRandoSave)GetSym(mmModule, "MM_InitRandoSaveFile");
+    SOH_SetOnComboGenerateCallback = (FnSetGenerateCb)GetSym(sohModule, "SOH_SetOnComboGenerateCallback");
+    SOH_ApplyRandoPlacements = (FnApplyPlacements)GetSym(sohModule, "SOH_ApplyRandoPlacements");
+    SOH_SetComboRandoSeed = (FnSetComboRandoSeed)GetSym(sohModule, "SOH_SetComboRandoSeed");
+    SOH_SetOnComboGenerateRequestCallback = (FnSetGenReqCb)GetSym(sohModule, "SOH_SetOnComboGenerateRequestCallback");
+    SOH_SetSeedGenerated = (FnSetSeedGenerated)GetSym(sohModule, "SOH_SetSeedGenerated");
+    MM_BootForCombo = (FnVoidArgless)GetSym(mmModule, "MM_BootForCombo");
+    MM_Deinit = (FnVoidArgless)GetSym(mmModule, "MM_Deinit");
+    SOH_ResumeForeground = (FnVoidArgless)GetSym(sohModule, "SOH_ResumeForeground");
 
     // ComboShip-owned unified extraction primitives + split init
-    SOH_InitWindowOnly        = (FnVoid)                 GetSym(sohModule, "SOH_InitWindowOnly");
-    SOH_FinishInit            = (FnVoid)                 GetSym(sohModule, "SOH_FinishInit");
-    SOH_ValidateRom           = (ComboFnValidateRom)     GetSym(sohModule, "SOH_ValidateRom");
-    SOH_StartExtraction       = (ComboFnStartExtraction) GetSym(sohModule, "SOH_StartExtraction");
-    SOH_GetExtractionProgress = (ComboFnGetProgress)     GetSym(sohModule, "SOH_GetExtractionProgress");
-    MM_ValidateRom            = (ComboFnValidateRom)     GetSym(mmModule,  "MM_ValidateRom");
-    MM_StartExtraction        = (ComboFnStartExtraction) GetSym(mmModule,  "MM_StartExtraction");
-    MM_GetExtractionProgress  = (ComboFnGetProgress)     GetSym(mmModule,  "MM_GetExtractionProgress");
+    SOH_InitWindowOnly = (FnVoid)GetSym(sohModule, "SOH_InitWindowOnly");
+    SOH_FinishInit = (FnVoid)GetSym(sohModule, "SOH_FinishInit");
+    SOH_ValidateRom = (ComboFnValidateRom)GetSym(sohModule, "SOH_ValidateRom");
+    SOH_StartExtraction = (ComboFnStartExtraction)GetSym(sohModule, "SOH_StartExtraction");
+    SOH_GetExtractionProgress = (ComboFnGetProgress)GetSym(sohModule, "SOH_GetExtractionProgress");
+    MM_ValidateRom = (ComboFnValidateRom)GetSym(mmModule, "MM_ValidateRom");
+    MM_StartExtraction = (ComboFnStartExtraction)GetSym(mmModule, "MM_StartExtraction");
+    MM_GetExtractionProgress = (ComboFnGetProgress)GetSym(mmModule, "MM_GetExtractionProgress");
 
     // Anchor transport seam exports (Phase 1)
-    SOH_SetAnchorSend         = (FnSetAnchorSend)       GetSym(sohModule, "SOH_SetAnchorSend");
-    SOH_SetAnchorConnect      = (FnSetAnchorConnect)    GetSym(sohModule, "SOH_SetAnchorConnect");
-    SOH_SetAnchorDisconnect   = (FnSetAnchorDisconnect) GetSym(sohModule, "SOH_SetAnchorDisconnect");
-    SOH_Anchor_RecvJson       = (FnAnchorRecv)          GetSym(sohModule, "SOH_Anchor_RecvJson");
-    SOH_Anchor_OnConnected    = (FnVoidArgless)         GetSym(sohModule, "SOH_Anchor_OnConnected");
-    SOH_Anchor_OnDisconnected = (FnVoidArgless)         GetSym(sohModule, "SOH_Anchor_OnDisconnected");
-    MM_SetAnchorSend          = (FnSetAnchorSend)       GetSym(mmModule,  "MM_SetAnchorSend");
-    MM_Anchor_RecvJson        = (FnAnchorRecv)          GetSym(mmModule,  "MM_Anchor_RecvJson");
-    MM_Anchor_Activate        = (FnVoidArgless)         GetSym(mmModule,  "MM_Anchor_Activate");
-    MM_Anchor_Deactivate      = (FnVoidArgless)         GetSym(mmModule,  "MM_Anchor_Deactivate");
+    SOH_SetAnchorSend = (FnSetAnchorSend)GetSym(sohModule, "SOH_SetAnchorSend");
+    SOH_SetAnchorConnect = (FnSetAnchorConnect)GetSym(sohModule, "SOH_SetAnchorConnect");
+    SOH_SetAnchorDisconnect = (FnSetAnchorDisconnect)GetSym(sohModule, "SOH_SetAnchorDisconnect");
+    SOH_Anchor_RecvJson = (FnAnchorRecv)GetSym(sohModule, "SOH_Anchor_RecvJson");
+    SOH_Anchor_OnConnected = (FnVoidArgless)GetSym(sohModule, "SOH_Anchor_OnConnected");
+    SOH_Anchor_OnDisconnected = (FnVoidArgless)GetSym(sohModule, "SOH_Anchor_OnDisconnected");
+    MM_SetAnchorSend = (FnSetAnchorSend)GetSym(mmModule, "MM_SetAnchorSend");
+    MM_Anchor_RecvJson = (FnAnchorRecv)GetSym(mmModule, "MM_Anchor_RecvJson");
+    MM_Anchor_Activate = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_Activate");
+    MM_Anchor_Deactivate = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_Deactivate");
 
     // Oracle exports
-    Combo_SOH_Rando_Reset             = (FnOracleVoid)      GetSym(sohModule, "Combo_SOH_Rando_Reset");
-    Combo_SOH_Rando_SetOwnedItems     = (FnOracleSetItems)  GetSym(sohModule, "Combo_SOH_Rando_SetOwnedItems");
-    Combo_SOH_Rando_GetReachableChecks = (FnOracleGetChecks) GetSym(sohModule, "Combo_SOH_Rando_GetReachableChecks");
-    Combo_SOH_Rando_PlaceItem          = (FnOraclePlaceItem) GetSym(sohModule, "Combo_SOH_Rando_PlaceItem");
-    Combo_MM_Rando_Reset              = (FnOracleVoid)      GetSym(mmModule,  "Combo_MM_Rando_Reset");
-    Combo_MM_Rando_SetOwnedItems      = (FnOracleSetItems)  GetSym(mmModule,  "Combo_MM_Rando_SetOwnedItems");
-    Combo_MM_Rando_GetReachableChecks  = (FnOracleGetChecks) GetSym(mmModule,  "Combo_MM_Rando_GetReachableChecks");
-    Combo_MM_Rando_PlaceItem           = (FnOraclePlaceItem) GetSym(mmModule,  "Combo_MM_Rando_PlaceItem");
-    Combo_MM_Rando_Restore             = (FnOracleVoid)      GetSym(mmModule,  "Combo_MM_Rando_Restore");
+    Combo_SOH_Rando_Reset = (FnOracleVoid)GetSym(sohModule, "Combo_SOH_Rando_Reset");
+    Combo_SOH_Rando_SetOwnedItems = (FnOracleSetItems)GetSym(sohModule, "Combo_SOH_Rando_SetOwnedItems");
+    Combo_SOH_Rando_GetReachableChecks = (FnOracleGetChecks)GetSym(sohModule, "Combo_SOH_Rando_GetReachableChecks");
+    Combo_SOH_Rando_PlaceItem = (FnOraclePlaceItem)GetSym(sohModule, "Combo_SOH_Rando_PlaceItem");
+    Combo_MM_Rando_Reset = (FnOracleVoid)GetSym(mmModule, "Combo_MM_Rando_Reset");
+    Combo_MM_Rando_SetOwnedItems = (FnOracleSetItems)GetSym(mmModule, "Combo_MM_Rando_SetOwnedItems");
+    Combo_MM_Rando_GetReachableChecks = (FnOracleGetChecks)GetSym(mmModule, "Combo_MM_Rando_GetReachableChecks");
+    Combo_MM_Rando_PlaceItem = (FnOraclePlaceItem)GetSym(mmModule, "Combo_MM_Rando_PlaceItem");
+    Combo_MM_Rando_Restore = (FnOracleVoid)GetSym(mmModule, "Combo_MM_Rando_Restore");
 
     // Cross-game erase seam (issue #1)
-    SOH_SetDeleteForeignSave = (FnSetDeleteForeignSave) GetSym(sohModule, "SOH_SetDeleteForeignSave");
-    MM_SetDeleteForeignSave  = (FnSetDeleteForeignSave) GetSym(mmModule,  "MM_SetDeleteForeignSave");
-    SOH_DeleteSaveFile       = (FnDeleteSaveFile)       GetSym(sohModule, "SOH_DeleteSaveFile");
-    MM_DeleteSaveFile        = (FnDeleteSaveFile)       GetSym(mmModule,  "MM_DeleteSaveFile");
+    SOH_SetDeleteForeignSave = (FnSetDeleteForeignSave)GetSym(sohModule, "SOH_SetDeleteForeignSave");
+    MM_SetDeleteForeignSave = (FnSetDeleteForeignSave)GetSym(mmModule, "MM_SetDeleteForeignSave");
+    SOH_DeleteSaveFile = (FnDeleteSaveFile)GetSym(sohModule, "SOH_DeleteSaveFile");
+    MM_DeleteSaveFile = (FnDeleteSaveFile)GetSym(mmModule, "MM_DeleteSaveFile");
 
     if (!MM_InitArchives) {
         std::cerr << "ERROR: 2ship.dll is missing required ComboShip exports (MM_InitArchives)." << std::endl;
@@ -1065,7 +1123,8 @@ int main(int argc, char** argv) {
         }
         if (!ComboUI_RunExtraction) {
             std::cerr << "ERROR: comboui.dll missing ComboUI_RunExtraction (rebuild required)." << std::endl;
-            if (comboUIModule) FreeDll(comboUIModule);
+            if (comboUIModule)
+                FreeDll(comboUIModule);
             FreeDll(mmModule);
             FreeDll(sohModule);
             return 1;
@@ -1083,14 +1142,16 @@ int main(int argc, char** argv) {
 
         if (!ComboUI_RunExtraction(&cb)) {
             std::cerr << "[ComboShip] Extraction cancelled or failed — exiting." << std::endl;
-            if (comboUIModule) FreeDll(comboUIModule);
+            if (comboUIModule)
+                FreeDll(comboUIModule);
             FreeDll(mmModule);
             FreeDll(sohModule);
             return 1;
         }
         if (!OOTArchivesExist() || !MMRomArchiveExists()) {
             std::cerr << "ERROR: ROM archives still missing after extraction — exiting." << std::endl;
-            if (comboUIModule) FreeDll(comboUIModule);
+            if (comboUIModule)
+                FreeDll(comboUIModule);
             FreeDll(mmModule);
             FreeDll(sohModule);
             return 1;
@@ -1159,15 +1220,14 @@ int main(int argc, char** argv) {
     bool mmEagerBooted = false;
     if (MM_BootForCombo && SOH_PrepareForTransition && MM_PrepareForTransition && SOH_ResumeForeground) {
         std::cout << "[ComboShip] Eager MM boot: begin" << std::endl;
-        SOH_PrepareForTransition();   // stop OOT audio + tear down OOT GUI (Context/RM kept alive)
-        MM_BootForCombo();            // full MM init on the shared Context, MM's RM active, no loop
-        MM_PrepareForTransition();    // stop MM's audio (MM started it during InitOTR)
-        SOH_ResumeForeground();       // re-activate OOT's RM/audio/GUI as the foreground game
+        SOH_PrepareForTransition(); // stop OOT audio + tear down OOT GUI (Context/RM kept alive)
+        MM_BootForCombo();          // full MM init on the shared Context, MM's RM active, no loop
+        MM_PrepareForTransition();  // stop MM's audio (MM started it during InitOTR)
+        SOH_ResumeForeground();     // re-activate OOT's RM/audio/GUI as the foreground game
         mmEagerBooted = true;
         std::cout << "[ComboShip] Eager MM boot: complete" << std::endl;
     } else {
-        std::cerr << "[ComboShip] Eager MM boot: required exports missing — oracle will be unavailable"
-                  << std::endl;
+        std::cerr << "[ComboShip] Eager MM boot: required exports missing — oracle will be unavailable" << std::endl;
     }
 
     // ComboShip: dump OOT/MM static rando data (headless, safe AFTER SOH_Init) to
@@ -1180,17 +1240,23 @@ int main(int argc, char** argv) {
 
         if (SOH_DumpRandoStaticData) {
             std::string sohDump = SOH_DumpRandoStaticData();
-            { std::ofstream f("saves/combo/oot_dump.json", std::ios::trunc); f << sohDump; }
+            {
+                std::ofstream f("saves/combo/oot_dump.json", std::ios::trunc);
+                f << sohDump;
+            }
             auto j = nlohmann::json::parse(sohDump);
-            std::cout << "[ComboShip] OOT coherent dump: " << j["checks"].size() << " checks, "
-                      << j["items"].size() << " items -> saves/combo/oot_dump.json\n";
+            std::cout << "[ComboShip] OOT coherent dump: " << j["checks"].size() << " checks, " << j["items"].size()
+                      << " items -> saves/combo/oot_dump.json\n";
         }
         if (MM_DumpRandoStaticData) {
             std::string mmDump = MM_DumpRandoStaticData();
-            { std::ofstream f("saves/combo/mm_dump.json", std::ios::trunc); f << mmDump; }
+            {
+                std::ofstream f("saves/combo/mm_dump.json", std::ios::trunc);
+                f << mmDump;
+            }
             auto j = nlohmann::json::parse(mmDump);
-            std::cout << "[ComboShip] MM static dump: " << j["checks"].size() << " checks, "
-                      << j["items"].size() << " items -> saves/combo/mm_dump.json\n";
+            std::cout << "[ComboShip] MM static dump: " << j["checks"].size() << " checks, " << j["items"].size()
+                      << " items -> saves/combo/mm_dump.json\n";
         }
     }
 #endif
@@ -1213,8 +1279,7 @@ int main(int argc, char** argv) {
         std::cout << "[ComboShip] COMBO_AUTOGEN_SEED='" << autogenSeed << "' — running fill\n";
         auto t0 = std::chrono::steady_clock::now();
         Combo_OnGenerateRequest(autogenSeed, nullptr);
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                      std::chrono::steady_clock::now() - t0).count();
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
         std::cout << "[ComboShip] autogen fill finished in " << ms << " ms" << std::endl;
     }
 
@@ -1223,7 +1288,8 @@ int main(int argc, char** argv) {
     // start across both games). Exits the process with the failure count so it can run in CI.
     if (const char* genTest = std::getenv("COMBO_GENTEST")) {
         int n = std::atoi(genTest);
-        if (n <= 0) n = 20;
+        if (n <= 0)
+            n = 20;
         uint32_t seedBase = 1;
         if (const char* b = std::getenv("COMBO_GENTEST_SEED_BASE")) {
             seedBase = static_cast<uint32_t>(std::strtoul(b, nullptr, 10));
@@ -1254,8 +1320,10 @@ int main(int argc, char** argv) {
     }
 
     // Cross-game erase seam (issue #1): erasing a save slot in either game wipes both saves.
-    if (SOH_SetDeleteForeignSave) SOH_SetDeleteForeignSave(DeleteForeignSaveFromOOT);
-    if (MM_SetDeleteForeignSave)  MM_SetDeleteForeignSave(DeleteForeignSaveFromMM);
+    if (SOH_SetDeleteForeignSave)
+        SOH_SetDeleteForeignSave(DeleteForeignSaveFromOOT);
+    if (MM_SetDeleteForeignSave)
+        MM_SetDeleteForeignSave(DeleteForeignSaveFromMM);
 
     // --- 6. Bidirectional game-switch loop ---
     // OOT boots first (SOH_RunMain), then each game's loop returns when it signals a switch:
@@ -1279,12 +1347,16 @@ int main(int argc, char** argv) {
                 ootBooted = true;
             } else {
                 std::cout << "[ComboShip] OOT resume\n";
-                if (SOH_ResumeGame) SOH_ResumeGame();
+                if (SOH_ResumeGame)
+                    SOH_ResumeGame();
             }
             if (g_PendingMMFileNum >= 0 && MM_RunGame) {
-                if (SOH_PrepareForTransition) SOH_PrepareForTransition();
-                if (MM_NotifyComboTransition) MM_NotifyComboTransition();
-                if (MM_SetOnComboReturnCallback) MM_SetOnComboReturnCallback(Combo_OnMMReturn);
+                if (SOH_PrepareForTransition)
+                    SOH_PrepareForTransition();
+                if (MM_NotifyComboTransition)
+                    MM_NotifyComboTransition();
+                if (MM_SetOnComboReturnCallback)
+                    MM_SetOnComboReturnCallback(Combo_OnMMReturn);
                 ComboAnchor::SetActiveGame(1); // route Anchor to MM, activate MM's adapter
                 current = GAME_MM;
             } else {
@@ -1298,11 +1370,14 @@ int main(int argc, char** argv) {
                 mmBooted = true;
             } else {
                 std::cout << "[ComboShip] MM resume\n";
-                if (MM_ResumeGame) MM_ResumeGame(g_PendingMMFileNum);
+                if (MM_ResumeGame)
+                    MM_ResumeGame(g_PendingMMFileNum);
             }
             if (g_pendingOOTReturn) {
-                if (MM_PrepareForTransition) MM_PrepareForTransition();
-                if (SOH_NotifyComboReturn) SOH_NotifyComboReturn();
+                if (MM_PrepareForTransition)
+                    MM_PrepareForTransition();
+                if (SOH_NotifyComboReturn)
+                    SOH_NotifyComboReturn();
                 ComboAnchor::SetActiveGame(0); // route Anchor back to OOT, deactivate MM's adapter
                 current = GAME_OOT;
             } else {
@@ -1344,7 +1419,8 @@ int main(int argc, char** argv) {
 
     // Generate is now synchronous — no background thread to join before freeing DLLs.
 
-    if (comboUIModule) FreeDll(comboUIModule);
+    if (comboUIModule)
+        FreeDll(comboUIModule);
     std::cerr << "[ComboShip] shutdown: comboui freed" << std::endl;
     FreeDll(mmModule);
     std::cerr << "[ComboShip] shutdown: 2ship freed" << std::endl;

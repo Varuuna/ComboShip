@@ -13,11 +13,11 @@
 namespace ComboRando {
 
 struct GameMenu {
-    const CwMenu*          menu = nullptr;
-    Fn_MenuInvokeCallback  invokeCallback = nullptr;
-    Fn_MenuEvalDisabled    evalDisabled = nullptr;
-    Fn_MenuDrawCustom      drawCustom = nullptr;
-    bool                   loaded = false;
+    const CwMenu* menu = nullptr;
+    Fn_MenuInvokeCallback invokeCallback = nullptr;
+    Fn_MenuEvalDisabled evalDisabled = nullptr;
+    Fn_MenuDrawCustom drawCustom = nullptr;
+    bool loaded = false;
 };
 
 class ComboMenuModel {
@@ -27,12 +27,16 @@ class ComboMenuModel {
     // Safe to call every frame — each game is retried independently until it loads (MM's
     // menu builds lazily once MM has eager-booted), and mLoaded only latches once both load.
     void EnsureLoaded();
-    const GameMenu& Oot() const { return mOot; }
-    const GameMenu& Mm() const { return mMm; }
+    const GameMenu& Oot() const {
+        return mOot;
+    }
+    const GameMenu& Mm() const {
+        return mMm;
+    }
 
   private:
-    void LoadGame(GameMenu& g, const char* dll, const char* exportSym,
-                  const char* invokeSym, const char* evalSym, const char* drawSym);
+    void LoadGame(GameMenu& g, const char* dll, const char* exportSym, const char* invokeSym, const char* evalSym,
+                  const char* drawSym);
     GameMenu mOot, mMm;
     bool mLoaded = false;
 };

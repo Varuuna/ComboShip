@@ -19,27 +19,30 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 
-#include "CrossMailbox.h"  // for ComboRando::GameId
+#include "CrossMailbox.h" // for ComboRando::GameId
 
 namespace ComboRando {
 
 // Sentinel item names written into each game's own placement table for a foreign check.
 // They differ because the two games use different item-name namespaces (see header note).
 inline constexpr const char* kForeignSentinelNameOOT = "Combo Foreign Item"; // OOT English name
-inline constexpr const char* kForeignSentinelNameMM  = "RI_COMBO_FOREIGN";   // MM spoilerName
+inline constexpr const char* kForeignSentinelNameMM = "RI_COMBO_FOREIGN";    // MM spoilerName
 
 struct ForeignItem {
-    GameId      itemGame;     // the game the item belongs to / must be delivered to
-    std::string itemName;     // item key in itemGame's namespace (English for OOT, RI_* for MM)
-    std::string displayName;  // human string for the "sent"/"received" text
+    GameId itemGame;         // the game the item belongs to / must be delivered to
+    std::string itemName;    // item key in itemGame's namespace (English for OOT, RI_* for MM)
+    std::string displayName; // human string for the "sent"/"received" text
 };
 
-inline std::string GameIdToKey(GameId g) { return g == GAME_OOT ? "oot" : "mm"; }
-inline GameId KeyToGameId(const std::string& s) { return s == "mm" ? GAME_MM : GAME_OOT; }
+inline std::string GameIdToKey(GameId g) {
+    return g == GAME_OOT ? "oot" : "mm";
+}
+inline GameId KeyToGameId(const std::string& s) {
+    return s == "mm" ? GAME_MM : GAME_OOT;
+}
 
 inline std::filesystem::path ForeignPath(int canonicalSlot) {
-    return std::filesystem::path("saves") / "combo" /
-           ("slot" + std::to_string(canonicalSlot) + ".foreign.json");
+    return std::filesystem::path("saves") / "combo" / ("slot" + std::to_string(canonicalSlot) + ".foreign.json");
 }
 
 // Build and atomically write the per-slot foreign map from the combined spoiler's "foreign" array
@@ -47,11 +50,12 @@ inline std::filesystem::path ForeignPath(int canonicalSlot) {
 inline bool WriteForeignFromAnnotations(int canonicalSlot, const nlohmann::json& foreignArray) {
     nlohmann::json out;
     out["oot"] = nlohmann::json::object();
-    out["mm"]  = nlohmann::json::object();
+    out["mm"] = nlohmann::json::object();
     for (const auto& fm : foreignArray) {
         std::string checkGame = fm.value("checkGame", "");
         std::string checkName = fm.value("checkName", "");
-        if (checkGame.empty() || checkName.empty()) continue;
+        if (checkGame.empty() || checkName.empty())
+            continue;
         std::string itemName = fm.value("itemName", "");
         std::string itemGame = fm.value("itemGame", "");
         std::string displayName = fm.value("displayName", itemName);
@@ -62,8 +66,8 @@ inline bool WriteForeignFromAnnotations(int canonicalSlot, const nlohmann::json&
             displayName += (itemGame == "mm") ? " (MM)" : " (OOT)";
         }
         out[checkGame][checkName] = {
-            { "itemGame",    itemGame },
-            { "itemName",    itemName },
+            { "itemGame", itemGame },
+            { "itemName", itemName },
             { "displayName", displayName },
         };
     }
@@ -71,14 +75,20 @@ inline bool WriteForeignFromAnnotations(int canonicalSlot, const nlohmann::json&
     std::error_code ec;
     auto path = ForeignPath(canonicalSlot);
     std::filesystem::create_directories(path.parent_path(), ec);
-    auto tmp = path; tmp += ".tmp";
+    auto tmp = path;
+    tmp += ".tmp";
     {
         std::ofstream f(tmp, std::ios::trunc);
-        if (!f.is_open()) return false;
+        if (!f.is_open())
+            return false;
         f << out.dump(2);
-        if (!f.good()) { f.close(); std::filesystem::remove(tmp, ec); return false; }
+        if (!f.good()) {
+            f.close();
+            std::filesystem::remove(tmp, ec);
+            return false;
+        }
     }
-    std::filesystem::rename(tmp, path, ec);  // atomic on same volume
+    std::filesystem::rename(tmp, path, ec); // atomic on same volume
     return !ec;
 }
 
@@ -87,19 +97,22 @@ inline bool WriteForeignFromAnnotations(int canonicalSlot, const nlohmann::json&
 inline std::unordered_map<std::string, ForeignItem> LoadForeignForGame(int canonicalSlot, GameId checkGame) {
     std::unordered_map<std::string, ForeignItem> map;
     std::ifstream in(ForeignPath(canonicalSlot));
-    if (!in.is_open()) return map;
+    if (!in.is_open())
+        return map;
     try {
-        nlohmann::json j; in >> j;
+        nlohmann::json j;
+        in >> j;
         const auto& section = j.value(GameIdToKey(checkGame), nlohmann::json::object());
         for (auto it = section.begin(); it != section.end(); ++it) {
             const auto& v = it.value();
             ForeignItem fi;
-            fi.itemGame    = KeyToGameId(v.value("itemGame", ""));
-            fi.itemName    = v.value("itemName", "");
+            fi.itemGame = KeyToGameId(v.value("itemGame", ""));
+            fi.itemName = v.value("itemName", "");
             fi.displayName = v.value("displayName", fi.itemName);
             map.emplace(it.key(), std::move(fi));
         }
-    } catch (...) { /* corrupt -> treat as empty */ }
+    } catch (...) { /* corrupt -> treat as empty */
+    }
     return map;
 }
 

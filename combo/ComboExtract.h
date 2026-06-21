@@ -18,8 +18,7 @@ typedef int (*ComboFnValidateRom)(const char* romPath);
 typedef int (*ComboFnStartExtraction)(const char* romPath);
 // Poll progress. *done is set when the task finishes; *success is valid once *done. count/total drive
 // the progress bar (total==0 => "Starting Up"). Any pointer may be null.
-typedef void (*ComboFnGetProgress)(unsigned long long* count, unsigned long long* total, int* done,
-                                   int* success);
+typedef void (*ComboFnGetProgress)(unsigned long long* count, unsigned long long* total, int* done, int* success);
 
 typedef struct ComboExtractCallbacks {
     ComboFnValidateRom sohValidate;

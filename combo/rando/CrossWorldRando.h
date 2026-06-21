@@ -26,16 +26,18 @@ namespace ComboRando {
 
 struct CwRng {
     uint64_t s;
-    explicit CwRng(uint64_t seed) : s(seed ? seed : 0x9E3779B97F4A7C15ULL) {}
+    explicit CwRng(uint64_t seed) : s(seed ? seed : 0x9E3779B97F4A7C15ULL) {
+    }
     uint32_t next() {
         s = s * 6364136223846793005ULL + 1442695040888963407ULL;
         return static_cast<uint32_t>(s >> 33);
     }
-    uint32_t below(uint32_t n) { return n ? next() % n : 0; }
+    uint32_t below(uint32_t n) {
+        return n ? next() % n : 0;
+    }
 };
 
-template <class T>
-inline void cwShuffle(std::vector<T>& v, CwRng& rng) {
+template <class T> inline void cwShuffle(std::vector<T>& v, CwRng& rng) {
     for (size_t i = v.size(); i > 1; --i) {
         size_t j = rng.below(static_cast<uint32_t>(i));
         std::swap(v[i - 1], v[j]);
@@ -45,10 +47,10 @@ inline void cwShuffle(std::vector<T>& v, CwRng& rng) {
 // ---------- Oracle function-pointer types (set by ComboShip.cpp) ----------
 
 struct OracleFns {
-    void        (*Reset)(void);
-    void        (*SetOwnedItems)(const char*);
+    void (*Reset)(void);
+    void (*SetOwnedItems)(const char*);
     const char* (*GetReachableChecks)(void);
-    void        (*PlaceItem)(const char*, const char*);
+    void (*PlaceItem)(const char*, const char*);
 };
 
 // ---------- Data types ----------
@@ -69,7 +71,7 @@ struct CwCheck {
 
 struct CwPlacement {
     CwCheck check;
-    CwItem  item;
+    CwItem item;
 };
 
 // ---------- Combined assumed fill ----------
@@ -83,19 +85,15 @@ struct CombinedFillResult {
 // portalCheckName: the OOT check/region name that gates access to MM (e.g. "Mido's House").
 // If empty, MM is reachable from start.
 // progress: optional thread-safe progress struct polled by the UI. May be nullptr.
-inline CombinedFillResult CrossWorldCombinedFill(
-    const std::string& sohDumpJson,
-    const std::string& mmDumpJson,
-    uint32_t masterSeed,
-    const OracleFns& ootOracle,
-    const OracleFns& mmOracle,
-    const std::string& portalCheckName = "",
-    ComboRando::ComboGenProgress* progress = nullptr
-) {
+inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson, const std::string& mmDumpJson,
+                                                 uint32_t masterSeed, const OracleFns& ootOracle,
+                                                 const OracleFns& mmOracle, const std::string& portalCheckName = "",
+                                                 ComboRando::ComboGenProgress* progress = nullptr) {
     CombinedFillResult result;
     result.success = false;
 
-    if (progress) progress->phase.store(1); // Preparing pools
+    if (progress)
+        progress->phase.store(1); // Preparing pools
 
     // --- Parse pools (single pass per dump) ---
     // One CwItem per check's vanillaItem (multiset), partitioned by the dump's advancement flag.
@@ -108,10 +106,11 @@ inline CombinedFillResult CrossWorldCombinedFill(
         for (auto& c : d.value("checks", nlohmann::json::array())) {
             std::string name = c.value("name", "");
             std::string vi = c.value("vanillaItem", "");
-            if (name.empty() || vi.empty()) continue;
-            allChecks.push_back({game, name});
+            if (name.empty() || vi.empty())
+                continue;
+            allChecks.push_back({ game, name });
             bool adv = c.value("advancement", true);
-            (adv ? advItems : junkItems).push_back({game, vi, adv});
+            (adv ? advItems : junkItems).push_back({ game, vi, adv });
         }
     };
 
@@ -127,32 +126,35 @@ inline CombinedFillResult CrossWorldCombinedFill(
     cwShuffle(allChecks, rng);
 
     // OOT and MM check names are distinct namespaces; key fill bookkeeping by game+name.
-    auto checkKey = [](const CwCheck& c) {
-        return std::string(c.game == GAME_OOT ? "oot:" : "mm:") + c.name;
-    };
+    auto checkKey = [](const CwCheck& c) { return std::string(c.game == GAME_OOT ? "oot:" : "mm:") + c.name; };
 
     // Per-oracle query stats (count + total ms), logged on completion — the searches dominate
     // fill time, so this is the first thing to read when generation feels slow.
-    struct QueryStats { uint32_t count = 0; int64_t ms = 0; };
+    struct QueryStats {
+        uint32_t count = 0;
+        int64_t ms = 0;
+    };
     QueryStats ootStats, mmStats;
 
-    auto queryReachable = [&](const OracleFns& oracle, const std::vector<std::string>& ownedItems)
-        -> std::unordered_set<std::string> {
+    auto queryReachable = [&](const OracleFns& oracle,
+                              const std::vector<std::string>& ownedItems) -> std::unordered_set<std::string> {
         QueryStats& stats = (&oracle == &ootOracle) ? ootStats : mmStats;
         auto t0 = std::chrono::steady_clock::now();
         nlohmann::json arr = nlohmann::json::array();
-        for (const auto& n : ownedItems) arr.push_back(n);
+        for (const auto& n : ownedItems)
+            arr.push_back(n);
         oracle.Reset();
         oracle.SetOwnedItems(arr.dump().c_str());
         std::string raw = oracle.GetReachableChecks();
         std::unordered_set<std::string> out;
         try {
             auto parsed = nlohmann::json::parse(raw);
-            for (const auto& name : parsed) out.insert(name.get<std::string>());
+            for (const auto& name : parsed)
+                out.insert(name.get<std::string>());
         } catch (...) {}
         stats.count++;
-        stats.ms += std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::steady_clock::now() - t0).count();
+        stats.ms +=
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
         return out;
     };
 
@@ -162,8 +164,7 @@ inline CombinedFillResult CrossWorldCombinedFill(
     // both games because an MM item at an OOT check (or vice versa) can open progress anywhere,
     // including the portal itself — so portal openness is re-evaluated every iteration.
     std::vector<CwPlacement> placements;
-    auto reachableFixpoint = [&](const std::vector<std::string>& ootBase,
-                                 const std::vector<std::string>& mmBase)
+    auto reachableFixpoint = [&](const std::vector<std::string>& ootBase, const std::vector<std::string>& mmBase)
         -> std::pair<std::unordered_set<std::string>, std::unordered_set<std::string>> {
         std::vector<std::string> ootOwned = ootBase, mmOwned = mmBase;
         std::vector<bool> credited(placements.size(), false);
@@ -171,13 +172,12 @@ inline CombinedFillResult CrossWorldCombinedFill(
         for (;;) {
             ootReachable = queryReachable(ootOracle, ootOwned);
             bool portalOpen = portalCheckName.empty() || ootReachable.count(portalCheckName) > 0;
-            mmReachable = portalOpen ? queryReachable(mmOracle, mmOwned)
-                                     : std::unordered_set<std::string>{};
+            mmReachable = portalOpen ? queryReachable(mmOracle, mmOwned) : std::unordered_set<std::string>{};
             bool changed = false;
             for (size_t i = 0; i < placements.size(); ++i) {
-                if (credited[i]) continue;
-                const auto& reach =
-                    placements[i].check.game == GAME_OOT ? ootReachable : mmReachable;
+                if (credited[i])
+                    continue;
+                const auto& reach = placements[i].check.game == GAME_OOT ? ootReachable : mmReachable;
                 if (reach.count(placements[i].check.name)) {
                     auto& owned = placements[i].item.game == GAME_OOT ? ootOwned : mmOwned;
                     owned.push_back(placements[i].item.name);
@@ -185,7 +185,8 @@ inline CombinedFillResult CrossWorldCombinedFill(
                     changed = true;
                 }
             }
-            if (!changed) return { std::move(ootReachable), std::move(mmReachable) };
+            if (!changed)
+                return { std::move(ootReachable), std::move(mmReachable) };
         }
     };
 
@@ -205,8 +206,8 @@ inline CombinedFillResult CrossWorldCombinedFill(
         passesUsed = pass;
         auto passStart = std::chrono::steady_clock::now();
         auto passMs = [&] {
-            return std::chrono::duration_cast<std::chrono::milliseconds>(
-                       std::chrono::steady_clock::now() - passStart).count();
+            return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - passStart)
+                .count();
         };
         placements.clear();
         filledChecks.clear();
@@ -238,25 +239,25 @@ inline CombinedFillResult CrossWorldCombinedFill(
 
         bool deadEnd = false;
         while (!toPlace.empty()) {
-            size_t k = std::min({ batchCap, std::max<size_t>(1, toPlace.size() / 4),
-                                  toPlace.size() });
+            size_t k = std::min({ batchCap, std::max<size_t>(1, toPlace.size() / 4), toPlace.size() });
 
             std::vector<CwItem> batch;
             batch.reserve(k);
             for (size_t i = 0; i < k; ++i) {
                 batch.push_back(toPlace.back());
                 toPlace.pop_back();
-                removeOne(batch.back().game == GAME_OOT ? ootRemaining : mmRemaining,
-                          batch.back().name);
+                removeOne(batch.back().game == GAME_OOT ? ootRemaining : mmRemaining, batch.back().name);
             }
 
             auto [ootReachable, mmReachable] = reachableFixpoint(ootRemaining, mmRemaining);
 
             std::vector<size_t> candidates;
             for (size_t ci = 0; ci < allChecks.size(); ++ci) {
-                if (filledChecks.count(checkKey(allChecks[ci]))) continue;
+                if (filledChecks.count(checkKey(allChecks[ci])))
+                    continue;
                 const auto& reach = allChecks[ci].game == GAME_OOT ? ootReachable : mmReachable;
-                if (reach.count(allChecks[ci].name)) candidates.push_back(ci);
+                if (reach.count(allChecks[ci].name))
+                    candidates.push_back(ci);
             }
 
             if (candidates.size() < batch.size()) {
@@ -269,9 +270,9 @@ inline CombinedFillResult CrossWorldCombinedFill(
                     batchCap = batch.size() / 2; // too conservative at this depth — shrink
                     continue;
                 }
-                std::cerr << "[ComboShip] CrossWorldCombinedFill: dead end placing '"
-                          << batch.front().name << "' (pass " << pass << ", "
-                          << placements.size() << " placed, " << passMs() << " ms) — retrying\n";
+                std::cerr << "[ComboShip] CrossWorldCombinedFill: dead end placing '" << batch.front().name
+                          << "' (pass " << pass << ", " << placements.size() << " placed, " << passMs()
+                          << " ms) — retrying\n";
                 deadEnd = true;
                 break;
             }
@@ -284,22 +285,25 @@ inline CombinedFillResult CrossWorldCombinedFill(
                 placements.push_back({ allChecks[pick], item });
                 filledChecks.insert(checkKey(allChecks[pick]));
             }
-            if (progress) progress->placed.store(static_cast<int>(placements.size()));
+            if (progress)
+                progress->placed.store(static_cast<int>(placements.size()));
         }
-        if (deadEnd) continue;
+        if (deadEnd)
+            continue;
 
         // Phase B: junk fast-fill into the remaining checks — zero oracle calls.
         std::vector<CwItem> junkToPlace = junkItems;
         cwShuffle(junkToPlace, rng);
         size_t ji = 0;
         for (size_t ci = 0; ci < allChecks.size() && ji < junkToPlace.size(); ++ci) {
-            if (filledChecks.count(checkKey(allChecks[ci]))) continue;
+            if (filledChecks.count(checkKey(allChecks[ci])))
+                continue;
             placements.push_back({ allChecks[ci], junkToPlace[ji++] });
             filledChecks.insert(checkKey(allChecks[ci]));
         }
         if (ji < junkToPlace.size()) {
-            std::cerr << "[ComboShip] CrossWorldCombinedFill: pool/check mismatch — "
-                      << (junkToPlace.size() - ji) << " junk items left over\n";
+            std::cerr << "[ComboShip] CrossWorldCombinedFill: pool/check mismatch — " << (junkToPlace.size() - ji)
+                      << " junk items left over\n";
         }
 
         // Validation: with NOTHING assumed, sphere-collecting only placed items must reach every
@@ -312,30 +316,30 @@ inline CombinedFillResult CrossWorldCombinedFill(
         size_t advUnreachable = 0, junkUnreachable = 0, junkUnreachableOot = 0;
         for (const auto& p : placements) {
             const auto& reach = p.check.game == GAME_OOT ? ootFinal : mmFinal;
-            if (reach.count(p.check.name)) continue;
+            if (reach.count(p.check.name))
+                continue;
             if (p.item.advancement) {
                 ++advUnreachable;
             } else {
                 ++junkUnreachable;
-                if (p.check.game == GAME_OOT) ++junkUnreachableOot;
+                if (p.check.game == GAME_OOT)
+                    ++junkUnreachableOot;
             }
         }
         if (advUnreachable > 0) {
             std::cerr << "[ComboShip] CrossWorldCombinedFill: validation failed — " << advUnreachable
-                      << " advancement items on unreachable checks (pass " << pass << ", "
-                      << passMs() << " ms) — retrying\n";
+                      << " advancement items on unreachable checks (pass " << pass << ", " << passMs()
+                      << " ms) — retrying\n";
             continue;
         }
 
         std::cout << "[ComboShip] CrossWorldCombinedFill: all " << advItems.size()
-                  << " advancement items reachable from scratch (pass " << pass << ", "
-                  << passMs() << " ms; "
+                  << " advancement items reachable from scratch (pass " << pass << ", " << passMs() << " ms; "
                   << junkItems.size() << " junk, " << junkUnreachable
                   << " junk on oracle-unreachable checks [oot=" << junkUnreachableOot
                   << " mm=" << (junkUnreachable - junkUnreachableOot) << "])\n";
-        std::cout << "[ComboShip] CrossWorldCombinedFill: oracle queries — oot " << ootStats.count
-                  << "x/" << ootStats.ms << " ms, mm " << mmStats.count << "x/" << mmStats.ms
-                  << " ms\n";
+        std::cout << "[ComboShip] CrossWorldCombinedFill: oracle queries — oot " << ootStats.count << "x/"
+                  << ootStats.ms << " ms, mm " << mmStats.count << "x/" << mmStats.ms << " ms\n";
         fillOk = true;
     }
 
@@ -347,21 +351,19 @@ inline CombinedFillResult CrossWorldCombinedFill(
 
     if (progress) {
         progress->placed.store(progress->total.load()); // all placed
-        progress->phase.store(3); // Finalizing
+        progress->phase.store(3);                       // Finalizing
     }
 
     // --- Build spoiler (same shape as the no-logic generator) ---
     nlohmann::json spoiler;
     spoiler["masterSeed"] = masterSeed;
     spoiler["mode"] = "combined-logic assumed-fill";
-    spoiler["fillStats"] = {
-        { "advancementItems", static_cast<uint32_t>(advItems.size()) },
-        { "junkItems", static_cast<uint32_t>(junkItems.size()) },
-        { "passes", passesUsed }
-    };
+    spoiler["fillStats"] = { { "advancementItems", static_cast<uint32_t>(advItems.size()) },
+                             { "junkItems", static_cast<uint32_t>(junkItems.size()) },
+                             { "passes", passesUsed } };
 
     nlohmann::json ootPlacements = nlohmann::json::object();
-    nlohmann::json mmPlacements  = nlohmann::json::object();
+    nlohmann::json mmPlacements = nlohmann::json::object();
     nlohmann::json foreignMarkers = nlohmann::json::array();
 
     for (const auto& p : placements) {
@@ -371,12 +373,10 @@ inline CombinedFillResult CrossWorldCombinedFill(
             mmPlacements[p.check.name] = p.item.name;
         }
         if (p.check.game != p.item.game) {
-            foreignMarkers.push_back({
-                {"checkGame", p.check.game == GAME_OOT ? "oot" : "mm"},
-                {"checkName", p.check.name},
-                {"itemGame", p.item.game == GAME_OOT ? "oot" : "mm"},
-                {"itemName", p.item.name}
-            });
+            foreignMarkers.push_back({ { "checkGame", p.check.game == GAME_OOT ? "oot" : "mm" },
+                                       { "checkName", p.check.name },
+                                       { "itemGame", p.item.game == GAME_OOT ? "oot" : "mm" },
+                                       { "itemName", p.item.name } });
         }
     }
 
@@ -402,9 +402,8 @@ inline CombinedFillResult CrossWorldCombinedFill(
 
 // ---------- Legacy no-logic generator (kept for fallback) ----------
 
-inline std::string CrossWorldGenerateSpoiler(const std::string& sohDumpJson,
-                                              const std::string& mmDumpJson,
-                                              uint32_t masterSeed) {
+inline std::string CrossWorldGenerateSpoiler(const std::string& sohDumpJson, const std::string& mmDumpJson,
+                                             uint32_t masterSeed) {
     nlohmann::json spoiler;
     spoiler["masterSeed"] = masterSeed;
     spoiler["mode"] = "no-logic native-only (phase1)";
@@ -415,9 +414,11 @@ inline std::string CrossWorldGenerateSpoiler(const std::string& sohDumpJson,
             auto d = nlohmann::json::parse(dumpJson);
             std::vector<std::string> checkNames, vanillaItems;
             for (auto& c : d.value("checks", nlohmann::json::array())) {
-                if (!c.contains("vanillaItem")) continue;
+                if (!c.contains("vanillaItem"))
+                    continue;
                 std::string v = c.value("vanillaItem", std::string{});
-                if (v.empty()) continue;
+                if (v.empty())
+                    continue;
                 checkNames.push_back(c.value("name", std::string{}));
                 vanillaItems.push_back(v);
             }
@@ -428,14 +429,12 @@ inline std::string CrossWorldGenerateSpoiler(const std::string& sohDumpJson,
                 out[checkNames[i]] = shuffled[i];
             }
             spoiler[std::string(key) + "Count"] = static_cast<uint32_t>(checkNames.size());
-        } catch (...) {
-            spoiler[std::string(key) + "Error"] = true;
-        }
+        } catch (...) { spoiler[std::string(key) + "Error"] = true; }
         spoiler[key] = out;
     };
 
     doGame("oot", sohDumpJson, masterSeed ^ 0x4F4F5400u);
-    doGame("mm",  mmDumpJson,  masterSeed ^ 0x4D4D0000u);
+    doGame("mm", mmDumpJson, masterSeed ^ 0x4D4D0000u);
 
     return spoiler.dump(2);
 }

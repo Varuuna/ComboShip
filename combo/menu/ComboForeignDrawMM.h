@@ -44,8 +44,8 @@ namespace {
 struct ComboForeignDrawInfoOOT {
     bool ok = false;
     int32_t count = 0;
-    int32_t xluStart = -1;                             // first XLU entry in dls[] order; -1 = all OPA
-    float scale = 0.0f;                                // extra uniform model scale; 0 = none (OOT rupees: 0.7)
+    int32_t xluStart = -1; // first XLU entry in dls[] order; -1 = all OPA
+    float scale = 0.0f;    // extra uniform model scale; 0 = none (OOT rupees: 0.7)
     bool hasEnvColor = false;
     uint8_t envColor[4] = { 0, 0, 0, 0 };
     const char* dls[CW_DRAW_MAX_DLISTS] = { nullptr }; // interned "__OTR__@oot:..." routed paths
@@ -146,8 +146,7 @@ inline void MM_DrawComboForeign(RandoCheckId randoCheckId) {
         Gfx_SetupDL25_Opa(gPlayState->state.gfxCtx);
         MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gPlayState->state.gfxCtx);
         if (info->hasEnvColor) {
-            gDPSetEnvColor(POLY_OPA_DISP++, info->envColor[0], info->envColor[1], info->envColor[2],
-                           info->envColor[3]);
+            gDPSetEnvColor(POLY_OPA_DISP++, info->envColor[0], info->envColor[1], info->envColor[2], info->envColor[3]);
         }
         for (int32_t i = 0; i < xs; i++) {
             gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[i]);
@@ -157,8 +156,7 @@ inline void MM_DrawComboForeign(RandoCheckId randoCheckId) {
         Gfx_SetupDL25_Xlu(gPlayState->state.gfxCtx);
         MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gPlayState->state.gfxCtx);
         if (info->hasEnvColor) {
-            gDPSetEnvColor(POLY_XLU_DISP++, info->envColor[0], info->envColor[1], info->envColor[2],
-                           info->envColor[3]);
+            gDPSetEnvColor(POLY_XLU_DISP++, info->envColor[0], info->envColor[1], info->envColor[2], info->envColor[3]);
         }
         for (int32_t i = xs; i < n; i++) {
             gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[i]);

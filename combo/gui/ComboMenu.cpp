@@ -57,11 +57,9 @@ void ComboMenu::DrawElement() {
     ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->WorkPos, ImGuiCond_Always);
     ImGui::SetNextWindowSize(vp->WorkSize, ImGuiCond_Always);
-    ImGuiWindowFlags flags =
-        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg,
-                          ImVec4(0, 0, 0, CVarGetFloat("gSettings.Menu.BackgroundOpacity", 0.85f)));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, CVarGetFloat("gSettings.Menu.BackgroundOpacity", 0.85f)));
     bool open = ImGui::Begin("Combo Menu", nullptr, flags);
     ImGui::PopStyleColor();
     ImGui::PopStyleVar();
@@ -70,11 +68,14 @@ void ComboMenu::DrawElement() {
         // ComboShip: stylized scope selector (rounded theme buttons) in place of a plain ImGui tab
         // bar, matching the per-game header strip. Tabs are named for each engine's brand, not the
         // bare game code. mScope persists the active scope across frames.
-        struct Scope { const char* id; const char* label; };
+        struct Scope {
+            const char* id;
+            const char* label;
+        };
         static const Scope kScopes[] = {
             { "shared", "Shared" },
-            { "oot",    "Ship of Harkinian" },
-            { "mm",     "2 Ship 2 Harkinian" },
+            { "oot", "Ship of Harkinian" },
+            { "mm", "2 Ship 2 Harkinian" },
         };
         if (mScope.empty()) {
             mScope = "shared";
@@ -109,31 +110,36 @@ void ComboMenu::DrawElement() {
 // (cheap: just pointers/indices into the process-stable CwMenu); nothing is cached across frames.
 namespace {
 struct HubEntry {
-    std::string                    label;     // shown in the left panel
-    std::string                    group;     // owning group label (for the unique key)
+    std::string label; // shown in the left panel
+    std::string group; // owning group label (for the unique key)
     enum Kind { ENGINE, OOT_RANDO, MM_RANDO, COMBO_GEN } kind;
-    const ComboRando::GameMenu*    game = nullptr; // ENGINE/OOT_RANDO/MM_RANDO
-    int                            sectionIndex = -1;
-    int                            sidebarIndex = -1;
-    std::string key() const { return group + "/" + label; }
+    const ComboRando::GameMenu* game = nullptr; // ENGINE/OOT_RANDO/MM_RANDO
+    int sectionIndex = -1;
+    int sidebarIndex = -1;
+    std::string key() const {
+        return group + "/" + label;
+    }
 };
 
 // Append one entry per sidebar of the game's section whose sectionLabel == wantSection.
 // Skips (no-op) if the game isn't loaded or the section isn't present — defensive.
 // `skip` is a deny-list of sidebar names to omit (e.g. sidebars that are OOT-specific and
 // therefore live only in the Ship of Harkinian tab, not here in Shared).
-void AppendSectionEntries(std::vector<HubEntry>& out, const char* groupLabel,
-                          HubEntry::Kind kind, const ComboRando::GameMenu& game,
-                          const char* wantSection, const std::vector<std::string>& skip = {}) {
-    if (!game.loaded || !game.menu) return;
+void AppendSectionEntries(std::vector<HubEntry>& out, const char* groupLabel, HubEntry::Kind kind,
+                          const ComboRando::GameMenu& game, const char* wantSection,
+                          const std::vector<std::string>& skip = {}) {
+    if (!game.loaded || !game.menu)
+        return;
     const CwMenu* m = game.menu;
     for (int s = 0; s < m->sectionCount; ++s) {
         const CwSection& sec = m->sections[s];
-        if (!sec.sectionLabel || strcmp(sec.sectionLabel, wantSection) != 0) continue;
+        if (!sec.sectionLabel || strcmp(sec.sectionLabel, wantSection) != 0)
+            continue;
         for (int sb = 0; sb < sec.sidebarCount; ++sb) {
             const CwSidebar& side = sec.sidebars[sb];
             const char* nm = (side.sidebarName && side.sidebarName[0]) ? side.sidebarName : "Section";
-            if (std::find(skip.begin(), skip.end(), nm) != skip.end()) continue;
+            if (std::find(skip.begin(), skip.end(), nm) != skip.end())
+                continue;
             HubEntry e;
             e.label = nm;
             e.group = groupLabel;
@@ -153,27 +159,32 @@ void ComboMenu::DrawSharedPanel() {
     model.EnsureLoaded();
 
     // Build the navigation model fresh each frame (group order is the display order).
-    struct Group { std::string label; std::vector<HubEntry> entries; };
+    struct Group {
+        std::string label;
+        std::vector<HubEntry> entries;
+    };
     std::vector<Group> groups;
 
     {
         std::vector<HubEntry> e;
         // "Mod Menu" and "Presets" are OOT-specific (per-game mods/presets) — they live only in
         // the Ship of Harkinian tab, so omit them here to avoid duplicating them in Shared.
-        AppendSectionEntries(e, "Shared", HubEntry::ENGINE, model.Oot(), "Settings",
-                             { "Mod Menu", "Presets" });
-        if (!e.empty()) groups.push_back({ "Shared", std::move(e) });
+        AppendSectionEntries(e, "Shared", HubEntry::ENGINE, model.Oot(), "Settings", { "Mod Menu", "Presets" });
+        if (!e.empty())
+            groups.push_back({ "Shared", std::move(e) });
     }
     {
         std::vector<HubEntry> e;
         AppendSectionEntries(e, "OOT Randomizer", HubEntry::OOT_RANDO, model.Oot(), "Randomizer");
-        if (!e.empty()) groups.push_back({ "OOT Randomizer", std::move(e) });
+        if (!e.empty())
+            groups.push_back({ "OOT Randomizer", std::move(e) });
     }
     {
         std::vector<HubEntry> e;
         // Display label "MM Randomizer"; the MM menu's own section name is still "Rando".
         AppendSectionEntries(e, "MM Randomizer", HubEntry::MM_RANDO, model.Mm(), "Rando");
-        if (!e.empty()) groups.push_back({ "MM Randomizer", std::move(e) });
+        if (!e.empty())
+            groups.push_back({ "MM Randomizer", std::move(e) });
     }
     {
         HubEntry gen;
@@ -189,13 +200,16 @@ void ComboMenu::DrawSharedPanel() {
     const HubEntry* first = nullptr;
     for (const auto& g : groups) {
         for (const auto& en : g.entries) {
-            if (!first) first = &en;
-            if (en.key() == mHubActive) active = &en;
+            if (!first)
+                first = &en;
+            if (en.key() == mHubActive)
+                active = &en;
         }
     }
     if (!active) {
         active = first;
-        if (active) mHubActive = active->key();
+        if (active)
+            mHubActive = active->key();
     }
 
     // Left navigation panel — stylized entries matching the per-game left sidebar.
@@ -232,8 +246,7 @@ void ComboMenu::DrawSharedPanel() {
     } else if (active->kind == HubEntry::COMBO_GEN) {
         DrawComboPanel();
     } else {
-        const CwSidebar& side =
-            active->game->menu->sections[active->sectionIndex].sidebars[active->sidebarIndex];
+        const CwSidebar& side = active->game->menu->sections[active->sectionIndex].sidebars[active->sidebarIndex];
         RenderSidebarWidgets(side, *active->game);
     }
     ImGui::EndChild();
@@ -261,7 +274,8 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
     const CwMenu* m = game.menu;
 
     auto sectionDropped = [&](const char* label) -> bool {
-        if (!label) return false;
+        if (!label)
+            return false;
         // Each game's randomizer section lives in the Shared tab; drop it from the per-game tab.
         return isOot ? strcmp(label, "Randomizer") == 0 : strcmp(label, "Rando") == 0;
     };
@@ -280,20 +294,29 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
     const CwSection* firstSec = nullptr;
     for (int s = 0; s < m->sectionCount; ++s) {
         const CwSection& sec = m->sections[s];
-        if (sectionDropped(sec.sectionLabel)) continue;
-        if (!firstSec) firstSec = &sec;
-        if (sec.sectionLabel && nav.first == sec.sectionLabel) activeSec = &sec;
+        if (sectionDropped(sec.sectionLabel))
+            continue;
+        if (!firstSec)
+            firstSec = &sec;
+        if (sec.sectionLabel && nav.first == sec.sectionLabel)
+            activeSec = &sec;
     }
-    if (!activeSec) activeSec = firstSec;
-    if (!activeSec) { ImGui::TextUnformatted("No sections available."); return; }
+    if (!activeSec)
+        activeSec = firstSec;
+    if (!activeSec) {
+        ImGui::TextUnformatted("No sections available.");
+        return;
+    }
     nav.first = activeSec->sectionLabel ? activeSec->sectionLabel : "";
 
     // Top header strip (stylized buttons, laid out left-to-right).
     bool firstHdr = true;
     for (int s = 0; s < m->sectionCount; ++s) {
         const CwSection& sec = m->sections[s];
-        if (sectionDropped(sec.sectionLabel)) continue;
-        if (!firstHdr) ImGui::SameLine();
+        if (sectionDropped(sec.sectionLabel))
+            continue;
+        if (!firstHdr)
+            ImGui::SameLine();
         firstHdr = false;
         const char* label = (sec.sectionLabel && sec.sectionLabel[0]) ? sec.sectionLabel : "Section";
         if (ComboMenu_StyledHeaderEntry(label, &sec == activeSec)) {
@@ -309,12 +332,17 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
     const CwSidebar* firstSide = nullptr;
     for (int sb = 0; sb < activeSec->sidebarCount; ++sb) {
         const CwSidebar& side = activeSec->sidebars[sb];
-        if (!sidebarShown(activeSec->sectionLabel, side.sidebarName)) continue;
-        if (!firstSide) firstSide = &side;
-        if (side.sidebarName && nav.second == side.sidebarName) activeSide = &side;
+        if (!sidebarShown(activeSec->sectionLabel, side.sidebarName))
+            continue;
+        if (!firstSide)
+            firstSide = &side;
+        if (side.sidebarName && nav.second == side.sidebarName)
+            activeSide = &side;
     }
-    if (!activeSide) activeSide = firstSide;
-    if (activeSide) nav.second = activeSide->sidebarName ? activeSide->sidebarName : "";
+    if (!activeSide)
+        activeSide = firstSide;
+    if (activeSide)
+        nav.second = activeSide->sidebarName ? activeSide->sidebarName : "";
 
     // Left sidebar (stylized buttons) + right content. NOTE: widgets render linearly and ignore
     // CwSidebar::columnCount — multi-column layout is a later polish pass.
@@ -323,7 +351,8 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
     ImGui::BeginChild("##GameSidebar", ImVec2(sidebarW, 0), ImGuiChildFlags_Borders);
     for (int sb = 0; sb < activeSec->sidebarCount; ++sb) {
         const CwSidebar& side = activeSec->sidebars[sb];
-        if (!sidebarShown(activeSec->sectionLabel, side.sidebarName)) continue;
+        if (!sidebarShown(activeSec->sectionLabel, side.sidebarName))
+            continue;
         const char* label = (side.sidebarName && side.sidebarName[0]) ? side.sidebarName : "Section";
         ImGui::PushID(sb);
         if (ComboMenu_StyledSidebarEntry(label, &side == activeSide, ImGui::GetContentRegionAvail().x)) {
@@ -353,9 +382,11 @@ void ComboMenu::DrawComboPanel() {
     ImGui::SameLine();
 
     const bool busy = mProgress.running.load();
-    if (busy) ImGui::BeginDisabled();
+    if (busy)
+        ImGui::BeginDisabled();
     if (ImGui::Button("Generate")) {
-        if (!sTrigger) sTrigger = ResolveTrigger();
+        if (!sTrigger)
+            sTrigger = ResolveTrigger();
         if (sTrigger) {
             // Arm the one-frame defer: show "Generating…" this frame so the user sees
             // feedback before the synchronous (blocking) fill runs next frame.
@@ -368,7 +399,8 @@ void ComboMenu::DrawComboPanel() {
             mStatusLine = "Generate unavailable (SOH_TriggerComboGenerate not found).";
         }
     }
-    if (busy) ImGui::EndDisabled();
+    if (busy)
+        ImGui::EndDisabled();
 
     // One-frame defer: if a generate was requested last frame, fire it now (blocks until done).
     if (mGeneratePending) {
@@ -381,8 +413,8 @@ void ComboMenu::DrawComboPanel() {
     if (mProgress.done.load() && mProgress.running.load()) {
         if (mProgress.success.load()) {
             char buf[160];
-            snprintf(buf, sizeof(buf), "Done: seed 0x%X - %d cross-world placements",
-                     mProgress.seed.load(), mProgress.foreignCount.load());
+            snprintf(buf, sizeof(buf), "Done: seed 0x%X - %d cross-world placements", mProgress.seed.load(),
+                     mProgress.foreignCount.load());
             mStatusLine = buf;
         } else {
             mStatusLine = std::string("Error: ") + mProgress.error;

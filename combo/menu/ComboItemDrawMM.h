@@ -10,12 +10,11 @@
 #define COMBO_ITEM_DRAW_MM_H
 
 #include "ComboItemDrawABI.h"
-#include "objects/gameplay_keep/gameplay_keep.h"        // stray-fairy skel/anim/texanim paths + limb enums
-#include "objects/object_gi_melody/object_gi_melody.h"  // gGiSongNoteDL
+#include "objects/gameplay_keep/gameplay_keep.h"       // stray-fairy skel/anim/texanim paths + limb enums
+#include "objects/object_gi_melody/object_gi_melody.h" // gGiSongNoteDL
 
 // Portable slice of one sDrawItemTable row (defined in mm/src/code/z_draw.c).
-extern "C" s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart,
-                                         f32* outScale);
+extern "C" s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale);
 
 // Songs have no sDrawItemTable row — MM draws them as one tinted note DL (Rando/DrawItem.cpp
 // DrawSong: 25Xlu + per-song gDPSetEnvColor + gGiSongNoteDL). Fully portable as a static
@@ -23,21 +22,69 @@ extern "C" s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDl
 static int32_t MM_FillSongDrawInfo(RandoItemId id, CwItemDrawInfo* out) {
     uint8_t rgb[3];
     switch (id) {
-        case RI_SONG_SUN:                                   rgb[0] = 237; rgb[1] = 231; rgb[2] = 62;  break;
+        case RI_SONG_SUN:
+            rgb[0] = 237;
+            rgb[1] = 231;
+            rgb[2] = 62;
+            break;
         case RI_SONG_DOUBLE_TIME:
         case RI_SONG_INVERTED_TIME:
-        case RI_SONG_TIME:                                  rgb[0] = 98;  rgb[1] = 177; rgb[2] = 211; break;
-        case RI_SONG_HEALING:                               rgb[0] = 255; rgb[1] = 150; rgb[2] = 230; break;
-        case RI_SONG_STORMS:                                rgb[0] = 146; rgb[1] = 146; rgb[2] = 146; break;
+        case RI_SONG_TIME:
+            rgb[0] = 98;
+            rgb[1] = 177;
+            rgb[2] = 211;
+            break;
+        case RI_SONG_HEALING:
+            rgb[0] = 255;
+            rgb[1] = 150;
+            rgb[2] = 230;
+            break;
+        case RI_SONG_STORMS:
+            rgb[0] = 146;
+            rgb[1] = 146;
+            rgb[2] = 146;
+            break;
         case RI_SONG_SARIA:
-        case RI_SONG_SONATA:                                rgb[0] = 98;  rgb[1] = 255; rgb[2] = 98;  break;
-        case RI_SONG_SOARING:                               rgb[0] = 200; rgb[1] = 160; rgb[2] = 255; break;
-        case RI_SONG_ELEGY:                                 rgb[0] = 255; rgb[1] = 98;  rgb[2] = 0;   break;
-        case RI_SONG_LULLABY_INTRO:                         rgb[0] = 255; rgb[1] = 100; rgb[2] = 100; break;
-        case RI_SONG_LULLABY:                               rgb[0] = 255; rgb[1] = 20;  rgb[2] = 20;  break;
-        case RI_SONG_OATH:                                  rgb[0] = 98;  rgb[1] = 0;   rgb[2] = 98;  break;
-        case RI_SONG_EPONA:                                 rgb[0] = 146; rgb[1] = 87;  rgb[2] = 49;  break;
-        case RI_SONG_NOVA:                                  rgb[0] = 20;  rgb[1] = 20;  rgb[2] = 255; break;
+        case RI_SONG_SONATA:
+            rgb[0] = 98;
+            rgb[1] = 255;
+            rgb[2] = 98;
+            break;
+        case RI_SONG_SOARING:
+            rgb[0] = 200;
+            rgb[1] = 160;
+            rgb[2] = 255;
+            break;
+        case RI_SONG_ELEGY:
+            rgb[0] = 255;
+            rgb[1] = 98;
+            rgb[2] = 0;
+            break;
+        case RI_SONG_LULLABY_INTRO:
+            rgb[0] = 255;
+            rgb[1] = 100;
+            rgb[2] = 100;
+            break;
+        case RI_SONG_LULLABY:
+            rgb[0] = 255;
+            rgb[1] = 20;
+            rgb[2] = 20;
+            break;
+        case RI_SONG_OATH:
+            rgb[0] = 98;
+            rgb[1] = 0;
+            rgb[2] = 98;
+            break;
+        case RI_SONG_EPONA:
+            rgb[0] = 146;
+            rgb[1] = 87;
+            rgb[2] = 49;
+            break;
+        case RI_SONG_NOVA:
+            rgb[0] = 20;
+            rgb[1] = 20;
+            rgb[2] = 255;
+            break;
         default:
             return 0;
     }

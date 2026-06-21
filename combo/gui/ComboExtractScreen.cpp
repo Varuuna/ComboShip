@@ -26,9 +26,9 @@
 #pragma comment(lib, "comdlg32") // GetOpenFileNameA — comboui doesn't otherwise link comdlg32
 #endif
 
-using ComboRando::ComboMenu_ThemeColor; // port style helpers (combo/gui/ComboWidgetStyle.h)
-using ComboRando::ComboMenu_PushButton;
 using ComboRando::ComboMenu_PopButton;
+using ComboRando::ComboMenu_PushButton;
+using ComboRando::ComboMenu_ThemeColor; // port style helpers (combo/gui/ComboWidgetStyle.h)
 
 namespace {
 
@@ -78,8 +78,7 @@ void ScanForRoms(const std::filesystem::path& dir, std::vector<std::string>& out
             continue;
         }
         std::string ext = entry.path().extension().string();
-        std::transform(ext.begin(), ext.end(), ext.begin(),
-                       [](unsigned char c) { return (char)std::tolower(c); });
+        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return (char)std::tolower(c); });
         if (ext == ".z64" || ext == ".n64" || ext == ".v64") {
             out.push_back(entry.path().string());
         }
@@ -169,8 +168,8 @@ extern "C" __declspec(dllexport) int ComboUI_RunExtraction(const ComboExtractCal
 
         ImGuiViewport* vp = ImGui::GetMainViewport();
         // Dim the game behind, mirroring the menu's translucent fullscreen overlay (ComboMenu.cpp).
-        ImGui::GetBackgroundDrawList()->AddRectFilled(
-            vp->Pos, ImVec2(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y), IM_COL32(0, 0, 0, 210));
+        ImGui::GetBackgroundDrawList()->AddRectFilled(vp->Pos, ImVec2(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y),
+                                                      IM_COL32(0, 0, 0, 210));
 
         // Preferred 680px, but clamp to the main window's work area so we never bleed outside it
         // (a new player's window can launch small/square before any resolution is persisted).
@@ -186,9 +185,9 @@ extern "C" __declspec(dllexport) int ComboUI_RunExtraction(const ComboExtractCal
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
         ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.09f, 0.09f, 0.11f, 0.98f));
         bool open = ImGui::Begin("ComboShip - ROM Setup", nullptr,
-                                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-                                     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
-                                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize);
+                                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                                     ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
+                                     ImGuiWindowFlags_AlwaysAutoResize);
         ImGui::PopStyleColor();
         ImGui::PopStyleVar(2);
         if (open) {
@@ -323,9 +322,8 @@ extern "C" __declspec(dllexport) int ComboUI_RunExtraction(const ComboExtractCal
                     }
                 }
             } else { // FAILED
-                ImGui::TextColored(kRed,
-                                   "Extraction failed. Check that your ROM is a supported, uncompressed "
-                                   "copy, then relaunch.");
+                ImGui::TextColored(kRed, "Extraction failed. Check that your ROM is a supported, uncompressed "
+                                         "copy, then relaunch.");
                 ImGui::Spacing();
                 ComboMenu_PushButton(theme);
                 if (ImGui::Button("Quit", ImVec2(150.0f, 0.0f))) {

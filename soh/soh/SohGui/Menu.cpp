@@ -133,6 +133,14 @@ UIWidgets::Colors Menu::GetMenuThemeColor() {
 Menu::Menu(const std::string& cVar, const std::string& name, uint8_t searchSidebarIndex_,
            UIWidgets::Colors defaultThemeIndex_)
     : GuiWindow(cVar, name), searchSidebarIndex(searchSidebarIndex_), defaultThemeIndex(defaultThemeIndex_) {
+#ifdef COMBO_BUILD
+    // ComboShip: comboui owns the menu, so SohGui::SetupMenu() skips gui->SetMenu(mSohMenu) and SoH's
+    // mSohMenu is never registered — meaning InitElement()/UpdateElement(), which load menuThemeIndex
+    // (backing THEME_COLOR) from the Menu.Theme CVar, never run. That left the cached index
+    // uninitialized and crashed the first THEME_COLOR use during SOH_Init (the ROM-extraction modal in
+    // RunExtract -> ColorValues.at()). Seed it at construction so THEME_COLOR is always valid.
+    menuThemeIndex = static_cast<UIWidgets::Colors>(CVarGetInteger(CVAR_SETTING("Menu.Theme"), defaultThemeIndex_));
+#endif
 }
 
 void Menu::InitElement() {

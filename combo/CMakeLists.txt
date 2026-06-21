@@ -29,6 +29,7 @@ set(COMBOUI_SOURCES
     gui/ComboMenuModel.cpp
     gui/ComboWidgetRender.cpp
     gui/ComboWidgetStyle.cpp
+    gui/ComboExtractScreen.cpp
 )
 add_library(comboui SHARED ${COMBOUI_SOURCES})
 set_target_properties(comboui PROPERTIES PREFIX "")
@@ -135,7 +136,14 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
             $<TARGET_FILE_DIR:ComboShip>
         # Extractor assets (flat structure matching CallZapd expectations). ComboShip runs BOTH
         # the OOT (soh) and MM (2ship) extractors, so merge both games' extractor + xml dirs into
-        # one assets/ tree. copy_directory merges (no delete), so soh + mm coexist.
+        # one assets/ tree.
+        # ComboShip: clear the destination assets/ FIRST. copy_directory merges and never deletes, so
+        # a file renamed/removed upstream (e.g. mm object_rs -> object_rsn) leaves a STALE .xml that
+        # ZAPD then tries to extract and fails on ("Raw data size: 0x0", reached EOF). Clearing makes
+        # the source tree authoritative each build. (The user's ROM/port archives live in the dir root,
+        # NOT under assets/, so this is safe.) See docs/merges/2026-06-20.md.
+        COMMAND ${CMAKE_COMMAND} -E rm -rf $<TARGET_FILE_DIR:ComboShip>/assets
+        COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_SOURCE_DIR}/x64/Debug/assets
         # --- next to the exe (config-correct: covers Debug AND Release build dirs) ---
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_SOURCE_DIR}/soh/assets/extractor

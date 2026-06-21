@@ -11,8 +11,8 @@ ComboMenuModel& ComboMenuModel::Get() {
     return sInstance;
 }
 
-void ComboMenuModel::LoadGame(GameMenu& g, const char* dll, const char* exportSym,
-                              const char* invokeSym, const char* evalSym, const char* drawSym) {
+void ComboMenuModel::LoadGame(GameMenu& g, const char* dll, const char* exportSym, const char* invokeSym,
+                              const char* evalSym, const char* drawSym) {
 #ifdef _WIN32
     HMODULE h = GetModuleHandleA(dll); // already LoadLibrary'd by the exe — mirror ResolveDraw
     if (!h) {
@@ -27,10 +27,15 @@ void ComboMenuModel::LoadGame(GameMenu& g, const char* dll, const char* exportSy
     // null until the game has eager-booted. Re-call it each retry until it yields a menu.
     g.menu = exportFn ? exportFn() : nullptr;
 
-    g.loaded = (g.menu != nullptr && g.invokeCallback != nullptr && g.evalDisabled != nullptr &&
-                g.drawCustom != nullptr);
+    g.loaded =
+        (g.menu != nullptr && g.invokeCallback != nullptr && g.evalDisabled != nullptr && g.drawCustom != nullptr);
 #else
-    (void)g; (void)dll; (void)exportSym; (void)invokeSym; (void)evalSym; (void)drawSym;
+    (void)g;
+    (void)dll;
+    (void)exportSym;
+    (void)invokeSym;
+    (void)evalSym;
+    (void)drawSym;
     // Non-Windows: exports are resolved via the OS dynamic loader elsewhere; leave unresolved.
 #endif
 }
@@ -43,12 +48,12 @@ void ComboMenuModel::EnsureLoaded() {
     // Retry each game independently. A game whose menu isn't yet buildable stays loaded=false
     // so a later frame can pick it up; we only latch mLoaded once BOTH have loaded.
     if (!mOot.loaded) {
-        LoadGame(mOot, "soh.dll", "SOH_ExportMenu", "SOH_MenuInvokeCallback",
-                 "SOH_MenuEvalDisabled", "SOH_MenuDrawCustom");
+        LoadGame(mOot, "soh.dll", "SOH_ExportMenu", "SOH_MenuInvokeCallback", "SOH_MenuEvalDisabled",
+                 "SOH_MenuDrawCustom");
     }
     if (!mMm.loaded) {
-        LoadGame(mMm, "2ship.dll", "MM_ExportMenu", "MM_MenuInvokeCallback",
-                 "MM_MenuEvalDisabled", "MM_MenuDrawCustom");
+        LoadGame(mMm, "2ship.dll", "MM_ExportMenu", "MM_MenuInvokeCallback", "MM_MenuEvalDisabled",
+                 "MM_MenuDrawCustom");
     }
 
     if (mOot.loaded && mMm.loaded) {

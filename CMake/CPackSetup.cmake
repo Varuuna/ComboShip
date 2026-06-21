@@ -19,6 +19,12 @@ set(CPACK_PACKAGE_VERSION_MINOR ${PROJECT_VERSION_MINOR})
 set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_VERSION_PATCH})
 set(CPACK_PACKAGE_VERSION "${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_PACKAGE_VERSION_PATCH}")
 
+# ComboShip: the numeric version is a derived (epoch.soh-pin.mm-pin) triple — opaque
+# on its own — so name the release artifact by the human-readable upstream identity
+# instead of the default ComboShip-<name>-<version>. COMBO_* come from the root
+# CMakeLists (included scope). e.g. ComboShip-e1-soh74e1d4c-mm3545e62
+set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-e${COMBO_EPOCH}-soh${COMBO_SOH_SHORT}-mm${COMBO_MM_SHORT}")
+
 set(CPACK_PACKAGE_CONTACT "YOUR@E-MAIL.net")
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "YOUR NAME")
 

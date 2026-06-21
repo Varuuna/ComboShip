@@ -13,7 +13,7 @@
 // effective CVars by UpdateResolutionVars) do NOT apply through this generic CVar-write path.
 // Toggling them here writes the UI CVars but not the effective ones, so the viewport never changes.
 #include "ComboWidgetRender.h"
-#include "ComboMenuModel.h" // GameMenu (resolved export fn-ptrs)
+#include "ComboMenuModel.h"   // GameMenu (resolved export fn-ptrs)
 #include "ComboWidgetStyle.h" // combo-owned replication of OOT UIWidgets menu styling
 
 #include <libultraship/libultraship.h> // ImGui-adjacent + CVar bridge (CVarGet/Set*) + color.h

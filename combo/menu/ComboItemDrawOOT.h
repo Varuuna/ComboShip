@@ -18,8 +18,7 @@
 #include "ComboItemDrawABI.h"
 
 // Portable slice of one sDrawItemTable row (defined COMBO_BUILD-guarded in soh/src/code/z_draw.c).
-extern "C" s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart,
-                                         f32* outScale);
+extern "C" s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale);
 
 // Cross-game item draw info. MM resolves this via GetProcAddress to learn which OOT display lists
 // render a foreign item, then submits them through "__OTR__@oot:"-routed paths resolved against OOT's

@@ -6,14 +6,55 @@ set(CMAKE_C_STANDARD 23 CACHE STRING "The C standard to use")
 
 set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum OS X deployment version")
 
-project(ComboShip VERSION 1.0.0 LANGUAGES C CXX)
+# ── ComboShip version ─────────────────────────────────────────────────────────
+# Derived so that every upstream merge automatically yields a new build version,
+# which trips SoH's stale-rando-save gate (SaveManager::StartupCheckAndInitMeta
+# compares the full major.minor.patch triple) and renames format-incompatible
+# pre-merge rando saves to .bak instead of crashing on a shifted save enum.
+#
+#   MAJOR = COMBO_EPOCH   manual. Bump by hand for ComboShip-owned breaks (save
+#                         fields we add, Anchor protocol) AND for releases that must
+#                         force o2r/asset re-extraction — the o2r gate is MAJOR-only
+#                         (OTRGlobals::VerifyArchiveVersion, mm BenPort.cpp).
+#   MINOR = f(soh pin)    first 4 hex of upstream-pins.json soh.mergedSha (0..0xFFFF).
+#   PATCH = f(mm pin)     first 4 hex of upstream-pins.json mm.mergedSha  (0..0xFFFF).
+#
+# So a soh merge changes MINOR, an mm merge changes PATCH, and either invalidates
+# pre-merge rando saves with no manual step. The numeric triple is intentionally
+# opaque; the human-readable label lives in PROJECT_BUILD_NAME (below, shown in-game
+# via gBuildVersion) and the package filename. See docs/UPSTREAM_MERGES.md.
+set(COMBO_EPOCH 1)  # ← bump by hand for ComboShip-owned breaks / o2r-forcing releases
+
+set(COMBO_PINS "${CMAKE_CURRENT_SOURCE_DIR}/upstream-pins.json")
+# Reconfigure whenever the pins change so the derived version stays in sync.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${COMBO_PINS}")
+file(READ "${COMBO_PINS}" COMBO_PINS_JSON)
+string(JSON COMBO_SOH_SHA GET "${COMBO_PINS_JSON}" upstreams soh mergedSha)
+string(JSON COMBO_MM_SHA  GET "${COMBO_PINS_JSON}" upstreams mm  mergedSha)
+
+# first 4 hex of each pin -> 0..0xFFFF, fits the u16 gBuildVersion fields exactly
+string(SUBSTRING "${COMBO_SOH_SHA}" 0 4 COMBO_SOH_HEX)
+string(SUBSTRING "${COMBO_MM_SHA}"  0 4 COMBO_MM_HEX)
+math(EXPR COMBO_MINOR "0x${COMBO_SOH_HEX}")
+math(EXPR COMBO_PATCH "0x${COMBO_MM_HEX}")
+
+# short SHAs for the human-readable label / package name
+string(SUBSTRING "${COMBO_SOH_SHA}" 0 7 COMBO_SOH_SHORT)
+string(SUBSTRING "${COMBO_MM_SHA}"  0 7 COMBO_MM_SHORT)
+
+project(ComboShip VERSION ${COMBO_EPOCH}.${COMBO_MINOR}.${COMBO_PATCH} LANGUAGES C CXX)
+message(STATUS "ComboShip version ${PROJECT_VERSION} "
+               "(epoch ${COMBO_EPOCH}, soh ${COMBO_SOH_SHORT}, mm ${COMBO_MM_SHORT})")
 
 # Include both game-specific cvars
 include(CMake/soh-cvars.cmake)
 include(CMake/2ship-cvars.cmake)
 include(CMake/lus-cvars.cmake)
 
-set(PROJECT_BUILD_NAME "Combo Build" CACHE STRING "" FORCE)
+# gBuildVersion (shown in-game) = "<PROJECT_BUILD_NAME> (<major>.<minor>.<patch>)".
+# Embed the readable upstream identity so the otherwise-opaque numeric triple is
+# legible, e.g. "Combo Build e1 soh-74e1d4c mm-3545e62 (1.29921.13637)".
+set(PROJECT_BUILD_NAME "Combo Build e${COMBO_EPOCH} soh-${COMBO_SOH_SHORT} mm-${COMBO_MM_SHORT}" CACHE STRING "" FORCE)
 set(PROJECT_TEAM "github.com/harbourmasters" CACHE STRING "" FORCE)
 
 # Git information

@@ -15,10 +15,10 @@
 // MM's RM is not registered the push logs once and the MM cluster simply doesn't render.
 
 // --- layout knobs -------------------------------------------------------------------------------
-#define CTL_SCALE 0.78f  // applied to both logo clusters
-#define CTL_OOT_CX 82    // screen-space center X of the OOT cluster (320x240 space)
-#define CTL_MM_CX 229    // screen-space center X of the MM cluster
-#define CTL_CY 100       // shared center Y (both clusters' native anchor Y)
+#define CTL_SCALE 0.78f // applied to both logo clusters
+#define CTL_OOT_CX 82   // screen-space center X of the OOT cluster (320x240 space)
+#define CTL_MM_CX 229   // screen-space center X of the MM cluster
+#define CTL_CY 100      // shared center Y (both clusters' native anchor Y)
 // ------------------------------------------------------------------------------------------------
 
 #define CTL_DIM(d) ((s16)((d)*CTL_SCALE + 0.5f))
@@ -41,8 +41,8 @@ static const ALIGN_ASSET(2) char gTitleScreenMajorasMaskSubtitleTex[] = dgTitleS
 static const ALIGN_ASSET(2) char gTitleScreenMajorasMaskSubtitleMaskTex[] = dgTitleScreenMajorasMaskSubtitleMaskTex;
 
 // MM flame-effect grid behind its logo: 2x3 I4 masks + 4 I8 flame textures (display set).
-#define CTL_MM_EFFECT_MASK(n)                                                                          \
-    static const ALIGN_ASSET(2) char gTitleScreenDisplayEffectMask##n##Tex[] =                         \
+#define CTL_MM_EFFECT_MASK(n)                                                  \
+    static const ALIGN_ASSET(2) char gTitleScreenDisplayEffectMask##n##Tex[] = \
         "__OTR__objects/object_mag/gTitleScreenDisplayEffectMask" #n "Tex"
 CTL_MM_EFFECT_MASK(00);
 CTL_MM_EFFECT_MASK(01);
@@ -50,8 +50,8 @@ CTL_MM_EFFECT_MASK(02);
 CTL_MM_EFFECT_MASK(10);
 CTL_MM_EFFECT_MASK(11);
 CTL_MM_EFFECT_MASK(12);
-#define CTL_MM_FLAME(n)                                                                                \
-    static const ALIGN_ASSET(2) char gTitleScreenFlame##n##Tex[] =                                     \
+#define CTL_MM_FLAME(n)                                            \
+    static const ALIGN_ASSET(2) char gTitleScreenFlame##n##Tex[] = \
         "__OTR__objects/object_mag/gTitleScreenFlame" #n "Tex"
 CTL_MM_FLAME(0);
 CTL_MM_FLAME(1);
@@ -132,8 +132,8 @@ static s32 ComboTitle_DrawLogos(Gfx** gfxP, EnMag* mag, s32 isMQ) {
     gDPSetCombineLERP(gfx++, TEXEL1, PRIMITIVE, PRIM_LOD_FRAC, TEXEL0, TEXEL1, 1, PRIM_LOD_FRAC, TEXEL0, PRIMITIVE,
                       ENVIRONMENT, COMBINED, ENVIRONMENT, COMBINED, 0, PRIMITIVE, 0);
 
-    gDPSetPrimColor(gfx++, 0, (s16)mag->effectPrimLodFrac, (s16)mag->effectPrimColor[0],
-                    (s16)mag->effectPrimColor[1], (s16)mag->effectPrimColor[2], (s16)mag->effectAlpha);
+    gDPSetPrimColor(gfx++, 0, (s16)mag->effectPrimLodFrac, (s16)mag->effectPrimColor[0], (s16)mag->effectPrimColor[1],
+                    (s16)mag->effectPrimColor[2], (s16)mag->effectAlpha);
     gDPSetEnvColor(gfx++, (s16)mag->effectEnvColor[0], (s16)mag->effectEnvColor[1], (s16)mag->effectEnvColor[2], 255);
 
     if ((s16)mag->effectPrimLodFrac != 0) {
@@ -142,8 +142,8 @@ static s32 ComboTitle_DrawLogos(Gfx** gfxP, EnMag* mag, s32 isMQ) {
             for (j = 0; j < 3; j++, k++) {
                 EnMag_DrawEffectTextures(&gfx, sCtlOotEffectMasks[k], gTitleFlameEffectTex, 64, 64, 32, 32,
                                          ComboTitle_TX(64 + LOGO_X_SHIFT + j * 64, ox, CTL_OOT_CX),
-                                         ComboTitle_TY(i * 64, 100.0f), CTL_DIM(64), CTL_DIM(64), CTL_DXDY, CTL_DXDY,
-                                         1, 1, k, mag);
+                                         ComboTitle_TY(i * 64, 100.0f), CTL_DIM(64), CTL_DIM(64), CTL_DXDY, CTL_DXDY, 1,
+                                         1, k, mag);
             }
         }
 
@@ -295,9 +295,8 @@ static s32 ComboTitle_DrawLogos(Gfx** gfxP, EnMag* mag, s32 isMQ) {
         // "The Legend of" above the Zelda logo.
         gDPPipeSync(gfx++);
         gDPSetPrimColor(gfx++, 0, 0, 208, 102, 222, mainAlpha);
-        EnMag_DrawTextureI8(&gfx, gTitleScreenTheLegendOfTextTex, 72, 8,
-                            ComboTitle_TX(158, CTL_MM_ANCHOR_X, CTL_MM_CX), ComboTitle_TY(71, CTL_MM_ANCHOR_Y),
-                            CTL_DIM(72), CTL_DIM(8), CTL_DXDY, CTL_DXDY);
+        EnMag_DrawTextureI8(&gfx, gTitleScreenTheLegendOfTextTex, 72, 8, ComboTitle_TX(158, CTL_MM_ANCHOR_X, CTL_MM_CX),
+                            ComboTitle_TY(71, CTL_MM_ANCHOR_Y), CTL_DIM(72), CTL_DIM(8), CTL_DXDY, CTL_DXDY);
 
         gSPComboRMPop(gfx++);
     }

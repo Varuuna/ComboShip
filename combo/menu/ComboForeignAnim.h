@@ -73,8 +73,8 @@ struct CfaMatEntry { // AnimatedMaterial: array terminated by a NEGATIVE segment
     void* params;
 };
 constexpr int16_t kMatTypeColorLagrange = 4;
-constexpr int32_t kMaxMatEntries = 8;   // sanity bound when walking the entry array
-constexpr int32_t kMaxKeyFrames = 50;   // MM's handler uses fixed f32[50] tables — same bound
+constexpr int32_t kMaxMatEntries = 8; // sanity bound when walking the entry array
+constexpr int32_t kMaxKeyFrames = 50; // MM's handler uses fixed f32[50] tables — same bound
 
 // ---- Ported handler subset (z_scene_proc.c:226-363, type 4 only). Parameterized on
 // (play->state.gfxCtx for allocs/DISPS, step) instead of MM's sMatAnim* globals; alphaRatio is 1
@@ -295,8 +295,7 @@ inline int32_t ComboForeignAnim_Draw(const CwItemAnimDrawInfo* info, const char*
             FlexSkeletonHeader* skel = e.skelRes ? (FlexSkeletonHeader*)e.skelRes->GetRawPointer() : NULL;
             AnimationHeader* anim = e.animRes ? (AnimationHeader*)e.animRes->GetRawPointer() : NULL;
             // soh's SkelAnime_InitFlex asserts limbCount == sh.limbCount + 1 — pre-validate instead.
-            if (skel != NULL && anim != NULL && info->limbCount > 0 &&
-                (s32)skel->sh.limbCount + 1 == info->limbCount) {
+            if (skel != NULL && anim != NULL && info->limbCount > 0 && (s32)skel->sh.limbCount + 1 == info->limbCount) {
                 e.jointTable.resize(info->limbCount);
                 SkelAnime_InitFlex(play, &e.skelAnime, skel, anim, e.jointTable.data(), e.jointTable.data(),
                                    info->limbCount);

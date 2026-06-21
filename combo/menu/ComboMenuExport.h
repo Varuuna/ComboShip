@@ -47,8 +47,7 @@ namespace ComboMenuExport {
 // Backing storage for one game's exported CwMenu. Lives as long as the owning Menu instance,
 // so the const char* / array pointers handed across the C-ABI stay valid for process life
 // (comboui caches the returned CwMenu*).
-template <typename TWidget>
-struct State {
+template <typename TWidget> struct State {
     bool exported = false;
     CwMenu menu = {};
     // index -> source widget (the invoke key). Raw pointers into the caller's menuEntries:
@@ -215,8 +214,8 @@ inline const CwMenu* Build(State<typename TPolicy::Widget>& st, const std::vecto
                 colIdx++;
             }
 
-            sidebarRanges.push_back(SidebarRange{ ownStr(sbKey), sb.columnCount, sidebarWidgetStart,
-                                                  st.widgets.size() });
+            sidebarRanges.push_back(
+                SidebarRange{ ownStr(sbKey), sb.columnCount, sidebarWidgetStart, st.widgets.size() });
         }
 
         sectionRanges.push_back(SectionRange{ ownStr(entry.label), entry.sidebarCvar ? entry.sidebarCvar : "",

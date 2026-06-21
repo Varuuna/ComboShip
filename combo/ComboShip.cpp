@@ -195,6 +195,11 @@ typedef const char* (*FnDumpData)(void);
 static FnDumpData SOH_DumpRandoStaticData = nullptr;
 static FnDumpData MM_DumpRandoStaticData = nullptr;
 
+// ComboShip: OOT forced placements (Link's Pocket etc.) the static dump can't carry — see
+// SOH_GetForcedPlacements. Seed-parameterized so the pick is deterministic per generated seed.
+typedef const char* (*FnGetForced)(uint32_t);
+static FnGetForced SOH_GetForcedPlacements = nullptr;
+
 // ComboShip: eager MM boot at startup (replaces the headless MM_InitRandoLogic warm-up).
 static FnVoidArgless MM_BootForCombo = nullptr;
 static FnVoidArgless SOH_ResumeForeground = nullptr;
@@ -548,8 +553,14 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
                                            Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
 
-        auto result =
-            ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle, "", progress);
+        // ComboShip: OOT forced placements (Link's Pocket) the static dump can't carry. The fill
+        // reserves these out of the cross pool and commits them so the check isn't left unplaced.
+        std::string forcedOot;
+        if (SOH_GetForcedPlacements)
+            forcedOot = SOH_GetForcedPlacements(masterSeed);
+
+        auto result = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle, "",
+                                                         progress, forcedOot);
 
         if (result.success) {
             spoiler = result.spoilerJson;
@@ -1043,6 +1054,7 @@ int main(int argc, char** argv) {
     MM_InitRandoSaveFile = (FnMMInitRandoSave)GetSym(mmModule, "MM_InitRandoSaveFile");
     SOH_SetOnComboGenerateCallback = (FnSetGenerateCb)GetSym(sohModule, "SOH_SetOnComboGenerateCallback");
     SOH_ApplyRandoPlacements = (FnApplyPlacements)GetSym(sohModule, "SOH_ApplyRandoPlacements");
+    SOH_GetForcedPlacements = (FnGetForced)GetSym(sohModule, "SOH_GetForcedPlacements");
     SOH_SetComboRandoSeed = (FnSetComboRandoSeed)GetSym(sohModule, "SOH_SetComboRandoSeed");
     SOH_SetOnComboGenerateRequestCallback = (FnSetGenReqCb)GetSym(sohModule, "SOH_SetOnComboGenerateRequestCallback");
     SOH_SetSeedGenerated = (FnSetSeedGenerated)GetSym(sohModule, "SOH_SetSeedGenerated");

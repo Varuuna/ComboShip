@@ -877,3 +877,16 @@ context. The user wants the popout trackers to follow the active game (OOT↔MM)
 
 The active-game gating is also what keeps the two games' identically-titled inner `ImGui::Begin("Item
 Tracker")` / `ImGui::Begin("Check Tracker")` calls from ever running in the same frame.
+
+## Cross-world Link's Pocket placement (2026-06-21)
+
+Link's Pocket is a rando-only OOT check with no vanilla item, so it's absent from the cross-world
+dump and the combined fill never placed it — leaving it unset, which crashed save creation
+(`Item_Give(0xFF)` assert) and ignored `RSK_LINKS_POCKET`.
+
+- `soh/.../OTRGlobals.cpp`: new `SOH_GetForcedPlacements` picks Link's Pocket's item per
+  `RSK_LINKS_POCKET` (+ `RSK_LINKS_POCKET_REWARD`).
+- `soh/.../savefile.cpp`: `StartingItemGive` skips an unresolved (ITEM_NONE/MOD_NONE) item instead of
+  asserting — safety net for any residual unplaced save-creation check.
+- `combo/rando/CrossWorldRando.h` + `ComboShip.cpp`: the fill reserves forced items out of the pool,
+  treats them as owned-from-start for logic, and appends them to the OOT placements.

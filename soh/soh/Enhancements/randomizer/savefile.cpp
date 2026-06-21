@@ -47,6 +47,15 @@ static uint16_t rupeeCounts[] = {
 };
 
 void StartingItemGive(GetItemEntry getItemEntry, RandomizerCheck randomizerCheck) {
+#ifdef COMBO_BUILD
+    // ComboShip: an unplaced save-creation check yields ITEM_NONE/MOD_NONE; Item_Give(0xFF) would
+    // assert. Skip it loudly instead of crashing file creation (belt-and-suspenders behind the fix).
+    if (getItemEntry.modIndex == MOD_NONE && getItemEntry.itemId == ITEM_NONE) {
+        SPDLOG_ERROR("[ComboShip] StartingItemGive: skipping unresolved item at check {}",
+                     static_cast<int>(randomizerCheck));
+        return;
+    }
+#endif
     if (randomizerCheck != RC_MAX) {
         OTRGlobals::Instance->gRandoContext->GetItemLocation(randomizerCheck)->SetCheckStatus(RCSHOW_SAVED);
     }

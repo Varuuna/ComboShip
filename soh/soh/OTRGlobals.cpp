@@ -3301,6 +3301,52 @@ extern "C" __declspec(dllexport) void Combo_SOH_Rando_PlaceItem(const char* chec
     ctx->PlaceItemInLocation(rcIt->second, rgIt->second, false, false);
 }
 
+// ComboShip: Link's Pocket is a rando-only check absent from the cross-world dump, so the combined
+// fill never assigns it. Decide its item per RSK_LINKS_POCKET here so the launcher can reserve it
+// from the cross pool. Returns { "Link's Pocket": {"item":"<name>"} } (dungeon-reward) or
+// {"category":"advancement"|"any"} (combo picks); {} for NOTHING. See docs/UPSTREAM_MERGES.md.
+extern "C" __declspec(dllexport) const char* SOH_GetForcedPlacements(uint32_t seed) {
+    static std::string buf;
+    nlohmann::json out = nlohmann::json::object();
+    try {
+        auto ctx = OTRGlobals::Instance->gRandoContext;
+        Rando::Settings::GetInstance()->SetAllToContext(); // ensure chosen CVar settings are live
+        auto lp = ctx->GetOption(RSK_LINKS_POCKET);
+        if (lp.Is(RO_LINKS_POCKET_DUNGEON_REWARD)) {
+            std::vector<RandomizerGet> rewards;
+            auto addRange = [&](int lo, int hi) {
+                for (int r = lo; r <= hi; ++r)
+                    rewards.push_back(static_cast<RandomizerGet>(r));
+            };
+            auto sub = ctx->GetOption(RSK_LINKS_POCKET_REWARD);
+            if (sub.Is(RO_LINKS_POCKET_ANY_STONE)) {
+                addRange(RG_KOKIRI_EMERALD, RG_ZORA_SAPPHIRE);
+            } else if (sub.Is(RO_LINKS_POCKET_LIGHT_MEDALLION)) {
+                rewards.push_back(RG_LIGHT_MEDALLION);
+            } else if (sub.Is(RO_LINKS_POCKET_ANY_MEDALLION)) {
+                addRange(RG_FOREST_MEDALLION, RG_LIGHT_MEDALLION);
+            } else { // RO_LINKS_POCKET_ANY_REWARD (default)
+                addRange(RG_KOKIRI_EMERALD, RG_ZORA_SAPPHIRE);
+                addRange(RG_FOREST_MEDALLION, RG_LIGHT_MEDALLION);
+            }
+            if (!rewards.empty()) {
+                uint64_t s = (seed ? seed : 0x9E3779B97F4A7C15ULL) * 6364136223846793005ULL + 1442695040888963407ULL;
+                RandomizerGet pick = rewards[static_cast<size_t>(s >> 33) % rewards.size()];
+                out["Link's Pocket"]["item"] = Rando::StaticData::RetrieveItem(pick).GetName().GetEnglish();
+            }
+        } else if (lp.Is(RO_LINKS_POCKET_ADVANCEMENT)) {
+            out["Link's Pocket"]["category"] = "advancement";
+        } else if (lp.Is(RO_LINKS_POCKET_ANYTHING)) {
+            out["Link's Pocket"]["category"] = "any";
+        }
+        // RO_LINKS_POCKET_NOTHING: nothing to force.
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[ComboShip] SOH_GetForcedPlacements: {}", e.what());
+    } catch (...) {}
+    buf = out.dump();
+    return buf.c_str();
+}
+
 bool SoH_HandleConfigDrop(char* filePath) {
     if (SohUtils::IsStringEmpty(filePath)) {
         return false;

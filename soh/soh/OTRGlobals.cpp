@@ -2646,7 +2646,31 @@ extern "C" __declspec(dllexport) void SOH_GrantCrossItem(const char* itemName) {
         return;
     }
     GetItemEntry gie = Rando::StaticData::RetrieveItem(it->second).GetGIEntry_Copy();
-    Randomizer_Item_Give(gPlayState, gie); // save-direct, dormant-safe
+    // ComboShip: a resolved OOT item can be a vanilla (MOD_NONE) entry, which Randomizer_Item_Give
+    // asserts against. Dispatch by mod index exactly like Anchor's HandlePacket_GiveItem.
+    if (gie.modIndex == MOD_NONE) {
+        if (gie.getItemId == GI_SWORD_BGS) {
+            gSaveContext.bgsFlag = true;
+        }
+        Item_Give(gPlayState, static_cast<u8>(gie.itemId));
+    } else if (gie.modIndex == MOD_RANDOMIZER) {
+        if (gie.getItemId == RG_ICE_TRAP) {
+            gSaveContext.ship.pendingIceTrapCount++; // defer; don't spring on a dormant/foreign grant
+        } else {
+            Randomizer_Item_Give(gPlayState, gie); // save-direct
+        }
+    }
+    // Full heal on heart container/piece, and roll over a 4th heart piece (mirrors Anchor handler).
+    if (gie.gid == GID_HEART_CONTAINER || gie.gid == GID_HEART_PIECE) {
+        gSaveContext.healthAccumulator = 0x140;
+    }
+    s32 heartPieces = (s32)(gSaveContext.inventory.questItems & 0xF0000000) >> (QUEST_HEART_PIECE + 4);
+    if (heartPieces >= 4) {
+        gSaveContext.inventory.questItems &= ~0xF0000000;
+        gSaveContext.inventory.questItems += (heartPieces % 4) << (QUEST_HEART_PIECE + 4);
+        gSaveContext.healthCapacity += 0x10 * (heartPieces / 4);
+        gSaveContext.health += 0x10 * (heartPieces / 4);
+    }
     if (SaveManager::Instance && gSaveContext.fileNum != 0xFF) {
         SaveManager::Instance->SaveFile(gSaveContext.fileNum); // persist NOW
     }

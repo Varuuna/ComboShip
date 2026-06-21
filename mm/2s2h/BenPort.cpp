@@ -2806,18 +2806,15 @@ extern "C" __declspec(dllexport) int MM_StartExtraction(const char* romPath) {
                 std::string exportPath = Ship::Context::GetAppDirectoryPath(appShortName);
                 ok = extract.CallZapd(installPath, exportPath, &gComboMMExtractCount, &gComboMMExtractTotal);
             }
-        } catch (...) {
-            ok = false;
-        }
+        } catch (...) { ok = false; }
         gComboMMExtractSuccess = ok;
         gComboMMExtractDone = true;
     });
     return 1;
 }
 
-extern "C" __declspec(dllexport) void MM_GetExtractionProgress(unsigned long long* count,
-                                                               unsigned long long* total, int* done,
-                                                               int* success) {
+extern "C" __declspec(dllexport) void MM_GetExtractionProgress(unsigned long long* count, unsigned long long* total,
+                                                               int* done, int* success) {
     if (count) {
         *count = (unsigned long long)gComboMMExtractCount.load();
     }

@@ -47,7 +47,8 @@ std::string GetItemTrackerItemName(TrackerItemType itemType, u32 itemId) {
         case TRACKER_ITEM_SLOT: {
             auto vanillaItemId = gSaveContext.save.saveInfo.inventory.items[itemId];
             if (vanillaItemId == ITEM_NONE) {
-                vanillaItemId = safeItemsForInventorySlot[itemId][0];
+                const auto& safe = safeItemsForInventorySlot[itemId];
+                vanillaItemId = safe.empty() ? ITEM_NONE : safe[0];
             }
             RandoItemId randoItemId = Rando::StaticData::GetItemIdFromVanillaItemId(vanillaItemId);
             return Rando::StaticData::Items[randoItemId].name;

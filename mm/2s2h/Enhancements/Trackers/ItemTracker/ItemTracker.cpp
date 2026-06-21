@@ -8,6 +8,7 @@
 #include "Rando/MiscBehavior/ClockShuffle.h"
 #include "2s2h/BenPort.h"
 #include "2s2h/ShipUtils.h"
+#include "2s2h/DeveloperTools/SaveEditor.h" // initSafeItemsForInventorySlot / safeItemsForInventorySlot
 #include <spdlog/fmt/fmt.h>
 
 #ifdef COMBO_BUILD
@@ -109,7 +110,8 @@ TrackerImageObject GetImageObject(TrackerItemType itemType, u32 itemId) {
             itemObtained = gSaveContext.save.saveInfo.inventory.items[itemId] != ITEM_NONE;
             auto vanillaItemId = isSaveLoaded ? gSaveContext.save.saveInfo.inventory.items[itemId] : ITEM_NONE;
             if (vanillaItemId == ITEM_NONE || vanillaItemId >= ITEM_RECOVERY_HEART) {
-                vanillaItemId = safeItemsForInventorySlot[itemId][0];
+                const auto& safe = safeItemsForInventorySlot[itemId];
+                vanillaItemId = safe.empty() ? ITEM_NONE : safe[0];
             }
 
             trackerImageObject.textureId =
@@ -491,6 +493,10 @@ void ItemTrackerWindow::Draw() {
 }
 
 void ItemTrackerWindow::InitElement() {
+    // Prime the inventory-slot icon table the tracker reads in GetImageObject. Normally done by the
+    // Save Editor's InitElement, but in combo that window can lose the duplicate-name race and never
+    // init — so the tracker must not depend on it. Idempotent.
+    initSafeItemsForInventorySlot();
 }
 
 void ItemTrackerWindow::DrawElement() {

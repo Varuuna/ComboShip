@@ -79,6 +79,14 @@ std::vector<ItemId> safeItemsForInventorySlot[SLOT_MASK_FIERCE_DEITY + 1] = {};
 using namespace UIWidgets;
 
 void initSafeItemsForInventorySlot() {
+    // Idempotent: the Item Tracker also primes this (combo: the Save Editor window that used to be the
+    // sole caller can be rejected as a duplicate name, so its InitElement never runs). Re-running would
+    // double the per-slot lists.
+    static bool sInitialized = false;
+    if (sInitialized) {
+        return;
+    }
+    sInitialized = true;
     for (int i = 0; i < sizeof(gItemSlots); i++) {
         InventorySlot slot = static_cast<InventorySlot>(gItemSlots[i]);
         switch (slot) {

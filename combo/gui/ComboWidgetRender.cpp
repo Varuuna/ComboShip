@@ -179,14 +179,27 @@ void RenderWidget(const CwWidget& w, const GameMenu& game) {
             ComboMenu_PopButton();
             break;
         case CW_WINDOW_BUTTON: {
-            // Simplified: toggle the backing window CVar as a checkbox. The full menu uses a
-            // styled toggle button; this is functionally equivalent for show/hide. If no CVar
-            // is wired we can't toggle anything, so just show the label disabled.
+            // Toggle the window via its OBJECT, not just the CVar. GuiWindow gates Draw() on
+            // mIsVisible and only reads the CVar at construction, so a CVar-only toggle never
+            // shows/hides at runtime — and the window's own SyncVisibilityConsoleVariable rewrites
+            // the CVar from stale mIsVisible, reverting the change. Show()/Hide() set mIsVisible and
+            // the CVar together (these are libultraship methods — no game-DLL ImGui context needed),
+            // matching the native WindowButton.
             if (w.cvar && w.cvar[0]) {
                 bool v = CVarGetInteger(w.cvar, 0) != 0;
                 ComboMenu_PushCheckbox(themeColor);
                 if (ImGui::Checkbox(label, &v)) {
-                    CVarSetInteger(w.cvar, v ? 1 : 0);
+                    std::shared_ptr<Ship::GuiWindow> win;
+                    if (w.windowName && w.windowName[0]) {
+                        auto ctx = Ship::Context::GetInstance();
+                        if (ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui())
+                            win = ctx->GetWindow()->GetGui()->GetGuiWindow(w.windowName);
+                    }
+                    if (win) {
+                        v ? win->Show() : win->Hide();
+                    } else {
+                        CVarSetInteger(w.cvar, v ? 1 : 0); // fallback: no window object to drive
+                    }
                     changed = true;
                 }
                 ComboMenu_PopCheckbox();

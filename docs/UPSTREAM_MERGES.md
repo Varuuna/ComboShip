@@ -96,6 +96,58 @@ ZAPD-generated asset headers. Track them in our tree too. Earlier passes slimmed
 (c) broke ROM-less compiles. On an mm merge, resolve the `mm/assets/**.h` modify/delete conflicts by
 **re-tracking from the vendor branch**: `git checkout vendor-mm -- mm/assets` (NOT `git rm`).
 
+## Standing policy: the build version is DERIVED from the pins (auto save-gate)
+
+SoH/2ship serialize some save fields as **flat arrays indexed by an enum** (e.g. `randoSettings` is a
+`SaveArray("randoSettings", RSK_MAX, …)` indexed by `RandomizerSettingKey`). If an upstream merge
+**inserts or reorders** entries in such an enum, every pre-merge save's array is the wrong length
+and/or mis-indexed — reading a shifted key past the array end yields `null` and `.get<uint8_t>()`
+**throws on startup** (the 2026-06-20 crash: #6723 added 34 `RSK_STARTING_*` keys mid-enum).
+
+SoH's defense is the stale-rando-save guard (`SaveManager::StartupCheckAndInitMeta`), which renames a
+rando save to `.bak` (with a popup) when its stored `buildVersion` differs from the running build.
+Upstream trips it via per-release version bumps; ComboShip had **frozen** `CMAKE_PROJECT_VERSION` at
+1.0.0, so it never fired.
+
+**Fix (no per-merge action needed): the version is now derived in the root `CMakeLists.txt`** so it
+changes automatically on every merge:
+
+| Field | Source | Changes when… |
+|-------|--------|---------------|
+| `MAJOR` | `COMBO_EPOCH` (manual constant) | you bump it by hand |
+| `MINOR` | first 4 hex of `upstreams.soh.mergedSha` | the **soh** pin moves |
+| `PATCH` | first 4 hex of `upstreams.mm.mergedSha`  | the **mm** pin moves |
+
+Because `upstream-pins.json` is bumped as the final step of every merge, the version (and thus the
+build's `gBuildVersion{Major,Minor,Patch}`, which both `soh` and `2ship` `build.c.in` inherit from the
+top-level project) changes on every merge, and the rando-save gate fires on its own. **No vendored
+`SaveManager.cpp` edit, no per-merge version bump.** The opaque numeric triple is made legible by the
+`PROJECT_BUILD_NAME` label (shown in-game) and the package filename
+(`ComboShip-e<epoch>-soh<sha>-mm<sha>`).
+
+**The two o2r version checks are NOT the same granularity** (this bit me once — get it right):
+
+| Archive | Check | Granularity | Effect of a routine merge (minor/patch change) |
+|---------|-------|-------------|-----------------------------------------------|
+| **ROM** archive (`oot.o2r`/`oot-mq.o2r`, the player's extracted ROM) | `VerifyArchiveVersion` | **MAJOR only** | not invalidated — player keeps their ROM extract |
+| **port** archive (`soh.o2r`/`2ship.o2r`, our bundled assets) | `sohArchiveVersionMatch` / `shipArchiveVersionMatch` | **full triple** | **invalidated** — game refuses to launch ("soh.o2r outdated") until regenerated |
+
+So a routine merge does NOT force the player to re-extract their ROM, but it DOES require us to
+**regenerate the port archives** (they're cheap build artifacts that ship with the release):
+
+> **Per-merge step (after bumping `upstream-pins.json`): regenerate the port archives** so their
+> embedded `--port-ver` matches the new derived version:
+> `cmake --build <build> --target GenerateSohOtr Generate2ShipOtr --config <cfg>`
+> (these `rm` + re-extract `soh.o2r`/`2ship.o2r` with `${CMAKE_PROJECT_VERSION}` and deploy to the
+> runtime dir). A release build must run them; the local dev build does not do this automatically.
+> Decision (2026-06-21): we keep the port check at upstream's full-triple rather than weakening it to
+> MAJOR-only, and regenerate each merge.
+
+**What still needs a manual `COMBO_EPOCH` (MAJOR) bump** (`CMakeLists.txt`): a ComboShip-**owned** save
+or protocol break (save fields we add, Anchor wire format) — the pins won't move for those, so MAJOR
+is the only knob that changes the version. (MAJOR also invalidates the ROM archives, forcing a full
+re-extract — reserve it for when that's actually warranted.)
+
 ---
 # Merge log
 
@@ -748,3 +800,42 @@ then commits **only** `saveInfo` + `shipSaveInfo` — top-level `Save` fields (s
 packets ride along and are replayed through the normal incoming queue. Known canonical tradeoff
 (accepted): the resync overwrites the receiver's HP/magic/rupees/respawn/scene-flags with the team's.
 Same-game only (MM `permanentSceneFlags`/commit-hash layout). No vendored MM source modified for 2d.
+
+## ComboShip-owned unified ROM extraction (OoT + MM) (2026-06-21)
+
+**Why:** ComboShip needs BOTH an OoT and an MM ROM. The old launcher extracted them headlessly
+(per-game `SOH_Extract`/`MM_Extract`, native OS dialogs, no progress bar) before any window existed.
+Upstream's friendly ImGui extraction (`RunExtract`'s "ROM Extraction" modal) is per-game and can't host
+a single "give me both ROMs" gate. ComboShip now owns a unified screen that asks for both ROMs up
+front (auto-scan + Browse), requires both, and extracts each with a progress bar.
+
+**Vendored (additive, `COMBO_BUILD`-guarded, minimal):**
+- `soh/soh/OTRGlobals.cpp` — `InitOTR` split into `SOH_InitWindowOnly()` (the `OTRGlobals` ctor:
+  window + ImGui + `SohGui::SetupMenu`, needs only the bundled `soh.o2r`, **no ROM**) and
+  `SOH_FinishInit()` (the ROM-dependent `Initialize()` + managers + `SetupGuiElements`). Non-combo
+  `InitOTR` keeps the original ctor → `RunExtract` → finish ordering (so `SOH_Init` is unchanged for the
+  fast path). Added UI-less primitives `SOH_ValidateRom` / `SOH_StartExtraction` (background
+  `std::async` → `Extractor::CallZapd`) / `SOH_GetExtractionProgress` (poll atomics; bool-ish values as
+  `int` for a clean C ABI).
+- `mm/2s2h/BenPort.cpp` — `MM_ValidateRom` / `MM_StartExtraction` / `MM_GetExtractionProgress` mirror
+  (no init split — MM has no window of its own; `CallZapd` is context-independent so MM extracts fine
+  against OOT's shared window). The `*Extract` workers catch exceptions → `done && !success`, never
+  crashing the launcher.
+
+**Combo-owned:**
+- `combo/ComboExtract.h` — the C ABI (callback fn-ptr typedefs + `ComboExtractCallbacks`).
+- `combo/gui/ComboExtractScreen.cpp/.h` (in comboui) — `ComboUI_RunExtraction(cb)`: owns the
+  libultraship frame loop (`HandleEvents`/`StartDraw`/`StartFrame`/`RunGuiOnly`/`EndDraw`/`EndFrame`,
+  same sequence as `RunExtract`) and the screen — auto-scans the working dir and classifies ROMs via the
+  validate callbacks, per-slot Browse (native `GetOpenFileNameA`), Extract gated on both valid, Quit
+  exits, then **sequential** single progress bar per game. Must `ImGui::SetCurrentContext` (per-module
+  `GImGui`).
+- `combo/ComboShip.cpp` — new ordering: detect missing ROM archives → if any, `SOH_InitWindowOnly()` →
+  load comboui early → `ComboUI_RunExtraction()` (exit 1 on quit/failure) → `SOH_FinishInit()`; else the
+  monolithic `SOH_Init()` fast path. Also **fixed `OOTArchivesExist()`**: it counted the PORT archive
+  `soh.o2r` (always present) as the OoT ROM — so a real first run skipped OOT extraction and then
+  hard-exited in `Initialize()`. It now checks only `oot.o2r` / `oot-mq.o2r`.
+
+Verified: fast path (archives present) boots straight to title unchanged; first-run path opens the
+extraction screen (`OoT=1 MM=1`). The old `SOH_Extract`/`MM_Extract` exports remain for non-combo use
+but the launcher no longer calls them.

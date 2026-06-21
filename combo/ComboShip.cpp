@@ -35,6 +35,7 @@
 #include "rando/CrossForeign.h"
 #include "rando/CrossWorldRando.h"
 #include "gui/ComboGenProgress.h"
+#include "ComboExtract.h"
 
 // Surfaces the real exception behind a silent terminate()/exit(3). With the shared dynamic
 // CRT, exceptions thrown in soh.dll/2ship.dll propagate across the DLL boundary to here.
@@ -188,6 +189,18 @@ static FnVoidArgless MM_Deinit            = nullptr;
 typedef void (*FnComboUIRegister)(void);
 static DllHandle           comboUIModule    = nullptr;
 static FnComboUIRegister   ComboUI_Register = nullptr;
+
+// ComboShip-owned unified ROM extraction (see ComboExtract.h). The split init lets us create the
+// shared window from soh.o2r before any ROM exists, run the extraction screen, then finish.
+static FnVoid                 SOH_InitWindowOnly        = nullptr;
+static FnVoid                 SOH_FinishInit            = nullptr;
+static ComboFnValidateRom     SOH_ValidateRom           = nullptr;
+static ComboFnStartExtraction SOH_StartExtraction       = nullptr;
+static ComboFnGetProgress     SOH_GetExtractionProgress = nullptr;
+static ComboFnValidateRom     MM_ValidateRom            = nullptr;
+static ComboFnStartExtraction MM_StartExtraction        = nullptr;
+static ComboFnGetProgress     MM_GetExtractionProgress  = nullptr;
+static ComboFnRunExtraction   ComboUI_RunExtraction     = nullptr;
 
 // ComboShip: per-game reachability oracle exports
 typedef void        (*FnOracleVoid)(void);
@@ -870,8 +883,11 @@ static void Combo_OnMMReturn(void) {
 // ---------- O2R existence checks ----------
 
 static bool OOTArchivesExist() {
-    return std::filesystem::exists("soh.o2r")  ||
-           std::filesystem::exists("oot-mq.o2r") ||
+    // The OoT *ROM* archive (player-extracted) is oot.o2r / oot-mq.o2r. soh.o2r is the bundled PORT
+    // archive (assets/fonts) that always ships with the build — it must NOT count here, or a genuine
+    // first run (port archive present, ROM not yet extracted) would skip extraction and then hard-exit
+    // inside Initialize() when oot.o2r is missing.
+    return std::filesystem::exists("oot-mq.o2r") ||
            std::filesystem::exists("oot.o2r");
 }
 
@@ -893,8 +909,6 @@ int main(int argc, char** argv) {
     std::cout << "ComboShip Launcher - Starting..." << std::endl;
 
     std::set_terminate(ComboTerminateHandler);
-
-    std::string workDir = std::filesystem::current_path().string();
 
     // ComboShip: surface any mailbox left from a previous session (debug aid; harmless if absent).
     {
@@ -973,6 +987,16 @@ int main(int argc, char** argv) {
     MM_Deinit                        = (FnVoidArgless)        GetSym(mmModule,  "MM_Deinit");
     SOH_ResumeForeground             = (FnVoidArgless)        GetSym(sohModule, "SOH_ResumeForeground");
 
+    // ComboShip-owned unified extraction primitives + split init
+    SOH_InitWindowOnly        = (FnVoid)                 GetSym(sohModule, "SOH_InitWindowOnly");
+    SOH_FinishInit            = (FnVoid)                 GetSym(sohModule, "SOH_FinishInit");
+    SOH_ValidateRom           = (ComboFnValidateRom)     GetSym(sohModule, "SOH_ValidateRom");
+    SOH_StartExtraction       = (ComboFnStartExtraction) GetSym(sohModule, "SOH_StartExtraction");
+    SOH_GetExtractionProgress = (ComboFnGetProgress)     GetSym(sohModule, "SOH_GetExtractionProgress");
+    MM_ValidateRom            = (ComboFnValidateRom)     GetSym(mmModule,  "MM_ValidateRom");
+    MM_StartExtraction        = (ComboFnStartExtraction) GetSym(mmModule,  "MM_StartExtraction");
+    MM_GetExtractionProgress  = (ComboFnGetProgress)     GetSym(mmModule,  "MM_GetExtractionProgress");
+
     // Anchor transport seam exports (Phase 1)
     SOH_SetAnchorSend         = (FnSetAnchorSend)       GetSym(sohModule, "SOH_SetAnchorSend");
     SOH_SetAnchorConnect      = (FnSetAnchorConnect)    GetSym(sohModule, "SOH_SetAnchorConnect");
@@ -1010,56 +1034,68 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // --- 2. Ensure OOT archives exist ---
+    // --- 2/3. Ensure BOTH ROM archives exist (ComboShip-owned unified extraction) ---
+    // ComboShip needs an OoT ROM and an MM ROM. If either ROM archive is missing, create the shared
+    // window from the bundled soh.o2r (SOH_InitWindowOnly — no ROM needed), then run comboui's
+    // combo-owned extraction screen, which gathers BOTH ROMs and extracts them with progress bars.
+    // It returns false if the player quits or extraction fails -> we exit. When the archives are
+    // present we skip this entirely and use the monolithic SOH_Init() fast path below.
+    bool windowInitialized = false;
+    const bool needOot = !OOTArchivesExist();
+    const bool needMm = !MMRomArchiveExists();
+    if (needOot || needMm) {
+        if (!SOH_InitWindowOnly || !SOH_FinishInit || !SOH_ValidateRom || !SOH_StartExtraction ||
+            !SOH_GetExtractionProgress || !MM_ValidateRom || !MM_StartExtraction || !MM_GetExtractionProgress) {
+            std::cerr << "ERROR: game DLLs missing the ComboShip extraction primitives (rebuild required)."
+                      << std::endl;
+            FreeDll(mmModule);
+            FreeDll(sohModule);
+            return 1;
+        }
+        std::cout << "[ComboShip] ROM archive(s) missing (OoT=" << needOot << " MM=" << needMm
+                  << ") — opening extraction screen." << std::endl;
+        SOH_InitWindowOnly(); // shared window + ImGui from soh.o2r; no ROM required
+        windowInitialized = true;
 
-    if (!OOTArchivesExist()) {
-        if (SOH_Extract) {
-            std::cout << "OOT archives not found — launching OOT extractor..." << std::endl;
-            if (!SOH_Extract(workDir.c_str())) {
-                std::cerr << "ERROR: OOT extraction failed or was cancelled." << std::endl;
-                FreeDll(mmModule);
-                FreeDll(sohModule);
-                return 1;
-            }
-        } else {
-            std::cerr << "ERROR: OOT archives not found and SOH_Extract is unavailable." << std::endl;
+        if (!comboUIModule) {
+            comboUIModule = LoadDll("comboui.dll");
+        }
+        if (comboUIModule) {
+            ComboUI_RunExtraction = (ComboFnRunExtraction)GetSym(comboUIModule, "ComboUI_RunExtraction");
+        }
+        if (!ComboUI_RunExtraction) {
+            std::cerr << "ERROR: comboui.dll missing ComboUI_RunExtraction (rebuild required)." << std::endl;
+            if (comboUIModule) FreeDll(comboUIModule);
             FreeDll(mmModule);
             FreeDll(sohModule);
             return 1;
         }
 
-        if (!OOTArchivesExist()) {
-            std::cerr << "ERROR: OOT archives still missing after extraction." << std::endl;
+        ComboExtractCallbacks cb = {};
+        cb.sohValidate = SOH_ValidateRom;
+        cb.sohStart = SOH_StartExtraction;
+        cb.sohProgress = SOH_GetExtractionProgress;
+        cb.sohNeeded = needOot ? 1 : 0;
+        cb.mmValidate = MM_ValidateRom;
+        cb.mmStart = MM_StartExtraction;
+        cb.mmProgress = MM_GetExtractionProgress;
+        cb.mmNeeded = needMm ? 1 : 0;
+
+        if (!ComboUI_RunExtraction(&cb)) {
+            std::cerr << "[ComboShip] Extraction cancelled or failed — exiting." << std::endl;
+            if (comboUIModule) FreeDll(comboUIModule);
             FreeDll(mmModule);
             FreeDll(sohModule);
             return 1;
         }
-    }
-
-    // --- 3. Ensure MM ROM archive exists (extract from player's ROM if missing) ---
-
-    if (!MMRomArchiveExists()) {
-        if (MM_Extract) {
-            std::cout << "MM ROM archive not found — launching MM extractor..." << std::endl;
-            if (!MM_Extract(workDir.c_str())) {
-                std::cerr << "ERROR: MM extraction failed or was cancelled." << std::endl;
-                FreeDll(mmModule);
-                FreeDll(sohModule);
-                return 1;
-            }
-        } else {
-            std::cerr << "ERROR: MM ROM archive not found and MM_Extract is unavailable." << std::endl;
+        if (!OOTArchivesExist() || !MMRomArchiveExists()) {
+            std::cerr << "ERROR: ROM archives still missing after extraction — exiting." << std::endl;
+            if (comboUIModule) FreeDll(comboUIModule);
             FreeDll(mmModule);
             FreeDll(sohModule);
             return 1;
         }
-
-        if (!MMRomArchiveExists()) {
-            std::cerr << "ERROR: MM ROM archive still missing after extraction." << std::endl;
-            FreeDll(mmModule);
-            FreeDll(sohModule);
-            return 1;
-        }
+        std::cout << "[ComboShip] Extraction complete." << std::endl;
     }
 
     // Wire the Anchor transport to the launcher-owned connection BEFORE SOH_Init(): OOT auto-enables
@@ -1081,7 +1117,13 @@ int main(int argc, char** argv) {
 
     std::cout << "[ComboShip] Initializing Ship of Harkinian (OOT)..." << std::endl;
     try {
-        SOH_Init();
+        if (windowInitialized) {
+            // Window already created for the extraction screen; finish the ROM-dependent init.
+            SOH_FinishInit();
+        } else {
+            // Fast path: both ROM archives present, monolithic init (creates window + finishes).
+            SOH_Init();
+        }
     } catch (const std::exception& e) {
         std::cerr << "[ComboShip] SOH_Init threw std::exception: " << e.what() << std::endl;
         return 1;
@@ -1093,7 +1135,10 @@ int main(int argc, char** argv) {
 
     // ComboShip: load the combo-owned menu DLL and install the unified menu now that
     // OOT has created the shared Gui. comboui owns the menu for the whole process.
-    comboUIModule = LoadDll("comboui.dll");
+    // (It may already be loaded if the extraction screen ran — reuse that handle.)
+    if (!comboUIModule) {
+        comboUIModule = LoadDll("comboui.dll");
+    }
     if (comboUIModule) {
         ComboUI_Register = (FnComboUIRegister)GetSym(comboUIModule, "ComboUI_Register");
         if (ComboUI_Register) {

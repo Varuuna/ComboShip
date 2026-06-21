@@ -1575,10 +1575,29 @@ bool VerifyArchiveVersion(OTRVersion version) {
 // ComboShip: forward declaration — defined further down with the combo exports.
 extern "C" void (*gComboSceneSwitchCallback)(int fileNum);
 
+// ComboShip: InitOTR is split so the launcher can create the shared window (which needs only the
+// bundled soh.o2r, not a ROM) BEFORE the ROM archives exist, run its own unified extraction screen,
+// then finish init once oot.o2r is present. SOH_InitWindowOnly() = the OTRGlobals ctor (window +
+// ImGui + SohGui::SetupMenu). Combo_FinishInit() = everything that needs the ROM archives. The
+// non-combo InitOTR keeps the original ctor -> RunExtract -> finish ordering. See docs/UPSTREAM_MERGES.md.
+static void Combo_FinishInit();
+
 extern "C" void InitOTR(int argc, char* argv[]) {
     OTRGlobals::Instance = new OTRGlobals();
     OTRGlobals::Instance->RunExtract(argc, argv);
+    Combo_FinishInit();
+}
 
+#ifdef COMBO_BUILD
+extern "C" __declspec(dllexport) void SOH_InitWindowOnly() {
+    OTRGlobals::Instance = new OTRGlobals();
+}
+extern "C" __declspec(dllexport) void SOH_FinishInit() {
+    Combo_FinishInit();
+}
+#endif
+
+static void Combo_FinishInit() {
     OTRGlobals::Instance->Initialize();
     CustomMessageManager::Instance = new CustomMessageManager();
     ItemTableManager::Instance = new ItemTableManager();
@@ -2787,6 +2806,75 @@ extern "C" __declspec(dllexport) bool SOH_Extract(const char* searchPath) {
     std::atomic<size_t> extractCount = 0, totalExtract = 0;
     extract.CallZapd(installPath, path, &extractCount, &totalExtract);
     return true;
+}
+
+// ComboShip: UI-less extraction primitives. The launcher's combo-owned extraction screen (comboui)
+// owns the ROM picker + progress bar; these do the work and expose progress for it to poll. The ROM
+// path is supplied explicitly (no native dialog here). See combo/ComboExtract.h + docs/UPSTREAM_MERGES.md.
+static std::atomic<size_t> gComboExtractCount{ 0 };
+static std::atomic<size_t> gComboExtractTotal{ 0 };
+static std::atomic<bool> gComboExtractDone{ false };
+static std::atomic<bool> gComboExtractSuccess{ false };
+static std::future<void> gComboExtractFuture;
+static std::string gComboExtractRomPath;
+
+// Returns nonzero if romPath is a recognized OoT ROM (validation only, no dialog, no extraction).
+extern "C" __declspec(dllexport) int SOH_ValidateRom(const char* romPath) {
+    if (!romPath) {
+        return 0;
+    }
+    Extractor extract;
+    return extract.RunFileStandalone(romPath) ? 1 : 0;
+}
+
+// Kicks ZAPD extraction of romPath on a background task. Non-blocking; returns 0 if a job is already
+// running or the arg is null. Poll SOH_GetExtractionProgress for completion.
+extern "C" __declspec(dllexport) int SOH_StartExtraction(const char* romPath) {
+    if (!romPath) {
+        return 0;
+    }
+    if (gComboExtractFuture.valid() &&
+        gComboExtractFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        return 0; // a job is still running
+    }
+    gComboExtractRomPath = romPath;
+    gComboExtractCount = 0;
+    gComboExtractTotal = 0;
+    gComboExtractDone = false;
+    gComboExtractSuccess = false;
+    gComboExtractFuture = std::async(std::launch::async, []() {
+        bool ok = false;
+        try {
+            Extractor extract;
+            if (extract.RunFileStandalone(gComboExtractRomPath)) {
+                std::string installPath = Ship::Context::GetAppBundlePath();
+                std::string exportPath = Ship::Context::GetAppDirectoryPath(appShortName);
+                ok = extract.CallZapd(installPath, exportPath, &gComboExtractCount, &gComboExtractTotal);
+            }
+        } catch (...) {
+            ok = false; // a ZAPD failure surfaces as done && !success, never crashes the launcher
+        }
+        gComboExtractSuccess = ok;
+        gComboExtractDone = true;
+    });
+    return 1;
+}
+
+extern "C" __declspec(dllexport) void SOH_GetExtractionProgress(unsigned long long* count,
+                                                                unsigned long long* total, int* done,
+                                                                int* success) {
+    if (count) {
+        *count = (unsigned long long)gComboExtractCount.load();
+    }
+    if (total) {
+        *total = (unsigned long long)gComboExtractTotal.load();
+    }
+    if (done) {
+        *done = gComboExtractDone.load() ? 1 : 0;
+    }
+    if (success) {
+        *success = gComboExtractSuccess.load() ? 1 : 0;
+    }
 }
 #endif
 

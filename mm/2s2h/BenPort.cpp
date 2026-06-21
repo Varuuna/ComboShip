@@ -2764,6 +2764,73 @@ extern "C" __declspec(dllexport) bool MM_Extract(const char* searchPath) {
     }
     return true;
 }
+
+// ComboShip: UI-less extraction primitives mirroring the soh side (OTRGlobals.cpp). The launcher's
+// combo-owned extraction screen owns the picker + progress bar; these do the ZAPD work and expose
+// progress. CallZapd is context-independent, so these run fine while only OOT's shared window exists.
+// See combo/ComboExtract.h + docs/UPSTREAM_MERGES.md.
+static std::atomic<size_t> gComboMMExtractCount{ 0 };
+static std::atomic<size_t> gComboMMExtractTotal{ 0 };
+static std::atomic<bool> gComboMMExtractDone{ false };
+static std::atomic<bool> gComboMMExtractSuccess{ false };
+static std::future<void> gComboMMExtractFuture;
+static std::string gComboMMExtractRomPath;
+
+extern "C" __declspec(dllexport) int MM_ValidateRom(const char* romPath) {
+    if (!romPath) {
+        return 0;
+    }
+    Extractor extract;
+    return extract.RunFileStandalone(romPath) ? 1 : 0;
+}
+
+extern "C" __declspec(dllexport) int MM_StartExtraction(const char* romPath) {
+    if (!romPath) {
+        return 0;
+    }
+    if (gComboMMExtractFuture.valid() &&
+        gComboMMExtractFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        return 0; // a job is still running
+    }
+    gComboMMExtractRomPath = romPath;
+    gComboMMExtractCount = 0;
+    gComboMMExtractTotal = 0;
+    gComboMMExtractDone = false;
+    gComboMMExtractSuccess = false;
+    gComboMMExtractFuture = std::async(std::launch::async, []() {
+        bool ok = false;
+        try {
+            Extractor extract;
+            if (extract.RunFileStandalone(gComboMMExtractRomPath)) {
+                std::string installPath = Ship::Context::GetAppBundlePath();
+                std::string exportPath = Ship::Context::GetAppDirectoryPath(appShortName);
+                ok = extract.CallZapd(installPath, exportPath, &gComboMMExtractCount, &gComboMMExtractTotal);
+            }
+        } catch (...) {
+            ok = false;
+        }
+        gComboMMExtractSuccess = ok;
+        gComboMMExtractDone = true;
+    });
+    return 1;
+}
+
+extern "C" __declspec(dllexport) void MM_GetExtractionProgress(unsigned long long* count,
+                                                               unsigned long long* total, int* done,
+                                                               int* success) {
+    if (count) {
+        *count = (unsigned long long)gComboMMExtractCount.load();
+    }
+    if (total) {
+        *total = (unsigned long long)gComboMMExtractTotal.load();
+    }
+    if (done) {
+        *done = gComboMMExtractDone.load() ? 1 : 0;
+    }
+    if (success) {
+        *success = gComboMMExtractSuccess.load() ? 1 : 0;
+    }
+}
 #endif
 
 // ComboShip: headless dump of MM rando tables (checks + items), scoped to the current settings via

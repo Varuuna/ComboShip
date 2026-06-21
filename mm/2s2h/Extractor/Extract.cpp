@@ -649,9 +649,11 @@ bool Extractor::CallZapd(std::string installPath, std::string exportdir, std::at
     // ZAPD's HANDLE_ERROR macro throws std::runtime_error on any extraction error.
     // Catch it here so an unhandled exception doesn't crash the process.
     try {
-        // Upstream renamed zapd_main -> zapd_report (added progress counters); call it with null
-        // counters (our combo extraction shows progress via the console window instead).
-        zapd_report(argc, (char**)argv.data(), nullptr, nullptr);
+        // Upstream renamed zapd_main -> zapd_report (added progress counters). Pass CallZapd's
+        // counters through (mirroring soh's Extract.cpp) so the progress bar advances — ComboShip's
+        // extraction screen polls these atomics. Previously hard-coded null, which left both MM's own
+        // RunExtract bar and ComboShip's MM bar stuck at "Starting Up".
+        zapd_report(argc, (char**)argv.data(), extractCount, totalExtract);
     } catch (const std::exception& e) {
         fprintf(stderr, "MM Extractor: ZAPD failed: %s\n", e.what());
         // ComboShip: also persist the error to a file (curdir is absolute) so it survives the console

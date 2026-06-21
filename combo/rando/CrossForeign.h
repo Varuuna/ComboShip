@@ -97,6 +97,13 @@ inline bool WriteForeignFromAnnotations(int canonicalSlot, const nlohmann::json&
 inline std::unordered_map<std::string, ForeignItem> LoadForeignForGame(int canonicalSlot, GameId checkGame) {
     std::unordered_map<std::string, ForeignItem> map;
     std::ifstream in(ForeignPath(canonicalSlot));
+    // ComboShip: the foreign map is generated once per seed into canonical slot 0, but the runtime
+    // looks it up by the save's fileNum. A seed played in any OOT/MM file slot shares that one map,
+    // so fall back to slot 0 when the per-slot file is absent (e.g. a save in File 2/3). Prefers a
+    // per-slot file if one ever exists. Without this, non-slot-0 saves see no foreign items at all
+    // (sentinel name + placeholder model in shops/trackers).
+    if (!in.is_open() && canonicalSlot != 0)
+        in.open(ForeignPath(0));
     if (!in.is_open())
         return map;
     try {

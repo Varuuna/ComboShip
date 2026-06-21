@@ -559,8 +559,8 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         if (SOH_GetForcedPlacements)
             forcedOot = SOH_GetForcedPlacements(masterSeed);
 
-        auto result = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle, "",
-                                                         progress, forcedOot);
+        auto result = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle, "", progress,
+                                                         forcedOot);
 
         if (result.success) {
             spoiler = result.spoilerJson;
@@ -1254,9 +1254,9 @@ int main(int argc, char** argv) {
     if (ComboUI_OnForegroundGame)
         ComboUI_OnForegroundGame(0);
 
-    // ComboShip: dump OOT/MM static rando data (headless, safe AFTER SOH_Init) to
-    // saves/combo/{oot,mm}_dump.json so the check set is verifiable and an empty MM dump (eager-boot
-    // regression) is caught at startup. Pure diagnostic — generation re-dumps independently. Debug only.
+        // ComboShip: dump OOT/MM static rando data (headless, safe AFTER SOH_Init) to
+        // saves/combo/{oot,mm}_dump.json so the check set is verifiable and an empty MM dump (eager-boot
+        // regression) is caught at startup. Pure diagnostic — generation re-dumps independently. Debug only.
 #ifndef NDEBUG
     {
         std::error_code ec;

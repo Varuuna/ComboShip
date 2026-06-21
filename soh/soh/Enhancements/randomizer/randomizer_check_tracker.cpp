@@ -30,6 +30,10 @@
 #include "soh/Enhancements/randomizer/hook_handlers.h"
 #include "z64item.h"
 
+#ifdef COMBO_BUILD
+#include "ComboMenuSharedContext.h" // ComboShip: per-DLL ImGui context helper (combo-owned)
+#endif
+
 extern "C" {
 #include "variables.h"
 #include "functions.h"
@@ -2306,6 +2310,11 @@ void CheckTrackerWindow::Draw() {
     if (!IsVisible()) {
         return;
     }
+#ifdef COMBO_BUILD
+    // ComboShip: re-point soh.dll's per-module ImGui context at the shared libultraship context
+    // before DrawElement's ImGui calls (see ItemTrackerWindow::Draw / SOH_DrawSettings).
+    ComboMenuContext::UseSharedImGuiContext();
+#endif
     DrawElement();
     // Sync up the IsVisible flag if it was changed by ImGui
     SyncVisibilityConsoleVariable();

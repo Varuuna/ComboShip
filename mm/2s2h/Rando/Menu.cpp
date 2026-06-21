@@ -14,6 +14,15 @@ extern "C" {
 #include "overlays/actors/ovl_En_Sth/z_en_sth.h"
 }
 
+// ComboShip: must match the "##MM" tracker-window suffix from 2s2h/BenGui/BenGui.cpp. The popout
+// "Settings" buttons resolve their window by name (BenGui/Menu.cpp -> GetGuiWindow(windowName)),
+// so the WindowName() here has to carry the same suffix the window was registered with.
+#ifdef COMBO_BUILD
+#define COMBO_MM_TRACKER_SUFFIX "##MM"
+#else
+#define COMBO_MM_TRACKER_SUFFIX ""
+#endif
+
 // TODO: This block should come from elsewhere, tied to data in Rando::StaticData::Options
 std::unordered_map<int32_t, const char*> logicOptions = {
     { RO_LOGIC_GLITCHLESS, "Glitchless" },
@@ -1188,13 +1197,13 @@ void Rando::RegisterMenu() {
     path.sidebarName = "Item Tracker";
     mBenMenu->AddWidget(path, "Popout Settings", WIDGET_WINDOW_BUTTON)
         .CVar("gWindows.ItemTrackerSettings")
-        .WindowName("Item Tracker Settings");
+        .WindowName("Item Tracker Settings" COMBO_MM_TRACKER_SUFFIX);
 
     mBenMenu->AddSidebarEntry("Rando", "Check Tracker", 1);
     path.sidebarName = "Check Tracker";
     mBenMenu->AddWidget(path, "Popout Settings", WIDGET_WINDOW_BUTTON)
         .CVar("gWindows.CheckTrackerSettings")
-        .WindowName("Check Tracker Settings");
+        .WindowName("Check Tracker Settings" COMBO_MM_TRACKER_SUFFIX);
 }
 
 static RegisterMenuInitFunc initFunc(Rando::RegisterMenu);

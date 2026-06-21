@@ -204,6 +204,11 @@ typedef void (*FnComboUIRegister)(void);
 static DllHandle comboUIModule = nullptr;
 static FnComboUIRegister ComboUI_Register = nullptr;
 
+// ComboShip: tracker visibility follows the active game (see combo/gui/ComboTrackerVisibility.cpp).
+typedef void (*FnComboUIForeground)(int);
+static FnComboUIForeground ComboUI_OnForegroundGame = nullptr;
+static FnComboUIRegister ComboUI_RestoreTrackerIntent = nullptr;
+
 // ComboShip-owned unified ROM extraction (see ComboExtract.h). The split init lets us create the
 // shared window from soh.o2r before any ROM exists, run the extraction screen, then finish.
 static FnVoid SOH_InitWindowOnly = nullptr;
@@ -1202,6 +1207,8 @@ int main(int argc, char** argv) {
     }
     if (comboUIModule) {
         ComboUI_Register = (FnComboUIRegister)GetSym(comboUIModule, "ComboUI_Register");
+        ComboUI_OnForegroundGame = (FnComboUIForeground)GetSym(comboUIModule, "ComboUI_OnForegroundGame");
+        ComboUI_RestoreTrackerIntent = (FnComboUIRegister)GetSym(comboUIModule, "ComboUI_RestoreTrackerIntent");
         if (ComboUI_Register) {
             ComboUI_Register();
             std::cout << "[ComboShip] comboui registered (unified menu installed)." << std::endl;
@@ -1229,6 +1236,11 @@ int main(int argc, char** argv) {
     } else {
         std::cerr << "[ComboShip] Eager MM boot: required exports missing — oracle will be unavailable" << std::endl;
     }
+
+    // ComboShip: OOT owns the foreground at startup — hide MM's (now-registered) tracker windows so
+    // only OOT's Check/Item trackers can show. See combo/gui/ComboTrackerVisibility.cpp.
+    if (ComboUI_OnForegroundGame)
+        ComboUI_OnForegroundGame(0);
 
     // ComboShip: dump OOT/MM static rando data (headless, safe AFTER SOH_Init) to
     // saves/combo/{oot,mm}_dump.json so the check set is verifiable and an empty MM dump (eager-boot
@@ -1358,6 +1370,8 @@ int main(int argc, char** argv) {
                 if (MM_SetOnComboReturnCallback)
                     MM_SetOnComboReturnCallback(Combo_OnMMReturn);
                 ComboAnchor::SetActiveGame(1); // route Anchor to MM, activate MM's adapter
+                if (ComboUI_OnForegroundGame)  // hide OOT trackers, show MM's
+                    ComboUI_OnForegroundGame(1);
                 current = GAME_MM;
             } else {
                 break;
@@ -1379,6 +1393,8 @@ int main(int argc, char** argv) {
                 if (SOH_NotifyComboReturn)
                     SOH_NotifyComboReturn();
                 ComboAnchor::SetActiveGame(0); // route Anchor back to OOT, deactivate MM's adapter
+                if (ComboUI_OnForegroundGame)  // hide MM trackers, restore OOT's
+                    ComboUI_OnForegroundGame(0);
                 current = GAME_OOT;
             } else {
                 break;
@@ -1399,6 +1415,12 @@ int main(int argc, char** argv) {
     // while soh.dll is still mapped and before SOH_Deinit tears Anchor down.
     std::cerr << "[ComboShip] shutdown: Anchor disconnect" << std::endl;
     ComboAnchor::Shutdown();
+
+    // ComboShip: the active-game gating zeroes the backgrounded game's tracker CVars. Restore both
+    // games' remembered intent now, before SOH_Deinit's ~Context saves config — otherwise a game
+    // that was backgrounded at exit would persist its tracker as "off". (comboui is still mapped.)
+    if (ComboUI_RestoreTrackerIntent)
+        ComboUI_RestoreTrackerIntent();
 
     if (MM_Deinit && mmBooted) {
         std::cerr << "[ComboShip] shutdown: MM_Deinit" << std::endl;

@@ -22,6 +22,10 @@
 
 #include <fast/Fast3dGui.h>
 
+#ifdef COMBO_BUILD
+#include "ComboMenuSharedContext.h" // ComboShip: per-DLL ImGui context helper (combo-owned)
+#endif
+
 extern "C" {
 #include <z64.h>
 #include "variables.h"
@@ -1817,6 +1821,12 @@ void ItemTrackerWindow::Draw() {
     if (!IsVisible()) {
         return;
     }
+#ifdef COMBO_BUILD
+    // ComboShip: this DrawElement runs in soh.dll, whose per-module ImGui GImGui is only current
+    // while OOT is foreground. Point it at the shared libultraship context before any ImGui call so
+    // the tracker draws into the rendered context (same pattern as SOH_DrawSettings in OTRGlobals).
+    ComboMenuContext::UseSharedImGuiContext();
+#endif
     ImGui::PushFont(OTRGlobals::Instance->fontMono);
     DrawElement();
     // Sync up the IsVisible flag if it was changed by ImGui

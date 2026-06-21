@@ -10,6 +10,10 @@
 #include "2s2h/ShipUtils.h"
 #include <spdlog/fmt/fmt.h>
 
+#ifdef COMBO_BUILD
+#include "ComboMenuSharedContext.h" // ComboShip: per-DLL ImGui context helper (combo-owned)
+#endif
+
 extern "C" {
 #include "z64save.h"
 #include "variables.h"
@@ -410,6 +414,11 @@ void ItemTrackerWindow::Draw() {
     if (!IsVisible()) {
         return;
     }
+#ifdef COMBO_BUILD
+    // ComboShip: 2ship.dll's per-module ImGui context is only current while MM is foreground; point
+    // it at the shared libultraship context before any ImGui call (see combo/menu/ComboMenuSharedContext.h).
+    ComboMenuContext::UseSharedImGuiContext();
+#endif
 
     if (CVAR_VISIBILITY_MODE == ITEM_TRACKER_VISIBILITY_MODE_ONLY_ON_PAUSE_MENU &&
         (!gPlayState || !gPlayState->pauseCtx.state)) {

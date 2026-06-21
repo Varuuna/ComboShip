@@ -839,3 +839,41 @@ front (auto-scan + Browse), requires both, and extracts each with a progress bar
 Verified: fast path (archives present) boots straight to title unchanged; first-run path opens the
 extraction screen (`OoT=1 MM=1`). The old `SOH_Extract`/`MM_Extract` exports remain for non-combo use
 but the launcher no longer calls them.
+
+## Cross-game Check/Item tracker windows (collision fix + active-game gating) (2026-06-21)
+
+**Why:** Both soh and mm register tracker windows named identically — `"Check Tracker"`,
+`"Check Tracker Settings"`, `"Item Tracker"`, `"Item Tracker Settings"`. There is ONE shared
+libultraship `Gui` across both DLLs, and `Gui::AddGuiWindow` keys by display name and **rejects
+duplicates**. OOT boots first, so all four of MM's tracker windows were silently dropped and could
+never show. Separately, the shared Gui draws *every* registered window each frame, so the
+backgrounded game's tracker `DrawElement` would run against that DLL's stale per-module ImGui
+context. The user wants the popout trackers to follow the active game (OOT↔MM).
+
+**Vendored (additive, `COMBO_BUILD`-guarded, minimal):**
+- `mm/2s2h/BenGui/BenGui.cpp` — MM's 4 tracker windows are registered with a `COMBO_MM_TRACKER_SUFFIX`
+  (`"##MM"`) appended to their names. ImGui renders only the text before `##`, so the visible title
+  stays `"Check Tracker"`/`"Item Tracker"`, but the Gui map key (and ImGui ID) is unique → both games
+  coexist. Non-combo builds get an empty suffix (unchanged).
+- `mm/2s2h/Rando/Menu.cpp` — the two "Popout Settings" buttons resolve their window **by name**
+  (`BenGui/Menu.cpp` → `GetGuiWindow(windowName)`), so their `WindowName(...)` carries the same
+  `COMBO_MM_TRACKER_SUFFIX`.
+- `soh/.../randomizer_item_tracker.cpp`, `soh/.../randomizer_check_tracker.cpp`,
+  `mm/.../ItemTracker/ItemTracker.cpp`, `mm/2s2h/Rando/CheckTracker/CheckTracker.cpp` — each tracker's
+  `Draw()` calls `ComboMenuContext::UseSharedImGuiContext()` (from `combo/menu/ComboMenuSharedContext.h`)
+  before any ImGui call, the same pattern already used by `SOH_DrawSettings`. This is the leading fix
+  for OOT trackers not appearing even foreground; if a build shows they still don't, the next step is
+  per-stage logging (registration → visibility → draw-reached → context).
+
+**Combo-owned:**
+- `combo/gui/ComboTrackerVisibility.cpp` (in comboui) — `ComboUI_OnForegroundGame(int game)` hides the
+  background game's 4 tracker windows (remembering each one's intent) and restores the foreground
+  game's; `ComboUI_RestoreTrackerIntent()` puts both games' intent back before shutdown config save so
+  a backgrounded-at-exit game doesn't persist its tracker as "off". Uses CVar + `GuiWindow::Show/Hide`
+  (no ImGui calls → no context concern in comboui).
+- `combo/ComboShip.cpp` — resolves the two exports and calls `ComboUI_OnForegroundGame` after the eager
+  MM boot (OOT foreground) and at each portal transition (next to `ComboAnchor::SetActiveGame`);
+  `ComboUI_RestoreTrackerIntent` runs at the start of teardown.
+
+The active-game gating is also what keeps the two games' identically-titled inner `ImGui::Begin("Item
+Tracker")` / `ImGui::Begin("Check Tracker")` calls from ever running in the same frame.

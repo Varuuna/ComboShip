@@ -9,6 +9,7 @@
 #include <cstring>
 #ifdef COMBO_BUILD
 #include "2s2h/Rando/MiscBehavior/MiscBehavior.h" // ComboShip: MM_LookupForeign
+#include "ComboMenuSharedContext.h"               // ComboShip: per-DLL ImGui context helper (combo-owned)
 #endif
 
 // Image Icons
@@ -486,6 +487,11 @@ void CheckTrackerWindow::Draw() {
     if (!CVAR_SHOW_CHECK_TRACKER) {
         return;
     }
+#ifdef COMBO_BUILD
+    // ComboShip: point 2ship.dll's per-module ImGui context at the shared libultraship context
+    // before any ImGui call (see combo/menu/ComboMenuSharedContext.h).
+    ComboMenuContext::UseSharedImGuiContext();
+#endif
 
     if (CVAR_VISIBILITY_MODE == CHECK_TRACKER_VISIBILITY_MODE_ONLY_ON_PAUSE_MENU &&
         (!gPlayState || !gPlayState->pauseCtx.state)) {

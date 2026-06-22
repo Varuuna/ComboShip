@@ -878,6 +878,35 @@ context. The user wants the popout trackers to follow the active game (OOT↔MM)
 The active-game gating is also what keeps the two games' identically-titled inner `ImGui::Begin("Item
 Tracker")` / `ImGui::Begin("Check Tracker")` calls from ever running in the same frame.
 
+## Toast/notification window: collision fix + active-game gating (issue #28, 2026-06-22)
+
+**Why:** Same class of bug as the trackers above. Both soh and mm already have a near-identical
+notification (toast) system, and both register their window under the identical name
+`"Notifications Window"`. The single shared libultraship `Gui::AddGuiWindow` **rejects duplicates**, and
+OOT boots first, so MM's notification window was silently dropped — MM toasts (item pickups, the
+ComboShip "Sent to Hyrule" cross-world send, Anchor events) never appeared in the combined build, even
+though the emitters exist and work in standalone MM. The user wants the active game's toasts to show.
+
+**Vendored (one line, `COMBO_BUILD`-guarded):**
+- `mm/2s2h/BenGui/BenGui.cpp` — MM's notification window registration appends `COMBO_MM_TRACKER_SUFFIX`
+  (`"##MM"`) to its name, exactly like the tracker windows. Map-key only; the name isn't displayed
+  (`Notification::Window::Draw` titles its ImGui windows `notification#<id>`). No change to MM's
+  notification behavior. Non-combo builds get the empty suffix (unchanged).
+
+**Combo-owned:**
+- `combo/gui/ComboTrackerVisibility.cpp` — `ComboUI_OnForegroundGame` now also gates the notification
+  window. Unlike trackers, `Notification::Window` overrides `Draw()` and ignores `IsVisible()` (and
+  `GuiElement::Update()` runs `UpdateElement()` unconditionally), so `Show()/Hide()` does NOT suppress
+  it. Instead the background game's window is `RemoveGuiWindow`'d (dropped from the draw loop entirely,
+  stopping both `Draw` and `UpdateElement`) and the foreground game's is re-added — the SAME
+  already-initialized object (a `weak_ptr` handle; the window stays owned by its game DLL's
+  `mNotificationWindow` member, so no cross-DLL ownership / shutdown-dtor hazard, and no fresh window
+  is created → no 0xCD re-registration crash). No CVar/intent bookkeeping (notifications have no user
+  open/close toggle), so `ComboUI_RestoreTrackerIntent` is unchanged.
+
+The "Sent to Hyrule" toast itself was already implemented (`mm/2s2h/Rando/MiscBehavior/CheckQueue.cpp`,
+`Rando_SendForeignCheck`); this change only makes MM's window survive registration so it can show.
+
 ## Cross-world Link's Pocket placement (2026-06-21)
 
 Link's Pocket is a rando-only OOT check with no vanilla item, so it's absent from the cross-world

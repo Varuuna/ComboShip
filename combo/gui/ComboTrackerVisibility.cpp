@@ -1,10 +1,22 @@
 // combo/gui/ComboTrackerVisibility.cpp
 //
-// ComboShip-owned: makes the Check/Item tracker popouts "follow" the active game. Only the
-// foreground game's tracker windows are shown; the other game's are hidden. This is both the
-// feature the user asked for (a tracker that switches OOT<->MM) AND a correctness requirement:
-// the single shared libultraship Gui draws EVERY registered window each frame, and a background
-// game's DrawElement would run against that DLL's stale per-module ImGui context.
+// ComboShip-owned: makes per-game GUI windows "follow" the active game. Only the foreground game's
+// windows participate in the shared Gui's draw loop; the other game's are suppressed. This covers
+// the Check/Item tracker popouts AND the toast/notification window. It is both the feature the user
+// asked for (UI that switches OOT<->MM) AND a correctness requirement: the single shared libultraship
+// Gui draws EVERY registered window each frame, and a background game's Draw/UpdateElement would run
+// against that DLL's stale per-module ImGui context.
+//
+// Trackers and notifications use DIFFERENT levers:
+//   - Trackers honor GuiWindow visibility, so toggling Show()/Hide() (+ the CVar) gates their Draw().
+//   - Notification::Window OVERRIDES Draw() and ignores IsVisible(), and GuiElement::Update() runs
+//     UpdateElement() unconditionally. So Hide() does NOT stop a notification window. The only reliable
+//     lever is map presence: a RemoveGuiWindow'd window is skipped by the draw loop entirely (both
+//     Update and Draw). We re-add the SAME already-initialized object on the way back (never a fresh
+//     one), which avoids the 0xCD re-registration crash the resident-window model guards against
+//     (see soh/soh/OTRGlobals.cpp:1753 / :2741). We hold it as a weak_ptr so the window stays owned
+//     solely by its own DLL (its mNotificationWindow member) — no cross-DLL shared_ptr, no shutdown
+//     dtor-order hazard.
 //
 // Lives in comboui.dll because it links libultraship (CVar API + the shared Gui) and stays mapped
 // for the whole process. The launcher (combo/ComboShip.cpp) calls the exports at each game
@@ -15,6 +27,7 @@
 // the duplicate-name rejection in Gui::AddGuiWindow while keeping the visible title identical).
 
 #include <libultraship/libultraship.h> // Ship::Context / Gui + CVarGet/SetInteger
+#include <memory>                      // std::weak_ptr (notification-window handle)
 
 namespace {
 
@@ -59,6 +72,40 @@ void SetTracker(const TrackerWin& w, bool visible) {
     }
 }
 
+// Notification windows: OOT registers the plain name; MM appends "##MM" (BenGui.cpp). Indexed by
+// game: 0 = OOT, 1 = MM. These are gated by Gui-map presence, NOT visibility — see the file header.
+const char* const kNotificationWin[2] = {
+    "Notifications Window",     // OOT (soh)
+    "Notifications Window##MM", // MM (2ship)
+};
+
+// weak_ptr handles so the windows stay owned solely by their own game DLL (their mNotificationWindow
+// member keeps them alive); we only need a handle to re-add the backgrounded one later.
+std::weak_ptr<Ship::GuiWindow> sNotif[2];
+
+// Keep only the foreground game's notification window in the shared Gui's draw loop.
+void SetForegroundNotification(int fg) {
+    auto ctx = Ship::Context::GetInstance();
+    if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
+        return;
+    }
+    auto gui = ctx->GetWindow()->GetGui();
+    const int bg = fg ^ 1;
+
+    // Background game: capture a handle (so we can re-add it on return) and drop it from the draw loop.
+    if (auto win = gui->GetGuiWindow(kNotificationWin[bg])) {
+        sNotif[bg] = win;
+        gui->RemoveGuiWindow(kNotificationWin[bg]);
+    }
+    // Foreground game: re-add the SAME (already-initialized) object if it was previously removed and is
+    // not currently present. Init() on re-add is a guarded no-op; no fresh window is ever created.
+    if (!gui->GetGuiWindow(kNotificationWin[fg])) {
+        if (auto win = sNotif[fg].lock()) {
+            gui->AddGuiWindow(win);
+        }
+    }
+}
+
 } // namespace
 
 // Called by the launcher whenever a game becomes the foreground game (0 = OOT, 1 = MM).
@@ -82,6 +129,10 @@ extern "C" __declspec(dllexport) void ComboUI_OnForegroundGame(int game) {
         }
         SetTracker(kTrackers[fg][i], sIntent[fg][i] != 0);
     }
+
+    // Notification window follows the active game too (so MM's toasts show only while MM is foreground
+    // and OOT's only while OOT is). Independent of the tracker intent above.
+    SetForegroundNotification(fg);
 }
 
 // Called by the launcher just before shutdown teardown. Restores both games' tracker CVars to the

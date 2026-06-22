@@ -19,7 +19,7 @@
 #include <functional>
 #include <nlohmann/json.hpp>
 #include "gui/ComboGenProgress.h"
-#include "CrossForeign.h"  // for ComboRando::GameId
+#include "CrossForeign.h" // for ComboRando::GameId
 
 namespace ComboRando {
 

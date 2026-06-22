@@ -313,14 +313,14 @@ static FnVoidArgless MM_Anchor_Deactivate = nullptr;
 // networked paths. targetGame/srcGame use the GameId convention 0 = OOT, 1 = MM (== sActiveGame).
 typedef void (*FnSetCrossRoute)(void (*)(int, const char*));
 typedef void (*FnGrantCrossItem)(const char*);
-static FnSetCrossRoute  SOH_SetCrossDeliver        = nullptr;
-static FnSetCrossRoute  MM_SetCrossDeliver         = nullptr;
-static FnGrantCrossItem SOH_GrantCrossItem         = nullptr;
-static FnGrantCrossItem MM_GrantCrossItem          = nullptr;
-static FnSetCrossRoute  SOH_SetMarkForeignObtained = nullptr;
-static FnSetCrossRoute  MM_SetMarkForeignObtained  = nullptr;
-static FnGrantCrossItem SOH_MarkForeignObtained    = nullptr;
-static FnGrantCrossItem MM_MarkForeignObtained     = nullptr;
+static FnSetCrossRoute SOH_SetCrossDeliver = nullptr;
+static FnSetCrossRoute MM_SetCrossDeliver = nullptr;
+static FnGrantCrossItem SOH_GrantCrossItem = nullptr;
+static FnGrantCrossItem MM_GrantCrossItem = nullptr;
+static FnSetCrossRoute SOH_SetMarkForeignObtained = nullptr;
+static FnSetCrossRoute MM_SetMarkForeignObtained = nullptr;
+static FnGrantCrossItem SOH_MarkForeignObtained = nullptr;
+static FnGrantCrossItem MM_MarkForeignObtained = nullptr;
 
 namespace ComboAnchor {
 static std::thread sThread;
@@ -495,9 +495,11 @@ static void SetActiveGame(int game /* 0 = OOT, 1 = MM */) {
 // underneath us. The grant export persists the target save immediately.
 static void DeliverCrossItem(int targetGame, const char* itemName) {
     if (targetGame == 1) {
-        if (MM_GrantCrossItem) MM_GrantCrossItem(itemName);
+        if (MM_GrantCrossItem)
+            MM_GrantCrossItem(itemName);
     } else {
-        if (SOH_GrantCrossItem) SOH_GrantCrossItem(itemName);
+        if (SOH_GrantCrossItem)
+            SOH_GrantCrossItem(itemName);
     }
 }
 
@@ -505,9 +507,11 @@ static void DeliverCrossItem(int targetGame, const char* itemName) {
 // won't later physically collect the same check and double-deliver. Save-only; persists.
 static void MarkForeignObtained(int srcGame, const char* checkName) {
     if (srcGame == 1) {
-        if (MM_MarkForeignObtained) MM_MarkForeignObtained(checkName);
+        if (MM_MarkForeignObtained)
+            MM_MarkForeignObtained(checkName);
     } else {
-        if (SOH_MarkForeignObtained) SOH_MarkForeignObtained(checkName);
+        if (SOH_MarkForeignObtained)
+            SOH_MarkForeignObtained(checkName);
     }
 }
 
@@ -1112,14 +1116,14 @@ int main(int argc, char** argv) {
     MM_Anchor_Deactivate = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_Deactivate");
 
     // Cross-game item delivery seam (issue #3)
-    SOH_SetCrossDeliver        = (FnSetCrossRoute)  GetSym(sohModule, "SOH_SetCrossDeliver");
-    MM_SetCrossDeliver         = (FnSetCrossRoute)  GetSym(mmModule,  "MM_SetCrossDeliver");
-    SOH_GrantCrossItem         = (FnGrantCrossItem) GetSym(sohModule, "SOH_GrantCrossItem");
-    MM_GrantCrossItem          = (FnGrantCrossItem) GetSym(mmModule,  "MM_GrantCrossItem");
-    SOH_SetMarkForeignObtained = (FnSetCrossRoute)  GetSym(sohModule, "SOH_SetMarkForeignObtained");
-    MM_SetMarkForeignObtained  = (FnSetCrossRoute)  GetSym(mmModule,  "MM_SetMarkForeignObtained");
-    SOH_MarkForeignObtained    = (FnGrantCrossItem) GetSym(sohModule, "SOH_MarkForeignObtained");
-    MM_MarkForeignObtained     = (FnGrantCrossItem) GetSym(mmModule,  "MM_MarkForeignObtained");
+    SOH_SetCrossDeliver = (FnSetCrossRoute)GetSym(sohModule, "SOH_SetCrossDeliver");
+    MM_SetCrossDeliver = (FnSetCrossRoute)GetSym(mmModule, "MM_SetCrossDeliver");
+    SOH_GrantCrossItem = (FnGrantCrossItem)GetSym(sohModule, "SOH_GrantCrossItem");
+    MM_GrantCrossItem = (FnGrantCrossItem)GetSym(mmModule, "MM_GrantCrossItem");
+    SOH_SetMarkForeignObtained = (FnSetCrossRoute)GetSym(sohModule, "SOH_SetMarkForeignObtained");
+    MM_SetMarkForeignObtained = (FnSetCrossRoute)GetSym(mmModule, "MM_SetMarkForeignObtained");
+    SOH_MarkForeignObtained = (FnGrantCrossItem)GetSym(sohModule, "SOH_MarkForeignObtained");
+    MM_MarkForeignObtained = (FnGrantCrossItem)GetSym(mmModule, "MM_MarkForeignObtained");
 
     // Oracle exports
     Combo_SOH_Rando_Reset = (FnOracleVoid)GetSym(sohModule, "Combo_SOH_Rando_Reset");
@@ -1230,10 +1234,14 @@ int main(int argc, char** argv) {
 
     // Register the cross-game delivery dispatcher into both DLLs (issue #3). Done before SOH_Init so
     // a resumed save that immediately drains a queued foreign item has the route available.
-    if (SOH_SetCrossDeliver) SOH_SetCrossDeliver(DeliverCrossItem);
-    if (MM_SetCrossDeliver)  MM_SetCrossDeliver(DeliverCrossItem);
-    if (SOH_SetMarkForeignObtained) SOH_SetMarkForeignObtained(MarkForeignObtained);
-    if (MM_SetMarkForeignObtained)  MM_SetMarkForeignObtained(MarkForeignObtained);
+    if (SOH_SetCrossDeliver)
+        SOH_SetCrossDeliver(DeliverCrossItem);
+    if (MM_SetCrossDeliver)
+        MM_SetCrossDeliver(DeliverCrossItem);
+    if (SOH_SetMarkForeignObtained)
+        SOH_SetMarkForeignObtained(MarkForeignObtained);
+    if (MM_SetMarkForeignObtained)
+        MM_SetMarkForeignObtained(MarkForeignObtained);
     if (SOH_SetCrossDeliver || MM_SetCrossDeliver) {
         std::cout << "[ComboShip] Cross-game item delivery seam registered." << std::endl;
     }

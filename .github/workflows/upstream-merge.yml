@@ -276,7 +276,7 @@ jobs:
             const { owner, repo } = context.repo;
             const head = 'bot/upstream-merge';
             const conflicts = process.env.HAD_CONFLICTS === '1';
-            const title = `${conflicts ? '⚠️ conflicts — ' : ''}Upstream merge → ${process.env.DATE}`;
+            const title = `${conflicts ? ' Conflicts — ' : ''}Upstream merge → ${process.env.DATE}`;
 
             let body = fs.readFileSync(process.env.REPORT_PATH, 'utf8');
             if (process.env.HAD_CONFLICTS === '1') {
@@ -284,7 +284,7 @@ jobs:
               try { conf = fs.readFileSync(process.env.CONFLICTS_PATH, 'utf8'); } catch (e) {}
               // The required `conflict-markers` check hard-blocks the merge until resolved, so no need to
               // shout — just point at the work. Keep the conflicted-files list; it's the useful part.
-              body = '> ⚠️ **Conflicts committed as markers** — resolve them on the `bot/upstream-merge` '
+              body = '> **Conflicts committed as markers** — resolve them on the `bot/upstream-merge` '
                    + 'branch (keep COMBO_BUILD blocks; see docs/UPSTREAM_MERGES.md). The required '
                    + '`conflict-markers` check stays red, and lists each `file:line`, until they are gone.\n\n'
                    + '<details><summary>conflicted files</summary>\n\n```\n' + conf + '```\n</details>\n\n'

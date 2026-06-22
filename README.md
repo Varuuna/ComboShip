@@ -2,13 +2,29 @@
 
 **ComboShip is a cross-game randomizer for [Ship of Harkinian](https://github.com/HarbourMasters/Shipwright) (Ocarina of Time) and [2 Ship 2 Harkinian](https://github.com/HarbourMasters/2ship2harkinian) (Majora's Mask).**
 
-> **Just want to play?** Grab a build from the [Releases](../../releases) page — you don't need any of the below.
-
 ## What it is
 
 Like [OOTMM](https://ootmm.com/), ComboShip shuffles items across *both* games at once: a check in Ocarina of Time can hold a Majora's Mask item and vice-versa, and a single seed spans the two. Both games run together in one application; ComboShip builds that combined runtime on top of the existing Ship of Harkinian and 2 Ship 2 Harkinian ports.
 
-For how the combined runtime is put together (the shared engine, per-game resources, transitions), see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+## Features
+
+- Anything within Ship and 2Ship is here. When those projects gets new updates, they are not far from inclusion here.
+- Online Multiplayer through Anchor. And yes it works cross-game as well. Work together in OOT and MM, split or together.
+
+## Future plans
+
+- Possibly looking into some more OOTMM features, but it's not a priority yet.
+- Possible Archipelago support as well, ideally through the existing SoH implementation
+
+## Any bugs?
+
+Probably many! Create an issue if you find any.
+
+## The elephant in the room
+
+"Is this vibecoded?"
+
+It depends on your view. **Yes**, this project uses a lot of assistance from AI/LLMs in order quickly generate code, write commits, or create PRs. I am defining the rules, structure, and decisions on how it gets implemented, so I call it "AI-assisted". If you don't like it, I won't try to change your mind, it's up to you. My code principle for this project is combine the original SoH/2Ship instruction of "we try not to touch the source code" with a new "we try not to touch the port code". Any changes in SoH or 2Ship are modified with guardrails for ComboShip so the original port code remains intact. This is also key in order to keep pulling in new changes from upstream relatively painlessly. I have a whole workflow for this alone.
 
 ## Building
 
@@ -19,9 +35,6 @@ ComboShip currently builds on **Windows** only. macOS and Linux support will ret
 - Windows 10/11 (x64)
 - Visual Studio 2022 (MSVC, with C++20 / C23 support)
 - CMake 3.26 or newer
-- Python 3 (used during asset extraction)
-- Git
-- vcpkg — bootstrapped automatically during configure; no manual install needed
 
 ### Configure and build
 
@@ -31,18 +44,11 @@ From the `Combo/` directory, configure once to generate the Visual Studio soluti
 cmake -B build/x64 -A x64
 ```
 
-Then build the targets in dependency order. Helper scripts in `scripts/` wrap `cmake --build` and default to a Debug build (pass `--Release` for Release):
+Helper scripts in `scripts/` wrap `cmake --build` and default to a Debug build (pass `--Release` for Release):
 
 ```powershell
-./scripts/build-libultraship.ps1   # shared engine  -> libultraship.dll
-cmake --build build/x64 --target soh   --config Debug   # OOT -> soh.dll
-cmake --build build/x64 --target 2ship --config Debug   # MM  -> 2ship.dll
-./scripts/build-comboship.ps1      # launcher       -> ComboShip.exe
+./scripts/build-comboship.ps1  ->  ComboShip.exe
 ```
-
-Build order is always **libultraship → soh → 2ship → ComboShip**. Building `ComboShip` also rebuilds `soh` if it is stale. The runnable output lands in `build/x64/combo/<config>/`, with the DLLs, port assets, and resources copied next to `ComboShip.exe`.
-
-On first run, the games prompt for your OOT and MM ROMs and extract assets themselves — there is no separate extraction step.
 
 ## Packaging
 
@@ -50,23 +56,6 @@ On first run, the games prompt for your OOT and MM ROMs and extract assets thems
 
 ```powershell
 cpack
-```
-
-The archive is written to `_packages/`. ROM-derived assets are intentionally excluded — testers supply their own ROMs.
-
-## Project layout
-
-```
-Combo/
-├── combo/          # ComboShip layer: launcher, cross-game randomizer, shared menu/UI
-├── soh/            # Ship of Harkinian (OOT) port  -> soh.dll
-├── mm/             # 2 Ship 2 Harkinian (MM) port  -> 2ship.dll
-├── libultraship/   # Shared game engine            -> libultraship.dll
-├── ZAPDTR/         # Asset extraction tool (ZAPD)
-├── OTRExporter/    # Asset export utilities
-├── CMake/          # CMake helper scripts and packaging config
-├── scripts/        # Build helper scripts (PowerShell)
-└── docs/           # Architecture notes and upstream-merge logs
 ```
 
 ## Contributing

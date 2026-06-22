@@ -146,6 +146,10 @@
 #define strdup _strdup
 #endif
 
+#ifdef _MSC_VER
+#define strdup _strdup
+#endif
+
 #ifdef __WIIU__
 const uint32_t defaultImGuiScale = 3;
 #else

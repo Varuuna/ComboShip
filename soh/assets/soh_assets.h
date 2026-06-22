@@ -193,8 +193,6 @@ static const ALIGN_ASSET(2) char gGiZoraJabbernutDL[] = dgGiZoraJabbernutDL;
 
 #define dgGiFishingPoleDL "__OTR__objects/object_gi_fishing_pole/gGiFishingPoleDL"
 static const ALIGN_ASSET(2) char gGiFishingPoleDL[] = dgGiFishingPoleDL;
-<<<<<<< HEAD
-=======
 
 #define dgGiClimbDL "__OTR__objects/object_gi_climb/gGiClimbDL"
 static const ALIGN_ASSET(2) char gGiClimbDL[] = dgGiClimbDL;
@@ -207,7 +205,6 @@ static const ALIGN_ASSET(2) char gGiOpenChestsDL[] = dgGiOpenChestsDL;
 
 #define dgGiGrabDL "__OTR__objects/object_gi_grab/gGiGrabDL"
 static const ALIGN_ASSET(2) char gGiGrabDL[] = dgGiGrabDL;
->>>>>>> vendor-soh
 
 #define dgMysteryItemDL "__OTR__objects/object_mystery_item/gMysteryItemDL"
 static const ALIGN_ASSET(2) char gMysteryItemDL[] = dgMysteryItemDL;

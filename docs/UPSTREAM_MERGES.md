@@ -907,6 +907,30 @@ though the emitters exist and work in standalone MM. The user wants the active g
 The "Sent to Hyrule" toast itself was already implemented (`mm/2s2h/Rando/MiscBehavior/CheckQueue.cpp`,
 `Rando_SendForeignCheck`); this change only makes MM's window survive registration so it can show.
 
+## Cross-world pool: inject settings-added skill items (2026-06-22)
+
+**Why:** The cross-world dump (`SOH_DumpRandoStaticData`) builds the combined fill's item pool from each
+check's **vanilla** item (`loc->GetVanillaItem()`). That silently omits every item the *settings ADD* to
+the pool — most importantly the shuffled "skill" items: `RG_OPEN_CHEST`, `RG_SPEAK_*`, `RG_CLIMB`,
+`RG_CRAWL` (when `RSK_SHUFFLE_OPEN_CHEST` / `_SPEAK` / `_CLIMB` / `_CRAWL` are on). Those grant the logic
+flags `CAN_OPEN_CHEST` / `CAN_SPEAK_*` etc. — and **every chest, deku scrub, and shop check gates on
+them** (e.g. `logic.cpp` chest access = `CheckRandoInf(RAND_INF_CAN_OPEN_CHEST)`). With the items absent
+from the pool, the oracle never grants the flags, so all chests/scrubs/shops are logically unreachable
+(OOT showed 145/470 reachable with a "full" inventory), and the assumed fill dead-ends. Standalone SoH
+works because it fills from the real `GenerateItemPool()`, which adds these items; our combined fill took
+a vanilla-per-check shortcut that drops them.
+
+**Vendored (`COMBO_BUILD`-guarded, `soh/soh/OTRGlobals.cpp`):** after the per-check dump loop, inject the
+enabled skill items into the emitted pool, overwriting an equal number of junk slots so items stay 1:1
+with checks. Swim/Grab need no injection (they map to Progressive Scale/Strength, already carried by the
+vanilla pool). Verified: OOT reachable 145→460, seeds 1234–1238 generate (5/5).
+
+**Known limitation / follow-up:** this is targeted at the skill items. Other settings-added items (Mask
+Quest, Roc's Feather, Skeleton Key, Triforce Hunt, …) are still omitted by the vanilla-per-check pool and
+would hit the same gap if enabled. The robust fix is to source the cross-world pool from the real
+`GenerateItemPool()` (and reconcile the fill's item==check accounting + fixed placements) rather than
+per-check vanilla items.
+
 ## Cross-world Link's Pocket placement (2026-06-21)
 
 Link's Pocket is a rando-only OOT check with no vanilla item, so it's absent from the cross-world

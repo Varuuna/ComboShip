@@ -91,61 +91,29 @@ add_dependencies(ComboShip
 
 # Windows-specific settings
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    # ComboShip: build the exe straight into the shared runtime dir (x64/<config>), matching how the
+    # game DLLs (soh/2ship/libultraship/comboui) set their own output dir. x64/<config> is then the
+    # SINGLE deploy location — the exe and every DLL already land here, so there is no second copy in
+    # the per-target build tree (build/x64/combo/<config>) to go stale and cause a stale-DLL launch.
     set_target_properties(ComboShip PROPERTIES
         OUTPUT_NAME "ComboShip"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG   "${CMAKE_SOURCE_DIR}/x64/Debug"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/x64/Release"
     )
-    
-    # Copy ComboShip.exe, game DLLs, and libultraship.dll to Combo/x64/Debug and to ComboShip's build dir.
-    # The PORT/custom asset archives (soh/soh.o2r, mm/2ship.o2r) are produced by the GenerateSohOtr /
-    # Generate2ShipOtr targets (extract_assets.py --norom — NO ROM needed; they pack the tracked
-    # assets/custom tree). They are gitignored as large generated binaries, so they exist on a dev
-    # machine that has run those targets but are absent on the compile-only CI gate, which runs neither.
-    # Their copy is therefore guarded by an EXISTS check below (separate POST_BUILD block) so that gate
-    # does not fail. The ROM-extracted archives (oot.o2r, mm.o2r) are the user's to generate at first launch.
+
+    # The exe and all game DLLs already land in x64/<config> (their own output dirs), so only the asset
+    # tree and the PORT/custom .o2r archives need deploying. $<TARGET_FILE_DIR:ComboShip> == x64/<config>,
+    # so this is config-correct for Debug AND Release.
+    #
+    # Extractor assets (flat structure matching CallZapd expectations). ComboShip runs BOTH the OOT (soh)
+    # and MM (2ship) extractors, so merge both games' extractor + xml dirs into one assets/ tree.
+    # Clear the destination assets/ FIRST: copy_directory merges and never deletes, so a file
+    # renamed/removed upstream (e.g. mm object_rs -> object_rsn) would leave a STALE .xml that ZAPD then
+    # fails on ("Raw data size: 0x0", reached EOF). Clearing makes the source tree authoritative each
+    # build. (The user's ROM/port archives live in the dir root, NOT under assets/, so this is safe.)
+    # See docs/merges/2026-06-20.md.
     add_custom_command(TARGET ComboShip POST_BUILD
-        # Copy ComboShip.exe to x64/Debug
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:ComboShip>
-            ${CMAKE_SOURCE_DIR}/x64/Debug/ComboShip.exe
-        # Copy game DLLs to x64/Debug
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:soh>
-            ${CMAKE_SOURCE_DIR}/x64/Debug/soh.dll
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:2ship>
-            ${CMAKE_SOURCE_DIR}/x64/Debug/2ship.dll
-        # Copy shared engine DLL to x64/Debug
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:libultraship>
-            ${CMAKE_SOURCE_DIR}/x64/Debug/libultraship.dll
-        # Copy combo UI DLL to x64/Debug
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:comboui>
-            ${CMAKE_SOURCE_DIR}/x64/Debug/comboui.dll
-        # Also copy DLLs to ComboShip's build directory for local testing
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:soh>
-            $<TARGET_FILE_DIR:ComboShip>
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:2ship>
-            $<TARGET_FILE_DIR:ComboShip>
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:libultraship>
-            $<TARGET_FILE_DIR:ComboShip>
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:comboui>
-            $<TARGET_FILE_DIR:ComboShip>
-        # Extractor assets (flat structure matching CallZapd expectations). ComboShip runs BOTH
-        # the OOT (soh) and MM (2ship) extractors, so merge both games' extractor + xml dirs into
-        # one assets/ tree.
-        # ComboShip: clear the destination assets/ FIRST. copy_directory merges and never deletes, so
-        # a file renamed/removed upstream (e.g. mm object_rs -> object_rsn) leaves a STALE .xml that
-        # ZAPD then tries to extract and fails on ("Raw data size: 0x0", reached EOF). Clearing makes
-        # the source tree authoritative each build. (The user's ROM/port archives live in the dir root,
-        # NOT under assets/, so this is safe.) See docs/merges/2026-06-20.md.
         COMMAND ${CMAKE_COMMAND} -E rm -rf $<TARGET_FILE_DIR:ComboShip>/assets
-        COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_SOURCE_DIR}/x64/Debug/assets
-        # --- next to the exe (config-correct: covers Debug AND Release build dirs) ---
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_SOURCE_DIR}/soh/assets/extractor
             $<TARGET_FILE_DIR:ComboShip>/assets
@@ -158,19 +126,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_SOURCE_DIR}/mm/assets/xml
             $<TARGET_FILE_DIR:ComboShip>/assets/xml
-        # --- legacy x64/Debug runtime dir (both games) ---
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/soh/assets/extractor
-            ${CMAKE_SOURCE_DIR}/x64/Debug/assets
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/soh/assets/xml
-            ${CMAKE_SOURCE_DIR}/x64/Debug/assets/xml
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/mm/assets/extractor
-            ${CMAKE_SOURCE_DIR}/x64/Debug/assets
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/mm/assets/xml
-            ${CMAKE_SOURCE_DIR}/x64/Debug/assets/xml
     )
 
     # PORT/custom .o2r deploy — guarded so a missing archive doesn't fail the build (see comment above).
@@ -181,8 +136,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         add_custom_command(TARGET ComboShip POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 ${CMAKE_SOURCE_DIR}/soh/soh.o2r $<TARGET_FILE_DIR:ComboShip>/soh.o2r
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${CMAKE_SOURCE_DIR}/soh/soh.o2r ${CMAKE_SOURCE_DIR}/x64/Debug/soh.o2r
         )
     else()
         message(STATUS "ComboShip: soh/soh.o2r not found — skipping .o2r deploy (run GenerateSohOtr to produce it).")
@@ -191,8 +144,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         add_custom_command(TARGET ComboShip POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 ${CMAKE_SOURCE_DIR}/mm/2ship.o2r $<TARGET_FILE_DIR:ComboShip>/2ship.o2r
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${CMAKE_SOURCE_DIR}/mm/2ship.o2r ${CMAKE_SOURCE_DIR}/x64/Debug/2ship.o2r
         )
     else()
         message(STATUS "ComboShip: mm/2ship.o2r not found — skipping .o2r deploy (run Generate2ShipOtr to produce it).")

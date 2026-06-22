@@ -878,6 +878,59 @@ context. The user wants the popout trackers to follow the active game (OOT↔MM)
 The active-game gating is also what keeps the two games' identically-titled inner `ImGui::Begin("Item
 Tracker")` / `ImGui::Begin("Check Tracker")` calls from ever running in the same frame.
 
+## Toast/notification window: collision fix + active-game gating (issue #28, 2026-06-22)
+
+**Why:** Same class of bug as the trackers above. Both soh and mm already have a near-identical
+notification (toast) system, and both register their window under the identical name
+`"Notifications Window"`. The single shared libultraship `Gui::AddGuiWindow` **rejects duplicates**, and
+OOT boots first, so MM's notification window was silently dropped — MM toasts (item pickups, the
+ComboShip "Sent to Hyrule" cross-world send, Anchor events) never appeared in the combined build, even
+though the emitters exist and work in standalone MM. The user wants the active game's toasts to show.
+
+**Vendored (one line, `COMBO_BUILD`-guarded):**
+- `mm/2s2h/BenGui/BenGui.cpp` — MM's notification window registration appends `COMBO_MM_TRACKER_SUFFIX`
+  (`"##MM"`) to its name, exactly like the tracker windows. Map-key only; the name isn't displayed
+  (`Notification::Window::Draw` titles its ImGui windows `notification#<id>`). No change to MM's
+  notification behavior. Non-combo builds get the empty suffix (unchanged).
+
+**Combo-owned:**
+- `combo/gui/ComboTrackerVisibility.cpp` — `ComboUI_OnForegroundGame` now also gates the notification
+  window. Unlike trackers, `Notification::Window` overrides `Draw()` and ignores `IsVisible()` (and
+  `GuiElement::Update()` runs `UpdateElement()` unconditionally), so `Show()/Hide()` does NOT suppress
+  it. Instead the background game's window is `RemoveGuiWindow`'d (dropped from the draw loop entirely,
+  stopping both `Draw` and `UpdateElement`) and the foreground game's is re-added — the SAME
+  already-initialized object (a `weak_ptr` handle; the window stays owned by its game DLL's
+  `mNotificationWindow` member, so no cross-DLL ownership / shutdown-dtor hazard, and no fresh window
+  is created → no 0xCD re-registration crash). No CVar/intent bookkeeping (notifications have no user
+  open/close toggle), so `ComboUI_RestoreTrackerIntent` is unchanged.
+
+The "Sent to Hyrule" toast itself was already implemented (`mm/2s2h/Rando/MiscBehavior/CheckQueue.cpp`,
+`Rando_SendForeignCheck`); this change only makes MM's window survive registration so it can show.
+
+## Cross-world pool: inject settings-added skill items (2026-06-22)
+
+**Why:** The cross-world dump (`SOH_DumpRandoStaticData`) builds the combined fill's item pool from each
+check's **vanilla** item (`loc->GetVanillaItem()`). That silently omits every item the *settings ADD* to
+the pool — most importantly the shuffled "skill" items: `RG_OPEN_CHEST`, `RG_SPEAK_*`, `RG_CLIMB`,
+`RG_CRAWL` (when `RSK_SHUFFLE_OPEN_CHEST` / `_SPEAK` / `_CLIMB` / `_CRAWL` are on). Those grant the logic
+flags `CAN_OPEN_CHEST` / `CAN_SPEAK_*` etc. — and **every chest, deku scrub, and shop check gates on
+them** (e.g. `logic.cpp` chest access = `CheckRandoInf(RAND_INF_CAN_OPEN_CHEST)`). With the items absent
+from the pool, the oracle never grants the flags, so all chests/scrubs/shops are logically unreachable
+(OOT showed 145/470 reachable with a "full" inventory), and the assumed fill dead-ends. Standalone SoH
+works because it fills from the real `GenerateItemPool()`, which adds these items; our combined fill took
+a vanilla-per-check shortcut that drops them.
+
+**Vendored (`COMBO_BUILD`-guarded, `soh/soh/OTRGlobals.cpp`):** after the per-check dump loop, inject the
+enabled skill items into the emitted pool, overwriting an equal number of junk slots so items stay 1:1
+with checks. Swim/Grab need no injection (they map to Progressive Scale/Strength, already carried by the
+vanilla pool). Verified: OOT reachable 145→460, seeds 1234–1238 generate (5/5).
+
+**Known limitation / follow-up:** this is targeted at the skill items. Other settings-added items (Mask
+Quest, Roc's Feather, Skeleton Key, Triforce Hunt, …) are still omitted by the vanilla-per-check pool and
+would hit the same gap if enabled. The robust fix is to source the cross-world pool from the real
+`GenerateItemPool()` (and reconcile the fill's item==check accounting + fixed placements) rather than
+per-check vanilla items.
+
 ## Cross-world Link's Pocket placement (2026-06-21)
 
 Link's Pocket is a rando-only OOT check with no vanilla item, so it's absent from the cross-world

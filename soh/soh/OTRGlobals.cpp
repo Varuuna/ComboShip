@@ -3171,6 +3171,52 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
                                { "vanillaItem", vigName },
                                { "advancement", Rando::StaticData::RetrieveItem(vanillaRG).IsAdvancement() } });
         }
+
+#ifdef COMBO_BUILD
+        // ComboShip: the loop above emits each check's VANILLA item, which MISSES the items the SETTINGS
+        // ADD to the pool — the shuffled "skill" items (Open Chest, Speak *, Climb, Crawl). They are not
+        // the vanilla item of any check, so without them the cross-world fill can never grant
+        // CAN_OPEN_CHEST / CAN_SPEAK_* etc., and EVERY chest/scrub/shop is logically unreachable ->
+        // generation dead-ends. Inject the enabled skill items into the pool, overwriting an equal
+        // number of junk checks so items stay 1:1 with checks. (Swim/Grab map to Progressive
+        // Scale/Strength, which the vanilla pool already carries, so they need no injection.)
+        {
+            std::vector<RandomizerGet> skills;
+            if (ctx->GetOption(RSK_SHUFFLE_OPEN_CHEST))
+                skills.push_back(RG_OPEN_CHEST);
+            if (ctx->GetOption(RSK_SHUFFLE_CLIMB))
+                skills.push_back(RG_CLIMB);
+            if (ctx->GetOption(RSK_SHUFFLE_CRAWL))
+                skills.push_back(RG_CRAWL);
+            if (ctx->GetOption(RSK_SHUFFLE_SPEAK)) {
+                skills.push_back(RG_SPEAK_DEKU);
+                skills.push_back(RG_SPEAK_GERUDO);
+                skills.push_back(RG_SPEAK_GORON);
+                skills.push_back(RG_SPEAK_HYLIAN);
+                skills.push_back(RG_SPEAK_KOKIRI);
+                skills.push_back(RG_SPEAK_ZORA);
+            }
+            size_t si = 0;
+            for (auto& c : checks) {
+                if (si >= skills.size())
+                    break;
+                if (c.value("advancement", true))
+                    continue; // only overwrite a junk slot
+                const std::string& sn = Rando::StaticData::RetrieveItem(skills[si]).GetName().GetEnglish();
+                if (sn.empty()) {
+                    ++si;
+                    continue;
+                }
+                c["vanillaItem"] = sn;
+                c["advancement"] = true;
+                ++si;
+            }
+            if (si < skills.size()) {
+                SPDLOG_WARN("[ComboShip] SOH_DumpRandoStaticData: injected only {}/{} skill items (too few junk slots)",
+                            si, skills.size());
+            }
+        }
+#endif
         usedPool = true;
     } catch (const std::exception& e) {
         SPDLOG_WARN("[ComboShip] SOH_DumpRandoStaticData: RegionTable_Init/GenerateLocationPool threw ({}); "

@@ -208,7 +208,12 @@ void SetupGuiElements() {
         "gWindows.Timesplits.Settings", "Time Splits Settings Window", ImVec2(567, 97));
     gui->AddGuiWindow(mTimesplitsSettingsWindow);
 
-    mNotificationWindow = std::make_shared<Notification::Window>("gWindows.Notifications", "Notifications Window");
+    // ComboShip: suffix the registered name so MM's notification window does not collide with OOT's
+    // identically-named "Notifications Window" in the shared Gui (AddGuiWindow rejects duplicates,
+    // which would drop MM's window). comboui gates which one draws per active game. Standalone =
+    // empty suffix (unchanged). See combo/gui/ComboTrackerVisibility.cpp + docs/UPSTREAM_MERGES.md.
+    mNotificationWindow = std::make_shared<Notification::Window>("gWindows.Notifications",
+                                                                 "Notifications Window" COMBO_MM_TRACKER_SUFFIX);
     gui->AddGuiWindow(mNotificationWindow);
     mNotificationWindow->Show();
 

@@ -37,7 +37,9 @@ extern PlayState* gPlayState;
 #include <libultraship/libultraship.h>
 
 #ifdef COMBO_BUILD
-#include "rando/CrossMailbox.h" // ComboShip
+#include "rando/CrossForeign.h" // ComboShip: GameId
+// ComboShip (issue #3): immediate cross-game delivery seam (defined in OTRGlobals.cpp).
+extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName);
 #endif
 
 #define CMD_REGISTER Ship::Context::GetRawInstance()->GetConsole()->AddCommand
@@ -1515,7 +1517,8 @@ static bool AvailableChecksRecalculateHandler(std::shared_ptr<Ship::Console> Con
 }
 
 #ifdef COMBO_BUILD
-// ComboShip: `cross_send <itemName>` — queue a fake MM-bound item for the current slot (debug).
+// ComboShip: `cross_send <MM RI_* itemName>` — deliver an MM-bound item into MM's resident save NOW
+// (debug; issue #3). Replaces the old mailbox enqueue.
 static bool CrossSendHandler(std::shared_ptr<Ship::Console> Console, const std::vector<std::string>& args,
                              std::string* output) {
     if (gSaveContext.fileNum == 0xFF) {
@@ -1523,15 +1526,12 @@ static bool CrossSendHandler(std::shared_ptr<Ship::Console> Console, const std::
         return 1;
     }
     std::string itemName = (args.size() > 1) ? args[1] : "DEBUG_ITEM";
-    // displayName == itemName for debug; real pickup code will supply a proper string.
-    ComboRando::MailboxEntry e{
-        ComboRando::GAME_OOT, ComboRando::GAME_MM, itemName, itemName, "DEBUG_OOT_CONSOLE", false
-    };
-    if (!ComboRando::Enqueue(gSaveContext.fileNum, e)) {
-        ERROR_MESSAGE("[ComboShip] cross_send: failed to write mailbox (slot %d).", gSaveContext.fileNum);
+    if (!gComboCrossDeliver) {
+        ERROR_MESSAGE("[ComboShip] cross_send: delivery seam not registered.");
         return 1;
     }
-    INFO_MESSAGE("[ComboShip] Queued '%s' for MM (slot %d).", itemName.c_str(), gSaveContext.fileNum);
+    gComboCrossDeliver(ComboRando::GAME_MM, itemName.c_str());
+    INFO_MESSAGE("[ComboShip] Delivered '%s' to MM (slot %d).", itemName.c_str(), gSaveContext.fileNum);
     return 0;
 }
 #endif

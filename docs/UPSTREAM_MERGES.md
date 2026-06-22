@@ -839,3 +839,129 @@ front (auto-scan + Browse), requires both, and extracts each with a progress bar
 Verified: fast path (archives present) boots straight to title unchanged; first-run path opens the
 extraction screen (`OoT=1 MM=1`). The old `SOH_Extract`/`MM_Extract` exports remain for non-combo use
 but the launcher no longer calls them.
+
+## Cross-game Check/Item tracker windows (collision fix + active-game gating) (2026-06-21)
+
+**Why:** Both soh and mm register tracker windows named identically — `"Check Tracker"`,
+`"Check Tracker Settings"`, `"Item Tracker"`, `"Item Tracker Settings"`. There is ONE shared
+libultraship `Gui` across both DLLs, and `Gui::AddGuiWindow` keys by display name and **rejects
+duplicates**. OOT boots first, so all four of MM's tracker windows were silently dropped and could
+never show. Separately, the shared Gui draws *every* registered window each frame, so the
+backgrounded game's tracker `DrawElement` would run against that DLL's stale per-module ImGui
+context. The user wants the popout trackers to follow the active game (OOT↔MM).
+
+**Vendored (additive, `COMBO_BUILD`-guarded, minimal):**
+- `mm/2s2h/BenGui/BenGui.cpp` — MM's 4 tracker windows are registered with a `COMBO_MM_TRACKER_SUFFIX`
+  (`"##MM"`) appended to their names. ImGui renders only the text before `##`, so the visible title
+  stays `"Check Tracker"`/`"Item Tracker"`, but the Gui map key (and ImGui ID) is unique → both games
+  coexist. Non-combo builds get an empty suffix (unchanged).
+- `mm/2s2h/Rando/Menu.cpp` — the two "Popout Settings" buttons resolve their window **by name**
+  (`BenGui/Menu.cpp` → `GetGuiWindow(windowName)`), so their `WindowName(...)` carries the same
+  `COMBO_MM_TRACKER_SUFFIX`.
+- `soh/.../randomizer_item_tracker.cpp`, `soh/.../randomizer_check_tracker.cpp`,
+  `mm/.../ItemTracker/ItemTracker.cpp`, `mm/2s2h/Rando/CheckTracker/CheckTracker.cpp` — each tracker's
+  `Draw()` calls `ComboMenuContext::UseSharedImGuiContext()` (from `combo/menu/ComboMenuSharedContext.h`)
+  before any ImGui call, the same pattern already used by `SOH_DrawSettings`. This is the leading fix
+  for OOT trackers not appearing even foreground; if a build shows they still don't, the next step is
+  per-stage logging (registration → visibility → draw-reached → context).
+
+**Combo-owned:**
+- `combo/gui/ComboTrackerVisibility.cpp` (in comboui) — `ComboUI_OnForegroundGame(int game)` hides the
+  background game's 4 tracker windows (remembering each one's intent) and restores the foreground
+  game's; `ComboUI_RestoreTrackerIntent()` puts both games' intent back before shutdown config save so
+  a backgrounded-at-exit game doesn't persist its tracker as "off". Uses CVar + `GuiWindow::Show/Hide`
+  (no ImGui calls → no context concern in comboui).
+- `combo/ComboShip.cpp` — resolves the two exports and calls `ComboUI_OnForegroundGame` after the eager
+  MM boot (OOT foreground) and at each portal transition (next to `ComboAnchor::SetActiveGame`);
+  `ComboUI_RestoreTrackerIntent` runs at the start of teardown.
+
+The active-game gating is also what keeps the two games' identically-titled inner `ImGui::Begin("Item
+Tracker")` / `ImGui::Begin("Check Tracker")` calls from ever running in the same frame.
+
+## Cross-world Link's Pocket placement (2026-06-21)
+
+Link's Pocket is a rando-only OOT check with no vanilla item, so it's absent from the cross-world
+dump and the combined fill never placed it — leaving it unset, which crashed save creation
+(`Item_Give(0xFF)` assert) and ignored `RSK_LINKS_POCKET`.
+
+- `soh/.../OTRGlobals.cpp`: new `SOH_GetForcedPlacements` picks Link's Pocket's item per
+  `RSK_LINKS_POCKET` (+ `RSK_LINKS_POCKET_REWARD`).
+- `soh/.../savefile.cpp`: `StartingItemGive` skips an unresolved (ITEM_NONE/MOD_NONE) item instead of
+  asserting — safety net for any residual unplaced save-creation check.
+- `combo/rando/CrossWorldRando.h` + `ComboShip.cpp`: the fill reserves forced items out of the pool,
+  treats them as owned-from-start for logic, and appends them to the OOT placements.
+
+## Cross-game items: immediate dual-context delivery (replaces the JSON mailbox) — issue #3 (2026-06-19)
+
+**Why:** the cross-world randomizer delivered a foreign item (an item whose home is the *other*
+game) via a JSON "mailbox" (`combo/rando/CrossMailbox.h` + `saves/combo/slot{N}.mailbox.json`) that
+the target game drained **per-frame, only while that game was active**. So an item never landed
+until you switched into the target game, on a disk stash + poll. Under eager-MM-boot both games'
+`gSaveContext` are always resident (one active, one dormant), so we now grant the item into the
+**dormant target game's resident save immediately** at detection — no stash, no poll — and persist
+it then and there (survives quitting before ever switching games). The same "deliver item X to
+game G" mechanism also serves networked co-op: a collected foreign item is broadcast and routed to
+each teammate's correct game regardless of which game they're currently in.
+
+**Footprint:** net vendored complexity went **down** — the JSON mailbox and both per-frame drain
+handlers (`Rando_CrossMailboxDrain`, `RandomizerOnPlayerUpdateForCrossMailboxHandler`) and all their
+hook registration/zeroing plumbing were deleted. `CrossMailbox.h` is gone; its `GameId` enum moved
+into `combo/rando/CrossForeign.h` (which stays — still maps each check → foreign item + target game
+at detection). The routing **policy** lives in the combo layer; only the irreducible
+grant-into-own-save shims live in the DLLs.
+
+**Key insight (de-risks the dormant grant):** save-only grant primitives already exist on both
+sides and never touch `gPlayState`, so a frozen dormant play state is safe — MM
+`GiveItemForOracle` (the fill oracle's headless grant, `BenPort.cpp`) and OOT `Randomizer_Item_Give`
+(`randomizer.cpp`, save-direct; `Magic_Fill` ignores `play`, `Rupees_ChangeBy` null-guards
+`gPlayState`). We deliberately do **not** use `Rando::GiveItem`/`GiveItemEntryWithoutActor` (their
+`Item_Give` paths stage onto a live play state).
+
+**`soh/soh/OTRGlobals.cpp` (vendored, COMBO_BUILD-guarded):** four new exports —
+`SOH_GrantCrossItem` (resolve OOT English name → `Randomizer_Item_Give` → `SaveManager::SaveFile`),
+`SOH_MarkForeignObtained` (mark a foreign OOT check collected, save-only, for network idempotency),
+and the setters `SOH_SetCrossDeliver` / `SOH_SetMarkForeignObtained` storing the launcher routing
+callbacks `gComboCrossDeliver` / `gComboMarkForeignObtained`. `declspec` follows `extern "C"`.
+
+**`mm/2s2h/BenPort.cpp` (vendored, COMBO_BUILD-guarded):** the MM analogs — `MM_GrantCrossItem`
+(resolve RI_* via the existing `Combo_MM_SpoilerNameToItemId` map → `GiveItemForOracle` →
+`SaveManager_SaveCurrentForCombo`), `MM_MarkForeignObtained` (set `RANDO_SAVE_CHECKS[].obtained`
+via the existing `Combo_MM_CheckNameToCheckId` map), and the `MM_SetCrossDeliver` /
+`MM_SetMarkForeignObtained` setters with their `gMMCombo*` globals.
+
+**Detection rewire (vendored, both COMBO_BUILD-guarded, net reduction):**
+`soh/.../randomizer/hook_handlers.cpp` `OOT_SendForeignCheck` and
+`mm/2s2h/Rando/MiscBehavior/CheckQueue.cpp` `Rando_SendForeignCheck` now call the cross-deliver seam
++ the Anchor broadcast instead of `ComboRando::Enqueue`. Drains + `InitCrossMailboxDrain` and its
+registrations in `Rando.cpp` / `MiscBehavior.{cpp,h}` were removed.
+
+**Networked path (combo-owned + minimal vendored):** a ComboShip-private `COMBO_CROSS_ITEM` packet
+(the public hm64 server relays unknown types peer-to-peer — no server change). MM side lives in the
+combo-owned `MMAnchor.{h,cpp}` (`SendPacket_CrossItem`/`HandlePacket_CrossItem` + dispatch +
+`MMAnchor_BroadcastCrossItem`). **OOT side** (`soh/soh/Network/Anchor/Anchor.cpp`, vendored,
+COMBO_BUILD-guarded) is kept minimal: cross-item send/receive are *free functions* over Anchor's
+public members, so the only edit to the vendored `Anchor` class is **one** dispatch branch — no new
+member methods. Both receive handlers guard own-clientId echo + team, then route through
+`gComboCrossDeliver` (grant into target) and `gComboMarkForeignObtained` (mark source check, so the
+receiver won't physically collect it later and double-deliver). The grant exports bypass the
+check-collect path, so applying a received item never re-broadcasts.
+
+**`combo/ComboShip.cpp` / `combo/rando/CrossForeign.h` / `CrossWorldRando.h`:** the
+`DeliverCrossItem` + `MarkForeignObtained` dispatchers (route `targetGame`/`srcGame` 0=OOT/1=MM to
+the right DLL), registered into both DLLs before `SOH_Init`. `CrossForeign.h` gained the `GameId`
+enum; `CrossWorldRando.h` now includes it directly. Debug tools (`debugconsole.cpp` `cross_send`,
+`SaveEditor.cpp` cross-send button) were repointed to the deliver seam.
+
+**Known limitation (accepted, co-op race):** if both teammates physically collect their own copy of
+the same foreign check before the sync arrives, the target item can be granted twice (counted items
+double) — the same class of race the same-game item sync (2c) already tolerates.
+
+**On future merges:** if upstream restructures the Anchor receive dispatch, re-apply the single
+`COMBO_CROSS_ITEM` branch; the handlers themselves are COMBO_BUILD free functions that don't depend
+on Anchor internals beyond its public members.
+
+**Save-slot note (added on cherry-pick to `fix/randomizer-improvements`):** the foreign map is
+written once per seed to canonical slot 0 but looked up at runtime by `gSaveContext.fileNum`;
+`LoadForeignForGame` falls back to slot 0 when the per-slot file is absent so saves in File 2/3
+still resolve foreign items (names + models). The immediate-delivery grant targets the resident
+save by `fileNum` directly, so it is unaffected.

@@ -31,7 +31,6 @@
 #define SDL_MAIN_HANDLED
 #include <SDL2/SDL_net.h>
 
-#include "rando/CrossMailbox.h"
 #include "rando/CrossForeign.h"
 #include "rando/CrossWorldRando.h"
 #include "gui/ComboGenProgress.h"
@@ -195,6 +194,11 @@ typedef const char* (*FnDumpData)(void);
 static FnDumpData SOH_DumpRandoStaticData = nullptr;
 static FnDumpData MM_DumpRandoStaticData = nullptr;
 
+// ComboShip: OOT forced placements (Link's Pocket etc.) the static dump can't carry — see
+// SOH_GetForcedPlacements. Seed-parameterized so the pick is deterministic per generated seed.
+typedef const char* (*FnGetForced)(uint32_t);
+static FnGetForced SOH_GetForcedPlacements = nullptr;
+
 // ComboShip: eager MM boot at startup (replaces the headless MM_InitRandoLogic warm-up).
 static FnVoidArgless MM_BootForCombo = nullptr;
 static FnVoidArgless SOH_ResumeForeground = nullptr;
@@ -203,6 +207,11 @@ static FnVoidArgless MM_Deinit = nullptr;
 typedef void (*FnComboUIRegister)(void);
 static DllHandle comboUIModule = nullptr;
 static FnComboUIRegister ComboUI_Register = nullptr;
+
+// ComboShip: tracker visibility follows the active game (see combo/gui/ComboTrackerVisibility.cpp).
+typedef void (*FnComboUIForeground)(int);
+static FnComboUIForeground ComboUI_OnForegroundGame = nullptr;
+static FnComboUIRegister ComboUI_RestoreTrackerIntent = nullptr;
 
 // ComboShip-owned unified ROM extraction (see ComboExtract.h). The split init lets us create the
 // shared window from soh.o2r before any ROM exists, run the extraction screen, then finish.
@@ -297,6 +306,21 @@ static FnSetAnchorSend MM_SetAnchorSend = nullptr;
 static FnAnchorRecv MM_Anchor_RecvJson = nullptr;
 static FnVoidArgless MM_Anchor_Activate = nullptr;
 static FnVoidArgless MM_Anchor_Deactivate = nullptr;
+
+// Cross-game item delivery seam (issue #3). Each game's foreign-check detection (and the Anchor
+// receive path) routes an item to the OTHER game through one launcher-owned dispatcher, which calls
+// the target DLL's save-only grant export. The same dispatcher serves the single-player and
+// networked paths. targetGame/srcGame use the GameId convention 0 = OOT, 1 = MM (== sActiveGame).
+typedef void (*FnSetCrossRoute)(void (*)(int, const char*));
+typedef void (*FnGrantCrossItem)(const char*);
+static FnSetCrossRoute SOH_SetCrossDeliver = nullptr;
+static FnSetCrossRoute MM_SetCrossDeliver = nullptr;
+static FnGrantCrossItem SOH_GrantCrossItem = nullptr;
+static FnGrantCrossItem MM_GrantCrossItem = nullptr;
+static FnSetCrossRoute SOH_SetMarkForeignObtained = nullptr;
+static FnSetCrossRoute MM_SetMarkForeignObtained = nullptr;
+static FnGrantCrossItem SOH_MarkForeignObtained = nullptr;
+static FnGrantCrossItem MM_MarkForeignObtained = nullptr;
 
 namespace ComboAnchor {
 static std::thread sThread;
@@ -464,6 +488,33 @@ static void SetActiveGame(int game /* 0 = OOT, 1 = MM */) {
 }
 } // namespace ComboAnchor
 
+// Cross-game delivery dispatcher (issue #3). Registered into BOTH game DLLs; invoked by the
+// collector game's foreign-check detection (local) and by the active game's Anchor receive handler
+// (network). Grants the item into the TARGET game's resident save via its save-only export — the
+// target is normally the dormant game, which isn't ticking, so its save struct isn't being mutated
+// underneath us. The grant export persists the target save immediately.
+static void DeliverCrossItem(int targetGame, const char* itemName) {
+    if (targetGame == 1) {
+        if (MM_GrantCrossItem)
+            MM_GrantCrossItem(itemName);
+    } else {
+        if (SOH_GrantCrossItem)
+            SOH_GrantCrossItem(itemName);
+    }
+}
+
+// Network-receive idempotency: mark the SOURCE check obtained in the source game so this client
+// won't later physically collect the same check and double-deliver. Save-only; persists.
+static void MarkForeignObtained(int srcGame, const char* checkName) {
+    if (srcGame == 1) {
+        if (MM_MarkForeignObtained)
+            MM_MarkForeignObtained(checkName);
+    } else {
+        if (SOH_MarkForeignObtained)
+            SOH_MarkForeignObtained(checkName);
+    }
+}
+
 // Seed utilities — Ship_Hash/Ship_Random are not exported from libultraship, so implement inline.
 // FNV-1a 32-bit hash: deterministic string-to-uint32 used to derive the master seed.
 static uint32_t ComboHash(const char* str) {
@@ -543,8 +594,14 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
                                            Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
 
-        auto result =
-            ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle, "", progress);
+        // ComboShip: OOT forced placements (Link's Pocket) the static dump can't carry. The fill
+        // reserves these out of the cross pool and commits them so the check isn't left unplaced.
+        std::string forcedOot;
+        if (SOH_GetForcedPlacements)
+            forcedOot = SOH_GetForcedPlacements(masterSeed);
+
+        auto result = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle, "", progress,
+                                                         forcedOot);
 
         if (result.success) {
             spoiler = result.spoilerJson;
@@ -968,16 +1025,6 @@ int main(int argc, char** argv) {
 
     std::set_terminate(ComboTerminateHandler);
 
-    // ComboShip: surface any mailbox left from a previous session (debug aid; harmless if absent).
-    {
-        // Slot 0 only for now; expand when multi-slot save is wired.
-        auto leftover = ComboRando::LoadAll(0);
-        if (!leftover.empty()) {
-            std::cout << "[ComboShip] mailbox slot0 has " << leftover.size() << " entr"
-                      << (leftover.size() == 1 ? "y" : "ies") << " on startup\n";
-        }
-    }
-
     // --- 1. Load DLLs ---
 
 #ifdef _WIN32
@@ -1038,6 +1085,7 @@ int main(int argc, char** argv) {
     MM_InitRandoSaveFile = (FnMMInitRandoSave)GetSym(mmModule, "MM_InitRandoSaveFile");
     SOH_SetOnComboGenerateCallback = (FnSetGenerateCb)GetSym(sohModule, "SOH_SetOnComboGenerateCallback");
     SOH_ApplyRandoPlacements = (FnApplyPlacements)GetSym(sohModule, "SOH_ApplyRandoPlacements");
+    SOH_GetForcedPlacements = (FnGetForced)GetSym(sohModule, "SOH_GetForcedPlacements");
     SOH_SetComboRandoSeed = (FnSetComboRandoSeed)GetSym(sohModule, "SOH_SetComboRandoSeed");
     SOH_SetOnComboGenerateRequestCallback = (FnSetGenReqCb)GetSym(sohModule, "SOH_SetOnComboGenerateRequestCallback");
     SOH_SetSeedGenerated = (FnSetSeedGenerated)GetSym(sohModule, "SOH_SetSeedGenerated");
@@ -1066,6 +1114,16 @@ int main(int argc, char** argv) {
     MM_Anchor_RecvJson = (FnAnchorRecv)GetSym(mmModule, "MM_Anchor_RecvJson");
     MM_Anchor_Activate = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_Activate");
     MM_Anchor_Deactivate = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_Deactivate");
+
+    // Cross-game item delivery seam (issue #3)
+    SOH_SetCrossDeliver = (FnSetCrossRoute)GetSym(sohModule, "SOH_SetCrossDeliver");
+    MM_SetCrossDeliver = (FnSetCrossRoute)GetSym(mmModule, "MM_SetCrossDeliver");
+    SOH_GrantCrossItem = (FnGrantCrossItem)GetSym(sohModule, "SOH_GrantCrossItem");
+    MM_GrantCrossItem = (FnGrantCrossItem)GetSym(mmModule, "MM_GrantCrossItem");
+    SOH_SetMarkForeignObtained = (FnSetCrossRoute)GetSym(sohModule, "SOH_SetMarkForeignObtained");
+    MM_SetMarkForeignObtained = (FnSetCrossRoute)GetSym(mmModule, "MM_SetMarkForeignObtained");
+    SOH_MarkForeignObtained = (FnGrantCrossItem)GetSym(sohModule, "SOH_MarkForeignObtained");
+    MM_MarkForeignObtained = (FnGrantCrossItem)GetSym(mmModule, "MM_MarkForeignObtained");
 
     // Oracle exports
     Combo_SOH_Rando_Reset = (FnOracleVoid)GetSym(sohModule, "Combo_SOH_Rando_Reset");
@@ -1174,6 +1232,20 @@ int main(int argc, char** argv) {
         std::cout << "[ComboShip] MM Anchor transport seam registered." << std::endl;
     }
 
+    // Register the cross-game delivery dispatcher into both DLLs (issue #3). Done before SOH_Init so
+    // a resumed save that immediately drains a queued foreign item has the route available.
+    if (SOH_SetCrossDeliver)
+        SOH_SetCrossDeliver(DeliverCrossItem);
+    if (MM_SetCrossDeliver)
+        MM_SetCrossDeliver(DeliverCrossItem);
+    if (SOH_SetMarkForeignObtained)
+        SOH_SetMarkForeignObtained(MarkForeignObtained);
+    if (MM_SetMarkForeignObtained)
+        MM_SetMarkForeignObtained(MarkForeignObtained);
+    if (SOH_SetCrossDeliver || MM_SetCrossDeliver) {
+        std::cout << "[ComboShip] Cross-game item delivery seam registered." << std::endl;
+    }
+
     // --- 4. Initialize OOT game ---
 
     std::cout << "[ComboShip] Initializing Ship of Harkinian (OOT)..." << std::endl;
@@ -1202,6 +1274,8 @@ int main(int argc, char** argv) {
     }
     if (comboUIModule) {
         ComboUI_Register = (FnComboUIRegister)GetSym(comboUIModule, "ComboUI_Register");
+        ComboUI_OnForegroundGame = (FnComboUIForeground)GetSym(comboUIModule, "ComboUI_OnForegroundGame");
+        ComboUI_RestoreTrackerIntent = (FnComboUIRegister)GetSym(comboUIModule, "ComboUI_RestoreTrackerIntent");
         if (ComboUI_Register) {
             ComboUI_Register();
             std::cout << "[ComboShip] comboui registered (unified menu installed)." << std::endl;
@@ -1230,9 +1304,14 @@ int main(int argc, char** argv) {
         std::cerr << "[ComboShip] Eager MM boot: required exports missing — oracle will be unavailable" << std::endl;
     }
 
-    // ComboShip: dump OOT/MM static rando data (headless, safe AFTER SOH_Init) to
-    // saves/combo/{oot,mm}_dump.json so the check set is verifiable and an empty MM dump (eager-boot
-    // regression) is caught at startup. Pure diagnostic — generation re-dumps independently. Debug only.
+    // ComboShip: OOT owns the foreground at startup — hide MM's (now-registered) tracker windows so
+    // only OOT's Check/Item trackers can show. See combo/gui/ComboTrackerVisibility.cpp.
+    if (ComboUI_OnForegroundGame)
+        ComboUI_OnForegroundGame(0);
+
+        // ComboShip: dump OOT/MM static rando data (headless, safe AFTER SOH_Init) to
+        // saves/combo/{oot,mm}_dump.json so the check set is verifiable and an empty MM dump (eager-boot
+        // regression) is caught at startup. Pure diagnostic — generation re-dumps independently. Debug only.
 #ifndef NDEBUG
     {
         std::error_code ec;
@@ -1358,6 +1437,8 @@ int main(int argc, char** argv) {
                 if (MM_SetOnComboReturnCallback)
                     MM_SetOnComboReturnCallback(Combo_OnMMReturn);
                 ComboAnchor::SetActiveGame(1); // route Anchor to MM, activate MM's adapter
+                if (ComboUI_OnForegroundGame)  // hide OOT trackers, show MM's
+                    ComboUI_OnForegroundGame(1);
                 current = GAME_MM;
             } else {
                 break;
@@ -1379,6 +1460,8 @@ int main(int argc, char** argv) {
                 if (SOH_NotifyComboReturn)
                     SOH_NotifyComboReturn();
                 ComboAnchor::SetActiveGame(0); // route Anchor back to OOT, deactivate MM's adapter
+                if (ComboUI_OnForegroundGame)  // hide MM trackers, restore OOT's
+                    ComboUI_OnForegroundGame(0);
                 current = GAME_OOT;
             } else {
                 break;
@@ -1399,6 +1482,12 @@ int main(int argc, char** argv) {
     // while soh.dll is still mapped and before SOH_Deinit tears Anchor down.
     std::cerr << "[ComboShip] shutdown: Anchor disconnect" << std::endl;
     ComboAnchor::Shutdown();
+
+    // ComboShip: the active-game gating zeroes the backgrounded game's tracker CVars. Restore both
+    // games' remembered intent now, before SOH_Deinit's ~Context saves config — otherwise a game
+    // that was backgrounded at exit would persist its tracker as "off". (comboui is still mapped.)
+    if (ComboUI_RestoreTrackerIntent)
+        ComboUI_RestoreTrackerIntent();
 
     if (MM_Deinit && mmBooted) {
         std::cerr << "[ComboShip] shutdown: MM_Deinit" << std::endl;

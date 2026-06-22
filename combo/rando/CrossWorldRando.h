@@ -19,6 +19,7 @@
 #include <functional>
 #include <nlohmann/json.hpp>
 #include "gui/ComboGenProgress.h"
+#include "CrossForeign.h" // for ComboRando::GameId
 
 namespace ComboRando {
 
@@ -55,7 +56,7 @@ struct OracleFns {
 
 // ---------- Data types ----------
 
-// Reuses GameId from CrossMailbox.h (GAME_OOT = 0, GAME_MM = 1)
+// Reuses GameId from CrossForeign.h (GAME_OOT = 0, GAME_MM = 1)
 using Game = GameId;
 
 struct CwItem {
@@ -85,10 +86,13 @@ struct CombinedFillResult {
 // portalCheckName: the OOT check/region name that gates access to MM (e.g. "Mido's House").
 // If empty, MM is reachable from start.
 // progress: optional thread-safe progress struct polled by the UI. May be nullptr.
+// forcedOotJson: OOT checks the dump can't carry (e.g. Link's Pocket). Each forced item is reserved
+// out of the cross pool, owned-from-start for logic, and appended to the OOT placements.
 inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson, const std::string& mmDumpJson,
                                                  uint32_t masterSeed, const OracleFns& ootOracle,
                                                  const OracleFns& mmOracle, const std::string& portalCheckName = "",
-                                                 ComboRando::ComboGenProgress* progress = nullptr) {
+                                                 ComboRando::ComboGenProgress* progress = nullptr,
+                                                 const std::string& forcedOotJson = "") {
     CombinedFillResult result;
     result.success = false;
 
@@ -120,6 +124,81 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     } catch (const std::exception& e) {
         result.error = std::string("Pool parse error: ") + e.what();
         return result;
+    }
+
+    // Forced OOT placements (e.g. Link's Pocket): reserve each item out of the cross pool and treat
+    // it as owned-from-start (auto-granted at save creation). Appended to placements after the fill.
+    std::vector<CwPlacement> forcedPlacements;
+    std::vector<std::string> ootForcedOwned, mmForcedOwned;
+    {
+        auto removeOneItem = [](std::vector<CwItem>& v, Game g, const std::string& name) -> bool {
+            for (size_t i = 0; i < v.size(); ++i) {
+                if (v[i].game == g && v[i].name == name) {
+                    v[i] = v.back();
+                    v.pop_back();
+                    return true;
+                }
+            }
+            return false;
+        };
+        CwRng frng(masterSeed ^ 0xF0F0F0F0u);
+        try {
+            if (!forcedOotJson.empty()) {
+                auto fj = nlohmann::json::parse(forcedOotJson);
+                for (auto& [checkName, spec] : fj.items()) {
+                    std::string itemName;
+                    bool adv = true;
+                    if (spec.contains("item")) {
+                        itemName = spec.value("item", std::string{});
+                        if (removeOneItem(advItems, GAME_OOT, itemName)) {
+                            adv = true;
+                        } else if (removeOneItem(junkItems, GAME_OOT, itemName)) {
+                            adv = false;
+                        } // else: not in pool — place anyway (it's owned at start regardless)
+                    } else {
+                        // "category": pick a random OOT item from the (settings-scoped) cross pool.
+                        std::string cat = spec.value("category", std::string("any"));
+                        std::vector<size_t> idx;
+                        std::vector<CwItem>* src = nullptr;
+                        for (size_t i = 0; i < advItems.size(); ++i)
+                            if (advItems[i].game == GAME_OOT)
+                                idx.push_back(i);
+                        if (!idx.empty()) {
+                            src = &advItems;
+                            adv = true;
+                        } else if (cat == "any") {
+                            for (size_t i = 0; i < junkItems.size(); ++i)
+                                if (junkItems[i].game == GAME_OOT)
+                                    idx.push_back(i);
+                            if (!idx.empty()) {
+                                src = &junkItems;
+                                adv = false;
+                            }
+                        }
+                        if (src) {
+                            size_t pick = idx[frng.below(static_cast<uint32_t>(idx.size()))];
+                            itemName = (*src)[pick].name;
+                            (*src)[pick] = src->back();
+                            src->pop_back();
+                        }
+                    }
+                    if (itemName.empty())
+                        continue;
+                    forcedPlacements.push_back({ { GAME_OOT, checkName }, { GAME_OOT, itemName, adv } });
+                    ootForcedOwned.push_back(itemName);
+                    // The forced check (Link's Pocket) is an EXTRA location with no vanilla item of
+                    // its own, so reserving an item for it would leave the dump's checks one item
+                    // short (an empty check). Add one OOT junk filler to keep items==checks balanced.
+                    for (size_t qi = 0; qi < junkItems.size(); ++qi) {
+                        if (junkItems[qi].game == GAME_OOT) {
+                            CwItem filler = junkItems[qi]; // copy before push_back (may reallocate)
+                            junkItems.push_back(filler);
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (...) {}
     }
 
     CwRng rng(masterSeed);
@@ -167,6 +246,9 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     auto reachableFixpoint = [&](const std::vector<std::string>& ootBase, const std::vector<std::string>& mmBase)
         -> std::pair<std::unordered_set<std::string>, std::unordered_set<std::string>> {
         std::vector<std::string> ootOwned = ootBase, mmOwned = mmBase;
+        // Forced placements (Link's Pocket etc.) are granted at save creation → owned from the start.
+        ootOwned.insert(ootOwned.end(), ootForcedOwned.begin(), ootForcedOwned.end());
+        mmOwned.insert(mmOwned.end(), mmForcedOwned.begin(), mmForcedOwned.end());
         std::vector<bool> credited(placements.size(), false);
         std::unordered_set<std::string> ootReachable, mmReachable;
         for (;;) {
@@ -347,6 +429,14 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         result.error = "assumed fill failed after " + std::to_string(kMaxPasses) +
                        " passes (dead ends or unreachable checks; see log)";
         return result;
+    }
+
+    // Append the reserved forced placements (Link's Pocket etc.) so they flow into the spoiler and
+    // get committed to the oracle alongside the assumed-fill results.
+    if (!forcedPlacements.empty()) {
+        placements.insert(placements.end(), forcedPlacements.begin(), forcedPlacements.end());
+        std::cout << "[ComboShip] CrossWorldCombinedFill: " << forcedPlacements.size()
+                  << " forced placement(s) applied (e.g. Link's Pocket)\n";
     }
 
     if (progress) {

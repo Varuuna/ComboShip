@@ -36,6 +36,20 @@
 #include "DeveloperTools/DLViewer.h"
 #include "DeveloperTools/MessageViewer.h"
 
+// ComboShip: in the combo build, OOT (soh) registers identically-named tracker windows FIRST into
+// the single shared libultraship Gui. Gui::AddGuiWindow keys by display name and rejects duplicates,
+// so MM's "Check Tracker"/"Item Tracker"(+Settings) would be silently dropped and never drawn.
+// Suffix MM's window keys with "##MM": ImGui shows only the text before "##", so the visible title
+// stays "Check Tracker", but the map key (and ImGui window ID) is unique and both games coexist.
+// The popout WindowName() references in 2s2h/Rando/Menu.cpp use the same suffix. The active-game
+// gating in combo/gui/ComboTrackerVisibility.cpp ensures the two games' trackers never draw at once.
+// See docs/UPSTREAM_MERGES.md.
+#ifdef COMBO_BUILD
+#define COMBO_MM_TRACKER_SUFFIX "##MM"
+#else
+#define COMBO_MM_TRACKER_SUFFIX ""
+#endif
+
 namespace BenGui {
 // MARK: - Delegates
 
@@ -176,11 +190,12 @@ void SetupGuiElements() {
     mModMenuWindow = std::make_shared<ModMenuWindow>("gWindows.ModMenu", "Mod Menu", ImVec2(820, 630));
     gui->AddGuiWindow(mModMenuWindow);
 
-    mItemTrackerWindow = std::make_shared<ItemTrackerWindow>("gWindows.ItemTracker", "Item Tracker");
+    mItemTrackerWindow =
+        std::make_shared<ItemTrackerWindow>("gWindows.ItemTracker", "Item Tracker" COMBO_MM_TRACKER_SUFFIX);
     gui->AddGuiWindow(mItemTrackerWindow);
 
-    mItemTrackerSettingsWindow = std::make_shared<ItemTrackerSettingsWindow>("gWindows.ItemTrackerSettings",
-                                                                             "Item Tracker Settings", ImVec2(800, 400));
+    mItemTrackerSettingsWindow = std::make_shared<ItemTrackerSettingsWindow>(
+        "gWindows.ItemTrackerSettings", "Item Tracker Settings" COMBO_MM_TRACKER_SUFFIX, ImVec2(800, 400));
     gui->AddGuiWindow(mItemTrackerSettingsWindow);
 
     mDisplayOverlayWindow = std::make_shared<DisplayOverlayWindow>("gWindows.DisplayOverlay", "Display Overlay");
@@ -198,11 +213,11 @@ void SetupGuiElements() {
     mNotificationWindow->Show();
 
     mRandoCheckTrackerWindow = std::make_shared<Rando::CheckTracker::CheckTrackerWindow>(
-        "gWindows.CheckTracker", "Check Tracker", ImVec2(375, 460));
+        "gWindows.CheckTracker", "Check Tracker" COMBO_MM_TRACKER_SUFFIX, ImVec2(375, 460));
     gui->AddGuiWindow(mRandoCheckTrackerWindow);
 
     mRandoCheckTrackerSettingsWindow = std::make_shared<Rando::CheckTracker::SettingsWindow>(
-        "gWindows.CheckTrackerSettings", "Check Tracker Settings");
+        "gWindows.CheckTrackerSettings", "Check Tracker Settings" COMBO_MM_TRACKER_SUFFIX);
     gui->AddGuiWindow(mRandoCheckTrackerSettingsWindow);
 
     mInputViewer = std::make_shared<InputViewer>("gWindows.InputViewer", "Input Viewer");

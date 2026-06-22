@@ -37,6 +37,7 @@ typedef struct {
 } FlagTable;
 
 extern std::vector<ItemId> safeItemsForInventorySlot[SLOT_MASK_FIERCE_DEITY + 1];
+void initSafeItemsForInventorySlot(); // idempotent; primes safeItemsForInventorySlot
 
 // Reference https://tcrf.net/Proto:The_Legend_of_Zelda:_Majora's_Mask/Debug_Version/Event_Editor
 // The source was last referenced on 2025-08-05 and had a last updated value of 2024-06-29

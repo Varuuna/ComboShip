@@ -3,7 +3,8 @@
 // One JSON file per canonical OOT slot records which checks (in each game) hold an item that
 // belongs to the OTHER game. At pickup, the check's own game places a sentinel item; the
 // pickup code consults this map to learn the real foreign item + its destination game, then
-// diverts it through the CrossMailbox instead of granting locally.
+// delivers it immediately into that game's resident save (see issue #3; the old JSON CrossMailbox
+// stash + per-frame drain was replaced by immediate cross-DLL grant).
 //
 // Schema (saves/combo/slot{N}.foreign.json):
 //   { "oot": { "<checkName>": {"itemGame":"mm","itemName":"RI_DEKU_MASK","displayName":"Deku Mask"} },
@@ -17,11 +18,13 @@
 #include <unordered_map>
 #include <filesystem>
 #include <fstream>
+#include <cstdint>
 #include <nlohmann/json.hpp>
 
-#include "CrossMailbox.h" // for ComboRando::GameId
-
 namespace ComboRando {
+
+// Game identity used across the cross-world rando layer (soh.dll, 2ship.dll, ComboShip.exe).
+enum GameId : uint8_t { GAME_OOT = 0, GAME_MM = 1 };
 
 // Sentinel item names written into each game's own placement table for a foreign check.
 // They differ because the two games use different item-name namespaces (see header note).
@@ -97,6 +100,13 @@ inline bool WriteForeignFromAnnotations(int canonicalSlot, const nlohmann::json&
 inline std::unordered_map<std::string, ForeignItem> LoadForeignForGame(int canonicalSlot, GameId checkGame) {
     std::unordered_map<std::string, ForeignItem> map;
     std::ifstream in(ForeignPath(canonicalSlot));
+    // ComboShip: the foreign map is generated once per seed into canonical slot 0, but the runtime
+    // looks it up by the save's fileNum. A seed played in any OOT/MM file slot shares that one map,
+    // so fall back to slot 0 when the per-slot file is absent (e.g. a save in File 2/3). Prefers a
+    // per-slot file if one ever exists. Without this, non-slot-0 saves see no foreign items at all
+    // (sentinel name + placeholder model in shops/trackers).
+    if (!in.is_open() && canonicalSlot != 0)
+        in.open(ForeignPath(0));
     if (!in.is_open())
         return map;
     try {

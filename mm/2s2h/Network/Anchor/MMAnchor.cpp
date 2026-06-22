@@ -35,11 +35,19 @@ static const std::string PKT_DAMAGE_PLAYER = "DAMAGE_PLAYER";
 static const std::string PKT_GIVE_ITEM = "GIVE_ITEM";
 static const std::string PKT_UPDATE_TEAM_STATE = "UPDATE_TEAM_STATE";
 static const std::string PKT_REQUEST_TEAM_STATE = "REQUEST_TEAM_STATE";
+// Issue #3: cross-game item delivery. ComboShip-private packet type (the public server relays unknown
+// types peer-to-peer, so no server change is needed).
+static const std::string PKT_CROSS_ITEM = "COMBO_CROSS_ITEM";
 
 // Launcher-registered outbound transport (set via MM_SetAnchorSend). Null until the exe wires it.
 extern "C" {
 void (*gMMComboAnchorSend)(const char* json) = nullptr;
 }
+
+// Issue #3: cross-game delivery seams, defined in BenPort.cpp and registered by the launcher. Route
+// a received cross-game item into the TARGET game's save, and mark the SOURCE check obtained.
+extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName);
+extern "C" void (*gMMComboMarkForeignObtained)(int srcGame, const char* checkName);
 
 MMAnchor* MMAnchor::Instance = nullptr;
 
@@ -186,6 +194,8 @@ void MMAnchor::ProcessIncomingPacketQueue() {
                 HandlePacket_DamagePlayer(payload);
             } else if (type == PKT_GIVE_ITEM) {
                 HandlePacket_GiveItem(payload);
+            } else if (type == PKT_CROSS_ITEM) {
+                HandlePacket_CrossItem(payload);
             } else if (type == PKT_UPDATE_TEAM_STATE) {
                 HandlePacket_UpdateTeamState(payload);
             } else if (type == PKT_REQUEST_TEAM_STATE) {
@@ -480,6 +490,61 @@ void MMAnchor::HandlePacket_GiveItem(const nlohmann::json& payload) {
 extern "C" void MMAnchor_BroadcastCheckItem(int randoCheckId, int randoItemId) {
     if (MMAnchor::Instance && MMAnchor::Instance->isActive && !MMAnchor::Instance->applyingRemoteItem) {
         MMAnchor::Instance->SendPacket_GiveItem((int16_t)randoItemId, randoCheckId);
+    }
+}
+
+// MARK: - Cross-game item delivery (issue #3)
+
+void MMAnchor::SendPacket_CrossItem(int targetGame, const char* itemName, const char* srcCheckName) {
+    if (!isActive || !roomState.syncItemsAndFlags || !itemName || !srcCheckName) {
+        return;
+    }
+    nlohmann::json payload;
+    payload["type"] = PKT_CROSS_ITEM;
+    payload["targetTeamId"] = CVarGetString(kCvarTeamId, "default");
+    payload["targetGame"] = targetGame; // 0 = OOT, 1 = MM (item's home game)
+    payload["srcGame"] = 1;             // collected in MM
+    payload["itemName"] = itemName;     // neutral CrossForeign name, in the target game's namespace
+    payload["srcCheckName"] = srcCheckName;
+    SendJson(payload);
+}
+
+void MMAnchor::HandlePacket_CrossItem(const nlohmann::json& payload) {
+    if (!roomState.syncItemsAndFlags) {
+        return;
+    }
+    uint32_t clientId = payload.value("clientId", (uint32_t)0);
+    if (clientId == ownClientId) {
+        return; // never re-apply our own broadcast
+    }
+    // Shared progression is per-team; ignore items for other teams.
+    if (payload.value("targetTeamId", std::string("default")) != CVarGetString(kCvarTeamId, "default")) {
+        return;
+    }
+    int targetGame = payload.value("targetGame", 0);
+    int srcGame = payload.value("srcGame", 0);
+    std::string itemName = payload.value("itemName", std::string());
+    std::string srcCheckName = payload.value("srcCheckName", std::string());
+    if (itemName.empty()) {
+        return;
+    }
+    // Grant into the TARGET game's save (routes through the launcher to whichever DLL owns it; the
+    // grant export bypasses the check-collect path, so this won't re-broadcast).
+    if (gMMComboCrossDeliver) {
+        gMMComboCrossDeliver(targetGame, itemName.c_str());
+    }
+    // Mark the source check obtained so we won't physically collect it later and double-deliver.
+    if (gMMComboMarkForeignObtained && !srcCheckName.empty()) {
+        gMMComboMarkForeignObtained(srcGame, srcCheckName.c_str());
+    }
+}
+
+// Called from the rando foreign-check seam (CheckQueue.cpp) under COMBO_BUILD when the LOCAL player
+// collects a check whose item belongs to the OTHER game. Shares it with teammates; no-op when Anchor
+// is inactive.
+extern "C" void MMAnchor_BroadcastCrossItem(int targetGame, const char* itemName, const char* srcCheckName) {
+    if (MMAnchor::Instance && MMAnchor::Instance->isActive) {
+        MMAnchor::Instance->SendPacket_CrossItem(targetGame, itemName, srcCheckName);
     }
 }
 

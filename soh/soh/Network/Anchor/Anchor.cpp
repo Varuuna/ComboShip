@@ -12,6 +12,67 @@ extern "C" {
 extern PlayState* gPlayState;
 }
 
+#ifdef COMBO_BUILD
+// Issue #3: cross-game item delivery over Anchor. ComboShip-private packet type; the public hm64
+// server relays unknown types peer-to-peer, so no server change is needed. Implemented as free
+// functions (using only Anchor's public members) to keep the vendored Anchor footprint minimal —
+// the only edit to the class's dispatch is one branch in ProcessIncomingPacketQueue. The launcher
+// seams (defined in OTRGlobals.cpp) route a delivered item into the TARGET game and mark the SOURCE
+// check obtained. See docs/UPSTREAM_MERGES.md.
+static const std::string COMBO_CROSS_ITEM = "COMBO_CROSS_ITEM";
+extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName);
+extern "C" void (*gComboMarkForeignObtained)(int srcGame, const char* checkName);
+
+// Broadcast a locally-collected foreign item to teammates (called from hook_handlers.cpp). No-op
+// when Anchor is disconnected or item sync is off.
+extern "C" void Anchor_BroadcastCrossItem(int targetGame, const char* itemName, const char* srcCheckName) {
+    if (!Anchor::Instance || !Anchor::Instance->isConnected || !itemName || !srcCheckName) {
+        return;
+    }
+    if (!Anchor::Instance->roomState.syncItemsAndFlags) {
+        return;
+    }
+    nlohmann::json payload;
+    payload["type"] = COMBO_CROSS_ITEM;
+    payload["targetTeamId"] = CVarGetString(CVAR_REMOTE_ANCHOR("TeamId"), "default");
+    payload["targetGame"] = targetGame; // 0 = OOT, 1 = MM (item's home game)
+    payload["srcGame"] = 0;             // collected in OOT
+    payload["itemName"] = itemName;     // neutral CrossForeign name, in the target game's namespace
+    payload["srcCheckName"] = srcCheckName;
+    Anchor::Instance->SendJsonToRemote(payload);
+}
+
+// Apply a cross-game item received from a teammate. Routes through the launcher (DeliverCrossItem),
+// which grants into the target game's resident save; the grant export bypasses the check-collect
+// path, so this never re-broadcasts.
+static void Anchor_HandleCrossItemPacket(const nlohmann::json& payload) {
+    if (!Anchor::Instance || !Anchor::Instance->roomState.syncItemsAndFlags) {
+        return;
+    }
+    uint32_t clientId = payload.value("clientId", (uint32_t)0);
+    if (clientId == Anchor::Instance->ownClientId) {
+        return; // never re-apply our own broadcast
+    }
+    if (payload.value("targetTeamId", std::string("default")) !=
+        CVarGetString(CVAR_REMOTE_ANCHOR("TeamId"), "default")) {
+        return; // shared progression is per-team
+    }
+    int targetGame = payload.value("targetGame", 0);
+    int srcGame = payload.value("srcGame", 0);
+    std::string itemName = payload.value("itemName", std::string());
+    std::string srcCheckName = payload.value("srcCheckName", std::string());
+    if (itemName.empty()) {
+        return;
+    }
+    if (gComboCrossDeliver) {
+        gComboCrossDeliver(targetGame, itemName.c_str());
+    }
+    if (gComboMarkForeignObtained && !srcCheckName.empty()) {
+        gComboMarkForeignObtained(srcGame, srcCheckName.c_str());
+    }
+}
+#endif
+
 // MARK: - Overrides
 
 void Anchor::Enable() {
@@ -148,6 +209,10 @@ void Anchor::ProcessIncomingPacketQueue() {
                 HandlePacket_GameComplete(payload);
             else if (packetType == GIVE_ITEM)
                 HandlePacket_GiveItem(payload);
+#ifdef COMBO_BUILD
+            else if (packetType == COMBO_CROSS_ITEM)
+                Anchor_HandleCrossItemPacket(payload);
+#endif
             else if (packetType == OCARINA_SFX)
                 HandlePacket_OcarinaSfx(payload);
             else if (packetType == PLAYER_UPDATE)

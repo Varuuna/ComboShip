@@ -2629,6 +2629,87 @@ extern "C" __declspec(dllexport) void SOH_Anchor_OnDisconnected(void) {
         Anchor::Instance->SetConnectedFromCombo(false);
     }
 }
+
+// ComboShip: cross-game item delivery seam (issue #3). When the other game collects a check whose
+// item belongs to OOT, the launcher calls SOH_GrantCrossItem to grant it straight into OOT's
+// resident save — even when OOT is the dormant (frozen) game. We use Randomizer_Item_Give, which
+// writes gSaveContext directly and is play-state-independent (Magic_Fill ignores `play`,
+// Rupees_ChangeBy null-guards gPlayState), so it is safe against a frozen gPlayState. The save is
+// persisted immediately so the item survives quitting before ever switching into OOT. See
+// docs/UPSTREAM_MERGES.md.
+extern "C" __declspec(dllexport) void SOH_GrantCrossItem(const char* itemName) {
+    if (!itemName)
+        return;
+    auto it = Rando::StaticData::itemNameToEnum.find(itemName);
+    if (it == Rando::StaticData::itemNameToEnum.end()) {
+        SPDLOG_WARN("[ComboShip] SOH_GrantCrossItem: unknown OOT item '{}'", itemName);
+        return;
+    }
+    GetItemEntry gie = Rando::StaticData::RetrieveItem(it->second).GetGIEntry_Copy();
+    // ComboShip: a resolved OOT item can be a vanilla (MOD_NONE) entry, which Randomizer_Item_Give
+    // asserts against. Dispatch by mod index exactly like Anchor's HandlePacket_GiveItem.
+    if (gie.modIndex == MOD_NONE) {
+        if (gie.getItemId == GI_SWORD_BGS) {
+            gSaveContext.bgsFlag = true;
+        }
+        Item_Give(gPlayState, static_cast<u8>(gie.itemId));
+    } else if (gie.modIndex == MOD_RANDOMIZER) {
+        if (gie.getItemId == RG_ICE_TRAP) {
+            gSaveContext.ship.pendingIceTrapCount++; // defer; don't spring on a dormant/foreign grant
+        } else {
+            Randomizer_Item_Give(gPlayState, gie); // save-direct
+        }
+    }
+    // Full heal on heart container/piece, and roll over a 4th heart piece (mirrors Anchor handler).
+    if (gie.gid == GID_HEART_CONTAINER || gie.gid == GID_HEART_PIECE) {
+        gSaveContext.healthAccumulator = 0x140;
+    }
+    s32 heartPieces = (s32)(gSaveContext.inventory.questItems & 0xF0000000) >> (QUEST_HEART_PIECE + 4);
+    if (heartPieces >= 4) {
+        gSaveContext.inventory.questItems &= ~0xF0000000;
+        gSaveContext.inventory.questItems += (heartPieces % 4) << (QUEST_HEART_PIECE + 4);
+        gSaveContext.healthCapacity += 0x10 * (heartPieces / 4);
+        gSaveContext.health += 0x10 * (heartPieces / 4);
+    }
+    if (SaveManager::Instance && gSaveContext.fileNum != 0xFF) {
+        SaveManager::Instance->SaveFile(gSaveContext.fileNum); // persist NOW
+    }
+    SPDLOG_INFO("[ComboShip] SOH_GrantCrossItem: granted '{}' into OOT save", itemName);
+}
+
+// ComboShip: mark a foreign OOT check obtained without re-delivering — used on the NETWORK receive
+// path so a client that gets a teammate's broadcast won't later physically collect the same check
+// and double-deliver. Save-only (no grant), persisted immediately.
+extern "C" __declspec(dllexport) void SOH_MarkForeignObtained(const char* checkName) {
+    if (!checkName)
+        return;
+    auto it = Rando::StaticData::locationNameToEnum.find(checkName);
+    if (it == Rando::StaticData::locationNameToEnum.end()) {
+        SPDLOG_WARN("[ComboShip] SOH_MarkForeignObtained: unknown OOT check '{}'", checkName);
+        return;
+    }
+    auto loc = OTRGlobals::Instance->gRandoContext->GetItemLocation(it->second);
+    loc->SetCheckStatus(RCSHOW_COLLECTED);
+    CheckTracker::SpoilAreaFromCheck(it->second);
+    CheckTracker::RecalculateAllAreaTotals();
+    CheckTracker::RecalculateAvailableChecks();
+    if (SaveManager::Instance && gSaveContext.fileNum != 0xFF) {
+        SaveManager::Instance->SaveSection(gSaveContext.fileNum, SECTION_ID_TRACKER_DATA, true);
+    }
+    SPDLOG_INFO("[ComboShip] SOH_MarkForeignObtained: marked OOT check '{}' collected", checkName);
+}
+
+// ComboShip: routing seam — the launcher registers DeliverCrossItem here so OOT's foreign-check
+// detection can hand an item to the OTHER game immediately (mirrors SOH_SetAnchorSend).
+extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName) = nullptr;
+extern "C" __declspec(dllexport) void SOH_SetCrossDeliver(void (*cb)(int, const char*)) {
+    gComboCrossDeliver = cb;
+}
+// ComboShip: routing seam for the network-receive idempotency mark (see SOH_MarkForeignObtained).
+extern "C" void (*gComboMarkForeignObtained)(int srcGame, const char* checkName) = nullptr;
+extern "C" __declspec(dllexport) void SOH_SetMarkForeignObtained(void (*cb)(int, const char*)) {
+    gComboMarkForeignObtained = cb;
+}
 #endif
 
 #ifdef COMBO_BUILD
@@ -3299,6 +3380,52 @@ extern "C" __declspec(dllexport) void Combo_SOH_Rando_PlaceItem(const char* chec
     if (rgIt == Rando::StaticData::itemNameToEnum.end())
         return;
     ctx->PlaceItemInLocation(rcIt->second, rgIt->second, false, false);
+}
+
+// ComboShip: Link's Pocket is a rando-only check absent from the cross-world dump, so the combined
+// fill never assigns it. Decide its item per RSK_LINKS_POCKET here so the launcher can reserve it
+// from the cross pool. Returns { "Link's Pocket": {"item":"<name>"} } (dungeon-reward) or
+// {"category":"advancement"|"any"} (combo picks); {} for NOTHING. See docs/UPSTREAM_MERGES.md.
+extern "C" __declspec(dllexport) const char* SOH_GetForcedPlacements(uint32_t seed) {
+    static std::string buf;
+    nlohmann::json out = nlohmann::json::object();
+    try {
+        auto ctx = OTRGlobals::Instance->gRandoContext;
+        Rando::Settings::GetInstance()->SetAllToContext(); // ensure chosen CVar settings are live
+        auto lp = ctx->GetOption(RSK_LINKS_POCKET);
+        if (lp.Is(RO_LINKS_POCKET_DUNGEON_REWARD)) {
+            std::vector<RandomizerGet> rewards;
+            auto addRange = [&](int lo, int hi) {
+                for (int r = lo; r <= hi; ++r)
+                    rewards.push_back(static_cast<RandomizerGet>(r));
+            };
+            auto sub = ctx->GetOption(RSK_LINKS_POCKET_REWARD);
+            if (sub.Is(RO_LINKS_POCKET_ANY_STONE)) {
+                addRange(RG_KOKIRI_EMERALD, RG_ZORA_SAPPHIRE);
+            } else if (sub.Is(RO_LINKS_POCKET_LIGHT_MEDALLION)) {
+                rewards.push_back(RG_LIGHT_MEDALLION);
+            } else if (sub.Is(RO_LINKS_POCKET_ANY_MEDALLION)) {
+                addRange(RG_FOREST_MEDALLION, RG_LIGHT_MEDALLION);
+            } else { // RO_LINKS_POCKET_ANY_REWARD (default)
+                addRange(RG_KOKIRI_EMERALD, RG_ZORA_SAPPHIRE);
+                addRange(RG_FOREST_MEDALLION, RG_LIGHT_MEDALLION);
+            }
+            if (!rewards.empty()) {
+                uint64_t s = (seed ? seed : 0x9E3779B97F4A7C15ULL) * 6364136223846793005ULL + 1442695040888963407ULL;
+                RandomizerGet pick = rewards[static_cast<size_t>(s >> 33) % rewards.size()];
+                out["Link's Pocket"]["item"] = Rando::StaticData::RetrieveItem(pick).GetName().GetEnglish();
+            }
+        } else if (lp.Is(RO_LINKS_POCKET_ADVANCEMENT)) {
+            out["Link's Pocket"]["category"] = "advancement";
+        } else if (lp.Is(RO_LINKS_POCKET_ANYTHING)) {
+            out["Link's Pocket"]["category"] = "any";
+        }
+        // RO_LINKS_POCKET_NOTHING: nothing to force.
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[ComboShip] SOH_GetForcedPlacements: {}", e.what());
+    } catch (...) {}
+    buf = out.dump();
+    return buf.c_str();
 }
 
 bool SoH_HandleConfigDrop(char* filePath) {

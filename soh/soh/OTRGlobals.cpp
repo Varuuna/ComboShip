@@ -3349,21 +3349,68 @@ extern "C" __declspec(dllexport) void SOH_SetOnComboGenerateCallback(void (*cb)(
     gComboGenerateCallback = cb;
 }
 
-// ComboShip: window-driven generate request — the UI calls SOH_TriggerComboGenerate with a seed
-// string and a progress struct; soh.dll forwards to the combo handler, which runs the fill on a
-// worker thread. The save-time gComboGenerateCallback is retained as a symbol but no longer
-// invoked (generation is now fully window-driven).
+// ComboShip: window-driven generate request — the UI (comboui Generate button or the native
+// file-select "Generate a new seed" option) calls SOH_TriggerComboGenerate; soh.dll forwards to the
+// launcher handler, which runs the fill on a WORKER THREAD so the main loop keeps rendering + playing
+// music + showing progress. The launcher owns the single ComboGenProgress and shares a read-only
+// pointer here via SOH_SetComboProgressPtr; the main-thread apply is driven via SOH_PollComboFinalize.
 #include "gui/ComboGenProgress.h"
-extern "C" void (*gComboGenerateRequestCallback)(const char*, ComboRando::ComboGenProgress*) = nullptr;
+extern "C" void (*gComboGenerateRequestCallback)(const char*) = nullptr;
+static const ComboRando::ComboGenProgress* gComboProgressPtr = nullptr;
+static int (*gComboFinalizeCallback)() = nullptr;
 
-extern "C" __declspec(dllexport) void SOH_SetOnComboGenerateRequestCallback(void (*cb)(const char*,
-                                                                                       ComboRando::ComboGenProgress*)) {
+extern "C" __declspec(dllexport) void SOH_SetOnComboGenerateRequestCallback(void (*cb)(const char*)) {
     gComboGenerateRequestCallback = cb;
 }
 
-extern "C" __declspec(dllexport) void SOH_TriggerComboGenerate(const char* seed, ComboRando::ComboGenProgress* p) {
-    if (gComboGenerateRequestCallback)
-        gComboGenerateRequestCallback(seed, p);
+extern "C" __declspec(dllexport) void SOH_SetComboProgressPtr(const ComboRando::ComboGenProgress* p) {
+    gComboProgressPtr = p;
+}
+
+extern "C" __declspec(dllexport) const ComboRando::ComboGenProgress* SOH_GetComboGenProgress(void) {
+    return gComboProgressPtr;
+}
+
+// C-friendly progress percent (0-100) for the native file-select screen (which is C and can't read
+// the C++ atomics directly).
+extern "C" __declspec(dllexport) int SOH_GetComboGenPercent(void) {
+    if (!gComboProgressPtr)
+        return 0;
+    int total = gComboProgressPtr->total.load();
+    int placed = gComboProgressPtr->placed.load();
+    return total > 0 ? static_cast<int>((100LL * placed) / total) : 0;
+}
+
+extern "C" __declspec(dllexport) void SOH_SetOnComboFinalizeCallback(int (*cb)()) {
+    gComboFinalizeCallback = cb;
+}
+
+// Called every frame on the main thread from the file-select loop. Runs the launcher's pending
+// main-thread apply; returns nonzero once generation is fully resolved (finalized or failed).
+extern "C" __declspec(dllexport) int SOH_PollComboFinalize(void) {
+    return gComboFinalizeCallback ? gComboFinalizeCallback() : 1;
+}
+
+// Trigger combo generation. Gated on RandoGenerating so a second press during generation is a no-op;
+// reads the seed from the shared CVar (written by the comboui seed field). Sets RandoGenerating=1 so
+// the file-select loop swaps to gallop music + shows progress; the finalize poll clears it.
+extern "C" __declspec(dllexport) void SOH_TriggerComboGenerate(void) {
+    if (CVarGetInteger(CVAR_GENERAL("RandoGenerating"), 0) != 0)
+        return; // already generating
+    if (!gComboGenerateRequestCallback)
+        return;
+    const char* seed = CVarGetString(CVAR_GENERAL("ComboSeed"), "");
+    CVarSetInteger(CVAR_GENERAL("RandoGenerating"), 1);
+    gComboGenerateRequestCallback(seed);
+}
+
+// ComboShip: true when the active OOT gamestate is the file-select screen. The combo Generate action
+// is gated to this so the worker can't race a live game tick (the prior off-thread crash class).
+// GameState::init is cleared after init runs, so match on ::main (set to FileChoose_Main for the
+// state's lifetime by FileChoose_Init).
+extern "C" void FileChoose_Main(GameState* thisx);
+extern "C" __declspec(dllexport) uint8_t SOH_IsOnFileSelect(void) {
+    return (gPlayState == NULL && gGameState != NULL && gGameState->main == (GameStateFunc)FileChoose_Main) ? 1 : 0;
 }
 
 extern "C" __declspec(dllexport) void SOH_SetSeedGenerated(uint8_t g) {

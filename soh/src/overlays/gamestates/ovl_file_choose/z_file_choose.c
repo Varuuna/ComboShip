@@ -382,6 +382,13 @@ void FileChoose_UpdateRandomizer() {
         generating = 0;
         return;
     } else if (generating) {
+#ifdef COMBO_BUILD
+        // ComboShip: drive the main-thread apply each frame while the worker runs. When it reports the
+        // generation fully resolved, clear RandoGenerating so the branch above fires the fanfare/error.
+        if (SOH_PollComboFinalize()) {
+            CVarSetInteger(CVAR_GENERAL("RandoGenerating"), 0);
+        }
+#endif
         return;
     }
 
@@ -826,11 +833,24 @@ void FileChoose_UpdateRandomizerMenu(GameState* thisx) {
                 Sfx_PlaySfxCentered(NA_SE_SY_OCARINA_ERROR);
             }
         } else if (this->randomizerIndex == RSM_GENERATE_RANDOMIZER) {
+#ifdef COMBO_BUILD
+            // ComboShip: run the cross-world combo generator (worker thread) instead of OOT's. Sets
+            // RandoGenerating so the loop below swaps to gallop music + shows progress; the finalize
+            // poll applies the result on the main thread.
+            SOH_TriggerComboGenerate();
+#else
             Randomizer_GenerateRandomizer();
+#endif
         } else if (this->randomizerIndex == RSM_OPEN_RANDOMIZER_SETTINGS) {
             Audio_PlaySoundGeneral(NA_SE_SY_FSEL_DECIDE_L, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
                                    &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+#ifdef COMBO_BUILD
+            // ComboShip: open the shared comboui settings menu (combo settings live there, not in
+            // OOT's stock rando ImGui menu).
+            CVarSetInteger("gOpenWindows.Menu", 1);
+#else
             Randomizer_ShowRandomizerMenu();
+#endif
         }
     }
 }
@@ -1849,6 +1869,15 @@ void FileChoose_DrawWindowContents(GameState* thisx) {
         if (generating) {
             Interface_DrawTextLine(this->state.gfxCtx, SohFileSelect_GetSettingText(RSM_GENERATING, language), 70,
                                    (80 + 64), 255, 255, 255, textAlpha, 0.8f, true);
+#ifdef COMBO_BUILD
+            // ComboShip: live combo-generation progress (worker thread keeps the main loop running).
+            {
+                char comboPct[16];
+                snprintf(comboPct, sizeof(comboPct), "%d%%", SOH_GetComboGenPercent());
+                Interface_DrawTextLine(this->state.gfxCtx, comboPct, 70, (80 + 80), 255, 255, 255, textAlpha, 0.8f,
+                                       true);
+            }
+#endif
         }
 
         // If no randomizer is generated and "start randomizer" is selected, show text to explain why user can't start

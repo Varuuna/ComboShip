@@ -1060,3 +1060,34 @@ byte-intact via the `#else`).
 **On future merges:** if upstream changes the quest enum or the carousel wrap logic, re-check that
 the locked `MIN_QUEST == MAX_QUEST == QUEST_RANDOMIZER` still resolves to Randomizer on every L/R
 path (incl. the Master-Quest-absent skip loop).
+
+## Non-blocking combo generation: worker thread + file-select driven (2026-06-27)
+
+**Why:** combo generation ran synchronously on the render thread, freezing the game (no music, no
+progress) for its whole duration. Stock SoH stays responsive by running the fill on a worker thread
+while the main loop keeps running (it polls `RandoGenerating` in `FileChoose_UpdateRandomizer`,
+swaps to gallop music, draws "Generating…", plays a fanfare). Combo couldn't naively copy that: its
+fill calls into the single-threaded game DLLs (dumps, oracles, and the `gSaveContext`-mutating
+apply), and a prior whole-pipeline-off-thread attempt crashed.
+
+**Design:** split the pipeline. The launcher (`combo/ComboShip.cpp`) runs dump→fill→playthrough on a
+worker thread (`g_GenerateThread`) and stashes the result; the `gSaveContext` **apply** runs on the
+main thread via `Combo_FinalizeGenerate`, polled each frame from the file-select loop. Generation is
+hard-gated to the file-select screen so the worker can't race a live game tick. The launcher owns the
+single `ComboGenProgress` and shares a read-only pointer with soh.
+
+**Vendored `soh` deviations:**
+- `OTRGlobals.cpp`/`.h`: new combo exports `SOH_TriggerComboGenerate` (now arg-less; reads the
+  `gGeneral.ComboSeed` CVar, gates on + sets `RandoGenerating`), `SOH_SetComboProgressPtr` /
+  `SOH_GetComboGenProgress` / `SOH_GetComboGenPercent`, `SOH_SetOnComboFinalizeCallback` /
+  `SOH_PollComboFinalize`, and `SOH_IsOnFileSelect` (matches `gGameState->main == FileChoose_Main`,
+  since `::init` is cleared after init). The generate-request callback type changed to
+  `void(*)(const char*)`.
+- `z_file_choose.c` (`COMBO_BUILD`-guarded): `RSM_GENERATE_RANDOMIZER` → `SOH_TriggerComboGenerate`;
+  `RSM_OPEN_RANDOMIZER_SETTINGS` → open the comboui menu (`gOpenWindows.Menu`); the
+  `FileChoose_UpdateRandomizer` "generating" branch polls `SOH_PollComboFinalize` and clears
+  `RandoGenerating` when done; a "Generating… XX%" line is drawn from `SOH_GetComboGenPercent`.
+
+**On future merges:** if upstream restructures the file-select randomizer menu (`RSM_*` actions) or
+`FileChoose_UpdateRandomizer`, re-apply the two action repoints + the finalize poll. If `GameState`'s
+`main` field or `FileChoose_Main` moves, re-check `SOH_IsOnFileSelect`.

@@ -15,15 +15,25 @@
 #endif
 
 namespace {
-// Generate trigger (soh.dll export); runs synchronously on the calling thread.
-typedef void (*FnTriggerGenerate)(const char*, ComboRando::ComboGenProgress*);
+// soh.dll exports: trigger combo generation (non-blocking; spawns the launcher worker), read the
+// shared progress, and gate generation to the file-select screen.
+typedef void (*FnTriggerGenerate)(void);
+typedef const ComboRando::ComboGenProgress* (*FnGetProgress)(void);
+typedef unsigned char (*FnIsOnFileSelect)(void);
 FnTriggerGenerate sTrigger = nullptr;
-FnTriggerGenerate ResolveTrigger() {
+FnGetProgress sGetProgress = nullptr;
+FnIsOnFileSelect sIsOnFileSelect = nullptr;
+void ResolveComboGenSyms() {
 #ifdef _WIN32
     HMODULE h = GetModuleHandleA("soh.dll");
-    return h ? (FnTriggerGenerate)GetProcAddress(h, "SOH_TriggerComboGenerate") : nullptr;
-#else
-    return nullptr;
+    if (!h)
+        return;
+    if (!sTrigger)
+        sTrigger = (FnTriggerGenerate)GetProcAddress(h, "SOH_TriggerComboGenerate");
+    if (!sGetProgress)
+        sGetProgress = (FnGetProgress)GetProcAddress(h, "SOH_GetComboGenProgress");
+    if (!sIsOnFileSelect)
+        sIsOnFileSelect = (FnIsOnFileSelect)GetProcAddress(h, "SOH_IsOnFileSelect");
 #endif
 }
 } // namespace
@@ -380,63 +390,73 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
     ImGui::EndChild();
 }
 void ComboMenu::DrawComboPanel() {
+    ResolveComboGenSyms();
     ImGui::TextWrapped("Generate a cross-world randomizer seed spanning OOT and MM. "
                        "You must Generate before starting a new file.");
     ImGui::Separator();
+
+    // Seed field -> shared CVar the generator reads (same source the native file-select
+    // "Generate a new seed" option uses).
     ImGui::SetNextItemWidth(260.0f);
-    ImGui::InputTextWithHint("Seed", "(blank = random)", mSeedBuf, sizeof(mSeedBuf));
+    if (ImGui::InputTextWithHint("Seed", "(blank = random)", mSeedBuf, sizeof(mSeedBuf))) {
+        CVarSetString("gGeneral.ComboSeed", mSeedBuf);
+    }
     ImGui::SameLine();
 
-    const bool busy = mProgress.running.load();
-    if (busy)
+    const ComboRando::ComboGenProgress* p = sGetProgress ? sGetProgress() : nullptr;
+    const bool running = p && p->running.load();
+    // Generation may only run at the OOT file-select screen, so the worker can't race a live game
+    // tick (the prior off-thread crash class).
+    const bool onFileSelect = sIsOnFileSelect && sIsOnFileSelect();
+    const bool canGenerate = sTrigger && onFileSelect && !running;
+
+    if (!canGenerate)
         ImGui::BeginDisabled();
     if (ImGui::Button("Generate")) {
-        if (!sTrigger)
-            sTrigger = ResolveTrigger();
-        if (sTrigger) {
-            // Arm the one-frame defer: show "Generating…" this frame so the user sees
-            // feedback before the synchronous (blocking) fill runs next frame.
-            mProgress.Reset();
-            mProgress.done.store(false);
-            mProgress.running.store(true);
-            mStatusLine.clear();
-            mGeneratePending = true;
-        } else {
-            mStatusLine = "Generate unavailable (SOH_TriggerComboGenerate not found).";
-        }
+        CVarSetString("gGeneral.ComboSeed", mSeedBuf);
+        sTrigger(); // non-blocking: launcher spawns the worker; the main loop keeps running
     }
-    if (busy)
+    if (!canGenerate)
         ImGui::EndDisabled();
 
-    // One-frame defer: if a generate was requested last frame, fire it now (blocks until done).
-    if (mGeneratePending) {
-        mGeneratePending = false;
-        sTrigger(mSeedBuf, &mProgress); // synchronous — blocks this frame; sets done on return
+    if (!sTrigger) {
+        ImGui::TextUnformatted("Generate unavailable (soh.dll export not found).");
+    } else if (!onFileSelect && !running) {
+        ImGui::TextDisabled("Available on the file-select screen.");
     }
 
-    // Latch the result once the (synchronous) fill finishes. Branch on success, not just done —
-    // a done&&!success covers both real errors and a rejected duplicate, so the UI never hangs.
-    if (mProgress.done.load() && mProgress.running.load()) {
-        if (mProgress.success.load()) {
-            char buf[160];
-            snprintf(buf, sizeof(buf), "Done: seed 0x%X - %d cross-world placements", mProgress.seed.load(),
-                     mProgress.foreignCount.load());
-            mStatusLine = buf;
-        } else {
-            mStatusLine = std::string("Error: ") + mProgress.error;
+    // Live progress + result, polled from the launcher-owned progress each frame.
+    if (p) {
+        if (running) {
+            int placed = p->placed.load();
+            int total = p->total.load();
+            float frac = total > 0 ? (float)placed / (float)total : 0.0f;
+            ImGui::TextUnformatted(ComboGenProgress::PhaseLabel(p->phase.load()));
+            ImGui::ProgressBar(frac, ImVec2(360.0f, 0.0f));
+            ImGui::Text("%d / %d", placed, total);
+        } else if (p->done.load()) {
+            if (p->success.load()) {
+                // Show the reproducible seed token (the input string, not the internal masterSeed
+                // hash). Paste it into the Seed field + same settings to reproduce — shareable
+                // without sharing a save file.
+                ImGui::Text("Seed: %s", p->seedStr);
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Copy")) {
+                    ImGui::SetClipboardText(p->seedStr);
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Reuse")) {
+                    std::strncpy(mSeedBuf, p->seedStr, sizeof(mSeedBuf) - 1);
+                    mSeedBuf[sizeof(mSeedBuf) - 1] = '\0';
+                    CVarSetString("gGeneral.ComboSeed", mSeedBuf);
+                }
+                ImGui::Text("OOT checks: %d", p->ootCheckCount.load());
+                ImGui::Text("MM checks: %d", p->mmCheckCount.load());
+                ImGui::Text("Cross-game placements: %d", p->foreignCount.load());
+            } else {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Error: %s", p->error);
+            }
         }
-        mProgress.running.store(false);
-    }
-
-    if (mProgress.running.load()) {
-        int placed = mProgress.placed.load();
-        int total = mProgress.total.load();
-        float frac = total > 0 ? (float)placed / (float)total : 0.0f;
-        ImGui::TextUnformatted(ComboGenProgress::PhaseLabel(mProgress.phase.load()));
-        ImGui::ProgressBar(frac, ImVec2(360.0f, 0.0f));
-        ImGui::Text("%d / %d", placed, total);
-    } else if (!mStatusLine.empty()) {
-        ImGui::TextUnformatted(mStatusLine.c_str());
     }
 }
 

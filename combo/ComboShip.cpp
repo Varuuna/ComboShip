@@ -278,12 +278,27 @@ static FnSetComboRandoSeed SOH_SetComboRandoSeed = nullptr;
 static FnSetComboSeedHash SOH_SetComboSeedHash = nullptr;
 
 // ComboShip: window-driven generate request (threaded, progress-reporting)
-typedef void (*FnSetGenReqCb)(void (*)(const char*, ComboRando::ComboGenProgress*));
+typedef void (*FnSetGenReqCb)(void (*)(const char*));
 typedef void (*FnSetSeedGenerated)(uint8_t);
+typedef void (*FnSetComboProgressPtr)(const ComboRando::ComboGenProgress*);
+typedef void (*FnSetComboFinalizeCb)(int (*)());
 static FnSetGenReqCb SOH_SetOnComboGenerateRequestCallback = nullptr;
 static FnSetSeedGenerated SOH_SetSeedGenerated = nullptr;
+static FnSetComboProgressPtr SOH_SetComboProgressPtr = nullptr;
+static FnSetComboFinalizeCb SOH_SetOnComboFinalizeCallback = nullptr;
 
 static std::atomic<bool> g_GenerateBusy{ false };
+
+// ComboShip: non-blocking generation. The heavy fill runs on g_GenerateThread; the main thread
+// keeps rendering + playing music + showing progress, and runs the gSaveContext-mutating apply
+// itself via Combo_PollFinalize (see the file-select poll). g_ComboProgress is the single source
+// of truth, shared read-only with soh.dll via SOH_SetComboProgressPtr.
+static std::thread g_GenerateThread;
+static ComboRando::ComboGenProgress g_ComboProgress;
+static std::atomic<bool> g_ComboPendingFinalize{ false }; // worker succeeded, main-thread apply not yet run
+// Main-thread finalize inputs stashed by the worker (consumed by Combo_FinalizeGenerate).
+static std::string g_FinalizeOotApply;
+static uint32_t g_FinalizeDisplaySeed = 0;
 
 // ---------- ComboShip-owned Anchor connection (Phase 1) ----------
 // The persistent TCP socket + receive thread live HERE, in the launcher, so the online connection
@@ -558,6 +573,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             progress->SetError(msg);
             progress->success.store(false);
             progress->done.store(true);
+            progress->running.store(false);
         }
         std::cerr << "[ComboShip] RunComboFill: " << msg << "\n";
         g_GenerateBusy.store(false);
@@ -681,32 +697,35 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
                 mmApply[cn] = ComboRando::kForeignSentinelNameMM;
         }
 
-        if (SOH_ApplyRandoPlacements) {
-            SOH_ApplyRandoPlacements(ootApply.dump().c_str());
-            std::cout << "[ComboShip] RunComboFill: OOT placements applied (" << foreignArr.size()
-                      << " foreign markers)\n";
-        } else if (SOH_SetSeedGenerated) {
-            SOH_SetSeedGenerated(1);
-        }
-
-        // ComboShip: the OOT file-select seed-hash icons must identify input-seed + settings. Fold the
-        // two static dumps (which reflect each game's live CVar settings) into the value so different
-        // settings yield different icons; same seed+settings -> matching icons across players. Must run
-        // AFTER SOH_ApplyRandoPlacements (which ItemResets) so the hash isn't wiped.
-        if (SOH_SetComboSeedHash) {
-            uint32_t displaySeed = ComboHash((inputSeed + sohDump + mmDump).c_str());
-            SOH_SetComboSeedHash(displaySeed);
-        }
-
+        // ComboShip: the gSaveContext-mutating apply (SOH_ApplyRandoPlacements) and the seed-hash set
+        // MUST run on the main thread — the worker only computes. Stash their inputs for
+        // Combo_FinalizeGenerate, which the main-thread file-select poll runs once it sees done.
+        // The OOT seed-hash folds in input-seed + both settings dumps so the icons identify seed and
+        // settings (same seed+settings -> matching icons across players).
+        g_FinalizeOotApply = ootApply.dump();
+        g_FinalizeDisplaySeed = ComboHash((inputSeed + sohDump + mmDump).c_str());
         g_PendingMMPlacements = mmApply.dump();
-        std::cout << "[ComboShip] RunComboFill: MM placements stashed\n";
+        std::cout << "[ComboShip] RunComboFill: placements computed; main-thread finalize pending\n";
 
         if (progress) {
             progress->seed.store(masterSeed);
+            // The reproducible token is the (resolved) input seed string, not masterSeed: paste it
+            // back into the Seed field + same settings to reproduce. For a blank input this is the
+            // concrete random string chosen above.
+            std::strncpy(progress->seedStr, inputSeed.c_str(), sizeof(progress->seedStr) - 1);
+            progress->seedStr[sizeof(progress->seedStr) - 1] = '\0';
             progress->foreignCount.store(static_cast<int>(foreignArr.size()));
+            // Per-game contributed check counts = size of each settings-scoped dump pool.
+            try {
+                progress->ootCheckCount.store(
+                    static_cast<int>(nlohmann::json::parse(sohDump).value("checks", nlohmann::json::array()).size()));
+                progress->mmCheckCount.store(
+                    static_cast<int>(nlohmann::json::parse(mmDump).value("checks", nlohmann::json::array()).size()));
+            } catch (...) {}
             progress->success.store(true);
             progress->done.store(true);
         }
+        g_ComboPendingFinalize.store(true);
     } catch (const std::exception& e) {
         fail((std::string("post-fill exception: ") + e.what()).c_str());
         return;
@@ -986,6 +1005,55 @@ static void Combo_OnGenerateRequest(const char* inputSeed, ComboRando::ComboGenP
     RunComboFill(std::string(inputSeed ? inputSeed : ""), progress);
 }
 
+// ComboShip: UI-driven (non-blocking) generate — registered as the generate-request callback and
+// invoked on the main thread from SOH_TriggerComboGenerate. Spawns the worker so the main loop keeps
+// rendering + playing music + animating progress. The previous worker is always finished by now
+// (reentry is gated on RandoGenerating in soh + g_GenerateBusy here), but join it to recycle the
+// std::thread object. The gSaveContext apply happens later on the main thread (Combo_PollFinalize).
+static void Combo_OnGenerateThreaded(const char* inputSeed) {
+    // Reject if a worker is running OR a finalize is still pending (apply not yet run on main thread).
+    if (g_ComboPendingFinalize.load() || g_GenerateBusy.exchange(true)) {
+        std::cerr << "[ComboShip] generate already in progress — ignoring duplicate request\n";
+        return;
+    }
+    if (g_GenerateThread.joinable())
+        g_GenerateThread.join(); // recycle the finished previous worker's thread object
+    g_ComboProgress.Reset();
+    g_ComboProgress.done.store(false);
+    g_ComboProgress.running.store(true);
+    std::string seed(inputSeed ? inputSeed : "");
+    // RunComboFill clears g_GenerateBusy when it finishes; the finalize gate then blocks re-trigger
+    // until the main-thread apply runs. Call RunComboFill directly (busy is already held).
+    g_GenerateThread = std::thread([seed]() { RunComboFill(seed, &g_ComboProgress); });
+}
+
+// ComboShip: main-thread finalize — the gSaveContext-mutating apply + seed-hash set. Runs from
+// Combo_PollFinalize on the main thread once the worker has stashed its result. NEVER call from the
+// worker thread (that race crashed the prior threaded attempt).
+static void Combo_FinalizeGenerate() {
+    if (SOH_ApplyRandoPlacements) {
+        SOH_ApplyRandoPlacements(g_FinalizeOotApply.c_str());
+        std::cout << "[ComboShip] Combo_FinalizeGenerate: OOT placements applied\n";
+    } else if (SOH_SetSeedGenerated) {
+        SOH_SetSeedGenerated(1);
+    }
+    if (SOH_SetComboSeedHash)
+        SOH_SetComboSeedHash(g_FinalizeDisplaySeed);
+    g_ComboProgress.running.store(false);
+}
+
+// ComboShip: poll callback the file-select loop calls each frame on the main thread. Runs the
+// pending finalize (apply) when the worker has succeeded. Returns 1 once generation is fully
+// resolved (finalized or failed) so the caller can clear RandoGenerating; 0 while still working.
+static int Combo_PollFinalize() {
+    if (g_ComboPendingFinalize.exchange(false)) {
+        Combo_FinalizeGenerate();
+        return 1;
+    }
+    // No pending finalize: resolved iff the worker is done and not still running.
+    return (g_ComboProgress.done.load() && !g_GenerateBusy.load()) ? 1 : 0;
+}
+
 static void Combo_OnOOTSaveInit(int fileNum) {
     if (MM_InitRandoSaveFile && !g_PendingMMPlacements.empty()) {
         std::cout << "[ComboShip] Creating RANDO MM save for OOT slot " << fileNum << std::endl;
@@ -1101,6 +1169,8 @@ int main(int argc, char** argv) {
     SOH_SetComboSeedHash = (FnSetComboSeedHash)GetSym(sohModule, "SOH_SetComboSeedHash");
     SOH_SetOnComboGenerateRequestCallback = (FnSetGenReqCb)GetSym(sohModule, "SOH_SetOnComboGenerateRequestCallback");
     SOH_SetSeedGenerated = (FnSetSeedGenerated)GetSym(sohModule, "SOH_SetSeedGenerated");
+    SOH_SetComboProgressPtr = (FnSetComboProgressPtr)GetSym(sohModule, "SOH_SetComboProgressPtr");
+    SOH_SetOnComboFinalizeCallback = (FnSetComboFinalizeCb)GetSym(sohModule, "SOH_SetOnComboFinalizeCallback");
     MM_BootForCombo = (FnVoidArgless)GetSym(mmModule, "MM_BootForCombo");
     MM_Deinit = (FnVoidArgless)GetSym(mmModule, "MM_Deinit");
     SOH_ResumeForeground = (FnVoidArgless)GetSym(sohModule, "SOH_ResumeForeground");
@@ -1360,9 +1430,15 @@ int main(int argc, char** argv) {
     // ComboShip: register the window-driven generate-request handler.
     // Generation is window-driven; Sram_InitSave only forces QUEST_RANDOMIZER.
     if (SOH_SetOnComboGenerateRequestCallback) {
-        SOH_SetOnComboGenerateRequestCallback(Combo_OnGenerateRequest);
-        std::cout << "[ComboShip] Combo generate-request handler registered." << std::endl;
+        SOH_SetOnComboGenerateRequestCallback(Combo_OnGenerateThreaded);
+        std::cout << "[ComboShip] Combo generate-request handler registered (threaded)." << std::endl;
     }
+    // Share the single progress struct with soh.dll (read-only) and register the main-thread
+    // finalize poll the file-select loop drives.
+    if (SOH_SetComboProgressPtr)
+        SOH_SetComboProgressPtr(&g_ComboProgress);
+    if (SOH_SetOnComboFinalizeCallback)
+        SOH_SetOnComboFinalizeCallback(Combo_PollFinalize);
 
     // ComboShip: env-gated headless generate — COMBO_AUTOGEN_SEED=<seed> runs the cross-world
     // fill once at startup (timed) so fill changes are verifiable without driving the UI.
@@ -1489,6 +1565,14 @@ int main(int argc, char** argv) {
     // under the loader lock and deadlocks.
     // std::cerr (unbuffered) progress markers: spdlog is shut down by ~Context partway through this
     // sequence, and a late crash otherwise leaves no trace of how far teardown got.
+
+    // Join the generate worker before unloading any game DLL it calls into — a still-joinable
+    // std::thread would std::terminate() at static destruction, and the worker must not run past
+    // the DLLs it touches.
+    if (g_GenerateThread.joinable()) {
+        std::cerr << "[ComboShip] shutdown: joining generate worker" << std::endl;
+        g_GenerateThread.join();
+    }
 
     // Stop the Anchor receive thread first: it calls into soh.dll exports, so it must be joined
     // while soh.dll is still mapped and before SOH_Deinit tears Anchor down.

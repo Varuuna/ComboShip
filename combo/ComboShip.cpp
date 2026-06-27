@@ -270,10 +270,12 @@ typedef void (*FnSetGenerateCb)(void (*)(int));
 typedef void (*FnApplyPlacements)(const char*);
 typedef void (*FnMMInitRandoSave)(int, const char*);
 typedef void (*FnSetComboRandoSeed)(uint64_t);
+typedef void (*FnSetComboSeedHash)(uint32_t);
 static FnSetGenerateCb SOH_SetOnComboGenerateCallback = nullptr;
 static FnApplyPlacements SOH_ApplyRandoPlacements = nullptr;
 static FnMMInitRandoSave MM_InitRandoSaveFile = nullptr;
 static FnSetComboRandoSeed SOH_SetComboRandoSeed = nullptr;
+static FnSetComboSeedHash SOH_SetComboSeedHash = nullptr;
 
 // ComboShip: window-driven generate request (threaded, progress-reporting)
 typedef void (*FnSetGenReqCb)(void (*)(const char*, ComboRando::ComboGenProgress*));
@@ -687,6 +689,15 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             SOH_SetSeedGenerated(1);
         }
 
+        // ComboShip: the OOT file-select seed-hash icons must identify input-seed + settings. Fold the
+        // two static dumps (which reflect each game's live CVar settings) into the value so different
+        // settings yield different icons; same seed+settings -> matching icons across players. Must run
+        // AFTER SOH_ApplyRandoPlacements (which ItemResets) so the hash isn't wiped.
+        if (SOH_SetComboSeedHash) {
+            uint32_t displaySeed = ComboHash((inputSeed + sohDump + mmDump).c_str());
+            SOH_SetComboSeedHash(displaySeed);
+        }
+
         g_PendingMMPlacements = mmApply.dump();
         std::cout << "[ComboShip] RunComboFill: MM placements stashed\n";
 
@@ -1087,6 +1098,7 @@ int main(int argc, char** argv) {
     SOH_ApplyRandoPlacements = (FnApplyPlacements)GetSym(sohModule, "SOH_ApplyRandoPlacements");
     SOH_GetForcedPlacements = (FnGetForced)GetSym(sohModule, "SOH_GetForcedPlacements");
     SOH_SetComboRandoSeed = (FnSetComboRandoSeed)GetSym(sohModule, "SOH_SetComboRandoSeed");
+    SOH_SetComboSeedHash = (FnSetComboSeedHash)GetSym(sohModule, "SOH_SetComboSeedHash");
     SOH_SetOnComboGenerateRequestCallback = (FnSetGenReqCb)GetSym(sohModule, "SOH_SetOnComboGenerateRequestCallback");
     SOH_SetSeedGenerated = (FnSetSeedGenerated)GetSym(sohModule, "SOH_SetSeedGenerated");
     MM_BootForCombo = (FnVoidArgless)GetSym(mmModule, "MM_BootForCombo");

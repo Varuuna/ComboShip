@@ -1018,3 +1018,45 @@ written once per seed to canonical slot 0 but looked up at runtime by `gSaveCont
 `LoadForeignForGame` falls back to slot 0 when the per-slot file is absent so saves in File 2/3
 still resolve foreign items (names + models). The immediate-delivery grant targets the resident
 save by `fileNum` directly, so it is unaffected.
+
+## File-select seed-hash icons for combo seeds (issue #32, 2026-06-23)
+
+**Why:** stock SoH draws five item icons on the file-select as a visual seed hash so players can
+match seeds/spoiler logs. The combo build showed five Deku Nuts (or an identical set every seed):
+the combo generator owns generation and never runs OOT's `Playthrough_Init`, which is where vanilla
+calls `GenerateHash()` to fill `Rando::Context::hashIconIndexes` — so the array stayed all-zero.
+Scope is OOT only: combo boots into OOT's file-select and enters MM via transition, so MM's
+file-select is never shown (MM's `finalSeed = 0` gap in `MM_InitRandoSaveFile` is a known follow-up).
+
+**Change (vendored `soh`, minimal):** new export `SOH_SetComboSeedHash(uint32_t)` in
+`OTRGlobals.cpp` (just after `SOH_ApplyRandoPlacements`) calls `ctx->SetHash(...)` + `GenerateHash()`
+— mirrors stock `playthrough.cpp:64-73`. Added `#include ".../3drando/spoiler_log.hpp"` for the
+declaration. Persistence/render are stock-wired (`SaveManager` copies into `fileMetaInfo.seedHash`;
+`z_file_choose.c` renders it).
+
+**Change (combo-owned, `ComboShip.cpp`):** `RunComboFill` computes a settings-aware display hash
+`ComboHash(inputSeed + sohDump + mmDump)` and passes it to the new export *after*
+`SOH_ApplyRandoPlacements` (which `ItemReset`s). Folding both static dumps in makes the icons
+identify seed **and** settings: each dump is built from its game's live CVars and carries only the
+settings-scoped pool, so OOT *and* MM shuffle/starting-item settings both vary the icons. Accepted
+limitation (symmetric): a logic-only setting that doesn't change the shuffled pool (e.g. tricks)
+won't change the dump, so won't change the icons.
+
+**On future merges:** if upstream restructures `GenerateHash`/`SetHash` or the file-select hash
+render, re-point the new export; the combo-side hash derivation is independent.
+
+## File-select quest menu locked to Randomizer (2026-06-27)
+
+**Why:** the combo build drives a randomizer through OOT's normal save flow; showing the Normal /
+Master Quest / Boss Rush quest options on file-select is confusing since they're never the intent.
+
+**Change (vendored `soh`, one COMBO_BUILD-guarded block):** in
+`soh/src/overlays/gamestates/ovl_file_choose/z_file_choose.c`, the `MIN_QUEST`/`MAX_QUEST` macros
+(which seed `questType` at init and bound the L/R carousel wrap) are redefined to `QUEST_RANDOMIZER`
+under `COMBO_BUILD`. The carousel therefore starts on Randomizer and every L/R wrap lands back on it,
+so the other quests are unreachable — no draw/branch code was deleted (the non-combo build is
+byte-intact via the `#else`).
+
+**On future merges:** if upstream changes the quest enum or the carousel wrap logic, re-check that
+the locked `MIN_QUEST == MAX_QUEST == QUEST_RANDOMIZER` still resolves to Randomizer on every L/R
+path (incl. the Master-Quest-absent skip loop).

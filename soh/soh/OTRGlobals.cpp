@@ -32,6 +32,7 @@
 #include "Enhancements/audio/AudioCollection.h"
 #include "Enhancements/debugconsole.h"
 #include "Enhancements/randomizer/randomizer.h"
+#include "Enhancements/randomizer/3drando/spoiler_log.hpp" // ComboShip: GenerateHash() for seed-hash icons
 #include "Enhancements/randomizer/randomizer_entrance_tracker.h"
 #include "Enhancements/randomizer/randomizer_check_tracker.h"
 #include "Enhancements/randomizer/static_data.h"
@@ -3324,6 +3325,19 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
     } catch (const std::exception& e) {
         SPDLOG_ERROR("[ComboShip] SOH_ApplyRandoPlacements: exception: {}", e.what());
     } catch (...) { SPDLOG_ERROR("[ComboShip] SOH_ApplyRandoPlacements: unknown exception"); }
+}
+
+// ComboShip: set the file-select seed-hash icons. The combo generator owns generation and never
+// runs OOT's Playthrough_Init (which normally calls GenerateHash), so hashIconIndexes would stay
+// all-zero -> five Deku Nuts. The combo orchestrator passes a settings-aware hash value here (after
+// SOH_ApplyRandoPlacements, which ItemResets). GenerateHash() fills hashIconIndexes from the string,
+// then SaveManager persists it into the save's meta on creation, exactly as stock SoH.
+extern "C" __declspec(dllexport) void SOH_SetComboSeedHash(uint32_t hashValue) {
+    auto ctx = OTRGlobals::Instance->gRandoContext;
+    if (!ctx)
+        return;
+    ctx->SetHash(std::to_string(hashValue));
+    GenerateHash();
 }
 
 // ComboShip: generate callback — fired by Sram_InitSave before save creation, giving the combo

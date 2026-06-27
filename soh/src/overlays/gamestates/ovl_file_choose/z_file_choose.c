@@ -25,8 +25,16 @@
 #include "soh/ResourceManagerHelpers.h"
 #include "soh/ShipUtils.h"
 
+#ifdef COMBO_BUILD
+// ComboShip: the combo build is randomizer-only. Lock the quest-select carousel to the Randomizer
+// option so Normal / Master Quest / Boss Rush are never shown or selectable (init seeds questType
+// from MIN_QUEST; L/R wrap between MIN_QUEST..MAX_QUEST and so stay on Randomizer).
+#define MIN_QUEST QUEST_RANDOMIZER
+#define MAX_QUEST QUEST_RANDOMIZER
+#else
 #define MIN_QUEST (ResourceMgr_GameHasOriginal() ? QUEST_NORMAL : QUEST_MASTER)
 #define MAX_QUEST QUEST_BOSSRUSH
+#endif
 
 void Sram_InitDebugSave(void);
 void Sram_InitBossRushSave();

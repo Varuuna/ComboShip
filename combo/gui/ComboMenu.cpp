@@ -121,13 +121,20 @@ struct HubEntry {
     }
 };
 
+// ComboShip: tracker sidebars (Item/Entrance/Check Tracker) belong in the per-game Ship/2Ship
+// tabs, not the Shared rando hub. Identified by name across both games (all contain "Tracker").
+static bool IsTrackerSidebar(const char* name) {
+    return name && std::strstr(name, "Tracker") != nullptr;
+}
+
 // Append one entry per sidebar of the game's section whose sectionLabel == wantSection.
 // Skips (no-op) if the game isn't loaded or the section isn't present — defensive.
 // `skip` is a deny-list of sidebar names to omit (e.g. sidebars that are OOT-specific and
-// therefore live only in the Ship of Harkinian tab, not here in Shared).
+// therefore live only in the Ship of Harkinian tab, not here in Shared). `skipTrackers` omits
+// tracker sidebars (they live in the per-game tabs).
 void AppendSectionEntries(std::vector<HubEntry>& out, const char* groupLabel, HubEntry::Kind kind,
                           const ComboRando::GameMenu& game, const char* wantSection,
-                          const std::vector<std::string>& skip = {}) {
+                          const std::vector<std::string>& skip = {}, bool skipTrackers = false) {
     if (!game.loaded || !game.menu)
         return;
     const CwMenu* m = game.menu;
@@ -139,6 +146,8 @@ void AppendSectionEntries(std::vector<HubEntry>& out, const char* groupLabel, Hu
             const CwSidebar& side = sec.sidebars[sb];
             const char* nm = (side.sidebarName && side.sidebarName[0]) ? side.sidebarName : "Section";
             if (std::find(skip.begin(), skip.end(), nm) != skip.end())
+                continue;
+            if (skipTrackers && IsTrackerSidebar(nm))
                 continue;
             HubEntry e;
             e.label = nm;
@@ -175,14 +184,16 @@ void ComboMenu::DrawSharedPanel() {
     }
     {
         std::vector<HubEntry> e;
-        AppendSectionEntries(e, "OOT Randomizer", HubEntry::OOT_RANDO, model.Oot(), "Randomizer");
+        // Trackers live in the Ship of Harkinian tab, not here.
+        AppendSectionEntries(e, "OOT Randomizer", HubEntry::OOT_RANDO, model.Oot(), "Randomizer", {}, true);
         if (!e.empty())
             groups.push_back({ "OOT Randomizer", std::move(e) });
     }
     {
         std::vector<HubEntry> e;
         // Display label "MM Randomizer"; the MM menu's own section name is still "Rando".
-        AppendSectionEntries(e, "MM Randomizer", HubEntry::MM_RANDO, model.Mm(), "Rando");
+        // Trackers live in the 2 Ship 2 Harkinian tab, not here.
+        AppendSectionEntries(e, "MM Randomizer", HubEntry::MM_RANDO, model.Mm(), "Rando", {}, true);
         if (!e.empty())
             groups.push_back({ "MM Randomizer", std::move(e) });
     }
@@ -258,10 +269,11 @@ void ComboMenu::DrawSharedPanel() {
 // with that sidebar's widgets on the right. The game DLLs no longer draw their own tabs.
 //
 // ComboShip presentation filter (combo-owned; the exported CwMenu is UNCHANGED):
-//   Both games' randomizer sections are surfaced in the Shared tab ("OOT Randomizer" / "MM Rando"),
-//   so we drop them from the per-game tabs to avoid duplication: OOT's "Randomizer" and MM's "Rando".
-//   OOT additionally trims "Settings" to its game-specific sidebars ("Mod Menu", "Presets"); the rest
-//   of Settings is shared. MM is otherwise rendered unfiltered.
+//   Both games' randomizer *settings* are surfaced in the Shared tab ("OOT Randomizer" / "MM
+//   Randomizer"). The per-game tabs keep the rando section ("Randomizer" / "Rando") but trim it to
+//   just the tracker sidebars (Item/Entrance/Check Tracker) — the rest of the rando settings stay
+//   in Shared. OOT additionally trims "Settings" to its game-specific sidebars ("Mod Menu",
+//   "Presets"); the rest of Settings is shared. MM is otherwise rendered unfiltered.
 void ComboMenu::DrawGamePanel(const char* gameKey) {
     auto& model = ComboMenuModel::Get();
     model.EnsureLoaded();
@@ -273,29 +285,25 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
     }
     const CwMenu* m = game.menu;
 
-    auto sectionDropped = [&](const char* label) -> bool {
-        if (!label)
-            return false;
-        // Each game's randomizer section lives in the Shared tab; drop it from the per-game tab.
-        return isOot ? strcmp(label, "Randomizer") == 0 : strcmp(label, "Rando") == 0;
-    };
     auto sidebarShown = [&](const char* section, const char* sidebar) -> bool {
         if (isOot && section && strcmp(section, "Settings") == 0) {
             return sidebar && (strcmp(sidebar, "Mod Menu") == 0 || strcmp(sidebar, "Presets") == 0);
         }
+        // The rando section's settings live in the Shared tab; here we surface only its trackers.
+        const char* randoSec = isOot ? "Randomizer" : "Rando";
+        if (section && strcmp(section, randoSec) == 0)
+            return IsTrackerSidebar(sidebar);
         return true;
     };
 
     // (activeHeader, activeSidebar) for this game; persists across frames.
     auto& nav = mGameNav[gameKey];
 
-    // Resolve the active section: prior pick if still present, else the first non-dropped section.
+    // Resolve the active section: prior pick if still present, else the first section.
     const CwSection* activeSec = nullptr;
     const CwSection* firstSec = nullptr;
     for (int s = 0; s < m->sectionCount; ++s) {
         const CwSection& sec = m->sections[s];
-        if (sectionDropped(sec.sectionLabel))
-            continue;
         if (!firstSec)
             firstSec = &sec;
         if (sec.sectionLabel && nav.first == sec.sectionLabel)
@@ -313,8 +321,6 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
     bool firstHdr = true;
     for (int s = 0; s < m->sectionCount; ++s) {
         const CwSection& sec = m->sections[s];
-        if (sectionDropped(sec.sectionLabel))
-            continue;
         if (!firstHdr)
             ImGui::SameLine();
         firstHdr = false;

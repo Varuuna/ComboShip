@@ -17,7 +17,7 @@ typedef struct ComboSettingsImportCallbacks {
 
 // Filled by the screen. Paths are "" when that slot was left empty.
 typedef struct ComboSettingsImportResult {
-    int action;        // 0 = Skip, 1 = Import
+    int action; // 0 = Skip, 1 = Import
     char sohPath[1024];
     char mmPath[1024];
 } ComboSettingsImportResult;

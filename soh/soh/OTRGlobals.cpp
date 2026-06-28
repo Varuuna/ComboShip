@@ -1633,7 +1633,7 @@ extern "C" __declspec(dllexport) int SOH_ApplyImportedConfig(const char* mergedJ
                 conf->SetBlock(key, value);
             }
         }
-        conf->Save();  // persist first: CVarLoad() reloads CVars from disk
+        conf->Save(); // persist first: CVarLoad() reloads CVars from disk
         CVarLoad();
         if (auto deck = OTRGlobals::Instance->context->GetControlDeck()) {
             for (uint8_t p = 0; p < 4; p++) {
@@ -1643,9 +1643,7 @@ extern "C" __declspec(dllexport) int SOH_ApplyImportedConfig(const char* mergedJ
             }
         }
         return 1;
-    } catch (...) {
-        return 0;
-    }
+    } catch (...) { return 0; }
 }
 #endif
 

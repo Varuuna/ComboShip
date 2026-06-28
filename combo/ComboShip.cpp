@@ -1302,9 +1302,7 @@ static bool LoadJsonObject(const std::string& path, nlohmann::json& out) {
         }
         out = std::move(j);
         return true;
-    } catch (...) {
-        return false;
-    }
+    } catch (...) { return false; }
 }
 
 // Per-leaf merge: objects recurse; on a leaf collision (scalar/array) the overlay wins. Keys unique

@@ -31,6 +31,7 @@ set(COMBOUI_SOURCES
     gui/ComboWidgetStyle.cpp
     gui/ComboExtractScreen.cpp
     gui/ComboTrackerVisibility.cpp
+    gui/ComboAudioBridge.cpp
 )
 add_library(comboui SHARED ${COMBOUI_SOURCES})
 set_target_properties(comboui PROPERTIES PREFIX "")

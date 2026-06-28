@@ -23,6 +23,45 @@
 #include "2s2h/Rando/Rando.h"
 #include "build.h"
 
+// ComboShip: MM dev-tool / viewer windows share names with OOT's in the single shared Gui registry,
+// which keys by display name and rejects duplicates. BenGui.cpp registers the MM windows with this
+// "##MM" suffix so they are not dropped; the popout WindowName() references below must use the same
+// suffix to resolve the MM window (not OOT's). Standalone build => empty suffix (unchanged).
+#ifdef COMBO_BUILD
+#define COMBO_MM_WINDOW_SUFFIX "##MM"
+#else
+#define COMBO_MM_WINDOW_SUFFIX ""
+#endif
+
+#ifdef COMBO_BUILD
+bool Combo_MmIsForeground(void); // defined in BenPort.cpp
+
+// ComboShip: draw a dev/debug tool window inline inside the combo menu panel. Without this the menu only
+// offers a "popout" button, so the user has to detach every window just to see it. Skips drawing when
+// the window is shown as a popout (the shared Gui loop already draws that floating copy) or is not yet
+// registered. Live-world viewers (Actor/Collision/Message/DL/Event Log) pass requiresForeground=true so
+// they do not read MM's dormant/swapped play state when MM's tab is opened while OOT is foreground.
+static void ComboInlineWindow(const char* windowName, bool requiresForeground) {
+    if (requiresForeground && !Combo_MmIsForeground()) {
+        ImGui::TextDisabled("Available while 2 Ship 2 Harkinian is running.");
+        return;
+    }
+    auto ctx = Ship::Context::GetInstance();
+    if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
+        return;
+    }
+    auto win = ctx->GetWindow()->GetGui()->GetGuiWindow(windowName);
+    if (!win || win->IsVisible()) { // not registered, or already shown as a popout — don't double-draw
+        return;
+    }
+    // The Gui loop only runs Update()+Draw() on visible windows; since we draw this one inline while it
+    // is hidden, run Update() ourselves first so DrawElement sees the same per-frame state it normally
+    // would. Runs exactly once per frame (we returned above when the window is visible/popped out).
+    win->Update();
+    win->DrawElement();
+}
+#endif
+
 extern "C" {
 #include "z64.h"
 #include "functions.h"
@@ -706,13 +745,13 @@ void BenMenu::AddSettings() {
     AddWidget(path, "Input Viewer", WIDGET_SEPARATOR_TEXT);
     AddWidget(path, "Toggle Input Viewer", WIDGET_WINDOW_BUTTON)
         .CVar("gWindows.InputViewer")
-        .WindowName("Input Viewer")
+        .WindowName("Input Viewer" COMBO_MM_WINDOW_SUFFIX)
         .Options(ButtonOptions().Tooltip("Toggles the Input Viewer."));
 
     AddWidget(path, "Input Viewer Settings", WIDGET_SEPARATOR_TEXT);
     AddWidget(path, "Popout Input Viewer Settings", WIDGET_WINDOW_BUTTON)
         .CVar("gWindows.InputViewerSettings")
-        .WindowName("Input Viewer Settings")
+        .WindowName("Input Viewer Settings" COMBO_MM_WINDOW_SUFFIX)
         .Options(ButtonOptions().Tooltip("Enables the separate Input Viewer Settings Window."));
 
     // Mod Menu
@@ -722,9 +761,14 @@ void BenMenu::AddSettings() {
     AddWidget(path, "Mod Menu", WIDGET_SEPARATOR_TEXT);
     AddWidget(path, "Popout Mod Menu Window", WIDGET_WINDOW_BUTTON)
         .CVar("gWindows.ModMenu")
-        .WindowName("Mod Menu")
+        .WindowName("Mod Menu" COMBO_MM_WINDOW_SUFFIX)
         .HideInSearch(true)
         .Options(ButtonOptions().Tooltip("Enables the separate Mod Menu Window."));
+#ifdef COMBO_BUILD
+    AddWidget(path, "Mod Menu Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("Mod Menu" COMBO_MM_WINDOW_SUFFIX, /*requiresForeground=*/false);
+    });
+#endif
 }
 int32_t motionBlurStrength;
 
@@ -1928,6 +1972,11 @@ void BenMenu::AddEnhancements() {
         .Options(ButtonOptions()
                      .Tooltip("Enables the HUD Editor window, allowing you to modify your HUD.")
                      .Size(Sizes::Inline));
+#ifdef COMBO_BUILD
+    AddWidget(path, "HUD Editor Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("HUD Editor", /*requiresForeground=*/false);
+    });
+#endif
 
     // Cosmetics Editor
     path = { "Enhancements", "Cosmetic Editor", SECTION_COLUMN_1 };
@@ -1938,6 +1987,11 @@ void BenMenu::AddEnhancements() {
         .Options(ButtonOptions()
                      .Tooltip("Enables the Cosmetic Editor window, allowing you to modify various colors in the game.")
                      .Size(Sizes::Inline));
+#ifdef COMBO_BUILD
+    AddWidget(path, "Cosmetic Editor Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("Cosmetic Editor", /*requiresForeground=*/false);
+    });
+#endif
 
     // Timesplit Settings
     path = { "Enhancements", "Time Splits", SECTION_COLUMN_1 };
@@ -1951,7 +2005,12 @@ void BenMenu::AddEnhancements() {
     AddSidebarEntry("Enhancements", "Audio Editor", 1);
     AddWidget(path, "Popout Audio Editor", WIDGET_WINDOW_BUTTON)
         .CVar("gWindows.AudioEditor")
-        .WindowName("Audio Editor");
+        .WindowName("Audio Editor" COMBO_MM_WINDOW_SUFFIX);
+#ifdef COMBO_BUILD
+    AddWidget(path, "Audio Editor Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("Audio Editor" COMBO_MM_WINDOW_SUFFIX, /*requiresForeground=*/false);
+    });
+#endif
 }
 
 void BenMenu::AddDevTools() {
@@ -2060,7 +2119,12 @@ void BenMenu::AddDevTools() {
     AddWidget(path, "Popout Collision Viewer", WIDGET_WINDOW_BUTTON)
         .CVar("gWindows.CollisionViewer")
         .Options(ButtonOptions().Tooltip("Makes collision visible on screen.").Size(Sizes::Inline))
-        .WindowName("Collision Viewer");
+        .WindowName("Collision Viewer" COMBO_MM_WINDOW_SUFFIX);
+#ifdef COMBO_BUILD
+    AddWidget(path, "Collision Viewer Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("Collision Viewer" COMBO_MM_WINDOW_SUFFIX, /*requiresForeground=*/true);
+    });
+#endif
 
     path = { "Dev Tools", "Stats", SECTION_COLUMN_1 };
     AddSidebarEntry("Dev Tools", "Stats", 1);
@@ -2091,21 +2155,36 @@ void BenMenu::AddDevTools() {
     AddWidget(path, "Popout Hook Debugger", WIDGET_WINDOW_BUTTON)
         .CVar("gWindows.HookDebugger")
         .Options(ButtonOptions().Tooltip("Enables the Hook Debugger window, for viewing info about registered hooks."))
-        .WindowName("Hook Debugger");
+        .WindowName("Hook Debugger" COMBO_MM_WINDOW_SUFFIX);
+#ifdef COMBO_BUILD
+    AddWidget(path, "Hook Debugger Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("Hook Debugger" COMBO_MM_WINDOW_SUFFIX, /*requiresForeground=*/false);
+    });
+#endif
 
     path = { "Dev Tools", "Save Editor", SECTION_COLUMN_1 };
     AddSidebarEntry("Dev Tools", "Save Editor", 1);
     AddWidget(path, "Popout Save Editor", WIDGET_WINDOW_BUTTON)
         .CVar("gWindows.SaveEditor")
         .Options(ButtonOptions().Tooltip("Enables the Save Editor window, allowing you to edit your save file."))
-        .WindowName("Save Editor");
+        .WindowName("Save Editor" COMBO_MM_WINDOW_SUFFIX);
+#ifdef COMBO_BUILD
+    AddWidget(path, "Save Editor Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("Save Editor" COMBO_MM_WINDOW_SUFFIX, /*requiresForeground=*/false);
+    });
+#endif
 
     path = { "Dev Tools", "Actor Viewer", SECTION_COLUMN_1 };
     AddSidebarEntry("Dev Tools", "Actor Viewer", 1);
     AddWidget(path, "Popout Actor Viewer", WIDGET_WINDOW_BUTTON)
         .CVar("gWindows.ActorViewer")
         .Options(ButtonOptions().Tooltip("Enables the Actor Viewer window, allowing you to view actors in the world."))
-        .WindowName("Actor Viewer");
+        .WindowName("Actor Viewer" COMBO_MM_WINDOW_SUFFIX);
+#ifdef COMBO_BUILD
+    AddWidget(path, "Actor Viewer Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("Actor Viewer" COMBO_MM_WINDOW_SUFFIX, /*requiresForeground=*/true);
+    });
+#endif
 
     path = { "Dev Tools", "Event Log", SECTION_COLUMN_1 };
     AddSidebarEntry("Dev Tools", "Event Log", 1);
@@ -2113,6 +2192,11 @@ void BenMenu::AddDevTools() {
         .CVar("gWindows.EventLog")
         .Options(ButtonOptions().Tooltip("Enables the Event Log window."))
         .WindowName("Event Log");
+#ifdef COMBO_BUILD
+    AddWidget(path, "Event Log Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("Event Log", /*requiresForeground=*/true);
+    });
+#endif
 
     path = { "Dev Tools", "DL Viewer", SECTION_COLUMN_1 };
     AddSidebarEntry("Dev Tools", "DL Viewer", 1);
@@ -2120,12 +2204,22 @@ void BenMenu::AddDevTools() {
         .CVar("gWindows.DLViewer")
         .Options(ButtonOptions().Tooltip("Enables the DL Viewer window for inspecting and editing display lists."))
         .WindowName("DL Viewer");
+#ifdef COMBO_BUILD
+    AddWidget(path, "DL Viewer Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("DL Viewer", /*requiresForeground=*/true);
+    });
+#endif
     path = { "Dev Tools", "Message Viewer", SECTION_COLUMN_1 };
     AddSidebarEntry("Dev Tools", "Message Viewer", 1);
     AddWidget(path, "Popout Message Viewer", WIDGET_WINDOW_BUTTON)
         .CVar("gWindows.MessageViewer")
         .Options(ButtonOptions().Tooltip("Enables the Message Viewer window for testing in-game messages."))
-        .WindowName("Message Viewer");
+        .WindowName("Message Viewer" COMBO_MM_WINDOW_SUFFIX);
+#ifdef COMBO_BUILD
+    AddWidget(path, "Message Viewer Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("Message Viewer" COMBO_MM_WINDOW_SUFFIX, /*requiresForeground=*/true);
+    });
+#endif
 }
 
 BenMenu::BenMenu(const std::string& consoleVariable, const std::string& name)

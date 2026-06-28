@@ -7,10 +7,42 @@ extern PlayState* gPlayState;
 
 void WarpPointsWidget(WidgetInfo& info);
 
+#ifdef COMBO_BUILD
+bool Combo_OotIsForeground(void); // defined in OTRGlobals.cpp
+#endif
+
 namespace SohGui {
 
 extern std::shared_ptr<SohMenu> mSohMenu;
 using namespace UIWidgets;
+
+#ifdef COMBO_BUILD
+// ComboShip: draw a dev/debug tool window inline inside the combo menu panel. Without this the menu only
+// offers a "popout" button, so the user has to detach every window just to see it (mirrors the MM side
+// in BenMenu.cpp). Skips drawing when the window is shown as a popout (the shared Gui loop already draws
+// that floating copy) or is not yet registered. Live-world viewers (Actor/Collision/DList/Value/Message)
+// pass requiresForeground=true so they do not read OOT's dormant/swapped play state when OOT's tab is
+// opened while MM is foreground.
+static void ComboInlineWindow(const char* windowName, bool requiresForeground) {
+    if (requiresForeground && !Combo_OotIsForeground()) {
+        ImGui::TextDisabled("Available while Ship of Harkinian is running.");
+        return;
+    }
+    auto ctx = Ship::Context::GetInstance();
+    if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
+        return;
+    }
+    auto win = ctx->GetWindow()->GetGui()->GetGuiWindow(windowName);
+    if (!win || win->IsVisible()) { // not registered, or already shown as a popout — don't double-draw
+        return;
+    }
+    // The Gui loop only runs Update()+Draw() on visible windows; since we draw this one inline while it is
+    // hidden, run Update() ourselves first so DrawElement sees its normal per-frame state. Runs once per
+    // frame (we returned above when the window is visible/popped out).
+    win->Update();
+    win->DrawElement();
+}
+#endif
 
 static const std::map<int32_t, const char*> logLevels = {
     { DEBUG_LOG_TRACE, "Trace" }, { DEBUG_LOG_DEBUG, "Debug" }, { DEBUG_LOG_INFO, "Info" },
@@ -165,6 +197,11 @@ void SohMenu::AddMenuDevTools() {
         .WindowName("Save Editor")
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Save Editor Window."));
+#ifdef COMBO_BUILD
+    AddWidget(path, "Save Editor Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("Save Editor", /*requiresForeground=*/false);
+    });
+#endif
 
     // Hook Debugger
     path.sidebarName = "Hook Debugger";
@@ -174,6 +211,11 @@ void SohMenu::AddMenuDevTools() {
         .WindowName("Hook Debugger")
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Hook Debugger Window."));
+#ifdef COMBO_BUILD
+    AddWidget(path, "Hook Debugger Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("Hook Debugger", /*requiresForeground=*/false);
+    });
+#endif
 
     // Collision Viewer
     path.sidebarName = "Collision Viewer";
@@ -183,6 +225,11 @@ void SohMenu::AddMenuDevTools() {
         .WindowName("Collision Viewer")
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Collision Viewer Window."));
+#ifdef COMBO_BUILD
+    AddWidget(path, "Collision Viewer Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("Collision Viewer", /*requiresForeground=*/true);
+    });
+#endif
 
     // Actor Viewer
     path.sidebarName = "Actor Viewer";
@@ -192,6 +239,11 @@ void SohMenu::AddMenuDevTools() {
         .WindowName("Actor Viewer")
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Actor Viewer Window."));
+#ifdef COMBO_BUILD
+    AddWidget(path, "Actor Viewer Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("Actor Viewer", /*requiresForeground=*/true);
+    });
+#endif
 
     // Display List Viewer
     path.sidebarName = "DList Viewer";
@@ -201,6 +253,11 @@ void SohMenu::AddMenuDevTools() {
         .WindowName("Display List Viewer")
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Display List Viewer Window."));
+#ifdef COMBO_BUILD
+    AddWidget(path, "Display List Viewer Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("Display List Viewer", /*requiresForeground=*/true);
+    });
+#endif
 
     // Value Viewer
     path.sidebarName = "Value Viewer";
@@ -210,6 +267,11 @@ void SohMenu::AddMenuDevTools() {
         .WindowName("Value Viewer")
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Value Viewer Window."));
+#ifdef COMBO_BUILD
+    AddWidget(path, "Value Viewer Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("Value Viewer", /*requiresForeground=*/true);
+    });
+#endif
 
     // Message Viewer
     path.sidebarName = "Message Viewer";
@@ -219,6 +281,11 @@ void SohMenu::AddMenuDevTools() {
         .WindowName("Message Viewer")
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Message Viewer Window."));
+#ifdef COMBO_BUILD
+    AddWidget(path, "Message Viewer Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("Message Viewer", /*requiresForeground=*/true);
+    });
+#endif
 
     // Gfx Debugger
     path.sidebarName = "Gfx Debugger";

@@ -2817,6 +2817,23 @@ extern "C" __declspec(dllexport) void SOH_MenuApplyCVarChange(const char* cvar) 
         ShipInit::Init(cvar);
 }
 
+#ifdef COMBO_BUILD
+// ComboShip: true when OOT is the foreground game (queries comboui's ComboUI_GetForegroundGame, resolved
+// once). SohMenuDevTools uses it to gate OOT's live-world dev viewers — opening OOT's tab while MM is
+// foreground must not draw against OOT's dormant/swapped play state. comboui is always loaded under
+// ComboShip; if it somehow isn't, default to true (draw) rather than hiding the tools.
+bool Combo_OotIsForeground(void) {
+    static int (*sFn)(void) = nullptr;
+    static bool sTried = false;
+    if (!sTried) {
+        sTried = true;
+        if (HMODULE h = GetModuleHandleA("comboui.dll"))
+            sFn = (int (*)(void))GetProcAddress(h, "ComboUI_GetForegroundGame");
+    }
+    return sFn ? (sFn() == 0) : true;
+}
+#endif
+
 extern "C" __declspec(dllexport) int32_t SOH_MenuEvalDisabled(int32_t i, const char** outReason) {
     ComboMenuContext::UseSharedImGuiContext();
     auto menu = SohGui::GetSohMenu();

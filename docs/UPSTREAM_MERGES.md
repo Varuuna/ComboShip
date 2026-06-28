@@ -840,6 +840,21 @@ Verified: fast path (archives present) boots straight to title unchanged; first-
 extraction screen (`OoT=1 MM=1`). The old `SOH_Extract`/`MM_Extract` exports remain for non-combo use
 but the launcher no longer calls them.
 
+**`CallZapd` must return `true` on success (re-survive on every re-vendor).** Upstream `CallZapd`
+returns `false` unconditionally (native flow gates on exceptions, not the return value), but
+`SOH_/MM_StartExtraction` use it as the combo screen's success flag — so a `false` return makes a
+*successful* extract read as "failed". The soh re-vendor `19427b200` reverted this and OOT extraction
+broke; restored in `soh/soh/Extractor/Extract.cpp` to mirror the MM sibling (catch throw → verify
+archive exists → `return true`). Also Release links `/SUBSYSTEM:WINDOWS` (no console window; Debug
+keeps it), `+/ENTRY:mainCRTStartup` since ComboShip has its own `main()` and doesn't link SDL2main.
+
+**Combined config renamed to `comboship.json` (issue 24).** OOT + MM share one libultraship Context, so
+there is a single config file. `OTRGlobals.cpp` now names it `comboship.json` (COMBO_BUILD-guarded; `#else`
+keeps `shipofharkinian.json` for standalone soh) to make the combined nature explicit and to gate the
+first-launch settings import (absent file = fresh install). New combo-owned export `SOH_ApplyImportedConfig`
+installs a launcher-merged config into the live `Config` (`SetBlock` + `Save` + `CVarLoad` + controller
+reload). MM's `2ship2harkinian.json` literals are untouched (standalone-only, off the combo path).
+
 ## Cross-game Check/Item tracker windows (collision fix + active-game gating) (2026-06-21)
 
 **Why:** Both soh and mm register tracker windows named identically — `"Check Tracker"`,

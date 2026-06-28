@@ -316,7 +316,14 @@ static std::shared_ptr<Ship::ResourceManager> sOOTResourceManager;
 #endif
 
 OTRGlobals::OTRGlobals() {
+#ifdef COMBO_BUILD
+    // ComboShip (issue 24): OOT + MM share this one Context, so this is the single combined config.
+    // Named comboship.json to make that explicit and to gate the first-launch settings import. See
+    // docs/UPSTREAM_MERGES.md.
+    context = Ship::Context::CreateUninitializedInstance("Ship of Harkinian", appShortName, "comboship.json");
+#else
     context = Ship::Context::CreateUninitializedInstance("Ship of Harkinian", appShortName, "shipofharkinian.json");
+#endif
 
     portArchivePath = Ship::Context::LocateFileAcrossAppDirs("soh.o2r");
     OTRVersion portArchiveVersion = DetectOTRVersion("soh.o2r", false);
@@ -1599,6 +1606,44 @@ extern "C" __declspec(dllexport) void SOH_InitWindowOnly() {
 }
 extern "C" __declspec(dllexport) void SOH_FinishInit() {
     Combo_FinishInit();
+}
+
+// ComboShip (issue 24): apply a launcher-merged config (JSON object) to the live Config and reload the
+// dependent subsystems. The launcher does the per-leaf merge (SoH wins) and excludes the Window block;
+// here we install each block, persist, and reload CVars + controller mappings. Runs before
+// Combo_FinishInit so RunVersionUpdates() then sees the imported state.
+extern "C" __declspec(dllexport) int SOH_ApplyImportedConfig(const char* mergedJsonUtf8) {
+    if (!mergedJsonUtf8 || !OTRGlobals::Instance) {
+        return 0;
+    }
+    try {
+        nlohmann::json merged = nlohmann::json::parse(mergedJsonUtf8);
+        auto conf = OTRGlobals::Instance->context->GetConfig();
+        for (auto& [key, value] : merged.items()) {
+            if (key == "Window") {
+                continue; // machine-specific; excluded per design
+            }
+            if (key == "ConfigVersion") {
+                if (value.is_number_unsigned()) {
+                    conf->SetUInt("ConfigVersion", value.get<uint32_t>());
+                }
+                continue;
+            }
+            if (value.is_object()) {
+                conf->SetBlock(key, value);
+            }
+        }
+        conf->Save(); // persist first: CVarLoad() reloads CVars from disk
+        CVarLoad();
+        if (auto deck = OTRGlobals::Instance->context->GetControlDeck()) {
+            for (uint8_t p = 0; p < 4; p++) {
+                if (auto c = deck->GetControllerByPort(p); c && c->HasConfig()) {
+                    c->ReloadAllMappingsFromConfig();
+                }
+            }
+        }
+        return 1;
+    } catch (...) { return 0; }
 }
 #endif
 

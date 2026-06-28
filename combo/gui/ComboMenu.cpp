@@ -322,8 +322,8 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
         // on shared gSettings.Menu.*/ImGuiScale CVars. Hide them from MM's per-game Settings section so they
         // live only in Shared; MM-specific sidebars (Overlay, Presets, ...) stay.
         if (!isOot && section && strcmp(section, "Settings") == 0 && sidebar &&
-            (strcmp(sidebar, "Graphics") == 0 || strcmp(sidebar, "Audio") == 0 ||
-             strcmp(sidebar, "Controls") == 0 || strcmp(sidebar, "General") == 0)) {
+            (strcmp(sidebar, "Graphics") == 0 || strcmp(sidebar, "Audio") == 0 || strcmp(sidebar, "Controls") == 0 ||
+             strcmp(sidebar, "General") == 0)) {
             return false;
         }
         // The rando section's settings live in the Shared tab; here we surface only its trackers.

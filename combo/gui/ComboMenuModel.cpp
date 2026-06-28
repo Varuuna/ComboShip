@@ -54,8 +54,8 @@ void ComboMenuModel::EnsureLoaded() {
                  "SOH_MenuDrawCustom", "SOH_MenuApplyCVarChange");
     }
     if (!mMm.loaded) {
-        LoadGame(mMm, "2ship.dll", "MM_ExportMenu", "MM_MenuInvokeCallback", "MM_MenuEvalDisabled",
-                 "MM_MenuDrawCustom", "MM_MenuApplyCVarChange");
+        LoadGame(mMm, "2ship.dll", "MM_ExportMenu", "MM_MenuInvokeCallback", "MM_MenuEvalDisabled", "MM_MenuDrawCustom",
+                 "MM_MenuApplyCVarChange");
     }
 
     if (mOot.loaded && mMm.loaded) {

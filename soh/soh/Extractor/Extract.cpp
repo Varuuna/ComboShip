@@ -690,7 +690,33 @@ bool Extractor::CallZapd(std::string installPath, std::string exportdir, std::at
     argv[20] = "-osf";
     argv[21] = "placeholder";
 
-    zapd_report(argc, (char**)argv.data(), extractCount, totalExtract);
+    // ComboShip: upstream returns false unconditionally (native flow gates on exceptions). But
+    // SOH_StartExtraction uses the return value as the combo screen's success flag, so OOT success
+    // read as "failed". Mirror mm/Extract.cpp; reverted once by re-vendor 19427b200 — keep on merges.
+    try {
+        zapd_report(argc, (char**)argv.data(), extractCount, totalExtract);
+    } catch (const std::exception& e) {
+        fprintf(stderr, "OoT Extractor: ZAPD failed: %s\n", e.what());
+        if (FILE* ef = fopen((curdir + "/soh_extract_error.log").c_str(), "w")) {
+            fprintf(ef, "OoT Extractor: ZAPD threw:\n%s\n", e.what());
+            fclose(ef);
+        }
+        std::filesystem::current_path(curdir);
+        std::filesystem::remove_all(tempdir);
+        return false;
+    }
+
+    // Copying a non-existent file throws and crashes the process; bail if ZAPD produced nothing.
+    if (!std::filesystem::exists(otrFile)) {
+        fprintf(stderr, "OoT Extractor: ZAPD did not produce %s\n", otrFile);
+        if (FILE* ef = fopen((curdir + "/soh_extract_error.log").c_str(), "w")) {
+            fprintf(ef, "OoT Extractor: ZAPD produced no %s.\n", otrFile);
+            fclose(ef);
+        }
+        std::filesystem::current_path(curdir);
+        std::filesystem::remove_all(tempdir);
+        return false;
+    }
 
     std::filesystem::copy(otrFile, exportdir + "/" + otrFile, std::filesystem::copy_options::overwrite_existing);
 
@@ -698,7 +724,7 @@ bool Extractor::CallZapd(std::string installPath, std::string exportdir, std::at
     std::filesystem::current_path(curdir);
     std::filesystem::remove_all(tempdir);
 
-    return false;
+    return true;
 }
 
 static void MessageboxWorker() {

@@ -102,6 +102,14 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/x64/Release"
     )
 
+    # Release: no console window (kept in Debug for logs). Same /SUBSYSTEM:WINDOWS soh uses; soh relies
+    # on SDL2main for WinMain, but ComboShip has its own main() (see above), so /ENTRY:mainCRTStartup
+    # keeps it. Errors still persist to *_extract_error.log.
+    if(MSVC)
+        target_link_options(ComboShip PRIVATE
+            $<$<CONFIG:Release>:/SUBSYSTEM:WINDOWS;/ENTRY:mainCRTStartup>)
+    endif()
+
     # The exe and all game DLLs already land in x64/<config> (their own output dirs), so only the asset
     # tree and the PORT/custom .o2r archives need deploying. $<TARGET_FILE_DIR:ComboShip> == x64/<config>,
     # so this is config-correct for Debug AND Release.

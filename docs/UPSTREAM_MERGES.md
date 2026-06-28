@@ -840,6 +840,14 @@ Verified: fast path (archives present) boots straight to title unchanged; first-
 extraction screen (`OoT=1 MM=1`). The old `SOH_Extract`/`MM_Extract` exports remain for non-combo use
 but the launcher no longer calls them.
 
+**`CallZapd` must return `true` on success (re-survive on every re-vendor).** Upstream `CallZapd`
+returns `false` unconditionally (native flow gates on exceptions, not the return value), but
+`SOH_/MM_StartExtraction` use it as the combo screen's success flag — so a `false` return makes a
+*successful* extract read as "failed". The soh re-vendor `19427b200` reverted this and OOT extraction
+broke; restored in `soh/soh/Extractor/Extract.cpp` to mirror the MM sibling (catch throw → verify
+archive exists → `return true`). Also Release links `/SUBSYSTEM:WINDOWS` (no console window; Debug
+keeps it), `+/ENTRY:mainCRTStartup` since ComboShip has its own `main()` and doesn't link SDL2main.
+
 ## Cross-game Check/Item tracker windows (collision fix + active-game gating) (2026-06-21)
 
 **Why:** Both soh and mm register tracker windows named identically — `"Check Tracker"`,

@@ -30,6 +30,7 @@ set(COMBOUI_SOURCES
     gui/ComboWidgetRender.cpp
     gui/ComboWidgetStyle.cpp
     gui/ComboExtractScreen.cpp
+    gui/ComboSettingsImportScreen.cpp
     gui/ComboTrackerVisibility.cpp
     gui/ComboAudioBridge.cpp
 )

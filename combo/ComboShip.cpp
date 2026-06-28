@@ -35,6 +35,7 @@
 #include "rando/CrossWorldRando.h"
 #include "gui/ComboGenProgress.h"
 #include "ComboExtract.h"
+#include "ComboSettingsImport.h"
 
 // Surfaces the real exception behind a silent terminate()/exit(3). With the shared dynamic
 // CRT, exceptions thrown in soh.dll/2ship.dll propagate across the DLL boundary to here.
@@ -234,6 +235,11 @@ static ComboFnValidateRom MM_ValidateRom = nullptr;
 static ComboFnStartExtraction MM_StartExtraction = nullptr;
 static ComboFnGetProgress MM_GetExtractionProgress = nullptr;
 static ComboFnRunExtraction ComboUI_RunExtraction = nullptr;
+
+// ComboShip-owned first-launch settings import (see ComboSettingsImport.h). comboui renders the
+// screen; soh applies the launcher-merged config to the live Config.
+static ComboFnRunSettingsImport ComboUI_RunSettingsImport = nullptr;
+static ComboFnApplyImportedConfig SOH_ApplyImportedConfig = nullptr;
 
 // ComboShip: per-game reachability oracle exports
 typedef void (*FnOracleVoid)(void);
@@ -1275,6 +1281,55 @@ static bool MMArchivesExist() {
     return MMRomArchiveExists() || std::filesystem::exists("2ship.o2r");
 }
 
+// ComboShip (issue 24): the combined config. Absent => fresh install => offer settings import.
+static bool ComboConfigExists() {
+    return std::filesystem::exists("comboship.json");
+}
+
+// Parse a JSON object from disk. False on missing/parse-failure/non-object (slot then skipped).
+static bool LoadJsonObject(const std::string& path, nlohmann::json& out) {
+    if (path.empty()) {
+        return false;
+    }
+    try {
+        std::ifstream f(path);
+        if (!f) {
+            return false;
+        }
+        nlohmann::json j = nlohmann::json::parse(f);
+        if (!j.is_object()) {
+            return false;
+        }
+        out = std::move(j);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+// Per-leaf merge: objects recurse; on a leaf collision (scalar/array) the overlay wins. Keys unique
+// to either side are kept. Used with 2Ship as base + SoH as overlay so SoH wins.
+static void DeepMerge(nlohmann::json& base, const nlohmann::json& overlay) {
+    if (!base.is_object() || !overlay.is_object()) {
+        base = overlay;
+        return;
+    }
+    for (auto it = overlay.begin(); it != overlay.end(); ++it) {
+        auto found = base.find(it.key());
+        if (found != base.end() && found->is_object() && it->is_object()) {
+            DeepMerge(*found, *it);
+        } else {
+            base[it.key()] = it.value();
+        }
+    }
+}
+
+// Soft validator (non-blocking hint): a Ship config is a JSON object with a CVars block.
+static int LauncherValidateShipConfig(const char* path) {
+    nlohmann::json j;
+    return (path && LoadJsonObject(path, j) && j.contains("CVars")) ? 1 : 0;
+}
+
 // ---------- Entry point ----------
 
 int main(int argc, char** argv) {
@@ -1368,6 +1423,7 @@ int main(int argc, char** argv) {
     MM_ValidateRom = (ComboFnValidateRom)GetSym(mmModule, "MM_ValidateRom");
     MM_StartExtraction = (ComboFnStartExtraction)GetSym(mmModule, "MM_StartExtraction");
     MM_GetExtractionProgress = (ComboFnGetProgress)GetSym(mmModule, "MM_GetExtractionProgress");
+    SOH_ApplyImportedConfig = (ComboFnApplyImportedConfig)GetSym(sohModule, "SOH_ApplyImportedConfig");
 
     // Anchor transport seam exports (Phase 1)
     SOH_SetAnchorSend = (FnSetAnchorSend)GetSym(sohModule, "SOH_SetAnchorSend");
@@ -1423,6 +1479,9 @@ int main(int argc, char** argv) {
     // It returns false if the player quits or extraction fails -> we exit. When the archives are
     // present we skip this entirely and use the monolithic SOH_Init() fast path below.
     bool windowInitialized = false;
+    // Capture BEFORE any window/config init: a fresh install (no comboship.json) gets the settings
+    // import offer. (The Config ctor doesn't create the file, but capturing early stays robust.)
+    const bool freshInstall = !ComboConfigExists();
     const bool needOot = !OOTArchivesExist();
     const bool needMm = !MMRomArchiveExists();
     if (needOot || needMm) {
@@ -1481,6 +1540,51 @@ int main(int argc, char** argv) {
             return 1;
         }
         std::cout << "[ComboShip] Extraction complete." << std::endl;
+    }
+
+    // --- 3b. First-launch settings import (ComboShip-owned, issue 24) ---
+    // Fresh install: offer to import an existing SoH/2Ship config (after extraction, ROMs first). The
+    // window/config exist only post-SOH_InitWindowOnly, so we merge here (SoH wins) and apply to the
+    // LIVE config before SOH_FinishInit's version updates. Optional — any missing piece skips it.
+    if (freshInstall) {
+        if (!windowInitialized && SOH_InitWindowOnly) {
+            SOH_InitWindowOnly();
+            windowInitialized = true;
+        }
+        if (!comboUIModule) {
+            comboUIModule = LoadDll("comboui.dll");
+        }
+        if (comboUIModule && !ComboUI_RunSettingsImport) {
+            ComboUI_RunSettingsImport = (ComboFnRunSettingsImport)GetSym(comboUIModule, "ComboUI_RunSettingsImport");
+        }
+        if (windowInitialized && ComboUI_RunSettingsImport && SOH_ApplyImportedConfig) {
+            ComboSettingsImportCallbacks cb = {};
+            cb.sohValidate = LauncherValidateShipConfig;
+            cb.mmValidate = LauncherValidateShipConfig;
+            ComboSettingsImportResult res = {};
+            if (ComboUI_RunSettingsImport(&cb, &res) && res.action == 1) {
+                nlohmann::json merged = nlohmann::json::object(), sohJson, mmJson;
+                const bool haveMm = LoadJsonObject(res.mmPath, mmJson);
+                const bool haveSoh = LoadJsonObject(res.sohPath, sohJson);
+                if (haveMm) {
+                    merged = mmJson; // 2Ship is the base (lower priority)
+                }
+                if (haveSoh) {
+                    DeepMerge(merged, sohJson); // SoH overlays and wins on collisions
+                }
+                if (haveSoh || haveMm) {
+                    merged.erase("Window"); // machine-specific
+                    // ConfigVersion drives OOT's updaters; keep it only when it actually came from the
+                    // SoH source (a 2Ship version, or none, would misdirect them).
+                    if (!haveSoh || !sohJson.contains("ConfigVersion")) {
+                        merged.erase("ConfigVersion");
+                    }
+                    SOH_ApplyImportedConfig(merged.dump().c_str());
+                    std::cout << "[ComboShip] Settings imported (SoH=" << haveSoh << " MM=" << haveMm << ")."
+                              << std::endl;
+                }
+            }
+        }
     }
 
     // Wire the Anchor transport to the launcher-owned connection BEFORE SOH_Init(): OOT auto-enables

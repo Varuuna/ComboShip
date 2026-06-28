@@ -1018,3 +1018,104 @@ written once per seed to canonical slot 0 but looked up at runtime by `gSaveCont
 `LoadForeignForGame` falls back to slot 0 when the per-slot file is absent so saves in File 2/3
 still resolve foreign items (names + models). The immediate-delivery grant targets the resident
 save by `fileNum` directly, so it is unaffected.
+
+## File-select seed-hash icons for combo seeds (issue #32, 2026-06-23)
+
+**Why:** stock SoH draws five item icons on the file-select as a visual seed hash so players can
+match seeds/spoiler logs. The combo build showed five Deku Nuts (or an identical set every seed):
+the combo generator owns generation and never runs OOT's `Playthrough_Init`, which is where vanilla
+calls `GenerateHash()` to fill `Rando::Context::hashIconIndexes` — so the array stayed all-zero.
+Scope is OOT only: combo boots into OOT's file-select and enters MM via transition, so MM's
+file-select is never shown (MM's `finalSeed = 0` gap in `MM_InitRandoSaveFile` is a known follow-up).
+
+**Change (vendored `soh`, minimal):** new export `SOH_SetComboSeedHash(uint32_t)` in
+`OTRGlobals.cpp` (just after `SOH_ApplyRandoPlacements`) calls `ctx->SetHash(...)` + `GenerateHash()`
+— mirrors stock `playthrough.cpp:64-73`. Added `#include ".../3drando/spoiler_log.hpp"` for the
+declaration. Persistence/render are stock-wired (`SaveManager` copies into `fileMetaInfo.seedHash`;
+`z_file_choose.c` renders it).
+
+**Change (combo-owned, `ComboShip.cpp`):** `RunComboFill` computes a settings-aware display hash
+`ComboHash(inputSeed + sohDump + mmDump)` and passes it to the new export *after*
+`SOH_ApplyRandoPlacements` (which `ItemReset`s). Folding both static dumps in makes the icons
+identify seed **and** settings: each dump is built from its game's live CVars and carries only the
+settings-scoped pool, so OOT *and* MM shuffle/starting-item settings both vary the icons. Accepted
+limitation (symmetric): a logic-only setting that doesn't change the shuffled pool (e.g. tricks)
+won't change the dump, so won't change the icons.
+
+**On future merges:** if upstream restructures `GenerateHash`/`SetHash` or the file-select hash
+render, re-point the new export; the combo-side hash derivation is independent.
+
+## File-select quest menu locked to Randomizer (2026-06-27)
+
+**Why:** the combo build drives a randomizer through OOT's normal save flow; showing the Normal /
+Master Quest / Boss Rush quest options on file-select is confusing since they're never the intent.
+
+**Change (vendored `soh`, one COMBO_BUILD-guarded block):** in
+`soh/src/overlays/gamestates/ovl_file_choose/z_file_choose.c`, the `MIN_QUEST`/`MAX_QUEST` macros
+(which seed `questType` at init and bound the L/R carousel wrap) are redefined to `QUEST_RANDOMIZER`
+under `COMBO_BUILD`. The carousel therefore starts on Randomizer and every L/R wrap lands back on it,
+so the other quests are unreachable — no draw/branch code was deleted (the non-combo build is
+byte-intact via the `#else`).
+
+**On future merges:** if upstream changes the quest enum or the carousel wrap logic, re-check that
+the locked `MIN_QUEST == MAX_QUEST == QUEST_RANDOMIZER` still resolves to Randomizer on every L/R
+path (incl. the Master-Quest-absent skip loop).
+
+## Non-blocking combo generation: worker thread + file-select driven (2026-06-27)
+
+**Why:** combo generation ran synchronously on the render thread, freezing the game (no music, no
+progress) for its whole duration. Stock SoH stays responsive by running the fill on a worker thread
+while the main loop keeps running (it polls `RandoGenerating` in `FileChoose_UpdateRandomizer`,
+swaps to gallop music, draws "Generating…", plays a fanfare). Combo couldn't naively copy that: its
+fill calls into the single-threaded game DLLs (dumps, oracles, and the `gSaveContext`-mutating
+apply), and a prior whole-pipeline-off-thread attempt crashed.
+
+**Design:** split the pipeline. The launcher (`combo/ComboShip.cpp`) runs dump→fill→playthrough on a
+worker thread (`g_GenerateThread`) and stashes the result; the `gSaveContext` **apply** runs on the
+main thread via `Combo_FinalizeGenerate`, polled each frame from the file-select loop. Generation is
+hard-gated to the file-select screen so the worker can't race a live game tick. The launcher owns the
+single `ComboGenProgress` and shares a read-only pointer with soh.
+
+**Vendored `soh` deviations:**
+- `OTRGlobals.cpp`/`.h`: new combo exports `SOH_TriggerComboGenerate` (now arg-less; reads the
+  `gGeneral.ComboSeed` CVar, gates on + sets `RandoGenerating`), `SOH_SetComboProgressPtr` /
+  `SOH_GetComboGenProgress` / `SOH_GetComboGenPercent`, `SOH_SetOnComboFinalizeCallback` /
+  `SOH_PollComboFinalize`, and `SOH_IsOnFileSelect` (matches `gGameState->main == FileChoose_Main`,
+  since `::init` is cleared after init). The generate-request callback type changed to
+  `void(*)(const char*)`.
+- `z_file_choose.c` (`COMBO_BUILD`-guarded): `RSM_GENERATE_RANDOMIZER` → `SOH_TriggerComboGenerate`;
+  `RSM_OPEN_RANDOMIZER_SETTINGS` → open the comboui menu (`gOpenWindows.Menu`); the
+  `FileChoose_UpdateRandomizer` "generating" branch polls `SOH_PollComboFinalize` and clears
+  `RandoGenerating` when done; a "Generating… XX%" line is drawn from `SOH_GetComboGenPercent`.
+
+**On future merges:** if upstream restructures the file-select randomizer menu (`RSM_*` actions) or
+`FileChoose_UpdateRandomizer`, re-apply the two action repoints + the finalize poll. If `GameState`'s
+`main` field or `FileChoose_Main` moves, re-check `SOH_IsOnFileSelect`.
+
+## Consolidated combo spoiler: share/drop + remember-seed + sphere hints (2026-06-28)
+
+**Why:** combo generation scattered per-seed data (`slot{N}.foreign.json`, `slot0.playthrough.txt`)
+and kept the result only in memory — no sharing, no remembering, regenerate every session. Now one
+consolidated `Randomizer/save{N}-Randomizer-<hash>.json` (+ a `Randomizer/Last-Generated-Randomizer.json`
+pending file) holds everything (both games' settings, placements, foreign map, structured playthrough,
+hash); it's the runtime foreign source, the remembered seed, the shareable drag-drop artifact, and the
+hint data. Mostly combo-owned (`combo/ComboShip.cpp`, `combo/rando/CrossForeign.h`,
+`combo/gui/ComboMenu.*`, `ComboGenProgress.h`). Vendored deviations:
+
+- **`soh` `OTRGlobals.cpp`/`.h`** — new combo exports: `SOH_DumpRandoSettings`/`SOH_RestoreRandoSettings`
+  (CVar-block snapshot/restore so a dropped seed reproduces cross-machine), `SOH_PrepRandoContext`
+  (refactored out of `SOH_DumpRandoStaticData`'s prep so reload/drop can build the settings-scoped pool
+  before re-applying placements — the dump now calls it), `SOH_RequestComboReload`/
+  `SOH_SetOnComboReloadCallback` (launcher reload seam), `SOH_GetActiveFileNum`, and
+  `Combo_SOH_GetObtainedChecks` (hint state).
+- **`soh` `randomizer.cpp`** — `Rando_HandleSpoilerDrop` also accepts `fileType=="ComboShipRandomizer"`
+  (sets `CVAR_GENERAL("ComboDroppedFile")`); the SoH spoiler path is unchanged.
+- **`soh` `z_file_choose.c`** (`COMBO_BUILD`) — `FileChoose_UpdateRandomizer` reloads a dropped combo
+  file (priority) or the remembered pending seed (first frame) via `SOH_RequestComboReload`.
+- **`mm` `BenPort.cpp`** — `MM_DumpRandoSettings`/`MM_RestoreRandoSettings` (MM options are CVar-backed;
+  restore runs before `MM_InitRandoSaveFile`) and `Combo_MM_GetObtainedChecks` (hint state).
+
+**On future merges:** the apply/prep must stay main-thread (the worker only computes). If upstream
+changes the rando settings/option CVar scheme, re-check the dump/restore. If the spoiler-drop handler
+or `FileChoose_UpdateRandomizer` is restructured, re-apply the combo `fileType` accept + the reload
+routing.

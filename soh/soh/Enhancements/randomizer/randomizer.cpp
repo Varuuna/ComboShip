@@ -67,6 +67,15 @@ bool Rando_HandleSpoilerDrop(char* filePath) {
         nlohmann::json json;
         stream >> json;
 
+#ifdef COMBO_BUILD
+        // ComboShip: a dropped consolidated combo spoiler — route it to the combo reload path (see
+        // FileChoose_UpdateRandomizer) rather than SoH's ParseSpoiler. Only flag it here.
+        if (json.value("fileType", std::string()) == "ComboShipRandomizer") {
+            CVarSetString(CVAR_GENERAL("ComboDroppedFile"), filePath);
+            return true;
+        }
+#endif
+
         if (json.contains("version") && json.contains("finalSeed")) {
             CVarSetString(CVAR_GENERAL("RandomizerDroppedFile"), filePath);
             CVarSetInteger(CVAR_GENERAL("RandomizerNewFileDropped"), 1);

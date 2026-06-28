@@ -1,14 +1,15 @@
 // combo/rando/CrossForeign.h
-// ComboShip: cross-world foreign-item marker map — shared by soh.dll, 2ship.dll, ComboShip.exe.
-// One JSON file per canonical OOT slot records which checks (in each game) hold an item that
-// belongs to the OTHER game. At pickup, the check's own game places a sentinel item; the
-// pickup code consults this map to learn the real foreign item + its destination game, then
-// delivers it immediately into that game's resident save (see issue #3; the old JSON CrossMailbox
-// stash + per-frame drain was replaced by immediate cross-DLL grant).
+// ComboShip: cross-world foreign-item lookup — shared by soh.dll, 2ship.dll, ComboShip.exe.
+// The consolidated per-slot spoiler file (saves/combo/save{N}-Randomizer-<hash>.json, written at
+// save creation) records, in its "foreign" array, which checks (in each game) hold an item that
+// belongs to the OTHER game. At pickup, the check's own game places a sentinel item; the pickup
+// code consults this array to learn the real foreign item + its destination game, then delivers it
+// immediately into that game's resident save (see issue #3). Both games resolve the file by
+// gSaveContext.fileNum, so a save and its consolidated file share one slot number.
 //
-// Schema (saves/combo/slot{N}.foreign.json):
-//   { "oot": { "<checkName>": {"itemGame":"mm","itemName":"RI_DEKU_MASK","displayName":"Deku Mask"} },
-//     "mm":  { "<checkName>": {"itemGame":"oot","itemName":"Hookshot","displayName":"Hookshot"} } }
+// "foreign" array element:
+//   { "checkGame":"oot|mm", "checkName":"<RC name>", "itemGame":"oot|mm",
+//     "itemName":"<item key in itemGame's namespace>", "displayName":"<human name + (MM)/(OOT)>" }
 //
 // Note: itemName is in the DESTINATION game's namespace (the item's home game), since that is the
 // game that ultimately grants it. OOT uses English item names; MM uses RI_* spoiler names.
@@ -44,82 +45,113 @@ inline GameId KeyToGameId(const std::string& s) {
     return s == "mm" ? GAME_MM : GAME_OOT;
 }
 
-inline std::filesystem::path ForeignPath(int canonicalSlot) {
-    return std::filesystem::path("saves") / "combo" / ("slot" + std::to_string(canonicalSlot) + ".foreign.json");
+inline std::filesystem::path ConsolidatedDir() {
+    return std::filesystem::path("Randomizer");
 }
 
-// Build and atomically write the per-slot foreign map from the combined spoiler's "foreign" array
-// (each element: {checkGame, checkName, itemGame, itemName, [displayName]}).
-inline bool WriteForeignFromAnnotations(int canonicalSlot, const nlohmann::json& foreignArray) {
-    nlohmann::json out;
-    out["oot"] = nlohmann::json::object();
-    out["mm"] = nlohmann::json::object();
+// Pending (unbound) seed written at Generate; remembered so the player can Start without regenerating.
+inline std::filesystem::path PendingPath() {
+    return ConsolidatedDir() / "Last-Generated-Randomizer.json";
+}
+
+// Per-slot consolidated file written when a save is created in slot N. Both the runtime foreign
+// source (read by either game via gSaveContext.fileNum) and the shareable artifact.
+inline std::filesystem::path SlotWritePath(int slot, const std::string& hashStr) {
+    return ConsolidatedDir() / ("save" + std::to_string(slot) + "-Randomizer-" + hashStr + ".json");
+}
+
+inline bool HasSlotPrefix(const std::string& name, const std::string& prefix) {
+    return name.size() > 5 && name.compare(0, prefix.size(), prefix) == 0 &&
+           name.compare(name.size() - 5, 5, ".json") == 0;
+}
+
+// Resolve slot N's consolidated file by prefix (newest match). Empty if none.
+inline std::filesystem::path SlotReadPath(int slot) {
+    std::error_code ec;
+    auto dir = ConsolidatedDir();
+    const std::string prefix = "save" + std::to_string(slot) + "-Randomizer-";
+    std::filesystem::path best;
+    std::filesystem::file_time_type bestTime{};
+    if (std::filesystem::exists(dir, ec)) {
+        for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+            std::error_code ec2;
+            if (!e.is_regular_file(ec2))
+                continue;
+            const std::string name = e.path().filename().string();
+            if (HasSlotPrefix(name, prefix)) {
+                auto t = e.last_write_time(ec2);
+                if (best.empty() || t > bestTime) {
+                    best = e.path();
+                    bestTime = t;
+                }
+            }
+        }
+    }
+    return best;
+}
+
+// Remove any existing consolidated file(s) for slot N (stale seed from a prior generate in that slot).
+inline void CleanSlotFiles(int slot) {
+    std::error_code ec;
+    auto dir = ConsolidatedDir();
+    const std::string prefix = "save" + std::to_string(slot) + "-Randomizer-";
+    if (!std::filesystem::exists(dir, ec))
+        return;
+    for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+        std::error_code ec2;
+        if (!e.is_regular_file(ec2))
+            continue;
+        if (HasSlotPrefix(e.path().filename().string(), prefix))
+            std::filesystem::remove(e.path(), ec2);
+    }
+}
+
+// Tag a spoiler "foreign" array's displayNames with their home-game suffix for the consolidated file.
+// Every display surface (shops, hints, trackers, toasts) reads displayName, so tag once here.
+inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray) {
+    nlohmann::json out = nlohmann::json::array();
     for (const auto& fm : foreignArray) {
         std::string checkGame = fm.value("checkGame", "");
         std::string checkName = fm.value("checkName", "");
         if (checkGame.empty() || checkName.empty())
             continue;
-        std::string itemName = fm.value("itemName", "");
         std::string itemGame = fm.value("itemGame", "");
+        std::string itemName = fm.value("itemName", "");
         std::string displayName = fm.value("displayName", itemName);
-        // ComboShip: tag foreign items with their home game — every display surface (shops, NPC
-        // hints, trackers, toasts) reads this displayName, so one tag here covers them all.
-        // Only tag known games (a malformed marker keeps its untagged name).
-        if (!displayName.empty() && (itemGame == "mm" || itemGame == "oot")) {
+        if (!displayName.empty() && (itemGame == "mm" || itemGame == "oot"))
             displayName += (itemGame == "mm") ? " (MM)" : " (OOT)";
-        }
-        out[checkGame][checkName] = {
-            { "itemGame", itemGame },
-            { "itemName", itemName },
-            { "displayName", displayName },
-        };
+        out.push_back({ { "checkGame", checkGame },
+                        { "checkName", checkName },
+                        { "itemGame", itemGame },
+                        { "itemName", itemName },
+                        { "displayName", displayName } });
     }
-
-    std::error_code ec;
-    auto path = ForeignPath(canonicalSlot);
-    std::filesystem::create_directories(path.parent_path(), ec);
-    auto tmp = path;
-    tmp += ".tmp";
-    {
-        std::ofstream f(tmp, std::ios::trunc);
-        if (!f.is_open())
-            return false;
-        f << out.dump(2);
-        if (!f.good()) {
-            f.close();
-            std::filesystem::remove(tmp, ec);
-            return false;
-        }
-    }
-    std::filesystem::rename(tmp, path, ec); // atomic on same volume
-    return !ec;
+    return out;
 }
 
-// Load one game's foreign-check section, keyed by check name. Returns empty on missing/corrupt file
-// (never throws across the channel).
-inline std::unordered_map<std::string, ForeignItem> LoadForeignForGame(int canonicalSlot, GameId checkGame) {
+// Load one game's foreign-check section from slot N's consolidated file, keyed by check name.
+// Returns empty on missing/corrupt file (never throws across the channel). Per-slot file is
+// authoritative (written at save creation by fileNum) — no cross-slot fallback.
+inline std::unordered_map<std::string, ForeignItem> LoadForeignForGame(int slot, GameId checkGame) {
     std::unordered_map<std::string, ForeignItem> map;
-    std::ifstream in(ForeignPath(canonicalSlot));
-    // ComboShip: the foreign map is generated once per seed into canonical slot 0, but the runtime
-    // looks it up by the save's fileNum. A seed played in any OOT/MM file slot shares that one map,
-    // so fall back to slot 0 when the per-slot file is absent (e.g. a save in File 2/3). Prefers a
-    // per-slot file if one ever exists. Without this, non-slot-0 saves see no foreign items at all
-    // (sentinel name + placeholder model in shops/trackers).
-    if (!in.is_open() && canonicalSlot != 0)
-        in.open(ForeignPath(0));
+    auto path = SlotReadPath(slot);
+    if (path.empty())
+        return map;
+    std::ifstream in(path);
     if (!in.is_open())
         return map;
     try {
         nlohmann::json j;
         in >> j;
-        const auto& section = j.value(GameIdToKey(checkGame), nlohmann::json::object());
-        for (auto it = section.begin(); it != section.end(); ++it) {
-            const auto& v = it.value();
+        const std::string key = GameIdToKey(checkGame);
+        for (const auto& fm : j.value("foreign", nlohmann::json::array())) {
+            if (fm.value("checkGame", "") != key)
+                continue;
             ForeignItem fi;
-            fi.itemGame = KeyToGameId(v.value("itemGame", ""));
-            fi.itemName = v.value("itemName", "");
-            fi.displayName = v.value("displayName", fi.itemName);
-            map.emplace(it.key(), std::move(fi));
+            fi.itemGame = KeyToGameId(fm.value("itemGame", ""));
+            fi.itemName = fm.value("itemName", "");
+            fi.displayName = fm.value("displayName", fi.itemName);
+            map.emplace(fm.value("checkName", ""), std::move(fi));
         }
     } catch (...) { /* corrupt -> treat as empty */
     }

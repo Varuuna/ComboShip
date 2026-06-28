@@ -25,8 +25,16 @@
 #include "soh/ResourceManagerHelpers.h"
 #include "soh/ShipUtils.h"
 
+#ifdef COMBO_BUILD
+// ComboShip: the combo build is randomizer-only. Lock the quest-select carousel to the Randomizer
+// option so Normal / Master Quest / Boss Rush are never shown or selectable (init seeds questType
+// from MIN_QUEST; L/R wrap between MIN_QUEST..MAX_QUEST and so stay on Randomizer).
+#define MIN_QUEST QUEST_RANDOMIZER
+#define MAX_QUEST QUEST_RANDOMIZER
+#else
 #define MIN_QUEST (ResourceMgr_GameHasOriginal() ? QUEST_NORMAL : QUEST_MASTER)
 #define MAX_QUEST QUEST_BOSSRUSH
+#endif
 
 void Sram_InitDebugSave(void);
 void Sram_InitBossRushSave();
@@ -374,8 +382,32 @@ void FileChoose_UpdateRandomizer() {
         generating = 0;
         return;
     } else if (generating) {
+#ifdef COMBO_BUILD
+        // ComboShip: drive the main-thread apply each frame while the worker runs. When it reports the
+        // generation fully resolved, clear RandoGenerating so the branch above fires the fanfare/error.
+        if (SOH_PollComboFinalize()) {
+            CVarSetInteger(CVAR_GENERAL("RandoGenerating"), 0);
+        }
+#endif
         return;
     }
+
+#ifdef COMBO_BUILD
+    // ComboShip: load a remembered or dropped combo seed so "Start Randomizer" works without
+    // regenerating. A dropped combo spoiler (flagged by Rando_HandleSpoilerDrop) takes priority and
+    // overrides the remembered pending seed; otherwise, on the first frame with nothing loaded, reload
+    // the remembered pending seed (no-op if none).
+    static u8 sComboReloadTried = 0;
+    const char* comboDrop = CVarGetString(CVAR_GENERAL("ComboDroppedFile"), "");
+    if (!Ship_IsCStringEmpty(comboDrop)) {
+        Sfx_PlaySfxCentered(SOH_RequestComboReload(comboDrop) ? NA_SE_SY_CORRECT_CHIME : NA_SE_SY_ERROR);
+        CVarSetString(CVAR_GENERAL("ComboDroppedFile"), "");
+        sComboReloadTried = 1;
+    } else if (!sComboReloadTried && !Randomizer_IsSeedGenerated() && !Randomizer_IsSpoilerLoaded()) {
+        sComboReloadTried = 1;
+        SOH_RequestComboReload(NULL);
+    }
+#endif
 
     if (!SpoilerFileExists(CVarGetString(CVAR_GENERAL("SpoilerLog"), "")) &&
         !CVarGetInteger(CVAR_RANDOMIZER_SETTING("DontGenerateSpoiler"), 0)) {
@@ -818,11 +850,24 @@ void FileChoose_UpdateRandomizerMenu(GameState* thisx) {
                 Sfx_PlaySfxCentered(NA_SE_SY_OCARINA_ERROR);
             }
         } else if (this->randomizerIndex == RSM_GENERATE_RANDOMIZER) {
+#ifdef COMBO_BUILD
+            // ComboShip: run the cross-world combo generator (worker thread) instead of OOT's. Sets
+            // RandoGenerating so the loop below swaps to gallop music + shows progress; the finalize
+            // poll applies the result on the main thread.
+            SOH_TriggerComboGenerate();
+#else
             Randomizer_GenerateRandomizer();
+#endif
         } else if (this->randomizerIndex == RSM_OPEN_RANDOMIZER_SETTINGS) {
             Audio_PlaySoundGeneral(NA_SE_SY_FSEL_DECIDE_L, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
                                    &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+#ifdef COMBO_BUILD
+            // ComboShip: open the shared comboui settings menu (combo settings live there, not in
+            // OOT's stock rando ImGui menu).
+            CVarSetInteger("gOpenWindows.Menu", 1);
+#else
             Randomizer_ShowRandomizerMenu();
+#endif
         }
     }
 }
@@ -1841,6 +1886,15 @@ void FileChoose_DrawWindowContents(GameState* thisx) {
         if (generating) {
             Interface_DrawTextLine(this->state.gfxCtx, SohFileSelect_GetSettingText(RSM_GENERATING, language), 70,
                                    (80 + 64), 255, 255, 255, textAlpha, 0.8f, true);
+#ifdef COMBO_BUILD
+            // ComboShip: live combo-generation progress (worker thread keeps the main loop running).
+            {
+                char comboPct[16];
+                snprintf(comboPct, sizeof(comboPct), "%d%%", SOH_GetComboGenPercent());
+                Interface_DrawTextLine(this->state.gfxCtx, comboPct, 70, (80 + 80), 255, 255, 255, textAlpha, 0.8f,
+                                       true);
+            }
+#endif
         }
 
         // If no randomizer is generated and "start randomizer" is selected, show text to explain why user can't start

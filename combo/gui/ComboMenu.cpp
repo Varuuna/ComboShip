@@ -10,20 +10,47 @@
 #include <algorithm>
 #include <cstring>
 #include <cstdio>
+#include <fstream>
+#include <unordered_set>
+#include "rando/CrossForeign.h" // ComboRando::SlotReadPath for the active seed's playthrough
 #ifdef _WIN32
 #include <windows.h>
 #endif
 
 namespace {
-// Generate trigger (soh.dll export); runs synchronously on the calling thread.
-typedef void (*FnTriggerGenerate)(const char*, ComboRando::ComboGenProgress*);
+// soh.dll exports: trigger combo generation (non-blocking; spawns the launcher worker), read the
+// shared progress, and gate generation to the file-select screen.
+typedef void (*FnTriggerGenerate)(void);
+typedef const ComboRando::ComboGenProgress* (*FnGetProgress)(void);
+typedef unsigned char (*FnIsOnFileSelect)(void);
+typedef const char* (*FnGetStr)(void);
+typedef int (*FnGetInt)(void);
 FnTriggerGenerate sTrigger = nullptr;
-FnTriggerGenerate ResolveTrigger() {
+FnGetProgress sGetProgress = nullptr;
+FnIsOnFileSelect sIsOnFileSelect = nullptr;
+FnGetInt sGetFileNum = nullptr;  // SOH_GetActiveFileNum (soh.dll)
+FnGetStr sSohObtained = nullptr; // Combo_SOH_GetObtainedChecks (soh.dll)
+FnGetStr sMmObtained = nullptr;  // Combo_MM_GetObtainedChecks (2ship.dll)
+void ResolveComboGenSyms() {
 #ifdef _WIN32
     HMODULE h = GetModuleHandleA("soh.dll");
-    return h ? (FnTriggerGenerate)GetProcAddress(h, "SOH_TriggerComboGenerate") : nullptr;
-#else
-    return nullptr;
+    if (!h)
+        return;
+    if (!sTrigger)
+        sTrigger = (FnTriggerGenerate)GetProcAddress(h, "SOH_TriggerComboGenerate");
+    if (!sGetProgress)
+        sGetProgress = (FnGetProgress)GetProcAddress(h, "SOH_GetComboGenProgress");
+    if (!sIsOnFileSelect)
+        sIsOnFileSelect = (FnIsOnFileSelect)GetProcAddress(h, "SOH_IsOnFileSelect");
+    if (!sGetFileNum)
+        sGetFileNum = (FnGetInt)GetProcAddress(h, "SOH_GetActiveFileNum");
+    if (!sSohObtained)
+        sSohObtained = (FnGetStr)GetProcAddress(h, "Combo_SOH_GetObtainedChecks");
+    if (!sMmObtained) {
+        HMODULE mm = GetModuleHandleA("2ship.dll");
+        if (mm)
+            sMmObtained = (FnGetStr)GetProcAddress(mm, "Combo_MM_GetObtainedChecks");
+    }
 #endif
 }
 } // namespace
@@ -121,13 +148,20 @@ struct HubEntry {
     }
 };
 
+// ComboShip: tracker sidebars (Item/Entrance/Check Tracker) belong in the per-game Ship/2Ship
+// tabs, not the Shared rando hub. Identified by name across both games (all contain "Tracker").
+static bool IsTrackerSidebar(const char* name) {
+    return name && std::strstr(name, "Tracker") != nullptr;
+}
+
 // Append one entry per sidebar of the game's section whose sectionLabel == wantSection.
 // Skips (no-op) if the game isn't loaded or the section isn't present — defensive.
 // `skip` is a deny-list of sidebar names to omit (e.g. sidebars that are OOT-specific and
-// therefore live only in the Ship of Harkinian tab, not here in Shared).
+// therefore live only in the Ship of Harkinian tab, not here in Shared). `skipTrackers` omits
+// tracker sidebars (they live in the per-game tabs).
 void AppendSectionEntries(std::vector<HubEntry>& out, const char* groupLabel, HubEntry::Kind kind,
                           const ComboRando::GameMenu& game, const char* wantSection,
-                          const std::vector<std::string>& skip = {}) {
+                          const std::vector<std::string>& skip = {}, bool skipTrackers = false) {
     if (!game.loaded || !game.menu)
         return;
     const CwMenu* m = game.menu;
@@ -139,6 +173,8 @@ void AppendSectionEntries(std::vector<HubEntry>& out, const char* groupLabel, Hu
             const CwSidebar& side = sec.sidebars[sb];
             const char* nm = (side.sidebarName && side.sidebarName[0]) ? side.sidebarName : "Section";
             if (std::find(skip.begin(), skip.end(), nm) != skip.end())
+                continue;
+            if (skipTrackers && IsTrackerSidebar(nm))
                 continue;
             HubEntry e;
             e.label = nm;
@@ -175,14 +211,16 @@ void ComboMenu::DrawSharedPanel() {
     }
     {
         std::vector<HubEntry> e;
-        AppendSectionEntries(e, "OOT Randomizer", HubEntry::OOT_RANDO, model.Oot(), "Randomizer");
+        // Trackers live in the Ship of Harkinian tab, not here.
+        AppendSectionEntries(e, "OOT Randomizer", HubEntry::OOT_RANDO, model.Oot(), "Randomizer", {}, true);
         if (!e.empty())
             groups.push_back({ "OOT Randomizer", std::move(e) });
     }
     {
         std::vector<HubEntry> e;
         // Display label "MM Randomizer"; the MM menu's own section name is still "Rando".
-        AppendSectionEntries(e, "MM Randomizer", HubEntry::MM_RANDO, model.Mm(), "Rando");
+        // Trackers live in the 2 Ship 2 Harkinian tab, not here.
+        AppendSectionEntries(e, "MM Randomizer", HubEntry::MM_RANDO, model.Mm(), "Rando", {}, true);
         if (!e.empty())
             groups.push_back({ "MM Randomizer", std::move(e) });
     }
@@ -258,10 +296,11 @@ void ComboMenu::DrawSharedPanel() {
 // with that sidebar's widgets on the right. The game DLLs no longer draw their own tabs.
 //
 // ComboShip presentation filter (combo-owned; the exported CwMenu is UNCHANGED):
-//   Both games' randomizer sections are surfaced in the Shared tab ("OOT Randomizer" / "MM Rando"),
-//   so we drop them from the per-game tabs to avoid duplication: OOT's "Randomizer" and MM's "Rando".
-//   OOT additionally trims "Settings" to its game-specific sidebars ("Mod Menu", "Presets"); the rest
-//   of Settings is shared. MM is otherwise rendered unfiltered.
+//   Both games' randomizer *settings* are surfaced in the Shared tab ("OOT Randomizer" / "MM
+//   Randomizer"). The per-game tabs keep the rando section ("Randomizer" / "Rando") but trim it to
+//   just the tracker sidebars (Item/Entrance/Check Tracker) — the rest of the rando settings stay
+//   in Shared. OOT additionally trims "Settings" to its game-specific sidebars ("Mod Menu",
+//   "Presets"); the rest of Settings is shared. MM is otherwise rendered unfiltered.
 void ComboMenu::DrawGamePanel(const char* gameKey) {
     auto& model = ComboMenuModel::Get();
     model.EnsureLoaded();
@@ -273,29 +312,25 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
     }
     const CwMenu* m = game.menu;
 
-    auto sectionDropped = [&](const char* label) -> bool {
-        if (!label)
-            return false;
-        // Each game's randomizer section lives in the Shared tab; drop it from the per-game tab.
-        return isOot ? strcmp(label, "Randomizer") == 0 : strcmp(label, "Rando") == 0;
-    };
     auto sidebarShown = [&](const char* section, const char* sidebar) -> bool {
         if (isOot && section && strcmp(section, "Settings") == 0) {
             return sidebar && (strcmp(sidebar, "Mod Menu") == 0 || strcmp(sidebar, "Presets") == 0);
         }
+        // The rando section's settings live in the Shared tab; here we surface only its trackers.
+        const char* randoSec = isOot ? "Randomizer" : "Rando";
+        if (section && strcmp(section, randoSec) == 0)
+            return IsTrackerSidebar(sidebar);
         return true;
     };
 
     // (activeHeader, activeSidebar) for this game; persists across frames.
     auto& nav = mGameNav[gameKey];
 
-    // Resolve the active section: prior pick if still present, else the first non-dropped section.
+    // Resolve the active section: prior pick if still present, else the first section.
     const CwSection* activeSec = nullptr;
     const CwSection* firstSec = nullptr;
     for (int s = 0; s < m->sectionCount; ++s) {
         const CwSection& sec = m->sections[s];
-        if (sectionDropped(sec.sectionLabel))
-            continue;
         if (!firstSec)
             firstSec = &sec;
         if (sec.sectionLabel && nav.first == sec.sectionLabel)
@@ -313,8 +348,6 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
     bool firstHdr = true;
     for (int s = 0; s < m->sectionCount; ++s) {
         const CwSection& sec = m->sections[s];
-        if (sectionDropped(sec.sectionLabel))
-            continue;
         if (!firstHdr)
             ImGui::SameLine();
         firstHdr = false;
@@ -374,63 +407,145 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
     ImGui::EndChild();
 }
 void ComboMenu::DrawComboPanel() {
+    ResolveComboGenSyms();
     ImGui::TextWrapped("Generate a cross-world randomizer seed spanning OOT and MM. "
                        "You must Generate before starting a new file.");
     ImGui::Separator();
+
+    // Seed field -> shared CVar the generator reads (same source the native file-select
+    // "Generate a new seed" option uses).
     ImGui::SetNextItemWidth(260.0f);
-    ImGui::InputTextWithHint("Seed", "(blank = random)", mSeedBuf, sizeof(mSeedBuf));
+    if (ImGui::InputTextWithHint("Seed", "(blank = random)", mSeedBuf, sizeof(mSeedBuf))) {
+        CVarSetString("gGeneral.ComboSeed", mSeedBuf);
+    }
     ImGui::SameLine();
 
-    const bool busy = mProgress.running.load();
-    if (busy)
+    const ComboRando::ComboGenProgress* p = sGetProgress ? sGetProgress() : nullptr;
+    const bool running = p && p->running.load();
+    // Generation may only run at the OOT file-select screen, so the worker can't race a live game
+    // tick (the prior off-thread crash class).
+    const bool onFileSelect = sIsOnFileSelect && sIsOnFileSelect();
+    const bool canGenerate = sTrigger && onFileSelect && !running;
+
+    if (!canGenerate)
         ImGui::BeginDisabled();
     if (ImGui::Button("Generate")) {
-        if (!sTrigger)
-            sTrigger = ResolveTrigger();
-        if (sTrigger) {
-            // Arm the one-frame defer: show "Generating…" this frame so the user sees
-            // feedback before the synchronous (blocking) fill runs next frame.
-            mProgress.Reset();
-            mProgress.done.store(false);
-            mProgress.running.store(true);
-            mStatusLine.clear();
-            mGeneratePending = true;
-        } else {
-            mStatusLine = "Generate unavailable (SOH_TriggerComboGenerate not found).";
-        }
+        CVarSetString("gGeneral.ComboSeed", mSeedBuf);
+        sTrigger(); // non-blocking: launcher spawns the worker; the main loop keeps running
     }
-    if (busy)
+    if (!canGenerate)
         ImGui::EndDisabled();
 
-    // One-frame defer: if a generate was requested last frame, fire it now (blocks until done).
-    if (mGeneratePending) {
-        mGeneratePending = false;
-        sTrigger(mSeedBuf, &mProgress); // synchronous — blocks this frame; sets done on return
+    if (!sTrigger) {
+        ImGui::TextUnformatted("Generate unavailable (soh.dll export not found).");
+    } else if (!onFileSelect && !running) {
+        ImGui::TextDisabled("Available on the file-select screen.");
     }
 
-    // Latch the result once the (synchronous) fill finishes. Branch on success, not just done —
-    // a done&&!success covers both real errors and a rejected duplicate, so the UI never hangs.
-    if (mProgress.done.load() && mProgress.running.load()) {
-        if (mProgress.success.load()) {
-            char buf[160];
-            snprintf(buf, sizeof(buf), "Done: seed 0x%X - %d cross-world placements", mProgress.seed.load(),
-                     mProgress.foreignCount.load());
-            mStatusLine = buf;
-        } else {
-            mStatusLine = std::string("Error: ") + mProgress.error;
+    // Live progress + result, polled from the launcher-owned progress each frame.
+    if (p) {
+        if (running) {
+            int placed = p->placed.load();
+            int total = p->total.load();
+            float frac = total > 0 ? (float)placed / (float)total : 0.0f;
+            ImGui::TextUnformatted(ComboGenProgress::PhaseLabel(p->phase.load()));
+            ImGui::ProgressBar(frac, ImVec2(360.0f, 0.0f));
+            ImGui::Text("%d / %d", placed, total);
+        } else if (p->done.load()) {
+            if (p->success.load()) {
+                // Show the reproducible seed token (the input string, not the internal masterSeed
+                // hash). Paste it into the Seed field + same settings to reproduce — shareable
+                // without sharing a save file.
+                ImGui::Text("Seed: %s", p->seedStr);
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Copy")) {
+                    ImGui::SetClipboardText(p->seedStr);
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Reuse")) {
+                    std::strncpy(mSeedBuf, p->seedStr, sizeof(mSeedBuf) - 1);
+                    mSeedBuf[sizeof(mSeedBuf) - 1] = '\0';
+                    CVarSetString("gGeneral.ComboSeed", mSeedBuf);
+                }
+                ImGui::Text("OOT checks: %d", p->ootCheckCount.load());
+                ImGui::Text("MM checks: %d", p->mmCheckCount.load());
+                ImGui::Text("Cross-game placements: %d", p->foreignCount.load());
+            } else {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Error: %s", p->error);
+            }
         }
-        mProgress.running.store(false);
     }
 
-    if (mProgress.running.load()) {
-        int placed = mProgress.placed.load();
-        int total = mProgress.total.load();
-        float frac = total > 0 ? (float)placed / (float)total : 0.0f;
-        ImGui::TextUnformatted(ComboGenProgress::PhaseLabel(mProgress.phase.load()));
-        ImGui::ProgressBar(frac, ImVec2(360.0f, 0.0f));
-        ImGui::Text("%d / %d", placed, total);
-    } else if (!mStatusLine.empty()) {
-        ImGui::TextUnformatted(mStatusLine.c_str());
+    DrawHintSection();
+}
+
+// ComboShip: sphere "Get a hint" helper. When a combo save is active, loads that seed's playthrough
+// from its per-slot consolidated file and, comparing against the checks obtained in BOTH games,
+// reveals the next not-yet-collected step's location (one more per click). Low-spoiler: location only.
+void ComboMenu::DrawHintSection() {
+    int fn = sGetFileNum ? sGetFileNum() : -1;
+    if (fn < 0)
+        return; // no save loaded — hints are an in-game helper
+
+    // (Re)load the active seed's playthrough when the slot changes.
+    if (fn != mHintFileNum) {
+        mHintFileNum = fn;
+        mHintsRevealed = 0;
+        mHintSteps.clear();
+        try {
+            auto path = ComboRando::SlotReadPath(fn);
+            if (!path.empty()) {
+                std::ifstream in(path);
+                nlohmann::json j;
+                in >> j;
+                for (auto& sph : j.value("playthrough", nlohmann::json::array()))
+                    for (auto& st : sph.value("steps", nlohmann::json::array()))
+                        mHintSteps.emplace_back(st.value("game", std::string()), st.value("check", std::string()));
+            }
+        } catch (...) {}
+    }
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Sphere Hints");
+    if (mHintSteps.empty()) {
+        ImGui::TextDisabled("No playthrough available for this seed.");
+        return;
+    }
+
+    // Obtained checks across BOTH games (active live + dormant from in-RAM save state).
+    std::unordered_set<std::string> obtained;
+    auto addFrom = [&](FnGetStr fn2) {
+        if (!fn2)
+            return;
+        try {
+            for (auto& n : nlohmann::json::parse(fn2()))
+                obtained.insert(n.get<std::string>());
+        } catch (...) {}
+    };
+    addFrom(sSohObtained);
+    addFrom(sMmObtained);
+
+    // Not-yet-collected steps, in playthrough (sphere) order.
+    std::vector<const std::pair<std::string, std::string>*> uncollected;
+    for (const auto& s : mHintSteps)
+        if (!obtained.count(s.second))
+            uncollected.push_back(&s);
+
+    if (uncollected.empty()) {
+        ImGui::TextDisabled("All playthrough checks collected.");
+        return;
+    }
+
+    if (ImGui::Button("Get a hint") && mHintsRevealed < (int)uncollected.size())
+        mHintsRevealed++;
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Reset hints"))
+        mHintsRevealed = 0;
+
+    int show = mHintsRevealed > (int)uncollected.size() ? (int)uncollected.size() : mHintsRevealed;
+    for (int i = 0; i < show; ++i) {
+        const auto& s = *uncollected[i];
+        ImGui::BulletText("[%s] %s", s.first == "oot" ? "OOT" : "MM", s.second.c_str());
     }
 }
 

@@ -16,13 +16,15 @@ struct VolMap {
     const char* ootCVar;
     const char* mmCVar;
     int seqPlayer;
+    int defaultPct; // OOT slider default — must match SohMenuSettings.cpp so an untouched slider isn't
+                    // read as 0 (which would silence MM). Master 40, the rest 100.
 };
 const VolMap kMap[] = {
-    { "gSettings.Volume.Master", "gSettings.Audio.MasterVolume", -1 },
-    { "gSettings.Volume.MainMusic", "gSettings.Audio.MainMusicVolume", 0 },     // SEQ_PLAYER_BGM_MAIN
-    { "gSettings.Volume.SubMusic", "gSettings.Audio.SubMusicVolume", 3 },       // SEQ_PLAYER_BGM_SUB
-    { "gSettings.Volume.SFX", "gSettings.Audio.SoundEffectsVolume", 2 },        // SEQ_PLAYER_SFX
-    { "gSettings.Volume.Fanfare", "gSettings.Audio.FanfareVolume", 1 },         // SEQ_PLAYER_FANFARE
+    { "gSettings.Volume.Master", "gSettings.Audio.MasterVolume", -1, 40 },
+    { "gSettings.Volume.MainMusic", "gSettings.Audio.MainMusicVolume", 0, 100 }, // SEQ_PLAYER_BGM_MAIN
+    { "gSettings.Volume.SubMusic", "gSettings.Audio.SubMusicVolume", 3, 100 },   // SEQ_PLAYER_BGM_SUB
+    { "gSettings.Volume.SFX", "gSettings.Audio.SoundEffectsVolume", 2, 100 },    // SEQ_PLAYER_SFX
+    { "gSettings.Volume.Fanfare", "gSettings.Audio.FanfareVolume", 1, 100 },     // SEQ_PLAYER_FANFARE
 };
 
 // Resolved once from 2ship.dll. MM applies per-port volume via AudioSeq_SetPortVolumeScale, exposed
@@ -48,7 +50,7 @@ Fn_ApplyAudioVolume ResolveApply() {
 // foreground game (a live slider while playing OOT just updates the CVar — SyncAllToMM re-applies it
 // on the next MM entry).
 void MirrorRow(const VolMap& m, bool forceApply) {
-    int vi = CVarGetInteger(m.ootCVar, 0);
+    int vi = CVarGetInteger(m.ootCVar, m.defaultPct);
     float f = vi / 100.0f;
     f = f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
     CVarSetFloat(m.mmCVar, f);

@@ -1148,6 +1148,9 @@ MM's identically-named dev windows were dropped (OOT boots first). (c) Dev-tool 
   window's `DrawElement()` inline (skipped when popped out, so no double-draw); live-world viewers
   (Actor/Collision/Message/DL/Event Log) gate on `Combo_MmIsForeground()` so they don't read MM's
   dormant/swapped play state when the MM tab is opened while OOT is foreground.
+- `soh/soh/SohGui/SohMenuDevTools.cpp` + `OTRGlobals.cpp` — the same inline `WIDGET_CUSTOM` treatment for
+  OOT's dev tools, gating live viewers on `Combo_OotIsForeground()`. Both `Combo_*IsForeground` helpers
+  resolve comboui's `ComboUI_GetForegroundGame` once.
 - `mm/2s2h/BenPort.cpp` — exports `MM_ApplyAudioVolume(seqPlayer, vol)` (→ `AudioSeq_SetPortVolumeScale`,
   the apply path MM uses instead of ShipInit) and `MM_ReloadControls()` (reloads MM's ControlDeck ports
   from the shared `gSettings.Controllers.*` CVars); `Combo_MmIsForeground()` queries comboui's
@@ -1162,6 +1165,8 @@ MM's identically-named dev windows were dropped (OOT boots first). (c) Dev-tool 
   existing `ComboUI_OnForegroundGame` callback; expose `ComboUI::GetForegroundGame()` (C++) and
   `ComboUI_GetForegroundGame()` (C ABI, for MM's gating). On MM entry the callback also runs
   `ComboAudio::SyncAllToMM()` + `MM_ReloadControls` so changes made while MM was dormant take effect.
-- `combo/gui/ComboMenu.cpp` — the per-game tab sidebar filter now also hides MM's Graphics/Audio/Controls
-  (they live only in Shared). **On future merges:** if MM's audio CVar names/scale change, update
-  `kMap` in `ComboAudioBridge.cpp`.
+- `combo/gui/ComboMenu.cpp` — the per-game tab sidebar filter now also hides MM's
+  Graphics/Audio/Controls/General (they live only in Shared, on shared CVars). **On future merges:** if
+  MM's audio CVar names/scale change, update `kMap` in `ComboAudioBridge.cpp` (note: the OOT `Volume.*`
+  defaults — Master 40, rest 100 — are duplicated in `kMap`'s `defaultPct` and must match
+  SohMenuSettings.cpp, else an untouched slider reads as 0 and silences MM).

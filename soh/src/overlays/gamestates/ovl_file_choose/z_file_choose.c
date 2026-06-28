@@ -392,6 +392,23 @@ void FileChoose_UpdateRandomizer() {
         return;
     }
 
+#ifdef COMBO_BUILD
+    // ComboShip: load a remembered or dropped combo seed so "Start Randomizer" works without
+    // regenerating. A dropped combo spoiler (flagged by Rando_HandleSpoilerDrop) takes priority and
+    // overrides the remembered pending seed; otherwise, on the first frame with nothing loaded, reload
+    // the remembered pending seed (no-op if none).
+    static u8 sComboReloadTried = 0;
+    const char* comboDrop = CVarGetString(CVAR_GENERAL("ComboDroppedFile"), "");
+    if (!Ship_IsCStringEmpty(comboDrop)) {
+        Sfx_PlaySfxCentered(SOH_RequestComboReload(comboDrop) ? NA_SE_SY_CORRECT_CHIME : NA_SE_SY_ERROR);
+        CVarSetString(CVAR_GENERAL("ComboDroppedFile"), "");
+        sComboReloadTried = 1;
+    } else if (!sComboReloadTried && !Randomizer_IsSeedGenerated() && !Randomizer_IsSpoilerLoaded()) {
+        sComboReloadTried = 1;
+        SOH_RequestComboReload(NULL);
+    }
+#endif
+
     if (!SpoilerFileExists(CVarGetString(CVAR_GENERAL("SpoilerLog"), "")) &&
         !CVarGetInteger(CVAR_RANDOMIZER_SETTING("DontGenerateSpoiler"), 0)) {
         CVarSetString(CVAR_GENERAL("SpoilerLog"), "");

@@ -2835,6 +2835,34 @@ extern "C" __declspec(dllexport) void MM_GetExtractionProgress(unsigned long lon
 // CVars actually shuffle are emitted, so the cross-world fill sees the same pool MM's own generator
 // would. Recomputes every call since the result depends on live CVar state. Caller MUST invoke this
 // after SOH_Init() returns (so the shared Context, logger, and CVars exist).
+// ComboShip: snapshot every MM rando option as {cvar: value} for the consolidated spoiler, so a
+// dropped/reloaded seed reproduces MM's settings on any machine (MM options are CVar-backed;
+// MM_InitRandoSaveFile reads these CVars, so MM_RestoreRandoSettings writes them back before save
+// creation). Mirrors the option walk MM_DumpRandoStaticData uses.
+extern "C" __declspec(dllexport) const char* MM_DumpRandoSettings(void) {
+    static std::string cached;
+    nlohmann::json j = nlohmann::json::object();
+    for (auto& [id, opt] : Rando::StaticData::Options) {
+        if (opt.cvar && opt.cvar[0])
+            j[opt.cvar] = (int)CVarGetInteger(opt.cvar, opt.defaultValue);
+    }
+    cached = j.dump();
+    return cached.c_str();
+}
+
+// ComboShip: restore MM rando settings from a {cvar:value} snapshot. The reload/drop path calls this
+// BEFORE MM_InitRandoSaveFile (which reads these CVars), so a dropped seed builds its MM save with the
+// author's settings rather than the local ones.
+extern "C" __declspec(dllexport) void MM_RestoreRandoSettings(const char* json) {
+    if (!json)
+        return;
+    try {
+        auto j = nlohmann::json::parse(json);
+        for (auto it = j.begin(); it != j.end(); ++it)
+            CVarSetInteger(it.key().c_str(), it.value().get<int>());
+    } catch (...) {}
+}
+
 extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     static std::string cached;
 
@@ -3355,6 +3383,19 @@ static const std::unordered_map<std::string, RandoCheckId>& Combo_MM_CheckNameTo
         return m;
     }();
     return map;
+}
+
+// ComboShip: JSON array of MM rando checks the player has obtained, for the sphere-hint system.
+// Reads RANDO_SAVE_CHECKS (in the MM save); safe to call while MM is dormant.
+extern "C" __declspec(dllexport) const char* Combo_MM_GetObtainedChecks(void) {
+    static std::string cached;
+    nlohmann::json out = nlohmann::json::array();
+    for (const auto& [name, id] : Combo_MM_CheckNameToCheckId()) {
+        if (RANDO_SAVE_CHECKS[id].obtained)
+            out.push_back(name);
+    }
+    cached = out.dump();
+    return cached.c_str();
 }
 
 extern "C" __declspec(dllexport) void Combo_MM_Rando_SetOwnedItems(const char* itemNamesJson) {

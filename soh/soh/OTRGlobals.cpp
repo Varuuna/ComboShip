@@ -3105,6 +3105,50 @@ extern "C" __declspec(dllexport) void SOH_SetComboRandoSeed(uint64_t seed) {
 }
 #endif
 
+// ComboShip: snapshot every OOT rando option as {cvarName: value}. The combo orchestrator stores
+// this in the consolidated spoiler so a dropped/reloaded seed reproduces the exact settings on any
+// machine (OOT options are CVar-backed; SOH_RestoreRandoSettings writes them back).
+extern "C" __declspec(dllexport) const char* SOH_DumpRandoSettings(void) {
+    static std::string cached;
+    nlohmann::json j = nlohmann::json::object();
+    for (const auto& opt : Rando::Settings::GetInstance()->GetAllOptions()) {
+        const std::string& cv = opt.GetCVarName();
+        if (!cv.empty())
+            j[cv] = static_cast<int>(opt.GetOptionIndex());
+    }
+    cached = j.dump();
+    return cached.c_str();
+}
+
+// ComboShip: restore OOT rando settings from a {cvarName:value} snapshot (written by
+// SOH_DumpRandoSettings into the consolidated spoiler). Used by the reload/drop path so a seed plays
+// with its own settings; SOH_PrepRandoContext then pushes them into the Context via SetAllToContext.
+extern "C" __declspec(dllexport) void SOH_RestoreRandoSettings(const char* json) {
+    if (!json)
+        return;
+    try {
+        auto j = nlohmann::json::parse(json);
+        for (auto it = j.begin(); it != j.end(); ++it)
+            CVarSetInteger(it.key().c_str(), it.value().get<int>());
+    } catch (...) {}
+}
+
+// ComboShip: the settings-scoped pool prep that SOH_ApplyRandoPlacements depends on (ItemReset
+// iterates allLocations). On generation this runs inside SOH_DumpRandoStaticData; the reload/drop
+// path (which skips the fill) must run it explicitly before applying saved placements.
+extern "C" __declspec(dllexport) void SOH_PrepRandoContext(void) {
+    try {
+        auto ctx = OTRGlobals::Instance->gRandoContext;
+        Rando::Settings::GetInstance()->SetAllToContext();
+        ctx->GetLogic()->Reset();
+        ctx->FinalizeSettings({}, {});
+        RegionTable_Init();
+        ctx->GenerateLocationPool();
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[ComboShip] SOH_PrepRandoContext: {}", e.what());
+    } catch (...) {}
+}
+
 // ComboShip: coherent OOT rando dump for the combo generator. Runs the headless prep sequence
 // (GetLogic()->Reset, FinalizeSettings, RegionTable_Init, GenerateLocationPool) so ctx->allLocations
 // holds the real shuffled-check set for the current settings, then dumps those checks + their vanilla
@@ -3121,16 +3165,10 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
     try {
         auto ctx = OTRGlobals::Instance->gRandoContext;
 
-        // Headless prep: reset logic state, finalize current settings, build region tables,
-        // then fill allLocations with only the checks the current settings shuffle.
-        // ComboShip: copy the player's chosen CVar settings into the Context FIRST (mirrors
-        // GenerateRandomizer), so the scoped pool, the fill's reachability, and the later
-        // Randomizer_InitSaveFile all honor the menu choices.
-        Rando::Settings::GetInstance()->SetAllToContext();
-        ctx->GetLogic()->Reset();
-        ctx->FinalizeSettings({}, {});
-        RegionTable_Init();
-        ctx->GenerateLocationPool();
+        // Headless prep (settings -> context, reset, region tables, settings-scoped pool). Shared
+        // with the reload/drop path via SOH_PrepRandoContext so allLocations holds only the checks
+        // the current settings shuffle, honoring the menu choices.
+        SOH_PrepRandoContext();
 
 #ifdef COMBO_BUILD
         // ComboShip: a non-shuffled shop slot holds a vanilla RG_BUY_* item (placed by
@@ -3389,6 +3427,44 @@ extern "C" __declspec(dllexport) void SOH_SetOnComboFinalizeCallback(int (*cb)()
 // main-thread apply; returns nonzero once generation is fully resolved (finalized or failed).
 extern "C" __declspec(dllexport) int SOH_PollComboFinalize(void) {
     return gComboFinalizeCallback ? gComboFinalizeCallback() : 1;
+}
+
+// ComboShip: reload a consolidated seed file so it's playable without regenerating (remember-seed +
+// drag-drop). The launcher does the work on the calling (main) thread; path null/empty = the
+// remembered pending file. Returns 1 if a seed was loaded.
+static int (*gComboReloadCallback)(const char*) = nullptr;
+extern "C" __declspec(dllexport) void SOH_SetOnComboReloadCallback(int (*cb)(const char*)) {
+    gComboReloadCallback = cb;
+}
+extern "C" __declspec(dllexport) int SOH_RequestComboReload(const char* path) {
+    return gComboReloadCallback ? gComboReloadCallback(path) : 0;
+}
+
+// ComboShip: the active save slot (combo seed key), or -1 if none. Used by the comboui hint system to
+// find the loaded seed's per-slot consolidated file.
+extern "C" __declspec(dllexport) int SOH_GetActiveFileNum(void) {
+    return (gSaveContext.fileNum == 0xFF) ? -1 : (int)gSaveContext.fileNum;
+}
+
+// ComboShip: JSON array of OOT rando checks the player has obtained, for the sphere-hint system
+// (which step is "done"). Reads the live rando Context; safe to call while OOT is dormant.
+extern "C" __declspec(dllexport) const char* Combo_SOH_GetObtainedChecks(void) {
+    static std::string cached;
+    nlohmann::json out = nlohmann::json::array();
+    auto ctx = OTRGlobals::Instance->gRandoContext;
+    if (ctx) {
+        for (int i = 0; i < RC_MAX; ++i) {
+            RandomizerCheck rc = static_cast<RandomizerCheck>(i);
+            Rando::ItemLocation* loc = ctx->GetItemLocation(rc);
+            if (loc && loc->HasObtained()) {
+                Rando::Location* sl = Rando::StaticData::GetLocation(rc);
+                if (sl && !sl->GetName().empty())
+                    out.push_back(sl->GetName());
+            }
+        }
+    }
+    cached = out.dump();
+    return cached.c_str();
 }
 
 // Trigger combo generation. Gated on RandoGenerating so a second press during generation is a no-op;

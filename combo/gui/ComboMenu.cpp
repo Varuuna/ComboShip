@@ -10,6 +10,9 @@
 #include <algorithm>
 #include <cstring>
 #include <cstdio>
+#include <fstream>
+#include <unordered_set>
+#include "rando/CrossForeign.h" // ComboRando::SlotReadPath for the active seed's playthrough
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -20,9 +23,14 @@ namespace {
 typedef void (*FnTriggerGenerate)(void);
 typedef const ComboRando::ComboGenProgress* (*FnGetProgress)(void);
 typedef unsigned char (*FnIsOnFileSelect)(void);
+typedef const char* (*FnGetStr)(void);
+typedef int (*FnGetInt)(void);
 FnTriggerGenerate sTrigger = nullptr;
 FnGetProgress sGetProgress = nullptr;
 FnIsOnFileSelect sIsOnFileSelect = nullptr;
+FnGetInt sGetFileNum = nullptr;     // SOH_GetActiveFileNum (soh.dll)
+FnGetStr sSohObtained = nullptr;    // Combo_SOH_GetObtainedChecks (soh.dll)
+FnGetStr sMmObtained = nullptr;     // Combo_MM_GetObtainedChecks (2ship.dll)
 void ResolveComboGenSyms() {
 #ifdef _WIN32
     HMODULE h = GetModuleHandleA("soh.dll");
@@ -34,6 +42,15 @@ void ResolveComboGenSyms() {
         sGetProgress = (FnGetProgress)GetProcAddress(h, "SOH_GetComboGenProgress");
     if (!sIsOnFileSelect)
         sIsOnFileSelect = (FnIsOnFileSelect)GetProcAddress(h, "SOH_IsOnFileSelect");
+    if (!sGetFileNum)
+        sGetFileNum = (FnGetInt)GetProcAddress(h, "SOH_GetActiveFileNum");
+    if (!sSohObtained)
+        sSohObtained = (FnGetStr)GetProcAddress(h, "Combo_SOH_GetObtainedChecks");
+    if (!sMmObtained) {
+        HMODULE mm = GetModuleHandleA("2ship.dll");
+        if (mm)
+            sMmObtained = (FnGetStr)GetProcAddress(mm, "Combo_MM_GetObtainedChecks");
+    }
 #endif
 }
 } // namespace
@@ -457,6 +474,78 @@ void ComboMenu::DrawComboPanel() {
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Error: %s", p->error);
             }
         }
+    }
+
+    DrawHintSection();
+}
+
+// ComboShip: sphere "Get a hint" helper. When a combo save is active, loads that seed's playthrough
+// from its per-slot consolidated file and, comparing against the checks obtained in BOTH games,
+// reveals the next not-yet-collected step's location (one more per click). Low-spoiler: location only.
+void ComboMenu::DrawHintSection() {
+    int fn = sGetFileNum ? sGetFileNum() : -1;
+    if (fn < 0)
+        return; // no save loaded — hints are an in-game helper
+
+    // (Re)load the active seed's playthrough when the slot changes.
+    if (fn != mHintFileNum) {
+        mHintFileNum = fn;
+        mHintsRevealed = 0;
+        mHintSteps.clear();
+        try {
+            auto path = ComboRando::SlotReadPath(fn);
+            if (!path.empty()) {
+                std::ifstream in(path);
+                nlohmann::json j;
+                in >> j;
+                for (auto& sph : j.value("playthrough", nlohmann::json::array()))
+                    for (auto& st : sph.value("steps", nlohmann::json::array()))
+                        mHintSteps.emplace_back(st.value("game", std::string()), st.value("check", std::string()));
+            }
+        } catch (...) {}
+    }
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Sphere Hints");
+    if (mHintSteps.empty()) {
+        ImGui::TextDisabled("No playthrough available for this seed.");
+        return;
+    }
+
+    // Obtained checks across BOTH games (active live + dormant from in-RAM save state).
+    std::unordered_set<std::string> obtained;
+    auto addFrom = [&](FnGetStr fn2) {
+        if (!fn2)
+            return;
+        try {
+            for (auto& n : nlohmann::json::parse(fn2()))
+                obtained.insert(n.get<std::string>());
+        } catch (...) {}
+    };
+    addFrom(sSohObtained);
+    addFrom(sMmObtained);
+
+    // Not-yet-collected steps, in playthrough (sphere) order.
+    std::vector<const std::pair<std::string, std::string>*> uncollected;
+    for (const auto& s : mHintSteps)
+        if (!obtained.count(s.second))
+            uncollected.push_back(&s);
+
+    if (uncollected.empty()) {
+        ImGui::TextDisabled("All playthrough checks collected.");
+        return;
+    }
+
+    if (ImGui::Button("Get a hint") && mHintsRevealed < (int)uncollected.size())
+        mHintsRevealed++;
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Reset hints"))
+        mHintsRevealed = 0;
+
+    int show = mHintsRevealed > (int)uncollected.size() ? (int)uncollected.size() : mHintsRevealed;
+    for (int i = 0; i < show; ++i) {
+        const auto& s = *uncollected[i];
+        ImGui::BulletText("[%s] %s", s.first == "oot" ? "OOT" : "MM", s.second.c_str());
     }
 }
 

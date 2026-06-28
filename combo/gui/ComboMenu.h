@@ -6,6 +6,7 @@
 #include <string>
 #include <map>
 #include <utility>
+#include <vector>
 #include "gui/ComboGenProgress.h"
 
 namespace ComboRando {
@@ -31,8 +32,14 @@ class ComboMenu final : public Ship::GuiWindow {
     void DrawSharedPanel();                  // left-panel hub: engine + OOT Rando + MM Rando + Combo
     void DrawGamePanel(const char* gameKey); // renders from the C-ABI model (ComboMenuModel + RenderWidget)
     void DrawComboPanel();                   // cross-world Generate (seed + button + progress)
+    void DrawHintSection();                  // sphere "Get a hint" helper, when a seed save is active
 
     char mSeedBuf[128] = { 0 };
+    // Sphere-hint state: the active seed's playthrough (game, checkName) in sphere order, cached by
+    // save slot; mHintsRevealed = how many of the not-yet-collected steps the player has revealed.
+    int mHintFileNum = -1;
+    int mHintsRevealed = 0;
+    std::vector<std::pair<std::string, std::string>> mHintSteps;
     ComboGenProgress mProgress; // worker (in the exe) writes; this polls. Pointer handed across DLL.
     std::string mStatusLine;
     bool mGeneratePending = false; // one-frame defer: show "Generating…" before blocking fill

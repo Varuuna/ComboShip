@@ -1091,3 +1091,31 @@ single `ComboGenProgress` and shares a read-only pointer with soh.
 **On future merges:** if upstream restructures the file-select randomizer menu (`RSM_*` actions) or
 `FileChoose_UpdateRandomizer`, re-apply the two action repoints + the finalize poll. If `GameState`'s
 `main` field or `FileChoose_Main` moves, re-check `SOH_IsOnFileSelect`.
+
+## Consolidated combo spoiler: share/drop + remember-seed + sphere hints (2026-06-28)
+
+**Why:** combo generation scattered per-seed data (`slot{N}.foreign.json`, `slot0.playthrough.txt`)
+and kept the result only in memory — no sharing, no remembering, regenerate every session. Now one
+consolidated `Randomizer/save{N}-Randomizer-<hash>.json` (+ a `Randomizer/Last-Generated-Randomizer.json`
+pending file) holds everything (both games' settings, placements, foreign map, structured playthrough,
+hash); it's the runtime foreign source, the remembered seed, the shareable drag-drop artifact, and the
+hint data. Mostly combo-owned (`combo/ComboShip.cpp`, `combo/rando/CrossForeign.h`,
+`combo/gui/ComboMenu.*`, `ComboGenProgress.h`). Vendored deviations:
+
+- **`soh` `OTRGlobals.cpp`/`.h`** — new combo exports: `SOH_DumpRandoSettings`/`SOH_RestoreRandoSettings`
+  (CVar-block snapshot/restore so a dropped seed reproduces cross-machine), `SOH_PrepRandoContext`
+  (refactored out of `SOH_DumpRandoStaticData`'s prep so reload/drop can build the settings-scoped pool
+  before re-applying placements — the dump now calls it), `SOH_RequestComboReload`/
+  `SOH_SetOnComboReloadCallback` (launcher reload seam), `SOH_GetActiveFileNum`, and
+  `Combo_SOH_GetObtainedChecks` (hint state).
+- **`soh` `randomizer.cpp`** — `Rando_HandleSpoilerDrop` also accepts `fileType=="ComboShipRandomizer"`
+  (sets `CVAR_GENERAL("ComboDroppedFile")`); the SoH spoiler path is unchanged.
+- **`soh` `z_file_choose.c`** (`COMBO_BUILD`) — `FileChoose_UpdateRandomizer` reloads a dropped combo
+  file (priority) or the remembered pending seed (first frame) via `SOH_RequestComboReload`.
+- **`mm` `BenPort.cpp`** — `MM_DumpRandoSettings`/`MM_RestoreRandoSettings` (MM options are CVar-backed;
+  restore runs before `MM_InitRandoSaveFile`) and `Combo_MM_GetObtainedChecks` (hint state).
+
+**On future merges:** the apply/prep must stay main-thread (the worker only computes). If upstream
+changes the rando settings/option CVar scheme, re-check the dump/restore. If the spoiler-drop handler
+or `FileChoose_UpdateRandomizer` is restructured, re-apply the combo `fileType` accept + the reload
+routing.

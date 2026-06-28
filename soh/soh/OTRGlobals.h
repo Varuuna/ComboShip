@@ -131,6 +131,8 @@ void SOH_TriggerComboGenerate(void);
 int SOH_PollComboFinalize(void);
 int SOH_GetComboGenPercent(void);
 uint8_t SOH_IsOnFileSelect(void);
+// Reload a consolidated seed file (null/empty path = the remembered pending file). Returns 1 if loaded.
+int SOH_RequestComboReload(const char* path);
 GetItemEntry ItemTable_Retrieve(int16_t getItemID);
 GetItemEntry ItemTable_RetrieveEntry(s16 modIndex, s16 getItemID);
 void EntranceTracker_SetCurrentGrottoID(s16 entranceIndex);

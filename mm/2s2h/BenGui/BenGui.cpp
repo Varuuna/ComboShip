@@ -38,11 +38,13 @@
 
 // ComboShip: in the combo build, OOT (soh) registers identically-named tracker windows FIRST into
 // the single shared libultraship Gui. Gui::AddGuiWindow keys by display name and rejects duplicates,
-// so MM's "Check Tracker"/"Item Tracker"(+Settings) would be silently dropped and never drawn.
-// Suffix MM's window keys with "##MM": ImGui shows only the text before "##", so the visible title
-// stays "Check Tracker", but the map key (and ImGui window ID) is unique and both games coexist.
-// The popout WindowName() references in 2s2h/Rando/Menu.cpp use the same suffix. The active-game
-// gating in combo/gui/ComboTrackerVisibility.cpp ensures the two games' trackers never draw at once.
+// so any MM window whose name matches an OOT one (trackers, plus dev tools like "Save Editor",
+// "Actor Viewer", "Audio Editor", "Mod Menu", "Input Viewer"...) would be silently dropped and never
+// drawn — that is why MM's "Save Editor" used to show OOT's. Suffix MM's window keys with "##MM":
+// ImGui shows only the text before "##", so the visible title stays "Save Editor", but the map key
+// (and ImGui window ID) is unique and both games coexist. The popout WindowName() references in
+// BenMenu.cpp / 2s2h/Rando/Menu.cpp use the same suffix. The active-game gating in
+// combo/gui/ComboTrackerVisibility.cpp ensures the two games' trackers never draw at once.
 // See docs/UPSTREAM_MERGES.md.
 #ifdef COMBO_BUILD
 #define COMBO_MM_TRACKER_SUFFIX "##MM"
@@ -154,11 +156,12 @@ void SetupGuiElements() {
         SPDLOG_ERROR("Could not find input editor window");
     }
 
-    mHookDebuggerWindow =
-        std::make_shared<HookDebuggerWindow>("gWindows.HookDebugger", "Hook Debugger", ImVec2(480, 600));
+    mHookDebuggerWindow = std::make_shared<HookDebuggerWindow>(
+        "gWindows.HookDebugger", "Hook Debugger" COMBO_MM_TRACKER_SUFFIX, ImVec2(480, 600));
     gui->AddGuiWindow(mHookDebuggerWindow);
 
-    mSaveEditorWindow = std::make_shared<SaveEditorWindow>("gWindows.SaveEditor", "Save Editor", ImVec2(480, 600));
+    mSaveEditorWindow = std::make_shared<SaveEditorWindow>("gWindows.SaveEditor", "Save Editor" COMBO_MM_TRACKER_SUFFIX,
+                                                           ImVec2(480, 600));
     gui->AddGuiWindow(mSaveEditorWindow);
 
     mHudEditorWindow = std::make_shared<HudEditorWindow>("gWindows.HudEditor", "HUD Editor", ImVec2(480, 600));
@@ -168,11 +171,12 @@ void SetupGuiElements() {
         std::make_shared<CosmeticEditorWindow>("gWindows.CosmeticEditor", "Cosmetic Editor", ImVec2(480, 600));
     gui->AddGuiWindow(mCosmeticEditorWindow);
 
-    mActorViewerWindow = std::make_shared<ActorViewerWindow>("gWindows.ActorViewer", "Actor Viewer", ImVec2(520, 600));
+    mActorViewerWindow = std::make_shared<ActorViewerWindow>("gWindows.ActorViewer",
+                                                             "Actor Viewer" COMBO_MM_TRACKER_SUFFIX, ImVec2(520, 600));
     gui->AddGuiWindow(mActorViewerWindow);
 
-    mCollisionViewerWindow =
-        std::make_shared<CollisionViewerWindow>("gWindows.CollisionViewer", "Collision Viewer", ImVec2(390, 475));
+    mCollisionViewerWindow = std::make_shared<CollisionViewerWindow>(
+        "gWindows.CollisionViewer", "Collision Viewer" COMBO_MM_TRACKER_SUFFIX, ImVec2(390, 475));
     gui->AddGuiWindow(mCollisionViewerWindow);
 
     mEventLogWindow = std::make_shared<EventLogWindow>("gWindows.EventLog", "Event Log", ImVec2(520, 600));
@@ -180,14 +184,16 @@ void SetupGuiElements() {
 
     mDLViewerWindow = std::make_shared<DLViewerWindow>("gWindows.DLViewer", "DL Viewer", ImVec2(520, 600));
     gui->AddGuiWindow(mDLViewerWindow);
-    mMessageViewerWindow =
-        std::make_shared<MessageViewerWindow>("gWindows.MessageViewer", "Message Viewer", ImVec2(520, 600));
+    mMessageViewerWindow = std::make_shared<MessageViewerWindow>(
+        "gWindows.MessageViewer", "Message Viewer" COMBO_MM_TRACKER_SUFFIX, ImVec2(520, 600));
     gui->AddGuiWindow(mMessageViewerWindow);
 
-    mAudioEditorWindow = std::make_shared<AudioEditor>("gWindows.AudioEditor", "Audio Editor", ImVec2(520, 600));
+    mAudioEditorWindow =
+        std::make_shared<AudioEditor>("gWindows.AudioEditor", "Audio Editor" COMBO_MM_TRACKER_SUFFIX, ImVec2(520, 600));
     gui->AddGuiWindow(mAudioEditorWindow);
 
-    mModMenuWindow = std::make_shared<ModMenuWindow>("gWindows.ModMenu", "Mod Menu", ImVec2(820, 630));
+    mModMenuWindow =
+        std::make_shared<ModMenuWindow>("gWindows.ModMenu", "Mod Menu" COMBO_MM_TRACKER_SUFFIX, ImVec2(820, 630));
     gui->AddGuiWindow(mModMenuWindow);
 
     mItemTrackerWindow =
@@ -225,10 +231,10 @@ void SetupGuiElements() {
         "gWindows.CheckTrackerSettings", "Check Tracker Settings" COMBO_MM_TRACKER_SUFFIX);
     gui->AddGuiWindow(mRandoCheckTrackerSettingsWindow);
 
-    mInputViewer = std::make_shared<InputViewer>("gWindows.InputViewer", "Input Viewer");
+    mInputViewer = std::make_shared<InputViewer>("gWindows.InputViewer", "Input Viewer" COMBO_MM_TRACKER_SUFFIX);
     gui->AddGuiWindow(mInputViewer);
-    mInputViewerSettings = std::make_shared<InputViewerSettingsWindow>("gWindows.InputViewerSettings",
-                                                                       "Input Viewer Settings", ImVec2(500, 525));
+    mInputViewerSettings = std::make_shared<InputViewerSettingsWindow>(
+        "gWindows.InputViewerSettings", "Input Viewer Settings" COMBO_MM_TRACKER_SUFFIX, ImVec2(500, 525));
     gui->AddGuiWindow(mInputViewerSettings);
 }
 

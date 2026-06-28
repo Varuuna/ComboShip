@@ -1128,3 +1128,40 @@ until the next `ShipInit::InitAll` (game boot / new save). New exports `SOH_Menu
 `MM_MenuApplyCVarChange` (OTRGlobals.cpp / BenPort.cpp) run `ShipInit::Init(cvar)`; the comboui menu
 model + `ComboWidgetRender` call them after each change. Fixes #27. **On future merges:** if the
 native UIWidgets stop using `ShipInit::Init`-on-change, revisit.
+
+## Shared-settings consolidation + dev-tool window fixes (issue #22, 2026-06-28)
+
+**Why:** three related issues in the shared menu/window subsystem. (a) #22 — MM ignored the Shared
+tab's Graphics/Audio/Controls and the per-game tabs redundantly exposed them. (b) Opening MM's "Save
+Editor" showed OOT's: the shared `Gui::AddGuiWindow` keys by display name and rejects duplicates, so
+MM's identically-named dev windows were dropped (OOT boots first). (c) Dev-tool windows only offered a
+"popout" button, never rendering inline.
+
+**Vendored (additive, `COMBO_BUILD`-guarded):**
+- `mm/2s2h/BenGui/BenGui.cpp` — the 9 MM dev/debug windows whose names collide with OOT's (Save Editor,
+  Actor/Collision/Message Viewer, Audio Editor, Mod Menu, Hook Debugger, Input Viewer (+Settings)) now
+  register with `COMBO_MM_TRACKER_SUFFIX` (`"##MM"`), same mechanism as the trackers — map-key/ID only,
+  visible title unchanged, empty in standalone. (Cosmetic Editor / Time Splits Window / DL Viewer differ
+  from OOT's strings already, so they don't collide.)
+- `mm/2s2h/BenGui/BenMenu.cpp` — matching `WindowName(...)` popout refs carry the same suffix
+  (`COMBO_MM_WINDOW_SUFFIX`). New `#ifdef COMBO_BUILD` inline `WIDGET_CUSTOM` entries render each dev
+  window's `DrawElement()` inline (skipped when popped out, so no double-draw); live-world viewers
+  (Actor/Collision/Message/DL/Event Log) gate on `Combo_MmIsForeground()` so they don't read MM's
+  dormant/swapped play state when the MM tab is opened while OOT is foreground.
+- `mm/2s2h/BenPort.cpp` — exports `MM_ApplyAudioVolume(seqPlayer, vol)` (→ `AudioSeq_SetPortVolumeScale`,
+  the apply path MM uses instead of ShipInit) and `MM_ReloadControls()` (reloads MM's ControlDeck ports
+  from the shared `gSettings.Controllers.*` CVars); `Combo_MmIsForeground()` queries comboui's
+  foreground game. All inside the existing `COMBO_BUILD` export block.
+
+**Combo-owned:**
+- `combo/gui/ComboAudioBridge.{h,cpp}` — one-way mirror of OOT's canonical `gSettings.Volume.*` (int
+  0-100) into MM's `gSettings.Audio.*` (float 0-1). `MirrorIfVolumeCVar` fires from the
+  `ComboWidgetRender` apply-step; `SyncAllToMM` runs on MM entry. Graphics needs no bridge (one shared
+  window) and Controls' data is already shared CVars.
+- `combo/gui/ComboForeground.h` + `ComboTrackerVisibility.cpp` — cache the foreground game from the
+  existing `ComboUI_OnForegroundGame` callback; expose `ComboUI::GetForegroundGame()` (C++) and
+  `ComboUI_GetForegroundGame()` (C ABI, for MM's gating). On MM entry the callback also runs
+  `ComboAudio::SyncAllToMM()` + `MM_ReloadControls` so changes made while MM was dormant take effect.
+- `combo/gui/ComboMenu.cpp` — the per-game tab sidebar filter now also hides MM's Graphics/Audio/Controls
+  (they live only in Shared). **On future merges:** if MM's audio CVar names/scale change, update
+  `kMap` in `ComboAudioBridge.cpp`.

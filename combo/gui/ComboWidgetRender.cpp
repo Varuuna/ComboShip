@@ -15,6 +15,7 @@
 #include "ComboWidgetRender.h"
 #include "ComboMenuModel.h"   // GameMenu (resolved export fn-ptrs)
 #include "ComboWidgetStyle.h" // combo-owned replication of OOT UIWidgets menu styling
+#include "ComboAudioBridge.h" // Shared-tab audio -> MM mirror
 
 #include <libultraship/libultraship.h> // ImGui-adjacent + CVar bridge (CVarGet/Set*) + color.h
 #include <imgui.h>
@@ -243,6 +244,12 @@ void RenderWidget(const CwWidget& w, const GameMenu& game) {
     // the combo menu only take effect on the next ShipInit::InitAll (game boot / new save).
     if (changed && w.cvar && w.cvar[0] && game.applyCVarChange) {
         game.applyCVarChange(w.cvar);
+    }
+
+    // 6) ComboShip: the Shared tab's audio sliders are OOT's (gSettings.Volume.*); mirror them into
+    // MM's gSettings.Audio.* so a single Shared Audio section drives both games (see ComboAudioBridge).
+    if (changed && w.cvar && w.cvar[0]) {
+        ComboAudio::MirrorIfVolumeCVar(w.cvar);
     }
 
     if (disabled) {

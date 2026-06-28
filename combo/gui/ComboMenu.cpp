@@ -316,6 +316,15 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
         if (isOot && section && strcmp(section, "Settings") == 0) {
             return sidebar && (strcmp(sidebar, "Mod Menu") == 0 || strcmp(sidebar, "Presets") == 0);
         }
+        // MM's Graphics/Audio/Controls are consolidated into the Shared tab — Graphics applies via the
+        // single shared window, Controls via the shared gSettings.Controllers.* CVars, and Audio via the
+        // combo audio bridge (gSettings.Volume.* -> gSettings.Audio.*). Hide them from MM's per-game
+        // Settings section so they live only in Shared; the rest of MM Settings stays.
+        if (!isOot && section && strcmp(section, "Settings") == 0 && sidebar &&
+            (strcmp(sidebar, "Graphics") == 0 || strcmp(sidebar, "Audio") == 0 ||
+             strcmp(sidebar, "Controls") == 0)) {
+            return false;
+        }
         // The rando section's settings live in the Shared tab; here we surface only its trackers.
         const char* randoSec = isOot ? "Randomizer" : "Rando";
         if (section && strcmp(section, randoSec) == 0)

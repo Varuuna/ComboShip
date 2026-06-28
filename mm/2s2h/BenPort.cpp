@@ -3608,6 +3608,44 @@ extern "C" __declspec(dllexport) void MM_MenuApplyCVarChange(const char* cvar) {
         ShipInit::Init(cvar);
 }
 
+// ComboShip: combo-owned audio bridge entry point (combo/gui/ComboAudioBridge.cpp). The Shared tab's
+// audio sliders are OOT's (gSettings.Volume.* int 0-100); the combo layer mirrors them into MM's float
+// CVars and calls this to apply per-port volume live. MM applies volume via AudioSeq_SetPortVolumeScale
+// (not ShipInit), so MM_MenuApplyCVarChange would not pick it up. gAudioCtx persists across transitions,
+// so this is safe even when MM is not the foreground game.
+extern "C" __declspec(dllexport) void MM_ApplyAudioVolume(int32_t seqPlayerIndex, float volume) {
+    AudioSeq_SetPortVolumeScale((u8)seqPlayerIndex, volume);
+}
+
+// ComboShip: controller bindings live in the shared gSettings.Controllers.* CVars, so the Shared tab's
+// (OOT) controls UI edits the same data MM reads. But each game's ControlDeck caches its mappings (it
+// only re-reads on Init / this call), so a rebind made while MM was dormant is not picked up until MM
+// reloads. The combo layer calls this when MM becomes the foreground game. Reloads all populated ports.
+extern "C" __declspec(dllexport) void MM_ReloadControls(void) {
+    auto controlDeck = Ship::Context::GetInstance()->GetControlDeck();
+    if (!controlDeck)
+        return;
+    for (uint8_t port = 0; port < 4; ++port) {
+        if (auto controller = controlDeck->GetControllerByPort(port))
+            controller->ReloadAllMappingsFromConfig();
+    }
+}
+
+// ComboShip: true when MM is the foreground game (queries comboui's ComboUI_GetForegroundGame, resolved
+// once). BenMenu uses it to gate MM's live-world dev viewers — opening MM's tab while OOT is foreground
+// must not draw against MM's dormant/swapped play state. comboui is always loaded under ComboShip; if it
+// somehow isn't, default to true (draw) rather than hiding the tools.
+bool Combo_MmIsForeground(void) {
+    static int (*sFn)(void) = nullptr;
+    static bool sTried = false;
+    if (!sTried) {
+        sTried = true;
+        if (HMODULE h = GetModuleHandleA("comboui.dll"))
+            sFn = (int (*)(void))GetProcAddress(h, "ComboUI_GetForegroundGame");
+    }
+    return sFn ? (sFn() == 1) : true;
+}
+
 extern "C" __declspec(dllexport) int32_t MM_MenuEvalDisabled(int32_t i, const char** outReason) {
     ComboMenuContext::UseSharedImGuiContext();
     auto menu = Combo_EnsureBenMenu();

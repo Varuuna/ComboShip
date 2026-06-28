@@ -17,6 +17,7 @@ struct GameMenu {
     Fn_MenuInvokeCallback invokeCallback = nullptr;
     Fn_MenuEvalDisabled evalDisabled = nullptr;
     Fn_MenuDrawCustom drawCustom = nullptr;
+    Fn_MenuApplyCVar applyCVarChange = nullptr; // optional; live-applies a changed CVar via ShipInit
     bool loaded = false;
 };
 
@@ -36,7 +37,7 @@ class ComboMenuModel {
 
   private:
     void LoadGame(GameMenu& g, const char* dll, const char* exportSym, const char* invokeSym, const char* evalSym,
-                  const char* drawSym);
+                  const char* drawSym, const char* applySym);
     GameMenu mOot, mMm;
     bool mLoaded = false;
 };

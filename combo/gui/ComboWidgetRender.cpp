@@ -238,6 +238,13 @@ void RenderWidget(const CwWidget& w, const GameMenu& game) {
         game.invokeCallback(w.index);
     }
 
+    // 5) re-apply the changed CVar live: re-run the owning game's ShipInit func(s) registered for it,
+    // mirroring what the games' native UIWidgets do. Without this, enhancements/settings toggled in
+    // the combo menu only take effect on the next ShipInit::InitAll (game boot / new save).
+    if (changed && w.cvar && w.cvar[0] && game.applyCVarChange) {
+        game.applyCVarChange(w.cvar);
+    }
+
     if (disabled) {
         ImGui::EndDisabled();
     }

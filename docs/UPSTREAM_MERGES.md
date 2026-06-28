@@ -1119,3 +1119,12 @@ hint data. Mostly combo-owned (`combo/ComboShip.cpp`, `combo/rando/CrossForeign.
 changes the rando settings/option CVar scheme, re-check the dump/restore. If the spoiler-drop handler
 or `FileChoose_UpdateRandomizer` is restructured, re-apply the combo `fileType` accept + the reload
 routing.
+
+## Live-apply settings changed from the combo menu (2026-06-28)
+
+**Why:** the games' native UIWidgets call `ShipInit::Init(cvar)` after a widget change to re-run the
+enhancement registered for that CVar; comboui only set the CVar, so combo-menu changes didn't apply
+until the next `ShipInit::InitAll` (game boot / new save). New exports `SOH_MenuApplyCVarChange` /
+`MM_MenuApplyCVarChange` (OTRGlobals.cpp / BenPort.cpp) run `ShipInit::Init(cvar)`; the comboui menu
+model + `ComboWidgetRender` call them after each change. Fixes #27. **On future merges:** if the
+native UIWidgets stop using `ShipInit::Init`-on-change, revisit.

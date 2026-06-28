@@ -87,6 +87,7 @@ typedef const CwMenu* (*Fn_ExportMenu)(void);
 typedef void (*Fn_MenuInvokeCallback)(int32_t index);
 typedef int32_t (*Fn_MenuEvalDisabled)(int32_t index, const char** outReason);
 typedef void (*Fn_MenuDrawCustom)(int32_t index);
+typedef void (*Fn_MenuApplyCVar)(const char* cvar); // re-run the game's ShipInit for a changed CVar
 
 #ifdef __cplusplus
 }

@@ -32,11 +32,12 @@ file(READ "${COMBO_PINS}" COMBO_PINS_JSON)
 string(JSON COMBO_SOH_SHA GET "${COMBO_PINS_JSON}" upstreams soh mergedSha)
 string(JSON COMBO_MM_SHA  GET "${COMBO_PINS_JSON}" upstreams mm  mergedSha)
 
-# first 4 hex of each pin -> 0..0xFFFF, fits the u16 gBuildVersion fields exactly
+# first 4 hex of each pin, masked to 15 bits -> 0..0x7FFF: fits the SIGNED s16 save-version fields
+# (unmasked 0..0xFFFF wrapped negative and .bak'd every save); still changes per merge for the gate.
 string(SUBSTRING "${COMBO_SOH_SHA}" 0 4 COMBO_SOH_HEX)
 string(SUBSTRING "${COMBO_MM_SHA}"  0 4 COMBO_MM_HEX)
-math(EXPR COMBO_MINOR "0x${COMBO_SOH_HEX}")
-math(EXPR COMBO_PATCH "0x${COMBO_MM_HEX}")
+math(EXPR COMBO_MINOR "0x${COMBO_SOH_HEX} & 0x7FFF")
+math(EXPR COMBO_PATCH "0x${COMBO_MM_HEX} & 0x7FFF")
 
 # short SHAs for the human-readable label / package name
 string(SUBSTRING "${COMBO_SOH_SHA}" 0 7 COMBO_SOH_SHORT)

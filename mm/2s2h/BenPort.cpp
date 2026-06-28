@@ -3600,6 +3600,14 @@ extern "C" __declspec(dllexport) void MM_MenuInvokeCallback(int32_t i) {
     }
 }
 
+// ComboShip: re-run the ShipInit func(s) registered for this CVar, mirroring 2Ship's native UIWidgets
+// after a widget change — so settings/enhancements changed via the combo menu apply live instead of
+// only on the next ShipInit::InitAll (MM boot / new save).
+extern "C" __declspec(dllexport) void MM_MenuApplyCVarChange(const char* cvar) {
+    if (cvar && cvar[0])
+        ShipInit::Init(cvar);
+}
+
 extern "C" __declspec(dllexport) int32_t MM_MenuEvalDisabled(int32_t i, const char** outReason) {
     ComboMenuContext::UseSharedImGuiContext();
     auto menu = Combo_EnsureBenMenu();

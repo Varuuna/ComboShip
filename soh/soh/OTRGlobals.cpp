@@ -2809,6 +2809,14 @@ extern "C" __declspec(dllexport) void SOH_MenuInvokeCallback(int32_t i) {
         menu->InvokeCallbackByIndex(i);
 }
 
+// ComboShip: re-run the ShipInit func(s) registered for this CVar, mirroring what soh's native
+// UIWidgets does after a widget change. Without this, settings changed via the combo menu only take
+// effect on the next ShipInit::InitAll (game boot / new save) — enhancements wouldn't apply live.
+extern "C" __declspec(dllexport) void SOH_MenuApplyCVarChange(const char* cvar) {
+    if (cvar && cvar[0])
+        ShipInit::Init(cvar);
+}
+
 extern "C" __declspec(dllexport) int32_t SOH_MenuEvalDisabled(int32_t i, const char** outReason) {
     ComboMenuContext::UseSharedImGuiContext();
     auto menu = SohGui::GetSohMenu();

@@ -3144,9 +3144,8 @@ extern "C" __declspec(dllexport) void SOH_PrepRandoContext(void) {
         ctx->FinalizeSettings({}, {});
         RegionTable_Init();
         ctx->GenerateLocationPool();
-    } catch (const std::exception& e) {
-        SPDLOG_ERROR("[ComboShip] SOH_PrepRandoContext: {}", e.what());
-    } catch (...) {}
+    } catch (const std::exception& e) { SPDLOG_ERROR("[ComboShip] SOH_PrepRandoContext: {}", e.what()); } catch (...) {
+    }
 }
 
 // ComboShip: coherent OOT rando dump for the combo generator. Runs the headless prep sequence

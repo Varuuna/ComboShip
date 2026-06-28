@@ -28,9 +28,9 @@ typedef int (*FnGetInt)(void);
 FnTriggerGenerate sTrigger = nullptr;
 FnGetProgress sGetProgress = nullptr;
 FnIsOnFileSelect sIsOnFileSelect = nullptr;
-FnGetInt sGetFileNum = nullptr;     // SOH_GetActiveFileNum (soh.dll)
-FnGetStr sSohObtained = nullptr;    // Combo_SOH_GetObtainedChecks (soh.dll)
-FnGetStr sMmObtained = nullptr;     // Combo_MM_GetObtainedChecks (2ship.dll)
+FnGetInt sGetFileNum = nullptr;  // SOH_GetActiveFileNum (soh.dll)
+FnGetStr sSohObtained = nullptr; // Combo_SOH_GetObtainedChecks (soh.dll)
+FnGetStr sMmObtained = nullptr;  // Combo_MM_GetObtainedChecks (2ship.dll)
 void ResolveComboGenSyms() {
 #ifdef _WIN32
     HMODULE h = GetModuleHandleA("soh.dll");

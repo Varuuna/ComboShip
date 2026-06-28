@@ -750,9 +750,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
                 return nlohmann::json::object();
             try {
                 return nlohmann::json::parse(fn());
-            } catch (...) {
-                return nlohmann::json::object();
-            }
+            } catch (...) { return nlohmann::json::object(); }
         };
         nlohmann::json consolidated;
         consolidated["fileType"] = "ComboShipRandomizer";

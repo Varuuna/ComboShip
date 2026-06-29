@@ -456,6 +456,28 @@ void SohMenu::AddMenuSettings() {
         .WindowName("Configure Controller")
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Bindings Window."));
+#ifdef COMBO_BUILD
+    // ComboShip: draw the bindings inline in the combo menu (native SoH is popout-only, so the combo
+    // overlay otherwise showed only the button). Mirrors the dev-tool inline pattern
+    // (SohMenuDevTools.cpp ComboInlineWindow): skipped while popped out so the shared Gui loop's
+    // floating copy isn't double-drawn. No foreground gate — the editor only touches the shared
+    // ControlDeck, never OOT play state, so it's safe regardless of which game is foreground.
+    AddWidget(path, "Controller Bindings Inline", WIDGET_CUSTOM)
+        .RaceDisable(false)
+        .HideInSearch(true)
+        .CustomFunction([](WidgetInfo&) {
+            auto ctx = Ship::Context::GetInstance();
+            if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
+                return;
+            }
+            auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Configure Controller");
+            if (!win || win->IsVisible()) { // not registered, or popped out — don't double-draw
+                return;
+            }
+            win->Update(); // Gui loop only Updates visible windows; we draw it hidden, so Update first
+            win->DrawElement();
+        });
+#endif
 
     // Input Viewer
     path.sidebarName = "Input Viewer";

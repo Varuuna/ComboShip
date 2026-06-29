@@ -28,6 +28,7 @@ set(COMBOUI_SOURCES
     gui/ComboMenu.cpp
     gui/ComboMenuModel.cpp
     gui/ComboWidgetRender.cpp
+    gui/ComboResolutionEditor.cpp
     gui/ComboWidgetStyle.cpp
     gui/ComboExtractScreen.cpp
     gui/ComboSettingsImportScreen.cpp

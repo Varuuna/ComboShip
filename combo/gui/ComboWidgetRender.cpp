@@ -13,9 +13,10 @@
 // effective CVars by UpdateResolutionVars) do NOT apply through this generic CVar-write path.
 // Toggling them here writes the UI CVars but not the effective ones, so the viewport never changes.
 #include "ComboWidgetRender.h"
-#include "ComboMenuModel.h"   // GameMenu (resolved export fn-ptrs)
-#include "ComboWidgetStyle.h" // combo-owned replication of OOT UIWidgets menu styling
-#include "ComboAudioBridge.h" // Shared-tab audio -> MM mirror
+#include "ComboMenuModel.h"        // GameMenu (resolved export fn-ptrs)
+#include "ComboWidgetStyle.h"      // combo-owned replication of OOT UIWidgets menu styling
+#include "ComboAudioBridge.h"      // Shared-tab audio -> MM mirror
+#include "ComboResolutionEditor.h" // combo-owned Advanced Resolution editor (intercepts broken widgets)
 
 #include <libultraship/libultraship.h> // ImGui-adjacent + CVar bridge (CVarGet/Set*) + color.h
 #include <imgui.h>
@@ -23,9 +24,120 @@
 
 namespace ComboRando {
 
+namespace {
+// Human-readable backend names — mirror soh/.../MenuTypes.h windowBackendsMap / audioBackendsMap
+// (those live per-DLL and aren't linkable from comboui). Window ids are Fast::WindowBackend values.
+const char* WindowBackendName(int32_t id) {
+    switch (id) {
+        case 1:
+            return "DirectX"; // FAST3D_DXGI_DX11
+        case 2:
+            return "OpenGL"; // FAST3D_SDL_OPENGL
+        case 3:
+            return "Metal"; // FAST3D_SDL_METAL
+        default:
+            return "Unknown";
+    }
+}
+const char* AudioBackendName(Ship::AudioBackend b) {
+    switch (b) {
+        case Ship::AudioBackend::WASAPI:
+            return "Windows Audio Session API";
+        case Ship::AudioBackend::SDL:
+            return "SDL";
+        case Ship::AudioBackend::COREAUDIO:
+            return "Core Audio";
+        case Ship::AudioBackend::NUL:
+            return "Null";
+        default:
+            return "Unknown";
+    }
+}
+
+// CW_VIDEO_BACKEND: render-API selector. Mirrors SoH's WIDGET_VIDEO_BACKEND — writes the config
+// and saves; the change takes effect on relaunch (hence the native "Needs reload" label).
+void RenderVideoBackend(const CwWidget& w, const ImVec4& themeColor) {
+    auto ctx = Ship::Context::GetInstance();
+    if (!ctx || !ctx->GetWindow() || !ctx->GetConfig()) {
+        ImGui::TextDisabled("%s", (w.name && w.name[0]) ? w.name : "Renderer API");
+        return;
+    }
+    auto window = ctx->GetWindow();
+    auto avail = window->GetAvailableWindowBackends();
+    int32_t curId = ctx->GetConfig()->GetInt("Window.Backend.Id", -1);
+    if (!window->IsAvailableWindowBackend(curId)) {
+        curId = window->GetWindowBackend();
+    }
+    const char* label = (w.name && w.name[0]) ? w.name : "Renderer API";
+    const bool only = !avail || avail->size() <= 1;
+    if (only)
+        ImGui::BeginDisabled(true);
+    ComboMenu_PushCombobox(themeColor);
+    if (ImGui::BeginCombo(label, WindowBackendName(curId))) {
+        if (avail) {
+            for (int32_t id : *avail) {
+                const bool sel = (id == curId);
+                if (ImGui::Selectable(WindowBackendName(id), sel)) {
+                    ctx->GetConfig()->SetInt("Window.Backend.Id", id);
+                    ctx->GetConfig()->SetString("Window.Backend.Name", WindowBackendName(id));
+                    ctx->GetConfig()->Save();
+                }
+                if (sel)
+                    ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ComboMenu_PopCombobox();
+    if (only)
+        ImGui::EndDisabled();
+}
+
+// CW_AUDIO_BACKEND: audio-API selector. Mirrors SoH's WIDGET_AUDIO_BACKEND — applies live.
+void RenderAudioBackend(const CwWidget& w, const ImVec4& themeColor) {
+    auto ctx = Ship::Context::GetInstance();
+    if (!ctx || !ctx->GetAudio()) {
+        ImGui::TextDisabled("%s", (w.name && w.name[0]) ? w.name : "Audio API");
+        return;
+    }
+    auto audio = ctx->GetAudio();
+    auto avail = audio->GetAvailableAudioBackends();
+    const Ship::AudioBackend cur = audio->GetCurrentAudioBackend();
+    const char* label = (w.name && w.name[0]) ? w.name : "Audio API";
+    const bool only = !avail || avail->size() <= 1;
+    if (only)
+        ImGui::BeginDisabled(true);
+    ComboMenu_PushCombobox(themeColor);
+    if (ImGui::BeginCombo(label, AudioBackendName(cur))) {
+        if (avail) {
+            for (Ship::AudioBackend b : *avail) {
+                const bool sel = (b == cur);
+                if (ImGui::Selectable(AudioBackendName(b), sel)) {
+                    audio->SetCurrentAudioBackend(b);
+                }
+                if (sel)
+                    ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ComboMenu_PopCombobox();
+    if (only)
+        ImGui::EndDisabled();
+}
+} // namespace
+
 void RenderWidget(const CwWidget& w, const GameMenu& game) {
     // Unique id namespace per widget so two widgets sharing a display label don't collide.
     ImGui::PushID(w.index);
+
+    // ComboShip: SoH's Advanced Resolution editor doesn't survive the flat C-ABI (dynamic names,
+    // ValuePointer combo, custom-draw, per-page MenuUpdate). Intercept those widgets and render a
+    // combo-owned replacement over the effective gSettings.AdvancedResolution.* CVars instead.
+    if (TryRenderResolutionWidget(w)) {
+        ImGui::PopID();
+        return;
+    }
 
     // 1) preFunc disable eval (per frame): the game owns the predicate; we call it by index.
     bool disabled = false;
@@ -68,7 +180,18 @@ void RenderWidget(const CwWidget& w, const GameMenu& game) {
         case CW_SLIDER_INT: {
             int v = CVarGetInteger(w.cvar, w.iDefault);
             ComboMenu_PushSlider(themeColor);
-            if (ImGui::SliderInt(label, &v, w.iMin, w.iMax)) {
+            // Some sliders embed a printf format in the NAME (e.g. "Master Volume: %d %%"), meant
+            // to be the value overlay. Pass it as ImGui's format with a hidden label so the value
+            // renders on the slider (full width) instead of a literal "%d" label overflowing. Match
+            // an actual integer specifier (not just any '%') so a literal-percent label isn't fed to
+            // vsnprintf as a bogus format.
+            if (w.name && (std::strstr(w.name, "%d") || std::strstr(w.name, "%i"))) {
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                if (ImGui::SliderInt("##v", &v, w.iMin, w.iMax, w.name)) {
+                    CVarSetInteger(w.cvar, v);
+                    changed = true;
+                }
+            } else if (ImGui::SliderInt(label, &v, w.iMin, w.iMax)) {
                 CVarSetInteger(w.cvar, v);
                 changed = true;
             }
@@ -78,7 +201,15 @@ void RenderWidget(const CwWidget& w, const GameMenu& game) {
         case CW_SLIDER_FLOAT: {
             float v = CVarGetFloat(w.cvar, w.fDefault);
             ComboMenu_PushSlider(themeColor);
-            if (ImGui::SliderFloat(label, &v, w.fMin, w.fMax)) {
+            // As CW_SLIDER_INT: a float specifier in the name is the value overlay format.
+            if (w.name && (std::strstr(w.name, "%f") || std::strstr(w.name, "%.") || std::strstr(w.name, "%g") ||
+                           std::strstr(w.name, "%e"))) {
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                if (ImGui::SliderFloat("##v", &v, w.fMin, w.fMax, w.name)) {
+                    CVarSetFloat(w.cvar, v);
+                    changed = true;
+                }
+            } else if (ImGui::SliderFloat(label, &v, w.fMin, w.fMax)) {
                 CVarSetFloat(w.cvar, v);
                 changed = true;
             }
@@ -210,13 +341,10 @@ void RenderWidget(const CwWidget& w, const GameMenu& game) {
             break;
         }
         case CW_AUDIO_BACKEND:
-            // TODO: needs engine audio-backend enumeration (WindowBackend list). Few of these
-            // exist and they don't block the render milestone; wire later.
-            ImGui::TextDisabled("%s (audio backend selector — TODO)", w.name ? w.name : "");
+            RenderAudioBackend(w, themeColor);
             break;
         case CW_VIDEO_BACKEND:
-            // TODO: needs engine video-backend enumeration. See CW_AUDIO_BACKEND note.
-            ImGui::TextDisabled("%s (video backend selector — TODO)", w.name ? w.name : "");
+            RenderVideoBackend(w, themeColor);
             break;
         case CW_CUSTOM:
             // The game draws this entirely under its own context/RM, addressed by index.

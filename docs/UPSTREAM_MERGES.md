@@ -1185,3 +1185,48 @@ MM's identically-named dev windows were dropped (OOT boots first). (c) Dev-tool 
   MM's audio CVar names/scale change, update `kMap` in `ComboAudioBridge.cpp` (note: the OOT `Volume.*`
   defaults — Master 40, rest 100 — are duplicated in `kMap`'s `defaultPct` and must match
   SohMenuSettings.cpp, else an untouched slider reads as 0 and silences MM).
+
+## Combo-side Advanced Resolution editor (issue #26 #3, 2026-06-29)
+
+**Why:** SoH's Advanced Resolution editor (`soh/soh/SohGui/ResolutionEditor.cpp`) is built from
+machinery the flat C-ABI menu snapshot can't carry — dynamic `WIDGET_TEXT` names set per-frame by a
+`PreFunc`, an aspect-ratio combobox bound to a C++ static via `ValuePointer` (no CVar), two
+`WIDGET_CUSTOM` draw lambdas, and a per-page `UpdateResolutionVars` MenuUpdate func. In the overlay
+those widgets render broken (empty `{} x {}` readouts, an empty-CVar combobox, placeholder customs,
+dead aspect/enable controls). User chose a combo-side reimplementation (works regardless of which
+game is foreground) over a game-side custom-draw dependency.
+
+**Combo-owned (no vendored edits):**
+- `combo/gui/ComboResolutionEditor.{h,cpp}` — `TryRenderResolutionWidget(w)`, called at the top of
+  `ComboWidgetRender::RenderWidget`. Intercepts the resolution widgets **by name/cvar** and renders
+  combo controls over the effective `gSettings.AdvancedResolution.*` CVars (libultraship's shared
+  `Fast3dGui::ApplyResolutionChanges` reads them live each frame). Stateless per-frame: the CVars are
+  the source of truth. Live dims read from `Fast::Interpreter` via `Fast3dWindow::GetInterpreterWeak`.
+  Owns the Enable checkbox + calls `SaveConsoleVariablesNextFrame` after writes so changes persist.
+  Scope = core controls; niche extras (horizontal-res-field alt, NeverExceedBounds/ExceedBoundsBy,
+  IgnoreAspectCorrection) intentionally omitted.
+
+**On future merges (coupling — re-verify):** this **shadows specific SoH widget names** —
+`"Aspect Ratio"` (empty-cvar combo), `"AspectRatioCustom"`, `"MoreResolutionSettings"`, the
+`"Viewport dimensions"`/`"Internal resolution"` readout prefixes, the `"...is overriding these
+settings"` / `"Click to disable N64 mode"` advisories — and **transcribes SoH's preset tables**
+(aspect labels + X/Y, pixel-count labels + values, clamps). If SoH renames those widgets or changes
+the tables, re-sync `ComboResolutionEditor.cpp` (else the widgets silently fall back to the broken
+generic render). CVar prefix `gSettings.AdvancedResolution` comes from `CMake/lus-cvars.cmake`.
+
+## Inline controller bindings on Shared → Controls (issue #26 #1, 2026-06-29)
+
+**Why:** SoH's Controls page is popout-only (no inline bindings widget), so the combo overlay showed
+just a "Popout Bindings Window" button — the user had to detach a floating window to rebind.
+
+**Vendored (additive, `COMBO_BUILD`-guarded):**
+- `soh/soh/SohGui/SohMenuSettings.cpp` — a new "Controller Bindings Inline" `WIDGET_CUSTOM` in the
+  Controls section draws the "Configure Controller" (`SohInputEditorWindow`) inline, reusing the
+  issue #22 inline-window mechanism (get the registered `GuiWindow`; skip when `IsVisible()`/popped
+  out to avoid double-draw; `Update()` then `DrawElement()`). No foreground gate — the input editor
+  only touches the shared `ControlDeck`, not OOT play state.
+
+One inline editor (OOT's) covers both games: controls are shared `gSettings.Controllers.*` CVars and
+`MM_ReloadControls` reloads MM from them, and MM's Controls sidebar is hidden in the overlay (above),
+so no MM-side change is needed. **On future merges:** if SoH renames the "Configure Controller"
+window, update the name string here.

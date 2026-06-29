@@ -59,6 +59,14 @@ namespace ComboRando {
 
 static std::shared_ptr<ComboMenu> sComboMenu;
 
+// Search normalization shared by the query and every widget haystack: lowercase + strip spaces.
+static std::string NormalizeSearch(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+    s.erase(std::remove(s.begin(), s.end(), ' '), s.end());
+    return s;
+}
+static const ImVec4 kBreadcrumbColor(0.6f, 0.6f, 0.6f, 1.0f); // muted gray for the result origin line
+
 void ComboMenu::Draw() {
     // Mirror Ship::Menu::Draw — skip GuiWindow::Draw's normal Begin/End wrapper so DrawElement
     // can open its own fullscreen overlay window instead of a floating one.
@@ -117,8 +125,22 @@ void ComboMenu::DrawElement() {
                 mScope = sc.id;
             }
         }
+        // Global search row beneath the scope strip: a themed Clear button + a full-width input.
+        // A non-empty query takes over the content area (results span both games); the scope tabs
+        // stay visible but inert until the box is cleared.
+        ComboMenu_PushButton(ComboMenu_ThemeColor());
+        if (ImGui::Button("Clear")) {
+            mSearchBuf[0] = '\0';
+        }
+        ComboMenu_PopButton();
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::InputTextWithHint("##ComboSearch", "Search settings...", mSearchBuf, sizeof(mSearchBuf));
         ImGui::Separator();
 
+        // Normalize once per frame; the scope panels render search results in their content area
+        // (keeping the left nav visible) when this is non-empty.
+        mSearchQuery = NormalizeSearch(mSearchBuf);
         if (mScope == "oot") {
             DrawGamePanel("oot");
         } else if (mScope == "mm") {
@@ -128,6 +150,82 @@ void ComboMenu::DrawElement() {
         }
     }
     ImGui::End();
+}
+
+// Global search (issue #26): scans BOTH games' CwMenu models for a name+tooltip match against the
+// pre-normalized query, rendering each hit inline via RenderWidget with an origin breadcrumb.
+// Shared settings live in both models; dedupe by cvar|name (OOT wins) so they surface once.
+void ComboMenu::DrawSearchResults(const std::string& query) {
+    auto& model = ComboMenuModel::Get();
+    model.EnsureLoaded();
+
+    struct Source {
+        const char* label;
+        const GameMenu* game;
+    };
+    const Source sources[] = {
+        { "Ship of Harkinian", &model.Oot() }, // OOT first: its copy wins the dedupe
+        { "2 Ship 2 Harkinian", &model.Mm() },
+    };
+
+    // 2-3 equal-width columns (by available width) so results read as a grid, not one tall list —
+    // same stretch-table pattern as RenderSidebarWidgets. Each match fills the next cell, wrapping
+    // rows; the narrower cell width is what keeps the controls from spanning the whole panel.
+    float avail = ImGui::GetContentRegionAvail().x;
+    int cols = avail > 1100.0f ? 3 : (avail > 720.0f ? 2 : 1);
+
+    std::unordered_set<std::string> seen; // dedupe key: normalized cvar (or per-game name for no-cvar)
+    int matches = 0;
+    const ImGuiTableFlags flags = ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings;
+    if (ImGui::BeginTable("##searchresults", cols, flags)) {
+        for (const auto& src : sources) {
+            const GameMenu& game = *src.game;
+            if (!game.loaded || !game.menu)
+                continue;
+            const CwMenu* m = game.menu;
+            for (int s = 0; s < m->sectionCount; ++s) {
+                const CwSection& sec = m->sections[s];
+                for (int sb = 0; sb < sec.sidebarCount; ++sb) {
+                    const CwSidebar& side = sec.sidebars[sb];
+                    for (int w = 0; w < side.widgetCount; ++w) {
+                        const CwWidget& wd = side.widgets[w];
+                        // Non-interactive / opted-out kinds never appear in search.
+                        if (wd.kind == CW_SEPARATOR || wd.kind == CW_SEPARATOR_TEXT || wd.kind == CW_TEXT ||
+                            wd.kind == CW_CUSTOM || wd.hideInSearch)
+                            continue;
+                        std::string hay =
+                            NormalizeSearch(std::string(wd.name ? wd.name : "") + (wd.tooltip ? wd.tooltip : ""));
+                        if (hay.find(query) == std::string::npos)
+                            continue;
+                        // Dedupe shared settings (same backing CVar) across both games. Widgets with no
+                        // CVar (buttons/window toggles) drive distinct callbacks, so scope their key per
+                        // game — otherwise two same-named buttons would collapse and one would vanish.
+                        std::string cvar = wd.cvar ? wd.cvar : "";
+                        std::string key = cvar.empty() ? (std::string(src.label) + "|" + (wd.name ? wd.name : ""))
+                                                       : NormalizeSearch(cvar);
+                        if (!seen.insert(NormalizeSearch(key)).second)
+                            continue; // a shared setting already shown from OOT
+
+                        ImGui::TableNextColumn();
+                        // Extra per-game ID scope: RenderWidget PushID(w.index) internally, and the two
+                        // games can emit the same index — without this, their interaction state collides.
+                        ImGui::PushID(src.label);
+                        RenderWidget(wd, game);
+                        ImGui::TextColored(kBreadcrumbColor, "[%s] %s -> %s", src.label,
+                                           (sec.sectionLabel && sec.sectionLabel[0]) ? sec.sectionLabel : "Section",
+                                           (side.sidebarName && side.sidebarName[0]) ? side.sidebarName : "Section");
+                        ImGui::PopID();
+                        ImGui::Spacing();
+                        ++matches;
+                    }
+                }
+            }
+        }
+        ImGui::EndTable();
+    }
+
+    if (matches == 0)
+        ImGui::TextDisabled("No matching settings.");
 }
 
 // Shared tab: a left-panel navigation hub (mirrors the native menu's left sidebar). Groups of
@@ -279,7 +377,9 @@ void ComboMenu::DrawSharedPanel() {
 
     // Right content panel for the active entry.
     ImGui::BeginChild("##HubContent", ImVec2(0, 0));
-    if (!active) {
+    if (!mSearchQuery.empty()) {
+        DrawSearchResults(mSearchQuery);
+    } else if (!active) {
         ImGui::TextUnformatted("Select an option.");
     } else if (active->kind == HubEntry::COMBO_GEN) {
         DrawComboPanel();
@@ -409,7 +509,9 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
     ImGui::SameLine();
 
     ImGui::BeginChild("##GameContent", ImVec2(0, 0));
-    if (!activeSide) {
+    if (!mSearchQuery.empty()) {
+        DrawSearchResults(mSearchQuery);
+    } else if (!activeSide) {
         ImGui::TextUnformatted("Select an option.");
     } else {
         RenderSidebarWidgets(*activeSide, game);

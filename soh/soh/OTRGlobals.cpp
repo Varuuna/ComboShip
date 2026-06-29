@@ -1,4 +1,4 @@
-#include "OTRGlobals.h"
+﻿#include "OTRGlobals.h"
 #include "OTRAudio.h"
 #include <algorithm>
 #include <atomic>
@@ -11,6 +11,9 @@
 
 #include "ResourceManagerHelpers.h"
 #include <fast/Fast3dWindow.h>
+#include <libultraship/bridge/audiobridge.h>
+#include <libultraship/bridge/gfxdebuggerbridge.h>
+#include <libultraship/bridge/windowbridge.h>
 #include <ship/Context.h>
 #include <ship/resource/File.h>
 #include <ship/window/Window.h>
@@ -24,6 +27,8 @@
 #include <time.h>
 #endif
 #include <ship/audio/AudioPlayer.h>
+#include <ship/resource/archive/O2rArchive.h>
+#include <ship/utils/binarytools/MemoryStream.h>
 #include "Enhancements/speechsynthesizer/SpeechSynthesizer.h"
 #include "Enhancements/controls/SohInputEditorWindow.h"
 #include "Enhancements/audio/AudioCollection.h"
@@ -33,7 +38,6 @@
 #include "Enhancements/randomizer/randomizer_check_tracker.h"
 #include "Enhancements/randomizer/static_data.h"
 #include "soh/Enhancements/randomizer/settings.h"
-#include "Enhancements/gameplaystats.h"
 #include "soh/Enhancements/savestates.h"
 #include "frame_interpolation.h"
 #include "SohGui/SohMenu.h"
@@ -73,7 +77,6 @@
 #include <functions.h>
 #include "Enhancements/item-tables/ItemTableManager.h"
 #include "Enhancements/Lang/Lang.h"
-#include "soh/SohGui/SohGui.hpp"
 #include "soh/SohGui/ImGuiUtils.h"
 #include "ActorDB.h"
 #include "SaveManager.h"
@@ -82,30 +85,14 @@
 #include "soh/Network/Anchor/Anchor.h"
 #include "Enhancements/game-interactor/GameInteractor.h"
 #include "Enhancements/randomizer/draw.h"
-#include <libultraship/libultraship.h>
 #include <libultraship/controller/controldeck/ControlDeck.h>
 #include <fast/resource/ResourceType.h>
 
 // Resource Types/Factories
-#include "soh/resource/type/Array.h"
-#include <ship/resource/type/Blob.h>
-#include <fast/resource/type/DisplayList.h>
 #include <fast/resource/type/Matrix.h>
-#include <fast/resource/type/Texture.h>
-#include <fast/resource/type/Vertex.h>
 #include "soh/resource/type/SohResourceType.h"
 #include "soh/resource/type/Animation.h"
-#include "soh/resource/type/AudioSample.h"
-#include "soh/resource/type/AudioSequence.h"
-#include "soh/resource/type/AudioSoundFont.h"
-#include "soh/resource/type/CollisionHeader.h"
-#include "soh/resource/type/Cutscene.h"
-#include "soh/resource/type/Path.h"
-#include "soh/resource/type/PlayerAnimation.h"
-#include "soh/resource/type/Scene.h"
 #include "soh/resource/type/Skeleton.h"
-#include "soh/resource/type/SkeletonLimb.h"
-#include "soh/resource/type/Text.h"
 #include <ship/resource/factory/BlobFactory.h>
 #include <fast/resource/factory/DisplayListFactory.h>
 #include <fast/resource/factory/MatrixFactory.h>
@@ -128,6 +115,10 @@
 
 #include "soh/config/ConfigUpdaters.h"
 #include "soh/ShipInit.hpp"
+
+#ifdef _MSC_VER
+#define strdup _strdup
+#endif
 
 #ifdef __WIIU__
 const uint32_t defaultImGuiScale = 3;
@@ -378,7 +369,7 @@ bool PathTestCleanup(FILE* tfile) {
             std::filesystem::remove("./text.txt");
         if (std::filesystem::exists("./test/"))
             std::filesystem::remove("./test/");
-    } catch (std::filesystem::filesystem_error const& ex) { return false; }
+    } catch ([[maybe_unused]] std::filesystem::filesystem_error const& ex) { return false; }
     return true;
 }
 
@@ -393,7 +384,7 @@ void CheckAndCreateModFolder() {
                 std::ofstream(filePath).close();
             }
         }
-    } catch (std::filesystem::filesystem_error const& ex) {
+    } catch ([[maybe_unused]] std::filesystem::filesystem_error const& ex) {
         // Couldn't make the folder, continue silently
         return;
     }
@@ -508,7 +499,7 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
                         std::filesystem::path tempPath;
                         try {
                             tempPath = std::filesystem::canonical(tempVar);
-                        } catch (std::filesystem::filesystem_error const& ex) {
+                        } catch ([[maybe_unused]] std::filesystem::filesystem_error const& ex) {
                             std::string userPath = getenv("USERPROFILE");
                             userPath.append("\\AppData\\Local\\Temp");
                             tempPath = std::filesystem::canonical(userPath);
@@ -532,7 +523,7 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
                         bool error = false;
                         try {
                             create_directories(tfolder);
-                        } catch (std::filesystem::filesystem_error const& ex) { error = true; }
+                        } catch ([[maybe_unused]] std::filesystem::filesystem_error const& ex) { error = true; }
                         if (tfile == NULL || error) {
                             SohGui::RegisterPopup("SoH Permissions Error",
                                                   "SoH does not have proper file permissions.\nPlease move it to a "
@@ -2526,5 +2517,5 @@ bool SoH_HandleConfigDrop(char* filePath) {
 
 // Number of interpolated frames
 extern "C" uint32_t Ship_GetInterpolationFrameCount() {
-    return ceil((float)OTRGlobals::Instance->GetInterpolationFPS() / 20.0f);
+    return static_cast<uint32_t>(ceil((float)OTRGlobals::Instance->GetInterpolationFPS() / 20.0f));
 }

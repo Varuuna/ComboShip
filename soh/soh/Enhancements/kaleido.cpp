@@ -12,7 +12,6 @@ extern "C" {
 #include "functions.h"
 #include "macros.h"
 #include "variables.h"
-#include <textures/message_static/message_static.h>
 #include <textures/parameter_static/parameter_static.h>
 extern PlayState* gPlayState;
 }
@@ -307,7 +306,7 @@ void Kaleido::Draw(PlayState* play) {
                     if (mCursorPos < static_cast<int>(mEntries.size() - 1)) {
                         mCursorPos += mNumVisible;
                         if (mCursorPos > static_cast<int>(mEntries.size() - 1)) {
-                            mCursorPos = mEntries.size() - 1;
+                            mCursorPos = static_cast<int>(mEntries.size() - 1);
                         }
                         Audio_PlaySoundGeneral(NA_SE_SY_CURSOR, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
                                                &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);

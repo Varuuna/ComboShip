@@ -2004,6 +2004,11 @@ typedef enum {
     VB_PLAYER_ARROW_MAGIC_CONSUMPTION,
 
     // #### `args`
+    // - `void*` player (Player*)
+    // - `PlayState*` play
+    VB_PLAYER_DRAW_BOTTLE,
+
+    // #### `args`
     // - `s32` limbIndex
     // - `Gfx**` dList (write to *dList to replace the resolved display list)
     // - `void*` player (Player*)
@@ -2017,6 +2022,32 @@ typedef enum {
     // - `void*` player (Player*)
     // - `PlayState*` play
     VB_PLAYER_OVERRIDE_LIMB_DRAW_PAUSE,
+
+    // #### `args`
+    // - `*Player`
+    // - `*PlayState`
+    VB_PLAYER_UPDATE_BOTTLE_HELD,
+
+    // #### `result`
+    // ```c
+    // false
+    // ```
+    // #### `args`
+    // - `*Player`
+    // - `*PlayState`
+    // - `*Input` (sControlInput)
+    // - `s32` (sFloorType)
+    VB_PLAYER_ROLL_CHAIN,
+
+    // #### `result`
+    // ```c
+    // false
+    // ```
+    // #### `args`
+    // - `*Player`
+    // - `*PlayState`
+    // - `s16 yawTarget` (stick world-space yaw, promoted to int in va_list)
+    VB_PLAYER_ROLL_STEER,
 
     // #### `result`
     // ```c
@@ -2083,6 +2114,13 @@ typedef enum {
     VB_RED_ICE_MELTED_FLAG,
 
     // #### `result`
+    // ```c
+    // camera->xzSpeed > 0.001f || <any release button pressed> || params->interfaceFlags & 0x8
+    // ```
+    // #### `args`
+    // - `Camera*` (`camera`)
+    VB_RELEASE_DOORC_CAMERA,
+
     // #### `result`
     // ```c
     // true
@@ -3048,6 +3086,30 @@ typedef enum {
     // #### `args`
     // - `*EnItem00`
     VB_ITEM00_KILL,
+
+    // #### `result`
+    // ```c
+    // true
+    // ```
+    // #### `args`
+    // - none
+    VB_ITEMSHIELD_DRAW,
+
+    // #### `result`
+    // ```c
+    // true
+    // ```
+    // #### `args`
+    // - `*Player`
+    VB_INIT_HOOKSHOT_IA,
+
+    // #### `result`
+    // ```c
+    // !(this->stateFlags1 & PLAYER_STATE1_ON_HORSE) && Player_HoldsHookshot(this)
+    // ```
+    // #### `args`
+    // - `s16* (&this->actor.parent->id)`
+    VB_PREVENT_HOOKSHOT_PARENT_SOFTLOCK,
 
     // true
     // ```

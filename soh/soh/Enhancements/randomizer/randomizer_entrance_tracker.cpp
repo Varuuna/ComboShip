@@ -1,23 +1,18 @@
 #include "randomizer_entrance_tracker.h"
 #include "soh/OTRGlobals.h"
-#include "soh/cvar_prefixes.h"
 #include "soh/SohGui/SohGui.hpp"
 
 #include <string>
 #include <vector>
 #include <libultraship/controller/controldeck/ControlDeck.h>
-#include <libultraship/libultraship.h>
 #include "soh/Enhancements/randomizer/randomizer.h"
 
 extern "C" {
 #include <z64.h>
-#include "variables.h"
-#include "functions.h"
 #include "macros.h"
 extern PlayState* gPlayState;
 
 #include "soh/Enhancements/randomizer/randomizer_entrance.h"
-#include "soh/Enhancements/randomizer/randomizer_grotto.h"
 #include "soh/Enhancements/randomizer/randomizerTypes.h"
 }
 
@@ -700,9 +695,11 @@ void EntranceTrackerSettingsWindow::DrawElement() {
     Spacer(0);
 
     ImGui::TableNextColumn();
-    SohGui::GetSohMenu()->MenuDrawItem(backgroundColorWidget, ImGui::GetContentRegionAvail().x, THEME_COLOR);
+    SohGui::GetSohMenu()->MenuDrawItem(backgroundColorWidget, static_cast<uint32_t>(ImGui::GetContentRegionAvail().x),
+                                       THEME_COLOR);
 
-    SohGui::GetSohMenu()->MenuDrawItem(windowTypeWidget, ImGui::GetContentRegionAvail().x, THEME_COLOR);
+    SohGui::GetSohMenu()->MenuDrawItem(windowTypeWidget, static_cast<uint32_t>(ImGui::GetContentRegionAvail().x),
+                                       THEME_COLOR);
 
     if (CVarGetInteger(CVAR_TRACKER_ENTRANCE("WindowType"), TRACKER_WINDOW_WINDOW) == TRACKER_WINDOW_FLOATING) {
         CVarCheckbox("Enable Dragging", CVAR_TRACKER_ENTRANCE("Draggable"), CheckboxOptions().Color(THEME_COLOR));

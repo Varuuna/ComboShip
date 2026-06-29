@@ -1316,6 +1316,14 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // play->actorCtx.actorLists[ACTORCAT_EXPLOSIVES].length >= 3
+    // ```
+    // #### `args`
+    // - None
+    VB_LIMIT_EXPLOSIVES,
+
+    // #### `result`
+    // ```c
     // WaterBox_GetSurface1(play, &play->colCtx, sp4C.x, sp4C.z, &sp44, &waterBox) && ((sp44 - sp48) > 50.0f)
     // ```
     // #### `args`

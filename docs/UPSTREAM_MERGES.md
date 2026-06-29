@@ -1213,3 +1213,20 @@ settings"` / `"Click to disable N64 mode"` advisories — and **transcribes SoH'
 (aspect labels + X/Y, pixel-count labels + values, clamps). If SoH renames those widgets or changes
 the tables, re-sync `ComboResolutionEditor.cpp` (else the widgets silently fall back to the broken
 generic render). CVar prefix `gSettings.AdvancedResolution` comes from `CMake/lus-cvars.cmake`.
+
+## Inline controller bindings on Shared → Controls (issue #26 #1, 2026-06-29)
+
+**Why:** SoH's Controls page is popout-only (no inline bindings widget), so the combo overlay showed
+just a "Popout Bindings Window" button — the user had to detach a floating window to rebind.
+
+**Vendored (additive, `COMBO_BUILD`-guarded):**
+- `soh/soh/SohGui/SohMenuSettings.cpp` — a new "Controller Bindings Inline" `WIDGET_CUSTOM` in the
+  Controls section draws the "Configure Controller" (`SohInputEditorWindow`) inline, reusing the
+  issue #22 inline-window mechanism (get the registered `GuiWindow`; skip when `IsVisible()`/popped
+  out to avoid double-draw; `Update()` then `DrawElement()`). No foreground gate — the input editor
+  only touches the shared `ControlDeck`, not OOT play state.
+
+One inline editor (OOT's) covers both games: controls are shared `gSettings.Controllers.*` CVars and
+`MM_ReloadControls` reloads MM from them, and MM's Controls sidebar is hidden in the overlay (above),
+so no MM-side change is needed. **On future merges:** if SoH renames the "Configure Controller"
+window, update the name string here.

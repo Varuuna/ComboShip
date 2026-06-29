@@ -20,14 +20,15 @@ namespace {
 #define CV_LOWRES "gSettings.LowResMode"
 
 // Preset tables transcribed from ResolutionEditor.cpp (kept in sync per UPSTREAM_MERGES).
-const char* kAspectLabels[] = { "Off",          "Custom",      "Original (4:3)",   "Widescreen (16:9)",
-                                "Nintendo 3DS (5:3)", "16:10 (8:5)", "Ultrawide (21:9)" };
+const char* kAspectLabels[] = {
+    "Off", "Custom", "Original (4:3)", "Widescreen (16:9)", "Nintendo 3DS (5:3)", "16:10 (8:5)", "Ultrawide (21:9)"
+};
 const float kAspectX[] = { 0.0f, 16.0f, 4.0f, 16.0f, 5.0f, 16.0f, 21.0f };
 const float kAspectY[] = { 0.0f, 9.0f, 3.0f, 9.0f, 3.0f, 10.0f, 9.0f };
 const int kAspectCustom = 1; // "Custom" — the index that shows the manual X/Y sliders
 
-const char* kPixelLabels[] = { "Custom",      "Native N64 (240p)", "2x (480p)",       "3x (720p)", "4x (960p)",
-                               "5x (1200p)",  "6x (1440p)",        "Full HD (1080p)", "4K (2160p)" };
+const char* kPixelLabels[] = { "Custom",     "Native N64 (240p)", "2x (480p)",       "3x (720p)", "4x (960p)",
+                               "5x (1200p)", "6x (1440p)",        "Full HD (1080p)", "4K (2160p)" };
 const int kPixelValues[] = { 480, 240, 480, 720, 960, 1200, 1440, 1080, 2160 };
 const int kPixelCustom = 0;
 

@@ -164,7 +164,7 @@ void ComboMenu::DrawSearchResults(const std::string& query) {
         const GameMenu* game;
     };
     const Source sources[] = {
-        { "Ship of Harkinian", &model.Oot() },   // OOT first: its copy wins the dedupe
+        { "Ship of Harkinian", &model.Oot() }, // OOT first: its copy wins the dedupe
         { "2 Ship 2 Harkinian", &model.Mm() },
     };
 

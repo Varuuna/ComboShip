@@ -202,8 +202,8 @@ void RenderWidget(const CwWidget& w, const GameMenu& game) {
             float v = CVarGetFloat(w.cvar, w.fDefault);
             ComboMenu_PushSlider(themeColor);
             // As CW_SLIDER_INT: a float specifier in the name is the value overlay format.
-            if (w.name && (std::strstr(w.name, "%f") || std::strstr(w.name, "%.") ||
-                           std::strstr(w.name, "%g") || std::strstr(w.name, "%e"))) {
+            if (w.name && (std::strstr(w.name, "%f") || std::strstr(w.name, "%.") || std::strstr(w.name, "%g") ||
+                           std::strstr(w.name, "%e"))) {
                 ImGui::SetNextItemWidth(-FLT_MIN);
                 if (ImGui::SliderFloat("##v", &v, w.fMin, w.fMax, w.name)) {
                     CVarSetFloat(w.cvar, v);

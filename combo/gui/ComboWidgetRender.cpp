@@ -13,9 +13,10 @@
 // effective CVars by UpdateResolutionVars) do NOT apply through this generic CVar-write path.
 // Toggling them here writes the UI CVars but not the effective ones, so the viewport never changes.
 #include "ComboWidgetRender.h"
-#include "ComboMenuModel.h"   // GameMenu (resolved export fn-ptrs)
-#include "ComboWidgetStyle.h" // combo-owned replication of OOT UIWidgets menu styling
-#include "ComboAudioBridge.h" // Shared-tab audio -> MM mirror
+#include "ComboMenuModel.h"        // GameMenu (resolved export fn-ptrs)
+#include "ComboWidgetStyle.h"      // combo-owned replication of OOT UIWidgets menu styling
+#include "ComboAudioBridge.h"      // Shared-tab audio -> MM mirror
+#include "ComboResolutionEditor.h" // combo-owned Advanced Resolution editor (intercepts broken widgets)
 
 #include <libultraship/libultraship.h> // ImGui-adjacent + CVar bridge (CVarGet/Set*) + color.h
 #include <imgui.h>
@@ -129,6 +130,14 @@ void RenderAudioBackend(const CwWidget& w, const ImVec4& themeColor) {
 void RenderWidget(const CwWidget& w, const GameMenu& game) {
     // Unique id namespace per widget so two widgets sharing a display label don't collide.
     ImGui::PushID(w.index);
+
+    // ComboShip: SoH's Advanced Resolution editor doesn't survive the flat C-ABI (dynamic names,
+    // ValuePointer combo, custom-draw, per-page MenuUpdate). Intercept those widgets and render a
+    // combo-owned replacement over the effective gSettings.AdvancedResolution.* CVars instead.
+    if (TryRenderResolutionWidget(w)) {
+        ImGui::PopID();
+        return;
+    }
 
     // 1) preFunc disable eval (per frame): the game owns the predicate; we call it by index.
     bool disabled = false;

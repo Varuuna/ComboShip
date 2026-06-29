@@ -1,5 +1,4 @@
-﻿#include <libultraship/bridge.h>
-#include "soh/OTRGlobals.h"
+﻿#include "soh/OTRGlobals.h"
 #include "soh/ResourceManagerHelpers.h"
 #include "soh/Enhancements/enhancementTypes.h"
 #include "soh/Enhancements/custom-message/CustomMessageTypes.h"
@@ -15,6 +14,7 @@
 #include "soh/ObjectExtension/ObjectExtension.h"
 #include "item_category_adj.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
+<<<<<<< HEAD
 #ifdef COMBO_BUILD
 #include "rando/CrossForeign.h" // ComboShip: cross-world foreign-item marker map
 // ComboShip (issue #3): immediate cross-game delivery. gComboCrossDeliver (defined in OTRGlobals.cpp)
@@ -23,6 +23,9 @@
 extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName);
 extern "C" void Anchor_BroadcastCrossItem(int targetGame, const char* itemName, const char* srcCheckName);
 #endif
+=======
+#include "soh/Enhancements/randomizer/randomizer_check_tracker.h"
+>>>>>>> vendor-soh
 #include "soh/Enhancements/randomizer/RCToRandInf.h"
 
 extern "C" {

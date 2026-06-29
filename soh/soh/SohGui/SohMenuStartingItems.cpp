@@ -1,4 +1,7 @@
+<<<<<<< HEAD
 #include "SohMenu.h"
+=======
+>>>>>>> vendor-soh
 #include "soh/SohGui/SohGui.hpp"
 #include "soh/SohGui/UIWidgets.hpp"
 #include "soh/SohGui/ImGuiUtils.h"
@@ -9,10 +12,15 @@
 
 #include <vector>
 #include <fast/Fast3dGui.h>
+<<<<<<< HEAD
 #include <libultraship/libultraship.h>
 
 extern "C" {
 #include "variables.h"
+=======
+
+extern "C" {
+>>>>>>> vendor-soh
 #include "z64.h"
 }
 

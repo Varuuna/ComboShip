@@ -1,6 +1,5 @@
 #include "Network.h"
 #include <spdlog/spdlog.h>
-#include <libultraship/libultraship.h>
 
 #ifdef COMBO_BUILD
 // ComboShip: transport hooks registered by ComboShip.exe at boot (see Network.h). When unset (e.g.
@@ -83,7 +82,10 @@ void Network::SendDataToRemote(const char* payload) {
 #else
     SPDLOG_DEBUG("[Network] Sending data: {}", payload);
     SDLNet_TCP_Send(networkSocket, payload, static_cast<int>(strlen(payload) + 1));
+<<<<<<< HEAD
 #endif
+=======
+>>>>>>> vendor-soh
 }
 
 void Network::SendJsonToRemote(nlohmann::json payload) {

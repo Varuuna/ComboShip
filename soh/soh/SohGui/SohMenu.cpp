@@ -1,9 +1,12 @@
 #include "SohMenu.h"
-#include <ship/window/gui/GuiMenuBar.h>
-#include <ship/window/gui/GuiElement.h>
+#include <libultraship/bridge/consolevariablebridge.h>
+#include <ship/Context.h>
 #include <ship/utils/StringHelper.h>
+<<<<<<< HEAD
 #include <spdlog/fmt/fmt.h>
 #include "soh/OTRGlobals.h" // ComboShip: EvalDisabledByIndex foreground guard mirrors Menu::DrawElement
+=======
+>>>>>>> vendor-soh
 
 extern "C" {
 extern PlayState* gPlayState;

@@ -3,33 +3,28 @@
 #include <fstream>
 #include <variables.h>
 #include <macros.h>
-#include <objects/gameplay_keep/gameplay_keep.h>
 #include <functions.h>
-#include <libultraship/libultraship.h>
-#include <textures/icon_item_static/icon_item_static.h>
-#include <textures/icon_item_24_static/icon_item_24_static.h>
 #include "3drando/menu.hpp"
 #include "soh/ResourceManagerHelpers.h"
 #include "soh/SohGui/SohGui.hpp"
 #include <imgui.h>
-#include <imgui_internal.h>
 #include "../../../src/overlays/actors/ovl_En_GirlA/z_en_girla.h"
 #include "randomizer_check_objects.h"
 #include <sstream>
 #include <tuple>
-#include "draw.h"
 #include "soh/OTRGlobals.h"
 #include <ship/window/FileDropMgr.h>
 #include "static_data.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
-#include "trial.h"
 #include "settings.h"
 #include "soh/util.h"
 #include "randomizerTypes.h"
-#include "soh/Notification/Notification.h"
 #include "soh/ObjectExtension/ObjectExtension.h"
 #include "soh/Enhancements/randomizer/RCToRandInf.h"
+<<<<<<< HEAD
 #include "static_data.h"
+=======
+>>>>>>> vendor-soh
 #include "dungeon.h"
 
 extern "C" {

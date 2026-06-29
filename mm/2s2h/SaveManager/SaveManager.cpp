@@ -6,6 +6,7 @@
 
 #include "BenJsonConversions.hpp"
 #include "BenPort.h"
+#include "2s2h/BenGui/Notification.h"
 #include <ship/window/Window.h>
 
 extern "C" {
@@ -157,8 +158,7 @@ void SaveManager_MoveInvalidSaveFile(const std::filesystem::path& fileName, cons
         }
 
         SPDLOG_INFO("{}", message.c_str());
-        auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
-        gui->GetGameOverlay()->TextDrawNotification(30.0f, true, message.c_str());
+        Notification::Emit({ .message = message });
     } catch (...) { SPDLOG_ERROR("Failed to move invalid save file"); }
 }
 
@@ -269,8 +269,7 @@ bool SaveManager_HandleFileDropped(char* filePath) {
         int saveSlot = SaveManager_GetOpenFileSlot();
         if (saveSlot == -1) {
             SPDLOG_ERROR("No save slot available");
-            auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
-            gui->GetGameOverlay()->TextDrawNotification(30.0f, true, "No save slot available");
+            Notification::Emit({ .message = "No save slot available" });
             return true;
         }
 
@@ -285,19 +284,16 @@ bool SaveManager_HandleFileDropped(char* filePath) {
         }
 
         SPDLOG_INFO("Successfully imported save into slot {}", saveSlot);
-        auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
-        gui->GetGameOverlay()->TextDrawNotification(30.0f, true, "Successfully imported save into slot %d", saveSlot);
+        Notification::Emit({ .message = "Successfully imported save into slot", .suffix = std::to_string(saveSlot) });
 
         return true;
     } catch (std::exception& e) {
         SPDLOG_ERROR("Failed to load file: {}", e.what());
-        auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
-        gui->GetGameOverlay()->TextDrawNotification(30.0f, true, "Failed to load file");
+        Notification::Emit({ .message = "Failed to load file" });
         return false;
     } catch (...) {
         SPDLOG_ERROR("Failed to load file");
-        auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
-        gui->GetGameOverlay()->TextDrawNotification(30.0f, true, "Failed to load file");
+        Notification::Emit({ .message = "Failed to load file" });
         return false;
     }
 }

@@ -4672,11 +4672,13 @@ void Player_UseItem(PlayState* play, Player* this, ItemId item) {
             }
         } else if (((itemAction == PLAYER_IA_DEKU_STICK) && (AMMO(ITEM_DEKU_STICK) == 0)) ||
                    (((play->unk_1887D != 0) || (play->unk_1887E != 0)) &&
-                    (play->actorCtx.actorLists[ACTORCAT_EXPLOSIVES].length >= 5)) ||
+                    GameInteractor_Should(VB_LIMIT_EXPLOSIVES,
+                                          play->actorCtx.actorLists[ACTORCAT_EXPLOSIVES].length >= 5)) ||
                    ((play->unk_1887D == 0) && (play->unk_1887E == 0) &&
                     ((explosiveType = Player_ExplosiveFromIA(this, itemAction)) > PLAYER_EXPLOSIVE_NONE) &&
                     ((AMMO(sPlayerExplosiveInfo[explosiveType].itemId) == 0) ||
-                     (play->actorCtx.actorLists[ACTORCAT_EXPLOSIVES].length >= 3)))) {
+                     GameInteractor_Should(VB_LIMIT_EXPLOSIVES,
+                                           play->actorCtx.actorLists[ACTORCAT_EXPLOSIVES].length >= 3)))) {
             // Prevent some items from being used if player is out of ammo.
             // Also prevent explosives from being used if too many are active
             Audio_PlaySfx(NA_SE_SY_ERROR);

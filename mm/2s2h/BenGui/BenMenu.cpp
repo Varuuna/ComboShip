@@ -1085,19 +1085,6 @@ void BenMenu::AddEnhancements() {
         .CVar("gEnhancements.PlayerActions.ArrowCycle")
         .Options(CheckboxOptions().Tooltip(
             "While aiming the bow, use R to cycle between Normal, Fire, Ice and Light arrows."));
-    AddWidget(path, "Bomb Arrows", WIDGET_CVAR_CHECKBOX)
-        .CVar("gEnhancements.Equipment.BombArrows")
-        .Options(CheckboxOptions().Tooltip(
-            "Allows equipping Bomb Arrows by equipping Bombs onto a bow button in the pause menu."));
-    AddWidget(path, "Remote Bombchu Control", WIDGET_CVAR_CHECKBOX)
-        .CVar("gEnhancements.PlayerActions.RemoteBombchu")
-        .Options(CheckboxOptions().Tooltip(
-            "Allows you to control the direction of the Bombchu while it is moving. Press B to detonate. Press A to "
-            "stop controlling the Bombchu."));
-    AddWidget(path, "Bombchu Drops", WIDGET_CVAR_CHECKBOX)
-        .CVar("gEnhancements.Equipment.ChuDrops")
-        .Options(
-            CheckboxOptions().Tooltip("When a bomb drop is spawned, it has a 50% chance to be a Bombchu instead."));
     AddWidget(path, "Invert Shield Y Axis", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Equipment.InvertShieldY")
         .Options(CheckboxOptions().Tooltip(
@@ -1161,10 +1148,6 @@ void BenMenu::AddEnhancements() {
                               "-Half Price: Sell at half value (rounded up)"
                               "Arrows will always be sold back at Full Price.")
                      .ComboVec(&ammoBuybackOptions));
-    AddWidget(path, "Extra Powder Kegs", WIDGET_CVAR_CHECKBOX)
-        .CVar("gEnhancements.Items.ExtraPowderKegs")
-        .Options(CheckboxOptions().Tooltip(
-            "Allows carrying up to 3 Powder Kegs at once instead of the vanilla limit of 1."));
     AddWidget(path, "Extended Projectile Interaction Distance", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Gameplay.ExtendedProjectileInteractionDistance")
         .Options(CheckboxOptions().Tooltip(
@@ -1192,6 +1175,29 @@ void BenMenu::AddEnhancements() {
         .CVar("gEnhancements.Minigames.MarkShootingGalleryOctoroks")
         .Options(CheckboxOptions().Tooltip("Places markers on the Town Shooting Gallery Octoroks, indicating whether "
                                            "they should be hit."));
+
+    AddWidget(path, "Explosives", WIDGET_SEPARATOR_TEXT);
+    AddWidget(path, "Extra Powder Kegs", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.Items.ExtraPowderKegs")
+        .Options(CheckboxOptions().Tooltip(
+            "Allows carrying up to 3 Powder Kegs at once instead of the vanilla limit of 1."));
+    AddWidget(path, "Bomb Arrows", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.Equipment.BombArrows")
+        .Options(CheckboxOptions().Tooltip(
+            "Allows equipping Bomb Arrows by equipping Bombs onto a bow button in the pause menu."));
+    AddWidget(path, "Remote Bombchu Control", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.PlayerActions.RemoteBombchu")
+        .Options(CheckboxOptions().Tooltip(
+            "Allows you to control the direction of the Bombchu while it is moving. Press B to detonate. Press A to "
+            "stop controlling the Bombchu."));
+    AddWidget(path, "Bombchu Drops", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.Equipment.ChuDrops")
+        .Options(
+            CheckboxOptions().Tooltip("When a bomb drop is spawned, it has a 50% chance to be a Bombchu instead."));
+    AddWidget(path, "Remove Explosive Limit", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.Items.RemoveExplosiveLimit")
+        .Options(CheckboxOptions().Tooltip("Removes the cap of 3 active explosives being deployed at once."));
+
     path.column = SECTION_COLUMN_3;
     AddWidget(path, "Saving", WIDGET_SEPARATOR_TEXT);
     AddWidget(path, "3rd Save File Slot", WIDGET_CVAR_CHECKBOX)

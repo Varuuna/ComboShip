@@ -7,8 +7,9 @@
 #include "soh/SohGui/ImGuiUtils.h"
 
 #include <fast/Fast3dGui.h>
-
-#include <fast/Fast3dGui.h>
+#include <libultraship/bridge/consolevariablebridge.h>
+#include <ship/Context.h>
+#include <ship/window/Window.h>
 
 extern "C" {
 #include "macros.h"

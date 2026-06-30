@@ -1,5 +1,4 @@
-﻿#include <libultraship/bridge.h>
-#include "soh/OTRGlobals.h"
+﻿#include "soh/OTRGlobals.h"
 #include "soh/ResourceManagerHelpers.h"
 #include "soh/Enhancements/enhancementTypes.h"
 #include "soh/Enhancements/custom-message/CustomMessageTypes.h"
@@ -23,6 +22,7 @@
 extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName);
 extern "C" void Anchor_BroadcastCrossItem(int targetGame, const char* itemName, const char* srcCheckName);
 #endif
+#include "soh/Enhancements/randomizer/randomizer_check_tracker.h"
 #include "soh/Enhancements/randomizer/RCToRandInf.h"
 
 extern "C" {

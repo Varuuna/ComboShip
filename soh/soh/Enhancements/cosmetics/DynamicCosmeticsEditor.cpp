@@ -17,7 +17,6 @@
 #include "soh/OTRGlobals.h"
 
 extern "C" {
-#include "macros.h"
 #include "soh/cvar_prefixes.h"
 }
 

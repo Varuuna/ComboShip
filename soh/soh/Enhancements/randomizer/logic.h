@@ -1,6 +1,5 @@
 #pragma once
 
-#include "randomizerTypes.h"
 #include "SeedContext.h"
 #include <stdint.h>
 
@@ -43,8 +42,6 @@ class Logic {
     bool HasItem(RandomizerGet itemName);
     bool ItemUseAllowed(RandomizerGet itemName);
     bool BAllowed();
-    bool HasBossSoul(RandomizerGet itemName);
-    bool CanOpenOverworldDoor(RandomizerGet itemName);
     bool SmallKeys(SceneID scene, uint8_t requiredAmount);
     bool CanGroundJump(bool hasBombflower = false);
     bool CanGroundJumpslash(bool hasBombflower = false);

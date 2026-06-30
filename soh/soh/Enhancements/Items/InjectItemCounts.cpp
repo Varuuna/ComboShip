@@ -26,12 +26,9 @@ void BuildSkulltulaMessage(uint16_t* textId, bool* loadFromMessageTable) {
         msg = msg + "\x0E\x3C";
     }
     int16_t gsCount = gSaveContext.inventory.gsTokens;
-<<<<<<< HEAD
-=======
     if (IS_RANDO && RAND_GET_OPTION(RSK_SHUFFLE_TOKENS)) {
         gsCount += 1;
     }
->>>>>>> vendor-soh
     msg.InsertNumber(static_cast<uint8_t>(gsCount));
     msg.AutoFormat(ITEM_SKULL_TOKEN);
     msg.LoadIntoFont();

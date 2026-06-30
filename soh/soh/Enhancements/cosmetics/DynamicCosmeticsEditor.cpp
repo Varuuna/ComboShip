@@ -7,10 +7,7 @@
 #include <vector>
 #include <cctype>
 #include <cstdlib>
-<<<<<<< HEAD
 #include <math.h>
-=======
->>>>>>> vendor-soh
 #include <tinyxml2.h>
 #include <fast/resource/type/DisplayList.h>
 #include <ship/resource/archive/Archive.h>
@@ -20,10 +17,6 @@
 #include "soh/OTRGlobals.h"
 
 extern "C" {
-<<<<<<< HEAD
-#include "macros.h"
-=======
->>>>>>> vendor-soh
 #include "soh/cvar_prefixes.h"
 }
 

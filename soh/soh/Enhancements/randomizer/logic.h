@@ -42,11 +42,6 @@ class Logic {
     bool HasItem(RandomizerGet itemName);
     bool ItemUseAllowed(RandomizerGet itemName);
     bool BAllowed();
-<<<<<<< HEAD
-    bool HasBossSoul(RandomizerGet itemName);
-    bool CanOpenOverworldDoor(RandomizerGet itemName);
-=======
->>>>>>> vendor-soh
     bool SmallKeys(SceneID scene, uint8_t requiredAmount);
     bool CanGroundJump(bool hasBombflower = false);
     bool CanGroundJumpslash(bool hasBombflower = false);

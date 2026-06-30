@@ -31,7 +31,6 @@ extern "C" {
 extern PlayState* gPlayState;
 }
 
-<<<<<<< HEAD
 #include <libultraship/bridge.h>
 #include <libultraship/libultraship.h>
 
@@ -41,8 +40,6 @@ extern PlayState* gPlayState;
 extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName);
 #endif
 
-=======
->>>>>>> vendor-soh
 #define CMD_REGISTER Ship::Context::GetRawInstance()->GetConsole()->AddCommand
 // TODO: Commands should be using the output passed in.
 #define ERROR_MESSAGE                                                                    \

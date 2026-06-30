@@ -226,13 +226,8 @@ bool Logic::HasItem(RandomizerGet itemName) {
         case RG_BACK_TOWER_KEY:
         case RG_HYLIA_LAB_KEY:
         case RG_FISHING_HOLE_KEY:
-<<<<<<< HEAD
-        case RG_RUTOS_LETTER:
-            return CheckRandoInf(StaticData::RandoGetToRandInf.at(itemName));
-=======
             return !ctx->GetOption(RSK_LOCK_OVERWORLD_DOORS) || HasItem(RG_SKELETON_KEY) ||
                    CheckRandoInf(StaticData::RandoGetToRandInf.at(itemName));
->>>>>>> vendor-soh
             // Boss Keys
         case RG_FOREST_TEMPLE_BOSS_KEY:
         case RG_FIRE_TEMPLE_BOSS_KEY:

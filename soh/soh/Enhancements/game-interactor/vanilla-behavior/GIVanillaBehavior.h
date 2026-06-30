@@ -2028,8 +2028,6 @@ typedef enum {
     // - `*PlayState`
     VB_PLAYER_UPDATE_BOTTLE_HELD,
 
-<<<<<<< HEAD
-=======
     // #### `result`
     // ```c
     // false
@@ -2051,7 +2049,6 @@ typedef enum {
     // - `s16 yawTarget` (stick world-space yaw, promoted to int in va_list)
     VB_PLAYER_ROLL_STEER,
 
->>>>>>> vendor-soh
     // #### `result`
     // ```c
     // item == ITEM_SAW

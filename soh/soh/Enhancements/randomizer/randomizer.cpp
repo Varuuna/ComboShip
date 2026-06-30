@@ -21,10 +21,7 @@
 #include "randomizerTypes.h"
 #include "soh/ObjectExtension/ObjectExtension.h"
 #include "soh/Enhancements/randomizer/RCToRandInf.h"
-<<<<<<< HEAD
 #include "static_data.h"
-=======
->>>>>>> vendor-soh
 #include "dungeon.h"
 
 extern "C" {

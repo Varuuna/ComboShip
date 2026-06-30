@@ -31,10 +31,7 @@ typedef enum {
 #ifdef __cplusplus
 #include <string>
 #include <map>
-<<<<<<< HEAD
-=======
 #include <ship/window/gui/GuiWindow.h>
->>>>>>> vendor-soh
 #include "soh/SohGui/UIWidgets.hpp"
 extern "C" {
 #endif //__cplusplus

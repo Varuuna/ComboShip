@@ -2683,12 +2683,17 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
 
         Rando::Spoiler::ApplyToSaveContext(spoiler);
 
-        // ComboShip: record the chosen starting items in the save (mirrors OnFileCreate). NOTE: we do
-        // NOT call Rando::GrantStartingItems() — it needs gPlayState (Item_Give) and this runs headless,
-        // so starting items are stored in the rando struct but not pushed into inventory here.
+        // ComboShip: store the chosen starting items and bake them into inventory, like native
+        // OnFileCreate. Force gPlayState=NULL so GrantStartingItems takes Item_Give's null-guarded
+        // headless path (eager-MM-boot may leave a stale gPlayState); SaveManager flush below persists it.
         {
             auto startingItems = Rando::GetStartingItemsFromConfig();
             Rando::SetStartingItemsInSave(gSaveContext.save.shipSaveInfo.rando, startingItems);
+
+            PlayState* savedPlay = gPlayState;
+            gPlayState = NULL;
+            Rando::GrantStartingItems();
+            gPlayState = savedPlay;
         }
 
         // The two always-eligible starting checks (mirrors OnFileCreate tail).

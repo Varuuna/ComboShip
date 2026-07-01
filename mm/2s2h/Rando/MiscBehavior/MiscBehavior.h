@@ -19,6 +19,8 @@ void CheckQueueReset();
 // ComboShip: Returns the ForeignItem metadata for an MM check that holds a foreign OOT item,
 // or nullptr if the check is not foreign. Keyed by Checks[].name (RC_*), NOT CheckNames[rc].
 const ComboRando::ForeignItem* MM_LookupForeign(RandoCheckId rc);
+// ComboShip: deliver a foreign check's item to its home game + persist (caller sets obtained flags).
+void SendForeignCheck(RandoCheckId rc);
 #endif
 void InitFileSelect();
 void InitKaleidoItemPage();

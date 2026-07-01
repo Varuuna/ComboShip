@@ -1230,3 +1230,21 @@ One inline editor (OOT's) covers both games: controls are shared `gSettings.Cont
 `MM_ReloadControls` reloads MM from them, and MM's Controls sidebar is hidden in the overlay (above),
 so no MM-side change is needed. **On future merges:** if SoH renames the "Configure Controller"
 window, update the name string here.
+
+## MM starting items + OOT items in MM shops (issues #39 #40, 2026-07-01)
+
+**Why:** The combo MM save is created headless by `MM_InitRandoSaveFile`, which stored starting
+items but never granted them (#39). And `EnGirlA_RandoBuyFunc` granted shop items directly, bypassing
+the `RI_COMBO_FOREIGN` cross-delivery that `CheckQueue` uses, so OOT items bought in MM shops were
+never delivered or saved (#40).
+
+**Vendored (`COMBO_BUILD`-guarded):**
+- `mm/2s2h/BenPort.cpp` — `MM_InitRandoSaveFile` now calls `Rando::GrantStartingItems()` with
+  `gPlayState` forced `NULL`, baking items into the save like native `OnFileCreate` (whose `Item_Give`
+  null-guards make it headless-safe). The forced `NULL` defends against a stale eager-boot `gPlayState`.
+- `mm/2s2h/Rando/MiscBehavior/CheckQueue.cpp` + `MiscBehavior.h` — `Rando_SendForeignCheck` exposed as
+  `Rando::MiscBehavior::SendForeignCheck` for reuse.
+- `mm/2s2h/Rando/ActorBehavior/EnGirlA.cpp` — `EnGirlA_RandoBuyFunc` routes `RI_COMBO_FOREIGN` through
+  `SendForeignCheck` (sets `obtained`+`cycleObtained`, skips local give).
+- `mm/2s2h/Rando/ConvertItem.cpp` — `IsItemObtainable` gains a `RI_COMBO_FOREIGN` case
+  (`!hasObtainedCheck`); without it foreign shop items stayed obtainable and restocked/re-delivered.

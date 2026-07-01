@@ -641,6 +641,11 @@ bool Rando::IsItemObtainable(RandoItemId randoItemId, RandoCheckId randoCheckId)
             ItemId itemId = StaticData::Items[randoItemId].itemId;
             return INV_CONTENT(itemId) != itemId;
         }
+#ifdef COMBO_BUILD
+        // ComboShip: foreign item is obtainable until its check is taken (keeps shops out of stock after buying).
+        case RI_COMBO_FOREIGN:
+            return !hasObtainedCheck;
+#endif
         default:
             break;
     }

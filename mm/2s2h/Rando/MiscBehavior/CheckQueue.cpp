@@ -47,10 +47,9 @@ const ComboRando::ForeignItem* Rando::MiscBehavior::MM_LookupForeign(RandoCheckI
     return it != g_mmForeignMap.end() ? &it->second : nullptr;
 }
 
-// ComboShip: divert a foreign-marked MM check into the cross-world mailbox instead of granting
-// locally. Enqueues the real item for its home game, shows a "Sent to Hyrule" toast, and persists
-// the save (the caller has already marked the check obtained).
-static void Rando_SendForeignCheck(RandoCheckId rc) {
+// ComboShip: deliver a foreign-marked check's real item to its home game, toast, and persist the
+// save (caller sets the obtained flags). Exposed so the shop buy path can reuse it.
+void Rando::MiscBehavior::SendForeignCheck(RandoCheckId rc) {
     int slot = gSaveContext.fileNum;
     if (slot != g_mmForeignSlot) {
         g_mmForeignMap = ComboRando::LoadForeignForGame(slot, ComboRando::GAME_MM);
@@ -116,7 +115,7 @@ void Rando::MiscBehavior::CheckQueue() {
                             randoSaveCheck.cycleObtained = true;
                             randoSaveCheck.obtained = true;
                             randoSaveCheck.eligible = false;
-                            Rando_SendForeignCheck((RandoCheckId)CUSTOM_ITEM_PARAM);
+                            Rando::MiscBehavior::SendForeignCheck((RandoCheckId)CUSTOM_ITEM_PARAM);
                             queued = false;
                             CUSTOM_ITEM_PARAM = RI_COMBO_FOREIGN;
                             return;

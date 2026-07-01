@@ -2,6 +2,9 @@
 #include <libultraship/bridge/consolevariablebridge.h>
 #include "2s2h/CustomMessage/CustomMessage.h"
 #include "2s2h/Rando/MiscBehavior/Traps.h"
+#ifdef COMBO_BUILD
+#include "2s2h/Rando/MiscBehavior/MiscBehavior.h" // ComboShip: SendForeignCheck for foreign shop items
+#endif
 
 extern "C" {
 #include "variables.h"
@@ -69,8 +72,17 @@ s32 EnGirlA_RandoCanBuyFunc(PlayState* play, EnGirlA* enGirlA) {
 void EnGirlA_RandoBuyFunc(PlayState* play, EnGirlA* enGirlA) {
     auto& randoSaveCheck = RANDO_SAVE_CHECKS[enGirlA->actor.world.rot.z];
     RandoItemId randoItemId = Rando::ConvertItem(randoSaveCheck.randoItemId, (RandoCheckId)enGirlA->actor.world.rot.z);
-    randoSaveCheck.obtained = true;
     Rupees_ChangeBy(-play->msgCtx.unk1206C);
+#ifdef COMBO_BUILD
+    // ComboShip: OOT-bound item — deliver cross-game instead of granting locally (mirrors CheckQueue).
+    if (randoSaveCheck.randoItemId == RI_COMBO_FOREIGN) {
+        randoSaveCheck.cycleObtained = true;
+        randoSaveCheck.obtained = true;
+        Rando::MiscBehavior::SendForeignCheck((RandoCheckId)enGirlA->actor.world.rot.z);
+        return;
+    }
+#endif
+    randoSaveCheck.obtained = true;
     if (randoItemId == RI_TRAP) {
         RollTrapType();
     }

@@ -1248,3 +1248,19 @@ never delivered or saved (#40).
   `SendForeignCheck` (sets `obtained`+`cycleObtained`, skips local give).
 - `mm/2s2h/Rando/ConvertItem.cpp` — `IsItemObtainable` gains a `RI_COMBO_FOREIGN` case
   (`!hasObtainedCheck`); without it foreign shop items stayed obtainable and restocked/re-delivered.
+
+## MM shader assets synced to merged libultraship (OpenGL transition crash, 2026-07-02)
+
+**Why:** The 2026-06-29 upstream merge moved the shared libultraship OpenGL backend to the single
+prism shader (`shaders/opengl/default.shader.glsl`), but `mm/assets/custom/shaders/` still shipped
+the pre-merge split `default.shader.fs`/`.vs`. Shader sources load from the ACTIVE game's
+ResourceManager, so with MM active any new shader-variant compile missed in `2ship.o2r` and hit the
+`abort()` in `gfx_opengl.cpp` ("Failed to load default fragment shader, missing f3d.o2r?") — every
+OOT→MM transition crashed on the OpenGL backend. D3D11/Metal masked it (their filenames didn't
+change), which is why Windows runs never saw it.
+
+**Vendored (assets only, no code):** `mm/assets/custom/shaders/` replaced with byte-identical copies
+of `libultraship/src/fast/shaders/` (add `.glsl`, drop dead `.fs`/`.vs`, refresh stale `.hlsl` /
+`.metal`) — now matching `soh/assets/custom/shaders/`. Requires regenerating `2ship.o2r`
+(`Generate2ShipOtr`). Rule for future merges: whenever the shared LUS shader sources change, both
+ports' `assets/custom/shaders/` must be re-synced and their `.o2r` regenerated.

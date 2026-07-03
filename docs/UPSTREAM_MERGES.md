@@ -1329,3 +1329,15 @@ including `ResourceManagerScope.h`/`Context.h` from these widely-included header
 whose `#define main SDL_main` breaks `GameState::main` users (e.g. `CustomLogoTitle.cpp`). Makes
 the `*_MenuApplyCVarChange` export scopes redundant but they stay as documentation of the
 export-boundary rule.
+
+## MM resume: reset magicLevel like Sram_OpenSave (magic meter outline, 2026-07-03)
+
+**Why:** the combo resume shortcut (`title_setup.c` `gComboStartFileNum` block) loads the save
+directly, skipping `Sram_OpenSave`'s post-load `magicLevel = 0` (z_sram_NES.c) that re-arms the
+magic-meter grow animation. A save written mid-game stores `magicLevel` 1/2, so on every re-entry
+the trigger (`Interface_Update`: `isMagicAcquired && magicLevel == 0`) never fired and runtime
+`magicCapacity` stayed 0 — outline drawn at zero width while the fill showed correctly. First
+entry was fine because it CREATES the save (default `magicLevel` 0).
+
+**Vendored (inside the existing `COMBO_BUILD` block):** `mm/src/code/title_setup.c` — one line,
+`magicLevel = 0` after the save load, mirroring `Sram_OpenSave`.

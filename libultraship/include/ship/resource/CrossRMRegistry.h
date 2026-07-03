@@ -15,5 +15,25 @@ class CrossRMRegistry {
     static void Register(const std::string& name, std::shared_ptr<ResourceManager> rm);
     static void Unregister(const std::string& name);
     static std::shared_ptr<ResourceManager> Get(const std::string& name);
+    // Get(name), falling back to the Context's active RM when not registered. For code that must
+    // always use its own game's RM (e.g. audio threads racing active-RM swaps on other threads).
+    static std::shared_ptr<ResourceManager> GetOrActive(const std::string& name);
+};
+
+// RAII: pin the named game's RM as active, restoring on exit. Like ResourceManagerScope, but
+// out-of-line so this light header is safe in widely-included game headers (no Context/SDL chain).
+class OwnRMScope {
+  public:
+    explicit OwnRMScope(const char* name);
+    ~OwnRMScope();
+    OwnRMScope(const OwnRMScope&) = delete;
+    OwnRMScope& operator=(const OwnRMScope&) = delete;
+    OwnRMScope(OwnRMScope&&) = delete;
+    OwnRMScope& operator=(OwnRMScope&&) = delete;
+
+  private:
+    std::shared_ptr<ResourceManager> mPrevious;
+    const void* mCtx = nullptr; // Context identity guard (non-owning)
+    bool mSwapped = false;
 };
 } // namespace Ship

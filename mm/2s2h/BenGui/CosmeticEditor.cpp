@@ -2,6 +2,10 @@
 #include "2s2h/BenGui/BenGui.hpp"
 #include "CosmeticEditor.h"
 #include "2s2h/ShipInit.hpp"
+#ifdef COMBO_BUILD
+#include <ship/resource/CrossRMRegistry.h>
+#include <ship/resource/ResourceManagerScope.h>
+#endif
 #include "2s2h/GameInteractor/GameInteractor.h"
 
 extern "C" {
@@ -876,6 +880,10 @@ void CosmeticEditorDrawGroup(CosmeticGroup group, const char* displayName = null
 }
 
 void CosmeticEditorWindow::DrawElement() {
+#ifdef COMBO_BUILD
+    // ComboShip: popout draws run under the foreground game's RM; palette patching needs MM's.
+    Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("mm"));
+#endif
     RefreshDynamicCosmeticsStateIfNeeded();
 
     UIWidgets::CVarCheckbox("Sync Rainbow colors", kCosmeticRainbowSyncCvar,

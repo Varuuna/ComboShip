@@ -9,6 +9,7 @@
 #include <unordered_map> // ComboShip: oracle name->id lookup maps
 
 #include <ship/resource/CrossRMRegistry.h>
+#include <ship/resource/ResourceManagerScope.h>
 #include <ship/resource/ResourceManager.h>
 #include <fast/Fast3dWindow.h>
 // ComboShip: our newer libultraship moved these headers; the mm baseline assumed older paths.
@@ -1850,12 +1851,14 @@ extern "C" Mtx* ResourceMgr_LoadMtxByName(char* path) {
     return (Mtx*)ResourceGetDataByName(path);
 }
 
+// ComboShip: audio loads pinned to MM's own RM — the audio thread races active-RM swaps
+// (ResourceManagerScope) made on other threads.
 extern "C" SequenceData ResourceMgr_LoadSeqByName(const char* path) {
-    SequenceData* sequence = (SequenceData*)ResourceGetDataByName(path);
+    SequenceData* sequence = (SequenceData*)Ship::CrossRMRegistry::GetOrActive("mm")->GetResourceRawPointer(path);
     return *sequence;
 }
 extern "C" SequenceData* ResourceMgr_LoadSeqPtrByName(const char* path) {
-    SequenceData* sequence = (SequenceData*)ResourceGetDataByName(path);
+    SequenceData* sequence = (SequenceData*)Ship::CrossRMRegistry::GetOrActive("mm")->GetResourceRawPointer(path);
     return sequence;
 }
 extern "C" KeyFrameSkeleton* ResourceMgr_LoadKeyFrameSkelByName(const char* path) {
@@ -1929,11 +1932,11 @@ extern "C" SoundFontSample* ResourceMgr_LoadAudioSample(const char* path) {
 #endif
 
 extern "C" SoundFont* ResourceMgr_LoadAudioSoundFontByName(const char* path) {
-    return (SoundFont*)ResourceGetDataByName(path);
+    return (SoundFont*)Ship::CrossRMRegistry::GetOrActive("mm")->GetResourceRawPointer(path);
 }
 
 extern "C" SoundFont* ResourceMgr_LoadAudioSoundFontByCRC(uint64_t crc) {
-    return (SoundFont*)ResourceGetDataByCrc(crc);
+    return (SoundFont*)Ship::CrossRMRegistry::GetOrActive("mm")->GetResourceRawPointer(crc);
 }
 
 extern "C" int ResourceMgr_OTRSigCheck(char* imgData) {
@@ -3600,6 +3603,9 @@ extern "C" __declspec(dllexport) const CwMenu* MM_ExportMenu(void) {
 
 extern "C" __declspec(dllexport) void MM_MenuInvokeCallback(int32_t i) {
     ComboMenuContext::UseSharedImGuiContext();
+    // Menu code can load MM resources — scope MM's own RM, not the foreground game's (also in the
+    // eval/draw/apply exports below; see combo/gui/ComboWidgetRender.h).
+    Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("mm"));
     if (auto menu = Combo_EnsureBenMenu()) {
         menu->InvokeCallbackByIndex(i);
     }
@@ -3609,6 +3615,7 @@ extern "C" __declspec(dllexport) void MM_MenuInvokeCallback(int32_t i) {
 // after a widget change — so settings/enhancements changed via the combo menu apply live instead of
 // only on the next ShipInit::InitAll (MM boot / new save).
 extern "C" __declspec(dllexport) void MM_MenuApplyCVarChange(const char* cvar) {
+    Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("mm")); // ShipInit funcs load MM resources
     if (cvar && cvar[0])
         ShipInit::Init(cvar);
 }
@@ -3653,6 +3660,7 @@ bool Combo_MmIsForeground(void) {
 
 extern "C" __declspec(dllexport) int32_t MM_MenuEvalDisabled(int32_t i, const char** outReason) {
     ComboMenuContext::UseSharedImGuiContext();
+    Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("mm"));
     auto menu = Combo_EnsureBenMenu();
     return menu ? menu->EvalDisabledByIndex(i, outReason) : 0;
 }
@@ -3662,6 +3670,7 @@ extern "C" __declspec(dllexport) void MM_MenuDrawCustom(int32_t i) {
     // THEME_COLOR (menuThemeIndex), which is set in UpdateElement(); skipping Update() makes ColorValues.at()
     // throw out_of_range (proven by the Phase 0 spike). So Init()+Update() before any custom draw.
     ComboMenuContext::UseSharedImGuiContext();
+    Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("mm"));
     auto menu = Combo_EnsureBenMenu();
     if (menu) {
         menu->Init();

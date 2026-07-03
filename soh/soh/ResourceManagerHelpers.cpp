@@ -21,6 +21,15 @@
 
 #include <stb_image.h>
 
+#ifdef COMBO_BUILD
+// ComboShip: audio loads pinned to OOT's own RM — the audio thread races active-RM swaps
+// (ResourceManagerScope) made on other threads.
+#include <ship/resource/CrossRMRegistry.h>
+#define COMBO_OWN_RM() (Ship::CrossRMRegistry::GetOrActive("oot"))
+#else
+#define COMBO_OWN_RM() (Ship::Context::GetInstance()->GetResourceManager())
+#endif
+
 extern "C" PlayState* gPlayState;
 
 struct LinkTunicDListCacheKey {
@@ -560,21 +569,21 @@ extern "C" Vtx* ResourceMgr_LoadVtxByName(char* path) {
 }
 
 extern "C" SequenceData ResourceMgr_LoadSeqByName(const char* path) {
-    SequenceData* sequence = (SequenceData*)ResourceGetDataByName(path);
+    SequenceData* sequence = (SequenceData*)COMBO_OWN_RM()->GetResourceRawPointer(path);
     return *sequence;
 }
 
 extern "C" SequenceData* ResourceMgr_LoadSeqPtrByName(const char* path) {
-    SequenceData* sequence = (SequenceData*)ResourceGetDataByName(path);
+    SequenceData* sequence = (SequenceData*)COMBO_OWN_RM()->GetResourceRawPointer(path);
     return sequence;
 }
 
 extern "C" SoundFontSample* ResourceMgr_LoadAudioSample(const char* path) {
-    return (SoundFontSample*)ResourceGetDataByName(path);
+    return (SoundFontSample*)COMBO_OWN_RM()->GetResourceRawPointer(path);
 }
 
 extern "C" SoundFont* ResourceMgr_LoadAudioSoundFontByName(const char* path) {
-    return (SoundFont*)ResourceGetDataByName(path);
+    return (SoundFont*)COMBO_OWN_RM()->GetResourceRawPointer(path);
 }
 
 extern "C" int ResourceMgr_OTRSigCheck(char* imgData) {

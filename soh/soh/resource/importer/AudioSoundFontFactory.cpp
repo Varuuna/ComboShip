@@ -7,6 +7,15 @@
 #include <ship/resource/archive/Archive.h>
 #include <ship/resource/ResourceManager.h>
 
+#ifdef COMBO_BUILD
+// ComboShip: nested sample loads pinned to OOT's own RM — this runs on RM workers that race
+// active-RM swaps (ResourceManagerScope) made on other threads.
+#include <ship/resource/CrossRMRegistry.h>
+#define COMBO_OWN_RM() (Ship::CrossRMRegistry::GetOrActive("oot"))
+#else
+#define COMBO_OWN_RM() (Ship::Context::GetRawInstance()->GetResourceManager())
+#endif
+
 namespace SOH {
 std::shared_ptr<Ship::IResource>
 ResourceFactoryBinaryAudioSoundFontV2::ReadResource(std::shared_ptr<Ship::File> file,
@@ -65,8 +74,7 @@ ResourceFactoryBinaryAudioSoundFontV2::ReadResource(std::shared_ptr<Ship::File> 
         if (sampleFileName.empty()) {
             drum->sound.sample = nullptr;
         } else {
-            auto res =
-                Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(sampleFileName.c_str());
+            auto res = COMBO_OWN_RM()->LoadResourceProcess(sampleFileName.c_str());
             drum->sound.sample = static_cast<Sample*>(res ? res->GetRawPointer() : nullptr);
         }
 
@@ -110,8 +118,7 @@ ResourceFactoryBinaryAudioSoundFontV2::ReadResource(std::shared_ptr<Ship::File> 
             bool hasSampleRef = reader->ReadInt8();
             std::string sampleFileName = reader->ReadString();
             instrument->lowNotesSound.tuning = reader->ReadFloat();
-            auto res =
-                Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(sampleFileName.c_str());
+            auto res = COMBO_OWN_RM()->LoadResourceProcess(sampleFileName.c_str());
             instrument->lowNotesSound.sample = static_cast<Sample*>(res ? res->GetRawPointer() : nullptr);
         } else {
             instrument->lowNotesSound.sample = nullptr;
@@ -124,8 +131,7 @@ ResourceFactoryBinaryAudioSoundFontV2::ReadResource(std::shared_ptr<Ship::File> 
             bool hasSampleRef = reader->ReadInt8();
             std::string sampleFileName = reader->ReadString();
             instrument->normalNotesSound.tuning = reader->ReadFloat();
-            auto res =
-                Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(sampleFileName.c_str());
+            auto res = COMBO_OWN_RM()->LoadResourceProcess(sampleFileName.c_str());
             instrument->normalNotesSound.sample = static_cast<Sample*>(res ? res->GetRawPointer() : nullptr);
         } else {
             instrument->normalNotesSound.sample = nullptr;
@@ -137,8 +143,7 @@ ResourceFactoryBinaryAudioSoundFontV2::ReadResource(std::shared_ptr<Ship::File> 
             bool hasSampleRef = reader->ReadInt8();
             std::string sampleFileName = reader->ReadString();
             instrument->highNotesSound.tuning = reader->ReadFloat();
-            auto res =
-                Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(sampleFileName.c_str());
+            auto res = COMBO_OWN_RM()->LoadResourceProcess(sampleFileName.c_str());
             instrument->highNotesSound.sample = static_cast<Sample*>(res ? res->GetRawPointer() : nullptr);
         } else {
             instrument->highNotesSound.sample = nullptr;
@@ -165,8 +170,7 @@ ResourceFactoryBinaryAudioSoundFontV2::ReadResource(std::shared_ptr<Ship::File> 
             bool hasSampleRef = reader->ReadInt8();
             std::string sampleFileName = reader->ReadString();
             soundEffect.tuning = reader->ReadFloat();
-            auto res =
-                Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(sampleFileName.c_str());
+            auto res = COMBO_OWN_RM()->LoadResourceProcess(sampleFileName.c_str());
             soundEffect.sample = static_cast<Sample*>(res ? res->GetRawPointer() : nullptr);
         }
 
@@ -237,7 +241,7 @@ void ResourceFactoryXMLSoundFontV0::ParseDrums(AudioSoundFont* soundFont, tinyxm
         const char* sampleStr = element->Attribute("SampleRef");
 
         if (sampleStr != nullptr && sampleStr[0] != 0) {
-            auto res = Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(sampleStr);
+            auto res = COMBO_OWN_RM()->LoadResourceProcess(sampleStr);
             drum->sound.sample = static_cast<Sample*>(res ? res->GetRawPointer() : nullptr);
         } else {
             drum->sound.sample = nullptr;
@@ -312,8 +316,8 @@ void ResourceFactoryXMLSoundFontV0::ParseInstruments(AudioSoundFont* soundFont, 
             instrument->lowNotesSound.tuning = instrumentElement->FloatAttribute("Tuning");
             const char* sampleStr = instrumentElement->Attribute("SampleRef");
             if (sampleStr != nullptr && sampleStr[0] != 0) {
-                std::shared_ptr<SOH::AudioSample> res = static_pointer_cast<SOH::AudioSample>(
-                    Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(sampleStr));
+                std::shared_ptr<SOH::AudioSample> res =
+                    static_pointer_cast<SOH::AudioSample>(COMBO_OWN_RM()->LoadResourceProcess(sampleStr));
                 if (res->tuning != -1.0f) {
                     instrument->lowNotesSound.tuning = res->tuning;
                 }
@@ -326,8 +330,8 @@ void ResourceFactoryXMLSoundFontV0::ParseInstruments(AudioSoundFont* soundFont, 
             instrument->normalNotesSound.tuning = instrumentElement->FloatAttribute("Tuning");
             const char* sampleStr = instrumentElement->Attribute("SampleRef");
             if (sampleStr != nullptr && sampleStr[0] != 0) {
-                std::shared_ptr<SOH::AudioSample> res = static_pointer_cast<SOH::AudioSample>(
-                    Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(sampleStr));
+                std::shared_ptr<SOH::AudioSample> res =
+                    static_pointer_cast<SOH::AudioSample>(COMBO_OWN_RM()->LoadResourceProcess(sampleStr));
                 if (res->tuning != -1.0f) {
                     instrument->normalNotesSound.tuning = res->tuning;
                 }
@@ -340,8 +344,8 @@ void ResourceFactoryXMLSoundFontV0::ParseInstruments(AudioSoundFont* soundFont, 
             instrument->highNotesSound.tuning = instrumentElement->FloatAttribute("Tuning");
             const char* sampleStr = instrumentElement->Attribute("SampleRef");
             if (sampleStr != nullptr && sampleStr[0] != 0) {
-                std::shared_ptr<SOH::AudioSample> res = static_pointer_cast<SOH::AudioSample>(
-                    Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(sampleStr));
+                std::shared_ptr<SOH::AudioSample> res =
+                    static_pointer_cast<SOH::AudioSample>(COMBO_OWN_RM()->LoadResourceProcess(sampleStr));
                 if (res->tuning != -1.0f) {
                     instrument->highNotesSound.tuning = res->tuning;
                 }
@@ -380,8 +384,7 @@ void ResourceFactoryXMLSoundFontV0::ParseSfxTable(AudioSoundFont* soundFont, tin
 
         sound.tuning = element->FloatAttribute("Tuning");
         if (sampleStr[0] != 0) {
-            auto res = static_pointer_cast<SOH::AudioSample>(
-                Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(sampleStr));
+            auto res = static_pointer_cast<SOH::AudioSample>(COMBO_OWN_RM()->LoadResourceProcess(sampleStr));
             if (res->tuning != -1.0f) {
                 sound.tuning = res->tuning;
             }
@@ -435,8 +438,7 @@ ResourceFactoryXMLSoundFontV0::ReadResource(std::shared_ptr<Ship::File> file,
     if (patch != nullptr) {
         std::string origName = "audio/fonts/";
         origName += patch;
-        audioSoundFont = dynamic_pointer_cast<AudioSoundFont>(
-            Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(origName));
+        audioSoundFont = dynamic_pointer_cast<AudioSoundFont>(COMBO_OWN_RM()->LoadResourceProcess(origName));
     } else {
         audioSoundFont = std::make_shared<AudioSoundFont>(initData);
         memset(&audioSoundFont->soundFont, 0, sizeof(audioSoundFont->soundFont));

@@ -9,6 +9,10 @@
 #include <unordered_map>
 #include <functional>
 
+#ifdef COMBO_BUILD
+#include <ship/resource/CrossRMRegistry.h>
+#endif
+
 struct ShipInit {
     static std::unordered_map<std::string, std::vector<std::function<void()>>>& GetAll() {
         static std::unordered_map<std::string, std::vector<std::function<void()>>> shipInitFuncs;
@@ -20,6 +24,10 @@ struct ShipInit {
     }
 
     static void Init(const std::string& path) {
+#ifdef COMBO_BUILD
+        // ComboShip: init funcs load OOT resources; pin OOT's RM (callers may run with the other game's active).
+        Ship::OwnRMScope rmScope("oot");
+#endif
         auto& shipInitFuncs = ShipInit::GetAll();
         for (const auto& initFunc : shipInitFuncs[path]) {
             initFunc();

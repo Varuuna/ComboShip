@@ -1248,3 +1248,96 @@ never delivered or saved (#40).
   `SendForeignCheck` (sets `obtained`+`cycleObtained`, skips local give).
 - `mm/2s2h/Rando/ConvertItem.cpp` — `IsItemObtainable` gains a `RI_COMBO_FOREIGN` case
   (`!hasObtainedCheck`); without it foreign shop items stayed obtainable and restocked/re-delivered.
+
+## MM shader assets synced to merged libultraship (OpenGL transition crash, 2026-07-02)
+
+**Why:** The 2026-06-29 upstream merge moved the shared libultraship OpenGL backend to the single
+prism shader (`shaders/opengl/default.shader.glsl`), but `mm/assets/custom/shaders/` still shipped
+the pre-merge split `default.shader.fs`/`.vs`. Shader sources load from the ACTIVE game's
+ResourceManager, so with MM active any new shader-variant compile missed in `2ship.o2r` and hit the
+`abort()` in `gfx_opengl.cpp` ("Failed to load default fragment shader, missing f3d.o2r?") — every
+OOT→MM transition crashed on the OpenGL backend. D3D11/Metal masked it (their filenames didn't
+change), which is why Windows runs never saw it.
+
+**Vendored (assets only, no code):** `mm/assets/custom/shaders/` replaced with byte-identical copies
+of `libultraship/src/fast/shaders/` (add `.glsl`, drop dead `.fs`/`.vs`, refresh stale `.hlsl` /
+`.metal`) — now matching `soh/assets/custom/shaders/`. Requires regenerating `2ship.o2r`
+(`Generate2ShipOtr`). Rule for future merges: whenever the shared LUS shader sources change, both
+ports' `assets/custom/shaders/` must be re-synced and their `.o2r` regenerated.
+
+## Cosmetics editors: scope the owning game's RM (cross-game open crash, 2026-07-02)
+
+**Why:** `Context::GetInstance()->GetResourceManager()` returns the FOREGROUND game's RM. Opening
+MM's Cosmetic Editor from the combo menu while OOT is foreground made its palette patchers
+(`ShadePaletteNewBase` etc.) `LoadResource` MM paths through OOT's RM → null → crash on
+`GetRawPointer()` (mirror case for OOT's editor while MM is foreground). The
+`combo/gui/ComboWidgetRender.h` design note places RM scoping GAME-SIDE in the menu exports, but it
+was never implemented.
+
+**Port code (BenPort.cpp / OTRGlobals.cpp):** the four menu exports per game
+(`*_MenuInvokeCallback`, `*_MenuApplyCVarChange`, `*_MenuEvalDisabled`, `*_MenuDrawCustom`) now wrap
+their body in `Ship::ResourceManagerScope(CrossRMRegistry::Get("mm"/"oot"))` — no-op when that game
+is foreground or not yet registered. Covers every inline widget/window draw and CVar-change apply.
+
+**Vendored (`COMBO_BUILD`-guarded, +22/-0 lines):** `mm/2s2h/BenGui/CosmeticEditor.cpp` and
+`soh/soh/Enhancements/cosmetics/CosmeticsEditor.cpp` — same scope at the top of
+`DrawElement()`. Needed because the POPOUT window is drawn by the shared Gui loop directly,
+bypassing the menu exports.
+
+## Audio resource loads pinned to the owning game's RM (audio-thread race, 2026-07-02)
+
+**Why:** each game's audio thread loads fonts/sequences/samples through the swappable ACTIVE RM
+(`ResourceGetDataByName` → `Context::GetResourceManager()`). Any `ResourceManagerScope` swap on
+another thread (combo-menu exports above, foreign draws) races it: during MM Cosmetic Editor
+"Randomize All" (long scope, global RM = MM's), OOT's audio thread resolved an OOT soundfont
+against MM's RM → null → unguarded `sf->numDrums` crash in `Audio_GetDrum`
+(`soh/src/code/audio_playback.c:366`). Audio semantically always wants its OWN game's assets, so
+its loads now bypass the global via `CrossRMRegistry::GetOrActive("oot"/"mm")` — falls back to the
+active RM pre-registration / non-combo. Game source (`audio_*.c`) untouched.
+
+**libultraship (combo-owned):** `CrossRMRegistry` gains `GetOrActive()` and a `std::shared_mutex`
+(Get() is now called from audio threads, not just the interpreter — the old no-mutex comment's
+"add one when multi-threaded" condition triggered).
+
+**Port code:** `soh/soh/ResourceManagerHelpers.cpp` + `mm/2s2h/BenPort.cpp` — the audio bridge fns
+(`ResourceMgr_LoadSeqByName`/`LoadSeqPtrByName`/`LoadAudioSample`/`LoadAudioSoundFontByName`/
+`...ByCRC`) load via the pinned RM (soh side behind a `COMBO_OWN_RM()` macro with an `#else`
+preserving upstream behavior).
+
+**Vendored (`COMBO_BUILD`-guarded):** both games' `resource/importer/AudioSoundFontFactory.cpp`
+(nested sample loads, 11 sites each via the `COMBO_OWN_RM()` macro), `AudioSampleFactory.cpp` and
+`AudioSequenceFactory.cpp` (one archive `LoadFile` each) — these factories run on the RM worker
+pool and read the global mid-load, so they need the same pinning. `#else` keeps upstream lines.
+
+**Residual (known, pre-existing):** non-audio factories (Skeleton/Animation/etc.) still nested-load
+via the global — that's load-bearing for `ResourceManagerScope` (ComboForeignAnim's scoped foreign
+loads rely on it). Their exposure is limited to async loads in flight during a scope; unchanged.
+
+## ShipInit::Init scoped to the owning game's RM (HUD Editor preset crash, 2026-07-03)
+
+**Why:** `ShipInit` init funcs include the cosmetic patchers (`ShadePaletteRevert` → `LoadResource`),
+and they fire from UI paths outside the scoped menu exports — e.g. MM's POPOUT HUD Editor
+(`HudEditor.cpp` preset/color handlers call `ShipInit::Init`), drawn by the shared Gui loop where
+the ACTIVE RM is the foreground game's. Selecting a HUD preset while OOT was foreground loaded MM
+palettes through OOT's RM → null → crash. Scoping `Init` itself fixes every caller at once instead
+of scoping window-by-window.
+
+**Vendored (`COMBO_BUILD`-guarded):** `mm/2s2h/ShipInit.hpp` + `soh/soh/ShipInit.hpp` —
+`ShipInit::Init` pins the owning game's RM via `Ship::OwnRMScope` (no-op when that game is
+foreground or pre-registration). `OwnRMScope` lives in `CrossRMRegistry` (out-of-line) because
+including `ResourceManagerScope.h`/`Context.h` from these widely-included headers drags in SDL,
+whose `#define main SDL_main` breaks `GameState::main` users (e.g. `CustomLogoTitle.cpp`). Makes
+the `*_MenuApplyCVarChange` export scopes redundant but they stay as documentation of the
+export-boundary rule.
+
+## MM resume: reset magicLevel like Sram_OpenSave (magic meter outline, 2026-07-03)
+
+**Why:** the combo resume shortcut (`title_setup.c` `gComboStartFileNum` block) loads the save
+directly, skipping `Sram_OpenSave`'s post-load `magicLevel = 0` (z_sram_NES.c) that re-arms the
+magic-meter grow animation. A save written mid-game stores `magicLevel` 1/2, so on every re-entry
+the trigger (`Interface_Update`: `isMagicAcquired && magicLevel == 0`) never fired and runtime
+`magicCapacity` stayed 0 — outline drawn at zero width while the fill showed correctly. First
+entry was fine because it CREATES the save (default `magicLevel` 0).
+
+**Vendored (inside the existing `COMBO_BUILD` block):** `mm/src/code/title_setup.c` — one line,
+`magicLevel = 0` after the save load, mirroring `Sram_OpenSave`.

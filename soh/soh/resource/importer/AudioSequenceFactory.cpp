@@ -7,6 +7,9 @@
 
 #include <ship/Context.h>
 #include <ship/resource/archive/Archive.h>
+#ifdef COMBO_BUILD
+#include <ship/resource/CrossRMRegistry.h>
+#endif
 #include <ship/utils/binarytools/BinaryWriter.h>
 #include <type_traits>
 
@@ -341,7 +344,12 @@ ResourceFactoryXMLAudioSequenceV0::ReadResource(std::shared_ptr<Ship::File> file
     const char* path = child->Attribute("Path");
     std::shared_ptr<Ship::File> seqFile;
     if (path != nullptr) {
+#ifdef COMBO_BUILD
+        // ComboShip: pin OOT's own RM — audio factories race active-RM swaps on other threads.
+        seqFile = Ship::CrossRMRegistry::GetOrActive("oot")->GetArchiveManager()->LoadFile(path);
+#else
         seqFile = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->LoadFile(path);
+#endif
     }
 
     if (!streamed) {

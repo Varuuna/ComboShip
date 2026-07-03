@@ -68,6 +68,9 @@ void Setup_InitImpl(SetupState* this) {
         // Always spawn in South Clock Town regardless of save state.
         gSaveContext.save.entrance = ENTRANCE(SOUTH_CLOCK_TOWN, 0);
         gSaveContext.save.cutsceneIndex = 0;
+        // Reset magicLevel like Sram_OpenSave does — re-arms the magic meter grow animation
+        // (Interface_Update only steps magicCapacity when magicLevel == 0).
+        gSaveContext.save.saveInfo.playerData.magicLevel = 0;
         // Copy permanent flags into cycle flags, the same way Sram_OpenSave does.
         for (int i = 0; i < ARRAY_COUNT(gSaveContext.cycleSceneFlags); i++) {
             gSaveContext.cycleSceneFlags[i].chest = gSaveContext.save.saveInfo.permanentSceneFlags[i].chest;

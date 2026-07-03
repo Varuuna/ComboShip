@@ -4,6 +4,10 @@
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 
 #include <ship/controller/controldeck/ControlDeck.h>
+#ifdef COMBO_BUILD
+#include <ship/resource/CrossRMRegistry.h>
+#include <ship/resource/ResourceManagerScope.h>
+#endif
 #include <string>
 
 #include "soh/SohGui/UIWidgets.hpp"
@@ -2301,6 +2305,10 @@ void CosmeticsEditorWindow::ApplyDungeonKeyColors() {
 }
 
 void CosmeticsEditorWindow::DrawElement() {
+#ifdef COMBO_BUILD
+    // ComboShip: popout draws run under the foreground game's RM; cosmetic patching needs OOT's.
+    Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("oot"));
+#endif
     UIWidgets::CVarCombobox("Color Scheme", CVAR_COSMETIC("DefaultColorScheme"), colorSchemes,
                             UIWidgets::ComboboxOptions()
                                 .DefaultIndex(COLORSCHEME_N64)

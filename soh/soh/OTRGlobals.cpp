@@ -18,6 +18,7 @@
 #include <libultraship/bridge/windowbridge.h>
 #include <ship/Context.h>
 #include <ship/resource/CrossRMRegistry.h>
+#include <ship/resource/ResourceManagerScope.h>
 #include <ship/resource/File.h>
 #include <ship/window/Window.h>
 #include <soh/GameVersions.h>
@@ -2842,6 +2843,9 @@ extern "C" __declspec(dllexport) const CwMenu* SOH_ExportMenu(void) {
 
 extern "C" __declspec(dllexport) void SOH_MenuInvokeCallback(int32_t i) {
     ComboMenuContext::UseSharedImGuiContext();
+    // Menu code can load OOT resources — scope OOT's own RM, not the foreground game's (also in the
+    // eval/draw/apply exports below; see combo/gui/ComboWidgetRender.h).
+    Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("oot"));
     if (auto menu = SohGui::GetSohMenu())
         menu->InvokeCallbackByIndex(i);
 }
@@ -2850,6 +2854,7 @@ extern "C" __declspec(dllexport) void SOH_MenuInvokeCallback(int32_t i) {
 // UIWidgets does after a widget change. Without this, settings changed via the combo menu only take
 // effect on the next ShipInit::InitAll (game boot / new save) — enhancements wouldn't apply live.
 extern "C" __declspec(dllexport) void SOH_MenuApplyCVarChange(const char* cvar) {
+    Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("oot")); // ShipInit funcs load OOT resources
     if (cvar && cvar[0])
         ShipInit::Init(cvar);
 }
@@ -2873,6 +2878,7 @@ bool Combo_OotIsForeground(void) {
 
 extern "C" __declspec(dllexport) int32_t SOH_MenuEvalDisabled(int32_t i, const char** outReason) {
     ComboMenuContext::UseSharedImGuiContext();
+    Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("oot"));
     auto menu = SohGui::GetSohMenu();
     return menu ? menu->EvalDisabledByIndex(i, outReason) : 0;
 }
@@ -2881,6 +2887,7 @@ extern "C" __declspec(dllexport) void SOH_MenuDrawCustom(int32_t i) {
     // Like SOH_DrawSettings: soh.dll's per-module ImGui GImGui isn't current when OOT is backgrounded,
     // so point it at the shared context before any ImGui call.
     ComboMenuContext::UseSharedImGuiContext();
+    Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("oot"));
     // Phase 0 spike contract: comboui owns the menu slot so the Gui loop never drives this menu's
     // lifecycle. A custom widget reads THEME_COLOR (menuThemeIndex), set in UpdateElement(), so
     // Init()+Update() must run BEFORE invoking, else ColorValues.at() throws. Init() is idempotent.

@@ -4,6 +4,9 @@
 #include "audio/soundfont.h"
 #include <ship/Context.h>
 #include <ship/resource/archive/Archive.h>
+#ifdef COMBO_BUILD
+#include <ship/resource/CrossRMRegistry.h>
+#endif
 #include <tinyxml2.h>
 #include <thread>
 
@@ -291,7 +294,12 @@ ResourceFactoryXMLAudioSampleV0::ReadResource(std::shared_ptr<Ship::File> file,
 
     const char* path = child->Attribute("Path");
 
+#ifdef COMBO_BUILD
+    // ComboShip: pin MM's own RM — audio factories race active-RM swaps on other threads.
+    auto sampleFile = Ship::CrossRMRegistry::GetOrActive("mm")->GetArchiveManager()->LoadFile(path);
+#else
     auto sampleFile = Ship::Context::GetInstance()->GetResourceManager()->GetArchiveManager()->LoadFile(path);
+#endif
     audioSample->sample.fileSize = sampleFile->Buffer.get()->size();
     if (customFormatStr != nullptr) {
         // Compressed files can take a really long time to decode (~250ms per).

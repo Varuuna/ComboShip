@@ -2643,6 +2643,13 @@ extern "C" __declspec(dllexport) void MM_InitSaveFile(int fileNum) {
     SaveManager_InitNewSaveForSlot(fileNum + 1);
 }
 
+// ComboShip: bring the MM save for the given OOT slot (0-indexed) into MM's dormant gSaveContext, so
+// the tracker peek shows real items before MM is visited this session. Same headless load path
+// title_setup.c runs on resume (no gPlayState needed).
+extern "C" __declspec(dllexport) void MM_LoadSaveForCombo(int fileNum) {
+    SaveManager_LoadSaveFile(fileNum + 1);
+}
+
 // ComboShip: create a RANDO MM save for the given OOT slot from a combo placement slice.
 // placementJson is the "mm" object of the combined spoiler: { "<RC_name>": "<itemSpoilerName>", ... }.
 // The combo layer owns placement, so we do NOT run MM's own generator. We build the playable baseline

@@ -12,7 +12,10 @@
 #include <spdlog/fmt/fmt.h>
 
 #ifdef COMBO_BUILD
-#include "ComboMenuSharedContext.h" // ComboShip: per-DLL ImGui context helper (combo-owned)
+#include "ComboMenuSharedContext.h"        // ComboShip: per-DLL ImGui context helper (combo-owned)
+#include <ship/resource/CrossRMRegistry.h> // ComboShip: dormant-draw texture lookups need MM's RM
+#include <ship/resource/ResourceManagerScope.h>
+bool Combo_MmIsForeground(void); // defined in BenPort.cpp
 #endif
 
 extern "C" {
@@ -41,6 +44,11 @@ static bool sItemTrackerBtnState = false;
 
 TrackerImageObject GetImageObject(TrackerItemType itemType, u32 itemId) {
     bool isSaveLoaded = gPlayState != NULL && gSaveContext.gameMode == GAMEMODE_NORMAL;
+#ifdef COMBO_BUILD
+    // ComboShip peek: dormant MM has no play state, but the slot's save is loaded (see
+    // EnsureMmSaveLoadedForPeek / MM_LoadSaveForCombo) — use it for icon selection too.
+    isSaveLoaded = isSaveLoaded || (!Combo_MmIsForeground() && gSaveContext.fileNum >= 0);
+#endif
     bool itemObtained = false;
     TrackerImageObject trackerImageObject = {
         .textureColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f),
@@ -420,8 +428,16 @@ void ItemTrackerWindow::Draw() {
     // ComboShip: 2ship.dll's per-module ImGui context is only current while MM is foreground; point
     // it at the shared libultraship context before any ImGui call (see combo/menu/ComboMenuSharedContext.h).
     ComboMenuContext::UseSharedImGuiContext();
+    // Dormant draw (swapped in while OOT is foreground): icon lookups must resolve via MM's RM,
+    // and the pause/button gates below read stale state — skip them (always show).
+    const bool comboPeek = !Combo_MmIsForeground();
+    Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("mm"));
 #endif
 
+#ifdef COMBO_BUILD
+    if (comboPeek)
+        goto comboSkipVisibilityGates;
+#endif
     if (CVAR_VISIBILITY_MODE == ITEM_TRACKER_VISIBILITY_MODE_ONLY_ON_PAUSE_MENU &&
         (!gPlayState || !gPlayState->pauseCtx.state)) {
         return;
@@ -432,6 +448,9 @@ void ItemTrackerWindow::Draw() {
         !sItemTrackerBtnState) {
         return;
     }
+#ifdef COMBO_BUILD
+comboSkipVisibilityGates:;
+#endif
 
     ImGuiWindowFlags windowFlags = ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoNav |
                                    ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoResize |
@@ -439,6 +458,13 @@ void ItemTrackerWindow::Draw() {
 
     if (!CVarGetInteger("gSettings.ItemTracker.WindowType", 0)) {
         windowFlags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDocking;
+#ifdef COMBO_BUILD
+        // ComboShip: honor the shared Draggable toggle (mirrored from gCombo.Tracker.Draggable),
+        // matching OOT's BeginFloatingWindows behavior.
+        if (!CVarGetInteger("gSettings.ItemTracker.Draggable", 1)) {
+            windowFlags |= ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove;
+        }
+#endif
     }
     bool shouldWindowSplit = CVarGetInteger("gSettings.ItemTracker.WindowGroup", 0);
 
@@ -452,6 +478,12 @@ void ItemTrackerWindow::Draw() {
     bool singleWindowOpen = false;
     if (!shouldWindowSplit) {
         ImGui::PushStyleColor(ImGuiCol_WindowBg, windowBg);
+#ifdef COMBO_BUILD
+        // ComboShip: pin to the main viewport (like OOT's BeginFloatingWindows). A window that gets
+        // its own viewport is force-rendered opaque (imgui.cpp RenderWindowDecorations), which
+        // showed as a black tracker background during the hold-to-swap gesture.
+        ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID);
+#endif
         singleWindowOpen = ImGui::Begin("Item Tracker", nullptr, windowFlags);
     }
 
@@ -467,6 +499,9 @@ void ItemTrackerWindow::Draw() {
         if (shouldWindowSplit) {
             ImGui::PushStyleColor(ImGuiCol_WindowBg, windowBg);
             std::string name = std::string(group.name) + "##" + std::to_string(index);
+#ifdef COMBO_BUILD
+            ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID); // same pin as the single window
+#endif
             isWindowOpen = ImGui::Begin(name.c_str(), nullptr, windowFlags);
         } else {
             isWindowOpen = singleWindowOpen;

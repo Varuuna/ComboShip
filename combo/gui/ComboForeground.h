@@ -18,4 +18,8 @@ inline bool IsMmActive() {
     return GetForegroundGame() == 1;
 }
 
+// True once MM has ever been the foreground game this session (its in-memory save is then newer
+// than the slot file on disk).
+bool MmEverForeground();
+
 } // namespace ComboUI

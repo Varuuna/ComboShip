@@ -2644,6 +2644,24 @@ extern "C" __declspec(dllexport) void SOH_SetOnSceneSwitchCallback(void (*cb)(in
     gComboSceneSwitchCallback = cb;
 }
 
+extern "C" void (*gComboSaveLoadCallback)(int fileNum) = nullptr;
+
+// ComboShip: fires when OOT loads a save into gameplay (file select / debug select / warp). The
+// launcher uses it to pull the matching MM save into dormant MM memory (tracker peek). Call after
+// SOH_Init (needs GameInteractor).
+extern "C" __declspec(dllexport) void SOH_SetOnLoadSaveCallback(void (*cb)(int fileNum)) {
+    gComboSaveLoadCallback = cb;
+    static bool sHooked = false;
+    if (!sHooked && GameInteractor::Instance) {
+        sHooked = true;
+        GameInteractor::Instance->RegisterGameHook<GameInteractor::OnLoadGame>([](int32_t fileNum) {
+            if (gComboSaveLoadCallback) {
+                gComboSaveLoadCallback((int)fileNum);
+            }
+        });
+    }
+}
+
 #ifdef COMBO_BUILD
 // ComboShip: Anchor transport seam. The persistent socket lives in ComboShip.exe; these exports
 // wire the launcher's connection to soh's in-place Anchor (declspec must follow extern "C" or the

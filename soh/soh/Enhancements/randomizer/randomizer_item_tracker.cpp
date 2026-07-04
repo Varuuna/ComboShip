@@ -22,7 +22,11 @@
 #include <fast/Fast3dGui.h>
 
 #ifdef COMBO_BUILD
-#include "ComboMenuSharedContext.h" // ComboShip: per-DLL ImGui context helper (combo-owned)
+#include "ComboMenuSharedContext.h"        // ComboShip: per-DLL ImGui context helper (combo-owned)
+#include <ship/resource/CrossRMRegistry.h> // ComboShip: dormant-draw texture lookups need OOT's RM
+#include <ship/resource/ResourceManagerScope.h>
+bool Combo_OotIsForeground(void);           // defined in OTRGlobals.cpp
+extern "C" int gComboTrackerPeekSaveLoaded; // defined in GameInteractor.cpp
 #endif
 
 extern "C" {
@@ -1819,12 +1823,19 @@ void ItemTrackerWindow::Draw() {
     // while OOT is foreground. Point it at the shared libultraship context before any ImGui call so
     // the tracker draws into the rendered context (same pattern as SOH_DrawSettings in OTRGlobals).
     ComboMenuContext::UseSharedImGuiContext();
+    // Dormant draw (swapped in while MM is foreground): icon lookups must resolve via OOT's RM,
+    // and IsSaveLoaded must judge by the save context alone (play state is gone).
+    Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("oot"));
+    gComboTrackerPeekSaveLoaded = !Combo_OotIsForeground();
 #endif
     ImGui::PushFont(OTRGlobals::Instance->fontMono);
     DrawElement();
     // Sync up the IsVisible flag if it was changed by ImGui
     SyncVisibilityConsoleVariable();
     ImGui::PopFont();
+#ifdef COMBO_BUILD
+    gComboTrackerPeekSaveLoaded = 0;
+#endif
 }
 
 void ItemTrackerWindow::DrawElement() {
@@ -1840,6 +1851,13 @@ void ItemTrackerWindow::DrawElement() {
                             buttonsPressed[0].button & comboButton2Mask;
     bool isPaused = CVarGetInteger(CVAR_TRACKER_ITEM("ShowOnlyPaused"), 0) == 0 ||
                     gPlayState != nullptr && gPlayState->pauseCtx.state > 0;
+#ifdef COMBO_BUILD
+    // ComboShip: pause/button state is stale while dormant (tracker swapped in) — always show.
+    if (!Combo_OotIsForeground()) {
+        isPaused = true;
+        comboButtonsHeld = true;
+    }
+#endif
 
     if (CVarGetInteger(CVAR_TRACKER_ITEM("WindowType"), TRACKER_WINDOW_FLOATING) == TRACKER_WINDOW_WINDOW ||
         isPaused &&

@@ -34,7 +34,19 @@ GameInteractionEffectQueryResult GameInteractor::RemoveEffect(RemovableGameInter
 
 // MARK: - Helpers
 
+#ifdef COMBO_BUILD
+// ComboShip: set only around the item tracker's dormant "peek" draw (randomizer_item_tracker.cpp).
+// OOT's play state is gone while MM is foreground, but its save context is intact — judge by the
+// save alone so the peeked tracker shows real items.
+extern "C" int gComboTrackerPeekSaveLoaded = 0;
+#endif
+
 bool GameInteractor::IsSaveLoaded(bool allowDbgSave) {
+#ifdef COMBO_BUILD
+    if (gComboTrackerPeekSaveLoaded) {
+        return gSaveContext.fileNum >= 0 && gSaveContext.fileNum <= 2 && gSaveContext.gameMode == GAMEMODE_NORMAL;
+    }
+#endif
     Player* player;
     if (gPlayState != NULL) {
         player = GET_PLAYER(gPlayState);

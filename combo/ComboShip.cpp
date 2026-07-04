@@ -171,7 +171,12 @@ static FnVoid MM_InitArchives = nullptr;
 static FnExtract MM_Extract = nullptr;
 static FnInt MM_ArchiveCount = nullptr;
 static FnSetSaveCallback SOH_SetOnNewSaveCallback = nullptr;
+static FnSetSaveCallback SOH_SetOnLoadSaveCallback = nullptr;
 static FnMMInitSave MM_InitSaveFile = nullptr;
+static FnMMInitSave MM_LoadSaveForCombo = nullptr;
+// OOT slot whose MM save is live in MM's dormant memory (-1 = none). Guards Combo_OnOOTSaveLoad
+// against reloading stale disk state over MM's in-memory progress after round trips.
+static int g_MmSaveInMemorySlot = -1;
 static FnSetSceneSwitchCallback SOH_SetOnSceneSwitchCallback = nullptr;
 static FnMMRunGame MM_RunGame = nullptr;
 static FnSOHDeinit SOH_Deinit = nullptr;
@@ -1248,6 +1253,20 @@ static void Combo_OnOOTSaveInit(int fileNum) {
         std::cout << "[ComboShip] Creating MM save for OOT slot " << fileNum << std::endl;
         MM_InitSaveFile(fileNum);
     }
+    // Both creation paths build the save in MM's live gSaveContext.
+    g_MmSaveInMemorySlot = fileNum;
+}
+
+// ComboShip: OOT loaded a save (file select / warp). Bring the matching MM save into MM's dormant
+// memory so the combo tracker peek shows real MM items before MM is visited. Skipped when that
+// slot's MM save is already live in memory — reloading from disk would clobber newer progress.
+static void Combo_OnOOTSaveLoad(int fileNum) {
+    if (!MM_LoadSaveForCombo || g_MmSaveInMemorySlot == fileNum) {
+        return;
+    }
+    std::cout << "[ComboShip] Loading MM save for OOT slot " << fileNum << " (tracker peek)" << std::endl;
+    MM_LoadSaveForCombo(fileNum);
+    g_MmSaveInMemorySlot = fileNum;
 }
 
 static void Combo_OnOOTSceneSwitch(int fileNum) {
@@ -1379,7 +1398,9 @@ int main(int argc, char** argv) {
     MM_Extract = (FnExtract)GetSym(mmModule, "MM_Extract");
     MM_ArchiveCount = (FnInt)GetSym(mmModule, "MM_ArchiveCount");
     SOH_SetOnNewSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnNewSaveCallback");
+    SOH_SetOnLoadSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnLoadSaveCallback");
     MM_InitSaveFile = (FnMMInitSave)GetSym(mmModule, "MM_InitSaveFile");
+    MM_LoadSaveForCombo = (FnMMInitSave)GetSym(mmModule, "MM_LoadSaveForCombo");
     SOH_SetOnSceneSwitchCallback = (FnSetSceneSwitchCallback)GetSym(sohModule, "SOH_SetOnSceneSwitchCallback");
     MM_RunGame = (FnMMRunGame)GetSym(mmModule, "MM_RunGame");
     SOH_Deinit = (FnSOHDeinit)GetSym(sohModule, "SOH_Deinit");
@@ -1769,6 +1790,11 @@ int main(int argc, char** argv) {
         std::cout << "[ComboShip] OOT new-save callback registered." << std::endl;
     }
 
+    if (SOH_SetOnLoadSaveCallback && MM_LoadSaveForCombo) {
+        SOH_SetOnLoadSaveCallback(Combo_OnOOTSaveLoad);
+        std::cout << "[ComboShip] OOT save-load callback registered." << std::endl;
+    }
+
     if (SOH_SetOnSceneSwitchCallback) {
         SOH_SetOnSceneSwitchCallback(Combo_OnOOTSceneSwitch);
         std::cout << "[ComboShip] OOT scene-switch callback registered." << std::endl;
@@ -1821,6 +1847,8 @@ int main(int argc, char** argv) {
             }
         } else {
             g_pendingOOTReturn = false;
+            // MM's own boot/resume path loads this slot's save into gSaveContext.
+            g_MmSaveInMemorySlot = g_PendingMMFileNum;
             if (!mmBooted) {
                 std::cout << "[ComboShip] MM boot\n";
                 MM_RunGame(g_PendingMMFileNum);

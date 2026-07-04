@@ -3,6 +3,8 @@
 #include "ComboMenuModel.h"
 #include "ComboWidgetRender.h"
 #include "ComboWidgetStyle.h"
+#include "ComboTrackerBridge.h"
+#include "ComboTrackerSwap.h"
 #include <imgui.h>
 #include <memory>
 #include <string>
@@ -237,7 +239,7 @@ namespace {
 struct HubEntry {
     std::string label; // shown in the left panel
     std::string group; // owning group label (for the unique key)
-    enum Kind { ENGINE, OOT_RANDO, MM_RANDO, COMBO_GEN } kind;
+    enum Kind { ENGINE, OOT_RANDO, MM_RANDO, COMBO_GEN, COMBO_TRACKER } kind;
     const ComboRando::GameMenu* game = nullptr; // ENGINE/OOT_RANDO/MM_RANDO
     int sectionIndex = -1;
     int sidebarIndex = -1;
@@ -286,6 +288,92 @@ void AppendSectionEntries(std::vector<HubEntry>& out, const char* groupLabel, Hu
         break; // first matching section only
     }
 }
+// Shared > Item Tracker: combo-owned appearance CVars (mirrored into both games, see
+// ComboTrackerBridge) + the sticky game-swap selection (ComboTrackerSwap).
+void DrawTrackerSharedPanel() {
+    const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
+    bool changed = false;
+
+    // Same narrow-column layout as the game pages (RenderSidebarWidgets): widgets in the first
+    // cell of a two-column stretch table instead of spanning the whole panel.
+    const ImGuiTableFlags tableFlags = ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings;
+    if (!ImGui::BeginTable("##trackercols", 2, tableFlags)) {
+        return;
+    }
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+
+    bool shown = ComboTracker::GetMasterVisible();
+    ComboRando::ComboMenu_PushCheckbox(theme);
+    if (ImGui::Checkbox("Show Item Tracker", &shown)) {
+        ComboTracker::SetMasterVisible(shown);
+        changed = true;
+    }
+    ComboRando::ComboMenu_PopCheckbox();
+
+    int px = CVarGetInteger("gCombo.Tracker.IconSize", ComboTracker::kDefaultIconSize);
+    ComboRando::ComboMenu_PushSlider(theme);
+    if (ImGui::SliderInt("Icon size (px)", &px, 16, 64)) {
+        CVarSetInteger("gCombo.Tracker.IconSize", px);
+        changed = true;
+    }
+    float op = CVarGetFloat("gCombo.Tracker.Opacity", ComboTracker::kDefaultOpacity);
+    if (ImGui::SliderFloat("Background opacity", &op, 0.0f, 1.0f, "%.2f")) {
+        CVarSetFloat("gCombo.Tracker.Opacity", op);
+        changed = true;
+    }
+    ComboRando::ComboMenu_PopSlider();
+
+    const char* kWindowTypes[] = { "Floating (overlay)", "Window" };
+    int wt = CVarGetInteger("gCombo.Tracker.WindowType", ComboTracker::kDefaultWindowType);
+    ComboRando::ComboMenu_PushCombobox(theme);
+    if (ImGui::Combo("Window type", &wt, kWindowTypes, 2)) {
+        CVarSetInteger("gCombo.Tracker.WindowType", wt);
+        changed = true;
+    }
+    ComboRando::ComboMenu_PopCombobox();
+
+    int drag = CVarGetInteger("gCombo.Tracker.Draggable", ComboTracker::kDefaultDraggable);
+    bool dragB = drag != 0;
+    ComboRando::ComboMenu_PushCheckbox(theme);
+    if (ImGui::Checkbox("Draggable (floating tracker accepts the mouse)", &dragB)) {
+        CVarSetInteger("gCombo.Tracker.Draggable", dragB ? 1 : 0);
+        changed = true;
+    }
+    ComboRando::ComboMenu_PopCheckbox();
+    if (changed) {
+        ComboTracker::SyncAppearance();
+    }
+
+    ImGui::SeparatorText("Game");
+    const char* kShown[] = { "Follow foreground game", "Ocarina of Time", "Majora's Mask" };
+    int sg = CVarGetInteger("gCombo.Tracker.ShownGame", -1);
+    int idx = (sg == 0 || sg == 1) ? sg + 1 : 0;
+    ComboRando::ComboMenu_PushCombobox(theme);
+    if (ImGui::Combo("Tracker shows", &idx, kShown, 3)) {
+        CVarSetInteger("gCombo.Tracker.ShownGame", idx - 1); // swap window reconciles next frame
+        changed = true;
+    }
+    ComboRando::ComboMenu_PopCombobox();
+    int mom = CVarGetInteger("gCombo.Tracker.HoldMomentary", 0);
+    bool momB = mom != 0;
+    ComboRando::ComboMenu_PushCheckbox(theme);
+    if (ImGui::Checkbox("Hold is a peek only (switch back on release)", &momB)) {
+        CVarSetInteger("gCombo.Tracker.HoldMomentary", momB ? 1 : 0);
+        changed = true;
+    }
+    ComboRando::ComboMenu_PopCheckbox();
+    ImGui::TextDisabled("Click and hold the tracker overlay for 1 second to switch game.");
+    ImGui::TextDisabled("Which items each game's tracker lists is set in its own Item Tracker Settings.");
+
+    ImGui::EndTable();
+
+    if (changed) {
+        if (auto ctx = Ship::Context::GetInstance(); ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
+            ctx->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+        }
+    }
+}
 } // namespace
 
 void ComboMenu::DrawSharedPanel() {
@@ -304,6 +392,12 @@ void ComboMenu::DrawSharedPanel() {
         // "Mod Menu" and "Presets" are OOT-specific (per-game mods/presets) — they live only in
         // the Ship of Harkinian tab, so omit them here to avoid duplicating them in Shared.
         AppendSectionEntries(e, "Shared", HubEntry::ENGINE, model.Oot(), "Settings", { "Mod Menu", "Presets" });
+        // Combo-owned Item Tracker panel: shared appearance + game-swap selection.
+        HubEntry trk;
+        trk.label = "Item Tracker";
+        trk.group = "Shared";
+        trk.kind = HubEntry::COMBO_TRACKER;
+        e.push_back(std::move(trk));
         if (!e.empty())
             groups.push_back({ "Shared", std::move(e) });
     }
@@ -383,6 +477,8 @@ void ComboMenu::DrawSharedPanel() {
         ImGui::TextUnformatted("Select an option.");
     } else if (active->kind == HubEntry::COMBO_GEN) {
         DrawComboPanel();
+    } else if (active->kind == HubEntry::COMBO_TRACKER) {
+        DrawTrackerSharedPanel();
     } else {
         const CwSidebar& side = active->game->menu->sections[active->sectionIndex].sidebars[active->sidebarIndex];
         RenderSidebarWidgets(side, *active->game);
@@ -677,4 +773,8 @@ extern "C" void ComboUI_Register(void)
     // Match the existing menu-visibility CVar so the in-game menu hotkey toggles us.
     ComboRando::sComboMenu = std::make_shared<ComboRando::ComboMenu>("gOpenWindows.Menu", "Combo Menu");
     gui->SetMenu(ComboRando::sComboMenu);
+
+    // Item Tracker: shared appearance + game-swap manager (see ComboTrackerSwap.h).
+    ComboTracker::SyncAppearance();
+    ComboTracker::RegisterSwap();
 }

@@ -30,6 +30,9 @@
 #include <memory>                      // std::weak_ptr (notification-window handle)
 #include "ComboForeground.h"           // ComboUI::GetForegroundGame (cached below)
 #include "ComboAudioBridge.h"          // ComboAudio::SyncAllToMM (on MM entry)
+#include "ComboTrackerCommon.h"        // kTrackers/SetTracker (shared with ComboTrackerSwap)
+#include "ComboTrackerBridge.h"        // ComboTracker::SyncAppearance (re-assert on transitions)
+#include "ComboTrackerSwap.h"          // SuspendSwap/ApplySwap around the intent snapshot/restore
 #ifdef _WIN32
 #include <windows.h> // GetModuleHandleA/GetProcAddress for the MM_ReloadControls entry point
 #endif
@@ -39,47 +42,14 @@ namespace {
 // Cached foreground game (0 = OOT, 1 = MM), updated by ComboUI_OnForegroundGame. Defaults to OOT,
 // the foreground game at startup after the eager MM boot. Read via ComboUI::GetForegroundGame.
 int sForegroundGame = 0;
+bool sMmEverForeground = false;
 
-struct TrackerWin {
-    const char* cvar; // visibility CVar (source of truth; MM's CheckTracker reads it directly)
-    const char* name; // registered GuiWindow name (map key in the shared Gui)
-};
-
-// [game][window]: 0 = OOT, 1 = MM.
-const TrackerWin kTrackers[2][4] = {
-    {
-        { "gOpenWindows.ItemTracker", "Item Tracker" },
-        { "gOpenWindows.ItemTrackerSettings", "Item Tracker Settings" },
-        { "gOpenWindows.CheckTracker", "Check Tracker" },
-        { "gOpenWindows.CheckTrackerSettings", "Check Tracker Settings" },
-    },
-    {
-        { "gWindows.ItemTracker", "Item Tracker##MM" },
-        { "gWindows.ItemTrackerSettings", "Item Tracker Settings##MM" },
-        { "gWindows.CheckTracker", "Check Tracker##MM" },
-        { "gWindows.CheckTrackerSettings", "Check Tracker Settings##MM" },
-    },
-};
+using ComboTracker::kTrackers;
+using ComboTracker::SetTracker;
 
 // Remembered user intent per window. -1 = not snapshotted yet (so the foreground pass leaves the
 // loaded config value untouched on the very first call).
 int sIntent[2][4] = { { -1, -1, -1, -1 }, { -1, -1, -1, -1 } };
-
-void SetTracker(const TrackerWin& w, bool visible) {
-    // Write the CVar (covers MM's CheckTracker, whose Draw() reads the CVar directly)...
-    CVarSetInteger(w.cvar, visible ? 1 : 0);
-    // ...and mirror it onto the window object so mIsVisible-gated Draws react this same frame.
-    auto ctx = Ship::Context::GetInstance();
-    if (ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
-        if (auto win = ctx->GetWindow()->GetGui()->GetGuiWindow(w.name)) {
-            if (visible) {
-                win->Show();
-            } else {
-                win->Hide();
-            }
-        }
-    }
-}
 
 // Notification windows: OOT registers the plain name; MM appends "##MM" (BenGui.cpp). Indexed by
 // game: 0 = OOT, 1 = MM. These are gated by Gui-map presence, NOT visibility — see the file header.
@@ -141,6 +111,10 @@ int ComboUI::GetForegroundGame() {
     return sForegroundGame;
 }
 
+bool ComboUI::MmEverForeground() {
+    return sMmEverForeground;
+}
+
 // C-ABI variant so the game DLLs can query the foreground game (0 = OOT, 1 = MM) across the DLL
 // boundary — MM uses it to gate its live-world dev viewers (Actor/Collision/Message) from drawing
 // against dormant/swapped play state when its tab is opened while OOT is foreground.
@@ -156,6 +130,12 @@ extern "C" __declspec(dllexport) void ComboUI_OnForegroundGame(int game) {
     const int fg = game;
     const int bg = game ^ 1;
     sForegroundGame = fg;
+    if (fg == 1) {
+        sMmEverForeground = true;
+    }
+
+    // Restore true tracker CVars before snapshotting, so a swapped state is never recorded as intent.
+    ComboTracker::SuspendSwap();
 
     // Background game: remember the user's current intent, then hide its trackers.
     for (int i = 0; i < 4; ++i) {
@@ -183,17 +163,24 @@ extern "C" __declspec(dllexport) void ComboUI_OnForegroundGame(int game) {
         ComboAudio::SyncAllToMM();
         ReloadMmControls();
     }
+
+    // Re-assert shared tracker appearance (per-game edits made while dormant lose). A sticky swap
+    // re-applies itself next frame via the swap window's reconcile.
+    ComboTracker::SyncAppearance();
 }
 
 // Called by the launcher just before shutdown teardown. Restores both games' tracker CVars to the
 // remembered intent so the game that happened to be backgrounded at exit does not persist its
 // tracker as "off" (Hide() zeroes the CVar, and ~Context saves the live CVar values on exit).
 extern "C" __declspec(dllexport) void ComboUI_RestoreTrackerIntent(void) {
-    for (int g = 0; g < 2; ++g) {
-        for (int i = 0; i < 4; ++i) {
-            if (sIntent[g][i] >= 0) {
-                CVarSetInteger(kTrackers[g][i].cvar, sIntent[g][i]);
-            }
+    // A swap forces both item-tracker CVars; put the true values back before they get persisted.
+    ComboTracker::SuspendSwap();
+    // Only the background game's CVars are forced-hidden; the foreground game's live values already
+    // reflect the user's latest toggles (a stale snapshot would clobber them).
+    const int bg = sForegroundGame ^ 1;
+    for (int i = 0; i < 4; ++i) {
+        if (sIntent[bg][i] >= 0) {
+            CVarSetInteger(kTrackers[bg][i].cvar, sIntent[bg][i]);
         }
     }
 }

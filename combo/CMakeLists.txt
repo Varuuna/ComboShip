@@ -33,6 +33,8 @@ set(COMBOUI_SOURCES
     gui/ComboExtractScreen.cpp
     gui/ComboSettingsImportScreen.cpp
     gui/ComboTrackerVisibility.cpp
+    gui/ComboTrackerBridge.cpp
+    gui/ComboTrackerSwap.cpp
     gui/ComboAudioBridge.cpp
 )
 add_library(comboui SHARED ${COMBOUI_SOURCES})

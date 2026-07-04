@@ -1341,3 +1341,29 @@ entry was fine because it CREATES the save (default `magicLevel` 0).
 
 **Vendored (inside the existing `COMBO_BUILD` block):** `mm/src/code/title_setup.c` — one line,
 `magicLevel = 0` after the save load, mirroring `Sram_OpenSave`.
+
+## Shared Item Tracker: master panel + hold-to-swap dormant peek (2026-07-04)
+
+**Why:** with both games in one process the item tracker should be controllable from one place and
+able to show the OTHER (dormant) game's inventory. A dormant game has no gPlayState/input, so its
+tracker draw needs save-context-only gating and RM-pinned texture loads; MM's save must be
+headless-loaded before its first visit so a peek shows real items instead of boot defaults.
+
+**Combo-owned (comboui):** `combo/gui/ComboTrackerBridge.{h,cpp}` — canonical `gCombo.Tracker.*`
+appearance (icon size, opacity, window type, draggable) mirrored into both games' CVars, seeded
+from OOT on first run. `ComboTrackerCommon.h` — per-game window/CVar table + `SetTracker`.
+`ComboTrackerSwap.{h,cpp}` — per-frame reconcile of `gCombo.Tracker.ShownGame` (-1 follow / 0 OOT /
+1 MM), the click-hold gesture (drag cancels; `HoldMomentary` = peek), true-intent stash CVars for
+crash recovery. Shared > Item Tracker panel in `ComboMenu.cpp`.
+
+**Port code:** `soh/soh/OTRGlobals.cpp` — `SOH_SetOnLoadSaveCallback` (launcher mirrors the active
+OOT slot for the MM-side load) + `Combo_OotIsForeground` helper; `mm/2s2h/BenPort.cpp` —
+`MM_LoadSaveForCombo` (headless SaveManager load, same path as the resume shortcut); launcher
+wiring in `combo/ComboShip.cpp`.
+
+**Vendored (`COMBO_BUILD`-guarded):** `soh/.../randomizer_item_tracker.cpp` — dormant draw: OOT RM
+scope, `gComboTrackerPeekSaveLoaded` signal, stale pause/combo-button override.
+`soh/.../GameInteractor.cpp` — `IsSaveLoaded` judges by save context alone while the peek flag is
+set. `mm/.../ItemTracker/ItemTracker.cpp` — MM RM scope, visibility-gate skip while dormant,
+shared Draggable toggle, and a main-viewport pin (a window given its own viewport is force-rendered
+opaque — showed as a black tracker background during the hold gesture).

@@ -30,7 +30,11 @@
 #include "z64item.h"
 
 #ifdef COMBO_BUILD
-#include "ComboMenuSharedContext.h" // ComboShip: per-DLL ImGui context helper (combo-owned)
+#include "ComboMenuSharedContext.h"        // ComboShip: per-DLL ImGui context helper (combo-owned)
+#include <ship/resource/CrossRMRegistry.h> // ComboShip: dormant-draw resource lookups need OOT's RM
+#include <ship/resource/ResourceManagerScope.h>
+bool Combo_OotIsForeground(void);           // defined in OTRGlobals.cpp
+extern "C" int gComboTrackerPeekSaveLoaded; // defined in GameInteractor.cpp
 #endif
 
 extern "C" {
@@ -1024,6 +1028,11 @@ void CheckTrackerWindow::DrawElement() {
 
     hideShopUnshuffledChecks = CVarGetInteger(CVAR_TRACKER_CHECK("HideUnshuffledShopChecks"), 0);
     alwaysShowGS = CVarGetInteger(CVAR_TRACKER_CHECK("AlwaysShowGSLocs"), 0);
+#ifdef COMBO_BUILD
+    // ComboShip: pause/button state is stale while dormant (tracker swapped in) — always show.
+    if (!Combo_OotIsForeground())
+        goto comboSkipDisplayGates;
+#endif
     if (CVarGetInteger(CVAR_TRACKER_CHECK("WindowType"), TRACKER_WINDOW_WINDOW) == TRACKER_WINDOW_FLOATING) {
         if (CVarGetInteger(CVAR_TRACKER_CHECK("ShowOnlyPaused"), 0) &&
             (gPlayState == nullptr || gPlayState->pauseCtx.state == 0)) {
@@ -1044,6 +1053,9 @@ void CheckTrackerWindow::DrawElement() {
             }
         }
     }
+#ifdef COMBO_BUILD
+comboSkipDisplayGates:;
+#endif
 
     if (presetLoaded) {
         ImGui::SetNextWindowSize(presetSize);
@@ -2313,10 +2325,17 @@ void CheckTrackerWindow::Draw() {
     // ComboShip: re-point soh.dll's per-module ImGui context at the shared libultraship context
     // before DrawElement's ImGui calls (see ItemTrackerWindow::Draw / SOH_DrawSettings).
     ComboMenuContext::UseSharedImGuiContext();
+    // Dormant draw (swapped in while MM is foreground): resource lookups must resolve via OOT's
+    // RM, and IsSaveLoaded must judge by the save context alone (gPlayState is gone).
+    Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("oot"));
+    gComboTrackerPeekSaveLoaded = !Combo_OotIsForeground();
 #endif
     DrawElement();
     // Sync up the IsVisible flag if it was changed by ImGui
     SyncVisibilityConsoleVariable();
+#ifdef COMBO_BUILD
+    gComboTrackerPeekSaveLoaded = 0;
+#endif
 }
 
 void CheckTrackerSettingsWindow::DrawElement() {

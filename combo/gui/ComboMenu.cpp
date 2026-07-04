@@ -239,7 +239,7 @@ namespace {
 struct HubEntry {
     std::string label; // shown in the left panel
     std::string group; // owning group label (for the unique key)
-    enum Kind { ENGINE, OOT_RANDO, MM_RANDO, COMBO_GEN, COMBO_TRACKER } kind;
+    enum Kind { ENGINE, OOT_RANDO, MM_RANDO, COMBO_GEN, COMBO_TRACKER, COMBO_CHECK_TRACKER } kind;
     const ComboRando::GameMenu* game = nullptr; // ENGINE/OOT_RANDO/MM_RANDO
     int sectionIndex = -1;
     int sidebarIndex = -1;
@@ -303,10 +303,10 @@ void DrawTrackerSharedPanel() {
     ImGui::TableNextRow();
     ImGui::TableSetColumnIndex(0);
 
-    bool shown = ComboTracker::GetMasterVisible();
+    bool shown = ComboTracker::GetMasterVisible(ComboTracker::kSwapItem);
     ComboRando::ComboMenu_PushCheckbox(theme);
     if (ImGui::Checkbox("Show Item Tracker", &shown)) {
-        ComboTracker::SetMasterVisible(shown);
+        ComboTracker::SetMasterVisible(ComboTracker::kSwapItem, shown);
         changed = true;
     }
     ComboRando::ComboMenu_PopCheckbox();
@@ -363,8 +363,69 @@ void DrawTrackerSharedPanel() {
         changed = true;
     }
     ComboRando::ComboMenu_PopCheckbox();
-    ImGui::TextDisabled("Click and hold the tracker overlay for 1 second to switch game.");
+    ImGui::TextDisabled("Click and hold the tracker overlay for half a second to switch game.");
     ImGui::TextDisabled("Which items each game's tracker lists is set in its own Item Tracker Settings.");
+
+    ImGui::EndTable();
+
+    if (changed) {
+        if (auto ctx = Ship::Context::GetInstance(); ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
+            ctx->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+        }
+    }
+}
+
+// Shared > Check Tracker: master visibility + the sticky game-swap selection (ComboTrackerSwap).
+// No shared appearance here — colors/filters stay in each game's own Check Tracker Settings.
+void DrawCheckTrackerSharedPanel() {
+    const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
+    bool changed = false;
+
+    const ImGuiTableFlags tableFlags = ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings;
+    if (!ImGui::BeginTable("##checktrackercols", 2, tableFlags)) {
+        return;
+    }
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+
+    bool shown = ComboTracker::GetMasterVisible(ComboTracker::kSwapCheck);
+    ComboRando::ComboMenu_PushCheckbox(theme);
+    if (ImGui::Checkbox("Show Check Tracker", &shown)) {
+        ComboTracker::SetMasterVisible(ComboTracker::kSwapCheck, shown);
+        changed = true;
+    }
+    ComboRando::ComboMenu_PopCheckbox();
+
+    const char* kWindowTypes[] = { "Floating (overlay)", "Window" };
+    int wt = CVarGetInteger("gCombo.CheckTracker.WindowType", ComboTracker::kDefaultCheckWindowType);
+    ComboRando::ComboMenu_PushCombobox(theme);
+    if (ImGui::Combo("Window type", &wt, kWindowTypes, 2)) {
+        CVarSetInteger("gCombo.CheckTracker.WindowType", wt);
+        ComboTracker::SyncAppearance(); // mirrors into OOT's CVar; MM's seam reads it directly
+        changed = true;
+    }
+    ComboRando::ComboMenu_PopCombobox();
+
+    ImGui::SeparatorText("Game");
+    const char* kShown[] = { "Follow foreground game", "Ocarina of Time", "Majora's Mask" };
+    int sg = CVarGetInteger("gCombo.CheckTracker.ShownGame", -1);
+    int idx = (sg == 0 || sg == 1) ? sg + 1 : 0;
+    ComboRando::ComboMenu_PushCombobox(theme);
+    if (ImGui::Combo("Tracker shows", &idx, kShown, 3)) {
+        CVarSetInteger("gCombo.CheckTracker.ShownGame", idx - 1); // swap window reconciles next frame
+        changed = true;
+    }
+    ComboRando::ComboMenu_PopCombobox();
+    int mom = CVarGetInteger("gCombo.CheckTracker.HoldMomentary", 0);
+    bool momB = mom != 0;
+    ComboRando::ComboMenu_PushCheckbox(theme);
+    if (ImGui::Checkbox("Hold is a peek only (switch back on release)", &momB)) {
+        CVarSetInteger("gCombo.CheckTracker.HoldMomentary", momB ? 1 : 0);
+        changed = true;
+    }
+    ComboRando::ComboMenu_PopCheckbox();
+    ImGui::TextDisabled("Click and hold the check tracker for half a second to switch game.");
+    ImGui::TextDisabled("Appearance and filters are set in each game's own Check Tracker Settings.");
 
     ImGui::EndTable();
 
@@ -398,6 +459,12 @@ void ComboMenu::DrawSharedPanel() {
         trk.group = "Shared";
         trk.kind = HubEntry::COMBO_TRACKER;
         e.push_back(std::move(trk));
+        // Combo-owned Check Tracker panel: master visibility + game-swap selection.
+        HubEntry chk;
+        chk.label = "Check Tracker";
+        chk.group = "Shared";
+        chk.kind = HubEntry::COMBO_CHECK_TRACKER;
+        e.push_back(std::move(chk));
         if (!e.empty())
             groups.push_back({ "Shared", std::move(e) });
     }
@@ -479,6 +546,8 @@ void ComboMenu::DrawSharedPanel() {
         DrawComboPanel();
     } else if (active->kind == HubEntry::COMBO_TRACKER) {
         DrawTrackerSharedPanel();
+    } else if (active->kind == HubEntry::COMBO_CHECK_TRACKER) {
+        DrawCheckTrackerSharedPanel();
     } else {
         const CwSidebar& side = active->game->menu->sections[active->sectionIndex].sidebars[active->sidebarIndex];
         RenderSidebarWidgets(side, *active->game);

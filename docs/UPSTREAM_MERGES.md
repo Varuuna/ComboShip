@@ -1367,3 +1367,27 @@ scope, `gComboTrackerPeekSaveLoaded` signal, stale pause/combo-button override.
 set. `mm/.../ItemTracker/ItemTracker.cpp` — MM RM scope, visibility-gate skip while dormant,
 shared Draggable toggle, and a main-viewport pin (a window given its own viewport is force-rendered
 opaque — showed as a black tracker background during the hold gesture).
+
+## Shared Check Tracker: hold-to-swap peek + shared window type (2026-07-04)
+
+**Why:** the same dormant-peek feature for the check tracker. Extra wrinkles vs the item tracker:
+MM's tracker hard-requires `gPlayState`/`IS_RANDO`, its in-logic refresh throttles on the game
+frame counter (frozen while dormant), a headless save load never fires `OnFileLoad` (scene-check
+map stays empty), and the current-scene filter derefs `gPlayState`. MM also has no native
+window-type CVar, so the shared Floating/Window switch is read directly from
+`gCombo.CheckTracker.WindowType` in its seam (OOT's is mirrored by the bridge as usual).
+
+**Combo-owned (comboui):** `ComboTrackerSwap.{h,cpp}` generalized to per-tracker instances (item +
+check) with independent ShownGame/HoldMomentary/true-intent CVars; at most one tracker arms per
+press (topmost wins on overlap); the logic window key gained a leading space (" Combo Tracker
+Swap") so it sorts before BOTH tracker windows in the name-ordered Gui map. `ComboTrackerBridge`
+mirrors the check window type into OOT. Shared > Check Tracker panel in `ComboMenu.cpp`
+(visibility, window type, shown game, peek mode — colors/filters stay per-game).
+
+**Vendored (`COMBO_BUILD`-guarded):** `mm/2s2h/Rando/CheckTracker/CheckTracker.cpp` — MM RM scope +
+visibility-gate skip while dormant; save-gate bypass with lazy `initializeSceneChecks`; ImGui-frame
+throttle branch in `RefreshChecksInLogic` so availability refreshes during the peek; `gPlayState`
+guard on the current-scene filter; main-viewport pin + window-type flags at `Begin` (original call
+kept under `#else`). `soh/.../randomizer_check_tracker.cpp` — OOT RM scope +
+`gComboTrackerPeekSaveLoaded` around `DrawElement`; display-gate skip (stale pause/combo-button
+state while dormant).

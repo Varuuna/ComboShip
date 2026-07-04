@@ -38,4 +38,14 @@ void ComboTracker::SyncAppearance() {
     int drag = CVarGetInteger("gCombo.Tracker.Draggable", kDefaultDraggable);
     CVarSetInteger("gTrackers.ItemTracker.Draggable", drag);
     CVarSetInteger("gSettings.ItemTracker.Draggable", drag);
+
+    // Check Tracker window type (0 = floating overlay, 1 = window): OOT native; MM's tracker has
+    // no native window-type CVar — its COMBO_BUILD seam reads the canonical CVar directly.
+    if (!CVarGetInteger("gCombo.CheckTracker.Seeded", 0)) {
+        CVarSetInteger("gCombo.CheckTracker.Seeded", 1);
+        CVarSetInteger("gCombo.CheckTracker.WindowType",
+                       CVarGetInteger("gTrackers.CheckTracker.WindowType", kDefaultCheckWindowType));
+    }
+    CVarSetInteger("gTrackers.CheckTracker.WindowType",
+                   CVarGetInteger("gCombo.CheckTracker.WindowType", kDefaultCheckWindowType));
 }

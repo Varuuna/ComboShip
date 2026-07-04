@@ -10,6 +10,9 @@
 #ifdef COMBO_BUILD
 #include "2s2h/Rando/MiscBehavior/MiscBehavior.h" // ComboShip: MM_LookupForeign
 #include "ComboMenuSharedContext.h"               // ComboShip: per-DLL ImGui context helper (combo-owned)
+#include <ship/resource/CrossRMRegistry.h>        // ComboShip: dormant-draw texture lookups need MM's RM
+#include <ship/resource/ResourceManagerScope.h>
+bool Combo_MmIsForeground(void); // defined in BenPort.cpp
 #endif
 
 // Image Icons
@@ -258,11 +261,30 @@ std::unordered_map<RandoCheckId, bool> checksInLogic;
 static u32 lastFrame = 0;
 
 void RefreshChecksInLogic() {
+#ifdef COMBO_BUILD
+    // ComboShip dormant peek: gGameState is gone/frozen while MM is backgrounded, so the frame
+    // throttle below would suppress the refresh forever — throttle on ImGui frames instead.
+    if (!Combo_MmIsForeground()) {
+        if (CVAR_OUT_OF_LOGIC_MODE == CHECK_MODE_NORMAL) {
+            return;
+        }
+        static uint32_t sLastPeekFrame = 0;
+        uint32_t frame = (uint32_t)ImGui::GetFrameCount();
+        if (frame - sLastPeekFrame < 20) {
+            return;
+        }
+        sLastPeekFrame = frame;
+        goto comboPeekRefresh;
+    }
+#endif
     if (gGameState == NULL || gGameState->frames - lastFrame < 20 || CVAR_OUT_OF_LOGIC_MODE == CHECK_MODE_NORMAL) {
         return;
     }
 
     lastFrame = gGameState->frames;
+#ifdef COMBO_BUILD
+comboPeekRefresh:;
+#endif
     checksInLogic.clear();
 
     // Clear all events so they're re-evaluated fresh each refresh
@@ -354,7 +376,12 @@ void CheckTrackerDrawNonLogicalList() {
                 continue;
             }
 
-            if (CVAR_SHOW_CURRENT_SCENE && sceneId != GetScrollTargetScene(gPlayState->sceneId)) {
+#ifdef COMBO_BUILD
+            if (gPlayState == NULL) {
+                // ComboShip dormant peek: no current scene to filter by — list every scene.
+            } else
+#endif
+                if (CVAR_SHOW_CURRENT_SCENE && sceneId != GetScrollTargetScene(gPlayState->sceneId)) {
                 continue;
             }
 
@@ -491,8 +518,16 @@ void CheckTrackerWindow::Draw() {
     // ComboShip: point 2ship.dll's per-module ImGui context at the shared libultraship context
     // before any ImGui call (see combo/menu/ComboMenuSharedContext.h).
     ComboMenuContext::UseSharedImGuiContext();
+    // Dormant draw (swapped in while OOT is foreground): texture lookups must resolve via MM's RM,
+    // and the pause/button gates below read stale state — skip them (always show).
+    const bool comboPeek = !Combo_MmIsForeground();
+    Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("mm"));
 #endif
 
+#ifdef COMBO_BUILD
+    if (comboPeek)
+        goto comboSkipVisibilityGates;
+#endif
     if (CVAR_VISIBILITY_MODE == CHECK_TRACKER_VISIBILITY_MODE_ONLY_ON_PAUSE_MENU &&
         (!gPlayState || !gPlayState->pauseCtx.state)) {
         return;
@@ -503,6 +538,9 @@ void CheckTrackerWindow::Draw() {
         !sCheckTrackerBtnState) {
         return;
     }
+#ifdef COMBO_BUILD
+comboSkipVisibilityGates:;
+#endif
 
     ImGui::PushStyleColor(ImGuiCol_TitleBgActive, trackerBG);
     ImGui::PushStyleColor(ImGuiCol_TitleBg, trackerBG);
@@ -512,11 +550,35 @@ void CheckTrackerWindow::Draw() {
 
     ImGui::SetNextWindowSize(ImVec2(485.0f, 500.0f), ImGuiCond_FirstUseEver);
 
+#ifdef COMBO_BUILD
+    // ComboShip: pin to the main viewport — a window that gets its own viewport is force-rendered
+    // opaque (imgui.cpp RenderWindowDecorations), a black background during the hold-to-swap peek.
+    ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID);
+    // Shared "Window type" (gCombo.CheckTracker.WindowType is canonical, see ComboTrackerBridge):
+    // floating = borderless overlay like the item tracker; window (default) = the upstream look.
+    ImGuiWindowFlags comboWinFlags = ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing;
+    if (CVarGetInteger("gCombo.CheckTracker.WindowType", 1) == 0) {
+        comboWinFlags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDocking;
+    }
+    ImGui::Begin("Check Tracker", nullptr, comboWinFlags);
+#else
     ImGui::Begin("Check Tracker", nullptr, ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing);
+#endif
 
     trackerBG.w = ImGui::IsWindowDocked() ? 1.0f : CVAR_TRACKER_OPACITY;
     ImGui::SetWindowFontScale(trackerScale);
 
+#ifdef COMBO_BUILD
+    // ComboShip dormant peek: no play state, but the slot's save is loaded (see
+    // EnsureMmSaveLoadedForPeek / MM_LoadSaveForCombo) — draw from it. The headless load never
+    // fires OnFileLoad, so build the scene-check map here.
+    if (comboPeek && IS_RANDO && gSaveContext.fileNum >= 0) {
+        if (sceneChecks.empty()) {
+            initializeSceneChecks();
+        }
+        goto comboSkipSaveGate;
+    }
+#endif
     if (!gPlayState || !IS_RANDO) {
         ImGui::SetCursorPosX((ImGui::GetWindowWidth() - ImGui::CalcTextSize("No Rando Save Loaded").x) / 2);
         ImGui::SetCursorPosY(ImGui::GetWindowHeight() / 2 - 10.0f);
@@ -526,6 +588,9 @@ void CheckTrackerWindow::Draw() {
         ImGui::PopStyleVar(1);
         return;
     }
+#ifdef COMBO_BUILD
+comboSkipSaveGate:;
+#endif
 
     if (CVAR_SHOW_SEARCH) {
         bool sameLine = !(ImGui::GetContentRegionAvail().x <= 300.0f * trackerScale);

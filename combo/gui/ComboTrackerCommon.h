@@ -14,7 +14,8 @@ struct Win {
     const char* name; // registered GuiWindow name (map key in the shared Gui)
 };
 
-// [game][window]: 0 = OOT, 1 = MM. Row kItemTracker is the only row the swap touches.
+// [game][window]: 0 = OOT, 1 = MM. The swap touches the kItemTracker and kCheckTracker columns
+// (main tracker windows); the settings windows are foreground-followed only.
 inline constexpr Win kTrackers[2][4] = {
     {
         { "gOpenWindows.ItemTracker", "Item Tracker" },
@@ -31,6 +32,7 @@ inline constexpr Win kTrackers[2][4] = {
 };
 
 inline constexpr int kItemTracker = 0;
+inline constexpr int kCheckTracker = 2;
 
 // Write the CVar (covers MM's CheckTracker, whose Draw() reads it directly) and mirror it onto
 // the window object so mIsVisible-gated Draws react this same frame.

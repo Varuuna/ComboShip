@@ -220,9 +220,11 @@ interior shuffle pool so the two systems never fight over the same door.
   portal arrival (`gComboTargetEntrance` + `SOH_/MM_SetTargetEntrance`), arrival latch, and the
   launcher's stage/drain carry (`SOH_/MM_GetPendingCrossTarget`). Phase B = seed-time **union
   shuffle** (interiors permute freely across the selected doors, cross- and same-game outcomes)
-  → portal table pushed into both games' door hooks + fill integration per §4.3. NOTE: same-game
-  reassignments require an in-game interior remap (no native mechanism in MM until #1329) — decide
-  full-swap-only vs union at Phase B planning.
+  → portal table pushed into both games' door hooks + fill integration per §4.3. DECIDED
+  (2026-07-05): true union semantics — any door can get any interior, same-game outcomes included,
+  no balanced-count constraint. Same-game reassignments therefore need an in-game remap: SoH's
+  entrance-override machinery on the OOT side; on the MM side a scene-init redirect stopgap until
+  PR #1329 provides the native mechanism.
 - **Form/age**: no restriction — each game resumes its own save's Link; mismatch is narrative only.
 - **Deferred to Phase B planning**: oracle extension shape (§4.3), composition with each game's
   native interior shuffle (partition proposal: cross-selected doors leave the native pools),

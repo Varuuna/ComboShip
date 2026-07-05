@@ -215,10 +215,14 @@ interior shuffle pool so the two systems never fight over the same door.
 
 ### 4.4 Decisions (grilled 2026-07-05)
 
-- **Phasing**: Phase A = runtime PoC — one hardcoded quartet swap (Mido's House ↔ Milk Bar),
-  behind a Cross-Game toggle, no logic/fill changes; proves door→switch→arrive→return both ways.
-  Phase B = seed-time **union shuffle** (2K interiors permute freely across the 2K selected doors,
-  cross- and same-game outcomes both possible) + fill integration per §4.3.
+- **Phasing (revised 2026-07-05)**: no hardcoded-pair PoC — game traversal was already proven by
+  the Mask Shop portal. Phase A shipped only the generic **cross-entrance plumbing**: parametric
+  portal arrival (`gComboTargetEntrance` + `SOH_/MM_SetTargetEntrance`), arrival latch, and the
+  launcher's stage/drain carry (`SOH_/MM_GetPendingCrossTarget`). Phase B = seed-time **union
+  shuffle** (interiors permute freely across the selected doors, cross- and same-game outcomes)
+  → portal table pushed into both games' door hooks + fill integration per §4.3. NOTE: same-game
+  reassignments require an in-game interior remap (no native mechanism in MM until #1329) — decide
+  full-swap-only vs union at Phase B planning.
 - **Form/age**: no restriction — each game resumes its own save's Link; mismatch is narrative only.
 - **Deferred to Phase B planning**: oracle extension shape (§4.3), composition with each game's
   native interior shuffle (partition proposal: cross-selected doors leave the native pools),

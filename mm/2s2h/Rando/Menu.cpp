@@ -541,6 +541,11 @@ static void DrawShufflesTab() {
     ImGui::EndChild();
     ImGui::SameLine();
     ImGui::BeginChild("randoLocationsColumn3", ImVec2(columnWidth, halfHeight));
+#ifndef COMBO_BUILD // ComboShip: entrance toggles live in the shared Entrances tab (single home)
+    CVarCheckbox("Shuffle Interior Entrances", Rando::StaticData::Options[RO_SHUFFLE_ENTRANCES_INTERIORS].cvar);
+    CVarCheckbox("Shuffle Dungeon Entrances", Rando::StaticData::Options[RO_SHUFFLE_ENTRANCES_DUNGEONS].cvar);
+    CVarCheckbox("Shuffle Overworld Entrances", Rando::StaticData::Options[RO_SHUFFLE_ENTRANCES_OVERWORLD].cvar);
+#endif
     ImGui::EndChild();
 }
 

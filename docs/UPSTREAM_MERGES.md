@@ -1405,3 +1405,26 @@ future seed-driven door hooks. Which doors map where arrives later with the port
 sets the latch), plus the externs. Port code: `soh/soh/OTRGlobals.cpp` / `mm/2s2h/BenPort.cpp` —
 latch clear in the existing OnSceneInit hooks + `SOH_/MM_GetPendingCrossTarget` and
 `SOH_/MM_SetTargetEntrance` exports; launcher carry in `combo/ComboShip.cpp`.
+
+## Pre-merge vendor: 2Ship PR #1329 — MM entrance shuffle (2026-07-06)
+
+**Why:** entrance rando for MM ahead of upstream (docs/ENTRANCE_RANDO_PREP.md §2). The PR
+(garrettjoecox, open+mergeable, single commit as of 2026-07-05) was applied verbatim with
+`git apply -3`; all 9 files are `2s2h/Rando/` port layer, zero game-source lines.
+
+**Deviation class: droppable.** Unlike the preserved deviations above, this block is a *temporary
+copy of upstream code*. When upstream merges the final PR, the next vendor pull 3-way-merges
+against it: identical content resolves silently; anything the author changed after 2026-07-05
+surfaces as small conflicts — take upstream's side, then re-check the ComboShip seams below.
+
+**New files (verbatim from the PR):** `mm/2s2h/Rando/Logic/EntranceShuffle.{cpp,h}`,
+`mm/2s2h/Rando/MiscBehavior/EntranceHooks.cpp`. **Edited (verbatim hunks):** `Logic.cpp`,
+`MiscBehavior.cpp`, `OnFileCreate.cpp`, `StaticData/Options.cpp`, `Types.h`.
+
+**Our deltas on top (preserve on merges):**
+- `Rando/Menu.cpp` — the PR's three `CVarCheckbox` lines wrapped in `#ifndef COMBO_BUILD`
+  (entrance toggles live in the shared Entrances tab; single home).
+
+**Save-compat note:** the PR inserts `RO_SHUFFLE_ENTRANCES_*` mid-enum in `Types.h`, shifting
+later `RandoOptionId` values — MM rando saves created before this commit read wrong options.
+Acceptable dev-stage breakage; no released seeds.

@@ -2,6 +2,7 @@
 #include "2s2h/ShipInit.hpp"
 
 #include "Logic.h"
+#include "EntranceShuffle.h"
 
 namespace Rando {
 
@@ -207,7 +208,15 @@ void FindReachableRegions(RandoRegionId currentRegion, std::set<RandoRegionId>& 
         // Set global time for check evaluation
         gCurrentRegionTime = currentTime;
 
-        RandoRegionId connectedRegionId = GetRegionIdFromEntrance(exitId);
+        s32 lookupExit = exitId;
+        // Grotto exits always return to their vanilla spawn (see the OnPlayDestroy hook), so leave them
+        // unshuffled here too, otherwise logic would treat a grotto as a link to a shuffled destination.
+        if (Rando::EntranceShuffle::IsEntranceShuffleEnabled() &&
+            !Rando::EntranceShuffle::IsGrottoEntrance(regionExit.returnEntrance)) {
+            lookupExit = Rando::EntranceShuffle::GetShuffledEntrance(lookupExit);
+        }
+
+        RandoRegionId connectedRegionId = GetRegionIdFromEntrance(lookupExit);
         if (regionExit.condition()) {
             auto& targetRegion = Regions[connectedRegionId];
             RegionTimeState incomingState = { .timeSlices = currentTime,

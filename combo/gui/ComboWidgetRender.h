@@ -21,6 +21,9 @@ void RenderWidget(const CwWidget& w, const GameMenu& game);
 // Render all of a sidebar's widgets honoring CwSidebar::columnCount — the faithful multi-column
 // layout of the native menu (1 column => linear). Widgets carry their source column (CwWidget.column,
 // ABI v2). Use this instead of looping RenderWidget so every section gets the right column layout.
-void RenderSidebarWidgets(const CwSidebar& side, const GameMenu& game);
+// `skip` (optional) omits matching widgets — used when a combo-owned panel claims a slice of a
+// game sidebar (e.g. Shared > Entrances) so the options keep a single home. Columns left empty by
+// the filter are dropped from the table instead of reserving dead width.
+void RenderSidebarWidgets(const CwSidebar& side, const GameMenu& game, bool (*skip)(const CwWidget&) = nullptr);
 
 } // namespace ComboRando

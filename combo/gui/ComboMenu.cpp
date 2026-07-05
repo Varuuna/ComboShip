@@ -239,7 +239,7 @@ namespace {
 struct HubEntry {
     std::string label; // shown in the left panel
     std::string group; // owning group label (for the unique key)
-    enum Kind { ENGINE, OOT_RANDO, MM_RANDO, COMBO_GEN, COMBO_TRACKER, COMBO_CHECK_TRACKER } kind;
+    enum Kind { ENGINE, OOT_RANDO, MM_RANDO, COMBO_GEN, COMBO_TRACKER, COMBO_CHECK_TRACKER, COMBO_ENTRANCES } kind;
     const ComboRando::GameMenu* game = nullptr; // ENGINE/OOT_RANDO/MM_RANDO
     int sectionIndex = -1;
     int sidebarIndex = -1;
@@ -435,6 +435,90 @@ void DrawCheckTrackerSharedPanel() {
         }
     }
 }
+
+// ComboShip: OOT's entrance-shuffle options (the "Entrances" column of the Logic/Access sidebar)
+// are claimed by the Shared > Entrances panel and excluded from the OOT Randomizer sidebars so
+// they have a single home. Matched by backing CVar (stable across upstream label changes); the
+// section's own "Entrances" separator-text is claimed too so no orphaned header remains behind.
+bool IsOotEntranceWidget(const CwWidget& w) {
+    if (w.kind == CW_SEPARATOR_TEXT)
+        return w.name && std::strcmp(w.name, "Entrances") == 0;
+    if (!w.cvar || !w.cvar[0])
+        return false;
+    static const std::unordered_set<std::string> kEntranceCvars = {
+        "gRandoSettings.ShuffleDungeonsEntrances",
+        "gRandoSettings.ShuffleBossEntrances",
+        "gRandoSettings.ShuffleGanonTowerEntrance",
+        "gRandoSettings.ShuffleOverworldEntrances",
+        "gRandoSettings.ShuffleInteriorsEntrances",
+        "gRandoSettings.ShuffleThievesHideoutEntrances",
+        "gRandoSettings.ShuffleGrottosEntrances",
+        "gRandoSettings.ShuffleOwlDrops",
+        "gRandoSettings.ShuffleWarpSongs",
+        "gRandoSettings.ShuffleOverworldSpawns",
+        "gRandoSettings.MixedEntrances",
+        "gRandoSettings.MixDungeons",
+        "gRandoSettings.MixBosses",
+        "gRandoSettings.MixOverworld",
+        "gRandoSettings.MixInteriors",
+        "gRandoSettings.MixThievesHideout",
+        "gRandoSettings.MixGrottos",
+        "gRandoSettings.DecoupleEntrances",
+    };
+    return kEntranceCvars.count(w.cvar) != 0;
+}
+
+// Shared > Entrances: one home for entrance shuffling across both games plus ComboShip's own
+// cross-game entrance features. The OOT half renders the game's own exported widgets (labels,
+// tooltips, choice lists follow upstream automatically); MM joins when 2Ship gains entrance
+// shuffle; Cross-Game hosts combo-owned options.
+void DrawEntrancesPanel() {
+    auto& model = ComboRando::ComboMenuModel::Get();
+
+    // Same narrow-column layout as the game pages: widgets in the first cell of a two-column
+    // stretch table instead of spanning the whole panel.
+    const ImGuiTableFlags tableFlags = ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings;
+    if (!ImGui::BeginTable("##entrancecols", 2, tableFlags)) {
+        return;
+    }
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+
+    ImGui::SeparatorText("Ocarina of Time");
+    const ComboRando::GameMenu& oot = model.Oot();
+    bool drewOot = false;
+    if (oot.loaded && oot.menu) {
+        const CwMenu* m = oot.menu;
+        for (int s = 0; s < m->sectionCount; ++s) {
+            const CwSection& sec = m->sections[s];
+            if (!sec.sectionLabel || strcmp(sec.sectionLabel, "Randomizer") != 0)
+                continue;
+            for (int sb = 0; sb < sec.sidebarCount; ++sb) {
+                const CwSidebar& side = sec.sidebars[sb];
+                for (int w = 0; w < side.widgetCount; ++w) {
+                    const CwWidget& wd = side.widgets[w];
+                    // Skip the group's own "Entrances" separator — this panel draws its headers.
+                    if (IsOotEntranceWidget(wd) && wd.kind != CW_SEPARATOR_TEXT) {
+                        ComboRando::RenderWidget(wd, oot);
+                        drewOot = true;
+                    }
+                }
+            }
+            break;
+        }
+    }
+    if (!drewOot) {
+        ImGui::TextDisabled("Menu not available yet (game still initializing).");
+    }
+
+    ImGui::SeparatorText("Majora's Mask");
+    ImGui::TextDisabled("2 Ship 2 Harkinian has no entrance shuffle yet; its options land here when it does.");
+
+    ImGui::SeparatorText("Cross-Game");
+    ImGui::TextDisabled("ComboShip cross-game entrance options will live here.");
+
+    ImGui::EndTable();
+}
 } // namespace
 
 void ComboMenu::DrawSharedPanel() {
@@ -484,11 +568,16 @@ void ComboMenu::DrawSharedPanel() {
             groups.push_back({ "MM Randomizer", std::move(e) });
     }
     {
+        // Combo-owned Entrances panel: both games' entrance-shuffle options + cross-game features.
+        HubEntry ent;
+        ent.label = "Entrances";
+        ent.group = "Combo";
+        ent.kind = HubEntry::COMBO_ENTRANCES;
         HubEntry gen;
         gen.label = "Generate";
         gen.group = "Combo";
         gen.kind = HubEntry::COMBO_GEN;
-        groups.push_back({ "Combo", { std::move(gen) } });
+        groups.push_back({ "Combo", { std::move(ent), std::move(gen) } });
     }
 
     // Resolve the active entry; default to the first available, and recover if the prior
@@ -548,9 +637,14 @@ void ComboMenu::DrawSharedPanel() {
         DrawTrackerSharedPanel();
     } else if (active->kind == HubEntry::COMBO_CHECK_TRACKER) {
         DrawCheckTrackerSharedPanel();
+    } else if (active->kind == HubEntry::COMBO_ENTRANCES) {
+        DrawEntrancesPanel();
     } else {
         const CwSidebar& side = active->game->menu->sections[active->sectionIndex].sidebars[active->sidebarIndex];
-        RenderSidebarWidgets(side, *active->game);
+        // OOT's entrance options render in Combo > Entrances; strip them from the game's own
+        // Randomizer sidebars so they keep a single home.
+        RenderSidebarWidgets(side, *active->game,
+                             active->kind == HubEntry::OOT_RANDO ? IsOotEntranceWidget : nullptr);
     }
     ImGui::EndChild();
 }

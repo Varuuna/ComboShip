@@ -21,6 +21,7 @@
 #include <libultraship/libultraship.h> // ImGui-adjacent + CVar bridge (CVarGet/Set*) + color.h
 #include <imgui.h>
 #include <cstring>
+#include <vector>
 
 namespace ComboRando {
 
@@ -386,31 +387,52 @@ void RenderWidget(const CwWidget& w, const GameMenu& game) {
     ImGui::PopID();
 }
 
-void RenderSidebarWidgets(const CwSidebar& side, const GameMenu& game) {
+void RenderSidebarWidgets(const CwSidebar& side, const GameMenu& game, bool (*skip)(const CwWidget&)) {
     const uint32_t cols = side.columnCount > 0 ? side.columnCount : 1;
     if (cols <= 1) {
         for (int i = 0; i < side.widgetCount; ++i) {
+            if (skip && skip(side.widgets[i]))
+                continue;
             RenderWidget(side.widgets[i], game);
         }
         return;
     }
+    // Clamp a widget's column index into the table (stray indices land in the last column).
+    auto columnOf = [&](const CwWidget& w) -> uint32_t {
+        int wc = w.column;
+        if (wc < 0)
+            return 0;
+        if ((uint32_t)wc >= cols)
+            return cols - 1;
+        return (uint32_t)wc;
+    };
+    // A skip filter can empty a whole column (e.g. Logic/Access with its Entrances column claimed
+    // by Shared > Entrances) — remap the surviving columns to a compact 0..n-1 so the table doesn't
+    // reserve dead width.
+    std::vector<int> remap(cols, -1);
+    int shownCols = 0;
+    for (int i = 0; i < side.widgetCount; ++i) {
+        if (skip && skip(side.widgets[i]))
+            continue;
+        uint32_t wc = columnOf(side.widgets[i]);
+        if (remap[wc] < 0)
+            remap[wc] = shownCols++;
+    }
+    if (shownCols == 0)
+        return;
     // Equal-width stretch columns (no resize/borders) mirror the native menu's per-column child
     // windows. Widgets are flattened column-major (ComboMenuExport.h) and carry CwWidget.column,
     // so we render one table cell per column, stacking that column's widgets vertically — the
     // narrower cell width is exactly what stops the controls from spanning the whole panel.
     const ImGuiTableFlags flags = ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings;
-    if (ImGui::BeginTable("##sidebarcols", (int)cols, flags)) {
+    if (ImGui::BeginTable("##sidebarcols", shownCols, flags)) {
         ImGui::TableNextRow();
-        for (uint32_t c = 0; c < cols; ++c) {
-            ImGui::TableSetColumnIndex((int)c);
+        for (int c = 0; c < shownCols; ++c) {
+            ImGui::TableSetColumnIndex(c);
             for (int i = 0; i < side.widgetCount; ++i) {
-                int wc = side.widgets[i].column;
-                if (wc < 0) {
-                    wc = 0;
-                } else if ((uint32_t)wc >= cols) {
-                    wc = (int)cols - 1; // clamp stray indices into the last column
-                }
-                if ((uint32_t)wc == c) {
+                if (skip && skip(side.widgets[i]))
+                    continue;
+                if (remap[columnOf(side.widgets[i])] == c) {
                     RenderWidget(side.widgets[i], game);
                 }
             }

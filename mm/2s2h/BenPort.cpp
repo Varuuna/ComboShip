@@ -148,6 +148,15 @@ extern "C" __declspec(dllexport) void MM_SetOnComboReturnCallback(void (*cb)(voi
     gComboReturnCallback = cb;
 }
 static bool sComboReturnPending = false;
+// ComboShip cross-interiors PoC (docs/ENTRANCE_RANDO_PREP.md §4): counterpart of the OOT side in
+// OTRGlobals.cpp — East Clock Town's Milk Bar door <-> Kokiri Forest's Mido's-House door. Gated on
+// the shared gCombo.CrossInteriorsPoC CVar.
+extern "C" int gComboTargetEntrance = -1; // arrival override consumed by Setup_InitImpl (title_setup.c)
+extern "C" int gComboCrossArrival = 0;    // set by Setup_InitImpl on an override arrival; scene hook clears
+static int sComboCrossTargetOOT = -1;     // OOT entrance the pending return should arrive at
+// OOT entrance table indices (soh/include/tables/entrance_table.h).
+static const int kComboOotMidosHouse = 0x433;        // ENTR_MIDOS_HOUSE_0
+static const int kComboOotOutsideMidosHouse = 0x443; // ENTR_KOKIRI_FOREST_OUTSIDE_MIDOS_HOUSE
 // MM's own ResourceManager, created at first boot and kept alive for the whole process. A combo
 // transition swaps the Context's active RM between MM's and OOT's, so each game keeps its archives +
 // resource cache resident and nothing is ever unloaded (no dangling cached pointers). See MM_ResumeGame.
@@ -1112,6 +1121,23 @@ extern "C" void InitOTR(int argc, char* argv[]) {
         if (sceneId == SCENE_INSIDETOWER) {
             sComboReturnPending = true;
         }
+        // Cross-interiors PoC: the Milk Bar door leads into OOT's Mido's House, and leaving the
+        // Milk Bar (only enterable FROM the Mido's-House door) returns to OOT outside Mido's house.
+        // The arrival latch keeps combo-driven arrivals from re-triggering; the previous-scene guard
+        // keeps death/void respawns (which reload with the same entrance) from re-triggering.
+        static s8 sPrevScene = -1;
+        if (gComboCrossArrival) {
+            gComboCrossArrival = 0; // combo-driven arrival — stay (cleared even if the toggle changed mid-switch)
+        } else if (CVarGetInteger("gCombo.CrossInteriorsPoC", 0)) {
+            if (sceneId == SCENE_MILK_BAR) {
+                sComboCrossTargetOOT = kComboOotMidosHouse;
+                sComboReturnPending = true;
+            } else if (sceneId == SCENE_TOWN && spawnNum == 11 && sPrevScene == SCENE_MILK_BAR) {
+                sComboCrossTargetOOT = kComboOotOutsideMidosHouse;
+                sComboReturnPending = true;
+            }
+        }
+        sPrevScene = sceneId;
     });
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameStateMainStart>([]() {
         if (!sComboReturnPending)
@@ -2591,6 +2617,18 @@ extern "C" __declspec(dllexport) void MM_PrepareForTransition(void) {
 
 // ComboShip: OOT->MM return. Re-enter MM's game loop on the same shared context/window and jump
 // straight to Play in South Clock Town for the given slot. Counterpart to OOT's SOH_ResumeGame.
+// ComboShip cross-interiors PoC: launcher-facing target-entrance plumbing. The launcher drains the
+// pending OOT target staged by the scene hook, and stages MM's own arrival before resume.
+extern "C" __declspec(dllexport) int MM_GetPendingCrossTarget(void) {
+    int target = sComboCrossTargetOOT;
+    sComboCrossTargetOOT = -1;
+    return target;
+}
+
+extern "C" __declspec(dllexport) void MM_SetTargetEntrance(int entrance) {
+    gComboTargetEntrance = entrance;
+}
+
 extern "C" __declspec(dllexport) void MM_ResumeGame(int fileNum) {
     auto ctx = Ship::Context::GetInstance();
     ctx->GetLogger()->flush_on(spdlog::level::trace);

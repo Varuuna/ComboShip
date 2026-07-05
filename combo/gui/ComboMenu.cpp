@@ -515,7 +515,16 @@ void DrawEntrancesPanel() {
     ImGui::TextDisabled("2 Ship 2 Harkinian has no entrance shuffle yet; its options land here when it does.");
 
     ImGui::SeparatorText("Cross-Game");
-    ImGui::TextDisabled("ComboShip cross-game entrance options will live here.");
+    bool poc = CVarGetInteger("gCombo.CrossInteriorsPoC", 0) != 0;
+    ComboRando::ComboMenu_PushCheckbox(ComboRando::ComboMenu_ThemeColor());
+    if (ImGui::Checkbox("Cross-game interiors (proof of concept)", &poc)) {
+        CVarSetInteger("gCombo.CrossInteriorsPoC", poc ? 1 : 0);
+        if (auto ctx = Ship::Context::GetInstance(); ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
+            ctx->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+        }
+    }
+    ComboRando::ComboMenu_PopCheckbox();
+    ImGui::TextDisabled("Mido's House door (Kokiri Forest) leads into the Milk Bar (East Clock Town), and vice versa.");
 
     ImGui::EndTable();
 }

@@ -195,6 +195,15 @@ typedef void (*FnMMResume)(int);
 static FnMMResume MM_ResumeGame = nullptr;
 static FnVoidArgless MM_PrepareForTransition = nullptr;
 
+// ComboShip: cross-interiors PoC — carry a target entrance across the switch (both directions).
+// Get* drains the source game's staged target; Set* stages the target game's arrival override.
+typedef int (*FnGetCrossTarget)(void);
+typedef void (*FnSetTargetEntrance)(int);
+static FnGetCrossTarget SOH_GetPendingCrossTarget = nullptr;
+static FnSetTargetEntrance SOH_SetTargetEntrance = nullptr;
+static FnGetCrossTarget MM_GetPendingCrossTarget = nullptr;
+static FnSetTargetEntrance MM_SetTargetEntrance = nullptr;
+
 // ComboShip: headless static-data dump exports
 typedef const char* (*FnDumpData)(void);
 static FnDumpData SOH_DumpRandoStaticData = nullptr;
@@ -1411,6 +1420,10 @@ int main(int argc, char** argv) {
     SOH_NotifyComboReturn = (FnVoidArgless)GetSym(sohModule, "SOH_NotifyComboReturn");
     MM_ResumeGame = (FnMMResume)GetSym(mmModule, "MM_ResumeGame");
     MM_PrepareForTransition = (FnVoidArgless)GetSym(mmModule, "MM_PrepareForTransition");
+    SOH_GetPendingCrossTarget = (FnGetCrossTarget)GetSym(sohModule, "SOH_GetPendingCrossTarget");
+    SOH_SetTargetEntrance = (FnSetTargetEntrance)GetSym(sohModule, "SOH_SetTargetEntrance");
+    MM_GetPendingCrossTarget = (FnGetCrossTarget)GetSym(mmModule, "MM_GetPendingCrossTarget");
+    MM_SetTargetEntrance = (FnSetTargetEntrance)GetSym(mmModule, "MM_SetTargetEntrance");
     SOH_DumpRandoStaticData = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoStaticData");
     MM_DumpRandoStaticData = (FnDumpData)GetSym(mmModule, "MM_DumpRandoStaticData");
     SOH_DumpRandoSettings = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoSettings");
@@ -1822,6 +1835,12 @@ int main(int argc, char** argv) {
     for (;;) {
         if (current == GAME_OOT) {
             g_PendingMMFileNum = -1;
+            // Cross-interiors PoC: MM may have staged an OOT arrival entrance for this resume.
+            if (MM_GetPendingCrossTarget && SOH_SetTargetEntrance) {
+                int target = MM_GetPendingCrossTarget();
+                if (target >= 0)
+                    SOH_SetTargetEntrance(target);
+            }
             if (!ootBooted) {
                 std::cout << "[ComboShip] OOT boot\n";
                 SOH_RunMain(argc, argv);
@@ -1849,6 +1868,12 @@ int main(int argc, char** argv) {
             g_pendingOOTReturn = false;
             // MM's own boot/resume path loads this slot's save into gSaveContext.
             g_MmSaveInMemorySlot = g_PendingMMFileNum;
+            // Cross-interiors PoC: OOT may have staged an MM arrival entrance for this switch.
+            if (SOH_GetPendingCrossTarget && MM_SetTargetEntrance) {
+                int target = SOH_GetPendingCrossTarget();
+                if (target >= 0)
+                    MM_SetTargetEntrance(target);
+            }
             if (!mmBooted) {
                 std::cout << "[ComboShip] MM boot\n";
                 MM_RunGame(g_PendingMMFileNum);

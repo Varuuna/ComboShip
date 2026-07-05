@@ -4,6 +4,10 @@
 #include "global.h"
 #include "BenPort.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
+// Cross-interiors PoC (BenPort.cpp): >= 0 overrides the arrival entrance for this transition; the
+// arrival latch tells the scene hook not to treat the arrival as a new portal trigger.
+extern s32 gComboTargetEntrance;
+extern s32 gComboCrossArrival;
 #endif
 #include "z64save.h"
 
@@ -65,8 +69,16 @@ void Setup_InitImpl(SetupState* this) {
         gSaveContext.flashSaveAvailable = true;
         // Load the MM save that matches the OOT slot (OOT slot N → MM file N+1).
         Combo_LoadMMSaveFile(gComboStartFileNum + 1);
-        // Always spawn in South Clock Town regardless of save state.
-        gSaveContext.save.entrance = ENTRANCE(SOUTH_CLOCK_TOWN, 0);
+        if (gComboTargetEntrance >= 0) {
+            // Cross-interiors PoC arrival (BenPort.cpp): spawn at the mapped entrance; the latch
+            // tells the scene hook not to treat this arrival as a new portal trigger.
+            gSaveContext.save.entrance = gComboTargetEntrance;
+            gComboTargetEntrance = -1;
+            gComboCrossArrival = 1;
+        } else {
+            // Always spawn in South Clock Town regardless of save state.
+            gSaveContext.save.entrance = ENTRANCE(SOUTH_CLOCK_TOWN, 0);
+        }
         gSaveContext.save.cutsceneIndex = 0;
         // Reset magicLevel like Sram_OpenSave does — re-arms the magic meter grow animation
         // (Interface_Update only steps magicCapacity when magicLevel == 0).

@@ -1391,3 +1391,19 @@ guard on the current-scene filter; main-viewport pin + window-type flags at `Beg
 kept under `#else`). `soh/.../randomizer_check_tracker.cpp` — OOT RM scope +
 `gComboTrackerPeekSaveLoaded` around `DrawElement`; display-gate skip (stale pause/combo-button
 state while dormant).
+
+## Cross-game interiors PoC: parametric portal arrival + door hooks (2026-07-05)
+
+**Why:** first cross-game entrance pair (docs/ENTRANCE_RANDO_PREP.md §4): OOT's Mido's-House door
+leads into MM's Milk Bar and vice versa, gated on `gCombo.CrossInteriorsPoC`. Both combo resume
+shortcuts previously hardcoded the arrival point (Market outside Mask Shop / South Clock Town);
+cross-entrances need the launcher to choose it per switch. The scene hooks detect the four door
+transitions and stage a target; an arrival latch (`gComboCrossArrival`) stops combo-driven arrivals
+from re-triggering, and a previous-scene guard stops death/void respawns (which reload with the
+same entrance) from re-triggering exits.
+
+**Vendored (inside the existing `COMBO_BUILD` blocks):** `soh/src/code/title_setup.c` and
+`mm/src/code/title_setup.c` — consume `gComboTargetEntrance` (>= 0 overrides the fixed arrival,
+sets the latch), plus the externs. Port code: `soh/soh/OTRGlobals.cpp` / `mm/2s2h/BenPort.cpp` —
+PoC branches in the existing OnSceneInit portal hooks + `SOH_/MM_GetPendingCrossTarget` and
+`SOH_/MM_SetTargetEntrance` exports; launcher plumbing in `combo/ComboShip.cpp`.

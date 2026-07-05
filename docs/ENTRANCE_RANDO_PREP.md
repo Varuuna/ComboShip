@@ -226,6 +226,8 @@ interior shuffle pool so the two systems never fight over the same door.
 - **Verify during Phase A implementation**: MM sentinel safety — nothing else masks/switches on
   the scene field of `nextEntrance` before our hook (owl-save encoding, `Entrance_Create` callers).
 - **Delivery**: two branches/PRs — `feat/entrances-tab` first, then `feat/cross-interiors-poc`.
+- **Status**: Phase A implemented on `feat/cross-interiors-poc` (toggle in Shared > Entrances >
+  Cross-Game; deviations logged in `docs/UPSTREAM_MERGES.md`). Awaiting playtest.
 
 ## 5. Shared menu: "Entrances" tab (design)
 

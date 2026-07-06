@@ -330,14 +330,25 @@ static std::vector<ComboRando::CrossGateInfo> Combo_SetupCrossEntrances(uint32_t
     return gates;
 }
 
-// (Re-)push the cross tables for the seed a consolidated JSON describes. The tables are process
-// statics, so whichever save becomes ACTIVE last must have asserted its own state: fresh Start
-// re-asserts from the pending JSON (Combo_OnPreOOTSaveInit), Continue from the slot file
-// (Combo_OnOOTSaveLoad). Deterministic — same seed always re-derives the same assignment.
+// Push the cross tables for the seed a consolidated JSON describes (Start/Continue/reload).
+// Exact replay of the recorded rows — re-deriving is graph-state-sensitive and pushed rules
+// for doors the native shuffle owned.
 static void Combo_PushCrossTablesForSeed(const nlohmann::json& j) {
-    uint32_t masterSeed = j.value("masterSeed", 0u);
-    bool crossOn = !j.value("entrances", nlohmann::json::object()).value("cross", nlohmann::json::array()).empty();
-    Combo_SetupCrossEntrances(masterSeed, nullptr, crossOn ? 1 : 0);
+    auto rows = j.value("entrances", nlohmann::json::object()).value("cross", nlohmann::json::array());
+    if (rows.empty()) {
+        Combo_SetupCrossEntrances(0, nullptr, 0); // seed has no cross doors — clear both tables
+        return;
+    }
+    auto assignments = ComboRando::AssignmentsFromSpoiler(rows);
+    if (!assignments.empty()) {
+        if (SOH_SetCrossEntranceTable)
+            SOH_SetCrossEntranceTable(ComboRando::BuildCrossTableSlice(assignments, ComboRando::GAME_OOT).c_str());
+        if (MM_SetCrossEntranceTable)
+            MM_SetCrossEntranceTable(ComboRando::BuildCrossTableSlice(assignments, ComboRando::GAME_MM).c_str());
+        return;
+    }
+    // Legacy consolidated file (rows predate doorExit/interiorExit): best-effort re-derivation.
+    Combo_SetupCrossEntrances(j.value("masterSeed", 0u), nullptr, 1);
 }
 
 // OOT region gating the OOT->MM portal: with interior shuffle the Mask Shop can be anywhere, so MM
@@ -1414,14 +1425,10 @@ static int Combo_OnReloadRequest(const char* path) {
             SOH_SetComboRandoSeed(masterSeed);
         if (SOH_PrepRandoContext)
             SOH_PrepRandoContext();
-        // Cross-entrance tables: honor the SEED's cross state (spoiler section presence), not the
-        // live toggle — deterministic re-derivation, same as generation. Must precede the deferred
-        // entrance shuffle (partition + sever read the pushed tables).
-        {
-            bool crossOn =
-                !j.value("entrances", nlohmann::json::object()).value("cross", nlohmann::json::array()).empty();
-            Combo_SetupCrossEntrances(masterSeed, nullptr, crossOn ? 1 : 0);
-        }
+        // Cross-entrance tables: exact replay of the SEED's recorded assignment (not the live
+        // toggle, not a re-derivation). Must precede the deferred entrance shuffle (partition +
+        // sever read the pushed tables).
+        Combo_PushCrossTablesForSeed(j);
         // Entrance re-derivation (item pool + shuffle + validation, ~1s) is DEFERRED to Start
         // (Combo_OnPreOOTSaveInit) — running it here froze the first file-select visit. The ctx
         // options it reads were finalized by the prep above and survive the CVar snap-back below;

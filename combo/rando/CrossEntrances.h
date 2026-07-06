@@ -134,7 +134,8 @@ inline std::string BuildCrossTableSlice(const std::vector<CrossAssignment>& assi
     return nlohmann::json{ { "rules", rules }, { "exclude", exclude } }.dump();
 }
 
-// Readable spoiler section ("entrances.cross"), sorted by door name.
+// Spoiler section ("entrances.cross"), sorted by door name. The numeric fields are the full
+// assignment record — AssignmentsFromSpoiler replays them without re-dumping pools.
 inline nlohmann::json BuildCrossSpoiler(const std::vector<CrossAssignment>& assignments) {
     std::vector<nlohmann::json> rows;
     auto gameStr = [](GameId g) { return g == GAME_OOT ? "oot" : "mm"; };
@@ -144,12 +145,37 @@ inline nlohmann::json BuildCrossSpoiler(const std::vector<CrossAssignment>& assi
                          { "toGame", gameStr(a.interior.game) },
                          { "to", a.interior.interiorName },
                          { "doorEntry", a.door.entry },
-                         { "interiorEntry", a.interior.entry } });
+                         { "doorExit", a.door.exit },
+                         { "interiorEntry", a.interior.entry },
+                         { "interiorExit", a.interior.exit } });
     }
     std::sort(rows.begin(), rows.end(), [](const nlohmann::json& x, const nlohmann::json& y) {
         return x["door"].get<std::string>() < y["door"].get<std::string>();
     });
     return nlohmann::json(rows);
+}
+
+// Rebuild the assignment from recorded "entrances.cross" rows. Empty if any row lacks the
+// numeric fields (legacy files) — callers fall back to re-derivation.
+inline std::vector<CrossAssignment> AssignmentsFromSpoiler(const nlohmann::json& rows) {
+    std::vector<CrossAssignment> out;
+    if (!rows.is_array())
+        return out;
+    for (const auto& r : rows) {
+        CrossAssignment a{};
+        a.door.game = r.value("doorGame", "") == "oot" ? GAME_OOT : GAME_MM;
+        a.door.entry = r.value("doorEntry", -1);
+        a.door.exit = r.value("doorExit", -1);
+        a.door.doorName = r.value("door", "?");
+        a.interior.game = r.value("toGame", "") == "oot" ? GAME_OOT : GAME_MM;
+        a.interior.entry = r.value("interiorEntry", -1);
+        a.interior.exit = r.value("interiorExit", -1);
+        a.interior.interiorName = r.value("to", "?");
+        if (a.door.entry < 0 || a.door.exit < 0 || a.interior.entry < 0 || a.interior.exit < 0)
+            return {}; // legacy row without exits — the whole record is unusable
+        out.push_back(std::move(a));
+    }
+    return out;
 }
 
 } // namespace ComboRando

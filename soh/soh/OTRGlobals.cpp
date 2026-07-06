@@ -1656,9 +1656,7 @@ static bool sComboSwitchPending = false;
 static int sComboSwitchFileNum = -1;
 
 // ComboShip: cross-entrance runtime table (docs/ENTRANCE_RANDO_PREP.md §4). Keyed by the resolved
-// entrance a transition produced; pushed by the launcher whenever a seed becomes live.
-// park = where this game's save stays when the rule crosses to MM ("the player never left"):
-// beside the door for door rules, inside the interior for return rules.
+// entrance a transition produced; park = where this save stays when the rule crosses games.
 struct ComboCrossRule {
     bool cross; // target lives in MM
     int target; // arrival entrance in the target game
@@ -1801,22 +1799,16 @@ static void Combo_FinishInit() {
         }
     });
 
-    // ComboShip: cross-entrance door hook (docs/ENTRANCE_RANDO_PREP.md §4), the exact mirror of MM's
-    // OnPlayDestroy hook in BenPort.cpp. Runs at transition-complete, when gSaveContext.entranceIndex
-    // holds the RESOLVED destination — after Entrance_OverrideNextIndex, grotto returns, and the
-    // dynamic-exit groups (Bazaar/Shooting Gallery/Potion Shop/Great Fairies resolve their real
-    // reverse entrance only after Player_HandleExitsAndVoids' remap point) — and after the fade has
-    // played. Same-game reassignment rewrites the arrival in place; a cross door parks the save
-    // ("the player never left") and raises the deferred switch consumed by OnGameFrameUpdate above.
+    // ComboShip: cross-entrance door hook (docs/ENTRANCE_RANDO_PREP.md §4), mirror of MM's in
+    // BenPort.cpp. Runs at transition-complete on the resolved entranceIndex (dynamic exits
+    // included), after the fade. Same-game rewrites in place; cross parks + defers the switch.
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnPlayDestroy>([]() {
         if (sComboCrossRules.empty() || gSaveContext.respawnFlag != 0)
-            return; // respawn transitions (grotto returns, voids, warps) carry resolved arrivals
+            return; // respawn transitions carry resolved arrivals
         if (gSaveContext.gameMode != GAMEMODE_NORMAL)
-            return; // quitting to file select must not re-match the current interior's door rule
+            return; // quit-to-file-select keeps the current entrance — no re-match
         if (gPlayState == NULL || gPlayState->state.init != (GameStateFunc)Play_Init)
-            return; // only Play->Play scene transitions: the combo handoff destroys the parked Play
-                    // with init == NULL (its entrance IS a rule key — re-matching would clobber the
-                    // staged MM target), and resets/title exits keep their own arrival
+            return; // Play->Play only: the handoff teardown's parked entrance IS a rule key
         auto it = sComboCrossRules.find((int)gSaveContext.entranceIndex);
         if (it == sComboCrossRules.end())
             return;
@@ -3468,6 +3460,10 @@ extern "C" __declspec(dllexport) const char* SOH_DumpEntranceOverrides(void) {
     return buf.c_str();
 }
 
+namespace Rando {
+void SetAllEntrancesData(); // entrance.cpp (no header declaration)
+}
+
 // ComboShip: OOT's leaf-interior entrance pairs for the cross-game entrance pool
 // (docs/ENTRANCE_RANDO_PREP.md §4). One object per Interior-typed primary pair:
 // entry/exit indices, exterior+interior logic region names (fill gating), readable names.
@@ -3476,6 +3472,10 @@ extern "C" __declspec(dllexport) const char* SOH_DumpInteriorEntrancePairs(void)
     static std::string buf;
     nlohmann::json out = nlohmann::json::array();
     try {
+        // Stamp entrance type/index/reverse — untyped entrances dump an empty pool otherwise.
+        // Skip on an un-RegionTable_Init'd graph (SetAllEntrancesData derefs unchecked).
+        if (!RegionTable(RR_KOKIRI_FOREST)->exits.empty())
+            Rando::SetAllEntrancesData();
         for (Rando::Entrance* e : GetShuffleableEntrances(Rando::EntranceType::Interior, true)) {
             if (!e || !e->GetReverse())
                 continue; // one-way interiors can't form a coupled cross pair

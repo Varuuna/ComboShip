@@ -1184,8 +1184,7 @@ extern "C" void InitOTR(int argc, char* argv[]) {
         if (sComboCrossRules.empty() || gSaveContext.respawnFlag != 0)
             return; // respawn transitions carry already-resolved arrival values (see EntranceHooks.cpp)
         if (gSaveContext.gameMode != GAMEMODE_NORMAL)
-            return; // owl save / quit to file select keeps the CURRENT entrance — a save sitting
-                    // inside a pool interior must not re-match that interior's door rule
+            return; // owl save / quit keeps the current entrance — no re-match
         if (gPlayState != NULL && gPlayState->sceneId == SCENE_KAKUSIANA)
             return; // grotto exits resolve natively
         auto it = sComboCrossRules.find((int)gSaveContext.save.entrance);

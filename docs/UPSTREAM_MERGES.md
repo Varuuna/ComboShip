@@ -1452,11 +1452,13 @@ never runs — the OOT entrance options did nothing in combo seeds until now.
   `Combo_MM_Rando_Restore` — re-derives for the restored live save.
 - `MM_InitRandoSaveFile` — persists the real finalSeed (was a 0 placeholder).
 - `Combo_MM_Rando_EntranceShuffleOk` — surfaces sampler exhaustion.
+- `MM_DumpEntranceMap` — resolved map with region names for the spoiler (captured at generation
+  while the oracle's derived map is live).
 
 **mm (`mm/2s2h/Rando/Logic/EntranceShuffle.{cpp,h}` — deviation ON TOP of the vendored PR #1329
 copy; re-apply if the upstream merge takes upstream's side):** `#ifdef COMBO_BUILD` failure flag
-(`sComboShuffleFailed` + `LastShuffleFailed()`) — upstream only warns and keeps a possibly
-disconnected map; the combo generator must abort instead.
+(`sComboShuffleFailed` + `LastShuffleFailed()`) and `GetEntranceMap()` read accessor — upstream
+only warns and keeps a possibly disconnected map; the combo generator must abort instead.
 
 **Combo-owned:** `combo/rando/CrossWorldRando.h` — `OracleFns.IsRegionReachable` (optional) +
 `portalGateRegion` param (replaces the never-used `portalCheckName` check-name proxy; unknown

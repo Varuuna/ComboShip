@@ -3325,11 +3325,16 @@ extern "C" __declspec(dllexport) const char* SOH_DumpEntranceOverrides(void) {
     for (const EntranceOverride& o : overrides) {
         if (o.type == 0 && o.index == 0 && o.override == 0)
             break; // zero terminator (table is zero-filled past the last real override)
+        // Readable names from the entrance tracker's data (same strings the native spoiler uses).
+        const EntranceData* src = EntranceTracker::GetEntranceData(o.index);
+        const EntranceData* dst = EntranceTracker::GetEntranceData(o.override);
         out.push_back({ { "type", o.type },
                         { "index", o.index },
                         { "destination", o.destination },
                         { "override", o.override },
-                        { "overrideDestination", o.overrideDestination } });
+                        { "overrideDestination", o.overrideDestination },
+                        { "from", src ? src->source : "?" },
+                        { "to", dst ? dst->destination : "?" } });
     }
     buf = out.dump();
     return buf.c_str();

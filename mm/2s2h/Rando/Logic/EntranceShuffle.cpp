@@ -22,6 +22,10 @@ static bool sComboShuffleFailed = false;
 bool LastShuffleFailed() {
     return sComboShuffleFailed;
 }
+// ComboShip: read-only view of the resolved map for the consolidated spoiler.
+const std::map<s32, s32>& GetEntranceMap() {
+    return sEntranceMap;
+}
 #endif
 
 // Optimally, these lists are dynamically built from the maps we already have built for logic...

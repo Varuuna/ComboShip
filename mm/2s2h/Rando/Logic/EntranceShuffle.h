@@ -43,6 +43,8 @@ bool IsEntranceShuffleEnabled();
 #ifdef COMBO_BUILD
 // ComboShip: true when the last ShuffleEntrances() exhausted its attempts (map may be disconnected).
 bool LastShuffleFailed();
+// ComboShip: the resolved original->shuffled map (valid after ShuffleEntrances).
+const std::map<s32, s32>& GetEntranceMap();
 #endif
 
 // True if the entrance belongs to the shared GROTTOS scene. Grottos are never shuffled and always

@@ -283,6 +283,7 @@ static FnDumpData SOH_DumpEntranceOverrides = nullptr;
 static FnIsRegionReachable Combo_SOH_Rando_IsRegionReachable = nullptr;
 static FnSetFinalSeed MM_SetComboFinalSeed = nullptr;
 static FnIntV Combo_MM_Rando_EntranceShuffleOk = nullptr;
+static FnDumpData MM_DumpEntranceMap = nullptr;
 
 // OOT region gating the OOT->MM portal: with interior shuffle the Mask Shop can be anywhere, so MM
 // only joins the fill once this region is reachable.
@@ -665,6 +666,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
 
     std::string spoiler;
     bool usedCombinedFill = false;
+    std::string mmEntranceMapJson = "[]"; // resolved MM entrance map, captured while the oracle map is live
     nlohmann::json playthroughJson = nlohmann::json::array(); // structured sphere playthrough (combined-fill only)
 
     if (Combo_SOH_Rando_Reset && Combo_SOH_Rando_SetOwnedItems && Combo_SOH_Rando_GetReachableChecks &&
@@ -679,7 +681,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
 
         // ComboShip: fail fast if MM's sampler couldn't produce a connected entrance layout (it keeps
         // the broken map and only warns). One probe covers the fill — every Reset re-derives the same
-        // layout from the same finalSeed.
+        // layout from the same finalSeed. The derived map is captured here for the spoiler.
         if (Combo_MM_Rando_EntranceShuffleOk) {
             Combo_MM_Rando_Reset();
             if (!Combo_MM_Rando_EntranceShuffleOk()) {
@@ -687,6 +689,8 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
                 fail("MM entrance shuffle found no fully-connected layout (256 attempts) — try another seed");
                 return;
             }
+            if (MM_DumpEntranceMap)
+                mmEntranceMapJson = MM_DumpEntranceMap();
         }
 
         // ComboShip: OOT forced placements (Link's Pocket) the static dump can't carry. The fill
@@ -822,7 +826,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         consolidated["foreign"] = ComboRando::BuildForeignArray(foreignArr);
         consolidated["playthrough"] = playthroughJson;
         // ComboShip: entrance layouts (§3.4). Informational — reload re-derives both from masterSeed
-        // (MM's flags live in mm.settings). Empty array = no shuffle.
+        // (MM's flags live in mm.settings). Empty arrays = no shuffle.
         {
             nlohmann::json ootEnt = nlohmann::json::array();
             if (SOH_DumpEntranceOverrides) {
@@ -830,7 +834,12 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
                     ootEnt = nlohmann::json::parse(SOH_DumpEntranceOverrides());
                 } catch (...) {}
             }
-            consolidated["entrances"] = { { "oot", std::move(ootEnt) }, { "mm", { { "finalSeed", masterSeed } } } };
+            nlohmann::json mmEnt = nlohmann::json::array();
+            try {
+                mmEnt = nlohmann::json::parse(mmEntranceMapJson);
+            } catch (...) {}
+            consolidated["entrances"] = { { "oot", std::move(ootEnt) },
+                                          { "mm", { { "finalSeed", masterSeed }, { "map", std::move(mmEnt) } } } };
         }
         g_ConsolidatedJson = consolidated.dump(2);
 
@@ -1604,6 +1613,7 @@ int main(int argc, char** argv) {
     Combo_SOH_Rando_IsRegionReachable = (FnIsRegionReachable)GetSym(sohModule, "Combo_SOH_Rando_IsRegionReachable");
     MM_SetComboFinalSeed = (FnSetFinalSeed)GetSym(mmModule, "MM_SetComboFinalSeed");
     Combo_MM_Rando_EntranceShuffleOk = (FnIntV)GetSym(mmModule, "Combo_MM_Rando_EntranceShuffleOk");
+    MM_DumpEntranceMap = (FnDumpData)GetSym(mmModule, "MM_DumpEntranceMap");
 
     // Cross-game erase seam (issue #1)
     SOH_SetDeleteForeignSave = (FnSetDeleteForeignSave)GetSym(sohModule, "SOH_SetDeleteForeignSave");

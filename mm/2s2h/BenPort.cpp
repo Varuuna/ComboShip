@@ -3031,6 +3031,24 @@ extern "C" __declspec(dllexport) int Combo_MM_Rando_EntranceShuffleOk(void) {
     return Rando::EntranceShuffle::LastShuffleFailed() ? 0 : 1;
 }
 
+// ComboShip: the resolved entrance map as JSON [{entrance, leadsTo, from, to}] with region names,
+// for the consolidated spoiler. Valid while a derived map is live (e.g. right after the oracle's
+// Reset at generation); empty array when shuffle is off.
+extern "C" __declspec(dllexport) const char* MM_DumpEntranceMap(void) {
+    static std::string cached;
+    auto regionName = [](s32 entrance) -> const char* {
+        auto it = Rando::Logic::Regions.find(Rando::Logic::GetRegionIdFromEntrance(entrance));
+        return (it != Rando::Logic::Regions.end() && it->second.name) ? it->second.name : "?";
+    };
+    nlohmann::json out = nlohmann::json::array();
+    for (const auto& [from, to] : Rando::EntranceShuffle::GetEntranceMap()) {
+        out.push_back(
+            { { "entrance", from }, { "leadsTo", to }, { "from", regionName(from) }, { "to", regionName(to) } });
+    }
+    cached = out.dump();
+    return cached.c_str();
+}
+
 // Headless item-give: sets gSaveContext fields without ever touching gPlayState.
 // Covers the save-context mutations that logic conditions read (INV_CONTENT, equipment,
 // quest items, rando flags, dungeon items, week event regs). Derived from GiveItem.cpp.

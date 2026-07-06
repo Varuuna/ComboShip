@@ -1183,16 +1183,23 @@ extern "C" void InitOTR(int argc, char* argv[]) {
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnPlayDestroy>([]() {
         if (sComboCrossRules.empty() || gSaveContext.respawnFlag != 0)
             return; // respawn transitions carry already-resolved arrival values (see EntranceHooks.cpp)
+        if (gSaveContext.gameMode != GAMEMODE_NORMAL)
+            return; // owl save / quit to file select keeps the CURRENT entrance — a save sitting
+                    // inside a pool interior must not re-match that interior's door rule
         if (gPlayState != NULL && gPlayState->sceneId == SCENE_KAKUSIANA)
             return; // grotto exits resolve natively
         auto it = sComboCrossRules.find((int)gSaveContext.save.entrance);
         if (it == sComboCrossRules.end())
             return;
         if (it->second.cross) {
+            SPDLOG_INFO("[ComboShip] cross door: entrance {:#x} -> OOT {:#x} (park {:#x})",
+                        (int)gSaveContext.save.entrance, it->second.target, it->second.park);
             gSaveContext.save.entrance = (u16)it->second.park;
             sComboCrossTargetOOT = it->second.target;
             sComboReturnPending = true;
         } else {
+            SPDLOG_INFO("[ComboShip] cross door (same game): entrance {:#x} -> {:#x}",
+                        (int)gSaveContext.save.entrance, it->second.target);
             gSaveContext.save.entrance = (u16)it->second.target;
         }
         // Stale cutscene-layer sanitation, same reason as the vendored entrance hook.

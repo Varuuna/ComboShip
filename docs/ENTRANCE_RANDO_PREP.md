@@ -252,6 +252,14 @@ interior shuffle pool so the two systems never fight over the same door.
   region reachability (§4.3 shape: `SetExternallyReachableRegions` + severed native edges).
   Spoiler: `entrances.cross`. Deviations in `docs/UPSTREAM_MERGES.md`. v1 limit: in-game check
   trackers don't model cross-interior reachability.
+- **Hook placement fix (2026-07-06 playtest)**: the OOT door hook moved from a z_player.c seam
+  (pre-`ENTR_RETURN_*` resolution — missed dynamic-exit interiors, decoupling their returns, and
+  switched games before the fade) to an `OnPlayDestroy` hook on the resolved
+  `gSaveContext.entranceIndex`, the exact mirror of MM's. Both games' transitions now complete
+  (fade + one parked exterior frame) before a cross switch. Both hooks guard `gameMode` (owl
+  save / quit keeps the current entrance — must not re-match a door rule); OOT additionally
+  requires `state.init == Play_Init` (the handoff's teardown destroy sees the parked entrance,
+  which IS a rule key). OOT now honors `park`, so a cross-door save parks beside the door.
 
 ## 5. Shared menu: "Entrances" tab (design)
 

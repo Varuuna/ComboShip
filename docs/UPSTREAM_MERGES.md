@@ -1489,22 +1489,30 @@ seed becomes live. Uniform door hook per game handles same-game rewrites AND cro
 are severed; the fill gates each assigned interior on its door's region reachability.
 
 **soh (additive exports in `OTRGlobals.cpp` — preserve):** `SOH_DumpInteriorEntrancePairs`,
-`SOH_SetCrossEntranceTable` (+ rule map/exclusion set), `Combo_CrossEntranceOverride` (door hook
-body), `Combo_SeverCrossEntrances` (Disconnects cross pairs after every graph rebuild, called from
+`SOH_SetCrossEntranceTable` (+ rule map/exclusion set), an `OnPlayDestroy` door hook (see below),
+`Combo_SeverCrossEntrances` (Disconnects cross pairs after every graph rebuild, called from
 `SOH_ShuffleEntrancesForCombo` both paths), `Combo_SOH_Rando_SetExternallyReachableRegions`,
 `SOH_GetCVarInteger` (launcher CVar proxy). Switch statics promoted to file scope.
 
+The door hook originally lived as a z_player.c seam before `ENTR_RETURN_*` resolution — which
+missed every dynamic-exit interior (Bazaar/Shooting Gallery/Potion Shop/Great Fairies resolve
+their real reverse entrance later), decoupling their returns, and switched games before the fade
+(2026-07-06 playtest). Now it's a pure `OnPlayDestroy` hook mirroring MM's: fires at
+transition-complete on the resolved `gSaveContext.entranceIndex`, guarded by `respawnFlag`,
+`gameMode`, and `state.init == Play_Init` (the combo handoff's teardown destroy and title/file
+exits must not re-match — a parked entrance IS a rule key). The z_player.c seam is deleted
+(file back to byte-intact vendored).
+
 **soh vendored seams (tiny, guarded — preserve):**
-- `soh/src/overlays/actors/ovl_player_actor/z_player.c` — door seam after
-  `Entrance_OverrideNextIndex`: rewrite or goto-skip the transition commit (cross staged).
 - `soh/soh/Enhancements/randomizer/entrance.cpp` — cross-door exclusion at the Interior pool build.
 - `soh/soh/Enhancements/randomizer/3drando/fill.cpp` — externally-reachable region marks in
   `ReachabilitySearch` (conservative ages: starting age always, other age with Master Sword).
 
 **mm (additive in `BenPort.cpp` — preserve):** `MM_DumpInteriorEntrancePairs`,
-`MM_SetCrossEntranceTable`, the OnPlayDestroy-class door hook (same-game rewrite / park + stage +
-deferred return), `Combo_MM_Rando_SetExternallyReachableRegions` (fixpoint seed),
-`Combo_MM_Rando_IsRegionReachable`.
+`MM_SetCrossEntranceTable`, the OnPlayDestroy door hook (same-game rewrite / park + stage +
+deferred return; guarded by `respawnFlag` AND `gameMode` — owl save / quit-to-file-select keeps
+the current entrance, which must not re-match a door rule), `Combo_MM_Rando_SetExternallyReachableRegions`
+(fixpoint seed), `Combo_MM_Rando_IsRegionReachable`.
 
 **mm vendored seams (guarded — the EntranceShuffle/Logic ones sit ON TOP of the PR #1329 copy):**
 - `Rando/Logic/EntranceShuffle.cpp` — cross-door exclusion in `GetInteriorEntrances`.

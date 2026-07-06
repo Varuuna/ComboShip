@@ -5132,20 +5132,6 @@ s32 Player_HandleExitsAndVoids(PlayState* play, Player* this, CollisionPoly* pol
                     play->nextEntranceIndex = Entrance_OverrideNextIndex(play->nextEntranceIndex);
                 }
 
-#ifdef COMBO_BUILD
-                // ComboShip: cross-entrance table (docs/ENTRANCE_RANDO_PREP.md §4). Same-game
-                // reassignment rewrites in place (native-shuffle-identical); a cross-game door
-                // stages the other game's arrival and defers the switch — no local transition.
-                {
-                    extern s32 Combo_CrossEntranceOverride(s32 nextEntrance);
-                    s32 comboNext = Combo_CrossEntranceOverride(play->nextEntranceIndex);
-                    if (comboNext < 0) {
-                        goto combo_cross_suppressed;
-                    }
-                    play->nextEntranceIndex = comboNext;
-                }
-#endif
-
                 if (play->nextEntranceIndex == ENTR_RETURN_GROTTO) {
                     gSaveContext.respawnFlag = 2;
                     play->nextEntranceIndex = gSaveContext.respawn[RESPAWN_MODE_RETURN].entranceIndex;
@@ -5179,9 +5165,6 @@ s32 Player_HandleExitsAndVoids(PlayState* play, Player* this, CollisionPoly* pol
                     Scene_SetTransitionForNextEntrance(play);
                 }
                 play->transitionTrigger = TRANS_TRIGGER_START;
-#ifdef COMBO_BUILD
-            combo_cross_suppressed:; // ComboShip: cross-game door — switch staged, no local transition
-#endif
             }
 
             if (!(this->stateFlags1 & (PLAYER_STATE1_ON_HORSE | PLAYER_STATE1_IN_CUTSCENE)) &&

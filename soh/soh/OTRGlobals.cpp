@@ -1655,11 +1655,14 @@ static int sComboCrossTargetMM = -1;      // MM entrance the pending switch shou
 static bool sComboSwitchPending = false;
 static int sComboSwitchFileNum = -1;
 
-// ComboShip: cross-entrance runtime table (docs/ENTRANCE_RANDO_PREP.md §4). Keyed by the pending
-// entrance a door transition produced; pushed by the launcher whenever a seed becomes live.
+// ComboShip: cross-entrance runtime table (docs/ENTRANCE_RANDO_PREP.md §4). Keyed by the resolved
+// entrance a transition produced; pushed by the launcher whenever a seed becomes live.
+// park = where this game's save stays when the rule crosses to MM ("the player never left"):
+// beside the door for door rules, inside the interior for return rules.
 struct ComboCrossRule {
     bool cross; // target lives in MM
     int target; // arrival entrance in the target game
+    int park;
 };
 static std::unordered_map<int, ComboCrossRule> sComboCrossRules;
 static std::unordered_set<int16_t> sComboCrossExcludedDoors; // native interior shuffle skips these
@@ -1673,7 +1676,7 @@ extern "C" __declspec(dllexport) void SOH_SetCrossEntranceTable(const char* json
         auto j = nlohmann::json::parse(json);
         for (auto& r : j.value("rules", nlohmann::json::array())) {
             sComboCrossRules[r.value("key", -1)] = { r.value("targetGame", std::string()) == "mm",
-                                                     r.value("target", -1) };
+                                                     r.value("target", -1), r.value("park", -1) };
         }
         for (auto& e : j.value("exclude", nlohmann::json::array()))
             sComboCrossExcludedDoors.insert((int16_t)e.get<int>());
@@ -1716,21 +1719,6 @@ extern "C" __declspec(dllexport) void Combo_SOH_Rando_SetExternallyReachableRegi
     } catch (...) { sComboExternRegions.clear(); }
 }
 
-// ComboShip: door hook, called from z_player.c after Entrance_OverrideNextIndex. Returns the
-// (possibly rewritten) entrance; -1 = a cross-game switch was staged, suppress the local transition
-// (the OnGameFrameUpdate hook saves and exits the loop within a frame; re-triggering until then is
-// idempotent). Same-game reassignments behave exactly like a native interior shuffle.
-extern "C" s32 Combo_CrossEntranceOverride(s32 nextEntrance) {
-    auto it = sComboCrossRules.find((int)nextEntrance);
-    if (it == sComboCrossRules.end())
-        return nextEntrance;
-    if (!it->second.cross)
-        return it->second.target;
-    sComboCrossTargetMM = it->second.target;
-    sComboSwitchFileNum = (int)gSaveContext.fileNum;
-    sComboSwitchPending = true;
-    return -1;
-}
 #endif
 
 static void Combo_FinishInit() {
@@ -1785,7 +1773,7 @@ static void Combo_FinishInit() {
 
 #ifdef COMBO_BUILD
     // sComboSwitchPending/sComboSwitchFileNum (file scope above): set here by the Mask Shop portal
-    // trigger, and by the cross-entrance door hook (Combo_CrossEntranceOverride).
+    // trigger, and by the cross-entrance OnPlayDestroy hook below.
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnSceneInit>([](int16_t sceneNum) {
         // Cross-game OOT->MM trigger: entering the Happy Mask Shop.
         if (sceneNum == SCENE_HAPPY_MASK_SHOP) {
@@ -1810,6 +1798,39 @@ static void Combo_FinishInit() {
         }
         if (gGameState) {
             gGameState->running = false;
+        }
+    });
+
+    // ComboShip: cross-entrance door hook (docs/ENTRANCE_RANDO_PREP.md §4), the exact mirror of MM's
+    // OnPlayDestroy hook in BenPort.cpp. Runs at transition-complete, when gSaveContext.entranceIndex
+    // holds the RESOLVED destination — after Entrance_OverrideNextIndex, grotto returns, and the
+    // dynamic-exit groups (Bazaar/Shooting Gallery/Potion Shop/Great Fairies resolve their real
+    // reverse entrance only after Player_HandleExitsAndVoids' remap point) — and after the fade has
+    // played. Same-game reassignment rewrites the arrival in place; a cross door parks the save
+    // ("the player never left") and raises the deferred switch consumed by OnGameFrameUpdate above.
+    GameInteractor::Instance->RegisterGameHook<GameInteractor::OnPlayDestroy>([]() {
+        if (sComboCrossRules.empty() || gSaveContext.respawnFlag != 0)
+            return; // respawn transitions (grotto returns, voids, warps) carry resolved arrivals
+        if (gSaveContext.gameMode != GAMEMODE_NORMAL)
+            return; // quitting to file select must not re-match the current interior's door rule
+        if (gPlayState == NULL || gPlayState->state.init != (GameStateFunc)Play_Init)
+            return; // only Play->Play scene transitions: the combo handoff destroys the parked Play
+                    // with init == NULL (its entrance IS a rule key — re-matching would clobber the
+                    // staged MM target), and resets/title exits keep their own arrival
+        auto it = sComboCrossRules.find((int)gSaveContext.entranceIndex);
+        if (it == sComboCrossRules.end())
+            return;
+        if (it->second.cross) {
+            SPDLOG_INFO("[ComboShip] cross door: entrance {:#x} -> MM {:#x} (park {:#x})",
+                        (int)gSaveContext.entranceIndex, it->second.target, it->second.park);
+            gSaveContext.entranceIndex = it->second.park;
+            sComboCrossTargetMM = it->second.target;
+            sComboSwitchFileNum = (int)gSaveContext.fileNum;
+            sComboSwitchPending = true;
+        } else {
+            SPDLOG_INFO("[ComboShip] cross door (same game): entrance {:#x} -> {:#x}",
+                        (int)gSaveContext.entranceIndex, it->second.target);
+            gSaveContext.entranceIndex = it->second.target;
         }
     });
 #endif

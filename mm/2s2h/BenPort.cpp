@@ -3031,21 +3031,33 @@ extern "C" __declspec(dllexport) int Combo_MM_Rando_EntranceShuffleOk(void) {
     return Rando::EntranceShuffle::LastShuffleFailed() ? 0 : 1;
 }
 
-// ComboShip: the resolved entrance map as JSON [{entrance, leadsTo, from, to}] with region names,
-// for the consolidated spoiler. Valid while a derived map is live (e.g. right after the oracle's
+// ComboShip: the resolved entrance map for the consolidated spoiler — array of
+// {from, to, entrance, leadsTo}, scene names + spawn from the entrance table, sorted by "from" so
+// a pasted spoiler is scannable. Valid while a derived map is live (e.g. right after the oracle's
 // Reset at generation); empty array when shuffle is off.
 extern "C" __declspec(dllexport) const char* MM_DumpEntranceMap(void) {
     static std::string cached;
-    auto regionName = [](s32 entrance) -> const char* {
-        auto it = Rando::Logic::Regions.find(Rando::Logic::GetRegionIdFromEntrance(entrance));
-        return (it != Rando::Logic::Regions.end() && it->second.name) ? it->second.name : "?";
+    auto describe = [](s32 entrance) -> std::string {
+        s32 sceneId = Entrance_GetSceneIdAbsolute((u16)entrance);
+        const char* scene = sceneId >= 0 ? Ship_GetSceneName((s16)sceneId) : "Unknown";
+        int spawn = (entrance >> 4) & 0x1F;
+        std::string s = scene;
+        if (spawn != 0)
+            s += " (entrance " + std::to_string(spawn) + ")";
+        return s;
     };
-    nlohmann::json out = nlohmann::json::array();
+    char hexFrom[16], hexTo[16];
+    std::vector<nlohmann::json> rows;
     for (const auto& [from, to] : Rando::EntranceShuffle::GetEntranceMap()) {
-        out.push_back(
-            { { "entrance", from }, { "leadsTo", to }, { "from", regionName(from) }, { "to", regionName(to) } });
+        std::snprintf(hexFrom, sizeof(hexFrom), "0x%04X", (u16)from);
+        std::snprintf(hexTo, sizeof(hexTo), "0x%04X", (u16)to);
+        rows.push_back(
+            { { "from", describe(from) }, { "to", describe(to) }, { "entrance", hexFrom }, { "leadsTo", hexTo } });
     }
-    cached = out.dump();
+    std::sort(rows.begin(), rows.end(), [](const nlohmann::json& a, const nlohmann::json& b) {
+        return a["from"].get<std::string>() < b["from"].get<std::string>();
+    });
+    cached = nlohmann::json(rows).dump();
     return cached.c_str();
 }
 

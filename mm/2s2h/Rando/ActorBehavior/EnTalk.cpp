@@ -1,7 +1,6 @@
 #include "ActorBehavior.h"
 #include "2s2h/CustomMessage/CustomMessage.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
-#include "2s2h/ShipUtils.h"
 
 extern "C" {
 #include "variables.h"
@@ -118,7 +117,7 @@ void ApplyTransformationHints(u16* textId, bool* loadFromMessageTable) {
                     locationStr += " %w&%y\n";
                 }
 
-                locationStr += Ship_GetSceneName(Rando::StaticData::Checks[location].sceneId);
+                locationStr += Rando::StaticData::GetLocationNameForHint(location, false);
             }
             CustomMessage::Replace(&msg, "{{locations}}", locationStr);
         } else {

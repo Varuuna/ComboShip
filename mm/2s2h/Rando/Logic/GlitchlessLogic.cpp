@@ -107,10 +107,17 @@ void ApplyGlitchlessLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std
                     bool inPool = it != checkPool.end();
                     if (inPool) {
                         checkPool.erase(it);
-                        randoItemId = RANDO_SAVE_CHECKS[randoCheckId].randoItemId = itemPool.back();
+
+                        size_t pickIndex = SelectItemForCheck(itemPool, checkPool, randoCheckId);
+                        if (pickIndex == itemPool.size()) {
+                            handleError("No allowed item remains for reachable check: " +
+                                        std::string(Rando::StaticData::Checks[randoCheckId].name));
+                        }
+
+                        randoItemId = RANDO_SAVE_CHECKS[randoCheckId].randoItemId = itemPool[pickIndex];
                         RANDO_SAVE_CHECKS[randoCheckId].shuffled = true;
 
-                        itemPool.pop_back();
+                        itemPool.erase(itemPool.begin() + pickIndex);
 
                         if (Rando::StaticData::Items[randoItemId].randoItemType == RITYPE_JUNK ||
                             Rando::StaticData::Items[randoItemId].randoItemType == RITYPE_HEALTH) {
@@ -189,7 +196,8 @@ void ApplyGlitchlessLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std
                 if (Rando::StaticData::Items[itemPool[i]].randoItemType != RITYPE_JUNK &&
                     Rando::StaticData::Items[itemPool[i]].randoItemType != RITYPE_HEALTH) {
                     anyNonJunkItemsLeft = true;
-                    if (nonJunkItemsThatWeHaveTried.find(itemPool[i]) == nonJunkItemsThatWeHaveTried.end()) {
+                    if (nonJunkItemsThatWeHaveTried.find(itemPool[i]) == nonJunkItemsThatWeHaveTried.end() &&
+                        IsItemAllowedAtCheck(itemPool[i], checkWithJunk)) {
                         nonJunkItemsThatWeHaveNotTried.push_back({ itemPool[i], i });
                     }
                 }

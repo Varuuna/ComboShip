@@ -1269,8 +1269,10 @@ static int Combo_OnReloadRequest(const char* path) {
         std::string mmSettings = mm.value("settings", nlohmann::json::object()).dump();
         std::string mmPlacements = mm.value("placements", nlohmann::json::object()).dump();
 
-        // OOT: restore settings -> seed RNG -> prep settings-scoped pool -> re-derive entrances ->
-        // apply placements -> hash.
+        // OOT: the seed's settings are needed only while rebuilding the ctx (prep -> entrances ->
+        // placements). The menu CVars are the USER's intent — snapshot them and put them back after,
+        // so reloading a seed (incl. the boot-time pending reload) doesn't clobber menu toggles.
+        std::string userOotSettings = SOH_DumpRandoSettings ? SOH_DumpRandoSettings() : "";
         if (SOH_RestoreRandoSettings)
             SOH_RestoreRandoSettings(ootSettings.c_str());
         if (SOH_SetComboRandoSeed)
@@ -1280,17 +1282,19 @@ static int Combo_OnReloadRequest(const char* path) {
         // Same deterministic call as generation — reproduces (or clears) this seed's layout.
         if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(masterSeed)) {
             std::cerr << "[ComboShip] reload: OOT entrance shuffle failed to re-derive — aborting\n";
+            if (SOH_RestoreRandoSettings && !userOotSettings.empty())
+                SOH_RestoreRandoSettings(userOotSettings.c_str());
             return 0;
         }
         if (SOH_ApplyRandoPlacements)
             SOH_ApplyRandoPlacements(ootPlacements.c_str());
         if (SOH_SetComboSeedHash)
             SOH_SetComboSeedHash(displaySeed);
+        if (SOH_RestoreRandoSettings && !userOotSettings.empty())
+            SOH_RestoreRandoSettings(userOotSettings.c_str());
 
-        // MM: restore settings (MM_InitRandoSaveFile reads CVars) + stash placements + finalSeed
-        // (reaches the save via MM_InitRandoSaveFile at Start).
-        if (MM_RestoreRandoSettings)
-            MM_RestoreRandoSettings(mmSettings.c_str());
+        // MM: stash placements + finalSeed. No CVar writes here — the save-bind (Combo_OnOOTSaveInit)
+        // re-asserts the seed's MM settings around MM_InitRandoSaveFile itself.
         if (MM_SetComboFinalSeed)
             MM_SetComboFinalSeed(masterSeed);
         g_PendingMMPlacements = mmPlacements;
@@ -1356,8 +1360,10 @@ static void Combo_OnOOTSaveInit(int fileNum) {
         std::cout << "[ComboShip] Creating RANDO MM save for OOT slot " << fileNum << std::endl;
         // MM_InitRandoSaveFile persists the LIVE CVar options into the save, but the fill validated
         // the generation-time ones — a toggle between Generate and Start would ship an unvalidated
-        // config (with entrance shuffle: a different world than logic checked). Re-assert the
-        // generated settings + finalSeed from the consolidated seed before building the save.
+        // config (with entrance shuffle: a different world than logic checked). Re-assert the seed's
+        // settings + finalSeed around the save build only; the menu CVars are the user's intent and
+        // are put back after.
+        std::string userMmSettings = MM_DumpRandoSettings ? MM_DumpRandoSettings() : "";
         if (!g_ConsolidatedJson.empty()) {
             try {
                 auto cj = nlohmann::json::parse(g_ConsolidatedJson);
@@ -1373,6 +1379,8 @@ static void Combo_OnOOTSaveInit(int fileNum) {
             }
         }
         MM_InitRandoSaveFile(fileNum, g_PendingMMPlacements.c_str());
+        if (MM_RestoreRandoSettings && !userMmSettings.empty())
+            MM_RestoreRandoSettings(userMmSettings.c_str());
         g_PendingMMPlacements.clear();
     } else if (MM_InitSaveFile) {
         // No placement available (e.g. generation was skipped) — fall back to a vanilla MM save.

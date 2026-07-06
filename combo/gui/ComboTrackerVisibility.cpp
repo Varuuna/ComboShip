@@ -33,9 +33,6 @@
 #include "ComboTrackerCommon.h"        // kTrackers/SetTracker (shared with ComboTrackerSwap)
 #include "ComboTrackerBridge.h"        // ComboTracker::SyncAppearance (re-assert on transitions)
 #include "ComboTrackerSwap.h"          // SuspendSwap/ApplySwap around the intent snapshot/restore
-#ifdef _WIN32
-#include <windows.h> // GetModuleHandleA/GetProcAddress for the MM_ReloadControls entry point
-#endif
 
 namespace {
 
@@ -61,25 +58,6 @@ const char* const kNotificationWin[2] = {
 // weak_ptr handles so the windows stay owned solely by their own game DLL (their mNotificationWindow
 // member keeps them alive); we only need a handle to re-add the backgrounded one later.
 std::weak_ptr<Ship::GuiWindow> sNotif[2];
-
-// Reload MM's controller bindings from the shared gSettings.Controllers.* CVars. Resolved once from
-// 2ship.dll. Called on MM entry so rebinds made via the Shared (OOT) controls UI while MM was dormant
-// take effect when MM resumes (MM's ControlDeck caches mappings; it only re-reads on Init / this call).
-void ReloadMmControls() {
-#ifdef _WIN32
-    static void (*sFn)() = nullptr;
-    static bool sTried = false;
-    if (!sTried) {
-        sTried = true;
-        if (HMODULE h = GetModuleHandleA("2ship.dll")) {
-            sFn = (void (*)())GetProcAddress(h, "MM_ReloadControls");
-        }
-    }
-    if (sFn) {
-        sFn();
-    }
-#endif
-}
 
 // Keep only the foreground game's notification window in the shared Gui's draw loop.
 void SetForegroundNotification(int fg) {
@@ -155,13 +133,10 @@ extern "C" __declspec(dllexport) void ComboUI_OnForegroundGame(int game) {
     // and OOT's only while OOT is). Independent of the tracker intent above.
     SetForegroundNotification(fg);
 
-    // ComboShip: on MM entry (boot/resume), reconcile the settings MM consumes from its own CVars with
-    // the canonical Shared values changed while MM was dormant — push audio volumes (apply per-port
-    // scales) and reload controller bindings. Graphics needs no equivalent (the shared window applies
-    // OOT's graphics callbacks process-wide), and Controls' data already lives in shared CVars.
+    // ComboShip: mirror OOT's volume CVars into MM's own gSettings.Audio.* (MM keeps a separate gAudioCtx).
+    // Controls need no equivalent — both games share OOT's ControlDeck (Context::InitControlDeck keeps the first).
     if (fg == 1) {
         ComboAudio::SyncAllToMM();
-        ReloadMmControls();
     }
 
     // Re-assert shared tracker appearance (per-game edits made while dormant lose). A sticky swap

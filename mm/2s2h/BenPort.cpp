@@ -70,6 +70,7 @@ CrowdControl* CrowdControl::Instance;
 #include "2s2h/Rando/Rando.h"
 #include "2s2h/Rando/Spoiler/Spoiler.h"
 #include "2s2h/Rando/Logic/Logic.h"
+#include "2s2h/Rando/Logic/EntranceShuffle.h" // ComboShip: oracle + save-create entrance wiring
 #include "2s2h/Rando/MiscBehavior/ClockShuffle.h"
 #include "2s2h/SaveManager/SaveManager.h"
 #include "2s2h/CustomMessage/CustomMessage.h"
@@ -2674,6 +2675,15 @@ extern "C" __declspec(dllexport) void MM_LoadSaveForCombo(int fileNum) {
     SaveManager_LoadSaveFile(fileNum + 1);
 }
 
+// ComboShip: MM's finalSeed for combo seeds, derived from the master seed by the launcher. The
+// entrance map is re-derived from finalSeed + options on every load (nothing serialized), so the
+// SAME value must reach every consumer or logic and reality silently diverge: the oracle's Reset,
+// MM_InitRandoSaveFile (persists it for in-game OnFileLoad), and the reload path.
+static uint32_t sComboFinalSeed = 0;
+extern "C" __declspec(dllexport) void MM_SetComboFinalSeed(uint32_t seed) {
+    sComboFinalSeed = seed;
+}
+
 // ComboShip: create a RANDO MM save for the given OOT slot from a combo placement slice.
 // placementJson is the "mm" object of the combined spoiler: { "<RC_name>": "<itemSpoilerName>", ... }.
 // The combo layer owns placement, so we do NOT run MM's own generator. We build the playable baseline
@@ -2703,7 +2713,10 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
         // and checks keys (startingItems and finalSeed throw if absent). For the no-logic native phase
         // we supply empty options/startingItems (defaults) and feed the combo placement as "checks".
         nlohmann::json spoiler;
-        spoiler["finalSeed"] = (uint32_t)0; // Phase 1: not used for runtime delivery (driven by randoSaveChecks)
+        // ComboShip: persist the real finalSeed — in-game OnFileLoad re-derives the entrance map
+        // from the SAVE's finalSeed, which must match the generation-time oracle's (item delivery
+        // itself is still driven by randoSaveChecks).
+        spoiler["finalSeed"] = sComboFinalSeed;
         // ComboShip: persist the player's chosen MM options into the save (mirrors OnFileCreate) so MM
         // honors its toggles at runtime; an empty options object would make ApplyToSaveContext default
         // everything (the analog of OOT's SetAllToContext fix).
@@ -3010,6 +3023,13 @@ static uint64_t sMM_OracleSavedRegionTime;
 // so Restore would write garbage (zeros) back into MM's live save after generation.
 static bool sMM_OracleActive = false;
 using Rando::Logic::gCurrentRegionTime;
+
+// ComboShip: 1 when the last ShuffleEntrances() found a fully-connected layout (or shuffle is off).
+// The sampler keeps a possibly-disconnected map after 256 failed attempts (upstream only warns);
+// the generator probes this after the first oracle Reset and aborts instead of dead-ending the fill.
+extern "C" __declspec(dllexport) int Combo_MM_Rando_EntranceShuffleOk(void) {
+    return Rando::EntranceShuffle::LastShuffleFailed() ? 0 : 1;
+}
 
 // Headless item-give: sets gSaveContext fields without ever touching gPlayState.
 // Covers the save-context mutations that logic conditions read (INV_CONTENT, equipment,
@@ -3378,6 +3398,12 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Reset(void) {
             (uint32_t)CVarGetInteger(opt.cvar, opt.defaultValue);
     }
 
+    // ComboShip: derive the entrance map for this seed (no-op when the options are off). Must follow
+    // the option seeding (ShuffleEntrances reads RANDO_SAVE_OPTIONS + finalSeed); reachability then
+    // resolves exits through the map. Seed identity with in-game load — see MM_SetComboFinalSeed.
+    gSaveContext.save.shipSaveInfo.rando.finalSeed = sComboFinalSeed;
+    Rando::EntranceShuffle::ShuffleEntrances();
+
     // ComboShip: grant the seed's STARTING ITEMS into the oracle inventory. These aren't in the
     // shuffled pool (so SetOwnedItems never grants them), but logic depends on them: the default kit
     // (sword, shield, ocarina, Song of Time, plus computed buttons/swim/maps/souls). Without the
@@ -3587,6 +3613,9 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Restore(void) {
     memcpy(&gSaveContext, &sMM_OracleSavedContext, sizeof(SaveContext));
     gCurrentRegionTime = sMM_OracleSavedRegionTime;
     sMM_OracleActive = false;
+    // ComboShip: re-derive the entrance map for the RESTORED save (self-clears; no-op for non-rando)
+    // so the generation-time map can't leak into the live game's GetShuffledEntrance lookups.
+    Rando::EntranceShuffle::ShuffleEntrances();
 }
 
 #ifdef COMBO_BUILD

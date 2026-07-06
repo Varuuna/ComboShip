@@ -15,6 +15,15 @@ namespace EntranceShuffle {
 
 std::map<s32, s32> sEntranceMap;
 
+#ifdef COMBO_BUILD
+// ComboShip: surface rejection-sampler exhaustion — the combo generator must abort a seed whose map
+// is (possibly) disconnected instead of hitting a confusing fill dead-end. Set by ShuffleEntrances.
+static bool sComboShuffleFailed = false;
+bool LastShuffleFailed() {
+    return sComboShuffleFailed;
+}
+#endif
+
 // Optimally, these lists are dynamically built from the maps we already have built for logic...
 
 std::set<s32> interiorEntrances = {
@@ -312,6 +321,9 @@ void ApplyEntranceShuffle(const std::vector<EntrancePoolType>& poolsToShuffle) {
 // Called on file load and in file creation prior to logic calculation
 void ShuffleEntrances() {
     sEntranceMap.clear();
+#ifdef COMBO_BUILD
+    sComboShuffleFailed = false; // ComboShip
+#endif
 
     if (!IsEntranceShuffleEnabled()) {
         return;
@@ -342,6 +354,9 @@ void ShuffleEntrances() {
         }
     }
 
+#ifdef COMBO_BUILD
+    sComboShuffleFailed = true; // ComboShip: read via Combo_MM_Rando_EntranceShuffleOk (BenPort.cpp)
+#endif
     SPDLOG_WARN("Entrance shuffle: no fully-connected layout found after {} attempts", maxAttempts);
 }
 

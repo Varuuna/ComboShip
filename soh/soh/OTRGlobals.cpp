@@ -50,6 +50,8 @@
 #include "soh/Enhancements/randomizer/location_access.h"
 #include "soh/Enhancements/randomizer/3drando/item_pool.hpp"
 #include "soh/Enhancements/randomizer/3drando/starting_inventory.hpp"
+#include "soh/Enhancements/randomizer/3drando/pool_functions.hpp" // ComboShip: AddElementsToPool (entrance shuffle)
+#include "soh/Enhancements/randomizer/entrance.h"                 // ComboShip: ENTRANCE_SHUFFLE_FAILURE
 #include "Enhancements/gameplaystats.h"
 #include "soh/Enhancements/savestates.h"
 #include "frame_interpolation.h"
@@ -3261,6 +3263,75 @@ extern "C" __declspec(dllexport) void SOH_PrepRandoContext(void) {
     }
 }
 
+// ComboShip: forward decl (defined with the oracle exports below) — see SOH_ShuffleEntrancesForCombo.
+static void EnsureOracleInit();
+
+// ComboShip: native Fill()'s entrance-shuffle prologue (3drando/fill.cpp), run headlessly — the
+// combo generator never runs Fill(), so without this the OOT entrance options do nothing in combo
+// seeds. Mutates the live region graph (oracle + save creation see the shuffled world; SaveManager
+// serializes entranceOverrides from the ctx). Deterministic per seed, so generation, reload, and
+// gentest all re-derive the same layout — nothing is restored from the spoiler. Call after the
+// dump/prep (settings finalized). Returns 1 on success or shuffle-off, 0 when every retry failed.
+extern "C" __declspec(dllexport) int SOH_ShuffleEntrancesForCombo(uint64_t seed) {
+    try {
+        auto ctx = OTRGlobals::Instance->gRandoContext;
+        // The CVar-less master toggle, derived from the individual options by FinalizeSettings
+        // (already run by the prep/dump this call follows).
+        if (!ctx->GetOption(RSK_SHUFFLE_ENTRANCES)) {
+            // Clear a previous seed's layout so it can't leak into this save via SaveManager.
+            ctx->GetEntranceShuffler()->UnshuffleAllEntrances();
+            return 1;
+        }
+        // Burn the oracle's lazy init NOW — its first Reset would RegionTable_Init the graph back
+        // to vanilla mid-fill, making logic validate a world the save doesn't play.
+        EnsureOracleInit();
+        // Native Fill() retries the whole prologue up to 5x on shuffle failure.
+        for (int retry = 0; retry < 5; ++retry) {
+            ctx->GetEntranceShuffler()->playthroughEntrances.clear();
+            RegionTable_Init(); // vanilla graph baseline (needed on retries/regeneration)
+            GenerateItemPool(); // ValidateEntrances' all-items pass reads itemPool; self-clears
+            GenerateStartingInventory();
+            // Temp shop items (worst-case shopsanity) for world validation, as Fill() does.
+            AddElementsToPool(itemPool, GetMinVanillaShopItems(8));
+            Random_Init(seed + retry);
+            int ret = ctx->GetEntranceShuffler()->ShuffleAllEntrances();
+            std::erase_if(itemPool, [](const auto item) {
+                return Rando::StaticData::RetrieveItem(item).GetItemType() == ITEMTYPE_SHOP;
+            });
+            if (ret == ENTRANCE_SHUFFLE_FAILURE) {
+                SPDLOG_WARN("[ComboShip] SOH_ShuffleEntrancesForCombo: shuffle failed (retry {})", retry);
+                continue;
+            }
+            SetAreas();
+            ctx->GetEntranceShuffler()->CreateEntranceOverrides();
+            return 1;
+        }
+        SPDLOG_ERROR("[ComboShip] SOH_ShuffleEntrancesForCombo: no valid layout after 5 retries");
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[ComboShip] SOH_ShuffleEntrancesForCombo: {}", e.what());
+    } catch (...) { SPDLOG_ERROR("[ComboShip] SOH_ShuffleEntrancesForCombo: unknown exception"); }
+    return 0;
+}
+
+// ComboShip: resolved entrance overrides as JSON (native spoiler field names) for the consolidated
+// spoiler's "entrances.oot". Informational — reload re-derives via SOH_ShuffleEntrancesForCombo.
+extern "C" __declspec(dllexport) const char* SOH_DumpEntranceOverrides(void) {
+    static std::string buf;
+    nlohmann::json out = nlohmann::json::array();
+    auto& overrides = OTRGlobals::Instance->gRandoContext->GetEntranceShuffler()->entranceOverrides;
+    for (const EntranceOverride& o : overrides) {
+        if (o.type == 0 && o.index == 0 && o.override == 0)
+            break; // zero terminator (table is zero-filled past the last real override)
+        out.push_back({ { "type", o.type },
+                        { "index", o.index },
+                        { "destination", o.destination },
+                        { "override", o.override },
+                        { "overrideDestination", o.overrideDestination } });
+    }
+    buf = out.dump();
+    return buf.c_str();
+}
+
 // ComboShip: coherent OOT rando dump for the combo generator. Runs the headless prep sequence
 // (GetLogic()->Reset, FinalizeSettings, RegionTable_Init, GenerateLocationPool) so ctx->allLocations
 // holds the real shuffled-check set for the current settings, then dumps those checks + their vanilla
@@ -3666,6 +3737,22 @@ extern "C" __declspec(dllexport) const char* Combo_SOH_Rando_GetReachableChecks(
     }
     buf = out.dump();
     return buf.c_str();
+}
+
+// ComboShip: portal gate for the combined fill (docs/ENTRANCE_RANDO_PREP.md §3.2) — "is this region
+// reachable under the owned set of the last Combo_SOH_Rando_GetReachableChecks query?" That query's
+// ReachabilitySearch populates the region access flags; only call this right after it. Identified by
+// region display name (e.g. "Market Mask Shop"): checks live in scenes and the mask shop scene holds
+// no early check, so a check-name proxy can't express the gate. 1 = reachable, 0 = not, -1 = unknown.
+extern "C" __declspec(dllexport) int Combo_SOH_Rando_IsRegionReachable(const char* regionName) {
+    if (!regionName || !regionName[0])
+        return -1;
+    for (int rr = RR_NONE + 1; rr < RR_MAX; ++rr) {
+        Region* r = RegionTable(static_cast<RandomizerRegion>(rr));
+        if (r && r->regionName == regionName)
+            return r->HasAccess() ? 1 : 0;
+    }
+    return -1;
 }
 
 extern "C" __declspec(dllexport) void Combo_SOH_Rando_PlaceItem(const char* checkName, const char* itemName) {

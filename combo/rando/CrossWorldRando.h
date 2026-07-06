@@ -52,6 +52,9 @@ struct OracleFns {
     void (*SetOwnedItems)(const char*);
     const char* (*GetReachableChecks)(void);
     void (*PlaceItem)(const char*, const char*);
+    // Optional portal-gate query: is this logic region reachable under the last GetReachableChecks
+    // owned set? (1/0; -1 unknown). Regions, not checks — the Mask Shop scene holds no early check.
+    int (*IsRegionReachable)(const char*) = nullptr;
 };
 
 // ---------- Data types ----------
@@ -83,14 +86,15 @@ struct CombinedFillResult {
     std::string error;
 };
 
-// portalCheckName: the OOT check/region name that gates access to MM (e.g. "Mido's House").
-// If empty, MM is reachable from start.
+// portalGateRegion: the OOT logic region whose access gates MM (e.g. "Market Mask Shop" — interior
+// shuffle can move the portal). Re-evaluated each fixpoint iteration via ootOracle.IsRegionReachable.
+// Empty / null predicate / unknown region = gate open (fail open; final validation still catches it).
 // progress: optional thread-safe progress struct polled by the UI. May be nullptr.
 // forcedOotJson: OOT checks the dump can't carry (e.g. Link's Pocket). Each forced item is reserved
 // out of the cross pool, owned-from-start for logic, and appended to the OOT placements.
 inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson, const std::string& mmDumpJson,
                                                  uint32_t masterSeed, const OracleFns& ootOracle,
-                                                 const OracleFns& mmOracle, const std::string& portalCheckName = "",
+                                                 const OracleFns& mmOracle, const std::string& portalGateRegion = "",
                                                  ComboRando::ComboGenProgress* progress = nullptr,
                                                  const std::string& forcedOotJson = "") {
     CombinedFillResult result;
@@ -253,7 +257,9 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         std::unordered_set<std::string> ootReachable, mmReachable;
         for (;;) {
             ootReachable = queryReachable(ootOracle, ootOwned);
-            bool portalOpen = portalCheckName.empty() || ootReachable.count(portalCheckName) > 0;
+            // Portal gate: region access reflects the OOT query above; -1 (unknown region) fails open.
+            bool portalOpen = portalGateRegion.empty() || !ootOracle.IsRegionReachable ||
+                              ootOracle.IsRegionReachable(portalGateRegion.c_str()) != 0;
             mmReachable = portalOpen ? queryReachable(mmOracle, mmOwned) : std::unordered_set<std::string>{};
             bool changed = false;
             for (size_t i = 0; i < placements.size(); ++i) {

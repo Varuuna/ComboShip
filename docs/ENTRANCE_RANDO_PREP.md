@@ -85,8 +85,13 @@ The PR shuffles in `OnFileCreate`/`OnFileLoad`; our MM oracle (`Combo_MM_Rando_R
   game derives at file create/load, or logic and reality silently diverge (uncompletable seeds).
   Since we already drive MM's seed from the master seed, this is an assert-worthy invariant, not
   new plumbing. Determinism means no serialization is needed.
-- OOT side is already correct by construction: SoH shuffles entrances inside its own seed gen
-  before `SOH_DumpRandoStaticData()`, and its logic/oracle operate on the connected region graph.
+- ~~OOT side is already correct by construction~~ **WRONG (found 2026-07-06)**: SoH shuffles
+  entrances inside its native `Fill()` (3drando/fill.cpp), which the combo path never runs — the
+  OOT entrance options silently did nothing in combo seeds. Fixed by
+  `SOH_ShuffleEntrancesForCombo(seed)` (OTRGlobals.cpp): the Fill() entrance prologue run
+  headlessly (item pool for validation, shuffle w/ retries, `CreateEntranceOverrides`), called by
+  generation, reload, and gentest. Deterministic from the master seed, so nothing is restored from
+  the spoiler — reload just re-derives.
 
 ### 3.2 Portal gating
 
@@ -268,14 +273,27 @@ CVar-less and never appears in the menu.) 2Ship's incoming options (#1329) are l
    filters) — the options appear only in the Entrances tab.
 5. When #1329 lands, MM's three entrance CVars join the same claim/exclude filter.
 
-## 6. Checklist for when #1329 merges
+## 6. Checklist for when #1329 merges — DONE EARLY (2026-07-06, branch `feat/mm-entrance-rando`)
 
-1. Upstream pull via the vendor-branch playbook; resolve expected conflicts in
-   `Logic.cpp` / `OnFileCreate.cpp` / `MiscBehavior.cpp`.
-2. Wire the oracle contract (§3.1): shuffle-in-`Reset`, clear-in-`Restore`, seed-identity assert.
-3. Wire the scene-access portal gate into `CrossWorldCombinedFill()` (§3.2).
-4. Surface shuffle-failure from the MM oracle; abort generation explicitly (§3.3).
-5. Add the `"entrances"` spoiler section (§3.4).
-6. Verify headless: `COMBO_AUTOGEN_SEED` generation with each entrance-shuffle flag combination;
-   confirm validation passes and the spoiler records the layout.
-7. Playtest: portal round-trip with OOT interior shuffle + MM dungeon shuffle enabled.
+The PR was vendored PRE-merge (droppable copy, see docs/UPSTREAM_MERGES.md) and the integration
+implemented against it:
+
+1. ~~Upstream pull~~ → pre-merge `git apply -3` instead; the eventual upstream merge reconciles.
+2. ✅ Oracle contract (§3.1): `Combo_MM_Rando_Reset` sets finalSeed + `ShuffleEntrances()`;
+   `Restore` re-derives for the restored save; seed identity via `MM_SetComboFinalSeed`
+   (generation, reload, and `MM_InitRandoSaveFile`'s persisted finalSeed all use the master seed).
+   OOT needed real wiring too — see the §3.1 correction (`SOH_ShuffleEntrancesForCombo`).
+3. ✅ Portal gate (§3.2): `Combo_SOH_Rando_IsRegionReachable` + `OracleFns.IsRegionReachable`;
+   the fill and the playthrough replay gate MM on "Market Mask Shop" region access. MM→OOT return
+   gating not needed yet (MM overworld shuffle hidden; interiors/dungeons are leaf-only).
+4. ✅ Shuffle-failure surfacing (§3.3): `Combo_MM_Rando_EntranceShuffleOk` (COMBO_BUILD flag in
+   `EntranceShuffle.cpp`); generation aborts with a clear error. OOT: 5-retry loop, then abort.
+5. ✅ `"entrances"` spoiler section (§3.4): OOT override array (informational) + MM finalSeed;
+   both layouts re-derive deterministically on reload.
+6. Verify headless (`COMBO_AUTOGEN_SEED` / `COMBO_GENTEST` matrix) — see branch verification.
+7. Playtest: portal round-trip with OOT interior shuffle + MM dungeon shuffle enabled — PENDING.
+
+**Menu**: MM's three options are drawn combo-side in Shared > Entrances (2Ship's rando tab is one
+custom-draw widget — the CVar-claim filter can't relocate individual checkboxes, so the in-game
+copies are compiled out under COMBO_BUILD). Overworld shuffle is vendored but HIDDEN in the UI:
+upstream flags it use-at-your-own-risk, and it could disturb South Clock Town (the MM→OOT portal).

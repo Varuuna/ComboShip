@@ -1428,3 +1428,39 @@ surfaces as small conflicts — take upstream's side, then re-check the ComboShi
 **Save-compat note:** the PR inserts `RO_SHUFFLE_ENTRANCES_*` mid-enum in `Types.h`, shifting
 later `RandoOptionId` values — MM rando saves created before this commit read wrong options.
 Acceptable dev-stage breakage; no released seeds.
+
+## Entrance rando cross-world wiring (2026-07-06)
+
+**Why:** both games' entrance shuffle integrated into combo seeds (docs/ENTRANCE_RANDO_PREP.md §3,
+§6). Key discovery: SoH only shuffles entrances inside its native `Fill()`, which the combo path
+never runs — the OOT entrance options did nothing in combo seeds until now.
+
+**soh (`soh/soh/OTRGlobals.cpp`, additive exports — preserve on merges):**
+- `SOH_ShuffleEntrancesForCombo(seed)` — native Fill()'s entrance prologue headless (item pool for
+  ValidateEntrances' all-items pass, temp min-vanilla-shop items, `ShuffleAllEntrances` with 5
+  retries, `SetAreas`, `CreateEntranceOverrides`). Deterministic (`Random_Init(seed + retry)`);
+  generation, reload, and gentest all re-derive rather than restore. Mutates the live region graph
+  (oracle + save creation see the shuffled world; SaveManager serializes overrides from the ctx).
+- `SOH_DumpEntranceOverrides` — resolved override array for the consolidated spoiler (informational).
+- `Combo_SOH_Rando_IsRegionReachable(name)` — region-access query for the portal gate (evaluated
+  against the last oracle reachability search). Two includes added (pool_functions.hpp, entrance.h).
+
+**mm (`mm/2s2h/BenPort.cpp`, additive — preserve on merges):**
+- `MM_SetComboFinalSeed` — the master-seed-derived finalSeed all consumers must share (seed
+  identity: the entrance map is re-derived from the SAVE's finalSeed on every load).
+- `Combo_MM_Rando_Reset` — sets finalSeed + runs `ShuffleEntrances()` after option seeding;
+  `Combo_MM_Rando_Restore` — re-derives for the restored live save.
+- `MM_InitRandoSaveFile` — persists the real finalSeed (was a 0 placeholder).
+- `Combo_MM_Rando_EntranceShuffleOk` — surfaces sampler exhaustion.
+
+**mm (`mm/2s2h/Rando/Logic/EntranceShuffle.{cpp,h}` — deviation ON TOP of the vendored PR #1329
+copy; re-apply if the upstream merge takes upstream's side):** `#ifdef COMBO_BUILD` failure flag
+(`sComboShuffleFailed` + `LastShuffleFailed()`) — upstream only warns and keeps a possibly
+disconnected map; the combo generator must abort instead.
+
+**Combo-owned:** `combo/rando/CrossWorldRando.h` — `OracleFns.IsRegionReachable` (optional) +
+`portalGateRegion` param (replaces the never-used `portalCheckName` check-name proxy; unknown
+regions fail OPEN). `combo/ComboShip.cpp` — export resolution, shuffle + fail-fast probe in
+RunComboFill/gentest/playthrough, portal gate ("Market Mask Shop"), reload re-derivation,
+`"entrances"` spoiler section. `combo/gui/ComboMenu.cpp` — MM entrance checkboxes in Shared >
+Entrances (drawn combo-side on `gRando.Options.RO_SHUFFLE_ENTRANCES_*`; overworld hidden).

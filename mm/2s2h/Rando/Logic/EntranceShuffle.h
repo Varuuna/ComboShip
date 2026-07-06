@@ -40,6 +40,11 @@ s32 GetOriginalEntrance(s32 shuffledEntrance);
 // Check if entrance shuffle is enabled
 bool IsEntranceShuffleEnabled();
 
+#ifdef COMBO_BUILD
+// ComboShip: true when the last ShuffleEntrances() exhausted its attempts (map may be disconnected).
+bool LastShuffleFailed();
+#endif
+
 // True if the entrance belongs to the shared GROTTOS scene. Grottos are never shuffled and always
 // return the player to their scene's vanilla spawn, so their exits must not be remapped.
 bool IsGrottoEntrance(s32 entrance);

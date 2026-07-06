@@ -512,7 +512,29 @@ void DrawEntrancesPanel() {
     }
 
     ImGui::SeparatorText("Majora's Mask");
-    ImGui::TextDisabled("2 Ship 2 Harkinian has no entrance shuffle yet; its options land here when it does.");
+    // MM's entrance options (PR #1329) sit in a custom-drawn rando tab the CVar-claim filter can't
+    // relocate, so draw combo-owned checkboxes on the same CVars (in-game copies compiled out under
+    // COMBO_BUILD). Overworld stays hidden: upstream calls it use-at-your-own-risk, and it could
+    // disturb South Clock Town (the MM->OOT portal).
+    {
+        const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
+        static const struct {
+            const char* label;
+            const char* cvar;
+        } kMmEntranceToggles[] = {
+            { "Shuffle Interior Entrances", "gRando.Options.RO_SHUFFLE_ENTRANCES_INTERIORS" },
+            { "Shuffle Dungeon Entrances", "gRando.Options.RO_SHUFFLE_ENTRANCES_DUNGEONS" },
+        };
+        ComboRando::ComboMenu_PushCheckbox(theme);
+        for (const auto& t : kMmEntranceToggles) {
+            bool v = CVarGetInteger(t.cvar, 0) != 0;
+            if (ImGui::Checkbox(t.label, &v)) {
+                CVarSetInteger(t.cvar, v ? 1 : 0);
+                Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+            }
+        }
+        ComboRando::ComboMenu_PopCheckbox();
+    }
 
     ImGui::SeparatorText("Cross-Game");
     ImGui::TextDisabled("Cross-game interior shuffle options land here with the seed-driven portal table.");

@@ -281,6 +281,28 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
         }
     }
 
+    // Adjust Heart Pieces based on starting health
+    if (saveInfo.randoSaveOptions[RO_STARTING_HEALTH] < 3) {
+        // Add up to 8 Heart Pieces
+        int piecesToAdd = 4 * (3 - saveInfo.randoSaveOptions[RO_STARTING_HEALTH]);
+        while (piecesToAdd) {
+            itemPool.emplace_back(RI_HEART_PIECE);
+            piecesToAdd--;
+        }
+    } else if (saveInfo.randoSaveOptions[RO_STARTING_HEALTH] > 3) {
+        // Remove up to 52 Heart Pieces
+        int piecesToRemove = 4 * (saveInfo.randoSaveOptions[RO_STARTING_HEALTH] - 3);
+        while (piecesToRemove) {
+            auto it = std::find(itemPool.begin(), itemPool.end(), RI_HEART_PIECE);
+            if (it != itemPool.end()) {
+                itemPool.erase(it);
+            } else {
+                break;
+            }
+            piecesToRemove--;
+        }
+    }
+
     // Plentiful
     if (saveInfo.randoSaveOptions[RO_PLENTIFUL_ITEMS] == RO_GENERIC_YES) {
         std::vector<RandoItemId> plentifulItems;

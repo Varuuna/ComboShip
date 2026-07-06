@@ -46,6 +46,11 @@ std::unordered_map<int32_t, const char*> trapItemsOptions = {
     { 1, "Static" },
 };
 
+std::unordered_map<int32_t, const char*> dungeonItemPlacementOptions = {
+    { RO_DUNGEON_ITEM_ANYWHERE, "Anywhere" },
+    { RO_DUNGEON_ITEM_OWN_DUNGEON, "Own Dungeon" },
+};
+
 // clang-format off
 std::vector<int32_t> incompatibleWithVanilla = {
     RO_SHUFFLE_BOSS_SOULS,
@@ -391,6 +396,15 @@ static void DrawLogicConditionsTab() {
         "the Moon.\n\n"
         "Vanilla - The items are not shuffled.\n"
         "Not compatible with settings that add items to the pool, like Boss Souls or Plentiful Items.");
+    UIWidgets::CVarCombobox("Small Keys", Rando::StaticData::Options[RO_PLACEMENT_SMALL_KEYS].cvar,
+                            &dungeonItemPlacementOptions);
+    UIWidgets::Tooltip("Where each dungeon's small keys may be placed.");
+    UIWidgets::CVarCombobox("Boss Keys", Rando::StaticData::Options[RO_PLACEMENT_BOSS_KEYS].cvar,
+                            &dungeonItemPlacementOptions);
+    UIWidgets::Tooltip("Where each dungeon's boss key may be placed.");
+    UIWidgets::CVarCombobox("Stray Fairies", Rando::StaticData::Options[RO_PLACEMENT_STRAY_FAIRIES].cvar,
+                            &dungeonItemPlacementOptions);
+    UIWidgets::Tooltip("Where each dungeon's stray fairies may be placed. The Clock Town stray fairy is unaffected.");
     ImGui::EndChild();
     ImGui::SameLine();
     ImGui::BeginChild("randoLogicColumn2", ImVec2(columnWidth, 0));

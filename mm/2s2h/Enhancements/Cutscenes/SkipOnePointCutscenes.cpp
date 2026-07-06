@@ -4,6 +4,7 @@
 
 extern "C" {
 #include "overlays/actors/ovl_Obj_Syokudai/z_obj_syokudai.h"
+#include "overlays/actors/ovl_Obj_Bean/z_obj_bean.h"
 }
 
 #define CVAR_NAME "gEnhancements.Cutscenes.SkipOnePointCutscenes"
@@ -51,8 +52,12 @@ void RegisterSkipOnePointCutscenes() {
                     *should = false;
                 }
                 break;
-            case ACTOR_OBJ_BEAN:        // Bean Patch
-            case ACTOR_OBJ_MAKEKINSUTA: // Bean Patch
+            case ACTOR_OBJ_BEAN: // Bean Patch
+                if (OBJBEAN_GET_C000(actor) == ENOBJBEAN_GET_C000_0) {
+                    actor->csId = -1;
+                    *should = false;
+                }
+                break;
             case ACTOR_OBJ_SPIDERTENT:
                 actor->csId = -1;
                 *should = false;

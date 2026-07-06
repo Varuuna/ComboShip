@@ -3289,6 +3289,9 @@ extern "C" __declspec(dllexport) int SOH_ShuffleEntrancesForCombo(uint64_t seed)
         for (int retry = 0; retry < 5; ++retry) {
             ctx->GetEntranceShuffler()->playthroughEntrances.clear();
             RegionTable_Init(); // vanilla graph baseline (needed on retries/regeneration)
+            // Clear placed items (a reloaded/prior seed leaves them in the ctx) — GenerateItemPool
+            // asserts pool <= EMPTY locations, exactly why native Fill() ItemResets first.
+            ctx->ItemReset();
             GenerateItemPool(); // ValidateEntrances' all-items pass reads itemPool; self-clears
             GenerateStartingInventory();
             // Temp shop items (worst-case shopsanity) for world validation, as Fill() does.

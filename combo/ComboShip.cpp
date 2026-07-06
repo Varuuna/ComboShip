@@ -289,6 +289,14 @@ static FnDumpData MM_DumpEntranceMap = nullptr;
 // only joins the fill once this region is reachable.
 static const char* kPortalGateRegion = "Market Mask Shop";
 
+// Entrance re-derivation deferred from the file-select reload to Start (it costs ~1s and froze the
+// first file-select visit). Consumed by Combo_OnPreOOTSaveInit, which z_sram fires right before
+// Randomizer_InitSaveFile serializes the ctx into the save. The placements are stashed too: the
+// shuffle's ItemReset wipes the ones the reload applied, so they are re-applied after it.
+static uint64_t g_DeferredEntranceSeed = 0;
+static bool g_DeferredEntrancePending = false;
+static std::string g_DeferredOotPlacements;
+
 // ComboShip (issue #1): cross-game erase seam. A save slot is one combined OOT+MM playthrough, so
 // erasing it from either game's file-select wipes both saves. Each game fires its Set*-registered
 // callback with the 0-based slot when the user erases; the launcher routes it to the OTHER game's
@@ -657,6 +665,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
 
     // ComboShip: entrance shuffle (docs/ENTRANCE_RANDO_PREP.md §3). OOT shuffles the live region
     // graph here (no-op when off); MM derives its map inside the oracle's Reset from the finalSeed.
+    g_DeferredEntrancePending = false; // fresh generation supersedes any reloaded seed's deferral
     if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(masterSeed)) {
         fail("OOT entrance shuffle found no valid layout (5 retries) — regenerate or relax entrance settings");
         return;
@@ -1279,13 +1288,14 @@ static int Combo_OnReloadRequest(const char* path) {
             SOH_SetComboRandoSeed(masterSeed);
         if (SOH_PrepRandoContext)
             SOH_PrepRandoContext();
-        // Same deterministic call as generation — reproduces (or clears) this seed's layout.
-        if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(masterSeed)) {
-            std::cerr << "[ComboShip] reload: OOT entrance shuffle failed to re-derive — aborting\n";
-            if (SOH_RestoreRandoSettings && !userOotSettings.empty())
-                SOH_RestoreRandoSettings(userOotSettings.c_str());
-            return 0;
-        }
+        // Entrance re-derivation (item pool + shuffle + validation, ~1s) is DEFERRED to Start
+        // (Combo_OnPreOOTSaveInit) — running it here froze the first file-select visit. The ctx
+        // options it reads were finalized by the prep above and survive the CVar snap-back below;
+        // placements applied next don't depend on the entrance graph (and are re-applied after the
+        // deferred shuffle, whose ItemReset clears them).
+        g_DeferredEntranceSeed = masterSeed;
+        g_DeferredEntrancePending = true;
+        g_DeferredOotPlacements = ootPlacements;
         if (SOH_ApplyRandoPlacements)
             SOH_ApplyRandoPlacements(ootPlacements.c_str());
         if (SOH_SetComboSeedHash)
@@ -1341,6 +1351,25 @@ static int Combo_OnReloadRequest(const char* path) {
         std::cerr << "[ComboShip] reload failed: " << e.what() << "\n";
         return 0;
     }
+}
+
+// ComboShip: pre-save-init hook (z_sram, before Randomizer_InitSaveFile) — run the entrance
+// re-derivation deferred by the reload path so the overrides land in the ctx before the OOT save
+// serializes them. Failure can't abort here (deterministic re-run of a layout that generated fine,
+// so it only fails on version drift) — log loudly and continue.
+static void Combo_OnPreOOTSaveInit(int fileNum) {
+    (void)fileNum;
+    if (!g_DeferredEntrancePending)
+        return;
+    g_DeferredEntrancePending = false;
+    if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(g_DeferredEntranceSeed)) {
+        std::cerr << "[ComboShip] deferred entrance re-derivation FAILED — OOT save may not match the seed\n";
+    }
+    // The shuffle's ItemReset cleared the reload-applied placements — put them back before
+    // Randomizer_InitSaveFile serializes the ctx (also restores shop setup deterministically).
+    if (SOH_ApplyRandoPlacements && !g_DeferredOotPlacements.empty())
+        SOH_ApplyRandoPlacements(g_DeferredOotPlacements.c_str());
+    g_DeferredOotPlacements.clear();
 }
 
 static void Combo_OnOOTSaveInit(int fileNum) {
@@ -1935,6 +1964,9 @@ int main(int argc, char** argv) {
         SOH_SetOnNewSaveCallback(Combo_OnOOTSaveInit);
         std::cout << "[ComboShip] OOT new-save callback registered." << std::endl;
     }
+    // Pre-save-init hook (z_sram): runs the reload path's deferred entrance re-derivation.
+    if (SOH_SetOnComboGenerateCallback)
+        SOH_SetOnComboGenerateCallback(Combo_OnPreOOTSaveInit);
 
     if (SOH_SetOnLoadSaveCallback && MM_LoadSaveForCombo) {
         SOH_SetOnLoadSaveCallback(Combo_OnOOTSaveLoad);

@@ -270,7 +270,11 @@ void Sram_InitSave(FileChooseContext* fileChooseCtx) {
     // ComboShip: generation is window-driven now; only force the rando quest type here.
     // The combined fill runs on a worker thread before save creation (triggered from the UI).
     fileChooseCtx->questType[fileChooseCtx->buttonIndex] = QUEST_RANDOMIZER;
-    (void)gComboGenerateCallback; // retained symbol; no longer invoked
+    // Pre-save-init hook: the launcher runs work deferred from the file-select reload (entrance
+    // re-derivation) here, so it lands in the ctx BEFORE Randomizer_InitSaveFile serializes it.
+    if (gComboGenerateCallback != NULL) {
+        gComboGenerateCallback((int)fileChooseCtx->buttonIndex);
+    }
 #endif
 
     u8 currentQuest = fileChooseCtx->questType[fileChooseCtx->buttonIndex];

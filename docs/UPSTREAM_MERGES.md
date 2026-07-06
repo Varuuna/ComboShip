@@ -1466,3 +1466,15 @@ regions fail OPEN). `combo/ComboShip.cpp` — export resolution, shuffle + fail-
 RunComboFill/gentest/playthrough, portal gate ("Market Mask Shop"), reload re-derivation,
 `"entrances"` spoiler section. `combo/gui/ComboMenu.cpp` — MM entrance checkboxes in Shared >
 Entrances (drawn combo-side on `gRando.Options.RO_SHUFFLE_ENTRANCES_*`; overworld hidden).
+
+## Deferred entrance re-derivation (2026-07-06, follow-up)
+
+**Why:** the reload path's entrance re-derivation (item pool + shuffle + validation, ~1s) ran
+synchronously at the first file-select visit and froze it. Deferred to Start: the launcher stashes
+the seed and `z_sram.c`'s pre-save-init hook runs it right before `Randomizer_InitSaveFile`
+serializes the ctx (the only consumer). Fresh generations shuffle on the worker as before and clear
+the deferral.
+
+**Vendored (`soh/src/code/z_sram.c`, existing COMBO_BUILD block):** the retained-but-unused
+`gComboGenerateCallback` is invoked again as the pre-save-init hook (its original semantic).
+Launcher side: `Combo_OnPreOOTSaveInit` + deferral flags in `combo/ComboShip.cpp`.

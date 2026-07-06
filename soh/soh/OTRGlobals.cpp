@@ -43,6 +43,7 @@
 #include "Enhancements/randomizer/randomizer_check_tracker.h"
 #include "Enhancements/randomizer/static_data.h"
 #include "soh/Enhancements/randomizer/settings.h"
+<<<<<<< HEAD
 #include "soh/Enhancements/randomizer/logic.h"
 #include "soh/Enhancements/randomizer/3drando/fill.hpp"
 #include "soh/Enhancements/randomizer/3drando/shops.hpp"
@@ -51,6 +52,8 @@
 #include "soh/Enhancements/randomizer/3drando/item_pool.hpp"
 #include "soh/Enhancements/randomizer/3drando/starting_inventory.hpp"
 #include "Enhancements/gameplaystats.h"
+=======
+>>>>>>> vendor-soh
 #include "soh/Enhancements/savestates.h"
 #include "frame_interpolation.h"
 #include "SohGui/SohMenu.h"
@@ -130,6 +133,10 @@
 #include "soh/ShipInit.hpp"
 #ifdef COMBO_BUILD
 #include "ComboMenuSharedContext.h" // ComboShip: shared per-DLL ImGui context helper (combo-owned)
+#endif
+
+#ifdef _MSC_VER
+#define strdup _strdup
 #endif
 
 #ifdef _MSC_VER
@@ -1654,6 +1661,7 @@ static void Combo_FinishInit() {
     conf->RegisterVersionUpdater(std::make_shared<SOH::ConfigVersion4Updater>());
     conf->RegisterVersionUpdater(std::make_shared<SOH::ConfigVersion5Updater>());
     conf->RegisterVersionUpdater(std::make_shared<SOH::ConfigVersion6Updater>());
+    conf->RegisterVersionUpdater(std::make_shared<SOH::ConfigVersion7Updater>());
     conf->RunVersionUpdates();
 
     SohGui::SetupGuiElements();
@@ -1682,7 +1690,6 @@ static void Combo_FinishInit() {
     VanillaItemTable_Init();
     DebugConsole_Init();
 
-    ActorDB::AddBuiltInCustomActors();
     // #region SOH [Randomizer] TODO: Remove these and refactor spoiler file handling for randomizer
     CVarClear(CVAR_GENERAL("RandomizerNewFileDropped"));
     CVarClear(CVAR_GENERAL("RandomizerDroppedFile"));

@@ -28,6 +28,8 @@ void GiveLinkRupees(int numOfRupees) {
         maxRupeeCount = 200;
     } else if (CUR_UPG_VALUE(UPG_WALLET) == 2) {
         maxRupeeCount = 500;
+    } else if (CUR_UPG_VALUE(UPG_WALLET) == 3) {
+        maxRupeeCount = 999;
     }
 
     int newRupeeCount = gSaveContext.rupees;
@@ -368,10 +370,13 @@ void SetStartingItems() {
         case RO_STARTING_BGS_GIANTS_KNIFE:
             Item_Give(NULL, ITEM_SWORD_BGS);
             break;
+<<<<<<< HEAD
     }
 
     if (Randomizer_GetSettingValue(RSK_FULL_WALLETS)) {
         GiveLinkRupees(9001);
+=======
+>>>>>>> vendor-soh
     }
 
     if (Randomizer_GetSettingValue(RSK_SHUFFLE_MAPANDCOMPASS) == RO_DUNGEON_ITEM_LOC_STARTWITH) {
@@ -541,6 +546,10 @@ extern "C" void Randomizer_InitSaveFile() {
 
     // Give Link's pocket item
     GiveLinksPocketItem();
+
+    if (Randomizer_GetSettingValue(RSK_FULL_WALLETS)) {
+        GiveLinkRupees(9001);
+    }
 
     // Remove One Time Scrubs with Scrubsanity off
     if (Randomizer_GetSettingValue(RSK_SHUFFLE_SCRUBS) == RO_SCRUBS_OFF) {

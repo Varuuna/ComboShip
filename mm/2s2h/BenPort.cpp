@@ -1185,7 +1185,9 @@ extern "C" void InitOTR(int argc, char* argv[]) {
             return; // respawn transitions carry already-resolved arrival values (see EntranceHooks.cpp)
         if (gSaveContext.gameMode != GAMEMODE_NORMAL)
             return; // owl save / quit keeps the current entrance — no re-match
-        if (gPlayState != NULL && gPlayState->sceneId == SCENE_KAKUSIANA)
+        if (gPlayState == NULL || gPlayState->state.init != Play_Init)
+            return; // Play->Play only: day telop (z_en_test4.c) / SoT resets aren't door transitions
+        if (gPlayState->sceneId == SCENE_KAKUSIANA)
             return; // grotto exits resolve natively
         auto it = sComboCrossRules.find((int)gSaveContext.save.entrance);
         if (it == sComboCrossRules.end())

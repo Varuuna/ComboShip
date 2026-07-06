@@ -537,7 +537,25 @@ void DrawEntrancesPanel() {
     }
 
     ImGui::SeparatorText("Cross-Game");
-    ImGui::TextDisabled("Cross-game interior shuffle options land here with the seed-driven portal table.");
+    // Union shuffle over both games' leaf interiors (docs/ENTRANCE_RANDO_PREP.md §4): any selected
+    // door can lead to any selected interior in either game. Doors in the cross pool leave the
+    // native interior shuffles (partition).
+    {
+        const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
+        bool v = CVarGetInteger("gCombo.Entrances.CrossInteriors", 0) != 0;
+        ComboRando::ComboMenu_PushCheckbox(theme);
+        if (ImGui::Checkbox("Cross-Game Interior Shuffle", &v)) {
+            CVarSetInteger("gCombo.Entrances.CrossInteriors", v ? 1 : 0);
+            Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+        }
+        ComboRando::ComboMenu_PopCheckbox();
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Shuffle both games' house/shop interiors into ONE pool:\n"
+                              "a Kokiri door can lead to the Milk Bar, a Clock Town door\n"
+                              "to Mido's House. Walking through a cross-game door switches\n"
+                              "games; exiting brings you back beside the door you entered.");
+        }
+    }
 
     ImGui::EndTable();
 }

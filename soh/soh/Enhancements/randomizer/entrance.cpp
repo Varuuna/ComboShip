@@ -1293,6 +1293,15 @@ int EntranceShuffler::ShuffleAllEntrances() {
             AddElementsToPool(entrancePools[EntranceType::Interior],
                               GetShuffleableEntrances(EntranceType::SpecialInterior));
         }
+#ifdef COMBO_BUILD
+        {
+            // ComboShip: doors selected for the cross-game pool leave the native pool (partition;
+            // table pushed via SOH_SetCrossEntranceTable in OTRGlobals.cpp).
+            extern bool Combo_IsCrossEntranceExcluded(int16_t index);
+            std::erase_if(entrancePools[EntranceType::Interior],
+                          [](Entrance* e) { return Combo_IsCrossEntranceExcluded(e->GetIndex()); });
+        }
+#endif
         if (ctx->GetOption(RSK_DECOUPLED_ENTRANCES)) {
             for (Entrance* entrance : entrancePools[EntranceType::Interior]) {
                 entrancePools[EntranceType::InteriorReverse].push_back(entrance->GetReverse());

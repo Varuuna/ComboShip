@@ -1478,3 +1478,44 @@ the deferral.
 **Vendored (`soh/src/code/z_sram.c`, existing COMBO_BUILD block):** the retained-but-unused
 `gComboGenerateCallback` is invoked again as the pre-save-init hook (its original semantic).
 Launcher side: `Combo_OnPreOOTSaveInit` + deferral flags in `combo/ComboShip.cpp`.
+
+## Cross-game entrance shuffle — Phase B (2026-07-06)
+
+**Why:** OOT↔MM doors (docs/ENTRANCE_RANDO_PREP.md §4). Union shuffle over both games' leaf
+interiors, combo-owned end to end: pools dumped from the games, permutation + per-game rule tables
+computed in `combo/rando/CrossEntrances.h`, pushed via `SOH_/MM_SetCrossEntranceTable` whenever a
+seed becomes live. Uniform door hook per game handles same-game rewrites AND cross-game switches
+(Phase A staging); cross doors leave the native interior pools (partition) and their logic edges
+are severed; the fill gates each assigned interior on its door's region reachability.
+
+**soh (additive exports in `OTRGlobals.cpp` — preserve):** `SOH_DumpInteriorEntrancePairs`,
+`SOH_SetCrossEntranceTable` (+ rule map/exclusion set), `Combo_CrossEntranceOverride` (door hook
+body), `Combo_SeverCrossEntrances` (Disconnects cross pairs after every graph rebuild, called from
+`SOH_ShuffleEntrancesForCombo` both paths), `Combo_SOH_Rando_SetExternallyReachableRegions`,
+`SOH_GetCVarInteger` (launcher CVar proxy). Switch statics promoted to file scope.
+
+**soh vendored seams (tiny, guarded — preserve):**
+- `soh/src/overlays/actors/ovl_player_actor/z_player.c` — door seam after
+  `Entrance_OverrideNextIndex`: rewrite or goto-skip the transition commit (cross staged).
+- `soh/soh/Enhancements/randomizer/entrance.cpp` — cross-door exclusion at the Interior pool build.
+- `soh/soh/Enhancements/randomizer/3drando/fill.cpp` — externally-reachable region marks in
+  `ReachabilitySearch` (conservative ages: starting age always, other age with Master Sword).
+
+**mm (additive in `BenPort.cpp` — preserve):** `MM_DumpInteriorEntrancePairs`,
+`MM_SetCrossEntranceTable`, the OnPlayDestroy-class door hook (same-game rewrite / park + stage +
+deferred return), `Combo_MM_Rando_SetExternallyReachableRegions` (fixpoint seed),
+`Combo_MM_Rando_IsRegionReachable`.
+
+**mm vendored seams (guarded — the EntranceShuffle/Logic ones sit ON TOP of the PR #1329 copy):**
+- `Rando/Logic/EntranceShuffle.cpp` — cross-door exclusion in `GetInteriorEntrances`.
+- `Rando/Logic/Logic.cpp` — `FindReachableRegions` skips severed cross exits (both pair directions
+  are in the excluded set).
+
+**Combo-owned:** `combo/rando/CrossEntrances.h` (new), `CrossWorldRando.h`
+(`OracleFns.SetExternallyReachableRegions`, `CrossGateInfo`, fixpoint gates + mark cleanup),
+`ComboShip.cpp` (`Combo_SetupCrossEntrances` on generation/reload/gentest/playthrough — reload
+honors the SEED's cross state, not the live toggle), `ComboMenu.cpp` (Cross-Game toggle,
+`gCombo.Entrances.CrossInteriors`). Spoiler: `entrances.cross` (readable, sorted).
+
+**Known v1 limits:** in-game check trackers don't model cross-interior reachability (marks are
+generation-time only); portal interiors (Happy Mask Shop / Clock Tower) excluded from the pool.

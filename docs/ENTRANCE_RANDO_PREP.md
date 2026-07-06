@@ -239,6 +239,19 @@ interior shuffle pool so the two systems never fight over the same door.
 - **Delivery**: two branches/PRs — `feat/entrances-tab` first, then `feat/cross-interiors-poc`.
 - **Status**: Phase A implemented on `feat/cross-interiors-poc` (toggle in Shared > Entrances >
   Cross-Game; deviations logged in `docs/UPSTREAM_MERGES.md`). Awaiting playtest.
+- **Phase B IMPLEMENTED (2026-07-06, branch `feat/cross-entrances`)** — grilled decisions:
+  **uniform combo door hook** (one table; same-game rewrites + cross-game switches; native
+  override machinery unused for reassignments); **partition** (cross doors leave both native
+  interior pools; with the full pool selected the native leaf pools empty out — special interiors
+  remain OOT-side); **full pool** (~40 OOT + ~45 MM leaf interiors, minus the two portal interiors
+  Happy Mask Shop / Clock Tower); **conservative OOT ages** for foreign-entered interiors
+  (starting age always, other age once Master Sword owned) with a "No Logic" mode as follow-up;
+  **co-op**: no special handling (portal semantics; rooms are consensual). Pools are dumped from
+  the games (`SOH_/MM_DumpInteriorEntrancePairs`), the union permutation + rule slices are
+  combo-owned (`combo/rando/CrossEntrances.h`), and the fill gates each interior on its door's
+  region reachability (§4.3 shape: `SetExternallyReachableRegions` + severed native edges).
+  Spoiler: `entrances.cross`. Deviations in `docs/UPSTREAM_MERGES.md`. v1 limit: in-game check
+  trackers don't model cross-interior reachability.
 
 ## 5. Shared menu: "Entrances" tab (design)
 

@@ -1649,6 +1649,88 @@ extern "C" __declspec(dllexport) int SOH_ApplyImportedConfig(const char* mergedJ
 extern "C" s32 gComboTargetEntrance = -1; // arrival override consumed by TitleSetup (title_setup.c)
 extern "C" s32 gComboCrossArrival = 0;    // set by TitleSetup on an override arrival; scene hook clears
 static int sComboCrossTargetMM = -1;      // MM entrance the pending switch should arrive at
+
+// Deferred game-switch flags (raised by the Mask Shop portal trigger and the cross-entrance door
+// hook; acted on by the OnGameFrameUpdate hook in InitOTR: save file -> callback -> exit loop).
+static bool sComboSwitchPending = false;
+static int sComboSwitchFileNum = -1;
+
+// ComboShip: cross-entrance runtime table (docs/ENTRANCE_RANDO_PREP.md §4). Keyed by the pending
+// entrance a door transition produced; pushed by the launcher whenever a seed becomes live.
+struct ComboCrossRule {
+    bool cross; // target lives in MM
+    int target; // arrival entrance in the target game
+};
+static std::unordered_map<int, ComboCrossRule> sComboCrossRules;
+static std::unordered_set<int16_t> sComboCrossExcludedDoors; // native interior shuffle skips these
+
+extern "C" __declspec(dllexport) void SOH_SetCrossEntranceTable(const char* json) {
+    sComboCrossRules.clear();
+    sComboCrossExcludedDoors.clear();
+    if (!json || !json[0])
+        return;
+    try {
+        auto j = nlohmann::json::parse(json);
+        for (auto& r : j.value("rules", nlohmann::json::array())) {
+            sComboCrossRules[r.value("key", -1)] = { r.value("targetGame", std::string()) == "mm",
+                                                     r.value("target", -1) };
+        }
+        for (auto& e : j.value("exclude", nlohmann::json::array()))
+            sComboCrossExcludedDoors.insert((int16_t)e.get<int>());
+        SPDLOG_INFO("[ComboShip] SOH_SetCrossEntranceTable: {} rules, {} excluded doors", sComboCrossRules.size(),
+                    sComboCrossExcludedDoors.size());
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[ComboShip] SOH_SetCrossEntranceTable: {}", e.what());
+        sComboCrossRules.clear();
+        sComboCrossExcludedDoors.clear();
+    }
+}
+
+// Native-shuffle partition (entrance.cpp pool build): true = this door pair belongs to the cross pool.
+bool Combo_IsCrossEntranceExcluded(int16_t index) {
+    return sComboCrossExcludedDoors.count(index) != 0;
+}
+
+// ComboShip: interior regions the fill marked reachable from the OTHER game (docs §4.3). Set per
+// fixpoint iteration by region NAME; consumed by ReachabilitySearch's guarded seam (fill.cpp),
+// which applies the conservative age rule there.
+static std::vector<int> sComboExternRegions;
+const std::vector<int>& Combo_GetExternallyReachableRegions() {
+    return sComboExternRegions;
+}
+extern "C" __declspec(dllexport) void Combo_SOH_Rando_SetExternallyReachableRegions(const char* json) {
+    sComboExternRegions.clear();
+    if (!json || !json[0])
+        return;
+    try {
+        for (auto& name : nlohmann::json::parse(json)) {
+            const std::string n = name.get<std::string>();
+            for (int rr = RR_NONE + 1; rr < RR_MAX; ++rr) {
+                Region* r = RegionTable(static_cast<RandomizerRegion>(rr));
+                if (r && r->regionName == n) {
+                    sComboExternRegions.push_back(rr);
+                    break;
+                }
+            }
+        }
+    } catch (...) { sComboExternRegions.clear(); }
+}
+
+// ComboShip: door hook, called from z_player.c after Entrance_OverrideNextIndex. Returns the
+// (possibly rewritten) entrance; -1 = a cross-game switch was staged, suppress the local transition
+// (the OnGameFrameUpdate hook saves and exits the loop within a frame; re-triggering until then is
+// idempotent). Same-game reassignments behave exactly like a native interior shuffle.
+extern "C" s32 Combo_CrossEntranceOverride(s32 nextEntrance) {
+    auto it = sComboCrossRules.find((int)nextEntrance);
+    if (it == sComboCrossRules.end())
+        return nextEntrance;
+    if (!it->second.cross)
+        return it->second.target;
+    sComboCrossTargetMM = it->second.target;
+    sComboSwitchFileNum = (int)gSaveContext.fileNum;
+    sComboSwitchPending = true;
+    return -1;
+}
 #endif
 
 static void Combo_FinishInit() {
@@ -1702,10 +1784,8 @@ static void Combo_FinishInit() {
     Ship::Context::GetRawInstance()->GetFileDropMgr()->RegisterDropHandler(SoH_HandleConfigDrop);
 
 #ifdef COMBO_BUILD
-    // Flag set when we want to switch to MM. Acted on at the start of the next clean frame.
-    static bool sComboSwitchPending = false;
-    static int sComboSwitchFileNum = -1;
-
+    // sComboSwitchPending/sComboSwitchFileNum (file scope above): set here by the Mask Shop portal
+    // trigger, and by the cross-entrance door hook (Combo_CrossEntranceOverride).
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnSceneInit>([](int16_t sceneNum) {
         // Cross-game OOT->MM trigger: entering the Happy Mask Shop.
         if (sceneNum == SCENE_HAPPY_MASK_SHOP) {
@@ -2949,6 +3029,12 @@ extern "C" __declspec(dllexport) void SOH_SetTargetEntrance(int entrance) {
     gComboTargetEntrance = entrance;
 }
 
+// ComboShip: generic CVar read for the launcher — ComboShip.exe doesn't link libultraship, but the
+// CVar store is shared across the game DLLs. First consumer: the cross-entrance toggle.
+extern "C" __declspec(dllexport) int SOH_GetCVarInteger(const char* name, int defaultValue) {
+    return (name && name[0]) ? CVarGetInteger(name, defaultValue) : defaultValue;
+}
+
 extern "C" __declspec(dllexport) void SOH_ResumeGame(void) {
     auto ctx = Ship::Context::GetInstance();
     // Flush every log line immediately so the resume diagnostics survive a hard crash (the console
@@ -3266,6 +3352,24 @@ extern "C" __declspec(dllexport) void SOH_PrepRandoContext(void) {
 // ComboShip: forward decl (defined with the oracle exports below) — see SOH_ShuffleEntrancesForCombo.
 static void EnsureOracleInit();
 
+// ComboShip: cut the native graph edges of cross-pool doors, both directions — logic must not
+// traverse a door whose real destination lives in the other game (docs §4.3). Must re-run on every
+// path that rebuilds the region graph (RegionTable_Init / native shuffle).
+static void Combo_SeverCrossEntrances() {
+    if (sComboCrossExcludedDoors.empty())
+        return;
+    int severed = 0;
+    for (Rando::Entrance* e : GetShuffleableEntrances(Rando::EntranceType::Interior, true)) {
+        if (!e || !Combo_IsCrossEntranceExcluded(e->GetIndex()))
+            continue;
+        if (e->GetReverse())
+            e->GetReverse()->Disconnect();
+        e->Disconnect();
+        ++severed;
+    }
+    SPDLOG_INFO("[ComboShip] Combo_SeverCrossEntrances: severed {} door pairs", severed);
+}
+
 // ComboShip: native Fill()'s entrance-shuffle prologue (3drando/fill.cpp), run headlessly — the
 // combo generator never runs Fill(), so without this the OOT entrance options do nothing in combo
 // seeds. Mutates the live region graph (oracle + save creation see the shuffled world; SaveManager
@@ -3275,16 +3379,18 @@ static void EnsureOracleInit();
 extern "C" __declspec(dllexport) int SOH_ShuffleEntrancesForCombo(uint64_t seed) {
     try {
         auto ctx = OTRGlobals::Instance->gRandoContext;
+        // Burn the oracle's lazy init NOW — its first Reset would RegionTable_Init the graph back
+        // to vanilla mid-fill, wiping the shuffle/severs and making logic validate a world the save
+        // doesn't play.
+        EnsureOracleInit();
         // The CVar-less master toggle, derived from the individual options by FinalizeSettings
         // (already run by the prep/dump this call follows).
         if (!ctx->GetOption(RSK_SHUFFLE_ENTRANCES)) {
             // Clear a previous seed's layout so it can't leak into this save via SaveManager.
             ctx->GetEntranceShuffler()->UnshuffleAllEntrances();
+            Combo_SeverCrossEntrances(); // cross-pool doors leave the logic graph regardless
             return 1;
         }
-        // Burn the oracle's lazy init NOW — its first Reset would RegionTable_Init the graph back
-        // to vanilla mid-fill, making logic validate a world the save doesn't play.
-        EnsureOracleInit();
         // Native Fill() retries the whole prologue up to 5x on shuffle failure.
         for (int retry = 0; retry < 5; ++retry) {
             ctx->GetEntranceShuffler()->playthroughEntrances.clear();
@@ -3307,6 +3413,7 @@ extern "C" __declspec(dllexport) int SOH_ShuffleEntrancesForCombo(uint64_t seed)
             }
             SetAreas();
             ctx->GetEntranceShuffler()->CreateEntranceOverrides();
+            Combo_SeverCrossEntrances(); // cross-pool doors leave the logic graph
             return 1;
         }
         SPDLOG_ERROR("[ComboShip] SOH_ShuffleEntrancesForCombo: no valid layout after 5 retries");
@@ -3335,6 +3442,35 @@ extern "C" __declspec(dllexport) const char* SOH_DumpEntranceOverrides(void) {
                         { "overrideDestination", o.overrideDestination },
                         { "from", src ? src->source : "?" },
                         { "to", dst ? dst->destination : "?" } });
+    }
+    buf = out.dump();
+    return buf.c_str();
+}
+
+// ComboShip: OOT's leaf-interior entrance pairs for the cross-game entrance pool
+// (docs/ENTRANCE_RANDO_PREP.md §4). One object per Interior-typed primary pair:
+// entry/exit indices, exterior+interior logic region names (fill gating), readable names.
+// Requires the region table (call after SOH_PrepRandoContext / the dump).
+extern "C" __declspec(dllexport) const char* SOH_DumpInteriorEntrancePairs(void) {
+    static std::string buf;
+    nlohmann::json out = nlohmann::json::array();
+    try {
+        for (Rando::Entrance* e : GetShuffleableEntrances(Rando::EntranceType::Interior, true)) {
+            if (!e || !e->GetReverse())
+                continue; // one-way interiors can't form a coupled cross pair
+            Region* exterior = RegionTable(e->GetParentRegionKey());
+            Region* interior = RegionTable(e->GetOriginalConnectedRegionKey());
+            const EntranceData* door = EntranceTracker::GetEntranceData(e->GetIndex());
+            out.push_back({ { "index", e->GetIndex() },
+                            { "reverseIndex", e->GetReverse()->GetIndex() },
+                            { "doorRegion", exterior ? exterior->regionName : "?" },
+                            { "interiorRegion", interior ? interior->regionName : "?" },
+                            { "door", door ? door->source : "?" },
+                            { "interior", door ? door->destination : "?" } });
+        }
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[ComboShip] SOH_DumpInteriorEntrancePairs: {}", e.what());
+        out = nlohmann::json::array();
     }
     buf = out.dump();
     return buf.c_str();

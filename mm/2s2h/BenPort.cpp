@@ -156,6 +156,44 @@ static bool sComboReturnPending = false;
 extern "C" int gComboTargetEntrance = -1; // arrival override consumed by Setup_InitImpl (title_setup.c)
 extern "C" int gComboCrossArrival = 0;    // set by Setup_InitImpl on an override arrival; scene hook clears
 static int sComboCrossTargetOOT = -1;     // OOT entrance the pending return should arrive at
+
+// ComboShip: cross-entrance runtime table (docs/ENTRANCE_RANDO_PREP.md §4). Keyed by the pending
+// save.entrance a door transition produced; pushed by the launcher whenever a seed becomes live.
+// park = where this game's save stays when the rule crosses to OOT ("the player never left").
+struct ComboCrossRule {
+    bool cross;
+    int target;
+    int park;
+};
+static std::unordered_map<int, ComboCrossRule> sComboCrossRules;
+static std::set<s32> sComboCrossExcludedDoors; // native interior shuffle skips these
+
+extern "C" __declspec(dllexport) void MM_SetCrossEntranceTable(const char* json) {
+    sComboCrossRules.clear();
+    sComboCrossExcludedDoors.clear();
+    if (!json || !json[0])
+        return;
+    try {
+        auto j = nlohmann::json::parse(json);
+        for (auto& r : j.value("rules", nlohmann::json::array())) {
+            sComboCrossRules[r.value("key", -1)] = { r.value("targetGame", std::string()) == "oot",
+                                                     r.value("target", -1), r.value("park", -1) };
+        }
+        for (auto& e : j.value("exclude", nlohmann::json::array()))
+            sComboCrossExcludedDoors.insert((s32)e.get<int>());
+        SPDLOG_INFO("[ComboShip] MM_SetCrossEntranceTable: {} rules, {} excluded doors", sComboCrossRules.size(),
+                    sComboCrossExcludedDoors.size());
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[ComboShip] MM_SetCrossEntranceTable: {}", e.what());
+        sComboCrossRules.clear();
+        sComboCrossExcludedDoors.clear();
+    }
+}
+
+// Native-shuffle partition (EntranceShuffle.cpp pool filter): true = door belongs to the cross pool.
+bool Combo_MM_IsCrossEntranceExcluded(s32 entrance) {
+    return sComboCrossExcludedDoors.count(entrance) != 0;
+}
 // MM's own ResourceManager, created at first boot and kept alive for the whole process. A combo
 // transition swaps the Context's active RM between MM's and OOT's, so each game keeps its archives +
 // resource cache resident and nothing is ever unloaded (no dangling cached pointers). See MM_ResumeGame.
@@ -1136,6 +1174,29 @@ extern "C" void InitOTR(int argc, char* argv[]) {
         if (auto fast3d = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow())) {
             fast3d->SetIsRunning(false);
         }
+    });
+    // ComboShip: cross-entrance door hook (docs/ENTRANCE_RANDO_PREP.md §4). Same seam class as the
+    // vendored EntranceHooks.cpp remap; ordering vs it is moot — cross doors leave the native pools,
+    // so at most one of the two ever matches a given transition. Same-game reassignment rewrites in
+    // place; a cross door parks the save beside the door ("never left"), stages the OOT arrival, and
+    // raises the deferred return switch (the OnGameStateMainStart hook above saves + exits the loop).
+    GameInteractor::Instance->RegisterGameHook<GameInteractor::OnPlayDestroy>([]() {
+        if (sComboCrossRules.empty() || gSaveContext.respawnFlag != 0)
+            return; // respawn transitions carry already-resolved arrival values (see EntranceHooks.cpp)
+        if (gPlayState != NULL && gPlayState->sceneId == SCENE_KAKUSIANA)
+            return; // grotto exits resolve natively
+        auto it = sComboCrossRules.find((int)gSaveContext.save.entrance);
+        if (it == sComboCrossRules.end())
+            return;
+        if (it->second.cross) {
+            gSaveContext.save.entrance = (u16)it->second.park;
+            sComboCrossTargetOOT = it->second.target;
+            sComboReturnPending = true;
+        } else {
+            gSaveContext.save.entrance = (u16)it->second.target;
+        }
+        // Stale cutscene-layer sanitation, same reason as the vendored entrance hook.
+        gSaveContext.nextCutsceneIndex = 0xFFEF;
     });
 #endif
     Rando::Init();
@@ -3061,6 +3122,29 @@ extern "C" __declspec(dllexport) const char* MM_DumpEntranceMap(void) {
     return cached.c_str();
 }
 
+// ComboShip: MM's leaf-interior entrance pairs for the cross-game entrance pool
+// (docs/ENTRANCE_RANDO_PREP.md §4). One object per interior: entry/exit entrance values, interior +
+// exterior logic region ids (fill gating), readable scene names. Requires the eager-boot region
+// graph (same prerequisite as the oracle).
+extern "C" __declspec(dllexport) const char* MM_DumpInteriorEntrancePairs(void) {
+    static std::string cached;
+    auto sceneName = [](s32 entrance) -> const char* {
+        s32 sceneId = Entrance_GetSceneIdAbsolute((u16)entrance);
+        return sceneId >= 0 ? Ship_GetSceneName((s16)sceneId) : "Unknown";
+    };
+    nlohmann::json out = nlohmann::json::array();
+    for (const auto& pair : Rando::EntranceShuffle::GetEntrancePool(Rando::EntranceShuffle::POOL_INTERIOR)) {
+        out.push_back({ { "entrance", pair.entrance },
+                        { "exit", pair.exit },
+                        { "interiorRegion", (int)Rando::Logic::GetRegionIdFromEntrance(pair.entrance) },
+                        { "doorRegion", (int)Rando::Logic::GetRegionIdFromEntrance(pair.exit) },
+                        { "interior", sceneName(pair.entrance) },
+                        { "door", sceneName(pair.exit) } });
+    }
+    cached = out.dump();
+    return cached.c_str();
+}
+
 // Headless item-give: sets gSaveContext fields without ever touching gPlayState.
 // Covers the save-context mutations that logic conditions read (INV_CONTENT, equipment,
 // quest items, rando flags, dungeon items, week event regs). Derived from GiveItem.cpp.
@@ -3561,11 +3645,40 @@ extern "C" __declspec(dllexport) void MM_SetMarkForeignObtained(void (*cb)(int, 
     gMMComboMarkForeignObtained = cb;
 }
 
+// ComboShip: interior regions the fill marked reachable from the OTHER game via a cross-entrance
+// door (docs §4.3), plus the last query's reachable set for the portal/door gating queries.
+static std::set<RandoRegionId> sComboExternRegionsMM;
+static std::set<RandoRegionId> sMM_LastReachableRegions;
+
+extern "C" __declspec(dllexport) void Combo_MM_Rando_SetExternallyReachableRegions(const char* json) {
+    sComboExternRegionsMM.clear();
+    if (!json || !json[0])
+        return;
+    try {
+        for (auto& v : nlohmann::json::parse(json))
+            sComboExternRegionsMM.insert((RandoRegionId)v.get<int>());
+    } catch (...) { sComboExternRegionsMM.clear(); }
+}
+
+// Uniform signature with the OOT export (OracleFns.IsRegionReachable): the key is the decimal
+// RandoRegionId. Valid right after a Combo_MM_Rando_GetReachableChecks query.
+extern "C" __declspec(dllexport) int Combo_MM_Rando_IsRegionReachable(const char* regionId) {
+    if (!regionId || !regionId[0])
+        return -1;
+    return sMM_LastReachableRegions.count((RandoRegionId)std::atoi(regionId)) ? 1 : 0;
+}
+
 extern "C" __declspec(dllexport) const char* Combo_MM_Rando_GetReachableChecks(void) {
     static std::string buf;
 
     std::set<RandoRegionId> reachable = { RR_MAX };
     auto timeStates = Rando::Logic::InitializeRegionTimeStates(RR_MAX);
+    // ComboShip: seed interiors reachable through the other game's doors. Cross-pool interiors are
+    // timeless (RESTRICTIONS_INDOORS), so the save-warp hub's initial time state fits.
+    for (RandoRegionId rid : sComboExternRegionsMM) {
+        reachable.insert(rid);
+        timeStates[rid] = timeStates[RR_MAX];
+    }
 
     // ComboShip: mirror GlitchlessLogic's reachability fixpoint (Rando/Logic/GlitchlessLogic.cpp).
     // Crawling region connections alone isn't enough — MM's logic is event-gated (raising Woodfall,
@@ -3598,6 +3711,8 @@ extern "C" __declspec(dllexport) const char* Combo_MM_Rando_GetReachableChecks(v
             }
         }
     }
+
+    sMM_LastReachableRegions = reachable; // ComboShip: powers Combo_MM_Rando_IsRegionReachable
 
     nlohmann::json out = nlohmann::json::array();
     for (RandoRegionId regionId : reachable) {

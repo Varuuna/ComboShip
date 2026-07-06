@@ -9,6 +9,11 @@ extern "C" {
 #include "z64scene.h"
 }
 
+#ifdef COMBO_BUILD
+// ComboShip (BenPort.cpp): true = this door belongs to the cross-game pool (partition filter below).
+bool Combo_MM_IsCrossEntranceExcluded(s32 entrance);
+#endif
+
 namespace Rando {
 
 namespace EntranceShuffle {
@@ -144,7 +149,15 @@ std::vector<EntrancePair> ConvertSetToEntrancePairs(const std::set<s32>& entranc
 }
 
 std::vector<EntrancePair> GetInteriorEntrances() {
+#ifdef COMBO_BUILD
+    // ComboShip: doors selected for the cross-game pool leave the native pool (partition; table
+    // pushed via MM_SetCrossEntranceTable in BenPort.cpp — empty outside cross-entrance seeds).
+    auto pairs = ConvertSetToEntrancePairs(interiorEntrances);
+    std::erase_if(pairs, [](const EntrancePair& p) { return Combo_MM_IsCrossEntranceExcluded(p.entrance); });
+    return pairs;
+#else
     return ConvertSetToEntrancePairs(interiorEntrances);
+#endif
 }
 
 std::vector<EntrancePair> GetGrottoEntrances() {

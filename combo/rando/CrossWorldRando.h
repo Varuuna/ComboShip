@@ -55,6 +55,18 @@ struct OracleFns {
     // Optional portal-gate query: is this logic region reachable under the last GetReachableChecks
     // owned set? (1/0; -1 unknown). Regions, not checks — the Mask Shop scene holds no early check.
     int (*IsRegionReachable)(const char*) = nullptr;
+    // Optional cross-entrance mark: JSON array of region keys (OOT: names, MM: decimal RandoRegionId)
+    // this oracle must treat as externally reachable on subsequent queries. Null = no cross entrances.
+    void (*SetExternallyReachableRegions)(const char*) = nullptr;
+};
+
+// One cross-entrance gate for the fixpoint: when the DOOR's exterior region is reachable in its
+// game, the assigned interior's region becomes reachable in the interior's game (docs §4.3).
+struct CrossGateInfo {
+    bool doorIsOot;
+    std::string doorRegion;
+    bool interiorIsOot;
+    std::string interiorRegion;
 };
 
 // ---------- Data types ----------
@@ -96,7 +108,8 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                                                  uint32_t masterSeed, const OracleFns& ootOracle,
                                                  const OracleFns& mmOracle, const std::string& portalGateRegion = "",
                                                  ComboRando::ComboGenProgress* progress = nullptr,
-                                                 const std::string& forcedOotJson = "") {
+                                                 const std::string& forcedOotJson = "",
+                                                 const std::vector<CrossGateInfo>& crossGates = {}) {
     CombinedFillResult result;
     result.success = false;
 
@@ -246,7 +259,36 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     // CHECK became reachable to the ITEM's game's owned set, until nothing changes. This spans
     // both games because an MM item at an OOT check (or vice versa) can open progress anywhere,
     // including the portal itself — so portal openness is re-evaluated every iteration.
+    // Cross-entrance gates: a door reachable in its game marks the assigned interior's region
+    // externally reachable in the other (pushed before the queries of the NEXT round; the loop
+    // keeps iterating while gates open, so the marks converge with the owned sets).
     std::vector<CwPlacement> placements;
+    // Marks are query-time state inside the game DLLs — always cleared on the way out, or a stale
+    // list would leak into the live game's own logic queries (tracker availability).
+    struct CrossMarkCleaner {
+        const OracleFns* a;
+        const OracleFns* b;
+        ~CrossMarkCleaner() {
+            if (a->SetExternallyReachableRegions)
+                a->SetExternallyReachableRegions("");
+            if (b->SetExternallyReachableRegions)
+                b->SetExternallyReachableRegions("");
+        }
+    } crossMarkCleaner{ &ootOracle, &mmOracle };
+    auto pushCrossMarks = [&](const std::vector<bool>& gateOpen) {
+        if (crossGates.empty())
+            return;
+        nlohmann::json ootMarks = nlohmann::json::array(), mmMarks = nlohmann::json::array();
+        for (size_t i = 0; i < crossGates.size(); ++i) {
+            if (!gateOpen[i])
+                continue;
+            (crossGates[i].interiorIsOot ? ootMarks : mmMarks).push_back(crossGates[i].interiorRegion);
+        }
+        if (ootOracle.SetExternallyReachableRegions)
+            ootOracle.SetExternallyReachableRegions(ootMarks.dump().c_str());
+        if (mmOracle.SetExternallyReachableRegions)
+            mmOracle.SetExternallyReachableRegions(mmMarks.dump().c_str());
+    };
     auto reachableFixpoint = [&](const std::vector<std::string>& ootBase, const std::vector<std::string>& mmBase)
         -> std::pair<std::unordered_set<std::string>, std::unordered_set<std::string>> {
         std::vector<std::string> ootOwned = ootBase, mmOwned = mmBase;
@@ -254,14 +296,37 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         ootOwned.insert(ootOwned.end(), ootForcedOwned.begin(), ootForcedOwned.end());
         mmOwned.insert(mmOwned.end(), mmForcedOwned.begin(), mmForcedOwned.end());
         std::vector<bool> credited(placements.size(), false);
+        // Per-call: whether each cross door is reachable under THIS owned set (a gate open under a
+        // larger assumed set is not necessarily open under a smaller one).
+        std::vector<bool> gateOpen(crossGates.size(), false);
         std::unordered_set<std::string> ootReachable, mmReachable;
         for (;;) {
+            pushCrossMarks(gateOpen);
             ootReachable = queryReachable(ootOracle, ootOwned);
             // Portal gate: region access reflects the OOT query above; -1 (unknown region) fails open.
             bool portalOpen = portalGateRegion.empty() || !ootOracle.IsRegionReachable ||
                               ootOracle.IsRegionReachable(portalGateRegion.c_str()) != 0;
+            bool gatesChanged = false;
+            if (ootOracle.IsRegionReachable) {
+                for (size_t i = 0; i < crossGates.size(); ++i) {
+                    if (!gateOpen[i] && crossGates[i].doorIsOot &&
+                        ootOracle.IsRegionReachable(crossGates[i].doorRegion.c_str()) == 1) {
+                        gateOpen[i] = true;
+                        gatesChanged = true;
+                    }
+                }
+            }
             mmReachable = portalOpen ? queryReachable(mmOracle, mmOwned) : std::unordered_set<std::string>{};
-            bool changed = false;
+            if (mmOracle.IsRegionReachable && portalOpen) {
+                for (size_t i = 0; i < crossGates.size(); ++i) {
+                    if (!gateOpen[i] && !crossGates[i].doorIsOot &&
+                        mmOracle.IsRegionReachable(crossGates[i].doorRegion.c_str()) == 1) {
+                        gateOpen[i] = true;
+                        gatesChanged = true;
+                    }
+                }
+            }
+            bool changed = gatesChanged;
             for (size_t i = 0; i < placements.size(); ++i) {
                 if (credited[i])
                     continue;

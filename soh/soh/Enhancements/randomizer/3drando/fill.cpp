@@ -540,6 +540,27 @@ std::vector<RandomizerCheck> ReachabilitySearch(const std::vector<RandomizerChec
         logic->Reset(false);
         logic->CalculatingAvailableChecks = true;
     }
+#ifdef COMBO_BUILD
+    {
+        // ComboShip: interior regions reachable from the OTHER game via a cross-entrance door
+        // (docs/ENTRANCE_RANDO_PREP.md §4.3). Conservative ages: the starting age always; the other
+        // age only once age-switching exists (Master Sword owned in the current owned set). Day and
+        // night both — the arrival is a resume, not a time-gated walk.
+        extern const std::vector<int>& Combo_GetExternallyReachableRegions();
+        const auto& externRegions = Combo_GetExternallyReachableRegions();
+        if (!externRegions.empty()) {
+            auto ctx2 = Rando::Context::GetInstance();
+            bool adultStart = ctx2->GetOption(RSK_STARTING_AGE).Is(RO_AGE_ADULT);
+            bool canSwitch = logic->HasItem(RG_MASTER_SWORD);
+            for (int rrInt : externRegions) {
+                const auto& region = RegionTable(static_cast<RandomizerRegion>(rrInt));
+                region->childDay = region->childNight = !adultStart || canSwitch;
+                region->adultDay = region->adultNight = adultStart || canSwitch;
+                gals.regionPool.push_back(static_cast<RandomizerRegion>(rrInt));
+            }
+        }
+    }
+#endif
     do {
         gals.InitLoop();
         for (size_t i = 0; i < gals.regionPool.size(); i++) {

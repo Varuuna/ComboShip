@@ -33,6 +33,7 @@
 
 #include "rando/CrossForeign.h"
 #include "rando/CrossWorldRando.h"
+#include "rando/CrossEntrances.h"
 #include "gui/ComboGenProgress.h"
 #include "ComboExtract.h"
 #include "ComboSettingsImport.h"
@@ -278,12 +279,66 @@ typedef int (*FnShuffleEntrances)(uint64_t);
 typedef int (*FnIsRegionReachable)(const char*);
 typedef void (*FnSetFinalSeed)(uint32_t);
 typedef int (*FnIntV)(void);
+typedef int (*FnGetCVarInt)(const char*, int);
 static FnShuffleEntrances SOH_ShuffleEntrancesForCombo = nullptr;
 static FnDumpData SOH_DumpEntranceOverrides = nullptr;
 static FnIsRegionReachable Combo_SOH_Rando_IsRegionReachable = nullptr;
 static FnSetFinalSeed MM_SetComboFinalSeed = nullptr;
 static FnIntV Combo_MM_Rando_EntranceShuffleOk = nullptr;
 static FnDumpData MM_DumpEntranceMap = nullptr;
+
+// Cross-game entrance shuffle (Phase B, docs §4): pool dumps, per-game table pushes, oracle
+// extensions, and the toggle read (via soh.dll — the launcher doesn't link libultraship).
+static FnDumpData SOH_DumpInteriorEntrancePairs = nullptr;
+static FnDumpData MM_DumpInteriorEntrancePairs = nullptr;
+static FnTakeStr SOH_SetCrossEntranceTable = nullptr;
+static FnTakeStr MM_SetCrossEntranceTable = nullptr;
+static FnTakeStr Combo_SOH_Rando_SetExternallyReachableRegions = nullptr;
+static FnTakeStr Combo_MM_Rando_SetExternallyReachableRegions = nullptr;
+static FnIsRegionReachable Combo_MM_Rando_IsRegionReachable = nullptr;
+static FnGetCVarInt SOH_GetCVarInteger = nullptr;
+static const char* kCrossEntrancesCVar = "gCombo.Entrances.CrossInteriors";
+
+// Compute + push this seed's cross-entrance tables. Clears both tables first (so the pool dumps
+// are unfiltered and a previous seed's table can't leak), then no-ops unless enabled.
+// enabled: -1 = read the toggle CVar (generation), 0/1 = explicit (reload honors the SEED, not the
+// live toggle). Returns the fill's gates; spoilerOut (optional) receives the readable section.
+static std::vector<ComboRando::CrossGateInfo> Combo_SetupCrossEntrances(uint32_t masterSeed,
+                                                                        nlohmann::json* spoilerOut, int enabled) {
+    std::vector<ComboRando::CrossGateInfo> gates;
+    if (SOH_SetCrossEntranceTable)
+        SOH_SetCrossEntranceTable("");
+    if (MM_SetCrossEntranceTable)
+        MM_SetCrossEntranceTable("");
+    bool on = enabled == 1 ||
+              (enabled < 0 && SOH_GetCVarInteger && SOH_GetCVarInteger(kCrossEntrancesCVar, 0) != 0);
+    if (!on || !SOH_DumpInteriorEntrancePairs || !MM_DumpInteriorEntrancePairs || !SOH_SetCrossEntranceTable ||
+        !MM_SetCrossEntranceTable)
+        return gates;
+    auto assignments =
+        ComboRando::BuildCrossAssignments(SOH_DumpInteriorEntrancePairs(), MM_DumpInteriorEntrancePairs(), masterSeed);
+    if (assignments.empty())
+        return gates;
+    SOH_SetCrossEntranceTable(ComboRando::BuildCrossTableSlice(assignments, ComboRando::GAME_OOT).c_str());
+    MM_SetCrossEntranceTable(ComboRando::BuildCrossTableSlice(assignments, ComboRando::GAME_MM).c_str());
+    for (const auto& a : assignments)
+        gates.push_back({ a.door.game == ComboRando::GAME_OOT, a.door.doorRegion,
+                          a.interior.game == ComboRando::GAME_OOT, a.interior.interiorRegion });
+    if (spoilerOut)
+        *spoilerOut = ComboRando::BuildCrossSpoiler(assignments);
+    std::cout << "[ComboShip] cross entrances: " << assignments.size() << " doors in the union pool\n";
+    return gates;
+}
+
+// (Re-)push the cross tables for the seed a consolidated JSON describes. The tables are process
+// statics, so whichever save becomes ACTIVE last must have asserted its own state: fresh Start
+// re-asserts from the pending JSON (Combo_OnPreOOTSaveInit), Continue from the slot file
+// (Combo_OnOOTSaveLoad). Deterministic — same seed always re-derives the same assignment.
+static void Combo_PushCrossTablesForSeed(const nlohmann::json& j) {
+    uint32_t masterSeed = j.value("masterSeed", 0u);
+    bool crossOn = !j.value("entrances", nlohmann::json::object()).value("cross", nlohmann::json::array()).empty();
+    Combo_SetupCrossEntrances(masterSeed, nullptr, crossOn ? 1 : 0);
+}
 
 // OOT region gating the OOT->MM portal: with interior shuffle the Mask Shop can be anywhere, so MM
 // only joins the fill once this region is reachable.
@@ -626,7 +681,8 @@ static std::string g_PendingMMPlacements;
 // playthroughOut (optional) receives the structured sphere playthrough for the consolidated file.
 static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRando::OracleFns& ootOracle,
                                   const ComboRando::OracleFns& mmOracle, const std::string& seedLabel,
-                                  nlohmann::json* playthroughOut = nullptr);
+                                  nlohmann::json* playthroughOut = nullptr,
+                                  const std::vector<ComboRando::CrossGateInfo>& crossGates = {});
 
 // ComboShip: worker that runs the combined-logic fill (or no-logic fallback) on a background
 // thread, reports progress via the ComboGenProgress struct, and stashes placements.
@@ -663,6 +719,11 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         return;
     }
 
+    // ComboShip: cross-game entrance tables must be pushed BEFORE the native shuffles (partition +
+    // sever read them). Honors the live toggle at generation time; the section lands in the spoiler.
+    nlohmann::json crossSpoiler = nlohmann::json::array();
+    auto crossGates = Combo_SetupCrossEntrances(masterSeed, &crossSpoiler, -1);
+
     // ComboShip: entrance shuffle (docs/ENTRANCE_RANDO_PREP.md §3). OOT shuffles the live region
     // graph here (no-op when off); MM derives its map inside the oracle's Reset from the finalSeed.
     g_DeferredEntrancePending = false; // fresh generation supersedes any reloaded seed's deferral
@@ -682,11 +743,18 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         Combo_SOH_Rando_PlaceItem && Combo_MM_Rando_Reset && Combo_MM_Rando_SetOwnedItems &&
         Combo_MM_Rando_GetReachableChecks && Combo_MM_Rando_PlaceItem && Combo_MM_Rando_Restore) {
 
-        ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
-                                            Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem,
-                                            Combo_SOH_Rando_IsRegionReachable };
-        ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
-                                           Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
+        ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset,
+                                            Combo_SOH_Rando_SetOwnedItems,
+                                            Combo_SOH_Rando_GetReachableChecks,
+                                            Combo_SOH_Rando_PlaceItem,
+                                            Combo_SOH_Rando_IsRegionReachable,
+                                            Combo_SOH_Rando_SetExternallyReachableRegions };
+        ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset,
+                                           Combo_MM_Rando_SetOwnedItems,
+                                           Combo_MM_Rando_GetReachableChecks,
+                                           Combo_MM_Rando_PlaceItem,
+                                           Combo_MM_Rando_IsRegionReachable,
+                                           Combo_MM_Rando_SetExternallyReachableRegions };
 
         // ComboShip: fail fast if MM's sampler couldn't produce a connected entrance layout (it keeps
         // the broken map and only warns). One probe covers the fill — every Reset re-derives the same
@@ -709,7 +777,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             forcedOot = SOH_GetForcedPlacements(masterSeed);
 
         auto result = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle,
-                                                         kPortalGateRegion, progress, forcedOot);
+                                                         kPortalGateRegion, progress, forcedOot, crossGates);
 
         if (result.success) {
             spoiler = result.spoilerJson;
@@ -718,7 +786,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             // ComboShip: write the sphere-by-sphere playthrough log. Replays reachability via the
             // oracles BEFORE SOH_ApplyRandoPlacements restores the live OOT context, so it can't
             // corrupt the generated seed. Restores MM itself.
-            WriteComboPlaythrough(result.spoilerJson, ootOracle, mmOracle, inputSeed, &playthroughJson);
+            WriteComboPlaythrough(result.spoilerJson, ootOracle, mmOracle, inputSeed, &playthroughJson, crossGates);
         } else {
             Combo_MM_Rando_Restore();
             fail((std::string("combined fill failed: ") + result.error).c_str());
@@ -848,7 +916,8 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
                 mmEnt = nlohmann::json::parse(mmEntranceMapJson);
             } catch (...) {}
             consolidated["entrances"] = { { "oot", std::move(ootEnt) },
-                                          { "mm", { { "finalSeed", masterSeed }, { "map", std::move(mmEnt) } } } };
+                                          { "mm", { { "finalSeed", masterSeed }, { "map", std::move(mmEnt) } } },
+                                          { "cross", crossSpoiler } };
         }
         g_ConsolidatedJson = consolidated.dump(2);
 
@@ -912,11 +981,18 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
         return -1;
     }
 
-    ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
-                                        Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem,
-                                        Combo_SOH_Rando_IsRegionReachable };
-    ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
-                                       Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
+    ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset,
+                                        Combo_SOH_Rando_SetOwnedItems,
+                                        Combo_SOH_Rando_GetReachableChecks,
+                                        Combo_SOH_Rando_PlaceItem,
+                                        Combo_SOH_Rando_IsRegionReachable,
+                                        Combo_SOH_Rando_SetExternallyReachableRegions };
+    ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset,
+                                       Combo_MM_Rando_SetOwnedItems,
+                                       Combo_MM_Rando_GetReachableChecks,
+                                       Combo_MM_Rando_PlaceItem,
+                                       Combo_MM_Rando_IsRegionReachable,
+                                       Combo_MM_Rando_SetExternallyReachableRegions };
 
     std::cout << "[GENTEST] running " << numSeeds << " cross-world generations (seedBase=" << seedBase
               << ") — asserting every advancement item is reachable from an empty start in both games\n";
@@ -924,7 +1000,8 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
     auto t0 = std::chrono::steady_clock::now();
     for (int i = 0; i < numSeeds; ++i) {
         uint32_t seed = seedBase + static_cast<uint32_t>(i);
-        // Per-seed entrance layouts, exactly like the real generator (no-ops when the options are off).
+        // Per-seed cross tables + entrance layouts, exactly like the real generator.
+        auto crossGates = Combo_SetupCrossEntrances(seed, nullptr, -1);
         if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(seed)) {
             std::cerr << "[GENTEST]   seed " << seed << " FAIL: OOT entrance shuffle found no valid layout\n";
             ++failures;
@@ -941,8 +1018,8 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
                 continue;
             }
         }
-        auto result =
-            ComboRando::CrossWorldCombinedFill(sohDump, mmDump, seed, ootOracle, mmOracle, kPortalGateRegion, nullptr);
+        auto result = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, seed, ootOracle, mmOracle,
+                                                         kPortalGateRegion, nullptr, "", crossGates);
         Combo_MM_Rando_Restore(); // reset the MM oracle's snapshot guard for the next fill
         if (result.success) {
             std::cout << "[GENTEST]   seed " << seed << " PASS\n";
@@ -976,7 +1053,8 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
 // Called both from the env-gated entry below and from RunComboFill on every in-game generation.
 static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRando::OracleFns& ootOracle,
                                   const ComboRando::OracleFns& mmOracle, const std::string& seedLabel,
-                                  nlohmann::json* playthroughOut) {
+                                  nlohmann::json* playthroughOut,
+                                  const std::vector<ComboRando::CrossGateInfo>& crossGates) {
     using namespace ComboRando; // GameId / GAME_OOT / GAME_MM
     // Endgame signals the oracles actually emit:
     //   OOT — top of Ganon's Tower (all four trials cleared) reachable AND the Ganon's Castle Boss Key
@@ -1047,11 +1125,42 @@ static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRan
 
     int beatableSphere = -1;
     const int kMaxSpheres = 200;
+    // Cross-entrance gates, mirrored from the fill's fixpoint. Monotone across spheres here — the
+    // replay's owned sets only grow. Marks cleared at the end (the fill's cleaner pattern).
+    std::vector<bool> gateOpen(crossGates.size(), false);
+    auto pushCrossMarks = [&]() {
+        if (crossGates.empty())
+            return;
+        nlohmann::json ootMarks = nlohmann::json::array(), mmMarks = nlohmann::json::array();
+        for (size_t i = 0; i < crossGates.size(); ++i) {
+            if (gateOpen[i])
+                (crossGates[i].interiorIsOot ? ootMarks : mmMarks).push_back(crossGates[i].interiorRegion);
+        }
+        if (ootOracle.SetExternallyReachableRegions)
+            ootOracle.SetExternallyReachableRegions(ootMarks.dump().c_str());
+        if (mmOracle.SetExternallyReachableRegions)
+            mmOracle.SetExternallyReachableRegions(mmMarks.dump().c_str());
+    };
     for (int sphere = 0; sphere < kMaxSpheres; ++sphere) {
+        pushCrossMarks();
         auto ootReach = queryReachable(ootOracle, ownedOot);
         // Same portal gate as the fill (region flags reflect the OOT query that just ran).
         bool portalOpen = !ootOracle.IsRegionReachable || ootOracle.IsRegionReachable(kPortalGateRegion) != 0;
+        if (ootOracle.IsRegionReachable) {
+            for (size_t i = 0; i < crossGates.size(); ++i) {
+                if (!gateOpen[i] && crossGates[i].doorIsOot &&
+                    ootOracle.IsRegionReachable(crossGates[i].doorRegion.c_str()) == 1)
+                    gateOpen[i] = true;
+            }
+        }
         auto mmReach = portalOpen ? queryReachable(mmOracle, ownedMm) : std::unordered_set<std::string>{};
+        if (mmOracle.IsRegionReachable && portalOpen) {
+            for (size_t i = 0; i < crossGates.size(); ++i) {
+                if (!gateOpen[i] && !crossGates[i].doorIsOot &&
+                    mmOracle.IsRegionReachable(crossGates[i].doorRegion.c_str()) == 1)
+                    gateOpen[i] = true;
+            }
+        }
         bool canGanon = ootReach.count(kOotTowerTop) > 0 &&
                         std::find(ownedOot.begin(), ownedOot.end(), kOotBossKey) != ownedOot.end();
         bool canMajora = mmReach.count(kMmWin) > 0;
@@ -1099,10 +1208,19 @@ static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRan
     std::vector<std::string> allOot, allMm;
     for (auto& p : placements)
         (p.itemGame == GAME_OOT ? allOot : allMm).push_back(p.item);
+    // Full inventory reaches every cross door, so every gate is open for the maximal-set queries.
+    std::fill(gateOpen.begin(), gateOpen.end(), true);
+    pushCrossMarks();
     auto everReachOot = queryReachable(ootOracle, allOot);
     auto everReachMm = queryReachable(mmOracle, allMm);
 
     Combo_MM_Rando_Restore();
+    // Clear the marks — they are query-time state inside the game DLLs, and the live game's own
+    // logic queries (tracker availability) must not see them.
+    if (ootOracle.SetExternallyReachableRegions)
+        ootOracle.SetExternallyReachableRegions("");
+    if (mmOracle.SetExternallyReachableRegions)
+        mmOracle.SetExternallyReachableRegions("");
 
     if (beatableSphere >= 0) {
         log << "\nBEATABLE at sphere " << beatableSphere << ": Ganon AND Majora both reachable. Seed is completable.\n";
@@ -1161,16 +1279,24 @@ static void RunComboPlaythrough(const std::string& inputSeed) {
         std::cerr << "[PLAYTHROUGH] dump functions not resolved\n";
         return;
     }
-    ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
-                                        Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem,
-                                        Combo_SOH_Rando_IsRegionReachable };
-    ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
-                                       Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
+    ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset,
+                                        Combo_SOH_Rando_SetOwnedItems,
+                                        Combo_SOH_Rando_GetReachableChecks,
+                                        Combo_SOH_Rando_PlaceItem,
+                                        Combo_SOH_Rando_IsRegionReachable,
+                                        Combo_SOH_Rando_SetExternallyReachableRegions };
+    ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset,
+                                       Combo_MM_Rando_SetOwnedItems,
+                                       Combo_MM_Rando_GetReachableChecks,
+                                       Combo_MM_Rando_PlaceItem,
+                                       Combo_MM_Rando_IsRegionReachable,
+                                       Combo_MM_Rando_SetExternallyReachableRegions };
     std::string seedStr = inputSeed.empty() ? "1" : inputSeed;
     uint32_t masterSeed = ComboHash(seedStr.c_str());
     std::string sohDump = SOH_DumpRandoStaticData();
     std::string mmDump = MM_DumpRandoStaticData();
-    // Entrance layouts, same as the real generator (no-ops when the options are off).
+    // Cross tables + entrance layouts, same as the real generator (no-ops when the options are off).
+    auto crossGates = Combo_SetupCrossEntrances(masterSeed, nullptr, -1);
     if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(masterSeed)) {
         std::cerr << "[PLAYTHROUGH] OOT entrance shuffle found no valid layout\n";
         return;
@@ -1178,13 +1304,13 @@ static void RunComboPlaythrough(const std::string& inputSeed) {
     if (MM_SetComboFinalSeed)
         MM_SetComboFinalSeed(masterSeed);
     auto fill = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle,
-                                                   kPortalGateRegion, nullptr);
+                                                   kPortalGateRegion, nullptr, "", crossGates);
     if (!fill.success) {
         Combo_MM_Rando_Restore();
         std::cerr << "[PLAYTHROUGH] seed '" << seedStr << "' did not generate: " << fill.error << "\n";
         return;
     }
-    WriteComboPlaythrough(fill.spoilerJson, ootOracle, mmOracle, seedStr); // restores MM at the end
+    WriteComboPlaythrough(fill.spoilerJson, ootOracle, mmOracle, seedStr, nullptr, crossGates); // restores MM
 }
 
 // ComboShip: generate-request handler — called by SOH_TriggerComboGenerate from the UI. Runs
@@ -1288,6 +1414,14 @@ static int Combo_OnReloadRequest(const char* path) {
             SOH_SetComboRandoSeed(masterSeed);
         if (SOH_PrepRandoContext)
             SOH_PrepRandoContext();
+        // Cross-entrance tables: honor the SEED's cross state (spoiler section presence), not the
+        // live toggle — deterministic re-derivation, same as generation. Must precede the deferred
+        // entrance shuffle (partition + sever read the pushed tables).
+        {
+            bool crossOn =
+                !j.value("entrances", nlohmann::json::object()).value("cross", nlohmann::json::array()).empty();
+            Combo_SetupCrossEntrances(masterSeed, nullptr, crossOn ? 1 : 0);
+        }
         // Entrance re-derivation (item pool + shuffle + validation, ~1s) is DEFERRED to Start
         // (Combo_OnPreOOTSaveInit) — running it here froze the first file-select visit. The ctx
         // options it reads were finalized by the prep above and survive the CVar snap-back below;
@@ -1359,6 +1493,13 @@ static int Combo_OnReloadRequest(const char* path) {
 // so it only fails on version drift) — log loudly and continue.
 static void Combo_OnPreOOTSaveInit(int fileNum) {
     (void)fileNum;
+    // Re-assert THIS seed's cross tables — a Continue on another slot since generation/reload may
+    // have replaced the process statics (see Combo_OnOOTSaveLoad). Idempotent for fresh generates.
+    if (!g_ConsolidatedJson.empty()) {
+        try {
+            Combo_PushCrossTablesForSeed(nlohmann::json::parse(g_ConsolidatedJson));
+        } catch (...) {}
+    }
     if (!g_DeferredEntrancePending)
         return;
     g_DeferredEntrancePending = false;
@@ -1424,6 +1565,28 @@ static void Combo_OnOOTSaveInit(int fileNum) {
 // memory so the combo tracker peek shows real MM items before MM is visited. Skipped when that
 // slot's MM save is already live in memory — reloading from disk would clobber newer progress.
 static void Combo_OnOOTSaveLoad(int fileNum) {
+    // Cross-entrance tables are process statics — re-derive them for THIS slot's seed, or clear
+    // them when the slot has none. Without this, a seed generated/reloaded earlier in the session
+    // leaks its tables into a different save's doors and native-pool partition (review finding).
+    // Runs before the peek's early return: re-generating at file select then continuing the same
+    // slot must also re-assert.
+    {
+        auto path = ComboRando::SlotReadPath(fileNum);
+        bool pushed = false;
+        if (!path.empty() && std::filesystem::exists(path)) {
+            try {
+                std::ifstream in(path);
+                nlohmann::json j;
+                in >> j;
+                Combo_PushCrossTablesForSeed(j);
+                pushed = true;
+            } catch (const std::exception& e) {
+                std::cerr << "[ComboShip] slot " << fileNum << " cross-table re-derive failed: " << e.what() << "\n";
+            }
+        }
+        if (!pushed)
+            Combo_SetupCrossEntrances(0, nullptr, 0); // no consolidated seed for this slot — clear
+    }
     if (!MM_LoadSaveForCombo || g_MmSaveInMemorySlot == fileNum) {
         return;
     }
@@ -1651,6 +1814,18 @@ int main(int argc, char** argv) {
     MM_SetComboFinalSeed = (FnSetFinalSeed)GetSym(mmModule, "MM_SetComboFinalSeed");
     Combo_MM_Rando_EntranceShuffleOk = (FnIntV)GetSym(mmModule, "Combo_MM_Rando_EntranceShuffleOk");
     MM_DumpEntranceMap = (FnDumpData)GetSym(mmModule, "MM_DumpEntranceMap");
+
+    // Cross-game entrance shuffle (Phase B)
+    SOH_DumpInteriorEntrancePairs = (FnDumpData)GetSym(sohModule, "SOH_DumpInteriorEntrancePairs");
+    MM_DumpInteriorEntrancePairs = (FnDumpData)GetSym(mmModule, "MM_DumpInteriorEntrancePairs");
+    SOH_SetCrossEntranceTable = (FnTakeStr)GetSym(sohModule, "SOH_SetCrossEntranceTable");
+    MM_SetCrossEntranceTable = (FnTakeStr)GetSym(mmModule, "MM_SetCrossEntranceTable");
+    Combo_SOH_Rando_SetExternallyReachableRegions =
+        (FnTakeStr)GetSym(sohModule, "Combo_SOH_Rando_SetExternallyReachableRegions");
+    Combo_MM_Rando_SetExternallyReachableRegions =
+        (FnTakeStr)GetSym(mmModule, "Combo_MM_Rando_SetExternallyReachableRegions");
+    Combo_MM_Rando_IsRegionReachable = (FnIsRegionReachable)GetSym(mmModule, "Combo_MM_Rando_IsRegionReachable");
+    SOH_GetCVarInteger = (FnGetCVarInt)GetSym(sohModule, "SOH_GetCVarInteger");
 
     // Cross-game erase seam (issue #1)
     SOH_SetDeleteForeignSave = (FnSetDeleteForeignSave)GetSym(sohModule, "SOH_SetDeleteForeignSave");

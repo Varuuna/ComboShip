@@ -4,6 +4,11 @@
 #include "Logic.h"
 #include "EntranceShuffle.h"
 
+#ifdef COMBO_BUILD
+// ComboShip (BenPort.cpp): true = this exit belongs to a cross-game door pair (severed from logic).
+bool Combo_MM_IsCrossEntranceExcluded(s32 entrance);
+#endif
+
 namespace Rando {
 
 namespace Logic {
@@ -207,6 +212,14 @@ void FindReachableRegions(RandoRegionId currentRegion, std::set<RandoRegionId>& 
     for (auto& [exitId, regionExit] : sourceRegion.exits) {
         // Set global time for check evaluation
         gCurrentRegionTime = currentTime;
+
+#ifdef COMBO_BUILD
+        // ComboShip: cross-game doors leave the graph — their real destination is in the other
+        // game (both directions of each pair are in the excluded set; docs §4.3).
+        if (Combo_MM_IsCrossEntranceExcluded(exitId)) {
+            continue;
+        }
+#endif
 
         s32 lookupExit = exitId;
         // Grotto exits always return to their vanilla spawn (see the OnPlayDestroy hook), so leave them

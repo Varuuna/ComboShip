@@ -1,17 +1,15 @@
 
 #include "Notification.h"
-#include <libultraship/libultraship.h>
-#include "soh/OTRGlobals.h"
-
-#include <fast/Fast3dGui.h>
-
-#include <fast/Fast3dGui.h>
+#include <libultraship/bridge/consolevariablebridge.h>
+#include <ship/Context.h>
 
 extern "C" {
 #include "functions.h"
 #include "macros.h"
 #include "variables.h"
 }
+
+#include <fast/Fast3dGui.h>
 
 namespace Notification {
 
@@ -52,7 +50,7 @@ void Window::Draw() {
 
     for (int index = 0; index < notifications.size(); ++index) {
         auto& notification = notifications[index];
-        int inverseIndex = -ABS(index - (static_cast<int>(notifications.size()) - 1));
+        int inverseIndex = ABS(index - (static_cast<int>(notifications.size()) - 1));
 
         ImGui::SetNextWindowViewport(vp->ID);
         if (notification.remainingTime < 4.0f) {

@@ -152,6 +152,15 @@ void Anchor::RegisterHooks() {
             return;
         }
 
+        // ComboShip: a foreign check's real cross-game item is shared via its own Anchor path
+        // (Anchor_BroadcastCrossItem in OOT_DeliverForeign). Don't re-broadcast the sentinel — the
+        // receiver can't resolve RG_COMBO_FOREIGN to a concrete item. (No #ifdef: preprocessor
+        // directives are illegal inside the COND_HOOK macro argument, and RG_COMBO_FOREIGN is always
+        // in the enum; the check is a harmless no-op in non-combo builds.)
+        if (itemEntry.modIndex == MOD_RANDOMIZER && itemEntry.getItemId == RG_COMBO_FOREIGN) {
+            return;
+        }
+
         SendPacket_GiveItem(itemEntry.tableId, itemEntry.getItemId);
     });
 

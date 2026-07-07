@@ -2965,7 +2965,10 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
             continue;
         // ComboShip: "name" MUST stay spoilerName (RI_*) — grant lookup keys on it. "displayName"
         // is the human string (StaticData's unused .name field) for toasts/shops in the OTHER game.
-        nlohmann::json entry = { { "name", item.spoilerName } };
+        // advancement drives whether a foreign item plays the held-up pickup animation.
+        nlohmann::json entry = { { "name", item.spoilerName },
+                                 { "advancement",
+                                   item.randoItemType != RITYPE_JUNK && item.randoItemType != RITYPE_HEALTH } };
         if (item.name && item.name[0] != '\0') {
             entry["displayName"] = item.name;
         }

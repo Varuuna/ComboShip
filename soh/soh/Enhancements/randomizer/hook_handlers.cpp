@@ -384,10 +384,17 @@ RandomizerCheck OOT_GetQueuedDrawCheck() {
     return randomizerQueuedCheck;
 }
 
-// ComboShip: divert a foreign-marked OOT check into the cross-world mailbox instead of granting
-// locally. Enqueues the real item for its home game, shows a "Sent to Termina" toast, and marks the
-// check collected so the normal grant pipeline is bypassed and it never re-queues.
-static void OOT_SendForeignCheck(RandomizerCheck rc, Rando::ItemLocation* loc) {
+// ComboShip: deliver a foreign OOT check's real item to its home game (MM). Called at grant time
+// from Randomizer_Item_Give so the foreign item first flows through the normal get-item presentation
+// (real model + name + held-up animation); the caller then skips the local grant. The check is
+// marked collected by RandomizerOnItemReceiveHandler like any other item.
+void OOT_DeliverForeign(RandomizerCheck rc) {
+    if (rc == RC_UNKNOWN_CHECK) {
+        // Defensive: a sentinel entry not produced by GetFinalGIEntry carries no check identity
+        // (e.g. an Anchor-received RG_COMBO_FOREIGN). Nothing to deliver.
+        SPDLOG_WARN("[ComboShip] OOT_DeliverForeign: no check identity on the foreign entry; skipping");
+        return;
+    }
     int slot = gSaveContext.fileNum;
     const std::string checkName = Rando::StaticData::GetLocation(rc)->GetName();
     const ComboRando::ForeignItem* fi = OOT_LookupForeign(slot, checkName);
@@ -403,14 +410,6 @@ static void OOT_SendForeignCheck(RandomizerCheck rc, Rando::ItemLocation* loc) {
     } else {
         SPDLOG_WARN("[ComboShip] OOT foreign sentinel at '{}' but no foreign-map entry; dropping", checkName);
     }
-
-    // Mark collected (mirrors RandomizerOnItemReceiveHandler) so HasObtained() is true and the
-    // normal grant path is skipped.
-    loc->SetCheckStatus(RCSHOW_COLLECTED);
-    CheckTracker::SpoilAreaFromCheck(rc);
-    CheckTracker::RecalculateAllAreaTotals();
-    CheckTracker::RecalculateAvailableChecks();
-    SaveManager::Instance->SaveSection(gSaveContext.fileNum, SECTION_ID_TRACKER_DATA, true);
 }
 #endif
 
@@ -438,14 +437,20 @@ void RandomizerOnPlayerUpdateForRCQueueHandler() {
         Rando::Context::GetInstance()->GetFinalGIEntry(rc, true, (GetItemID)vanillaRandomizerGet);
     GetItemCategory getItemCategory = Randomizer_AdjustItemCategory(getItemEntry);
 
+#ifdef COMBO_BUILD
+    // ComboShip: a foreign check holds an MM item. It flows through the normal get-item presentation
+    // (real model via the entry's draw func, real name via BuildItemMessage, held-up animation), and
+    // the actual grant is diverted cross-game in Randomizer_Item_Give. Classify it by the foreign
+    // item's home-game importance so the skip-animation setting treats it like it would at home.
+    if (loc->GetPlacedRandomizerGet() == RG_COMBO_FOREIGN) {
+        const ComboRando::ForeignItem* fi =
+            OOT_LookupForeign(gSaveContext.fileNum, Rando::StaticData::GetLocation(rc)->GetName());
+        getItemCategory = (fi != nullptr && fi->advancement) ? ITEM_CATEGORY_MAJOR : ITEM_CATEGORY_JUNK;
+    }
+#endif
+
     if (loc->HasObtained()) {
         SPDLOG_INFO("RC {} already obtained, skipping", static_cast<uint32_t>(rc));
-#ifdef COMBO_BUILD
-    } else if (loc->GetPlacedRandomizerGet() == RG_COMBO_FOREIGN) {
-        // ComboShip: this OOT check holds an item belonging to MM. Divert it to the mailbox instead
-        // of granting locally, then fall through to pop without queueing anything.
-        OOT_SendForeignCheck(rc, loc);
-#endif
     } else {
         iceTrapScale = 0.0f;
         randomizerQueuedCheck = rc;
@@ -1340,16 +1345,15 @@ void RandomizerOnVanillaBehaviorHandler(GIVanillaBehavior id, bool* should, va_l
                 Audio_PlaySoundGeneral(NA_SE_SY_GET_ITEM, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
                                        &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
 #ifdef COMBO_BUILD
-                // ComboShip: a foreign (MM-bound) sentinel should be diverted in the RC-queue handler
-                // and never reach a local item00 grant. If one does, the MOD_NONE branch below would
-                // call Item_Give/GetItemName(ITEM_NONE) and assert. Guard the crash and log the
-                // escaping entry so we can trace which check produced it (e.g. a shopsanity slot).
-                if (item00->itemEntry.getItemId == RG_COMBO_FOREIGN ||
+                // ComboShip: a foreign (MM-bound) sentinel that dropped as a collectible is granted
+                // via the MOD_RANDOMIZER branch below (Randomizer_Item_Give diverts it cross-game).
+                // Only guard a genuinely-empty MOD_NONE entry, which would otherwise call
+                // Item_Give/GetItemName(ITEM_NONE) and assert.
+                if (item00->itemEntry.modIndex == MOD_NONE &&
                     static_cast<uint8_t>(item00->itemEntry.itemId) == ITEM_NONE) {
-                    SPDLOG_ERROR("[ComboShip] foreign/empty sentinel reached item00 grant and was NOT "
-                                 "diverted (getItemId={}, itemId={}, modIndex={}, randoInf={}, "
-                                 "collectibleFlag={}) — skipping local grant to avoid the "
-                                 "GetItemName(ITEM_NONE) crash. This foreign check escaped the RC-queue.",
+                    SPDLOG_ERROR("[ComboShip] empty sentinel reached item00 grant (getItemId={}, itemId={}, "
+                                 "modIndex={}, randoInf={}, collectibleFlag={}) — skipping local grant to "
+                                 "avoid the GetItemName(ITEM_NONE) crash.",
                                  static_cast<int>(item00->itemEntry.getItemId),
                                  static_cast<int>(item00->itemEntry.itemId),
                                  static_cast<int>(item00->itemEntry.modIndex), static_cast<int>(item00->randoInf),
@@ -1393,7 +1397,12 @@ void RandomizerOnVanillaBehaviorHandler(GIVanillaBehavior id, bool* should, va_l
                         .message = message,
                         .suffix = SohUtils::GetItemName(item00->itemEntry.itemId),
                     });
-                } else if (item00->itemEntry.modIndex == MOD_RANDOMIZER) {
+                } else if (item00->itemEntry.modIndex == MOD_RANDOMIZER
+#ifdef COMBO_BUILD
+                           // Foreign items already toast via OOT_DeliverForeign; skip the sentinel name.
+                           && item00->itemEntry.getItemId != RG_COMBO_FOREIGN
+#endif
+                ) {
                     std::string message;
                     std::string itemName;
 

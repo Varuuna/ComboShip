@@ -21,6 +21,9 @@ void CheckQueueReset();
 const ComboRando::ForeignItem* MM_LookupForeign(RandoCheckId rc);
 // ComboShip: deliver a foreign check's item to its home game + persist (caller sets obtained flags).
 void SendForeignCheck(RandoCheckId rc);
+// ComboShip: whether a foreign check plays the get-item cutscene, mirroring the foreign item's
+// home-game importance against the skip-get-item-cutscene setting.
+bool ShouldShowForeignCutscene(RandoCheckId rc);
 #endif
 void InitFileSelect();
 void InitKaleidoItemPage();

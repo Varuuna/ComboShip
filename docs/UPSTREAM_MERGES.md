@@ -1391,3 +1391,51 @@ guard on the current-scene filter; main-viewport pin + window-type flags at `Beg
 kept under `#else`). `soh/.../randomizer_check_tracker.cpp` — OOT RM scope +
 `gComboTrackerPeekSaveLoaded` around `DrawElement`; display-gate skip (stale pause/combo-button
 state while dormant).
+
+## Foreign items: full get-item presentation + model coverage + spoiler names (issues #4 #2 #1, 2026-07-07)
+
+**Why:** a foreign check (holding the OTHER game's item) used to divert BEFORE the get-item pipeline —
+instant/silent, blue-rupee sentinel model, no held-up animation, and the consolidated spoiler listed
+the sentinel name. Now a foreign item is presented in the collecting game like a native item (real
+model, real name, held-up animation gated by the skip-animation setting), and only the grant is
+diverted cross-game.
+
+**Foreign-item importance carried across (drives the animation):** the per-game dumps now emit an
+`advancement` flag per item (`soh/.../OTRGlobals.cpp` `SOH_DumpRandoStaticData` items array;
+`mm/2s2h/BenPort.cpp` `MM_DumpRandoStaticData`). The combo generator maps it into the foreign array
+(`combo/ComboShip.cpp`), and it rides in `ComboRando::ForeignItem::advancement`
+(`combo/rando/CrossForeign.h`). KNOWN SIMPLIFICATION: importance is binary (advancement vs not), so a
+foreign lesser/token/small-key over-animates vs its native 3-tier skip behavior — cosmetic only.
+
+**OOT (`COMBO_BUILD`-guarded — preserve on merges):**
+- `Enhancements/randomizer/item_list.cpp` — `RG_COMBO_FOREIGN` entry is now `MOD_RANDOMIZER` with
+  `textId = TEXT_RANDOMIZER_CUSTOM_ITEM` so it flows through the normal get-item presentation + custom
+  message (draw func already `Randomizer_DrawComboForeign`).
+- `Enhancements/randomizer/hook_handlers.cpp` — `RandomizerOnPlayerUpdateForRCQueueHandler` no longer
+  diverts foreign early; it overrides the get-item category by home-importance. `OOT_SendForeignCheck`
+  replaced by `OOT_DeliverForeign(rc)` (cross-deliver + Anchor share + toast only; guarded against
+  `RC_UNKNOWN_CHECK`), called at grant time. item00 guard tightened to genuinely-empty MOD_NONE.
+- `Enhancements/randomizer/randomizer.cpp` — `Randomizer_Item_Give` intercepts `RG_COMBO_FOREIGN` at
+  the top → `OOT_DeliverForeign(comboForeignCheck)`, no local grant. Single choke for both the held-up
+  and dropped-collectible paths.
+- `Enhancements/randomizer/Messages/ItemMessages.cpp` — `BuildComboForeignMessage` (foreign
+  `displayName` in the get-item textbox).
+- `Network/Anchor/HookHandlers.cpp` — `OnItemReceive` skips broadcasting `RG_COMBO_FOREIGN` (the real
+  cross-item is shared via `OOT_DeliverForeign`'s `Anchor_BroadcastCrossItem`).
+- `src/code/z_draw.c` — `GetItem_GetDrawTableEntry` exposes `GetItem_DrawSkullToken` (static body,
+  animated flame dropped) so GS tokens render cross-game.
+
+**MM (`COMBO_BUILD`-guarded — preserve on merges):**
+- `2s2h/Rando/MiscBehavior/CheckQueue.cpp` — the foreign branch presents (name + get-item cutscene
+  when important) then `SendForeignCheck`s instead of returning early; `ShouldShowForeignCutscene`
+  helper; emplace `showGetItemCutscene` foreign override.
+- `src/code/z_draw.c` — `GetItem_DrawSkullToken` static-body case (symmetry).
+
+**Combo-owned (no merge risk):** `combo/menu/ComboItemDrawMM.h` — `MM_FillOwlDrawInfo` renders owl
+statues via `gOwlStatueOpenedDL` (held-up position may need playtest tuning — no translate carried).
+`combo/ComboShip.cpp` — consolidated spoiler `oot`/`mm` placement arrays show real foreign names
+(apply payloads keep the sentinel).
+
+**Playtest-pending:** MM songs cross-game render (env-color path looks correct statically); owl-statue
+held-up position; foreign item landing on a starting check (Link's Pocket etc.) delivering at
+save-init.

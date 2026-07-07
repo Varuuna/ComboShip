@@ -684,21 +684,27 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         // ComboShip: resolve human display names for foreign items from the dumps' items arrays
         // (each entry: {name, displayName}). The fill only carries itemName (the grant key:
         // English for OOT, RI_* for MM); displayName feeds toasts/shop text in the check's game.
-        auto buildNameMap = [](const std::string& dump) {
+        // Also carries each item's advancement flag (name -> is-progression) so the collecting game
+        // knows whether a foreign item should play the held-up pickup animation.
+        auto buildNameMap = [](const std::string& dump, std::unordered_map<std::string, bool>& advOut) {
             std::unordered_map<std::string, std::string> m;
             try {
                 auto d = nlohmann::json::parse(dump);
                 for (auto& it : d.value("items", nlohmann::json::array())) {
                     std::string n = it.value("name", "");
                     std::string dn = it.value("displayName", "");
-                    if (!n.empty() && !dn.empty())
+                    if (n.empty())
+                        continue;
+                    advOut[n] = it.value("advancement", false);
+                    if (!dn.empty())
                         m.emplace(std::move(n), std::move(dn));
                 }
             } catch (...) {}
             return m;
         };
-        auto ootNames = buildNameMap(sohDump);
-        auto mmNames = buildNameMap(mmDump);
+        std::unordered_map<std::string, bool> ootAdv, mmAdv;
+        auto ootNames = buildNameMap(sohDump, ootAdv);
+        auto mmNames = buildNameMap(mmDump, mmAdv);
         for (auto& fm : foreignArr) {
             std::string itemGame = fm.value("itemGame", "");
             std::string itemName = fm.value("itemName", "");
@@ -709,19 +715,35 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             if (it != names.end()) {
                 fm["displayName"] = it->second;
             }
+            const auto& adv = (itemGame == "mm") ? mmAdv : ootAdv;
+            auto ait = adv.find(itemName);
+            if (ait != adv.end()) {
+                fm["advancement"] = ait->second;
+            }
         }
 
+        // The apply payloads (fed to each game's placement injection) hold the SENTINEL for foreign
+        // checks — the check's own game places the sentinel and diverts the real item cross-game. The
+        // consolidated spoiler placements (below) instead show the real item name for readability (#1).
         nlohmann::json ootApply = j.value("oot", nlohmann::json::object());
         nlohmann::json mmApply = j.value("mm", nlohmann::json::object());
+        nlohmann::json ootSpoiler = ootApply; // copy real-name placements before sentinel overwrite
+        nlohmann::json mmSpoiler = mmApply;
         for (const auto& fm : foreignArr) {
             std::string cg = fm.value("checkGame", "");
             std::string cn = fm.value("checkName", "");
             if (cn.empty())
                 continue;
-            if (cg == "oot")
+            std::string dn = fm.value("displayName", fm.value("itemName", ""));
+            if (cg == "oot") {
                 ootApply[cn] = ComboRando::kForeignSentinelNameOOT;
-            else if (cg == "mm")
+                if (!dn.empty())
+                    ootSpoiler[cn] = dn;
+            } else if (cg == "mm") {
                 mmApply[cn] = ComboRando::kForeignSentinelNameMM;
+                if (!dn.empty())
+                    mmSpoiler[cn] = dn;
+            }
         }
 
         // ComboShip: the gSaveContext-mutating apply (SOH_ApplyRandoPlacements) and the seed-hash set
@@ -770,8 +792,8 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         consolidated["masterSeed"] = masterSeed;
         consolidated["displaySeed"] = displaySeed;
         consolidated["file_hash"] = fileHashArr;
-        consolidated["oot"] = { { "settings", parseOrEmpty(SOH_DumpRandoSettings) }, { "placements", ootApply } };
-        consolidated["mm"] = { { "settings", parseOrEmpty(MM_DumpRandoSettings) }, { "placements", mmApply } };
+        consolidated["oot"] = { { "settings", parseOrEmpty(SOH_DumpRandoSettings) }, { "placements", ootSpoiler } };
+        consolidated["mm"] = { { "settings", parseOrEmpty(MM_DumpRandoSettings) }, { "placements", mmSpoiler } };
         consolidated["foreign"] = ComboRando::BuildForeignArray(foreignArr);
         consolidated["playthrough"] = playthroughJson;
         g_ConsolidatedJson = consolidated.dump(2);

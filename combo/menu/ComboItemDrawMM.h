@@ -12,6 +12,7 @@
 #include "ComboItemDrawABI.h"
 #include "objects/gameplay_keep/gameplay_keep.h"       // stray-fairy skel/anim/texanim paths + limb enums
 #include "objects/object_gi_melody/object_gi_melody.h" // gGiSongNoteDL
+#include "objects/object_sek/object_sek.h"             // gOwlStatueOpenedDL
 
 // Portable slice of one sDrawItemTable row (defined in mm/src/code/z_draw.c).
 extern "C" s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale);
@@ -100,6 +101,34 @@ static int32_t MM_FillSongDrawInfo(RandoItemId id, CwItemDrawInfo* out) {
     return 1;
 }
 
+// Owl statues have no sDrawItemTable row (GID_NONE) — MM draws them as the opened-owl model
+// (Rando/DrawItem.cpp DrawOwlStatue: Gfx_DrawDListOpa(gOwlStatueOpenedDL) at 0.01 scale). Portable
+// as a single static OPA description. (Held-up position may need tuning; DrawOwlStatue also applies a
+// -3000 local translate that the cross-game path doesn't carry — revisit if it renders off-center.)
+static int32_t MM_FillOwlDrawInfo(RandoItemId id, CwItemDrawInfo* out) {
+    switch (id) {
+        case RI_OWL_CLOCK_TOWN_SOUTH:
+        case RI_OWL_GREAT_BAY_COAST:
+        case RI_OWL_IKANA_CANYON:
+        case RI_OWL_MILK_ROAD:
+        case RI_OWL_MOUNTAIN_VILLAGE:
+        case RI_OWL_SNOWHEAD:
+        case RI_OWL_SOUTHERN_SWAMP:
+        case RI_OWL_STONE_TOWER:
+        case RI_OWL_WOODFALL:
+        case RI_OWL_ZORA_CAPE:
+            break;
+        default:
+            return 0;
+    }
+    out->dlists[0] = gOwlStatueOpenedDL;
+    out->dlistCount = 1;
+    out->xluStartIndex = -1; // all OPA (Gfx_DrawDListOpa)
+    out->scale = 0.01f;
+    out->hasEnvColor = 0;
+    return 1;
+}
+
 // Cross-game item draw info. OOT resolves this via GetProcAddress to learn which MM display lists
 // render a foreign item, then submits them through "__OTR__@mm:"-routed paths resolved against
 // MM's ResourceManager (CrossRMRegistry). itemName is the MM RI_* spoilerName — the same grant key
@@ -121,6 +150,9 @@ extern "C" __declspec(dllexport) int32_t MM_GetItemDrawInfo(const char* itemName
     }
     if (MM_FillSongDrawInfo(id, out)) {
         return 1; // songs: tinted note, no table row
+    }
+    if (MM_FillOwlDrawInfo(id, out)) {
+        return 1; // owl statues: opened-owl model, no table row
     }
     void* dls[CW_DRAW_MAX_DLISTS] = {};
     int32_t xluStart = -1;

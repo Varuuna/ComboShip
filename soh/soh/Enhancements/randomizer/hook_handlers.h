@@ -11,4 +11,8 @@ const ComboRando::ForeignItem* OOT_LookupForeign(int slot, const std::string& ch
 // ComboShip: currently-queued get-item check (RC_UNKNOWN_CHECK if none) — fallback identity for
 // the foreign draw func (defined in hook_handlers.cpp).
 RandomizerCheck OOT_GetQueuedDrawCheck();
+// ComboShip: deliver a foreign OOT check's real item to its home game + Anchor share + toast.
+// Called at grant time (Randomizer_Item_Give) so the foreign item flows through the normal get-item
+// presentation; the caller skips the local grant. Defined in hook_handlers.cpp.
+void OOT_DeliverForeign(RandomizerCheck rc);
 #endif

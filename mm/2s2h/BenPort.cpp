@@ -2674,6 +2674,15 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
     memcpy(&gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys, &gSaveContext.save.saveInfo.inventory.dungeonKeys,
            sizeof(gSaveContext.save.saveInfo.inventory.dungeonKeys));
 
+    // ComboShip: the baseline (SaveManager_InitNewSaveForSlot) force-grants a playable mid-playthrough
+    // kit (Ocarina, Deku Mask, Song of Time/Healing) — correct for a vanilla combo MM save, but for a
+    // RANDO save these must be shuffled. Strip them so only the configured starting items (below) and
+    // the always-eligible Deku Mask / Song of Healing checks provide items. The Human / South-Clock-Town
+    // state stays so the save remains playable.
+    INV_CONTENT(ITEM_OCARINA_OF_TIME) = ITEM_NONE;
+    INV_CONTENT(ITEM_MASK_DEKU) = ITEM_NONE;
+    gSaveContext.save.saveInfo.inventory.questItems &= ~((1 << QUEST_SONG_TIME) | (1 << QUEST_SONG_HEALING));
+
     try {
         // ApplyToSaveContext consumes a full MM spoiler: it requires finalSeed, options, startingItems
         // and checks keys (startingItems and finalSeed throw if absent). For the no-logic native phase

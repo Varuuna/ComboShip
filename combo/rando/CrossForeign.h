@@ -33,9 +33,10 @@ inline constexpr const char* kForeignSentinelNameOOT = "Combo Foreign Item"; // 
 inline constexpr const char* kForeignSentinelNameMM = "RI_COMBO_FOREIGN";    // MM spoilerName
 
 struct ForeignItem {
-    GameId itemGame;         // the game the item belongs to / must be delivered to
-    std::string itemName;    // item key in itemGame's namespace (English for OOT, RI_* for MM)
-    std::string displayName; // human string for the "sent"/"received" text
+    GameId itemGame;          // the game the item belongs to / must be delivered to
+    std::string itemName;     // item key in itemGame's namespace (English for OOT, RI_* for MM)
+    std::string displayName;  // human string for the "sent"/"received" text
+    bool advancement = false; // progression in its home game -> drives the held-up pickup animation
 };
 
 inline std::string GameIdToKey(GameId g) {
@@ -124,7 +125,8 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray) {
                         { "checkName", checkName },
                         { "itemGame", itemGame },
                         { "itemName", itemName },
-                        { "displayName", displayName } });
+                        { "displayName", displayName },
+                        { "advancement", fm.value("advancement", false) } });
     }
     return out;
 }
@@ -151,6 +153,7 @@ inline std::unordered_map<std::string, ForeignItem> LoadForeignForGame(int slot,
             fi.itemGame = KeyToGameId(fm.value("itemGame", ""));
             fi.itemName = fm.value("itemName", "");
             fi.displayName = fm.value("displayName", fi.itemName);
+            fi.advancement = fm.value("advancement", false);
             map.emplace(fm.value("checkName", ""), std::move(fi));
         }
     } catch (...) { /* corrupt -> treat as empty */

@@ -3389,7 +3389,8 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             continue;
         // ComboShip: OOT item names are already human English; displayName == name keeps the
         // dump schema symmetric with MM's (which needs the distinction: RI_* vs human).
-        items.push_back({ { "name", name }, { "displayName", name } });
+        // advancement drives whether a foreign item plays the held-up pickup animation.
+        items.push_back({ { "name", name }, { "displayName", name }, { "advancement", item.IsAdvancement() } });
     }
 
     cached = nlohmann::json{ { "checks", std::move(checks) }, { "items", std::move(items) } }.dump();

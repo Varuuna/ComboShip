@@ -76,6 +76,18 @@ void Rando::MiscBehavior::SendForeignCheck(RandoCheckId rc) {
     // survives a transition to OOT and back.
     SaveManager_SaveCurrentForCombo();
 }
+
+// ComboShip: mirror ShouldShowGetItemCutscene, but for a foreign check use the foreign item's
+// home-game importance (advancement) against the skip-get-item-cutscene setting.
+bool Rando::MiscBehavior::ShouldShowForeignCutscene(RandoCheckId rc) {
+    const ComboRando::ForeignItem* fi = MM_LookupForeign(rc);
+    const bool advancement = fi != nullptr && fi->advancement;
+    const int lvl = CVarGetInteger("gEnhancements.Cutscenes.SkipGetItemCutscenes", 0);
+    if (lvl == 0) {
+        return true;
+    }
+    return advancement ? (lvl < 3) : (lvl < 1);
+}
 #endif
 
 static bool queued = false;
@@ -102,20 +114,40 @@ void Rando::MiscBehavior::CheckQueue() {
 
             GameInteractor::Instance->events.emplace_back(GIEventGiveItem{
                 .showGetItemCutscene =
+#ifdef COMBO_BUILD
+                    // Foreign checks decide by the foreign item's home-game importance.
+                (randoSaveCheck.randoItemId == RI_COMBO_FOREIGN)
+                    ? Rando::MiscBehavior::ShouldShowForeignCutscene(randoCheckId)
+                    :
+#endif
                     Rando::StaticData::ShouldShowGetItemCutscene(ConvertItem(randoSaveCheck.randoItemId, randoCheckId)),
                 .param = (int16_t)randoCheckId,
                 .giveItem =
                     [](Actor* actor, PlayState* play) {
                         auto& randoSaveCheck = RANDO_SAVE_CHECKS[CUSTOM_ITEM_PARAM];
 #ifdef COMBO_BUILD
-                        // ComboShip: this MM check holds an item belonging to OOT. Divert it to the
-                        // mailbox instead of granting locally. Branch on the raw stored id (before
-                        // ConvertItem) so the sentinel is matched directly.
+                        // ComboShip: this MM check holds an item belonging to OOT. Present it like a
+                        // native item (real name + get-item cutscene when important at home; the
+                        // held-up model is drawn by the drawItem lambda -> MM_DrawComboForeign), then
+                        // deliver it cross-game instead of granting locally. Branch on the raw stored
+                        // id (before ConvertItem) so the sentinel is matched directly.
                         if (randoSaveCheck.randoItemId == RI_COMBO_FOREIGN) {
+                            RandoCheckId cid = (RandoCheckId)CUSTOM_ITEM_PARAM;
+                            std::string foreignName = Rando::StaticData::GetItemName(RI_COMBO_FOREIGN, false, cid);
+                            CustomMessage::Entry entry = {
+                                .textboxType = 2,
+                                .icon = Rando::StaticData::GetIconForZMessage(RI_COMBO_FOREIGN),
+                                .msg = "You found " + foreignName + "!",
+                            };
+                            if (CUSTOM_ITEM_FLAGS & CustomItem::GIVE_ITEM_CUTSCENE) {
+                                CustomMessage::SetActiveCustomMessage(entry.msg, entry);
+                            } else if (Rando::MiscBehavior::ShouldShowForeignCutscene(cid)) {
+                                CustomMessage::StartTextbox(entry.msg + "\x1C\x02\x10", entry);
+                            }
                             randoSaveCheck.cycleObtained = true;
                             randoSaveCheck.obtained = true;
                             randoSaveCheck.eligible = false;
-                            Rando::MiscBehavior::SendForeignCheck((RandoCheckId)CUSTOM_ITEM_PARAM);
+                            Rando::MiscBehavior::SendForeignCheck(cid); // cross-deliver + toast + save
                             queued = false;
                             CUSTOM_ITEM_PARAM = RI_COMBO_FOREIGN;
                             return;

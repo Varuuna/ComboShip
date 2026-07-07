@@ -2054,8 +2054,8 @@ void DrawLocation(RandomizerCheck rc) {
                 if (IS_RANDO) {
                     txt = itemLoc->GetPlacedItem().GetName().GetForLanguage(gSaveContext.language);
 #ifdef COMBO_BUILD
-                    // ComboShip: collected foreign checks (the state every touched check ends in —
-                    // OOT_SendForeignCheck sets RCSHOW_COLLECTED) must also show the real MM item.
+                    // ComboShip: collected foreign checks (marked RCSHOW_COLLECTED by
+                    // RandomizerOnItemReceiveHandler like any other item) must also show the real MM item.
                     if (itemLoc->GetPlacedRandomizerGet() == RG_COMBO_FOREIGN) {
                         const ComboRando::ForeignItem* fi = OOT_LookupForeign(gSaveContext.fileNum, loc->GetName());
                         if (fi != nullptr && !fi->displayName.empty()) {

@@ -13,6 +13,10 @@
 #include "soh/Enhancements/randomizer/randomizer.h"
 #include "soh/ShipInit.hpp"
 #include <soh/ResourceManagerHelpers.h>
+#ifdef COMBO_BUILD
+#include "rando/CrossForeign.h"
+#include "soh/Enhancements/randomizer/hook_handlers.h"
+#endif
 
 #include <cstdarg>
 #include <algorithm>
@@ -211,6 +215,28 @@ void DrawCustomItemIcon(Gfx** p) {
     *p = gfx;
 }
 
+#ifdef COMBO_BUILD
+// ComboShip: get-item text for a foreign check — the real MM item's display name (from the foreign
+// map) instead of the "Combo Foreign Item" sentinel. Check identity rides in comboForeignCheck.
+void BuildComboForeignMessage(Player* player, CustomMessage& msg) {
+    std::string name = "Foreign Item";
+    RandomizerCheck rc = (RandomizerCheck)player->getItemEntry.comboForeignCheck;
+    if (rc != RC_UNKNOWN_CHECK) {
+        const ComboRando::ForeignItem* fi =
+            OOT_LookupForeign(gSaveContext.fileNum, Rando::StaticData::GetLocation(rc)->GetName());
+        if (fi != nullptr && !fi->displayName.empty()) {
+            name = fi->displayName;
+        }
+    }
+    msg = CustomMessage("You found %g[[name]]%w!", "Du erhältst %g[[name]]%w!", "Vous avez trouvé %g[[name]]%w!",
+                        TEXTBOX_TYPE_BLUE);
+    msg.Replace("[[name]]", name);
+    // Plain AutoFormat (no ITEM_CUSTOM): the sentinel has no custom icon, so the icon control code
+    // would render a stray glyph + a stale item texture.
+    msg.AutoFormat();
+}
+#endif
+
 void BuildItemMessage(u16* textId, bool* loadFromMessageTable) {
     Player* player = GET_PLAYER(gPlayState);
     CustomMessage msg;
@@ -221,6 +247,10 @@ void BuildItemMessage(u16* textId, bool* loadFromMessageTable) {
         BuildTriforcePieceMessage(msg);
     } else if (player->getItemEntry.getItemId == RG_TRIFORCE) {
         BuildTriforceMessage(msg);
+#ifdef COMBO_BUILD
+    } else if (player->getItemEntry.getItemId == RG_COMBO_FOREIGN) {
+        BuildComboForeignMessage(player, msg);
+#endif
     } else {
         BuildCustomItemMessage(player, msg);
     }

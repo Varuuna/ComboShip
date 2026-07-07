@@ -464,11 +464,11 @@ void Rando::StaticData::InitItemTable() {
     itemTable[RG_ROCS_FEATHER] =                        Item(RG_ROCS_FEATHER,                     Text{ "Roc's Feather", "Plume de Roc", "Grefenfeider" },                                                                             ITEMTYPE_ITEM,              0xE0,                 true,  LOGIC_ROCS_FEATHER,                 RHT_ROCS_FEATHER,                      RG_ROCS_FEATHER,                      OBJECT_GI_BOMB_2,       GID_STONE_OF_AGONY,   TEXT_RANDOMIZER_CUSTOM_ITEM, 0x80, CHEST_ANIM_LONG,  ITEM_CATEGORY_MAJOR,  MOD_RANDOMIZER, {"a ", "la ", "ein "}).CustomIcon(gRocsFeatherTex);
     itemTable[RG_ROCS_FEATHER].SetCustomDrawFunc(Randomizer_DrawRocsFeather);
 
-    // ComboShip: sentinel for a check holding an MM-bound item. Never actually granted — the pickup
-    // code intercepts RG_COMBO_FOREIGN and diverts the real item through the cross-world mailbox. A
-    // harmless GIEntry is supplied so GetFinalGIEntry/RetrieveItem don't fault if resolved before the
-    // divert. The English name is what the combo generator writes into the OOT placement payload.
-    itemTable[RG_COMBO_FOREIGN] =                       Item(RG_COMBO_FOREIGN,                    Text{ "Combo Foreign Item", "Combo Foreign Item", "Combo Foreign Item" },                                            ITEMTYPE_ITEM,              GI_RUPEE_BLUE,        false, LOGIC_NONE,                         RHT_NONE,                              ITEM_NONE,                            OBJECT_GI_RUPY,          GID_RUPEE_BLUE,      0x4A,                        0x80, CHEST_ANIM_SHORT, ITEM_CATEGORY_JUNK,   MOD_NONE);
+    // ComboShip: sentinel for a check holding an MM-bound item. It flows through the normal get-item
+    // presentation (MOD_RANDOMIZER + custom draw func + TEXT_RANDOMIZER_CUSTOM_ITEM message); the
+    // actual grant is diverted cross-game in Randomizer_Item_Give (no local effect). GID_RUPEE_BLUE is
+    // the draw fallback when the real MM model can't be resolved (see Randomizer_DrawComboForeign).
+    itemTable[RG_COMBO_FOREIGN] =                       Item(RG_COMBO_FOREIGN,                    Text{ "Combo Foreign Item", "Combo Foreign Item", "Combo Foreign Item" },                                            ITEMTYPE_ITEM,              GI_RUPEE_BLUE,        false, LOGIC_NONE,                         RHT_NONE,                              ITEM_NONE,                            OBJECT_GI_RUPY,          GID_RUPEE_BLUE,      TEXT_RANDOMIZER_CUSTOM_ITEM, 0x80, CHEST_ANIM_SHORT, ITEM_CATEGORY_JUNK,   MOD_RANDOMIZER);
 #ifdef COMBO_BUILD
     // ComboShip: render foreign checks with the real MM item model via "@mm:" cross-RM routing
     // (sentinel blue rupee when the model can't be resolved — see Randomizer_DrawComboForeign).

@@ -459,6 +459,12 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
         order = sOrder1032;
         count = 4;
         xluStart = 2;
+    } else if (drawFunc == GetItem_DrawSkullToken) {
+        // Static body only (OPA dlists[0]); the XLU flame needs an animated segment-8 texture scroll
+        // that isn't portable to the other game's frame, so it is dropped.
+        order = sOrder0;
+        count = 1;
+        xluStart = -1;
     } else {
         return 0;
     }

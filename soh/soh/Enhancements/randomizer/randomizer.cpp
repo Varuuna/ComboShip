@@ -22,6 +22,9 @@
 #include "soh/ObjectExtension/ObjectExtension.h"
 #include "soh/Enhancements/randomizer/RCToRandInf.h"
 #include "dungeon.h"
+#ifdef COMBO_BUILD
+#include "hook_handlers.h" // ComboShip: OOT_DeliverForeign for RG_COMBO_FOREIGN grant divert
+#endif
 
 extern "C" {
 #include "src/overlays/actors/ovl_Obj_Bean/z_obj_bean.h"
@@ -1084,6 +1087,16 @@ extern "C" u16 Randomizer_Item_Give(PlayState* play, GetItemEntry giEntry) {
     }
 
     RandomizerGet item = (RandomizerGet)giEntry.getItemId;
+
+#ifdef COMBO_BUILD
+    // ComboShip: a foreign check's item belongs to the OTHER game. After the normal get-item
+    // presentation (real model + name + held-up animation) reaches here, divert the real item
+    // cross-game instead of granting anything locally.
+    if (item == RG_COMBO_FOREIGN) {
+        OOT_DeliverForeign((RandomizerCheck)giEntry.comboForeignCheck);
+        return Return_Item_Entry(giEntry, RG_NONE);
+    }
+#endif
 
     // Gameplay stats: Update the time the item was obtained
     Randomizer_GameplayStats_SetTimestamp(item);

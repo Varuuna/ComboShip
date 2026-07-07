@@ -1441,3 +1441,34 @@ statues via `gOwlStatueOpenedDL` (held-up position may need playtest tuning — 
 **Playtest-pending:** MM songs cross-game render (env-color path looks correct statically); owl-statue
 held-up position; foreign item landing on a starting check (Link's Pocket etc.) delivering at
 save-init.
+
+## Ending gated on both final bosses defeated (2026-07-07)
+
+**Why:** OOT and MM each fired their own credits the instant their final boss died — but only one game
+ticks at a time, so beating Ganon played OOT's full ending while Majora was still alive (and vice
+versa). Now the ending plays only after BOTH are dead: the first kill plays its death cutscene then
+warps the player back to the cross-game portal to finish the other game; the second kill lets that
+game's native ending run as the finale.
+
+**Combo-owned (`combo/ComboShip.cpp`, no merge risk):** `Combo_OnFinalBossDefeated(game, fileNum)`
+records each kill in a per-slot sidecar (`Randomizer/save{N}-ComboCompletion.json`, `{oot,mm}` bools),
+returns 1 iff both are dead. Loaded on OOT save-load (`Combo_OnOOTSaveLoad`) so it survives
+quit/resume and MM's Song-of-Time cycles. Registered into both DLLs via the new setters below.
+
+**Port seams (`COMBO_BUILD`-guarded — preserve on merges):**
+- `soh/soh/OTRGlobals.cpp` — `gComboFinalBossDefeated` pointer + `SOH_SetFinalBossDefeatedCb` export.
+- `mm/2s2h/BenPort.cpp` — `gComboFinalBossDefeated` pointer + `MM_SetFinalBossDefeatedCb` export.
+
+**Vendored boss seams (`COMBO_BUILD`-guarded — preserve on merges, ~13 lines each):**
+- `soh/src/overlays/actors/ovl_Boss_Ganon2/z_boss_ganon2.c` — death cutscene `case 20`: if not both
+  dead, warp to `ENTR_MARKET_DAY_OUTSIDE_HAPPY_MASK_SHOP` (child, no cutscene) instead of the Chamber
+  of the Sages credits. Reuses the existing MM→OOT portal arrival point (see title_setup.c).
+- `mm/src/overlays/actors/ovl_Boss_07/z_boss_07.c` — Majora's Wrath death: if not both dead, warp to
+  `ENTRANCE(SOUTH_CLOCK_TOWN, 0)` (no cutscene) instead of the Termina Field `0xFFF7` credits.
+
+**Deviation from plan:** the OOT first-kill warp targets the Happy Mask Shop area (not Temple of Time)
+because the OOT→MM portal is the Happy Mask Shop, only reachable as child in the Market — adult Link at
+Temple of Time couldn't reach it.
+
+**Playtest-pending:** both orders (Ganon-first and Majora-first); portal reachable after each warp;
+resume-after-first-kill keeps the flag; finale plays on the second kill.

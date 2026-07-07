@@ -31,6 +31,11 @@
 #include "2s2h/Enhancements/FrameInterpolation/FrameInterpolation.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
 
+#ifdef COMBO_BUILD
+// ComboShip: end-gating. Returns 1 iff both games' final bosses are dead (see BenPort.cpp).
+extern int (*gComboFinalBossDefeated)(int game, int fileNum);
+#endif
+
 #define FLAGS                                                                                 \
     (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_HOSTILE | ACTOR_FLAG_UPDATE_CULLING_DISABLED | \
      ACTOR_FLAG_DRAW_CULLING_DISABLED)
@@ -1958,9 +1963,20 @@ void Boss07_Wrath_DeathCutscene(Boss07* this, PlayState* play) {
                         Audio_SetSfxVolumeTransition(&gSfxVolume, 0.0f, 90);
                     }
                     if (this->cutsceneTimer == (u32)(KREG(94) + 440)) {
-                        play->nextEntrance = ENTRANCE(TERMINA_FIELD, 0);
-                        gSaveContext.nextCutsceneIndex = 0xFFF7;
-                        play->transitionTrigger = TRANS_TRIGGER_START;
+#ifdef COMBO_BUILD
+                        // ComboShip: gate the ending on both bosses. If Ganon isn't dead yet, skip MM's
+                        // credits and warp to South Clock Town to go finish OOT via the Clock Tower portal.
+                        if (gComboFinalBossDefeated == NULL || !gComboFinalBossDefeated(1, gSaveContext.fileNum)) {
+                            play->nextEntrance = ENTRANCE(SOUTH_CLOCK_TOWN, 0);
+                            gSaveContext.nextCutsceneIndex = 0xFFEF;
+                            play->transitionTrigger = TRANS_TRIGGER_START;
+                        } else
+#endif
+                        {
+                            play->nextEntrance = ENTRANCE(TERMINA_FIELD, 0);
+                            gSaveContext.nextCutsceneIndex = 0xFFF7;
+                            play->transitionTrigger = TRANS_TRIGGER_START;
+                        }
                     }
                 }
                 if (this->cutsceneTimer > 300) {

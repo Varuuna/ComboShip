@@ -366,6 +366,16 @@ static FnSetCrossRoute MM_SetMarkForeignObtained = nullptr;
 static FnGrantCrossItem SOH_MarkForeignObtained = nullptr;
 static FnGrantCrossItem MM_MarkForeignObtained = nullptr;
 
+// ComboShip: gate the ending on BOTH final bosses. Each game calls the registered callback when its
+// final boss dies (OOT Ganon / MM Majora): it records the kill in the per-slot completion sidecar and
+// returns 1 iff both are now dead. The game then plays its native ending (finale) or warps the player
+// back to the cross-game portal to finish the other game. See docs/UPSTREAM_MERGES.md.
+typedef void (*FnSetBossDefeatedCb)(int (*)(int, int));
+static FnSetBossDefeatedCb SOH_SetFinalBossDefeatedCb = nullptr;
+static FnSetBossDefeatedCb MM_SetFinalBossDefeatedCb = nullptr;
+static bool g_comboCompletion[2] = { false, false };
+static int g_comboCompletionSlot = -1;
+
 namespace ComboAnchor {
 static std::thread sThread;
 static std::atomic<bool> sEnabled{ false };
@@ -557,6 +567,56 @@ static void MarkForeignObtained(int srcGame, const char* checkName) {
         if (SOH_MarkForeignObtained)
             SOH_MarkForeignObtained(checkName);
     }
+}
+
+// Per-slot completion sidecar (Randomizer/save{N}-ComboCompletion.json). Small, combo-owned, works in
+// non-rando play. Read on save-load, rewritten on each final-boss kill.
+static std::filesystem::path ComboCompletionPath(int slot) {
+    return ComboRando::ConsolidatedDir() / ("save" + std::to_string(slot) + "-ComboCompletion.json");
+}
+
+static void LoadComboCompletion(int slot) {
+    g_comboCompletion[0] = g_comboCompletion[1] = false;
+    g_comboCompletionSlot = slot;
+    std::ifstream in(ComboCompletionPath(slot));
+    if (!in.is_open())
+        return;
+    try {
+        nlohmann::json j;
+        in >> j;
+        g_comboCompletion[0] = j.value("oot", false);
+        g_comboCompletion[1] = j.value("mm", false);
+    } catch (...) { /* corrupt -> treat as none */
+    }
+}
+
+static void SaveComboCompletion(int slot) {
+    std::error_code ec;
+    std::filesystem::create_directories(ComboRando::ConsolidatedDir(), ec);
+    nlohmann::json j;
+    j["oot"] = g_comboCompletion[0];
+    j["mm"] = g_comboCompletion[1];
+    std::ofstream out(ComboCompletionPath(slot));
+    if (out.is_open())
+        out << j.dump(2);
+}
+
+// Registered into both games: record THIS game's final-boss kill for its slot and return 1 iff BOTH
+// games' bosses are now dead. game/fileNum use the GameId convention (0=OOT, 1=MM).
+static int Combo_OnFinalBossDefeated(int game, int fileNum) {
+    if (game != 0 && game != 1)
+        return 0;
+    if (fileNum != g_comboCompletionSlot)
+        LoadComboCompletion(fileNum);
+    // The OOT death cutscene re-enters this every frame during the fade; persist + log only on the
+    // first report for this slot so we don't thrash the sidecar. Repeats just return the cached answer.
+    if (!g_comboCompletion[game]) {
+        g_comboCompletion[game] = true;
+        SaveComboCompletion(fileNum);
+        std::cout << "[ComboShip] Final boss defeated: game=" << game << " slot=" << fileNum
+                  << " both=" << (g_comboCompletion[0] && g_comboCompletion[1]) << std::endl;
+    }
+    return (g_comboCompletion[0] && g_comboCompletion[1]) ? 1 : 0;
 }
 
 // Seed utilities — Ship_Hash/Ship_Random are not exported from libultraship, so implement inline.
@@ -1283,6 +1343,7 @@ static void Combo_OnOOTSaveInit(int fileNum) {
 // memory so the combo tracker peek shows real MM items before MM is visited. Skipped when that
 // slot's MM save is already live in memory — reloading from disk would clobber newer progress.
 static void Combo_OnOOTSaveLoad(int fileNum) {
+    LoadComboCompletion(fileNum); // refresh both-bosses-beaten flags for this slot
     if (!MM_LoadSaveForCombo || g_MmSaveInMemorySlot == fileNum) {
         return;
     }
@@ -1487,6 +1548,8 @@ int main(int argc, char** argv) {
     MM_SetMarkForeignObtained = (FnSetCrossRoute)GetSym(mmModule, "MM_SetMarkForeignObtained");
     SOH_MarkForeignObtained = (FnGrantCrossItem)GetSym(sohModule, "SOH_MarkForeignObtained");
     MM_MarkForeignObtained = (FnGrantCrossItem)GetSym(mmModule, "MM_MarkForeignObtained");
+    SOH_SetFinalBossDefeatedCb = (FnSetBossDefeatedCb)GetSym(sohModule, "SOH_SetFinalBossDefeatedCb");
+    MM_SetFinalBossDefeatedCb = (FnSetBossDefeatedCb)GetSym(mmModule, "MM_SetFinalBossDefeatedCb");
 
     // Oracle exports
     Combo_SOH_Rando_Reset = (FnOracleVoid)GetSym(sohModule, "Combo_SOH_Rando_Reset");
@@ -1653,6 +1716,10 @@ int main(int argc, char** argv) {
         SOH_SetMarkForeignObtained(MarkForeignObtained);
     if (MM_SetMarkForeignObtained)
         MM_SetMarkForeignObtained(MarkForeignObtained);
+    if (SOH_SetFinalBossDefeatedCb)
+        SOH_SetFinalBossDefeatedCb(Combo_OnFinalBossDefeated);
+    if (MM_SetFinalBossDefeatedCb)
+        MM_SetFinalBossDefeatedCb(Combo_OnFinalBossDefeated);
     if (SOH_SetCrossDeliver || MM_SetCrossDeliver) {
         std::cout << "[ComboShip] Cross-game item delivery seam registered." << std::endl;
     }

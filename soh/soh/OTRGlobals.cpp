@@ -2775,6 +2775,12 @@ extern "C" void (*gComboMarkForeignObtained)(int srcGame, const char* checkName)
 extern "C" __declspec(dllexport) void SOH_SetMarkForeignObtained(void (*cb)(int, const char*)) {
     gComboMarkForeignObtained = cb;
 }
+// ComboShip: end-gating seam. z_boss_ganon2.c calls gComboFinalBossDefeated when Ganon dies to learn
+// whether MM's Majora is also dead (=> play OOT's ending) or not (=> warp to the portal to finish MM).
+extern "C" int (*gComboFinalBossDefeated)(int game, int fileNum) = nullptr;
+extern "C" __declspec(dllexport) void SOH_SetFinalBossDefeatedCb(int (*cb)(int, int)) {
+    gComboFinalBossDefeated = cb;
+}
 #endif
 
 #ifdef COMBO_BUILD

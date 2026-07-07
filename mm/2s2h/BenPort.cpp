@@ -3025,6 +3025,18 @@ static void GiveItemForOracle(RandoItemId ri) {
             SET_EQUIP_VALUE(EQUIP_TYPE_SWORD, EQUIP_VALUE_SWORD_GILDED);
             break;
 
+        // Shields are EQUIPMENT, not inventory-grid items (no gItemSlots entry), and logic reads the
+        // equipped value (GET_CUR_EQUIP_VALUE) — e.g. Igos du Ikana needs the Mirror Shield. Real pickup
+        // auto-equips (z_parameter.c); mirror that here (best shield wins). Do NOT touch INV_CONTENT — its
+        // slot lookup is SLOT_NONE for shields and would write out of bounds.
+        case RI_SHIELD_HERO:
+        case RI_SHIELD_MIRROR: {
+            u16 shieldEquip = (u16)(Rando::StaticData::Items[ri].itemId - ITEM_SHIELD_HERO + EQUIP_VALUE_SHIELD_HERO);
+            if (GET_CUR_EQUIP_VALUE(EQUIP_TYPE_SHIELD) < shieldEquip)
+                SET_EQUIP_VALUE(EQUIP_TYPE_SHIELD, shieldEquip);
+            break;
+        }
+
         // Bomb bags — set upgrade + inventory
         case RI_BOMB_BAG_20:
             Inventory_ChangeUpgrade(UPG_BOMB_BAG, 1);
@@ -3098,22 +3110,28 @@ static void GiveItemForOracle(RandoItemId ri) {
                              DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE);
             break;
 
-        // Small keys
+        // Small keys. ComboShip: logic's KEY_COUNT reads rando.foundDungeonKeys, NOT inventory.dungeonKeys
+        // (DUNGEON_KEY_COUNT), so bump both like the real GiveItem — else every KEY_COUNT gate stays 0 and
+        // key-locked dungeon rooms (Stone Tower/Snowhead/Great Bay deep) are unreachable.
         case RI_WOODFALL_SMALL_KEY:
             DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE) =
                 std::max(0, (int)DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE)) + 1;
+            gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE]++;
             break;
         case RI_SNOWHEAD_SMALL_KEY:
             DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE) =
                 std::max(0, (int)DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE)) + 1;
+            gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE]++;
             break;
         case RI_GREAT_BAY_SMALL_KEY:
             DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE) =
                 std::max(0, (int)DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE)) + 1;
+            gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE]++;
             break;
         case RI_STONE_TOWER_SMALL_KEY:
             DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE) =
                 std::max(0, (int)DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE)) + 1;
+            gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE]++;
             break;
 
         // Stray fairies
@@ -3163,6 +3181,9 @@ static void GiveItemForOracle(RandoItemId ri) {
             break;
         case RI_POWDER_KEG:
             Flags_SetWeekEventReg(WEEKEVENTREG_HAS_POWDERKEG_PRIVILEGES);
+            // ComboShip: logic gates on HAS_ITEM(ITEM_POWDER_KEG) (INV_CONTENT), not the privilege reg;
+            // real GiveItem also does Item_Give, so grant the slot too or Milk Road/Ikana/cows never open.
+            INV_CONTENT(ITEM_POWDER_KEG) = ITEM_POWDER_KEG;
             break;
         case RI_GREAT_SPIN_ATTACK:
             SET_WEEKEVENTREG(WEEKEVENTREG_RECEIVED_GREAT_SPIN_ATTACK);

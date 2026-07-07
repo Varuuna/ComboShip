@@ -31,9 +31,6 @@ extern "C" {
 extern PlayState* gPlayState;
 }
 
-#include <libultraship/bridge.h>
-#include <libultraship/libultraship.h>
-
 #ifdef COMBO_BUILD
 #include "rando/CrossForeign.h" // ComboShip: GameId
 // ComboShip (issue #3): immediate cross-game delivery seam (defined in OTRGlobals.cpp).

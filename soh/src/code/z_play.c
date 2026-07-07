@@ -33,7 +33,6 @@ Input* D_8012D1F8 = NULL;
 
 PlayState* gPlayState;
 s16 firstInit = 0;
-s16 gEnPartnerId;
 
 void Play_SpawnScene(PlayState* play, s32 sceneId, s32 spawn);
 
@@ -328,6 +327,10 @@ u8 CheckDungeonCount() {
         dungeonCount++;
     }
 
+    if (Flags_GetRandomizerInf(RAND_INF_DUNGEONS_DONE_GANONS_TOWER)) {
+        dungeonCount++;
+    }
+
     return dungeonCount;
 }
 
@@ -347,24 +350,6 @@ u8 CheckBridgeRewardCount() {
             break;
     }
     return bridgeRewardCount;
-}
-
-u8 CheckLACSRewardCount() {
-    u8 lacsRewardCount = 0;
-
-    switch (Randomizer_GetSettingValue(RSK_LACS_OPTIONS)) {
-        case RO_LACS_WILDCARD_REWARD:
-            if (Flags_GetRandomizerInf(RAND_INF_GREG_FOUND)) {
-                lacsRewardCount += 1;
-            }
-            break;
-        case RO_LACS_GREG_REWARD:
-            if (Flags_GetRandomizerInf(RAND_INF_GREG_FOUND)) {
-                lacsRewardCount += 1;
-            }
-            break;
-    }
-    return lacsRewardCount;
 }
 
 void Play_Init(GameState* thisx) {

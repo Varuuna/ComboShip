@@ -188,6 +188,20 @@ static std::set<SceneId> scenesToCheckParent = {
     SCENE_BANDROOM,  SCENE_TOUGITES,    SCENE_MUSICHOUSE,
 };
 
+static std::unordered_map<SceneId, const char*> sCheckTrackerSceneNameOverrides = {
+    { SCENE_20SICHITAI, "Southern Swamp" },   { SCENE_10YUKIYAMANOMURA, "Mountain Village" },
+    { SCENE_11GORONNOSATO, "Goron Village" }, { SCENE_17SETUGEN, "Path to Goron Village" },
+    { SCENE_KAKUSIANA, "Lone Peak Shrine" },
+};
+
+const char* GetCheckTrackerSceneName(SceneId sceneId) {
+    auto it = sCheckTrackerSceneNameOverrides.find(sceneId);
+    if (it != sCheckTrackerSceneNameOverrides.end()) {
+        return it->second;
+    }
+    return Ship_GetSceneName(sceneId);
+}
+
 SceneId GetScrollTargetScene(s32 rawSceneId) {
     SceneId sceneId = (SceneId)Play_GetOriginalSceneId(rawSceneId);
     if (scenesToCheckParent.contains(sceneId)) {
@@ -406,7 +420,7 @@ void CheckTrackerDrawNonLogicalList() {
             sScrollToTargetEntrance = -1;
         }
         ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0));
-        std::string headerText = Ship_GetSceneName(sceneId);
+        std::string headerText = GetCheckTrackerSceneName(sceneId);
         headerText += " (" + std::to_string(obtainedCheckSum) + "/" + std::to_string(unfilteredChecks.size()) + ")";
 
         ImGui::PushStyleColor(ImGuiCol_Text, obtainedCheckSum == unfilteredChecks.size()

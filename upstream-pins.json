@@ -14,16 +14,16 @@
       "branch": "develop",
       "prefix": "soh",
       "subtree": "soh",
-      "mergedSha": "aedddc21e",
-      "mergedDate": "2026-06-29"
+      "mergedSha": "8602c6d15",
+      "mergedDate": "2026-07-06"
     },
     "mm": {
       "remote": "https://github.com/HarbourMasters/2ship2harkinian.git",
       "branch": "develop",
       "prefix": "mm",
       "subtree": "mm",
-      "mergedSha": "c74ad0e38",
-      "mergedDate": "2026-06-29"
+      "mergedSha": "cfd1116a4",
+      "mergedDate": "2026-07-06"
     }
   }
 }

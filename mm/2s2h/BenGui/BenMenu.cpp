@@ -102,6 +102,10 @@ static const std::vector<const char*> alwaysWinDoggyraceOptions = {
     "Always",                    // ALWAYS_WIN_DOGGY_RACE_ALWAYS
 };
 
+static const std::unordered_map<int32_t, const char*> bossHealthOptions = {
+    { 0, "1x (Default)" }, { 1, "1.25x" }, { 2, "1.50x" }, { 3, "1.75x" }, { 4, "2x" }
+};
+
 static const std::vector<const char*> cremiaRewardOptions = {
     "Vanilla", // CREMIA_REWARD_RANDOM
     "Hug",     // CREMIA_REWARD_ALWAYS_HUG
@@ -1450,6 +1454,11 @@ void BenMenu::AddEnhancements() {
         .CVar("gEnhancements.Masks.3DSMaskEquip")
         .Options(CheckboxOptions().Tooltip("Allows equipping masks while in other forms, returning you to human form "
                                            "with the mask immediately equipped, like in MM3D."));
+    AddWidget(path, "Easy Mask Equip", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.Masks.EasyMaskEquip")
+        .Options(CheckboxOptions().Tooltip("In the pause menu, press A on any owned mask to put it on or take it off "
+                                           "without assigning it to a button. Mask-specific restrictions still "
+                                           "apply."));
     AddWidget(path, "Fierce Deity's Mask Anywhere", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Masks.FierceDeitysAnywhere")
         .Options(CheckboxOptions().Tooltip("Allow using Fierce Deity's mask outside of boss rooms."));
@@ -1603,6 +1612,9 @@ void BenMenu::AddEnhancements() {
     AddWidget(path, "Auto Bombers' Code", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Dialogue.AutoBombersCode")
         .Options(CheckboxOptions().Tooltip("Automatically fill in the Bombers' code once you've got the notebook."));
+    AddWidget(path, "Skip Bottle Pickup Messages", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.Dialogue.SkipBottlePickupMessages")
+        .Options(CheckboxOptions().Tooltip("Skip pickup messages for bottle swipes."));
 
     path.column = SECTION_COLUMN_3;
     AddWidget(path, "Other", WIDGET_SEPARATOR_TEXT);
@@ -1646,6 +1658,9 @@ void BenMenu::AddEnhancements() {
     AddWidget(path, "Faster Rupee Accumulator", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Timesavers.FasterRupeeAccumulator")
         .Options(CheckboxOptions().Tooltip("Causes your Wallet to fill and empty faster when you gain or lose money."));
+    AddWidget(path, "Faster Bottles", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.Timesavers.FasterBottles")
+        .Options(CheckboxOptions().Tooltip("Speeds up animation when using a bottle item."));
 
     // Fixes
     path = { "Enhancements", "Fixes", SECTION_COLUMN_1 };
@@ -1740,6 +1755,10 @@ void BenMenu::AddEnhancements() {
         .CVar("gEnhancements.Restorations.BonkCollision")
         .Options(
             CheckboxOptions().Tooltip("Corrects rolls to allow bonking trees near the end of the roll, as in OoT."));
+    AddWidget(path, "Soil Patch Burrowed Bugs", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.Restorations.SoilPatch")
+        .Options(CheckboxOptions().Tooltip("Removes the cutscene lock when bugs burrow into a Skulltula soil patch, "
+                                           "allowing the player to re-bottle them, as in OoT."));
     AddWidget(path, "Simulated Input Lag", WIDGET_CVAR_SLIDER_INT)
         .CVar(CVAR_SIMULATED_INPUT_LAG)
         .Options(IntSliderOptions()
@@ -1763,6 +1782,11 @@ void BenMenu::AddEnhancements() {
     AddWidget(path, "Hyper Enemies", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.DifficultyOptions.HyperEnemies")
         .Options(CheckboxOptions().Tooltip("Double the rate at which enemies are updated, making them more difficult"));
+    AddWidget(path, "Boss Health Multiplier", WIDGET_CVAR_COMBOBOX)
+        .CVar("gEnhancements.DifficultyOptions.BossHealthMultiplier")
+        .Options(ComboboxOptions()
+                     .Tooltip("Multiply the health of all bosses. Requires a Scene Reload to take effect.")
+                     .ComboMap(&bossHealthOptions));
     AddWidget(path, "Damage Multiplier", WIDGET_CVAR_COMBOBOX)
         .CVar("gEnhancements.DifficultyOptions.DamageMultiplier")
         .Options(ComboboxOptions()
@@ -1928,6 +1952,12 @@ void BenMenu::AddEnhancements() {
         .Options(CheckboxOptions().Tooltip(
             "Prevents the Takkuri from stealing key items like bottles and swords. It may still steal "
             "other items."));
+    AddWidget(path, "No Heart Drops", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.DifficultyOptions.NoHeartDrops")
+        .Options(CheckboxOptions().Tooltip("Prevents spawning of any hearts or fairies."));
+    AddWidget(path, "No Random Drops", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.DifficultyOptions.NoRandomDrops")
+        .Options(CheckboxOptions().Tooltip("Prevents spawning of any collectibles."));
     AddWidget(path, "Deku Guard Search Balls", WIDGET_CVAR_COMBOBOX)
         .CVar("gEnhancements.DifficultyOptions.DekuGuardSearchBalls")
         .Options(

@@ -328,6 +328,14 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // (bean->unk_1E4 == 2) || (bean->unk_1E4 == 1)
+    // ```
+    // #### `args`
+    // - `ObjBean*`
+    VB_COUNT_BURROWED_BUGS,
+
+    // #### `result`
+    // ```c
     // gHorsePlayedEponasSong
     // ```
     // #### `args`
@@ -1690,6 +1698,17 @@ typedef enum {
     // - `*PreRender` (prerender)
     VB_PICTO_TAKE,
 
+    // #### `result`
+    // ```c
+    // i < ARRAY_COUNT(D_8085D798)
+    // ```
+    // #### `args`
+    // - `*Player`
+    // - `*Actor` (interactRangeActor)
+    // - `ItemId`
+    // - `PlayerItemAction`
+    VB_PLAY_BOTTLE_CATCH_TEXT,
+
     // !Play_InCsMode(play) && (play->roomCtx.curRoom.num == 2)
     // ```
     // #### `args`
@@ -2363,6 +2382,14 @@ typedef enum {
     // #### `args`
     // - `*ObjYasi`
     VB_TREE_DROP_COLLECTIBLE,
+
+    // #### `result`
+    // ```c
+    // true
+    // ```
+    // #### `args`
+    // - `Player*`
+    VB_USE_BOTTLE_ITEM,
 
     // #### `result`
     // ```c

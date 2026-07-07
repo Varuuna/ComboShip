@@ -2,7 +2,6 @@
 #include <libultraship/bridge/consolevariablebridge.h>
 #include <ship/Context.h>
 #include <ship/utils/StringHelper.h>
-#include <spdlog/fmt/fmt.h>
 #include "soh/OTRGlobals.h" // ComboShip: EvalDisabledByIndex foreground guard mirrors Menu::DrawElement
 
 extern "C" {

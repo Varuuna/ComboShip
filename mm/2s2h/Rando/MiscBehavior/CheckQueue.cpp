@@ -116,12 +116,11 @@ void Rando::MiscBehavior::CheckQueue() {
                 .showGetItemCutscene =
 #ifdef COMBO_BUILD
                     // Foreign checks decide by the foreign item's home-game importance.
-                    (randoSaveCheck.randoItemId == RI_COMBO_FOREIGN)
-                        ? Rando::MiscBehavior::ShouldShowForeignCutscene(randoCheckId)
-                        :
+                (randoSaveCheck.randoItemId == RI_COMBO_FOREIGN)
+                    ? Rando::MiscBehavior::ShouldShowForeignCutscene(randoCheckId)
+                    :
 #endif
-                        Rando::StaticData::ShouldShowGetItemCutscene(
-                            ConvertItem(randoSaveCheck.randoItemId, randoCheckId)),
+                    Rando::StaticData::ShouldShowGetItemCutscene(ConvertItem(randoSaveCheck.randoItemId, randoCheckId)),
                 .param = (int16_t)randoCheckId,
                 .giveItem =
                     [](Actor* actor, PlayState* play) {

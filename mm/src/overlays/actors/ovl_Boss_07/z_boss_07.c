@@ -1966,8 +1966,7 @@ void Boss07_Wrath_DeathCutscene(Boss07* this, PlayState* play) {
 #ifdef COMBO_BUILD
                         // ComboShip: gate the ending on both bosses. If Ganon isn't dead yet, skip MM's
                         // credits and warp to South Clock Town to go finish OOT via the Clock Tower portal.
-                        if (gComboFinalBossDefeated == NULL ||
-                            !gComboFinalBossDefeated(1, gSaveContext.fileNum)) {
+                        if (gComboFinalBossDefeated == NULL || !gComboFinalBossDefeated(1, gSaveContext.fileNum)) {
                             play->nextEntrance = ENTRANCE(SOUTH_CLOCK_TOWN, 0);
                             gSaveContext.nextCutsceneIndex = 0xFFEF;
                             play->transitionTrigger = TRANS_TRIGGER_START;

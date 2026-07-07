@@ -13,6 +13,11 @@
 
 #include <string.h>
 
+#ifdef COMBO_BUILD
+// ComboShip: end-gating. Returns 1 iff both games' final bosses are dead (see OTRGlobals.cpp).
+extern int (*gComboFinalBossDefeated)(int game, int fileNum);
+#endif
+
 #define FLAGS                                                                                 \
     (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_HOSTILE | ACTOR_FLAG_UPDATE_CULLING_DISABLED | \
      ACTOR_FLAG_DRAW_CULLING_DISABLED)
@@ -1861,6 +1866,18 @@ void func_8090120C(BossGanon2* this, PlayState* play) {
                 break;
             }
         case 20:
+#ifdef COMBO_BUILD
+            // ComboShip: gate the ending on both bosses. If Majora isn't dead yet, skip OOT's credits
+            // and warp Link (as child) to the Happy Mask Shop portal to go finish MM.
+            if (gComboFinalBossDefeated == NULL || !gComboFinalBossDefeated(0, gSaveContext.fileNum)) {
+                play->nextEntranceIndex = ENTR_MARKET_DAY_OUTSIDE_HAPPY_MASK_SHOP;
+                gSaveContext.nextCutsceneIndex = 0xFFEF;
+                play->transitionTrigger = TRANS_TRIGGER_START;
+                play->transitionType = TRANS_TYPE_FADE_WHITE;
+                play->linkAgeOnLoad = 0;
+                break;
+            }
+#endif
             play->nextEntranceIndex = ENTR_CHAMBER_OF_THE_SAGES_0;
             gSaveContext.nextCutsceneIndex = 0xFFF2;
             play->transitionTrigger = TRANS_TRIGGER_START;

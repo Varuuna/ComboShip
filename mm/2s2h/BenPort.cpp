@@ -3513,6 +3513,11 @@ extern "C" void (*gMMComboMarkForeignObtained)(int srcGame, const char* checkNam
 extern "C" __declspec(dllexport) void MM_SetMarkForeignObtained(void (*cb)(int, const char*)) {
     gMMComboMarkForeignObtained = cb;
 }
+// ComboShip: end-gating seam (mirrors OOT). z_boss_07.c calls gComboFinalBossDefeated when Majora dies.
+extern "C" int (*gComboFinalBossDefeated)(int game, int fileNum) = nullptr;
+extern "C" __declspec(dllexport) void MM_SetFinalBossDefeatedCb(int (*cb)(int, int)) {
+    gComboFinalBossDefeated = cb;
+}
 
 extern "C" __declspec(dllexport) const char* Combo_MM_Rando_GetReachableChecks(void) {
     static std::string buf;

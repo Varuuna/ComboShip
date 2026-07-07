@@ -2734,12 +2734,9 @@ void Context::FinalizeSettings(const std::set<RandomizerCheck>& excludedLocation
     if (mOptions[RSK_SHUFFLE_GRAB]) {
         mOptions[RSK_STARTING_STRENGTH].Set(0);
     }
-<<<<<<< HEAD
-=======
     if (mOptions[RSK_SHUFFLE_CHILD_WALLET]) {
         mOptions[RSK_STARTING_WALLET].Set(0);
     }
->>>>>>> vendor-soh
 
     if (mOptions[RSK_ZORAS_FOUNTAIN].IsNot(RO_ZF_OPEN) &&
         mOptions[RSK_STARTING_BOTTLE_1].IsNot(RO_STARTING_BOTTLE_RUTOS_LETTER)) {

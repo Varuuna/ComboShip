@@ -85,13 +85,8 @@ static const char* ResourceMgr_ResolveLinkTunicDListPath(const char* path) {
     const std::string candidate =
         fmt::format("__OTR__objects/{}_{}/{}", objectFolder, tunicSuffix, originalPath + objectPrefix.size());
 
-<<<<<<< HEAD
-    if (!ResourceGetIsCustomByName(candidate.c_str()) && !ResourceMgr_FileExists(candidate.c_str()) &&
-        !(ResourceMgr_IsAltAssetsEnabled() && ResourceMgr_FileAltExists(candidate.c_str()))) {
-=======
     if (!ResourceMgr_IsAltAssetsEnabled() || !ResourceMgr_FileAltExists(candidate.c_str()) ||
         !ResourceGetIsCustomByName(candidate.c_str())) {
->>>>>>> vendor-soh
         return path;
     }
 

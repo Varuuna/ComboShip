@@ -298,10 +298,7 @@ ResourceFactoryXMLAudioSampleV0::ReadResource(std::shared_ptr<Ship::File> file,
     auto sampleFile = Ship::CrossRMRegistry::GetOrActive("oot")->GetArchiveManager()->LoadFile(path);
 #else
     auto sampleFile = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->LoadFile(path);
-<<<<<<< HEAD
 #endif
-=======
->>>>>>> vendor-soh
     audioSample->sample.fileSize = static_cast<u32>(sampleFile->Buffer.get()->size());
     if (customFormatStr != nullptr) {
         // Compressed files can take a really long time to decode (~250ms per).

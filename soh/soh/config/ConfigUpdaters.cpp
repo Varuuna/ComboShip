@@ -1,10 +1,7 @@
 #include "ConfigUpdaters.h"
 
 #include <libultraship/bridge/consolevariablebridge.h>
-<<<<<<< HEAD
-=======
 #include "soh/Enhancements/randomizer/randomizerEnums.h"
->>>>>>> vendor-soh
 
 namespace SOH {
 struct Migration {

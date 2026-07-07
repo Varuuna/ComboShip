@@ -116,13 +116,8 @@ static void PatchDistIfNeeded(Actor* actor) {
     if (!ShouldPatchDist(actor->id))
         return;
 
-<<<<<<< HEAD
-    Actor* ivan = Actor_Find(&gPlayState->actorCtx, gEnPartnerId, ACTORCAT_ITEMACTION);
-    if (ivan == nullptr)
-=======
     Actor* ivan = FindIvan(&gPlayState->actorCtx);
     if (!ivan)
->>>>>>> vendor-soh
         return;
 
     f32 ivanDist = Actor_WorldDistXZToActor(actor, ivan);

@@ -155,6 +155,8 @@ Each merge pass gets its **own dated file** under [`merges/`](merges/) — one p
 file we had to touch after the mechanical 3-way merge and why. This keeps the per-merge required
 changes easy to track (and to diff against the recurring-deviation list below). Newest first:
 
+- [2026-07-06](merges/2026-07-06.md) — soh `aedddc21e` → `8602c6d15` / mm `c74ad0e38` → `cfd1116a4`
+  (libultraship unchanged). No new deviations; conflicts were upstream evolution over existing combo edits.
 - [2026-06-15](merges/2026-06-15.md) — libultraship `a3f1e102e` / soh `adf31d5eb` / mm `3545e62e0`.
   Added the additive `Context::GetRawInstance()` shim; re-tracked `mm/assets`.
 - [2026-06-03](merges/2026-06-03-initial-merge.md) — the initial three-way merge + first-launch

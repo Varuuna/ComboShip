@@ -370,13 +370,6 @@ void SetStartingItems() {
         case RO_STARTING_BGS_GIANTS_KNIFE:
             Item_Give(NULL, ITEM_SWORD_BGS);
             break;
-<<<<<<< HEAD
-    }
-
-    if (Randomizer_GetSettingValue(RSK_FULL_WALLETS)) {
-        GiveLinkRupees(9001);
-=======
->>>>>>> vendor-soh
     }
 
     if (Randomizer_GetSettingValue(RSK_SHUFFLE_MAPANDCOMPASS) == RO_DUNGEON_ITEM_LOC_STARTWITH) {

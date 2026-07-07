@@ -7,10 +7,6 @@
 #include <vector>
 #include <cctype>
 #include <cstdlib>
-<<<<<<< HEAD
-#include <math.h>
-=======
->>>>>>> vendor-soh
 #include <tinyxml2.h>
 #include <fast/resource/type/DisplayList.h>
 #include <ship/resource/archive/Archive.h>
@@ -215,35 +211,6 @@ void ScanCustomCosmetics() {
 
     auto resourceManager = Ship::Context::GetRawInstance()->GetResourceManager();
     auto archiveManager = resourceManager->GetArchiveManager();
-<<<<<<< HEAD
-    auto materialPaths = archiveManager->ListFiles("*");
-    std::unordered_map<std::string, size_t> entryIndicesByKey;
-
-    for (const auto& materialPath : *materialPaths) {
-        if (!IsCustomArchive(archiveManager->GetArchiveFromFile(materialPath))) {
-            continue;
-        }
-
-        tinyxml2::XMLDocument document;
-        std::shared_ptr<Fast::DisplayList> material;
-        tinyxml2::XMLElement* root = nullptr;
-        if (!TryLoadCustomDisplayListXml(archiveManager.get(), resourceManager.get(), materialPath, document, material,
-                                         root)) {
-            continue;
-        }
-
-        size_t searchStart = 0;
-        for (auto* child = root->FirstChildElement(); child != nullptr; child = child->NextSiblingElement()) {
-            std::string childName = child->Name();
-            bool isPrimColor = childName == "SetPrimColor";
-            if (!isPrimColor && childName != "SetEnvColor") {
-                continue;
-            }
-
-            const char* cosmeticEntry = child->Attribute("CosmeticEntry");
-            const char* cosmeticCategory = child->Attribute("CosmeticCategory");
-            if (cosmeticEntry == nullptr || cosmeticEntry[0] == '\0') {
-=======
     auto archives = archiveManager->GetArchives();
     std::unordered_map<std::string, size_t> entryIndicesByKey;
 
@@ -292,7 +259,6 @@ void ScanCustomCosmetics() {
 
             if (cosmeticEntry == nullptr || cosmeticEntry[0] == '\0' || resolvedMaterialPath.empty() ||
                 (!isPrimColor && !isEnvColor)) {
->>>>>>> vendor-soh
                 continue;
             }
 
@@ -301,57 +267,6 @@ void ScanCustomCosmetics() {
             if (key.empty()) {
                 continue;
             }
-<<<<<<< HEAD
-            Gfx expectedInstruction;
-            if (isPrimColor) {
-                expectedInstruction =
-                    gsDPSetPrimColor(child->IntAttribute("M"), child->IntAttribute("L"), child->IntAttribute("R"),
-                                     child->IntAttribute("G"), child->IntAttribute("B"), child->IntAttribute("A"));
-            } else {
-                expectedInstruction = gsDPSetEnvColor(child->IntAttribute("R"), child->IntAttribute("G"),
-                                                      child->IntAttribute("B"), child->IntAttribute("A"));
-            }
-
-            size_t commandIndex = FindDisplayListInstructionIndex(*material, expectedInstruction, searchStart);
-            if (commandIndex == SIZE_MAX) {
-                continue;
-            }
-            searchStart = commandIndex + 1;
-
-            size_t entryIndex = 0;
-            if (auto it = entryIndicesByKey.find(key); it != entryIndicesByKey.end()) {
-                entryIndex = it->second;
-            } else {
-                entryIndex = customCosmeticEntries.size();
-                entryIndicesByKey[key] = entryIndex;
-
-                CustomCosmeticEntry entry;
-                entry.category = (cosmeticCategory != nullptr) ? cosmeticCategory : "";
-                entry.baseCvar = std::string(CUSTOM_CVAR_PREFIX) + key;
-                entry.valuesCvar = entry.baseCvar + ".Value";
-                entry.rainbowCvar = entry.baseCvar + ".Rainbow";
-                entry.lockedCvar = entry.baseCvar + ".Locked";
-                entry.changedCvar = entry.baseCvar + ".Changed";
-                const Color_RGBA8 defaultColor = { static_cast<uint8_t>(child->IntAttribute("R")),
-                                                   static_cast<uint8_t>(child->IntAttribute("G")),
-                                                   static_cast<uint8_t>(child->IntAttribute("B")),
-                                                   static_cast<uint8_t>(child->IntAttribute("A")) };
-                entry.option =
-                    MakeCosmeticOption(entry.baseCvar.c_str(), entry.valuesCvar.c_str(), entry.rainbowCvar.c_str(),
-                                       entry.lockedCvar.c_str(), entry.changedCvar.c_str(), cosmeticEntry,
-                                       COSMETICS_GROUP_MAX, defaultColor, false, true, false);
-                customCosmeticEntries.push_back(std::move(entry));
-            }
-
-            CustomCosmeticBinding binding;
-            binding.materialPath = materialPath;
-            binding.commandIndex = commandIndex;
-            binding.isPrimColor = isPrimColor;
-            binding.defaultA = static_cast<uint8_t>(child->IntAttribute("A"));
-            binding.primM = static_cast<uint8_t>(child->IntAttribute("M"));
-            binding.primL = static_cast<uint8_t>(child->IntAttribute("L"));
-            customCosmeticEntries[entryIndex].bindings.push_back(std::move(binding));
-=======
 
             tinyxml2::XMLDocument displayListDocument;
             std::shared_ptr<Fast::DisplayList> material;
@@ -431,7 +346,6 @@ void ScanCustomCosmetics() {
                 binding.primL = static_cast<uint8_t>(child->IntAttribute("L"));
                 customCosmeticEntries[entryIndex].bindings.push_back(std::move(binding));
             }
->>>>>>> vendor-soh
         }
     }
 

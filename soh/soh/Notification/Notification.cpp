@@ -2,10 +2,7 @@
 #include "Notification.h"
 #include <libultraship/bridge/consolevariablebridge.h>
 #include <ship/Context.h>
-<<<<<<< HEAD
 #include <ship/window/Window.h>
-=======
->>>>>>> vendor-soh
 
 extern "C" {
 #include "functions.h"

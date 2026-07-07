@@ -2084,11 +2084,6 @@ typedef enum {
     // true
     // ```
     // #### `args`
-    // - `void*` player (Player*)
-    // - `PlayState*` play
-    VB_PLAYER_DRAW_BOTTLE,
-
-    // #### `args`
     // - `s32` limbIndex
     // - `Gfx**` dList (write to *dList to replace the resolved display list)
     // - `void*` player (Player*)
@@ -3242,8 +3237,6 @@ typedef enum {
     // - `s16* (&this->actor.parent->id)`
     VB_PREVENT_HOOKSHOT_PARENT_SOFTLOCK,
 
-<<<<<<< HEAD
-=======
     // #### `result`
     // ```c
     // true if Goron Link is talking
@@ -3252,7 +3245,6 @@ typedef enum {
     // - `*EnGo2` (Goron Link)
     VB_PREVENT_GORON_LINK_SOFTLOCK,
 
->>>>>>> vendor-soh
     // true
     // ```
     // #### `args`

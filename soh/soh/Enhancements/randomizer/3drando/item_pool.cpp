@@ -6,10 +6,6 @@
 #include "../SeedContext.h"
 #include "random.hpp"
 #include "soh/Enhancements/randomizer/Traps.h"
-<<<<<<< HEAD
-#include "z64item.h"
-=======
->>>>>>> vendor-soh
 #include <algorithm>
 #include <spdlog/spdlog.h>
 

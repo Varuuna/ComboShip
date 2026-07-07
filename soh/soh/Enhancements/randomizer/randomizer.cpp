@@ -21,10 +21,6 @@
 #include "randomizerTypes.h"
 #include "soh/ObjectExtension/ObjectExtension.h"
 #include "soh/Enhancements/randomizer/RCToRandInf.h"
-<<<<<<< HEAD
-#include "static_data.h"
-=======
->>>>>>> vendor-soh
 #include "dungeon.h"
 
 extern "C" {
@@ -1095,8 +1091,6 @@ extern "C" u16 Randomizer_Item_Give(PlayState* play, GetItemEntry giEntry) {
     // if it's an item that just sets a randomizerInf, set it
     if (Rando::StaticData::RandoGetToRandInf.find(item) != Rando::StaticData::RandoGetToRandInf.end()) {
         Flags_SetRandomizerInf((RandomizerInf)Rando::StaticData::RandoGetToRandInf.find(item)->second);
-<<<<<<< HEAD
-=======
         if (item == RG_SKELETON_KEY) {
             Flags_SetRandomizerInf(RAND_INF_HAS_SKELETON_KEY);
             // This isn't technically necessary, because keys will no longer be consumed,
@@ -1122,7 +1116,6 @@ extern "C" u16 Randomizer_Item_Give(PlayState* play, GetItemEntry giEntry) {
             gSaveContext.ship.stats.itemTimestamp[TIMESTAMP_FOUND_GREG] = static_cast<u32>(GAMEPLAYSTAT_TOTAL_TIME);
         }
 
->>>>>>> vendor-soh
         return Return_Item_Entry(giEntry, RG_NONE);
     }
 

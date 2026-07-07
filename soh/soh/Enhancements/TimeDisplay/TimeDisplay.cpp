@@ -9,10 +9,7 @@
 #include <fast/Fast3dGui.h>
 #include <libultraship/bridge/consolevariablebridge.h>
 #include <ship/Context.h>
-<<<<<<< HEAD
 #include <ship/window/Window.h>
-=======
->>>>>>> vendor-soh
 
 extern "C" {
 #include "macros.h"

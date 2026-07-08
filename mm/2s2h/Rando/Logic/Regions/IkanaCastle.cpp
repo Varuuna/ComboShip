@@ -173,5 +173,5 @@ static RegisterShipInitFunc initFunc([]() {
             CONNECTION(RR_IKANA_CASTLE_REDEAD_WALKWAY, CanKillEnemy(ACTOR_EN_WIZ))
         },
     };
-}, {});
+}, RANDO_LOGIC_INIT_PATHS);
 // clang-format on

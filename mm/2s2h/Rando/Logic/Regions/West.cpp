@@ -412,5 +412,5 @@ static RegisterShipInitFunc initFunc([]() {
             EXIT(ENTRANCE(ZORA_HALL_ROOMS, 0),              ENTRANCE(ZORA_HALL, 6), CAN_BE_ZORA), // To Mikaus's Room
         },
     };
-}, {});
+}, RANDO_LOGIC_INIT_PATHS);
 // clang-format on

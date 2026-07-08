@@ -14,6 +14,15 @@ extern "C" {
 #include "variables.h"
 }
 
+#ifdef COMBO_BUILD
+// ComboShip: extra ShipInit path so MM_InitRandoHeadless can build ONLY the rando region graph
+// (ShipInit::Init("RANDO_LOGIC")), skipping the full UI/audio init. Region registrations pass this as
+// their updatePaths; standalone builds get {} (behavior unchanged).
+#define RANDO_LOGIC_INIT_PATHS { "RANDO_LOGIC" }
+#else
+#define RANDO_LOGIC_INIT_PATHS {}
+#endif
+
 namespace Rando {
 
 namespace Logic {

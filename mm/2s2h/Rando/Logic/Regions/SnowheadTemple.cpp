@@ -367,5 +367,5 @@ static RegisterShipInitFunc initFunc([]() {
             CONNECTION(RR_SNOWHEAD_TEMPLE_CENTRAL_ROOM_THIRD_FLOOR, CanKillEnemy(ACTOR_EN_WIZ)),
         },
     };
-}, {});
+}, RANDO_LOGIC_INIT_PATHS);
 // clang-format on

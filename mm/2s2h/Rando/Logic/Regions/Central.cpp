@@ -472,5 +472,5 @@ static RegisterShipInitFunc initFunc([]() {
             EXIT(ENTRANCE(EAST_CLOCK_TOWN, 4),              ENTRANCE(TREASURE_CHEST_SHOP, 0), true),
         },
     };
-}, {});
+}, RANDO_LOGIC_INIT_PATHS);
 // clang-format on

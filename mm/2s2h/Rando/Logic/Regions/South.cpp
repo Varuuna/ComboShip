@@ -623,5 +623,5 @@ static RegisterShipInitFunc initFunc([]() {
             EVENT(RE_SAVED_KOUME, HAS_BOTTLE && (CAN_ACCESS(RED_POTION_REFILL) || CAN_ACCESS(BLUE_POTION_REFILL))),
         },
     };
-}, {});
+}, RANDO_LOGIC_INIT_PATHS);
 // clang-format on

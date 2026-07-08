@@ -942,11 +942,41 @@ enabled skill items into the emitted pool, overwriting an equal number of junk s
 with checks. Swim/Grab need no injection (they map to Progressive Scale/Strength, already carried by the
 vanilla pool). Verified: OOT reachable 145→460, seeds 1234–1238 generate (5/5).
 
-**Known limitation / follow-up:** this is targeted at the skill items. Other settings-added items (Mask
-Quest, Roc's Feather, Skeleton Key, Triforce Hunt, …) are still omitted by the vanilla-per-check pool and
-would hit the same gap if enabled. The robust fix is to source the cross-world pool from the real
-`GenerateItemPool()` (and reconcile the fill's item==check accounting + fixed placements) rather than
-per-check vanilla items.
+**Known limitation / follow-up:** RESOLVED — superseded by the real-pool rework below (2026-07-07),
+which sources the pool from `GenerateItemPool()` and deletes this skill-injection block.
+
+## Cross-world pool: real generated pool + confinement fidelity (2026-07-07)
+
+**Why:** The skill-injection above only patched 4 item families. Every other settings-added item that is
+not a check's vanilla item was still dropped (OOT: Triforce pieces, WinCon Triforce, Skeleton Key, Roc's
+Feather, ocarina buttons, mask-quest masks, magic-bean pack, progressive identity/counts; MM: Boss/Enemy
+Souls, Clock items, ocarina buttons, swim, bonus songs, Tycoon wallet, Triforce). Missing advancement
+items → unreachable locations. Separately, the cross fill ignored placement **confinement** (own-dungeon
+keys/boss keys, dungeon rewards, restricted songs, MM stray fairies), shuffling them anywhere.
+
+**Fix — source the pool from each game's real generator, confine via each game's own code:**
+- `soh/.../3drando/fill.cpp`: extracted the restricted-song block into `PlaceRestrictedSongs()` (pure
+  extract-method, `Fill()` unchanged) and added `COMBO_BUILD`-guarded `ComboFillConfined()` — it *calls*
+  Fill()'s own functions (`GenerateItemPool`, `RandomizeDungeonRewards`, per-dungeon `RandomizeOwnDungeon`,
+  `PlaceRestrictedSongs`, `RandomizeDungeonItems`), skipping shops/entrances/Link's Pocket and the free
+  Assumed/FastFill. Temp `GetMinVanillaShopItems` is injected for reachability then erased (mirrors
+  Fill()'s entrance-validation trick). Declared in `fill.hpp`.
+- `soh/.../OTRGlobals.cpp` `SOH_DumpRandoStaticData`: runs `ComboFillConfined()`, then partitions
+  `allLocations` by `GetItemLocation(rc)->GetPlacedRandomizerGet()` into `fixed[]` (confined) vs `checks[]`
+  (empty/fillable), and emits the residual `itemPool` as `pool[]`. Skill-injection block deleted.
+- `mm/2s2h/BenPort.cpp` `MM_DumpRandoStaticData`: calls upstream `PreplaceConfinedItems(checkPool,
+  itemPool)`, captures the confined placements (checkPool diff → `RANDO_SAVE_CHECKS`) as `fixed[]`, emits
+  the reduced `itemPool` as `pool[]` and reduced `checkPool` as `checks[]`.
+- `combo/rando/CrossWorldRando.h`: dump schema gains `pool[]` (real item pool) and `fixed[]` (locked
+  pre-placements); `parsePool` reads them (falls back to per-check `vanillaItem` for an older DLL). Locked
+  placements are seeded into `placements`/`filledChecks` each pass so `reachableFixpoint` credits them
+  when their check is reached (collected-in-place, unlike owned-from-start Link's Pocket).
+
+**Invariant:** `pool.size() >= checks.size()` for both games — surplus is junk (excluded-location
+fills, MM overflow) that the cross fill drops; a shortfall (`pool < checks`) would leave checks
+unfilled and is warned. Shuffled shopsanity slots aren't in `itemPool` (`CountEmptyLocations(false)`
+excludes shops), so the OOT dump adds each shuffled shop slot's vanilla buy item to `pool[]`. Link's
+Pocket is excluded from the dump entirely — it stays owned by `SOH_GetForcedPlacements`.
 
 ## Cross-world Link's Pocket placement (2026-06-21)
 

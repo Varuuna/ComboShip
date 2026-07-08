@@ -298,6 +298,7 @@ static FnSetGenerateCb SOH_SetOnComboGenerateCallback = nullptr;
 static FnApplyPlacements SOH_ApplyRandoPlacements = nullptr;
 static FnMMInitRandoSave MM_InitRandoSaveFile = nullptr;
 static FnSetComboRandoSeed SOH_SetComboRandoSeed = nullptr;
+static FnSetComboRandoSeed MM_SetComboRandoSeed = nullptr;
 static FnSetComboSeedHash SOH_SetComboSeedHash = nullptr;
 
 // ComboShip: window-driven generate request (threaded, progress-reporting)
@@ -681,6 +682,8 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     // both inside the dump and again at SOH_ApplyRandoPlacements) makes identical choices each time.
     if (SOH_SetComboRandoSeed)
         SOH_SetComboRandoSeed(masterSeed);
+    if (MM_SetComboRandoSeed)
+        MM_SetComboRandoSeed(masterSeed);
 
     std::string sohDump = SOH_DumpRandoStaticData();
     std::string mmDump = MM_DumpRandoStaticData();
@@ -1507,6 +1510,7 @@ int main(int argc, char** argv) {
     SOH_ApplyRandoPlacements = (FnApplyPlacements)GetSym(sohModule, "SOH_ApplyRandoPlacements");
     SOH_GetForcedPlacements = (FnGetForced)GetSym(sohModule, "SOH_GetForcedPlacements");
     SOH_SetComboRandoSeed = (FnSetComboRandoSeed)GetSym(sohModule, "SOH_SetComboRandoSeed");
+    MM_SetComboRandoSeed = (FnSetComboRandoSeed)GetSym(mmModule, "MM_SetComboRandoSeed");
     SOH_SetComboSeedHash = (FnSetComboSeedHash)GetSym(sohModule, "SOH_SetComboSeedHash");
     SOH_SetOnComboGenerateRequestCallback = (FnSetGenReqCb)GetSym(sohModule, "SOH_SetOnComboGenerateRequestCallback");
     SOH_SetSeedGenerated = (FnSetSeedGenerated)GetSym(sohModule, "SOH_SetSeedGenerated");

@@ -256,5 +256,5 @@ static RegisterShipInitFunc initFunc([]() {
             EVENT(RE_COWS_FROM_ALIENS, CanKillEnemy(ACTOR_EN_INVADEPOH) && IS_NIGHT1() && CAN_BE_GORON && HAS_ITEM(ITEM_POWDER_KEG)),
         },
     };
-}, {});
+}, RANDO_LOGIC_INIT_PATHS);
 // clang-format on

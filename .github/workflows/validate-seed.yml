@@ -103,6 +103,9 @@ jobs:
           $code = $LASTEXITCODE
           Pop-Location
           "exitcode=$code" | Out-File $env:GITHUB_OUTPUT -Append
+          # A not-beatable (1) / tricks-only (3) verdict is a valid result, not a step failure —
+          # exit 0 so the upload + verdict-comment steps still run and report it.
+          exit 0
 
       - name: Upload full sphere log
         if: steps.seed.outputs.found == 'true'

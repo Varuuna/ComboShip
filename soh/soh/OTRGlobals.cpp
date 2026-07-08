@@ -1620,12 +1620,18 @@ extern "C" __declspec(dllexport) void SOH_FinishInit() {
     Combo_FinishInit();
 }
 
+// ComboShip: true ONLY during a headless rando run (set by SOH_InitRandoHeadless, never by the game).
+// Lets Lang::Translate return the raw key instead of asserting when language data isn't loaded (headless
+// has no ResourceManager). The game leaves this false, so its assert stays live. See docs/UPSTREAM_MERGES.md.
+bool gComboHeadlessRando = false;
+
 // Rando-only headless init: Context config/CVars + rando static data — NO window, RM, audio, or GUI.
 // Enough for the reachability oracles so a headless tool can generate + validate cross-world seeds
 // without opening the game. See docs/UPSTREAM_MERGES.md.
 extern "C" __declspec(dllexport) void SOH_InitRandoHeadless() {
     if (OTRGlobals::Instance)
         return; // already initialized (full boot or a prior headless call)
+    gComboHeadlessRando = true;
     OTRGlobals::Instance = new OTRGlobals(OTRGlobals::HeadlessRandoTag{});
     CVarLoad(); // populate CVars from comboship.json so the user's rando settings are live
     // Rando bootstrap (subset of OTRGlobals::Initialize). CreateInstance first, unlike the full path,
@@ -1634,6 +1640,10 @@ extern "C" __declspec(dllexport) void SOH_InitRandoHeadless() {
     OTRGlobals::Instance->gRandoContext->InitStaticData();
     Rando::Settings::GetInstance()->AssignContext(OTRGlobals::Instance->gRandoContext);
     Rando::StaticData::InitItemTable();
+    // Build the option/trick tables (normally the rando menu's job, which headless lacks) so a spoiler's
+    // settings can reach the Context. Option/trick display names route through Lang::Translate, which
+    // returns the raw key headless (via gComboHeadlessRando) — no assets needed.
+    Rando::Settings::GetInstance()->CreateOptions();
 }
 
 // ComboShip (issue 24): apply a launcher-merged config (JSON object) to the live Config and reload the

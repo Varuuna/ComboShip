@@ -98,7 +98,9 @@ add_dependencies(ComboShip
 # Loads soh.dll/2ship.dll at runtime and drives the rando-only headless init + cross-world fill — no
 # window, ResourceManager, audio, or ComboShip.exe boot. Console tool; links only nlohmann_json since
 # CrossWorldRando.h is header-only. Run from x64/<config> (next to the game DLLs).
-add_executable(comborando ComboRandoHeadless.cpp)
+# EXCLUDE_FROM_ALL: a dev/validation tool most builders don't need, so it's kept out of the default
+# build entirely — build it explicitly with `cmake --build <dir> --target comborando` when wanted.
+add_executable(comborando EXCLUDE_FROM_ALL ComboRandoHeadless.cpp)
 target_include_directories(comborando PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(comborando PRIVATE nlohmann_json::nlohmann_json)
 add_dependencies(comborando soh 2ship)
@@ -106,8 +108,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set_target_properties(comborando PROPERTIES
         OUTPUT_NAME "comborando"
         RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/x64/Debug"
-        # Dev/validation tool — Debug only, never built in Release (kept out of the Release artifact).
-        EXCLUDE_FROM_DEFAULT_BUILD_RELEASE TRUE
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/x64/Release"
     )
 endif()
 

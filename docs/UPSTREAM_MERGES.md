@@ -1502,3 +1502,29 @@ Temple of Time couldn't reach it.
 
 **Playtest-pending:** both orders (Ganon-first and Majora-first); portal reachable after each warp;
 resume-after-first-kill keeps the flag; finale plays on the second kill.
+
+---
+
+## Headless rando playthrough validator (`comborando --playthrough`)
+
+`comborando` (own `EXCLUDE_FROM_ALL` target) forward-simulates a finished cross-world seed to judge
+beatability with an exact item-by-item sphere trace, so a seed's completability (and, when stuck, the
+exact reason) can be verified headless. Traversal lives in `combo/rando/ComboPlaythrough.h`
+(`ComboRando::RunPlaythrough`, shared with the in-game generator).
+
+**Port seams (`COMBO_BUILD`-guarded — preserve on merges):**
+- `soh/soh/Enhancements/Lang/Lang.cpp` — `Lang::Translate` returns the raw key instead of asserting when
+  language data isn't loaded, **gated on `gComboHeadlessRando`** (set only by `SOH_InitRandoHeadless`,
+  never the game). Lets the headless option/trick tables build without the ResourceManager/assets. In-game
+  the flag is false → the assert is unchanged (byte-identical behavior).
+- `soh/soh/OTRGlobals.cpp` — `gComboHeadlessRando` flag + `Rando::Settings::CreateOptions()` in
+  `SOH_InitRandoHeadless` (wires RSK CVar names so a spoiler's settings reach the Context headless).
+
+**Combo-owned oracle fix (MM dump):**
+- `mm/2s2h/BenPort.cpp` `MM_DumpRandoStaticData` — when boss remains aren't shuffled, `GeneratePools`
+  drops `RCTYPE_REMAINS` checks, so the four Remains never reach the oracle even though Moon/Majora access
+  gates on `RemainsCount()`. Emit each non-shuffled Remains as a `fixed` placement of its vanilla item
+  (credited when its boss-warp check is reachable). Mirrors the OOT vanilla-shop Deku Shield fix.
+
+**Follow-ups (not done):** Pass-2 "all tricks" is a no-op for OOT (trick CVars aren't dumped yet); the
+in-game apply of the new Remains fixed-placements isn't playtested (comborando doesn't apply placements).

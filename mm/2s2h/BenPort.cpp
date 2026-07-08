@@ -2962,6 +2962,21 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
                           { "advancement", isAdvancement(iit->second) } });
     }
 
+    // ComboShip: when boss remains aren't shuffled, GeneratePools drops RCTYPE_REMAINS checks entirely
+    // (GeneratePools.cpp), so the Remains never reach the oracle — yet Moon/Majora access gates on
+    // RemainsCount(). Emit each as a fixed placement of its vanilla remains so the fill/oracle credit it
+    // once the boss-warp check is reachable (i.e. the temple is beaten). Mirrors the OOT vanilla-shop fix.
+    if (saveInfo.randoSaveOptions[RO_SHUFFLE_BOSS_REMAINS] == RO_GENERIC_NO) {
+        for (auto& [id, chk] : Rando::StaticData::Checks) {
+            if (chk.randoCheckType != RCTYPE_REMAINS || !chk.name || chk.name[0] == '\0')
+                continue;
+            auto iit = Rando::StaticData::Items.find(chk.randoItemId);
+            if (iit == Rando::StaticData::Items.end() || !iit->second.spoilerName || iit->second.spoilerName[0] == '\0')
+                continue;
+            fixed.push_back({ { "check", chk.name }, { "item", iit->second.spoilerName }, { "advancement", true } });
+        }
+    }
+
     // ComboShip canary: count every reason a pool item fails to emit (see debug-mmdump.json below).
     // An empty/near-empty pool silently kills cross-game placement, so keep this cheap diagnostic.
     int skippedNoStatic = 0, skippedNoName = 0, poolNoName = 0;

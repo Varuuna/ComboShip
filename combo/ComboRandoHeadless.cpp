@@ -109,6 +109,9 @@ int main(int argc, char** argv) {
     auto MM_SetSeed = Sym<FnSetSeed>(mm, "MM_SetComboRandoSeed");
     auto SOH_GetForced = Sym<FnGetForced>(soh, "SOH_GetForcedPlacements");
     auto MM_Restore = Sym<FnOracleVoid>(mm, "Combo_MM_Rando_Restore");
+    auto SOH_DumpEnabledTricks = Sym<FnDump>(soh, "SOH_DumpEnabledTricks");
+    auto SOH_SetEnabledTricks = Sym<FnTakeStr>(soh, "SOH_SetEnabledTricks");
+    auto SOH_SetAllTricks = Sym<FnVoidV>(soh, "SOH_SetAllTricks");
 
     ComboRando::OracleFns oot{ Sym<FnOracleVoid>(soh, "Combo_SOH_Rando_Reset"),
                                Sym<FnOracleSetItems>(soh, "Combo_SOH_Rando_SetOwnedItems"),
@@ -153,27 +156,30 @@ int main(int argc, char** argv) {
         std::string label = SeedLabel(spoiler);
         uint32_t masterSeed = spoiler.value("masterSeed", 0u);
 
-        // Apply the seed's settings for one pass, but force real-logic evaluation (ignore the seed's
-        // No-Logic/Glitchless flag) and optionally flip every OOT trick on. MM has no tricks; its oracle
-        // re-reads CVars on Reset, so MM_RestoreRandoSettings is enough (no prep step).
-        auto applyPass = [&](bool allTricks) {
+        auto ootEnabledTricks =
+            spoiler.value("oot", nlohmann::json::object()).value("enabledTricks", nlohmann::json::array());
+
+        // One traversal pass. Forces real-logic evaluation (ignore the seed's No-Logic/Glitchless flag).
+        // Tricks are set via SOH_SetEnabledTricks/SetAllTricks BEFORE SOH_Dump, whose SOH_PrepRandoContext
+        // pushes them into the Context (Combo_ApplyEnabledTricks). SOH_Dump (+seed) sets the OOT/MM contexts
+        // up exactly like the fill so reachability matches. MM has no tricks.
+        auto runPass = [&](bool allTricks) {
             nlohmann::json os = ootSettings;
-            for (auto it = os.begin(); it != os.end(); ++it) {
+            for (auto it = os.begin(); it != os.end(); ++it)
                 if (it.key().find("LogicRules") != std::string::npos)
-                    it.value() = 0; // RO_LOGIC_GLITCHLESS — evaluate real gates
-                else if (allTricks && it.key().find(".LogicTricks.") != std::string::npos)
-                    it.value() = 1; // RO_GENERIC_ON
-            }
+                    it.value() = 0; // glitchless — evaluate real gates
             SOH_RestoreSettings(os.dump().c_str());
             nlohmann::json ms = mmSettings;
-            for (auto it = ms.begin(); it != ms.end(); ++it) {
+            for (auto it = ms.begin(); it != ms.end(); ++it)
                 if (it.key().find("RO_LOGIC") != std::string::npos)
-                    it.value() = 0; // MM RO_LOGIC_GLITCHLESS
-            }
+                    it.value() = 0;
             MM_RestoreSettings(ms.dump().c_str());
-            // Set up the contexts EXACTLY like the fill does — SOH_PrepContext alone under-initializes OOT
-            // (the fill goes through SOH_Dump + seed + confined placement), which otherwise leaves most OOT
-            // checks unreachable. Discard the dumps; we only need their side effect on the live contexts.
+            if (allTricks) {
+                if (SOH_SetAllTricks)
+                    SOH_SetAllTricks();
+            } else if (SOH_SetEnabledTricks) {
+                SOH_SetEnabledTricks(ootEnabledTricks.dump().c_str());
+            }
             if (SOH_SetSeed)
                 SOH_SetSeed(masterSeed);
             if (MM_SetSeed)
@@ -182,24 +188,34 @@ int main(int argc, char** argv) {
             MM_Dump();
             return ComboRando::RunPlaythrough(flatStr, oot, mmO, label, MM_Restore);
         };
+        // Names the blocking win side from full-inventory reachability, so "stuck" is exact.
+        auto blocked = [](const ComboRando::PlaythroughResult& r) -> const char* {
+            return (!r.ganonReachable && !r.majoraReachable) ? "neither Ganon nor Majora is reachable"
+                   : !r.ganonReachable                       ? "Ganon (OOT) is unreachable"
+                   : !r.majoraReachable                      ? "Majora (MM) is unreachable"
+                        : "both ends reachable with full inventory but the forward walk dead-ends (item cycle)";
+        };
 
-        std::cout << "[playthrough] seed '" << label << "' — Pass 1 (seed's tricks)\n";
-        auto r1 = applyPass(false);
+        // Pass 1 — the seed's own settings + enabled tricks: "can this player beat it?"
+        std::cout << "[playthrough] seed '" << label << "' — Pass 1 (" << ootEnabledTricks.size()
+                  << " enabled trick(s))\n";
+        auto r1 = runPass(false);
         if (r1.beatable) {
-            std::cout << "[playthrough] RESULT: BEATABLE as configured (sphere " << r1.beatableSphere
-                      << ") — this seed's settings/tricks can complete it.\n";
+            std::cout << "[playthrough] RESULT: PASS — seed passed validation, should be beatable (sphere "
+                      << r1.beatableSphere << ").\n";
             return 0;
         }
-        std::cout << "[playthrough] stuck with the seed's tricks — Pass 2 (all tricks)\n";
-        auto r2 = applyPass(true);
+        // Pass 2 — all tricks: separates "needs more tricks than configured" from "impossible".
+        std::cout << "[playthrough] Pass 1 stuck (" << blocked(r1) << ") — retrying with ALL tricks\n";
+        auto r2 = runPass(true);
         if (r2.beatable) {
             std::cout << "[playthrough] RESULT: beatable ONLY with tricks beyond the seed's settings (sphere "
-                      << r2.beatableSphere << ").\n";
+                      << r2.beatableSphere << "). With the seed's tricks, Pass 1 got stuck: " << blocked(r1) << ".\n";
             return 3;
         }
-        std::cout << "[playthrough] RESULT: NOT beatable even with all tricks — likely FACTUALLY IMPOSSIBLE. "
-                  << "OOT unreachable=" << r2.unreachableOot << " MM unreachable=" << r2.unreachableMm
-                  << " (see saves/combo/slot0.playthrough.txt for the locked checks).\n";
+        std::cout << "[playthrough] RESULT: FAIL — not beatable even with all tricks; stuck: " << blocked(r2)
+                  << " (OOT unreachable=" << r2.unreachableOot << ", MM unreachable=" << r2.unreachableMm
+                  << "; see saves/combo/slot0.playthrough.txt).\n";
         return 1;
     }
 
@@ -236,8 +252,12 @@ int main(int argc, char** argv) {
                     consolidated["fileType"] = "ComboShipRandomizer";
                     consolidated["seed"] = seed;
                     consolidated["masterSeed"] = masterSeed;
-                    consolidated["oot"] = { { "settings", nlohmann::json::parse(SOH_DumpSettings()) },
-                                            { "placements", fillSpoiler.value("oot", nlohmann::json::object()) } };
+                    consolidated["oot"] = {
+                        { "settings", nlohmann::json::parse(SOH_DumpSettings()) },
+                        { "enabledTricks",
+                          SOH_DumpEnabledTricks ? nlohmann::json::parse(SOH_DumpEnabledTricks()) : nlohmann::json::array() },
+                        { "placements", fillSpoiler.value("oot", nlohmann::json::object()) }
+                    };
                     consolidated["mm"] = { { "settings", nlohmann::json::parse(MM_DumpSettings()) },
                                            { "placements", fillSpoiler.value("mm", nlohmann::json::object()) } };
                     consolidated["foreign"] = fillSpoiler.value("foreign", nlohmann::json::array());

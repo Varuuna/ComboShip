@@ -3274,10 +3274,33 @@ extern "C" __declspec(dllexport) void SOH_RestoreRandoSettings(const char* json)
 // ComboShip: the settings-scoped pool prep that SOH_ApplyRandoPlacements depends on (ItemReset
 // iterates allLocations). On generation this runs inside SOH_DumpRandoStaticData; the reload/drop
 // path (which skips the fill) must run it explicitly before applying saved placements.
+// ComboShip: the player's enabled tricks live in the EnabledTricks CVar (CSV of stable trick NameTags,
+// written by the rando menu). Nothing else pushes them into the Context — SetAllToContext reads the
+// per-trick Options, whose cvar names are empty, so it leaves every trick off. Apply the CVar to
+// ctx->GetTrickOption AFTER each SetAllToContext so the cross-world fill AND the reachability oracle honor
+// the player's tricks (identically). Clears all first so the list is authoritative. See UPSTREAM_MERGES.md.
+static void Combo_ApplyEnabledTricks() {
+    auto ctx = OTRGlobals::Instance->gRandoContext;
+    for (int i = 0; i < RT_MAX; i++)
+        ctx->GetTrickOption(static_cast<RandomizerTrick>(i)).Set(RO_GENERIC_OFF);
+    std::string csv = CVarGetString(CVAR_RANDOMIZER_SETTING("EnabledTricks"), "");
+    for (size_t start = 0; start < csv.size();) {
+        size_t comma = csv.find(',', start);
+        std::string tag = csv.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+        start = (comma == std::string::npos) ? csv.size() : comma + 1;
+        if (tag.empty())
+            continue;
+        auto it = Rando::StaticData::trickToEnum.find(tag);
+        if (it != Rando::StaticData::trickToEnum.end())
+            ctx->GetTrickOption(it->second).Set(RO_GENERIC_ON);
+    }
+}
+
 extern "C" __declspec(dllexport) void SOH_PrepRandoContext(void) {
     try {
         auto ctx = OTRGlobals::Instance->gRandoContext;
         Rando::Settings::GetInstance()->SetAllToContext();
+        Combo_ApplyEnabledTricks();
         ctx->GetLogic()->Reset();
         ctx->FinalizeSettings({}, {});
         RegionTable_Init();
@@ -3672,6 +3695,7 @@ static void EnsureOracleInit() {
         return;
     auto ctx = OTRGlobals::Instance->gRandoContext;
     Rando::Settings::GetInstance()->SetAllToContext(); // ComboShip: apply chosen CVar settings before finalizing
+    Combo_ApplyEnabledTricks();                        // ComboShip: honor the player's tricks (see helper)
     ctx->GetLogic()->Reset();
     ctx->FinalizeSettings({}, {});
     RegionTable_Init();
@@ -3735,6 +3759,47 @@ extern "C" __declspec(dllexport) void Combo_SOH_Rando_PlaceItem(const char* chec
     if (rgIt == Rando::StaticData::itemNameToEnum.end())
         return;
     ctx->PlaceItemInLocation(rcIt->second, rgIt->second, false, false);
+}
+
+// ComboShip: enabled-trick capture/control for the headless playthrough validator. Tricks are identified
+// by their stable NameTag; all three route through the EnabledTricks CVar, which Combo_ApplyEnabledTricks
+// pushes into the Context at every SetAllToContext. Dump = the player's list; SetEnabledTricks = replace
+// with a list (playthrough Pass 1); SetAllTricks = every trick (Pass 2). Callers run SOH_PrepRandoContext
+// (or an oracle Reset) afterward to apply.
+extern "C" __declspec(dllexport) const char* SOH_DumpEnabledTricks(void) {
+    static std::string buf;
+    nlohmann::json out = nlohmann::json::array();
+    std::string csv = CVarGetString(CVAR_RANDOMIZER_SETTING("EnabledTricks"), "");
+    for (size_t start = 0; start < csv.size();) {
+        size_t comma = csv.find(',', start);
+        std::string tag = csv.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+        start = (comma == std::string::npos) ? csv.size() : comma + 1;
+        if (!tag.empty())
+            out.push_back(tag);
+    }
+    buf = out.dump();
+    return buf.c_str();
+}
+
+extern "C" __declspec(dllexport) void SOH_SetEnabledTricks(const char* namesJson) {
+    if (!namesJson)
+        return;
+    try {
+        std::string csv;
+        for (const auto& n : nlohmann::json::parse(namesJson))
+            csv += n.get<std::string>() + ",";
+        CVarSetString(CVAR_RANDOMIZER_SETTING("EnabledTricks"), csv.c_str());
+    } catch (...) {}
+}
+
+extern "C" __declspec(dllexport) void SOH_SetAllTricks(void) {
+    std::string csv;
+    for (int i = 0; i < RT_MAX; i++) {
+        const std::string& tag = Rando::Settings::GetInstance()->GetTrickSetting(static_cast<RandomizerTrick>(i)).GetNameTag();
+        if (!tag.empty())
+            csv += tag + ",";
+    }
+    CVarSetString(CVAR_RANDOMIZER_SETTING("EnabledTricks"), csv.c_str());
 }
 
 // ComboShip: Link's Pocket is a rando-only check absent from the cross-world dump, so the combined

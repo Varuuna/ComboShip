@@ -25,6 +25,9 @@ struct PlaythroughResult {
     int beatableSphere = -1;
     size_t reachableOot = 0, unreachableOot = 0;
     size_t reachableMm = 0, unreachableMm = 0;
+    // Win-side reachability at FULL placed inventory — names which side blocks a stuck seed
+    // (Ganon = OOT tower-top + Boss Key; Majora = MM lair).
+    bool ganonReachable = false, majoraReachable = false;
 };
 
 // Endgame proxies the oracles actually emit (see ComboShip.cpp for the rationale — the literal "Ganon"
@@ -145,6 +148,9 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
         (p.itemGame == GAME_OOT ? allOot : allMm).push_back(p.item);
     auto everReachOot = queryReachable(ootOracle, allOot);
     auto everReachMm = queryReachable(mmOracle, allMm);
+    result.ganonReachable = everReachOot.count(kOotTowerTop) > 0 &&
+                            std::find(allOot.begin(), allOot.end(), kOotBossKey) != allOot.end();
+    result.majoraReachable = everReachMm.count(kMmWin) > 0;
 
     if (mmRestore)
         mmRestore();

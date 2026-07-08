@@ -1520,11 +1520,21 @@ exact reason) can be verified headless. Traversal lives in `combo/rando/ComboPla
 - `soh/soh/OTRGlobals.cpp` — `gComboHeadlessRando` flag + `Rando::Settings::CreateOptions()` in
   `SOH_InitRandoHeadless` (wires RSK CVar names so a spoiler's settings reach the Context headless).
 
+**Tricks honored by fill + oracle (`soh/soh/OTRGlobals.cpp`):** the player's enabled tricks live in the
+`EnabledTricks` CVar (CSV of stable NameTags, written by the rando menu); nothing pushed them into the
+Context, so `SetAllToContext` left every trick off — the cross-world **fill** and the reachability oracle
+both ran trick-less. `Combo_ApplyEnabledTricks()` now applies that CVar to `ctx->GetTrickOption` after every
+`SetAllToContext` (in `SOH_PrepRandoContext` + `EnsureOracleInit`), so a seed generated with tricks enabled
+is generated *and* validated with them. Exports `SOH_DumpEnabledTricks` / `SOH_SetEnabledTricks` /
+`SOH_SetAllTricks` drive it for the validator; the consolidated spoiler carries `oot.enabledTricks`.
+NOTE: this changes generation — seeds made with tricks on become trick-dependent (intended).
+
 **Combo-owned oracle fix (MM dump):**
 - `mm/2s2h/BenPort.cpp` `MM_DumpRandoStaticData` — when boss remains aren't shuffled, `GeneratePools`
   drops `RCTYPE_REMAINS` checks, so the four Remains never reach the oracle even though Moon/Majora access
   gates on `RemainsCount()`. Emit each non-shuffled Remains as a `fixed` placement of its vanilla item
   (credited when its boss-warp check is reachable). Mirrors the OOT vanilla-shop Deku Shield fix.
 
-**Follow-ups (not done):** Pass-2 "all tricks" is a no-op for OOT (trick CVars aren't dumped yet); the
-in-game apply of the new Remains fixed-placements isn't playtested (comborando doesn't apply placements).
+**Follow-ups (not done):** the in-game apply of the new Remains fixed-placements isn't playtested
+(comborando doesn't apply placements); the port-touching seams aren't runtime-verified in-game; naming the
+exact trick that unblocks Pass 2 (vs. the blocking location) would need bisection.

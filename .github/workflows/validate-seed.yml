@@ -1,0 +1,154 @@
+name: Validate Seed
+
+# Label an issue `validate-seed` (with a ComboShip seed file attached) and this headlessly checks whether
+# the seed is completable, replying with an item-by-item verdict as a comment. Standalone from the artifact
+# build: it builds ONLY the comborando validator (which pulls libultraship/soh/2ship as deps) and runs it —
+# no window, no ROM, no o2r assets (the reachability oracle is pure logic). See docs/UPSTREAM_MERGES.md and
+# combo/ComboRandoHeadless.cpp.
+
+on:
+  issues:
+    types: [labeled]
+
+# Cancel a superseded run if the label is toggled again quickly.
+concurrency:
+  group: validate-seed-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    if: github.event.label.name == 'validate-seed'
+    runs-on: windows-2022
+    timeout-minutes: 90
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      # The seed is an attachment on the issue: a save<N>-Randomizer-<hash>.json (see CrossForeign.h). Scrape
+      # its user-attachments link out of the issue body and download it. No match -> comment + stop (the
+      # build is skipped via the `found` output below).
+      - name: Find & download the seed file
+        id: seed
+        shell: pwsh
+        env:
+          BODY: ${{ github.event.issue.body }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $m = [regex]::Match($env:BODY,
+            '\[(save\d+-Randomizer-[^\]]*?\.json)\]\((https://github\.com/user-attachments/files/[^)\s]+)\)')
+          if (-not $m.Success) {
+            "found=false" | Out-File $env:GITHUB_OUTPUT -Append
+            exit 0
+          }
+          $url = $m.Groups[2].Value
+          Write-Host "Downloading seed: $($m.Groups[1].Value)"
+          curl.exe -sSL -H "Authorization: token $env:GH_TOKEN" -o spoiler.json "$url"
+          $len = (Get-Item spoiler.json).Length
+          if ($len -lt 2 -or $len -gt 8MB) { throw "seed file missing or implausible size ($len bytes)" }
+          "found=true" | Out-File $env:GITHUB_OUTPUT -Append
+
+      - name: Comment — no seed attached
+        if: steps.seed.outputs.found != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: "❌ **No seed file found.** Attach your `saveN-Randomizer-<hash>.json` to the issue, then re-apply the **validate-seed** label." });
+
+      - name: Set up MSVC
+        if: steps.seed.outputs.found == 'true'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Set up Python
+        if: steps.seed.outputs.found == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Reuse the same cache key as the artifact build so a warm develop cache primes this too; the
+      # incremental CMake build then only recompiles what actually changed (logic edits etc.).
+      - name: Cache build dir (vcpkg + CMake)
+        if: steps.seed.outputs.found == 'true'
+        uses: actions/cache@v5
+        with:
+          path: build/x64
+          key: build-x64-${{ hashFiles('CMakeLists.txt', 'CMake/**', 'libultraship/cmake/**') }}
+          restore-keys: build-x64-
+
+      - name: Configure
+        if: steps.seed.outputs.found == 'true'
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/build/x64/vcpkg
+        run: cmake -B build/x64 -S . -G "Visual Studio 17 2022" -A x64
+
+      # Single target: comborando's add_dependencies pulls libultraship -> soh -> 2ship, so this one build
+      # produces the DLLs + the validator. No asset/o2r generation — unneeded for reachability.
+      - name: Build comborando
+        if: steps.seed.outputs.found == 'true'
+        run: cmake --build build/x64 --target comborando --config Release
+
+      - name: Run playthrough validation
+        id: run
+        if: steps.seed.outputs.found == 'true'
+        shell: pwsh
+        run: |
+          Copy-Item spoiler.json x64/Release/spoiler.json -Force
+          Push-Location x64/Release
+          .\comborando.exe --playthrough spoiler.json 2>&1 | Tee-Object -FilePath ../../run-output.txt
+          $code = $LASTEXITCODE
+          Pop-Location
+          "exitcode=$code" | Out-File $env:GITHUB_OUTPUT -Append
+
+      - name: Upload full sphere log
+        if: steps.seed.outputs.found == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playthrough-log
+          path: |
+            x64/Release/saves/combo/slot0.playthrough.txt
+            run-output.txt
+          if-no-files-found: warn
+
+      - name: Comment — verdict
+        if: steps.seed.outputs.found == 'true'
+        uses: actions/github-script@v7
+        env:
+          EXITCODE: ${{ steps.run.outputs.exitcode }}
+        with:
+          script: |
+            const fs = require('fs');
+            const code = parseInt(process.env.EXITCODE ?? '2', 10);
+            const header = ({
+              0: "✅ **Seed passed validation — should be beatable.**",
+              3: "⚠️ **Beatable only with tricks enabled beyond the seed's settings.**",
+              1: "❌ **Not beatable.**",
+              2: "🛠️ **Validator setup error** — could not run the check.",
+            })[code] ?? `❓ Unexpected exit code ${code}.`;
+
+            // Pull the tool's RESULT line (has the exact stuck reason) from stdout.
+            let resultLine = "";
+            try {
+              const out = fs.readFileSync('run-output.txt', 'utf8');
+              const m = out.match(/^\[playthrough\] RESULT:.*$/m);
+              if (m) resultLine = m[0].replace('[playthrough] RESULT:', '').trim();
+            } catch {}
+
+            // A trimmed sphere log (first + last lines) for a quick read; full log is the artifact.
+            let snippet = "";
+            try {
+              const log = fs.readFileSync('x64/Release/saves/combo/slot0.playthrough.txt', 'utf8').split('\n');
+              const head = log.slice(0, 20), tail = log.length > 40 ? log.slice(-20) : [];
+              snippet = head.join('\n') + (tail.length ? "\n...\n" + tail.join('\n') : "");
+            } catch {}
+
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            let body = `${header}\n\n${resultLine ? "> " + resultLine + "\n\n" : ""}`;
+            if (snippet) body += `<details><summary>Sphere trace (truncated — full log in the run artifact)</summary>\n\n\`\`\`\n${snippet}\n\`\`\`\n</details>\n\n`;
+            body += `[Full sphere log & run details](${runUrl})`;
+            await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number, body });

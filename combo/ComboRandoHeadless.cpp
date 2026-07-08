@@ -119,9 +119,9 @@ int main(int argc, char** argv) {
                                Sym<FnOracleGetChecks>(mm, "Combo_MM_Rando_GetReachableChecks"),
                                Sym<FnOraclePlaceItem>(mm, "Combo_MM_Rando_PlaceItem") };
 
-    if (!SOH_InitRandoHeadless || !MM_InitRandoHeadless || !SOH_Dump || !MM_Dump || !oot.Reset ||
-        !oot.SetOwnedItems || !oot.GetReachableChecks || !oot.PlaceItem || !mmO.Reset || !mmO.SetOwnedItems ||
-        !mmO.GetReachableChecks || !mmO.PlaceItem) {
+    if (!SOH_InitRandoHeadless || !MM_InitRandoHeadless || !SOH_Dump || !MM_Dump || !oot.Reset || !oot.SetOwnedItems ||
+        !oot.GetReachableChecks || !oot.PlaceItem || !mmO.Reset || !mmO.SetOwnedItems || !mmO.GetReachableChecks ||
+        !mmO.PlaceItem) {
         std::cerr << "[comborando] missing required DLL exports — rebuild soh.dll / 2ship.dll\n";
         return 2;
     }

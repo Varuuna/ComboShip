@@ -31,8 +31,8 @@ struct PlaythroughResult {
 // check needs CanUse(RG_MASTER_SWORD), an equip flag the headless engine doesn't model, so we use
 // tower-top + Boss Key owned; MM uses the in-lair check which already encodes the remains/masks gate).
 inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const OracleFns& ootOracle,
-                                        const OracleFns& mmOracle, const std::string& seedLabel,
-                                        void (*mmRestore)(), nlohmann::json* playthroughOut = nullptr) {
+                                        const OracleFns& mmOracle, const std::string& seedLabel, void (*mmRestore)(),
+                                        nlohmann::json* playthroughOut = nullptr) {
     static const char* kOotTowerTop = "Ganon's Castle Tower Boss Key Chest";
     static const char* kOotBossKey = "Ganon's Castle Boss Key";
     static const char* kMmWin = "RC_MOON_MAJORA_POT_01";

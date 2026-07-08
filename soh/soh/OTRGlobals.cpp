@@ -3365,8 +3365,8 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
                     RandomizerGet vrg = loc->GetVanillaItem();
                     const std::string& vin = Rando::StaticData::RetrieveItem(vrg).GetName().GetEnglish();
                     if (!vin.empty())
-                        pool.push_back(
-                            { { "name", vin }, { "advancement", Rando::StaticData::RetrieveItem(vrg).IsAdvancement() } });
+                        pool.push_back({ { "name", vin },
+                                         { "advancement", Rando::StaticData::RetrieveItem(vrg).IsAdvancement() } });
                 }
             }
         }
@@ -3453,11 +3453,12 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         items.push_back({ { "name", name }, { "displayName", name }, { "advancement", item.IsAdvancement() } });
     }
 
-    cached = nlohmann::json{ { "checks", std::move(checks) },
-                             { "pool", std::move(pool) },
-                             { "fixed", std::move(fixed) },
-                             { "items", std::move(items) } }
-                 .dump();
+    cached = nlohmann::json{
+        { "checks", std::move(checks) },
+        { "pool", std::move(pool) },
+        { "fixed", std::move(fixed) },
+        { "items", std::move(items) }
+    }.dump();
     return cached.c_str();
 }
 

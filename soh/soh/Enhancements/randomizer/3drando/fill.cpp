@@ -1248,9 +1248,8 @@ static void PlaceRestrictedSongs() {
     if (ctx->GetOption(RSK_SHUFFLE_SONGS).IsNot(RO_SONG_SHUFFLE_ANYWHERE) &&
         ctx->GetOption(RSK_SHUFFLE_SONGS).IsNot(RO_SONG_SHUFFLE_OFF)) {
         // Get each song
-        std::vector<RandomizerGet> songs = FilterAndEraseFromPool(itemPool, [](const auto i) {
-            return Rando::StaticData::RetrieveItem(i).GetItemType() == ITEMTYPE_SONG;
-        });
+        std::vector<RandomizerGet> songs = FilterAndEraseFromPool(
+            itemPool, [](const auto i) { return Rando::StaticData::RetrieveItem(i).GetItemType() == ITEMTYPE_SONG; });
 
         // Get each song location
         std::vector<RandomizerCheck> songLocations;
@@ -1530,8 +1529,7 @@ void ComboFillConfined() {
     PlaceRestrictedSongs();
     RandomizeDungeonItems();
     // Erase the temporary shop items so they never enter the cross-world pool.
-    std::erase_if(itemPool, [](const auto item) {
-        return Rando::StaticData::RetrieveItem(item).GetItemType() == ITEMTYPE_SHOP;
-    });
+    std::erase_if(itemPool,
+                  [](const auto item) { return Rando::StaticData::RetrieveItem(item).GetItemType() == ITEMTYPE_SHOP; });
 }
 #endif

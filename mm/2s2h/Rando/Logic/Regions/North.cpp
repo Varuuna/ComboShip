@@ -573,5 +573,5 @@ static RegisterShipInitFunc initFunc([]() {
             // CONNECTION(RR_SNOWHEAD_NEAR_PATH, true), // can void out to this RR
         },
     };
-}, {});
+}, RANDO_LOGIC_INIT_PATHS);
 // clang-format on

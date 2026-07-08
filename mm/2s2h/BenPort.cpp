@@ -2564,6 +2564,19 @@ extern "C" __declspec(dllexport) void MM_BootForCombo(void) {
     gComboBootOnly = 0;
 }
 
+// ComboShip: headless rando-only MM init — builds ONLY the rando region graph via the "RANDO_LOGIC"
+// ShipInit path (no window/RM/audio/GUI), unlike MM_BootForCombo's full boot. StaticData maps are
+// populated at DLL load; CVars come from the shared libultraship Context that SOH_InitRandoHeadless
+// stands up, so call that first. Enough for the MM reachability oracle. See docs/UPSTREAM_MERGES.md.
+extern "C" __declspec(dllexport) void MM_InitRandoHeadless(void) {
+    static bool inited = false;
+    if (inited)
+        return;
+    inited = true;
+    ShipInit::Init("RANDO_LOGIC"); // OwnRMScope("mm") no-ops headlessly (no "mm" RM registered)
+    Rando::StaticData::PopulateCheckNames();
+}
+
 #ifdef COMBO_BUILD
 // Defined in mm/src/code/main.c: re-enters ONLY MM's game loop (no heap/thread re-init).
 extern "C" void MM_RunGameLoop(void);
@@ -2887,11 +2900,26 @@ extern "C" __declspec(dllexport) void MM_RestoreRandoSettings(const char* json) 
     } catch (...) {}
 }
 
+// Combo master seed for MM's RNG, mirroring OOT's SOH_SetComboRandoSeed so confined placement
+// (PreplaceConfinedItems, via Ship_Random) is reproducible per seed.
+static uint64_t sMMComboRandoSeed = 0;
+static bool sMMComboRandoSeedSet = false;
+extern "C" __declspec(dllexport) void MM_SetComboRandoSeed(uint64_t seed) {
+    sMMComboRandoSeed = seed;
+    sMMComboRandoSeedSet = true;
+}
+
 extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     static std::string cached;
 
     nlohmann::json checks = nlohmann::json::array();
+    nlohmann::json pool = nlohmann::json::array();
+    nlohmann::json fixed = nlohmann::json::array();
     nlohmann::json items = nlohmann::json::array();
+
+    // Seed MM's RNG so GeneratePools + PreplaceConfinedItems are reproducible per combo seed.
+    if (sMMComboRandoSeedSet)
+        Ship_Random_Seed(sMMComboRandoSeed);
 
     // Build a RandoSaveInfo from current CVars — same pattern as Menu.cpp RefreshMetrics().
     RandoSaveInfo saveInfo;
@@ -2905,46 +2933,81 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     std::vector<RandoItemId> itemPool;
     Rando::Logic::GeneratePools(saveInfo, checkPool, itemPool);
 
-    // ComboShip canary: count every reason a pool check fails to emit (see debug-mmdump.json below).
-    // An empty/near-empty pool silently kills cross-game placement — a failure that once hid behind
-    // the fill's place-anywhere fallback (see docs/UPSTREAM_MERGES.md "eager-boot export"), so keep
-    // this cheap per-Generate diagnostic.
-    int skippedNoStatic = 0, skippedNoName = 0, noVanillaItem = 0;
+    // Confine own-dungeon items via MM's own logic (writes RANDO_SAVE_CHECKS, shrinks both pools).
+    std::vector<RandoCheckId> checkPoolBefore = checkPool;
+    Rando::Logic::PreplaceConfinedItems(checkPool, itemPool);
+    std::set<RandoCheckId> stillFillable(checkPool.begin(), checkPool.end());
 
-    // Emit only the checks in the settings-scoped pool.
+    // GeneratePools under-fills (MM's own OnFileCreate pads junk); mirror it so every fillable check
+    // gets a pool item instead of silently defaulting to vanilla.
+    while (itemPool.size() < checkPool.size())
+        itemPool.push_back(RI_JUNK);
+
+    auto isAdvancement = [](const auto& it) {
+        return it.randoItemType != RITYPE_JUNK && it.randoItemType != RITYPE_HEALTH;
+    };
+
+    // Confined pre-placements -> fixed[] (removed checks = checkPoolBefore minus checkPool).
+    for (RandoCheckId id : checkPoolBefore) {
+        if (stillFillable.count(id))
+            continue;
+        auto chkIt = Rando::StaticData::Checks.find(id);
+        if (chkIt == Rando::StaticData::Checks.end() || !chkIt->second.name || chkIt->second.name[0] == '\0')
+            continue;
+        auto iit = Rando::StaticData::Items.find(RANDO_SAVE_CHECKS[id].randoItemId);
+        if (iit == Rando::StaticData::Items.end() || !iit->second.spoilerName || iit->second.spoilerName[0] == '\0')
+            continue;
+        fixed.push_back({ { "check", chkIt->second.name },
+                          { "item", iit->second.spoilerName },
+                          { "advancement", isAdvancement(iit->second) } });
+    }
+
+    // ComboShip: when boss remains aren't shuffled, GeneratePools drops RCTYPE_REMAINS checks entirely
+    // (GeneratePools.cpp), so the Remains never reach the oracle — yet Moon/Majora access gates on
+    // RemainsCount(). Emit each as a fixed placement of its vanilla remains so the fill/oracle credit it
+    // once the boss-warp check is reachable (i.e. the temple is beaten). Mirrors the OOT vanilla-shop fix.
+    if (saveInfo.randoSaveOptions[RO_SHUFFLE_BOSS_REMAINS] == RO_GENERIC_NO) {
+        for (auto& [id, chk] : Rando::StaticData::Checks) {
+            if (chk.randoCheckType != RCTYPE_REMAINS || !chk.name || chk.name[0] == '\0')
+                continue;
+            auto iit = Rando::StaticData::Items.find(chk.randoItemId);
+            if (iit == Rando::StaticData::Items.end() || !iit->second.spoilerName || iit->second.spoilerName[0] == '\0')
+                continue;
+            fixed.push_back({ { "check", chk.name }, { "item", iit->second.spoilerName }, { "advancement", true } });
+        }
+    }
+
+    // ComboShip canary: count every reason a pool item fails to emit (see debug-mmdump.json below).
+    // An empty/near-empty pool silently kills cross-game placement, so keep this cheap diagnostic.
+    int skippedNoStatic = 0, skippedNoName = 0, poolNoName = 0;
+
+    // Fillable checks -> checks[] (name only; pool[] feeds the items).
     for (RandoCheckId id : checkPool) {
         auto chkIt = Rando::StaticData::Checks.find(id);
         if (chkIt == Rando::StaticData::Checks.end()) {
             skippedNoStatic++;
             continue;
         }
-        const auto& chk = chkIt->second;
-        if (!chk.name || chk.name[0] == '\0') {
+        if (!chkIt->second.name || chkIt->second.name[0] == '\0') {
             skippedNoName++;
             continue;
         }
-        nlohmann::json entry = { { "name", chk.name } };
+        checks.push_back({ { "name", chkIt->second.name } });
+    }
 
-        // MM stores vanilla item per check via randoItemId.
-        if (chk.randoItemId != RI_UNKNOWN) {
-            auto it = Rando::StaticData::Items.find(chk.randoItemId);
-            if (it != Rando::StaticData::Items.end() && it->second.spoilerName && it->second.spoilerName[0] != '\0') {
-                entry["vanillaItem"] = it->second.spoilerName;
-                // ComboShip: progression test mirrors GlitchlessLogic's (non-junk, non-health);
-                // the combined fill logic-places only these and fast-fills the rest.
-                entry["advancement"] =
-                    it->second.randoItemType != RITYPE_JUNK && it->second.randoItemType != RITYPE_HEALTH;
-            }
+    // Pool = the real free item pool (every settings-added item; confined items already removed).
+    for (RandoItemId iid : itemPool) {
+        auto it = Rando::StaticData::Items.find(iid);
+        if (it == Rando::StaticData::Items.end() || !it->second.spoilerName || it->second.spoilerName[0] == '\0') {
+            poolNoName++;
+            continue;
         }
-        if (!entry.contains("vanillaItem"))
-            noVanillaItem++;
-        checks.push_back(std::move(entry));
+        pool.push_back({ { "name", it->second.spoilerName }, { "advancement", isAdvancement(it->second) } });
     }
 
     // ComboShip canary: written to a file because 2ship.dll's spdlog default logger is never
     // configured in combo (soh's module owns the shared logging), so SPDLOG_* here goes nowhere.
-    // regions==0 means MM's eager boot / ShipInit::InitAll didn't run. Debug-build only (see the
-    // oot_dump/mm_dump gate in ComboShip.cpp).
+    // regions==0 means MM's eager boot / ShipInit::InitAll didn't run. Debug-build only.
 #ifndef NDEBUG
     try {
         std::error_code ec;
@@ -2957,16 +3020,18 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
             { "checkPool", checkPool.size() },
             { "itemPool", itemPool.size() },
             { "emitted", checks.size() },
+            { "fixed", fixed.size() },
+            { "pool", pool.size() },
             { "skippedNoStatic", skippedNoStatic },
             { "skippedNoName", skippedNoName },
-            { "noVanillaItem", noVanillaItem },
+            { "poolNoName", poolNoName },
         };
         std::ofstream("saves/combo/debug-mmdump.json", std::ios::trunc) << diag.dump(2);
     } catch (...) {}
 #else
     (void)skippedNoStatic;
     (void)skippedNoName;
-    (void)noVanillaItem;
+    (void)poolNoName;
 #endif
 
     for (auto& [id, item] : Rando::StaticData::Items) {
@@ -2984,7 +3049,12 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         items.push_back(std::move(entry));
     }
 
-    cached = nlohmann::json{ { "checks", std::move(checks) }, { "items", std::move(items) } }.dump();
+    cached = nlohmann::json{
+        { "checks", std::move(checks) },
+        { "pool", std::move(pool) },
+        { "fixed", std::move(fixed) },
+        { "items", std::move(items) }
+    }.dump();
     return cached.c_str();
 }
 

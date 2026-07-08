@@ -942,11 +942,41 @@ enabled skill items into the emitted pool, overwriting an equal number of junk s
 with checks. Swim/Grab need no injection (they map to Progressive Scale/Strength, already carried by the
 vanilla pool). Verified: OOT reachable 145→460, seeds 1234–1238 generate (5/5).
 
-**Known limitation / follow-up:** this is targeted at the skill items. Other settings-added items (Mask
-Quest, Roc's Feather, Skeleton Key, Triforce Hunt, …) are still omitted by the vanilla-per-check pool and
-would hit the same gap if enabled. The robust fix is to source the cross-world pool from the real
-`GenerateItemPool()` (and reconcile the fill's item==check accounting + fixed placements) rather than
-per-check vanilla items.
+**Known limitation / follow-up:** RESOLVED — superseded by the real-pool rework below (2026-07-07),
+which sources the pool from `GenerateItemPool()` and deletes this skill-injection block.
+
+## Cross-world pool: real generated pool + confinement fidelity (2026-07-07)
+
+**Why:** The skill-injection above only patched 4 item families. Every other settings-added item that is
+not a check's vanilla item was still dropped (OOT: Triforce pieces, WinCon Triforce, Skeleton Key, Roc's
+Feather, ocarina buttons, mask-quest masks, magic-bean pack, progressive identity/counts; MM: Boss/Enemy
+Souls, Clock items, ocarina buttons, swim, bonus songs, Tycoon wallet, Triforce). Missing advancement
+items → unreachable locations. Separately, the cross fill ignored placement **confinement** (own-dungeon
+keys/boss keys, dungeon rewards, restricted songs, MM stray fairies), shuffling them anywhere.
+
+**Fix — source the pool from each game's real generator, confine via each game's own code:**
+- `soh/.../3drando/fill.cpp`: extracted the restricted-song block into `PlaceRestrictedSongs()` (pure
+  extract-method, `Fill()` unchanged) and added `COMBO_BUILD`-guarded `ComboFillConfined()` — it *calls*
+  Fill()'s own functions (`GenerateItemPool`, `RandomizeDungeonRewards`, per-dungeon `RandomizeOwnDungeon`,
+  `PlaceRestrictedSongs`, `RandomizeDungeonItems`), skipping shops/entrances/Link's Pocket and the free
+  Assumed/FastFill. Temp `GetMinVanillaShopItems` is injected for reachability then erased (mirrors
+  Fill()'s entrance-validation trick). Declared in `fill.hpp`.
+- `soh/.../OTRGlobals.cpp` `SOH_DumpRandoStaticData`: runs `ComboFillConfined()`, then partitions
+  `allLocations` by `GetItemLocation(rc)->GetPlacedRandomizerGet()` into `fixed[]` (confined) vs `checks[]`
+  (empty/fillable), and emits the residual `itemPool` as `pool[]`. Skill-injection block deleted.
+- `mm/2s2h/BenPort.cpp` `MM_DumpRandoStaticData`: calls upstream `PreplaceConfinedItems(checkPool,
+  itemPool)`, captures the confined placements (checkPool diff → `RANDO_SAVE_CHECKS`) as `fixed[]`, emits
+  the reduced `itemPool` as `pool[]` and reduced `checkPool` as `checks[]`.
+- `combo/rando/CrossWorldRando.h`: dump schema gains `pool[]` (real item pool) and `fixed[]` (locked
+  pre-placements); `parsePool` reads them (falls back to per-check `vanillaItem` for an older DLL). Locked
+  placements are seeded into `placements`/`filledChecks` each pass so `reachableFixpoint` credits them
+  when their check is reached (collected-in-place, unlike owned-from-start Link's Pocket).
+
+**Invariant:** `pool.size() >= checks.size()` for both games — surplus is junk (excluded-location
+fills, MM overflow) that the cross fill drops; a shortfall (`pool < checks`) would leave checks
+unfilled and is warned. Shuffled shopsanity slots aren't in `itemPool` (`CountEmptyLocations(false)`
+excludes shops), so the OOT dump adds each shuffled shop slot's vanilla buy item to `pool[]`. Link's
+Pocket is excluded from the dump entirely — it stays owned by `SOH_GetForcedPlacements`.
 
 ## Cross-world Link's Pocket placement (2026-06-21)
 
@@ -1472,3 +1502,39 @@ Temple of Time couldn't reach it.
 
 **Playtest-pending:** both orders (Ganon-first and Majora-first); portal reachable after each warp;
 resume-after-first-kill keeps the flag; finale plays on the second kill.
+
+---
+
+## Headless rando playthrough validator (`comborando --playthrough`)
+
+`comborando` (own `EXCLUDE_FROM_ALL` target) forward-simulates a finished cross-world seed to judge
+beatability with an exact item-by-item sphere trace, so a seed's completability (and, when stuck, the
+exact reason) can be verified headless. Traversal lives in `combo/rando/ComboPlaythrough.h`
+(`ComboRando::RunPlaythrough`, shared with the in-game generator).
+
+**Port seams (`COMBO_BUILD`-guarded — preserve on merges):**
+- `soh/soh/Enhancements/Lang/Lang.cpp` — `Lang::Translate` returns the raw key instead of asserting when
+  language data isn't loaded, **gated on `gComboHeadlessRando`** (set only by `SOH_InitRandoHeadless`,
+  never the game). Lets the headless option/trick tables build without the ResourceManager/assets. In-game
+  the flag is false → the assert is unchanged (byte-identical behavior).
+- `soh/soh/OTRGlobals.cpp` — `gComboHeadlessRando` flag + `Rando::Settings::CreateOptions()` in
+  `SOH_InitRandoHeadless` (wires RSK CVar names so a spoiler's settings reach the Context headless).
+
+**Tricks honored by fill + oracle (`soh/soh/OTRGlobals.cpp`):** the player's enabled tricks live in the
+`EnabledTricks` CVar (CSV of stable NameTags, written by the rando menu); nothing pushed them into the
+Context, so `SetAllToContext` left every trick off — the cross-world **fill** and the reachability oracle
+both ran trick-less. `Combo_ApplyEnabledTricks()` now applies that CVar to `ctx->GetTrickOption` after every
+`SetAllToContext` (in `SOH_PrepRandoContext` + `EnsureOracleInit`), so a seed generated with tricks enabled
+is generated *and* validated with them. Exports `SOH_DumpEnabledTricks` / `SOH_SetEnabledTricks` /
+`SOH_SetAllTricks` drive it for the validator; the consolidated spoiler carries `oot.enabledTricks`.
+NOTE: this changes generation — seeds made with tricks on become trick-dependent (intended).
+
+**Combo-owned oracle fix (MM dump):**
+- `mm/2s2h/BenPort.cpp` `MM_DumpRandoStaticData` — when boss remains aren't shuffled, `GeneratePools`
+  drops `RCTYPE_REMAINS` checks, so the four Remains never reach the oracle even though Moon/Majora access
+  gates on `RemainsCount()`. Emit each non-shuffled Remains as a `fixed` placement of its vanilla item
+  (credited when its boss-warp check is reachable). Mirrors the OOT vanilla-shop Deku Shield fix.
+
+**Follow-ups (not done):** the in-game apply of the new Remains fixed-placements isn't playtested
+(comborando doesn't apply placements); the port-touching seams aren't runtime-verified in-game; naming the
+exact trick that unblocks Pass 2 (vs. the blocking location) would need bisection.

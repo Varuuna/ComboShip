@@ -33,6 +33,7 @@
 
 #include "rando/CrossForeign.h"
 #include "rando/CrossWorldRando.h"
+#include "rando/ComboPlaythrough.h"
 #include "gui/ComboGenProgress.h"
 #include "ComboExtract.h"
 #include "ComboSettingsImport.h"
@@ -200,6 +201,7 @@ typedef const char* (*FnDumpData)(void);
 static FnDumpData SOH_DumpRandoStaticData = nullptr;
 static FnDumpData MM_DumpRandoStaticData = nullptr;
 static FnDumpData SOH_DumpRandoSettings = nullptr; // {cvar:value} OOT rando settings snapshot
+static FnDumpData SOH_DumpEnabledTricks = nullptr; // [NameTag,...] the player's enabled OOT tricks
 static FnDumpData MM_DumpRandoSettings = nullptr;  // {cvar:value} MM rando settings snapshot
 // Reload/remember-seed: restore settings + run the pool prep before re-applying saved placements.
 typedef void (*FnVoidV)(void);
@@ -298,6 +300,7 @@ static FnSetGenerateCb SOH_SetOnComboGenerateCallback = nullptr;
 static FnApplyPlacements SOH_ApplyRandoPlacements = nullptr;
 static FnMMInitRandoSave MM_InitRandoSaveFile = nullptr;
 static FnSetComboRandoSeed SOH_SetComboRandoSeed = nullptr;
+static FnSetComboRandoSeed MM_SetComboRandoSeed = nullptr;
 static FnSetComboSeedHash SOH_SetComboSeedHash = nullptr;
 
 // ComboShip: window-driven generate request (threaded, progress-reporting)
@@ -681,6 +684,8 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     // both inside the dump and again at SOH_ApplyRandoPlacements) makes identical choices each time.
     if (SOH_SetComboRandoSeed)
         SOH_SetComboRandoSeed(masterSeed);
+    if (MM_SetComboRandoSeed)
+        MM_SetComboRandoSeed(masterSeed);
 
     std::string sohDump = SOH_DumpRandoStaticData();
     std::string mmDump = MM_DumpRandoStaticData();
@@ -852,7 +857,9 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         consolidated["masterSeed"] = masterSeed;
         consolidated["displaySeed"] = displaySeed;
         consolidated["file_hash"] = fileHashArr;
-        consolidated["oot"] = { { "settings", parseOrEmpty(SOH_DumpRandoSettings) }, { "placements", ootSpoiler } };
+        consolidated["oot"] = { { "settings", parseOrEmpty(SOH_DumpRandoSettings) },
+                                { "enabledTricks", parseOrEmpty(SOH_DumpEnabledTricks) },
+                                { "placements", ootSpoiler } };
         consolidated["mm"] = { { "settings", parseOrEmpty(MM_DumpRandoSettings) }, { "placements", mmSpoiler } };
         consolidated["foreign"] = ComboRando::BuildForeignArray(foreignArr);
         consolidated["playthrough"] = playthroughJson;
@@ -964,174 +971,9 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
 static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRando::OracleFns& ootOracle,
                                   const ComboRando::OracleFns& mmOracle, const std::string& seedLabel,
                                   nlohmann::json* playthroughOut) {
-    using namespace ComboRando; // GameId / GAME_OOT / GAME_MM
-    // Endgame signals the oracles actually emit:
-    //   OOT — top of Ganon's Tower (all four trials cleared) reachable AND the Ganon's Castle Boss Key
-    //   owned = standing at Ganondorf's door, able to enter the fight. (The literal "Ganon" location
-    //   needs CanUse(RG_MASTER_SWORD), which gates on the master-sword EQUIP flag that the headless
-    //   reachability engine doesn't model, so it never reports reachable — this is the reliable proxy.)
-    //   MM  — Majora's Lair reachable (its access already encodes the remains/masks requirement),
-    //   surfaced via the in-lair check RC_MOON_MAJORA_POT_01.
-    static const char* kOotTowerTop = "Ganon's Castle Tower Boss Key Chest";
-    static const char* kOotBossKey = "Ganon's Castle Boss Key";
-    static const char* kMmWin = "RC_MOON_MAJORA_POT_01";
-
-    // Parse placements: check -> (itemName, itemGame). itemGame defaults to the check's game unless a
-    // foreign marker says otherwise (foreign = cross-game placement).
-    struct Placed {
-        GameId checkGame;
-        std::string check;
-        GameId itemGame;
-        std::string item;
-    };
-    std::vector<Placed> placements;
-    std::unordered_set<std::string> foreignKey; // "<cg>:<cn>" -> item is from the other game
-    std::unordered_map<std::string, GameId> foreignItemGame;
-    try {
-        auto j = nlohmann::json::parse(spoilerJson);
-        for (auto& fm : j.value("foreign", nlohmann::json::array())) {
-            std::string cg = fm.value("checkGame", ""), cn = fm.value("checkName", "");
-            std::string ig = fm.value("itemGame", "");
-            foreignKey.insert(cg + ":" + cn);
-            foreignItemGame[cg + ":" + cn] = (ig == "mm") ? GAME_MM : GAME_OOT;
-        }
-        auto addGame = [&](const char* key, GameId cg) {
-            if (!j.contains(key) || !j[key].is_object())
-                return;
-            for (auto& [cn, iv] : j[key].items()) { // iterate the lvalue, not a temporary copy
-                std::string fk = std::string(key) + ":" + cn;
-                GameId ig = foreignKey.count(fk) ? foreignItemGame[fk] : cg;
-                placements.push_back({ cg, cn, ig, iv.get<std::string>() });
-            }
-        };
-        addGame("oot", GAME_OOT);
-        addGame("mm", GAME_MM);
-    } catch (const std::exception& e) {
-        std::cerr << "[PLAYTHROUGH] spoiler parse error: " << e.what() << "\n";
-        return;
-    }
-
-    auto queryReachable = [&](const ComboRando::OracleFns& o, const std::vector<std::string>& owned) {
-        nlohmann::json arr = nlohmann::json::array();
-        for (auto& n : owned)
-            arr.push_back(n);
-        o.Reset();
-        o.SetOwnedItems(arr.dump().c_str());
-        std::unordered_set<std::string> out;
-        try {
-            for (auto& n : nlohmann::json::parse(o.GetReachableChecks()))
-                out.insert(n.get<std::string>());
-        } catch (...) {}
-        return out;
-    };
-
-    std::vector<std::string> ownedOot, ownedMm;
-    std::unordered_set<std::string> collected; // "<cg>:<cn>"
-    std::ostringstream log;
-    log << "Cross-world playthrough - seed '" << seedLabel << "'\n"
-        << "Beatable when: Ganondorf reachable (OOT: all trials cleared + Boss Key owned)"
-        << " AND Majora's Lair reachable (MM).\n\n";
-
-    int beatableSphere = -1;
-    const int kMaxSpheres = 200;
-    for (int sphere = 0; sphere < kMaxSpheres; ++sphere) {
-        auto ootReach = queryReachable(ootOracle, ownedOot);
-        auto mmReach = queryReachable(mmOracle, ownedMm);
-        bool canGanon = ootReach.count(kOotTowerTop) > 0 &&
-                        std::find(ownedOot.begin(), ownedOot.end(), kOotBossKey) != ownedOot.end();
-        bool canMajora = mmReach.count(kMmWin) > 0;
-        if (canGanon && canMajora) {
-            beatableSphere = sphere;
-            break;
-        }
-
-        std::vector<Placed> newly;
-        for (auto& p : placements) {
-            std::string key = (p.checkGame == GAME_OOT ? "oot:" : "mm:") + p.check;
-            if (collected.count(key))
-                continue;
-            const auto& reach = (p.checkGame == GAME_OOT) ? ootReach : mmReach;
-            if (reach.count(p.check))
-                newly.push_back(p);
-        }
-        if (newly.empty()) {
-            log << "Sphere " << sphere << ": (stuck — nothing new reachable, not yet beatable)\n";
-            break;
-        }
-        log << "Sphere " << sphere << "  (Ganon=" << (canGanon ? "Y" : "n") << " Majora=" << (canMajora ? "Y" : "n")
-            << ", +" << newly.size() << " items)\n";
-        // ComboShip: structured sphere for the consolidated file (drives the "Get a hint" feature).
-        nlohmann::json sphereSteps = nlohmann::json::array();
-        for (auto& p : newly) {
-            std::string key = (p.checkGame == GAME_OOT ? "oot:" : "mm:") + p.check;
-            collected.insert(key);
-            (p.itemGame == GAME_OOT ? ownedOot : ownedMm).push_back(p.item);
-            if (playthroughOut)
-                sphereSteps.push_back({ { "game", p.checkGame == GAME_OOT ? "oot" : "mm" },
-                                        { "check", p.check },
-                                        { "item", p.item },
-                                        { "foreign", p.checkGame != p.itemGame } });
-            log << "    [" << (p.checkGame == GAME_OOT ? "OOT" : "MM ") << "] " << p.check << "  <-  " << p.item
-                << (p.checkGame != p.itemGame ? (p.itemGame == GAME_OOT ? "  (OOT item)" : "  (MM item)") : "") << "\n";
-        }
-        if (playthroughOut)
-            playthroughOut->push_back({ { "sphere", sphere }, { "steps", std::move(sphereSteps) } });
-    }
-    // ComboShip: true "ever reachable" sets — give each oracle the FULL placed-item set and ask
-    // what's reachable. Reachability is monotonic, so full inventory yields the maximal set. Differs
-    // from `collected`, which stops at the beatable sphere (post-win checks would look unreachable).
-    // Must run before the MM restore below, which rolls the MM oracle back to its pre-gen snapshot.
-    std::vector<std::string> allOot, allMm;
-    for (auto& p : placements)
-        (p.itemGame == GAME_OOT ? allOot : allMm).push_back(p.item);
-    auto everReachOot = queryReachable(ootOracle, allOot);
-    auto everReachMm = queryReachable(mmOracle, allMm);
-
-    Combo_MM_Rando_Restore();
-
-    if (beatableSphere >= 0) {
-        log << "\nBEATABLE at sphere " << beatableSphere << ": Ganon AND Majora both reachable. Seed is completable.\n";
-    } else {
-        log << "\nNOT proven beatable within " << kMaxSpheres << " spheres (see stuck note above).\n";
-    }
-
-    // ComboShip: full placement record (supersedes the old slot0.spoiler.json). Lists every
-    // check->item in both games in placement order, flagging any check the oracles can never reach
-    // even with full inventory ([UNREACHABLE], via everReach* above). This is the artifact for
-    // debugging reachability dead-ends: it shows what got placed in checks the oracles can't see.
-    auto emitGame = [&](GameId cg, const char* tag, const std::unordered_set<std::string>& everReach) {
-        size_t reached = 0, missing = 0;
-        log << "\n--- " << tag << " placements ---\n";
-        for (auto& p : placements) {
-            if (p.checkGame != cg)
-                continue;
-            bool got = everReach.count(p.check) > 0;
-            got ? ++reached : ++missing;
-            log << "    " << (got ? "  " : "! ") << p.check << "  <-  " << p.item
-                << (p.checkGame != p.itemGame ? (p.itemGame == GAME_OOT ? "  (OOT item)" : "  (MM item)") : "")
-                << (got ? "" : "   [UNREACHABLE]") << "\n";
-        }
-        log << "  " << tag << ": " << reached << " reachable, " << missing << " unreachable\n";
-    };
-    log << "\n==== Full placement (all checks) ====\n";
-    emitGame(GAME_OOT, "OOT", everReachOot);
-    emitGame(GAME_MM, "MM", everReachMm);
-
-    // ComboShip: in-game generation folds the playthrough into the consolidated spoiler JSON
-    // (playthroughOut), so the standalone text log is redundant there and no longer written. The
-    // env-gated COMBO_PLAYTHROUGH debug tool passes no playthroughOut and still gets the .txt.
-    if (!playthroughOut) {
-        std::error_code ec;
-        std::filesystem::create_directories("saves/combo", ec);
-        std::ofstream f("saves/combo/slot0.playthrough.txt", std::ios::trunc);
-        f << log.str();
-        std::cout << "[PLAYTHROUGH] full sphere log -> saves/combo/slot0.playthrough.txt\n";
-    }
-
-    std::cout << "[PLAYTHROUGH] seed '" << seedLabel << "' - " << (beatableSphere >= 0 ? "BEATABLE" : "NOT beatable")
-              << (beatableSphere >= 0 ? (" at sphere " + std::to_string(beatableSphere)) : "") << "\n";
-    std::cout << "[PLAYTHROUGH] collected " << collected.size() << " items across "
-              << (beatableSphere >= 0 ? beatableSphere : kMaxSpheres) << " spheres before the win\n";
+    // Thin wrapper over the shared traversal (combo/rando/ComboPlaythrough.h); passes this build's
+    // MM oracle-restore pointer. Keeps the in-game generator and headless validator identical.
+    ComboRando::RunPlaythrough(spoilerJson, ootOracle, mmOracle, seedLabel, Combo_MM_Rando_Restore, playthroughOut);
 }
 
 // Env-gated entry: COMBO_PLAYTHROUGH=<seed> generates that seed headless, then writes its log.
@@ -1497,6 +1339,7 @@ int main(int argc, char** argv) {
     SOH_DumpRandoStaticData = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoStaticData");
     MM_DumpRandoStaticData = (FnDumpData)GetSym(mmModule, "MM_DumpRandoStaticData");
     SOH_DumpRandoSettings = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoSettings");
+    SOH_DumpEnabledTricks = (FnDumpData)GetSym(sohModule, "SOH_DumpEnabledTricks");
     MM_DumpRandoSettings = (FnDumpData)GetSym(mmModule, "MM_DumpRandoSettings");
     SOH_PrepRandoContext = (FnVoidV)GetSym(sohModule, "SOH_PrepRandoContext");
     SOH_RestoreRandoSettings = (FnTakeStr)GetSym(sohModule, "SOH_RestoreRandoSettings");
@@ -1507,6 +1350,7 @@ int main(int argc, char** argv) {
     SOH_ApplyRandoPlacements = (FnApplyPlacements)GetSym(sohModule, "SOH_ApplyRandoPlacements");
     SOH_GetForcedPlacements = (FnGetForced)GetSym(sohModule, "SOH_GetForcedPlacements");
     SOH_SetComboRandoSeed = (FnSetComboRandoSeed)GetSym(sohModule, "SOH_SetComboRandoSeed");
+    MM_SetComboRandoSeed = (FnSetComboRandoSeed)GetSym(mmModule, "MM_SetComboRandoSeed");
     SOH_SetComboSeedHash = (FnSetComboSeedHash)GetSym(sohModule, "SOH_SetComboSeedHash");
     SOH_SetOnComboGenerateRequestCallback = (FnSetGenReqCb)GetSym(sohModule, "SOH_SetOnComboGenerateRequestCallback");
     SOH_SetSeedGenerated = (FnSetSeedGenerated)GetSym(sohModule, "SOH_SetSeedGenerated");

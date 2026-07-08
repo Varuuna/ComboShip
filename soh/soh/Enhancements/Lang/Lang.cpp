@@ -25,7 +25,20 @@ static std::map<std::string, nlohmann::json> langs;
 #define LANGUAGE_CVAR CVAR_SETTING("Language")
 #define DEFAULT_LANGUAGE "en_US"
 
+#ifdef COMBO_BUILD
+extern bool gComboHeadlessRando; // defined in OTRGlobals.cpp; true ONLY during a headless rando run (ComboShip)
+#endif
+
 std::string Lang::Translate(const char* path) {
+#ifdef COMBO_BUILD
+    // ComboShip: a headless rando run (comborando) has no ResourceManager, so language data is never
+    // loaded. Return the raw key instead of asserting so the rando option/trick tables can be built
+    // without assets. gComboHeadlessRando is set ONLY by SOH_InitRandoHeadless (never the game), so
+    // in-game this is skipped and the assert below is unchanged. See docs/UPSTREAM_MERGES.md.
+    if (!initialized && ::gComboHeadlessRando) {
+        return std::string(path);
+    }
+#endif
     if (!initialized) {
         SPDLOG_ERROR("Tried to obtain a translation before the translation data is initialized");
         assert(false);

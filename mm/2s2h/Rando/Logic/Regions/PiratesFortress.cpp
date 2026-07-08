@@ -371,5 +371,5 @@ static RegisterShipInitFunc initFunc([]() {
             CONNECTION(RR_PIRATES_FORTRESS_SEWERS_POSTGATE, CAN_USE_ABILITY(SWIM))
         }
     };
-}, {});
+}, RANDO_LOGIC_INIT_PATHS);
 // clang-format on

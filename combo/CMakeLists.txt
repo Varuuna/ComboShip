@@ -94,6 +94,24 @@ add_dependencies(ComboShip
     comboui
 )
 
+# ComboShip: standalone HEADLESS cross-world seed generator/validator (combo/ComboRandoHeadless.cpp).
+# Loads soh.dll/2ship.dll at runtime and drives the rando-only headless init + cross-world fill — no
+# window, ResourceManager, audio, or ComboShip.exe boot. Console tool; links only nlohmann_json since
+# CrossWorldRando.h is header-only. Run from x64/<config> (next to the game DLLs).
+# EXCLUDE_FROM_ALL: a dev/validation tool most builders don't need, so it's kept out of the default
+# build entirely — build it explicitly with `cmake --build <dir> --target comborando` when wanted.
+add_executable(comborando EXCLUDE_FROM_ALL ComboRandoHeadless.cpp)
+target_include_directories(comborando PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(comborando PRIVATE nlohmann_json::nlohmann_json)
+add_dependencies(comborando soh 2ship)
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set_target_properties(comborando PROPERTIES
+        OUTPUT_NAME "comborando"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/x64/Debug"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/x64/Release"
+    )
+endif()
+
 # Windows-specific settings
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     # ComboShip: build the exe straight into the shared runtime dir (x64/<config>), matching how the

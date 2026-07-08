@@ -188,5 +188,5 @@ static RegisterShipInitFunc initFunc([]() {
             EVENT(RE_ACCESS_BUGS, CAN_LIGHT_TORCH_NEAR_ANOTHER),
         },
     };
-}, {});
+}, RANDO_LOGIC_INIT_PATHS);
 // clang-format on

@@ -65,6 +65,11 @@ class OTRGlobals {
     ImFont* fontJapanese = nullptr;
 
     OTRGlobals();
+#ifdef COMBO_BUILD
+    // ComboShip: rando-only headless construction (no window/RM/audio). See SOH_InitRandoHeadless.
+    struct HeadlessRandoTag {};
+    explicit OTRGlobals(HeadlessRandoTag);
+#endif
     ~OTRGlobals();
 
     void ScaleImGui();

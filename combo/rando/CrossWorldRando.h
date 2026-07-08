@@ -100,21 +100,49 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         progress->phase.store(1); // Preparing pools
 
     // --- Parse pools (single pass per dump) ---
-    // One CwItem per check's vanillaItem (multiset), partitioned by the dump's advancement flag.
-    // Missing flag (older game DLL) defaults to advancement=true: slower, never less logical.
+    // Checks from "checks", items from the real "pool" (split by advancement), confined
+    // pre-placements from "fixed". Falls back to per-check vanillaItem if an old DLL omits "pool".
     std::vector<CwItem> advItems, junkItems;
     std::vector<CwCheck> allChecks;
+    std::vector<CwPlacement> lockedPlacements; // confined pre-placements (own-dungeon keys, etc.)
 
     auto parsePool = [&](Game game, const std::string& dumpJson) {
         auto d = nlohmann::json::parse(dumpJson);
+
+        // Fillable checks (name only; the pool below feeds the items).
         for (auto& c : d.value("checks", nlohmann::json::array())) {
             std::string name = c.value("name", "");
-            std::string vi = c.value("vanillaItem", "");
-            if (name.empty() || vi.empty())
+            if (!name.empty())
+                allChecks.push_back({ game, name });
+        }
+
+        // Item pool: the game's real generated pool, split into advancement/junk.
+        if (d.contains("pool")) {
+            for (auto& it : d["pool"]) {
+                std::string name = it.value("name", "");
+                if (name.empty())
+                    continue;
+                bool adv = it.value("advancement", true);
+                (adv ? advItems : junkItems).push_back({ game, name, adv });
+            }
+        } else {
+            // Fallback for an older game DLL: reconstruct the pool from per-check vanilla items.
+            for (auto& c : d.value("checks", nlohmann::json::array())) {
+                std::string vi = c.value("vanillaItem", "");
+                if (vi.empty())
+                    continue;
+                bool adv = c.value("advancement", true);
+                (adv ? advItems : junkItems).push_back({ game, vi, adv });
+            }
+        }
+
+        // Confined pre-placements: locked to their check, credited to logic when reached.
+        for (auto& f : d.value("fixed", nlohmann::json::array())) {
+            std::string check = f.value("check", "");
+            std::string item = f.value("item", "");
+            if (check.empty() || item.empty())
                 continue;
-            allChecks.push_back({ game, name });
-            bool adv = c.value("advancement", true);
-            (adv ? advItems : junkItems).push_back({ game, vi, adv });
+            lockedPlacements.push_back({ { game, check }, { game, item, f.value("advancement", true) } });
         }
     };
 
@@ -207,6 +235,13 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     // OOT and MM check names are distinct namespaces; key fill bookkeeping by game+name.
     auto checkKey = [](const CwCheck& c) { return std::string(c.game == GAME_OOT ? "oot:" : "mm:") + c.name; };
 
+    // Locked (fixed) checks are each game's OWN vanilla/confined placements, already guaranteed
+    // reachable by that game's own fill; the cross-fill neither shuffles nor re-validates them (the
+    // oracles under-model some — e.g. vanilla GS spots — so they'd falsely fail validation).
+    std::unordered_set<std::string> lockedCheckKeys;
+    for (const auto& lp : lockedPlacements)
+        lockedCheckKeys.insert(checkKey(lp.check));
+
     // Per-oracle query stats (count + total ms), logged on completion — the searches dominate
     // fill time, so this is the first thing to read when generation feels slow.
     struct QueryStats {
@@ -293,6 +328,12 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         };
         placements.clear();
         filledChecks.clear();
+
+        // Seed confined pre-placements: locked (never re-filled) and credited to logic when their
+        // check is reached, via reachableFixpoint — the collected-in-place semantics for dungeon keys.
+        placements = lockedPlacements;
+        for (const auto& lp : lockedPlacements)
+            filledChecks.insert(checkKey(lp.check));
 
         // Phase A: place advancement items with logic, assuming only UNPLACED ones are owned.
         std::vector<CwItem> toPlace = advItems;
@@ -397,6 +438,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         auto [ootFinal, mmFinal] = reachableFixpoint({}, {});
         size_t advUnreachable = 0, junkUnreachable = 0, junkUnreachableOot = 0;
         for (const auto& p : placements) {
+            // Locked placements are the game's own guaranteed-reachable vanilla/confined items — not
+            // the cross-fill's responsibility, and the oracles under-model some. Don't validate them.
+            if (lockedCheckKeys.count(checkKey(p.check)))
+                continue;
             const auto& reach = p.check.game == GAME_OOT ? ootFinal : mmFinal;
             if (reach.count(p.check.name))
                 continue;
@@ -502,20 +547,36 @@ inline std::string CrossWorldGenerateSpoiler(const std::string& sohDumpJson, con
         nlohmann::json out = nlohmann::json::object();
         try {
             auto d = nlohmann::json::parse(dumpJson);
-            std::vector<std::string> checkNames, vanillaItems;
+            std::vector<std::string> checkNames, poolItems;
             for (auto& c : d.value("checks", nlohmann::json::array())) {
-                if (!c.contains("vanillaItem"))
-                    continue;
-                std::string v = c.value("vanillaItem", std::string{});
-                if (v.empty())
-                    continue;
-                checkNames.push_back(c.value("name", std::string{}));
-                vanillaItems.push_back(v);
+                std::string n = c.value("name", std::string{});
+                if (!n.empty())
+                    checkNames.push_back(n);
             }
-            std::vector<std::string> shuffled = vanillaItems;
+            if (d.contains("pool")) {
+                for (auto& it : d["pool"]) {
+                    std::string n = it.value("name", std::string{});
+                    if (!n.empty())
+                        poolItems.push_back(n);
+                }
+            } else {
+                for (auto& c : d.value("checks", nlohmann::json::array())) {
+                    std::string v = c.value("vanillaItem", std::string{});
+                    if (!v.empty())
+                        poolItems.push_back(v);
+                }
+            }
+            // Confined pre-placements pass through unshuffled.
+            for (auto& f : d.value("fixed", nlohmann::json::array())) {
+                std::string chk = f.value("check", std::string{});
+                std::string item = f.value("item", std::string{});
+                if (!chk.empty() && !item.empty())
+                    out[chk] = item;
+            }
+            std::vector<std::string> shuffled = poolItems;
             CwRng rng(seed);
             cwShuffle(shuffled, rng);
-            for (size_t i = 0; i < checkNames.size(); ++i) {
+            for (size_t i = 0; i < checkNames.size() && i < shuffled.size(); ++i) {
                 out[checkNames[i]] = shuffled[i];
             }
             spoiler[std::string(key) + "Count"] = static_cast<uint32_t>(checkNames.size());

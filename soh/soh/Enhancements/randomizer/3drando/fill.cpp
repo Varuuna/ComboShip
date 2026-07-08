@@ -1241,6 +1241,34 @@ static void RandomizeLinksPocket() {
     }
 }
 
+// ComboShip: extracted from Fill() so the combo confined-placement entry point can reuse the exact
+// same restricted-song placement. Behavior is unchanged for Fill().
+static void PlaceRestrictedSongs() {
+    auto ctx = Rando::Context::GetInstance();
+    if (ctx->GetOption(RSK_SHUFFLE_SONGS).IsNot(RO_SONG_SHUFFLE_ANYWHERE) &&
+        ctx->GetOption(RSK_SHUFFLE_SONGS).IsNot(RO_SONG_SHUFFLE_OFF)) {
+        // Get each song
+        std::vector<RandomizerGet> songs = FilterAndEraseFromPool(
+            itemPool, [](const auto i) { return Rando::StaticData::RetrieveItem(i).GetItemType() == ITEMTYPE_SONG; });
+
+        // Get each song location
+        std::vector<RandomizerCheck> songLocations;
+        if (ctx->GetOption(RSK_SHUFFLE_SONGS).Is(RO_SONG_SHUFFLE_SONG_LOCATIONS)) {
+            songLocations = FilterFromPool(ctx->allLocations, [](const auto loc) {
+                return Rando::StaticData::GetLocation(loc)->GetRCType() == RCTYPE_SONG_LOCATION;
+            });
+
+        } else if (ctx->GetOption(RSK_SHUFFLE_SONGS).Is(RO_SONG_SHUFFLE_DUNGEON_REWARDS)) {
+            songLocations = FilterFromPool(ctx->allLocations, [](const auto loc) {
+                return Rando::StaticData::GetLocation(loc)->GetRCType() == RCTYPE_BOSS_HEART_OR_OTHER_REWARD ||
+                       loc == RC_SHEIK_IN_ICE_CAVERN || loc == RC_SONG_FROM_IMPA;
+            });
+        }
+
+        AssumedFill(songs, songLocations, true);
+    }
+}
+
 void VanillaFill() {
     auto ctx = Rando::Context::GetInstance();
     // Perform minimum needed initialization
@@ -1411,29 +1439,7 @@ int Fill() {
 
         StartPerformanceTimer(PT_LIMITED_CHECKS);
         // Then Place songs if song shuffle is set to specific locations
-        if (ctx->GetOption(RSK_SHUFFLE_SONGS).IsNot(RO_SONG_SHUFFLE_ANYWHERE) &&
-            ctx->GetOption(RSK_SHUFFLE_SONGS).IsNot(RO_SONG_SHUFFLE_OFF)) {
-            // Get each song
-            std::vector<RandomizerGet> songs = FilterAndEraseFromPool(itemPool, [](const auto i) {
-                return Rando::StaticData::RetrieveItem(i).GetItemType() == ITEMTYPE_SONG;
-            });
-
-            // Get each song location
-            std::vector<RandomizerCheck> songLocations;
-            if (ctx->GetOption(RSK_SHUFFLE_SONGS).Is(RO_SONG_SHUFFLE_SONG_LOCATIONS)) {
-                songLocations = FilterFromPool(ctx->allLocations, [](const auto loc) {
-                    return Rando::StaticData::GetLocation(loc)->GetRCType() == RCTYPE_SONG_LOCATION;
-                });
-
-            } else if (ctx->GetOption(RSK_SHUFFLE_SONGS).Is(RO_SONG_SHUFFLE_DUNGEON_REWARDS)) {
-                songLocations = FilterFromPool(ctx->allLocations, [](const auto loc) {
-                    return Rando::StaticData::GetLocation(loc)->GetRCType() == RCTYPE_BOSS_HEART_OR_OTHER_REWARD ||
-                           loc == RC_SHEIK_IN_ICE_CAVERN || loc == RC_SONG_FROM_IMPA;
-                });
-            }
-
-            AssumedFill(songs, songLocations, true);
-        }
+        PlaceRestrictedSongs();
 
         // Then place dungeon items that are assigned to restrictive location pools
         RandomizeDungeonItems();
@@ -1500,3 +1506,30 @@ int Fill() {
     // All retries failed
     return -1;
 }
+
+#ifdef COMBO_BUILD
+// ComboShip: run only Fill()'s confined-placement steps (skip shops/entrances/Link's Pocket/free
+// fill), leaving confined items placed in ctx and the free pool in itemPool. See UPSTREAM_MERGES.md.
+void ComboFillConfined() {
+    auto ctx = Rando::Context::GetInstance();
+    RegionTable_Init();
+    ctx->ItemReset();
+    ctx->GenerateLocationPool();
+    GenerateItemPool();
+    GenerateStartingInventory();
+    FillExcludedLocations();
+    // Assume worst-case shop access during confined placement so reachability that needs a bought
+    // shield (e.g. a dungeon reward on Gohma) resolves — mirrors Fill()'s temporary injection.
+    AddElementsToPool(itemPool, GetMinVanillaShopItems(8));
+    SetAreas();
+    RandomizeDungeonRewards();
+    for (auto dungeon : ctx->GetDungeons()->GetDungeonList()) {
+        RandomizeOwnDungeon(dungeon);
+    }
+    PlaceRestrictedSongs();
+    RandomizeDungeonItems();
+    // Erase the temporary shop items so they never enter the cross-world pool.
+    std::erase_if(itemPool,
+                  [](const auto item) { return Rando::StaticData::RetrieveItem(item).GetItemType() == ITEMTYPE_SHOP; });
+}
+#endif

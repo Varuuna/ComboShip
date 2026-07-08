@@ -429,5 +429,5 @@ static RegisterShipInitFunc initFunc([]() {
             ENTRANCE(TWINMOLDS_LAIR, 0), // Blue warp exit
         }
     };
-}, {});
+}, RANDO_LOGIC_INIT_PATHS);
 // clang-format on

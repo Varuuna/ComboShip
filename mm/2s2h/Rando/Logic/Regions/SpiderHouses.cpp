@@ -268,5 +268,5 @@ static RegisterShipInitFunc initFunc([]() {
             EVENT(RE_ACCESS_BUGS, true),
         },
     };
-}, {});
+}, RANDO_LOGIC_INIT_PATHS);
 // clang-format on

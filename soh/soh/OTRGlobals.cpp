@@ -391,6 +391,21 @@ OTRGlobals::OTRGlobals() {
     ScaleImGui();
 }
 
+#ifdef COMBO_BUILD
+// ComboShip: rando-only headless ctor — Context + config + CVars, no ControlDeck/RM/Console/Window/GUI.
+OTRGlobals::OTRGlobals(HeadlessRandoTag) {
+    context = Ship::Context::CreateUninitializedInstance("Ship of Harkinian", appShortName, "comboship.json");
+    context->InitConfiguration();
+    context->InitConsoleVariables();
+    // Detect quest availability from the o2r files without loading archives (mirrors Initialize's hash
+    // check) so IsQuestOfLocationActive keeps the right dungeon locations in the pool.
+    hasOriginal = std::filesystem::exists(Ship::Context::LocateFileAcrossAppDirs("oot.o2r", appShortName));
+    hasMasterQuest = std::filesystem::exists(Ship::Context::LocateFileAcrossAppDirs("oot-mq.o2r", appShortName));
+    if (!hasOriginal && !hasMasterQuest)
+        hasOriginal = true; // fallback: assume vanilla so the location pool isn't empty
+}
+#endif
+
 typedef enum ExtractSteps {
     ES_PORT_ARCHIVE,
     ES_WINDOWS,
@@ -1603,6 +1618,32 @@ extern "C" __declspec(dllexport) void SOH_InitWindowOnly() {
 }
 extern "C" __declspec(dllexport) void SOH_FinishInit() {
     Combo_FinishInit();
+}
+
+// ComboShip: true ONLY during a headless rando run (set by SOH_InitRandoHeadless, never by the game).
+// Lets Lang::Translate return the raw key instead of asserting when language data isn't loaded (headless
+// has no ResourceManager). The game leaves this false, so its assert stays live. See docs/UPSTREAM_MERGES.md.
+bool gComboHeadlessRando = false;
+
+// Rando-only headless init: Context config/CVars + rando static data — NO window, RM, audio, or GUI.
+// Enough for the reachability oracles so a headless tool can generate + validate cross-world seeds
+// without opening the game. See docs/UPSTREAM_MERGES.md.
+extern "C" __declspec(dllexport) void SOH_InitRandoHeadless() {
+    if (OTRGlobals::Instance)
+        return; // already initialized (full boot or a prior headless call)
+    gComboHeadlessRando = true;
+    OTRGlobals::Instance = new OTRGlobals(OTRGlobals::HeadlessRandoTag{});
+    CVarLoad(); // populate CVars from comboship.json so the user's rando settings are live
+    // Rando bootstrap (subset of OTRGlobals::Initialize). CreateInstance first, unlike the full path,
+    // to avoid dereferencing the still-null gRandoContext member.
+    OTRGlobals::Instance->gRandoContext = Rando::Context::CreateInstance();
+    OTRGlobals::Instance->gRandoContext->InitStaticData();
+    Rando::Settings::GetInstance()->AssignContext(OTRGlobals::Instance->gRandoContext);
+    Rando::StaticData::InitItemTable();
+    // Build the option/trick tables (normally the rando menu's job, which headless lacks) so a spoiler's
+    // settings can reach the Context. Option/trick display names route through Lang::Translate, which
+    // returns the raw key headless (via gComboHeadlessRando) — no assets needed.
+    Rando::Settings::GetInstance()->CreateOptions();
 }
 
 // ComboShip (issue 24): apply a launcher-merged config (JSON object) to the live Config and reload the
@@ -3233,10 +3274,33 @@ extern "C" __declspec(dllexport) void SOH_RestoreRandoSettings(const char* json)
 // ComboShip: the settings-scoped pool prep that SOH_ApplyRandoPlacements depends on (ItemReset
 // iterates allLocations). On generation this runs inside SOH_DumpRandoStaticData; the reload/drop
 // path (which skips the fill) must run it explicitly before applying saved placements.
+// ComboShip: the player's enabled tricks live in the EnabledTricks CVar (CSV of stable trick NameTags,
+// written by the rando menu). Nothing else pushes them into the Context — SetAllToContext reads the
+// per-trick Options, whose cvar names are empty, so it leaves every trick off. Apply the CVar to
+// ctx->GetTrickOption AFTER each SetAllToContext so the cross-world fill AND the reachability oracle honor
+// the player's tricks (identically). Clears all first so the list is authoritative. See UPSTREAM_MERGES.md.
+static void Combo_ApplyEnabledTricks() {
+    auto ctx = OTRGlobals::Instance->gRandoContext;
+    for (int i = 0; i < RT_MAX; i++)
+        ctx->GetTrickOption(static_cast<RandomizerTrick>(i)).Set(RO_GENERIC_OFF);
+    std::string csv = CVarGetString(CVAR_RANDOMIZER_SETTING("EnabledTricks"), "");
+    for (size_t start = 0; start < csv.size();) {
+        size_t comma = csv.find(',', start);
+        std::string tag = csv.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+        start = (comma == std::string::npos) ? csv.size() : comma + 1;
+        if (tag.empty())
+            continue;
+        auto it = Rando::StaticData::trickToEnum.find(tag);
+        if (it != Rando::StaticData::trickToEnum.end())
+            ctx->GetTrickOption(it->second).Set(RO_GENERIC_ON);
+    }
+}
+
 extern "C" __declspec(dllexport) void SOH_PrepRandoContext(void) {
     try {
         auto ctx = OTRGlobals::Instance->gRandoContext;
         Rando::Settings::GetInstance()->SetAllToContext();
+        Combo_ApplyEnabledTricks();
         ctx->GetLogic()->Reset();
         ctx->FinalizeSettings({}, {});
         RegionTable_Init();
@@ -3255,6 +3319,8 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
     static std::string cached;
 
     nlohmann::json checks = nlohmann::json::array();
+    nlohmann::json pool = nlohmann::json::array();
+    nlohmann::json fixed = nlohmann::json::array();
     nlohmann::json items = nlohmann::json::array();
 
     bool usedPool = false;
@@ -3267,18 +3333,20 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         SOH_PrepRandoContext();
 
 #ifdef COMBO_BUILD
-        // ComboShip: a non-shuffled shop slot holds a vanilla RG_BUY_* item (placed by
-        // Combo_SetupOOTShops at apply time). It must NOT enter the cross-world pool, or the combined
-        // fill would drop an arbitrary OOT/MM item there with no shop setup -> crash on purchase. Emit
-        // ONLY the shuffled shop slots; leave the rest to SoH's vanilla shop setup. The shuffled set is
-        // deterministic for a given shopsanity count, so it matches what the apply does.
-        Combo_SeedShopRng(); // seed identically to the apply so the shuffled set matches exactly
+        // Seed the rando RNG from the combo seed BEFORE confined placement so dungeon rewards/own-dungeon
+        // items/songs are reproducible per seed (mirrors the MM side); Combo_SeedShopRng() below re-seeds
+        // so the shop-slot set stays dump/apply-consistent. Confine own-dungeon/reward/song items via
+        // OOT's own logic; the residual itemPool is the free cross-world pool.
+        Combo_SeedShopRng();
+        ComboFillConfined();
+
+        // Vanilla shop slots stay owned by Combo_SetupOOTShops; shuffled ones are normal checks.
+        Combo_SeedShopRng();
         const auto comboShuffledShops = Combo_ShuffledShopSlots();
         const auto& comboShopLocsVec = Rando::StaticData::GetShopLocations();
         const std::unordered_set<RandomizerCheck> comboShopSlots(comboShopLocsVec.begin(), comboShopLocsVec.end());
-#endif
 
-        // Iterate allLocations (the settings-scoped check set) instead of all RC_MAX.
+        // Partition allLocations: pre-placed (confined) -> fixed, empty -> fillable check.
         for (RandomizerCheck rc : ctx->allLocations) {
             Rando::Location* loc = Rando::StaticData::GetLocation(rc);
             if (!loc)
@@ -3286,73 +3354,82 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             const std::string& name = loc->GetName();
             if (name.empty())
                 continue;
-
-#ifdef COMBO_BUILD
+            // Link's Pocket is owned by the forced-placement mechanism (SOH_GetForcedPlacements); the
+            // dump must not emit it as a check or a fixed placement or it gets placed twice.
+            if (rc == RC_LINKS_POCKET)
+                continue;
+            // ComboShip: emit non-shuffled shop slots' vanilla RG_BUY_* as fixed so the oracle credits them
+            // when the shop is reachable (e.g. Buy Deku Shield gates Mido/Deku Tree); apply skips them.
             if (Combo_IsShopSlot(rc, comboShopSlots) && !comboShuffledShops.count(rc)) {
-                continue; // vanilla shop slot — owned by SoH's shop setup, not the cross-world fill
+                RandomizerGet vrg = loc->GetVanillaItem();
+                if (vrg != RG_NONE) {
+                    const std::string& vin = Rando::StaticData::RetrieveItem(vrg).GetName().GetEnglish();
+                    if (!vin.empty())
+                        fixed.push_back({ { "check", name },
+                                          { "item", vin },
+                                          { "advancement", Rando::StaticData::RetrieveItem(vrg).IsAdvancement() } });
+                }
+                continue;
             }
-#endif
 
+            RandomizerGet placed = ctx->GetItemLocation(rc)->GetPlacedRandomizerGet();
+            if (placed != RG_NONE) {
+                const std::string& in = Rando::StaticData::RetrieveItem(placed).GetName().GetEnglish();
+                if (!in.empty())
+                    fixed.push_back({ { "check", name },
+                                      { "item", in },
+                                      { "advancement", Rando::StaticData::RetrieveItem(placed).IsAdvancement() } });
+            } else if (loc->GetVanillaItem() != RG_NONE) {
+                // A real fillable check (vanilla-less non-checks like Link's Pocket are excluded above).
+                checks.push_back({ { "name", name } });
+                // itemPool excludes shop slots (CountEmptyLocations(false)), so a shuffled shop check
+                // needs its vanilla buy item added to the pool to stay balanced.
+                if (Combo_IsShopSlot(rc, comboShopSlots)) {
+                    RandomizerGet vrg = loc->GetVanillaItem();
+                    const std::string& vin = Rando::StaticData::RetrieveItem(vrg).GetName().GetEnglish();
+                    if (!vin.empty())
+                        pool.push_back({ { "name", vin },
+                                         { "advancement", Rando::StaticData::RetrieveItem(vrg).IsAdvancement() } });
+                }
+            }
+        }
+
+        // Pool = the real free item pool (every settings-added item, confined items already removed).
+        for (RandomizerGet rg : itemPool) {
+            const std::string& in = Rando::StaticData::RetrieveItem(rg).GetName().GetEnglish();
+            if (in.empty())
+                continue;
+            pool.push_back({ { "name", in }, { "advancement", Rando::StaticData::RetrieveItem(rg).IsAdvancement() } });
+        }
+        // Fewer pool items than checks would leave checks unfilled; surplus (junk from excluded
+        // locations) is fine — the fill drops it.
+        if (pool.size() < checks.size()) {
+            SPDLOG_WARN("[ComboShip] SOH_DumpRandoStaticData: pool shortfall ({} pool < {} checks) — checks would "
+                        "be left unfilled",
+                        pool.size(), checks.size());
+        }
+        usedPool = true;
+#else
+        // Non-combo (unused outside ComboShip): old vanilla-per-check emission.
+        for (RandomizerCheck rc : ctx->allLocations) {
+            Rando::Location* loc = Rando::StaticData::GetLocation(rc);
+            if (!loc)
+                continue;
+            const std::string& name = loc->GetName();
+            if (name.empty())
+                continue;
             RandomizerGet vanillaRG = loc->GetVanillaItem();
             if (vanillaRG == RG_NONE)
                 continue;
-
             const std::string& vigName = Rando::StaticData::RetrieveItem(vanillaRG).GetName().GetEnglish();
             if (vigName.empty())
                 continue;
-
-            // ComboShip: advancement flag — the combined fill logic-places only progression items.
             checks.push_back({ { "name", name },
                                { "vanillaItem", vigName },
                                { "advancement", Rando::StaticData::RetrieveItem(vanillaRG).IsAdvancement() } });
         }
-
-#ifdef COMBO_BUILD
-        // ComboShip: the loop above emits each check's VANILLA item, which MISSES the items the SETTINGS
-        // ADD to the pool — the shuffled "skill" items (Open Chest, Speak *, Climb, Crawl). They are not
-        // the vanilla item of any check, so without them the cross-world fill can never grant
-        // CAN_OPEN_CHEST / CAN_SPEAK_* etc., and EVERY chest/scrub/shop is logically unreachable ->
-        // generation dead-ends. Inject the enabled skill items into the pool, overwriting an equal
-        // number of junk checks so items stay 1:1 with checks. (Swim/Grab map to Progressive
-        // Scale/Strength, which the vanilla pool already carries, so they need no injection.)
-        {
-            std::vector<RandomizerGet> skills;
-            if (ctx->GetOption(RSK_SHUFFLE_OPEN_CHEST))
-                skills.push_back(RG_OPEN_CHEST);
-            if (ctx->GetOption(RSK_SHUFFLE_CLIMB))
-                skills.push_back(RG_CLIMB);
-            if (ctx->GetOption(RSK_SHUFFLE_CRAWL))
-                skills.push_back(RG_CRAWL);
-            if (ctx->GetOption(RSK_SHUFFLE_SPEAK)) {
-                skills.push_back(RG_SPEAK_DEKU);
-                skills.push_back(RG_SPEAK_GERUDO);
-                skills.push_back(RG_SPEAK_GORON);
-                skills.push_back(RG_SPEAK_HYLIAN);
-                skills.push_back(RG_SPEAK_KOKIRI);
-                skills.push_back(RG_SPEAK_ZORA);
-            }
-            size_t si = 0;
-            for (auto& c : checks) {
-                if (si >= skills.size())
-                    break;
-                if (c.value("advancement", true))
-                    continue; // only overwrite a junk slot
-                const std::string& sn = Rando::StaticData::RetrieveItem(skills[si]).GetName().GetEnglish();
-                if (sn.empty()) {
-                    ++si;
-                    continue;
-                }
-                c["vanillaItem"] = sn;
-                c["advancement"] = true;
-                ++si;
-            }
-            if (si < skills.size()) {
-                SPDLOG_WARN("[ComboShip] SOH_DumpRandoStaticData: injected only {}/{} skill items (too few junk slots)",
-                            si, skills.size());
-            }
-        }
-#endif
         usedPool = true;
+#endif
     } catch (const std::exception& e) {
         SPDLOG_WARN("[ComboShip] SOH_DumpRandoStaticData: RegionTable_Init/GenerateLocationPool threw ({}); "
                     "falling back to full RC_MAX dump",
@@ -3387,7 +3464,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         }
     }
 
-    // Items list: full item table (for the generator's reference; vanillaItems come from checks above).
+    // Items list: full item table metadata (display name + advancement for foreign items).
     for (int rg = 0; rg < RG_MAX; ++rg) {
         Rando::Item& item = Rando::StaticData::RetrieveItem(static_cast<RandomizerGet>(rg));
         const std::string& name = item.GetName().GetEnglish();
@@ -3399,7 +3476,12 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         items.push_back({ { "name", name }, { "displayName", name }, { "advancement", item.IsAdvancement() } });
     }
 
-    cached = nlohmann::json{ { "checks", std::move(checks) }, { "items", std::move(items) } }.dump();
+    cached = nlohmann::json{
+        { "checks", std::move(checks) },
+        { "pool", std::move(pool) },
+        { "fixed", std::move(fixed) },
+        { "items", std::move(items) }
+    }.dump();
     return cached.c_str();
 }
 
@@ -3425,6 +3507,12 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
         // vanilla ones), so they land on validly-priced slots and don't clobber the vanilla items.
 #ifdef COMBO_BUILD
         Combo_SetupOOTShops();
+        // Vanilla (non-shuffled) shop slots are owned by Combo_SetupOOTShops above; the dump emits them as
+        // fixed for reachability only, so skip them below to avoid clobbering the priced vanilla item.
+        Combo_SeedShopRng();
+        const auto applyShuffledShops = Combo_ShuffledShopSlots();
+        const auto& applyShopLocsVec = Rando::StaticData::GetShopLocations();
+        const std::unordered_set<RandomizerCheck> applyShopSlots(applyShopLocsVec.begin(), applyShopLocsVec.end());
 #endif
 
         nlohmann::json placements = nlohmann::json::parse(json);
@@ -3451,6 +3539,12 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
 
             RandomizerCheck rc = rcIt->second;
             RandomizerGet rg = rgIt->second;
+#ifdef COMBO_BUILD
+            if (Combo_IsShopSlot(rc, applyShopSlots) && !applyShuffledShops.count(rc)) {
+                ++skipped;
+                continue;
+            }
+#endif
             ctx->PlaceItemInLocation(rc, rg, false, false);
             ++placed;
         }
@@ -3601,6 +3695,7 @@ static void EnsureOracleInit() {
         return;
     auto ctx = OTRGlobals::Instance->gRandoContext;
     Rando::Settings::GetInstance()->SetAllToContext(); // ComboShip: apply chosen CVar settings before finalizing
+    Combo_ApplyEnabledTricks();                        // ComboShip: honor the player's tricks (see helper)
     ctx->GetLogic()->Reset();
     ctx->FinalizeSettings({}, {});
     RegionTable_Init();
@@ -3664,6 +3759,48 @@ extern "C" __declspec(dllexport) void Combo_SOH_Rando_PlaceItem(const char* chec
     if (rgIt == Rando::StaticData::itemNameToEnum.end())
         return;
     ctx->PlaceItemInLocation(rcIt->second, rgIt->second, false, false);
+}
+
+// ComboShip: enabled-trick capture/control for the headless playthrough validator. Tricks are identified
+// by their stable NameTag; all three route through the EnabledTricks CVar, which Combo_ApplyEnabledTricks
+// pushes into the Context at every SetAllToContext. Dump = the player's list; SetEnabledTricks = replace
+// with a list (playthrough Pass 1); SetAllTricks = every trick (Pass 2). Callers run SOH_PrepRandoContext
+// (or an oracle Reset) afterward to apply.
+extern "C" __declspec(dllexport) const char* SOH_DumpEnabledTricks(void) {
+    static std::string buf;
+    nlohmann::json out = nlohmann::json::array();
+    std::string csv = CVarGetString(CVAR_RANDOMIZER_SETTING("EnabledTricks"), "");
+    for (size_t start = 0; start < csv.size();) {
+        size_t comma = csv.find(',', start);
+        std::string tag = csv.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+        start = (comma == std::string::npos) ? csv.size() : comma + 1;
+        if (!tag.empty())
+            out.push_back(tag);
+    }
+    buf = out.dump();
+    return buf.c_str();
+}
+
+extern "C" __declspec(dllexport) void SOH_SetEnabledTricks(const char* namesJson) {
+    if (!namesJson)
+        return;
+    try {
+        std::string csv;
+        for (const auto& n : nlohmann::json::parse(namesJson))
+            csv += n.get<std::string>() + ",";
+        CVarSetString(CVAR_RANDOMIZER_SETTING("EnabledTricks"), csv.c_str());
+    } catch (...) {}
+}
+
+extern "C" __declspec(dllexport) void SOH_SetAllTricks(void) {
+    std::string csv;
+    for (int i = 0; i < RT_MAX; i++) {
+        const std::string& tag =
+            Rando::Settings::GetInstance()->GetTrickSetting(static_cast<RandomizerTrick>(i)).GetNameTag();
+        if (!tag.empty())
+            csv += tag + ",";
+    }
+    CVarSetString(CVAR_RANDOMIZER_SETTING("EnabledTricks"), csv.c_str());
 }
 
 // ComboShip: Link's Pocket is a rando-only check absent from the cross-world dump, so the combined

@@ -538,5 +538,5 @@ static RegisterShipInitFunc initFunc([]() {
             CONNECTION(RR_ASTRAL_OBSERVATORY_OUTSIDE, CAN_BE_DEKU),
         },
     };
-}, {});
+}, RANDO_LOGIC_INIT_PATHS);
 // clang-format on

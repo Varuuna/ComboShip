@@ -192,8 +192,9 @@ int main(int argc, char** argv) {
         auto blocked = [](const ComboRando::PlaythroughResult& r) -> const char* {
             return (!r.ganonReachable && !r.majoraReachable) ? "neither Ganon nor Majora is reachable"
                    : !r.ganonReachable                       ? "Ganon (OOT) is unreachable"
-                   : !r.majoraReachable                      ? "Majora (MM) is unreachable"
-                        : "both ends reachable with full inventory but the forward walk dead-ends (item cycle)";
+                   : !r.majoraReachable
+                       ? "Majora (MM) is unreachable"
+                       : "both ends reachable with full inventory but the forward walk dead-ends (item cycle)";
         };
 
         // Pass 1 — the seed's own settings + enabled tricks: "can this player beat it?"
@@ -252,12 +253,11 @@ int main(int argc, char** argv) {
                     consolidated["fileType"] = "ComboShipRandomizer";
                     consolidated["seed"] = seed;
                     consolidated["masterSeed"] = masterSeed;
-                    consolidated["oot"] = {
-                        { "settings", nlohmann::json::parse(SOH_DumpSettings()) },
-                        { "enabledTricks",
-                          SOH_DumpEnabledTricks ? nlohmann::json::parse(SOH_DumpEnabledTricks()) : nlohmann::json::array() },
-                        { "placements", fillSpoiler.value("oot", nlohmann::json::object()) }
-                    };
+                    consolidated["oot"] = { { "settings", nlohmann::json::parse(SOH_DumpSettings()) },
+                                            { "enabledTricks", SOH_DumpEnabledTricks
+                                                                   ? nlohmann::json::parse(SOH_DumpEnabledTricks())
+                                                                   : nlohmann::json::array() },
+                                            { "placements", fillSpoiler.value("oot", nlohmann::json::object()) } };
                     consolidated["mm"] = { { "settings", nlohmann::json::parse(MM_DumpSettings()) },
                                            { "placements", fillSpoiler.value("mm", nlohmann::json::object()) } };
                     consolidated["foreign"] = fillSpoiler.value("foreign", nlohmann::json::array());

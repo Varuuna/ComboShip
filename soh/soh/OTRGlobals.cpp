@@ -3795,7 +3795,8 @@ extern "C" __declspec(dllexport) void SOH_SetEnabledTricks(const char* namesJson
 extern "C" __declspec(dllexport) void SOH_SetAllTricks(void) {
     std::string csv;
     for (int i = 0; i < RT_MAX; i++) {
-        const std::string& tag = Rando::Settings::GetInstance()->GetTrickSetting(static_cast<RandomizerTrick>(i)).GetNameTag();
+        const std::string& tag =
+            Rando::Settings::GetInstance()->GetTrickSetting(static_cast<RandomizerTrick>(i)).GetNameTag();
         if (!tag.empty())
             csv += tag + ",";
     }

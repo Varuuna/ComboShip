@@ -148,8 +148,8 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
         (p.itemGame == GAME_OOT ? allOot : allMm).push_back(p.item);
     auto everReachOot = queryReachable(ootOracle, allOot);
     auto everReachMm = queryReachable(mmOracle, allMm);
-    result.ganonReachable = everReachOot.count(kOotTowerTop) > 0 &&
-                            std::find(allOot.begin(), allOot.end(), kOotBossKey) != allOot.end();
+    result.ganonReachable =
+        everReachOot.count(kOotTowerTop) > 0 && std::find(allOot.begin(), allOot.end(), kOotBossKey) != allOot.end();
     result.majoraReachable = everReachMm.count(kMmWin) > 0;
 
     if (mmRestore)

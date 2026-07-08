@@ -152,7 +152,6 @@ int main(int argc, char** argv) {
         flat["oot"] = spoiler.value("oot", nlohmann::json::object()).value("placements", nlohmann::json::object());
         flat["mm"] = spoiler.value("mm", nlohmann::json::object()).value("placements", nlohmann::json::object());
         flat["foreign"] = spoiler.value("foreign", nlohmann::json::array());
-        std::string flatStr = flat.dump();
         std::string label = SeedLabel(spoiler);
         uint32_t masterSeed = spoiler.value("masterSeed", 0u);
 
@@ -184,9 +183,23 @@ int main(int argc, char** argv) {
                 SOH_SetSeed(masterSeed);
             if (MM_SetSeed)
                 MM_SetSeed(masterSeed);
-            SOH_Dump();
-            MM_Dump();
-            return ComboRando::RunPlaythrough(flatStr, oot, mmO, label, MM_Restore);
+            // A real in-game save's placement map lists only SHUFFLED checks; non-shuffled items the
+            // oracle still gates on (OOT vanilla shop items, MM boss remains when not shuffled) live in
+            // the dump's fixed[]. Merge them in so those gates (e.g. MM RemainsCount for the Moon) resolve.
+            std::string sohDump = SOH_Dump(), mmDump = MM_Dump();
+            nlohmann::json passFlat = flat;
+            auto mergeFixed = [&](const std::string& dump, const char* game) {
+                try {
+                    for (auto& f : nlohmann::json::parse(dump).value("fixed", nlohmann::json::array())) {
+                        std::string chk = f.value("check", ""), item = f.value("item", "");
+                        if (!chk.empty() && !item.empty() && !passFlat[game].contains(chk))
+                            passFlat[game][chk] = item;
+                    }
+                } catch (...) {}
+            };
+            mergeFixed(sohDump, "oot");
+            mergeFixed(mmDump, "mm");
+            return ComboRando::RunPlaythrough(passFlat.dump(), oot, mmO, label, MM_Restore);
         };
         // Names the blocking win side from full-inventory reachability, so "stuck" is exact.
         auto blocked = [](const ComboRando::PlaythroughResult& r) -> const char* {

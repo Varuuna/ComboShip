@@ -97,6 +97,10 @@ jobs:
         run: cmake --build build/x64 --target soh --config Release
       - name: Build 2ship
         run: cmake --build build/x64 --target 2ship --config Release
+      # Headless seed validator (pulls libultraship/soh/2ship as deps, already built above). Uploaded
+      # below so validate-seed.yml can download it from develop instead of doing its own build.
+      - name: Build comborando
+        run: cmake --build build/x64 --target comborando --config Release
       - name: Build comboui
         run: cmake --build build/x64 --target comboui --config Release
       - name: Build ComboShip
@@ -122,4 +126,15 @@ jobs:
         with:
           name: ComboShip-windows
           path: _packages/*.zip
+          if-no-files-found: error
+
+      # comborando.exe + its deployed runtime DLLs (no o2r — the reachability oracle needs none).
+      # validate-seed.yml downloads this from the latest successful develop run instead of rebuilding.
+      - name: Upload comborando validator
+        uses: actions/upload-artifact@v4
+        with:
+          name: comborando-windows
+          path: |
+            x64/Release/comborando.exe
+            x64/Release/*.dll
           if-no-files-found: error

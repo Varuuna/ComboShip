@@ -1,10 +1,11 @@
 name: Validate Seed
 
 # Label an issue `validate-seed` (with a ComboShip seed file attached) and this headlessly checks whether
-# the seed is completable, replying with an item-by-item verdict as a comment. Standalone from the artifact
-# build: it builds ONLY the comborando validator (which pulls libultraship/soh/2ship as deps) and runs it —
-# no window, no ROM, no o2r assets (the reachability oracle is pure logic). See docs/UPSTREAM_MERGES.md and
-# combo/ComboRandoHeadless.cpp.
+# the seed is completable, replying with an item-by-item verdict as a comment. It does NOT build: it
+# downloads the comborando validator from the latest successful develop "Build Artifacts" run and runs it
+# (no window, no ROM, no o2r assets — the reachability oracle is pure logic). If no such build is available
+# yet (e.g. a develop build is still in progress), it comments on the issue and stops. See
+# docs/UPSTREAM_MERGES.md and combo/ComboRandoHeadless.cpp.
 
 on:
   issues:
@@ -19,16 +20,15 @@ jobs:
   validate:
     if: github.event.label.name == 'validate-seed'
     runs-on: windows-2022
-    timeout-minutes: 90
+    timeout-minutes: 20
     permissions:
       issues: write
       contents: read
+      actions: read # gh run list/download from the develop Build Artifacts run
     steps:
-      - uses: actions/checkout@v5
-
       # The seed is an attachment on the issue: a save<N>-Randomizer-<hash>.json (see CrossForeign.h). Scrape
       # its user-attachments link out of the issue body and download it. No match -> comment + stop (the
-      # build is skipped via the `found` output below).
+      # download/run steps are skipped via the `found` output below).
       - name: Find & download the seed file
         id: seed
         shell: pwsh
@@ -58,43 +58,42 @@ jobs:
               issue_number: context.issue.number,
               body: "❌ **No seed file found.** Attach your `saveN-Randomizer-<hash>.json` to the issue, then re-apply the **validate-seed** label." });
 
-      - name: Set up MSVC
+      # Download the validator from the latest SUCCESSFUL develop "Build Artifacts" run — no build here.
+      # If none exists yet (or it predates the comborando artifact), ok=false -> comment + stop below.
+      - name: Fetch comborando from latest develop build
+        id: dl
         if: steps.seed.outputs.found == 'true'
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      - name: Set up Python
-        if: steps.seed.outputs.found == 'true'
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      # Reuse the same cache key as the artifact build so a warm develop cache primes this too; the
-      # incremental CMake build then only recompiles what actually changed (logic edits etc.).
-      - name: Cache build dir (vcpkg + CMake)
-        if: steps.seed.outputs.found == 'true'
-        uses: actions/cache@v5
-        with:
-          path: build/x64
-          key: build-x64-${{ hashFiles('CMakeLists.txt', 'CMake/**', 'libultraship/cmake/**') }}
-          restore-keys: build-x64-
-
-      - name: Configure
-        if: steps.seed.outputs.found == 'true'
+        shell: pwsh
         env:
-          VCPKG_ROOT: ${{ github.workspace }}/build/x64/vcpkg
-        run: cmake -B build/x64 -S . -G "Visual Studio 17 2022" -A x64
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $id = gh run list --repo $env:GITHUB_REPOSITORY --workflow build-artifacts.yml --branch develop --status success --limit 1 --json databaseId --jq '.[0].databaseId'
+          if (-not $id) {
+            Write-Host "No successful develop Build Artifacts run found."
+            "ok=false" | Out-File $env:GITHUB_OUTPUT -Append
+            exit 0
+          }
+          Write-Host "Downloading comborando-windows from develop run $id"
+          gh run download $id --repo $env:GITHUB_REPOSITORY --name comborando-windows --dir x64/Release
+          if (Test-Path x64/Release/comborando.exe) {
+            "ok=true" | Out-File $env:GITHUB_OUTPUT -Append
+          } else {
+            Write-Host "Artifact missing comborando.exe."
+            "ok=false" | Out-File $env:GITHUB_OUTPUT -Append
+          }
 
-      # Single target: comborando's add_dependencies pulls libultraship -> soh -> 2ship, so this one build
-      # produces the DLLs + the validator. No asset/o2r generation — unneeded for reachability.
-      - name: Build comborando
-        if: steps.seed.outputs.found == 'true'
-        run: cmake --build build/x64 --target comborando --config Release
+      - name: Comment — no develop build available
+        if: steps.seed.outputs.found == 'true' && steps.dl.outputs.ok != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: "⏳ **No `develop` validator build available yet.** A `Build Artifacts` run on `develop` may still be in progress (or hasn't produced a `comborando-windows` artifact). Re-apply the **validate-seed** label once it finishes." });
 
       - name: Run playthrough validation
         id: run
-        if: steps.seed.outputs.found == 'true'
+        if: steps.seed.outputs.found == 'true' && steps.dl.outputs.ok == 'true'
         shell: pwsh
         run: |
           Copy-Item spoiler.json x64/Release/spoiler.json -Force
@@ -108,7 +107,7 @@ jobs:
           exit 0
 
       - name: Upload full sphere log
-        if: steps.seed.outputs.found == 'true'
+        if: steps.seed.outputs.found == 'true' && steps.dl.outputs.ok == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: playthrough-log
@@ -118,7 +117,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Comment — verdict
-        if: steps.seed.outputs.found == 'true'
+        if: steps.seed.outputs.found == 'true' && steps.dl.outputs.ok == 'true'
         uses: actions/github-script@v7
         env:
           EXITCODE: ${{ steps.run.outputs.exitcode }}

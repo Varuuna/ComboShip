@@ -1801,9 +1801,15 @@ static void Combo_FinishInit() {
     if (CVarGetInteger(CVAR_REMOTE_SAIL("Enabled"), 0)) {
         Sail::Instance->Enable();
     }
+#ifdef COMBO_BUILD
+    // ComboShip: Anchor always starts DISABLED — clear the persisted enable flag on boot instead of
+    // auto-connecting (standalone SoH keeps its remembered state).
+    CVarClear(CVAR_REMOTE_ANCHOR("Enabled"));
+#else
     if (CVarGetInteger(CVAR_REMOTE_ANCHOR("Enabled"), 0)) {
         Anchor::Instance->Enable();
     }
+#endif
     ShipInit::InitAll();
     Rando::StaticData::InitHashMaps();
     OTRGlobals::Instance->gRandoContext->AddExcludedOptions();
@@ -2985,6 +2991,19 @@ extern "C" __declspec(dllexport) void SOH_MenuDrawCustom(int32_t i) {
         menu->Update();
         menu->DrawCustomByIndex(i);
     }
+}
+
+// Draws widget i via OOT's real MenuDrawItem (UIWidgets) into comboui's current window/cell. Same
+// context/RM/Init+Update contract as SOH_MenuDrawCustom. Returns 1 if the CVar changed this frame.
+extern "C" __declspec(dllexport) int32_t SOH_MenuDrawWidget(int32_t i, int32_t width) {
+    ComboMenuContext::UseSharedImGuiContext();
+    Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("oot"));
+    if (auto menu = SohGui::GetSohMenu()) {
+        menu->Init();
+        menu->Update();
+        return menu->DrawWidgetByIndex(i, width);
+    }
+    return 0;
 }
 
 // ComboShip: MM->OOT return — re-enter OOT's game loop on the SAME shared context/window, swap

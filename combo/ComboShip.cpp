@@ -1277,6 +1277,14 @@ static int LauncherValidateShipConfig(const char* path) {
 int main(int argc, char** argv) {
     std::cout << "ComboShip Launcher - Starting..." << std::endl;
 
+#ifdef _WIN32
+    // Match SoH's DPI awareness (its SHIPOFHARKINIAN.manifest declares permonitorv2). ComboShip.exe
+    // ships no such manifest, so without this Windows renders the framebuffer at the logical
+    // (down-scaled) resolution and upscales it — making the whole menu/UI larger and blurrier on
+    // >100% display scaling. Must run before any window is created.
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+#endif
+
     std::set_terminate(ComboTerminateHandler);
 
     // --- 1. Load DLLs ---

@@ -29,7 +29,7 @@ class ComboMenu final : public Ship::GuiWindow {
     }
 
   private:
-    void DrawSharedPanel();                  // left-panel hub: engine + OOT Rando + MM Rando + Combo
+    void DrawSharedPanel();                  // hub for the Settings + Randomizer tabs (by mScope)
     void DrawGamePanel(const char* gameKey); // renders from the C-ABI model (ComboMenuModel + RenderWidget)
     void DrawComboPanel();                   // cross-world Generate (seed + button + progress)
     void DrawHintSection();                  // sphere "Get a hint" helper, when a seed save is active
@@ -50,7 +50,7 @@ class ComboMenu final : public Ship::GuiWindow {
     std::string mStatusLine;
     bool mGeneratePending = false; // one-frame defer: show "Generating…" before blocking fill
     std::string mHubActive;        // active hub entry key ("group/label"); persists across frames
-    std::string mScope;            // active top-level scope: "shared" | "oot" | "mm"; persists
+    std::string mScope;            // active top-level tab: "settings" | "randomizer" | "oot" | "mm"
     // Per-game two-level nav selection (SOH-style top header + left sidebar): gameKey -> (header,
     // sidebar). Combo-local — deliberately NOT the games' own gSettings.Menu.*SidebarSection CVars
     // (writing those would perturb the games' native menus). Persists across frames.

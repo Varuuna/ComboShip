@@ -6,6 +6,7 @@
 #include "ComboTrackerBridge.h"
 #include "ComboTrackerSwap.h"
 #include <imgui.h>
+#include <ship/window/gui/IconsFontAwesome4.h> // ICON_FA_* for the header action buttons
 #include <memory>
 #include <string>
 #include <vector>
@@ -102,21 +103,38 @@ void ComboMenu::DrawElement() {
     ImGui::PopStyleVar();
 
     if (open) {
-        // ComboShip: stylized scope selector (rounded theme buttons) in place of a plain ImGui tab
-        // bar, matching the per-game header strip. Tabs are named for each engine's brand, not the
-        // bare game code. mScope persists the active scope across frames.
+        // Center an inset menu block over the full-screen backdrop (mirrors SoH DrawElement: 90% /
+        // 16:9 cap, centered) instead of filling the viewport edge-to-edge.
+        ImGuiViewport* mvp = ImGui::GetMainViewport();
+        const float ww = mvp->WorkSize.x, wh = mvp->WorkSize.y;
+        ImVec2 menuSize(ww, wh);
+        if (ww > 1280.0f) {
+            menuSize.x = std::min(ww * 0.9f, wh * 1.77f);
+        }
+        if (wh > 800.0f) {
+            menuSize.y = wh * 0.9f;
+        }
+        ImGui::SetCursorScreenPos(
+            ImVec2(mvp->WorkPos.x + (ww - menuSize.x) * 0.5f, mvp->WorkPos.y + (wh - menuSize.y) * 0.5f));
+        ImGui::BeginChild("##ComboMenuBlock", menuSize, 0, ImGuiWindowFlags_NoScrollbar);
+
+        // Stylized scope selector (rounded theme buttons) — Shared / SoH / MM. mScope persists.
         struct Scope {
             const char* id;
             const char* label;
         };
         static const Scope kScopes[] = {
-            { "shared", "Shared" },
+            { "settings", "Settings" },
+            { "randomizer", "Randomizer" },
             { "oot", "Ship of Harkinian" },
             { "mm", "2 Ship 2 Harkinian" },
         };
         if (mScope.empty()) {
-            mScope = "shared";
+            mScope = "settings";
         }
+        // Own ID scope so a scope tab (e.g. "Settings"/"Randomizer") doesn't collide with a per-game
+        // section header of the same label (StyledNavButton derives its ImGui ID from the label).
+        ImGui::PushID("##ComboScopeTabs");
         bool firstScope = true;
         for (const auto& sc : kScopes) {
             if (!firstScope) {
@@ -127,18 +145,49 @@ void ComboMenu::DrawElement() {
                 mScope = sc.id;
             }
         }
-        // Global search row beneath the scope strip: a themed Clear button + a full-width input.
-        // A non-empty query takes over the content area (results span both games); the scope tabs
-        // stay visible but inert until the box is cleared.
-        ComboMenu_PushButton(ComboMenu_ThemeColor());
-        if (ImGui::Button("Clear")) {
-            mSearchBuf[0] = '\0';
-        }
-        ComboMenu_PopButton();
+        ImGui::PopID();
+        // Compact search box on the header row, just after the last scope tab (~200px, like SoH).
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(-FLT_MIN);
-        ImGui::InputTextWithHint("##ComboSearch", "Search settings...", mSearchBuf, sizeof(mSearchBuf));
-        ImGui::Separator();
+        ImGui::SetNextItemWidth(200.0f);
+        ImGui::InputTextWithHint("##ComboSearch", "Search...", mSearchBuf, sizeof(mSearchBuf));
+
+        // Quit / Reset (always red, theme-independent) + Close (gray), right-aligned (mirrors SoH).
+        {
+            const ImVec4 red(0.55f, 0.0f, 0.0f, 1.0f), gray(0.45f, 0.45f, 0.45f, 1.0f);
+            ComboMenu_PushButton(red);
+            // Reserve using the PUSHED FramePadding (ComboMenu_PushButton widens it) so all three
+            // buttons fit and the last (Close) isn't clipped off the right edge.
+            const ImGuiStyle& st = ImGui::GetStyle();
+            auto bw = [&](const char* ic) { return ImGui::CalcTextSize(ic).x + st.FramePadding.x * 2.0f; };
+            const float total =
+                bw(ICON_FA_POWER_OFF) + bw(ICON_FA_UNDO) + bw(ICON_FA_TIMES_CIRCLE) + st.ItemSpacing.x * 2.0f;
+            ImGui::SameLine(ImGui::GetContentRegionMax().x - total);
+            if (ImGui::Button(ICON_FA_POWER_OFF)) {
+                Ship::Context::GetInstance()->GetWindow()->Close();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(ICON_FA_UNDO)) {
+                if (auto console = std::static_pointer_cast<Ship::ConsoleWindow>(
+                        Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGuiWindow("Console"))) {
+                    console->Dispatch("reset");
+                }
+            }
+            ComboMenu_PopButton();
+            ImGui::SameLine();
+            ComboMenu_PushButton(gray);
+            if (ImGui::Button(ICON_FA_TIMES_CIRCLE)) {
+                Hide();
+            }
+            ComboMenu_PopButton();
+        }
+
+        // Thick white divider under the header row (mirrors SoH DrawElement's header line).
+        {
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            const float w = ImGui::GetContentRegionAvail().x;
+            ImGui::GetWindowDrawList()->AddRectFilled(p, ImVec2(p.x + w, p.y + 4.0f), IM_COL32(255, 255, 255, 255));
+            ImGui::Dummy(ImVec2(w, 4.0f + ImGui::GetStyle().ItemSpacing.y));
+        }
 
         // Normalize once per frame; the scope panels render search results in their content area
         // (keeping the left nav visible) when this is non-empty.
@@ -150,6 +199,7 @@ void ComboMenu::DrawElement() {
         } else {
             DrawSharedPanel();
         }
+        ImGui::EndChild();
     }
     ImGui::End();
 }
@@ -212,7 +262,7 @@ void ComboMenu::DrawSearchResults(const std::string& query) {
                         // Extra per-game ID scope: RenderWidget PushID(w.index) internally, and the two
                         // games can emit the same index — without this, their interaction state collides.
                         ImGui::PushID(src.label);
-                        RenderWidget(wd, game);
+                        RenderWidget(wd, game, 90 / cols);
                         ImGui::TextColored(kBreadcrumbColor, "[%s] %s -> %s", src.label,
                                            (sec.sectionLabel && sec.sectionLabel[0]) ? sec.sectionLabel : "Section",
                                            (side.sidebarName && side.sidebarName[0]) ? side.sidebarName : "Section");
@@ -304,12 +354,15 @@ void DrawTrackerSharedPanel() {
     ImGui::TableSetColumnIndex(0);
 
     bool shown = ComboTracker::GetMasterVisible(ComboTracker::kSwapItem);
-    ComboRando::ComboMenu_PushCheckbox(theme);
-    if (ImGui::Checkbox("Show Item Tracker", &shown)) {
-        ComboTracker::SetMasterVisible(ComboTracker::kSwapItem, shown);
+    // Icon-button toggle (matches SoH's window-toggle buttons), not a checkbox.
+    std::string itemTxt =
+        std::string(shown ? ICON_FA_WINDOW_CLOSE : ICON_FA_EXTERNAL_LINK_SQUARE) + " Toggle Item Tracker";
+    ComboRando::ComboMenu_PushButton(theme);
+    if (ImGui::Button(itemTxt.c_str())) {
+        ComboTracker::SetMasterVisible(ComboTracker::kSwapItem, !shown);
         changed = true;
     }
-    ComboRando::ComboMenu_PopCheckbox();
+    ComboRando::ComboMenu_PopButton();
 
     int px = CVarGetInteger("gCombo.Tracker.IconSize", ComboTracker::kDefaultIconSize);
     ComboRando::ComboMenu_PushSlider(theme);
@@ -389,12 +442,15 @@ void DrawCheckTrackerSharedPanel() {
     ImGui::TableSetColumnIndex(0);
 
     bool shown = ComboTracker::GetMasterVisible(ComboTracker::kSwapCheck);
-    ComboRando::ComboMenu_PushCheckbox(theme);
-    if (ImGui::Checkbox("Show Check Tracker", &shown)) {
-        ComboTracker::SetMasterVisible(ComboTracker::kSwapCheck, shown);
+    // Icon-button toggle (matches SoH's window-toggle buttons), not a checkbox.
+    std::string checkTxt =
+        std::string(shown ? ICON_FA_WINDOW_CLOSE : ICON_FA_EXTERNAL_LINK_SQUARE) + " Toggle Check Tracker";
+    ComboRando::ComboMenu_PushButton(theme);
+    if (ImGui::Button(checkTxt.c_str())) {
+        ComboTracker::SetMasterVisible(ComboTracker::kSwapCheck, !shown);
         changed = true;
     }
-    ComboRando::ComboMenu_PopCheckbox();
+    ComboRando::ComboMenu_PopButton();
 
     const char* kWindowTypes[] = { "Floating (overlay)", "Window" };
     int wt = CVarGetInteger("gCombo.CheckTracker.WindowType", ComboTracker::kDefaultCheckWindowType);
@@ -448,47 +504,51 @@ void ComboMenu::DrawSharedPanel() {
     };
     std::vector<Group> groups;
 
-    {
+    // Two top-level tabs share this panel: "Settings" (engine + combo trackers) and "Randomizer"
+    // (OOT/MM rando settings + combo Generate). mScope selects which set to build.
+    const bool randoScope = (mScope == "randomizer");
+    if (!randoScope) {
         std::vector<HubEntry> e;
         // "Mod Menu" and "Presets" are OOT-specific (per-game mods/presets) — they live only in
-        // the Ship of Harkinian tab, so omit them here to avoid duplicating them in Shared.
-        AppendSectionEntries(e, "Shared", HubEntry::ENGINE, model.Oot(), "Settings", { "Mod Menu", "Presets" });
+        // the Ship of Harkinian tab, so omit them here to avoid duplicating them in Settings.
+        AppendSectionEntries(e, "Settings", HubEntry::ENGINE, model.Oot(), "Settings", { "Mod Menu", "Presets" });
         // Combo-owned Item Tracker panel: shared appearance + game-swap selection.
         HubEntry trk;
         trk.label = "Item Tracker";
-        trk.group = "Shared";
+        trk.group = "Settings";
         trk.kind = HubEntry::COMBO_TRACKER;
         e.push_back(std::move(trk));
         // Combo-owned Check Tracker panel: master visibility + game-swap selection.
         HubEntry chk;
         chk.label = "Check Tracker";
-        chk.group = "Shared";
+        chk.group = "Settings";
         chk.kind = HubEntry::COMBO_CHECK_TRACKER;
         e.push_back(std::move(chk));
         if (!e.empty())
-            groups.push_back({ "Shared", std::move(e) });
-    }
-    {
-        std::vector<HubEntry> e;
-        // Trackers live in the Ship of Harkinian tab, not here.
-        AppendSectionEntries(e, "OOT Randomizer", HubEntry::OOT_RANDO, model.Oot(), "Randomizer", {}, true);
-        if (!e.empty())
-            groups.push_back({ "OOT Randomizer", std::move(e) });
-    }
-    {
-        std::vector<HubEntry> e;
-        // Display label "MM Randomizer"; the MM menu's own section name is still "Rando".
-        // Trackers live in the 2 Ship 2 Harkinian tab, not here.
-        AppendSectionEntries(e, "MM Randomizer", HubEntry::MM_RANDO, model.Mm(), "Rando", {}, true);
-        if (!e.empty())
-            groups.push_back({ "MM Randomizer", std::move(e) });
-    }
-    {
-        HubEntry gen;
-        gen.label = "Generate";
-        gen.group = "Combo";
-        gen.kind = HubEntry::COMBO_GEN;
-        groups.push_back({ "Combo", { std::move(gen) } });
+            groups.push_back({ "Settings", std::move(e) });
+    } else {
+        {
+            std::vector<HubEntry> e;
+            // Trackers live in the Ship of Harkinian tab, not here.
+            AppendSectionEntries(e, "OOT Randomizer", HubEntry::OOT_RANDO, model.Oot(), "Randomizer", {}, true);
+            if (!e.empty())
+                groups.push_back({ "OOT Randomizer", std::move(e) });
+        }
+        {
+            std::vector<HubEntry> e;
+            // Display label "MM Randomizer"; the MM menu's own section name is still "Rando".
+            // Trackers live in the 2 Ship 2 Harkinian tab, not here.
+            AppendSectionEntries(e, "MM Randomizer", HubEntry::MM_RANDO, model.Mm(), "Rando", {}, true);
+            if (!e.empty())
+                groups.push_back({ "MM Randomizer", std::move(e) });
+        }
+        {
+            HubEntry gen;
+            gen.label = "Generate";
+            gen.group = "Combo";
+            gen.kind = HubEntry::COMBO_GEN;
+            groups.push_back({ "Combo", { std::move(gen) } });
+        }
     }
 
     // Resolve the active entry; default to the first available, and recover if the prior
@@ -509,17 +569,28 @@ void ComboMenu::DrawSharedPanel() {
             mHubActive = active->key();
     }
 
-    // Left navigation panel — stylized entries matching the per-game left sidebar.
+    // Left navigation panel — the whole sidebar renders at 1.2x to match SoH's fontStandardLargest
+    // (~24px) header/sidebar tier (comboui has no separate bold font in the shared atlas). Width fits
+    // the widest label at that scale, floored at 200px and capped at half the panel.
     float availW = ImGui::GetContentRegionAvail().x;
-    float sidebarW = availW > 1600 ? availW * 0.15f : 200.0f;
-    ImGui::BeginChild("##HubSidebar", ImVec2(sidebarW, 0), ImGuiChildFlags_Borders);
+    const ImGuiStyle& sbSt = ImGui::GetStyle();
+    float sbNeed = 0.0f;
     for (const auto& g : groups) {
-        // Enlarge the group divider label so the sections read as clear headers. comboui has no
-        // separate bold font in the shared atlas, so scale the current font for the label only,
-        // then restore so the entry buttons below render at normal size.
-        ImGui::SetWindowFontScale(1.2f);
-        ImGui::SeparatorText(g.label.c_str());
-        ImGui::SetWindowFontScale(1.0f);
+        sbNeed = std::max(sbNeed, ImGui::CalcTextSize(g.label.c_str()).x);
+        for (const auto& en : g.entries)
+            sbNeed = std::max(sbNeed, ImGui::CalcTextSize(en.label.c_str()).x);
+    }
+    sbNeed = sbNeed * 1.2f + 20.0f; // 1.2x sidebar scale + button padding
+    float sidebarW = std::max(availW > 1600 ? availW * 0.15f : 200.0f, sbNeed + sbSt.ScrollbarSize + 8.0f);
+    sidebarW = std::min(sidebarW, availW * 0.5f);
+    ImGui::BeginChild("##HubSidebar", ImVec2(sidebarW, 0), 0); // no box border (SoH doesn't box the sidebar)
+    ImGui::SetWindowFontScale(1.2f);                           // match SoH's 24px header/sidebar tier
+    for (const auto& g : groups) {
+        // Group divider header — only meaningful with multiple groups (e.g. the Randomizer tab's
+        // OOT/MM/Combo). A single-group tab (Settings) would just repeat the tab name, so skip it.
+        if (groups.size() > 1) {
+            ImGui::SeparatorText(g.label.c_str());
+        }
         for (const auto& en : g.entries) {
             const bool selected = active && (active->key() == en.key());
             // Unique ImGui ID per entry — multiple groups share labels like "General", so deriving
@@ -532,8 +603,17 @@ void ComboMenu::DrawSharedPanel() {
             ImGui::PopID();
         }
     }
+    ImGui::SetWindowFontScale(1.0f);
     ImGui::EndChild();
 
+    ImGui::SameLine();
+    // Thick white vertical divider between sidebar and content (mirrors SoH's second line).
+    {
+        ImVec2 dv = ImGui::GetCursorScreenPos();
+        ImGui::GetWindowDrawList()->AddRectFilled(dv, ImVec2(dv.x + 4.0f, dv.y + ImGui::GetContentRegionAvail().y),
+                                                  IM_COL32(255, 255, 255, 255));
+    }
+    ImGui::Dummy(ImVec2(4.0f, 0.0f));
     ImGui::SameLine();
 
     // Right content panel for the active entry.
@@ -655,8 +735,22 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
     // Left sidebar (stylized buttons) + right content. NOTE: widgets render linearly and ignore
     // CwSidebar::columnCount — multi-column layout is a later polish pass.
     float availW = ImGui::GetContentRegionAvail().x;
-    float sidebarW = availW > 1600 ? availW * 0.15f : 200.0f;
-    ImGui::BeginChild("##GameSidebar", ImVec2(sidebarW, 0), ImGuiChildFlags_Borders);
+    // Fit the sidebar to its widest shown entry at the 1.2x sidebar scale (floored at 200px, capped
+    // at half the panel) — matches SoH's fontStandardLargest (~24px) header/sidebar tier.
+    const ImGuiStyle& sbSt = ImGui::GetStyle();
+    float sbNeed = 0.0f;
+    for (int sb = 0; sb < activeSec->sidebarCount; ++sb) {
+        const CwSidebar& side = activeSec->sidebars[sb];
+        if (!sidebarShown(activeSec->sectionLabel, side.sidebarName))
+            continue;
+        const char* lbl = (side.sidebarName && side.sidebarName[0]) ? side.sidebarName : "Section";
+        sbNeed = std::max(sbNeed, ImGui::CalcTextSize(lbl).x);
+    }
+    sbNeed = sbNeed * 1.2f + 20.0f; // 1.2x sidebar scale + button padding
+    float sidebarW = std::max(availW > 1600 ? availW * 0.15f : 200.0f, sbNeed + sbSt.ScrollbarSize + 8.0f);
+    sidebarW = std::min(sidebarW, availW * 0.5f);
+    ImGui::BeginChild("##GameSidebar", ImVec2(sidebarW, 0), 0); // no box border (SoH doesn't box the sidebar)
+    ImGui::SetWindowFontScale(1.2f);                            // match SoH's 24px header/sidebar tier
     for (int sb = 0; sb < activeSec->sidebarCount; ++sb) {
         const CwSidebar& side = activeSec->sidebars[sb];
         if (!sidebarShown(activeSec->sectionLabel, side.sidebarName))
@@ -669,8 +763,17 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
         }
         ImGui::PopID();
     }
+    ImGui::SetWindowFontScale(1.0f);
     ImGui::EndChild();
 
+    ImGui::SameLine();
+    // Thick white vertical divider between sidebar and content (mirrors SoH's second line).
+    {
+        ImVec2 dv = ImGui::GetCursorScreenPos();
+        ImGui::GetWindowDrawList()->AddRectFilled(dv, ImVec2(dv.x + 4.0f, dv.y + ImGui::GetContentRegionAvail().y),
+                                                  IM_COL32(255, 255, 255, 255));
+    }
+    ImGui::Dummy(ImVec2(4.0f, 0.0f));
     ImGui::SameLine();
 
     ImGui::BeginChild("##GameContent", ImVec2(0, 0));

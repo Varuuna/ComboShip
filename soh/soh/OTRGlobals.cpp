@@ -1640,6 +1640,26 @@ extern "C" __declspec(dllexport) void SOH_InitRandoHeadless() {
     OTRGlobals::Instance->gRandoContext->InitStaticData();
     Rando::Settings::GetInstance()->AssignContext(OTRGlobals::Instance->gRandoContext);
     Rando::StaticData::InitItemTable();
+    // These location-table registrations normally run as RegisterShipInitFunc callbacks during full boot
+    // (ShipInit::InitAll), which headless skips — so without them pots/grass/crates/freestanding/etc. checks
+    // don't exist and any seed shuffling them is massively under-modeled (the validator would call it
+    // unbeatable). They're pure data (no assets/RM), so call them directly here.
+    Rando::StaticData::RegisterSongLocations();
+    Rando::StaticData::RegisterBeehiveLocations();
+    Rando::StaticData::RegisterCowLocations();
+    Rando::StaticData::RegisterFishLocations();
+    Rando::StaticData::RegisterFairyLocations();
+    Rando::StaticData::RegisterPotLocations();
+    Rando::StaticData::RegisterFreestandingLocations();
+    Rando::StaticData::RegisterGrassLocations();
+    Rando::StaticData::RegisterCrateLocations();
+    Rando::StaticData::RegisterRockLocations();
+    Rando::StaticData::RegisterTreeLocations();
+    Rando::StaticData::RegisterSignLocations();
+    Rando::StaticData::RegisterWonderItemLocations();
+    Rando::StaticData::RegisterBeggarLocations();
+    Rando::StaticData::RegisterIcicleLocations();
+    Rando::StaticData::RegisterRedIceLocations();
     // Build the option/trick tables (normally the rando menu's job, which headless lacks) so a spoiler's
     // settings can reach the Context. Option/trick display names route through Lang::Translate, which
     // returns the raw key headless (via gComboHeadlessRando) — no assets needed.

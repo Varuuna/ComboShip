@@ -51,6 +51,7 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
     std::vector<Placed> placements;
     std::unordered_set<std::string> foreignKey;
     std::unordered_map<std::string, GameId> foreignItemGame;
+    std::unordered_map<std::string, std::string> foreignItemName;
     try {
         auto j = nlohmann::json::parse(spoilerJson);
         for (auto& fm : j.value("foreign", nlohmann::json::array())) {
@@ -58,14 +59,21 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
             std::string ig = fm.value("itemGame", "");
             foreignKey.insert(cg + ":" + cn);
             foreignItemGame[cg + ":" + cn] = (ig == "mm") ? GAME_MM : GAME_OOT;
+            foreignItemName[cg + ":" + cn] = fm.value("itemName", "");
         }
         auto addGame = [&](const char* key, GameId cg) {
             if (!j.contains(key) || !j[key].is_object())
                 return;
             for (auto& [cn, iv] : j[key].items()) {
                 std::string fk = std::string(key) + ":" + cn;
-                GameId ig = foreignKey.count(fk) ? foreignItemGame[fk] : cg;
-                placements.push_back({ cg, cn, ig, iv.get<std::string>() });
+                bool isForeign = foreignKey.count(fk) > 0;
+                GameId ig = isForeign ? foreignItemGame[fk] : cg;
+                // A foreign item's placement-map value is its human DISPLAY name, but the owning game's
+                // oracle keys on its internal name (MM: RI_*). Prefer the foreign entry's itemName so the
+                // item is actually credited when handed to that oracle.
+                std::string item =
+                    (isForeign && !foreignItemName[fk].empty()) ? foreignItemName[fk] : iv.get<std::string>();
+                placements.push_back({ cg, cn, ig, item });
             }
         };
         addGame("oot", GAME_OOT);

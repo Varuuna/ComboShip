@@ -547,6 +547,7 @@ struct ComboForeignDrawInfo {
     float scale = 0.0f;       // extra model scale; 0 = none (MM remains: 0.02)
     bool hasEnvColor = false; // emit env color before the DLs (MM song notes)
     uint8_t envColor[4] = { 0, 0, 0, 0 };
+    bool xluSeg8TexScroll = false; // bind segment 8 to the flame texscroll before the XLU layer (skull token)
     const char* dls[CW_DRAW_MAX_DLISTS] = { nullptr }; // interned "__OTR__@mm:..." routed paths
     // ComboShip: animated class (no static DL row — MM stray fairies). When animOk, anim describes
     // the item and ComboForeignAnim_Draw renders it; path strings point at 2ship.dll statics.
@@ -623,6 +624,7 @@ const ComboForeignDrawInfo* ComboResolveForeignDrawInfo(RandomizerCheck rc) {
     info.xluStart = raw.xluStartIndex;
     info.scale = raw.scale;
     info.hasEnvColor = raw.hasEnvColor != 0;
+    info.xluSeg8TexScroll = raw.xluSeg8TexScroll != 0;
     for (int32_t i = 0; i < 4; i++) {
         info.envColor[i] = raw.envColor[i];
     }
@@ -683,6 +685,13 @@ extern "C" void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getIt
     }
     if (xs < n) {
         Gfx_SetupDL_25Xlu(play->state.gfxCtx);
+        // ComboShip: replicate MM's GetItem_DrawSkullToken segment-8 flame scroll so the XLU flame
+        // layer animates the same way it does in MM (else the token draws bare/hollow-looking).
+        if (info->xluSeg8TexScroll) {
+            gSPSegment(POLY_XLU_DISP++, 0x08,
+                       (uintptr_t)Gfx_TwoTexScrollEx(play->state.gfxCtx, G_TX_RENDERTILE, 0, play->state.frames * -5, 32,
+                                                     32, 1, 0, 0, 32, 64, 0, -5, 0, 0));
+        }
         gSPMatrix(POLY_XLU_DISP++, Matrix_NewMtx(play->state.gfxCtx, (char*)__FILE__, __LINE__),
                   G_MTX_MODELVIEW | G_MTX_LOAD);
         if (info->hasEnvColor) {

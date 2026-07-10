@@ -15,7 +15,8 @@
 #include "objects/object_sek/object_sek.h"             // gOwlStatueOpenedDL
 
 // Portable slice of one sDrawItemTable row (defined in mm/src/code/z_draw.c).
-extern "C" s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale);
+extern "C" s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale,
+                                         s32* outXluSeg8TexScroll);
 
 // Songs have no sDrawItemTable row — MM draws them as one tinted note DL (Rando/DrawItem.cpp
 // DrawSong: 25Xlu + per-song gDPSetEnvColor + gGiSongNoteDL). Fully portable as a static
@@ -157,7 +158,9 @@ extern "C" __declspec(dllexport) int32_t MM_GetItemDrawInfo(const char* itemName
     void* dls[CW_DRAW_MAX_DLISTS] = {};
     int32_t xluStart = -1;
     f32 scale = 0.0f;
-    int32_t n = GetItem_GetDrawTableEntry((s32)it->second.drawId, dls, CW_DRAW_MAX_DLISTS, &xluStart, &scale);
+    s32 xluSeg8TexScroll = 0;
+    int32_t n =
+        GetItem_GetDrawTableEntry((s32)it->second.drawId, dls, CW_DRAW_MAX_DLISTS, &xluStart, &scale, &xluSeg8TexScroll);
     if (n <= 0) {
         return 0;
     }
@@ -165,6 +168,7 @@ extern "C" __declspec(dllexport) int32_t MM_GetItemDrawInfo(const char* itemName
     out->xluStartIndex = xluStart;
     out->scale = scale;
     out->hasEnvColor = 0;
+    out->xluSeg8TexScroll = xluSeg8TexScroll;
     for (int32_t i = 0; i < n; i++) {
         out->dlists[i] = (const char*)dls[i];
     }

@@ -20,6 +20,9 @@ typedef struct {
     float scale;           /* extra model scale; 0 = none (e.g. MM boss remains: 0.02f) */
     int32_t hasEnvColor;   /* 1 = emit envColor before the DLs (e.g. MM song notes) */
     uint8_t envColor[4];   /* RGBA */
+    int32_t xluSeg8TexScroll; /* 1 = bind segment 8 to the animated flame texscroll before the XLU
+                                 layer (skulltula token flame); consumer replicates the owning game's
+                                 Gfx_TwoTexScrollEx so the dropped animated layer renders again */
 } CwItemDrawInfo;
 
 /* Returns 1 and fills out on success; 0 if the item is unknown/undrawable.

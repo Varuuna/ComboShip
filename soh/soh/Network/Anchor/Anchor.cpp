@@ -4,6 +4,7 @@
 #include "soh/Enhancements/nametag.h"
 #include "soh/ObjectExtension/ObjectExtension.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
+#include "soh/Notification/Notification.h"
 
 extern "C" {
 #include "variables.h"
@@ -68,6 +69,16 @@ static void Anchor_HandleCrossItemPacket(const nlohmann::json& payload) {
     }
     if (gComboMarkForeignObtained && !srcCheckName.empty()) {
         gComboMarkForeignObtained(srcGame, srcCheckName.c_str());
+    }
+    // This handler only runs while OOT is the active game, so a targetGame==0 item is one the OOT
+    // player just received — announce it (the save-only grant is otherwise silent).
+    if (targetGame == 0) {
+        std::string name = itemName;
+        auto it = Rando::StaticData::itemNameToEnum.find(itemName);
+        if (it != Rando::StaticData::itemNameToEnum.end()) {
+            name = Rando::StaticData::RetrieveItem(it->second).GetName().english;
+        }
+        Notification::Emit({ .message = "Received:", .suffix = name });
     }
 }
 #endif

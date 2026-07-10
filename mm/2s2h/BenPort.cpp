@@ -3545,7 +3545,12 @@ extern "C" __declspec(dllexport) void MM_GrantCrossItem(const char* itemName) {
         SPDLOG_WARN("[ComboShip] MM_GrantCrossItem: unknown MM item '{}'", itemName);
         return;
     }
-    GiveItemForOracle(it->second); // save-only, dormant-safe
+    if (it->second == RI_TRAP) {
+        // Trap effects need an active PlayState/GameInteractor; defer and fire on next MM activation.
+        gSaveContext.save.shipSaveInfo.rando.pendingTrapCount++;
+    } else {
+        GiveItemForOracle(it->second); // save-only, dormant-safe
+    }
     if (gSaveContext.fileNum != 0xFF) {
         SaveManager_SaveCurrentForCombo(); // persist NOW
     }

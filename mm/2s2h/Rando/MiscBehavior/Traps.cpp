@@ -15,6 +15,9 @@ void EnTimeTag_KickOut_Transition(EnTimeTag* enTimeTag, PlayState* play);
 }
 
 extern void UpdateGameTime(u16 gameTime);
+#ifdef COMBO_BUILD
+void SaveManager_SaveCurrentForCombo();
+#endif
 
 int roll = TRAP_FREEZE;
 const u16 timeSkipInterval = 4000;
@@ -316,4 +319,30 @@ void Rando::ActorBehavior::InitTrapsBehavior() {
             *should = false;
         }
     });
+
+#ifdef COMBO_BUILD
+    // ComboShip: drain cross-world traps granted while MM was the dormant game. Fire one at a time, only
+    // when the GameInteractor is idle and the player is interruptible, then persist the decrement.
+    COND_ID_HOOK(OnActorUpdate, ACTOR_PLAYER, IS_RANDO, [](Actor* actor) {
+        u8& pending = gSaveContext.save.shipSaveInfo.rando.pendingTrapCount;
+        if (pending == 0 || gPlayState == NULL) {
+            return;
+        }
+        if (!std::holds_alternative<GIEventNone>(GameInteractor::Instance->currentEvent) ||
+            !GameInteractor::Instance->events.empty()) {
+            return;
+        }
+        Player* player = (Player*)actor;
+        if (gPlayState->msgCtx.msgMode != 0 || Player_InBlockingCsMode(gPlayState, player) ||
+            (player->stateFlags1 & PLAYER_STATE1_DEAD)) {
+            return;
+        }
+        pending--;
+        RollTrapType();
+        Rando::MiscBehavior::OfferTrapItem();
+        if (gSaveContext.fileNum != 0xFF) {
+            SaveManager_SaveCurrentForCombo();
+        }
+    });
+#endif
 }

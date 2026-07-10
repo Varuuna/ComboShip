@@ -537,6 +537,11 @@ void MMAnchor::HandlePacket_CrossItem(const nlohmann::json& payload) {
     if (gMMComboMarkForeignObtained && !srcCheckName.empty()) {
         gMMComboMarkForeignObtained(srcGame, srcCheckName.c_str());
     }
+    // This handler only runs while MM is the active game, so a targetGame==1 item is one the MM
+    // player just received — announce it (the save-only grant is otherwise silent).
+    if (targetGame == 1) {
+        Notification::Emit({ .message = "Received:", .suffix = itemName });
+    }
 }
 
 // Called from the rando foreign-check seam (CheckQueue.cpp) under COMBO_BUILD when the LOCAL player
@@ -678,6 +683,10 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
            sizeof(loadedData.saveInfo.equips.buttonItems));
     memcpy(loadedData.saveInfo.playerData.playerName, gSaveContext.save.saveInfo.playerData.playerName,
            sizeof(loadedData.saveInfo.playerData.playerName));
+#ifdef COMBO_BUILD
+    // Pending cross-world traps are receiver-local; a teammate's count must not clobber ours.
+    loadedData.shipSaveInfo.rando.pendingTrapCount = gSaveContext.save.shipSaveInfo.rando.pendingTrapCount;
+#endif
 
     // Commit only the two progression sub-structs; top-level Save fields (scene/entrance/time/day/
     // playerForm/cycle) are intentionally left untouched so the receiver isn't relocated.

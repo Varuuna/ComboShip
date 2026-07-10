@@ -465,6 +465,12 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
         order = sOrder0;
         count = 1;
         xluStart = -1;
+    } else if (drawFunc == GetItem_DrawMoonsTear) {
+        // Static item (OPA) + glow (XLU); the AnimatedMat texture scroll and the glow's billboard
+        // rotation aren't portable to the other game's frame, so they are dropped.
+        order = sOrder01;
+        count = 2;
+        xluStart = 1;
     } else {
         return 0;
     }

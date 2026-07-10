@@ -3550,6 +3550,12 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
 
         // ItemReset so all locations start with RG_NONE before we apply our placement.
         ctx->ItemReset();
+#ifdef COMBO_BUILD
+        // Combo skips GenerateItemPool (OOT's own fill), which is what normally fills the ice-trap
+        // disguise pool. Rebuild it from the items we actually place below, else every ice trap falls
+        // back to a bottle (empty-set draw).
+        ctx->possibleIceTrapModels.clear();
+#endif
 
         // ComboShip: ItemReset wipes shop prices + placements, so re-run SoH's shop/scrub/merchant
         // setup here (vanilla slots get their RG_BUY_* item + prices; shuffled slots get a custom
@@ -3597,7 +3603,20 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
 #endif
             ctx->PlaceItemInLocation(rc, rg, false, false);
             ++placed;
+#ifdef COMBO_BUILD
+            if (rg != RG_ICE_TRAP && rg != RG_COMBO_FOREIGN && rg != RG_NONE) {
+                ctx->possibleIceTrapModels.insert(rg); // candidate ice-trap disguise
+            }
+#endif
         }
+
+#ifdef COMBO_BUILD
+        // Assign ice-trap disguise models now (combo's fill never runs CreateItemOverrides). Skip if the
+        // pool came out empty so traps keep their default model rather than a null override.
+        if (!ctx->possibleIceTrapModels.empty()) {
+            ctx->CreateItemOverrides();
+        }
+#endif
 
         ctx->SetSeedGenerated(true);
         SPDLOG_INFO("[ComboShip] SOH_ApplyRandoPlacements: placed={} skipped={} seedGenerated=true", placed, skipped);

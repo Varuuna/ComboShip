@@ -509,6 +509,11 @@ void MMAnchor::HandlePacket_GiveItem(const nlohmann::json& payload) {
     if (!roomState.syncItemsAndFlags || !IsSaveLoaded()) {
         return;
     }
+    // ComboShip: the shared socket also carries soh's GIVE_ITEM (modId shape, no randoCheckId). Its
+    // item id is in OOT's space — skip it so we don't misgrant an unrelated MM item.
+    if (!payload.contains("randoCheckId")) {
+        return;
+    }
     uint32_t clientId = payload.value("clientId", (uint32_t)0);
     if (clientId == ownClientId) {
         return; // never re-apply our own broadcast

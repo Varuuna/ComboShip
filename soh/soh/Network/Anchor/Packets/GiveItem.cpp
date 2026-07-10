@@ -47,6 +47,13 @@ void Anchor::HandlePacket_GiveItem(nlohmann::json payload) {
     if (!IsSaveLoaded() || !roomState.syncItemsAndFlags) {
         return;
     }
+#ifdef COMBO_BUILD
+    // ComboShip: the shared socket also carries MM's GIVE_ITEM (randoCheckId shape, no modId). It's
+    // for the MM game, not us — skip it quietly instead of throwing on the missing key.
+    if (!payload.contains("modId")) {
+        return;
+    }
+#endif
 
     uint32_t clientId = payload.at("clientId").get<uint32_t>();
     AnchorClient& client = clients[clientId];

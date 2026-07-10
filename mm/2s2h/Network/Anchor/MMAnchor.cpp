@@ -49,6 +49,12 @@ void (*gMMComboAnchorSend)(const char* json) = nullptr;
 extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName);
 extern "C" void (*gMMComboMarkForeignObtained)(int srcGame, const char* checkName);
 
+// ComboShip A6: launcher pump fn (set via MM_SetPumpDormant). The ACTIVE game calls it each frame so
+// the launcher can drive the DORMANT sibling's save-affecting packet apply on this (game) thread.
+extern "C" void (*gMMComboPumpDormant)() = nullptr;
+// Dormant-safe give of a resolved MM rando item (BenPort.cpp): trap-defer or GiveItemForOracle + persist.
+void Combo_MM_GiveDormantResolved(RandoItemId rid);
+
 MMAnchor* MMAnchor::Instance = nullptr;
 
 // MARK: - Lifecycle
@@ -129,6 +135,10 @@ void MMAnchor::RegisterHooks() {
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameStateUpdate>([this]() {
         if (isActive) {
             ProcessIncomingPacketQueue();
+            // A6: while MM is foreground, drive the dormant sibling's dormant-safe apply on this thread.
+            if (gMMComboPumpDormant) {
+                gMMComboPumpDormant();
+            }
         }
     });
 
@@ -206,6 +216,56 @@ void MMAnchor::ProcessIncomingPacketQueue() {
             SPDLOG_ERROR("[MMAnchor] exception handling packet {}: {}", type, e.what());
         }
     }
+}
+
+// A6: called on the ACTIVE sibling's game thread while MM is dormant. Drain the queue and apply only
+// save-data-only, dormant-safe packets (co-op GIVE_ITEM). Presence/puppet/team-state are dropped —
+// team-state re-runs OnFileLoad/ShipInit, which isn't safe while dormant, and is re-requested on MM
+// activation anyway. gSaveContext here is MM's frozen save; MM isn't ticking, so no concurrent writer.
+void MMAnchor::PumpDormant() {
+    std::queue<nlohmann::json> toProcess;
+    {
+        std::lock_guard<std::mutex> lock(incomingMutex);
+        toProcess.swap(incomingQueue);
+    }
+    while (!toProcess.empty()) {
+        nlohmann::json payload = toProcess.front();
+        toProcess.pop();
+        try {
+            if (payload.value("type", std::string()) == PKT_GIVE_ITEM) {
+                ApplyDormantGiveItem(payload);
+            }
+        } catch (const std::exception& e) {
+            SPDLOG_ERROR("[MMAnchor] dormant apply exception: {}", e.what());
+        }
+    }
+}
+
+// A6: dormant-safe variant of HandlePacket_GiveItem — marks the check obtained and grants the item
+// through the save-only path (no gPlayState). Junk is left unresolved (GiveItemForOracle no-ops it;
+// CurrentJunkItem reads gPlayState and isn't dormant-safe), but its check is still registered.
+void MMAnchor::ApplyDormantGiveItem(const nlohmann::json& payload) {
+    if (!payload.contains("randoCheckId")) {
+        return; // reject soh's GIVE_ITEM (modId shape, different item-id space)
+    }
+    if (payload.value("targetTeamId", std::string("default")) != CVarGetString(kCvarTeamId, "default")) {
+        return;
+    }
+    if (payload.value("clientId", (uint32_t)0) == ownClientId) {
+        return;
+    }
+    int32_t checkId = payload.value("randoCheckId", -1);
+    RandoCheckId rc = (checkId >= 0 && checkId < RC_MAX) ? (RandoCheckId)checkId : RC_UNKNOWN;
+    if (rc != RC_UNKNOWN && RANDO_SAVE_CHECKS[rc].obtained) {
+        return; // idempotent: already collected locally
+    }
+    RandoItemId rid = Rando::ConvertItem((RandoItemId)payload.value("getItemId", (int)RI_JUNK), rc);
+    if (rc != RC_UNKNOWN) {
+        RANDO_SAVE_CHECKS[rc].obtained = true;
+        RANDO_SAVE_CHECKS[rc].cycleObtained = true;
+        RANDO_SAVE_CHECKS[rc].eligible = false;
+    }
+    Combo_MM_GiveDormantResolved(rid);
 }
 
 // MARK: - Client state
@@ -717,6 +777,18 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
 
 extern "C" __declspec(dllexport) void MM_SetAnchorSend(void (*cb)(const char*)) {
     gMMComboAnchorSend = cb;
+}
+
+// A6: launcher registers its per-frame dormant-pump fn; MM calls it each active frame (see hook).
+extern "C" __declspec(dllexport) void MM_SetPumpDormant(void (*cb)()) {
+    gMMComboPumpDormant = cb;
+}
+
+// A6: launcher calls this (on the active sibling's thread) when MM is the dormant game.
+extern "C" __declspec(dllexport) void MM_Anchor_PumpDormant(void) {
+    if (MMAnchor::Instance) {
+        MMAnchor::Instance->PumpDormant();
+    }
 }
 
 extern "C" __declspec(dllexport) void MM_Anchor_RecvJson(const char* json) {

@@ -262,6 +262,34 @@ void Anchor::ProcessIncomingPacketQueue() {
     }
 }
 
+#ifdef COMBO_BUILD
+// A6: called on the ACTIVE sibling's game thread while OOT is dormant. Apply only save-data-only,
+// dormant-safe co-op items (GIVE_ITEM); OOT's Item_Give/Randomizer_Item_Give write gSaveContext and
+// null-guard gPlayState (same rationale as SOH_GrantCrossItem). MM-shaped GIVE_ITEM (no modId) throws
+// and is skipped; cross-items to a dormant OOT are applied by the active game's cross-item handler.
+void Anchor::PumpDormant() {
+    std::queue<nlohmann::json> packetsToProcess;
+    {
+        std::lock_guard<std::mutex> lock(incomingPacketQueueMutex);
+        packetsToProcess.swap(incomingPacketQueue);
+    }
+    while (!packetsToProcess.empty()) {
+        nlohmann::json payload = packetsToProcess.front();
+        packetsToProcess.pop();
+        if (payload.value("type", std::string()) != GIVE_ITEM) {
+            continue; // drop presence/puppet/team-state while dormant (re-requested on activation)
+        }
+        isProcessingIncomingPacket = true;
+        try {
+            HandlePacket_GiveItem(payload);
+        } catch (const std::exception& e) {
+            SPDLOG_ERROR("[Anchor] dormant apply exception: {}", e.what());
+        }
+        isProcessingIncomingPacket = false;
+    }
+}
+#endif
+
 // MARK: - Misc/Helpers
 
 // Kills all existing anchor actors and respawns them with the new client data

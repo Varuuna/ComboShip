@@ -3536,6 +3536,21 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_SetOwnedItems(const char* i
 // save — even when MM is the dormant (frozen) game. We use GiveItemForOracle, the save-only grant
 // that never touches gPlayState, so it is safe against a frozen play state. The save is persisted
 // immediately so the item survives quitting before ever switching into MM. See docs/UPSTREAM_MERGES.md.
+// ComboShip: dormant-safe give of an already-resolved MM rando item into the resident save,
+// persisted immediately. Traps are deferred (drained in Traps.cpp when MM is active). Non-static
+// so MMAnchor's dormant co-op receive path can reuse it. RC is marked obtained by the caller.
+void Combo_MM_GiveDormantResolved(RandoItemId rid) {
+    if (rid == RI_TRAP) {
+        // Trap effects need an active PlayState/GameInteractor; defer and fire on next MM activation.
+        gSaveContext.save.shipSaveInfo.rando.pendingTrapCount++;
+    } else {
+        GiveItemForOracle(rid); // save-only, dormant-safe
+    }
+    if (gSaveContext.fileNum != 0xFF) {
+        SaveManager_SaveCurrentForCombo(); // persist NOW
+    }
+}
+
 extern "C" __declspec(dllexport) void MM_GrantCrossItem(const char* itemName) {
     if (!itemName)
         return;
@@ -3545,15 +3560,7 @@ extern "C" __declspec(dllexport) void MM_GrantCrossItem(const char* itemName) {
         SPDLOG_WARN("[ComboShip] MM_GrantCrossItem: unknown MM item '{}'", itemName);
         return;
     }
-    if (it->second == RI_TRAP) {
-        // Trap effects need an active PlayState/GameInteractor; defer and fire on next MM activation.
-        gSaveContext.save.shipSaveInfo.rando.pendingTrapCount++;
-    } else {
-        GiveItemForOracle(it->second); // save-only, dormant-safe
-    }
-    if (gSaveContext.fileNum != 0xFF) {
-        SaveManager_SaveCurrentForCombo(); // persist NOW
-    }
+    Combo_MM_GiveDormantResolved(it->second);
     SPDLOG_INFO("[ComboShip] MM_GrantCrossItem: granted '{}' into MM save", itemName);
 }
 

@@ -2761,6 +2761,17 @@ extern "C" __declspec(dllexport) void SOH_Anchor_OnDisconnected(void) {
         Anchor::Instance->SetConnectedFromCombo(false);
     }
 }
+// A6: launcher registers its per-frame dormant-pump fn; the active game calls it each frame (see the
+// OnGameFrameUpdate hook) so the launcher can drive the dormant sibling's apply on the game thread.
+extern "C" void (*gComboPumpDormant)() = nullptr;
+extern "C" __declspec(dllexport) void SOH_SetPumpDormant(void (*cb)()) {
+    gComboPumpDormant = cb;
+}
+extern "C" __declspec(dllexport) void SOH_Anchor_PumpDormant(void) {
+    if (Anchor::Instance) {
+        Anchor::Instance->PumpDormant();
+    }
+}
 
 // ComboShip: cross-game item delivery seam (issue #3). When the other game collects a check whose
 // item belongs to OOT, the launcher calls SOH_GrantCrossItem to grant it straight into OOT's

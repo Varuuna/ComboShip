@@ -56,6 +56,16 @@ float OTRGetDimensionFromLeftEdge(float v);
 float OTRGetDimensionFromRightEdge(float v);
 }
 
+#ifdef COMBO_BUILD
+extern "C" void (*gComboPumpDormant)(); // A6: launcher per-frame dormant-pump fn (OTRGlobals.cpp)
+static inline void ComboPumpDormantTick() {
+    if (gComboPumpDormant)
+        gComboPumpDormant();
+}
+#else
+static inline void ComboPumpDormantTick() {}
+#endif
+
 void Anchor::RegisterHooks() {
 
     // #region Hooks that are required for basic Anchor functionality
@@ -101,7 +111,10 @@ void Anchor::RegisterHooks() {
         SendPacket_PlayerUpdate();
     });
 
-    COND_HOOK(OnGameFrameUpdate, isConnected, [&]() { ProcessIncomingPacketQueue(); });
+    COND_HOOK(OnGameFrameUpdate, isConnected, [&]() {
+        ProcessIncomingPacketQueue();
+        ComboPumpDormantTick(); // A6: drive dormant sibling's apply while OOT is foreground (no-op non-combo)
+    });
 
     COND_HOOK(OnPlayerSfx, isConnected, [&](u16 sfxId) { SendPacket_PlayerSfx(sfxId); });
     COND_HOOK(OnOcarinaNote, isConnected,

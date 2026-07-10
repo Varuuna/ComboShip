@@ -354,6 +354,15 @@ static FnAnchorRecv MM_Anchor_RecvJson = nullptr;
 static FnVoidArgless MM_Anchor_Activate = nullptr;
 static FnVoidArgless MM_Anchor_Deactivate = nullptr;
 
+// A6: live dormant-game co-op sync. The launcher feeds every inbound packet to BOTH games; the active
+// game calls the registered pump each frame so the dormant sibling applies save-affecting packets on
+// the game thread (never the receive thread — that would race the active game's save writes).
+typedef void (*FnSetPumpDormant)(void (*)());
+static FnSetPumpDormant SOH_SetPumpDormant = nullptr;
+static FnSetPumpDormant MM_SetPumpDormant = nullptr;
+static FnVoidArgless SOH_Anchor_PumpDormant = nullptr;
+static FnVoidArgless MM_Anchor_PumpDormant = nullptr;
+
 // Cross-game item delivery seam (issue #3). Each game's foreign-check detection (and the Anchor
 // receive path) routes an item to the OTHER game through one launcher-owned dispatcher, which calls
 // the target DLL's save-only grant export. The same dispatcher serves the single-player and
@@ -464,15 +473,14 @@ static void ReceiveLoop() {
             while (pos != std::string::npos) {
                 std::string packet = received.substr(0, pos);
                 received.erase(0, pos + 1);
-                // Dispatch to whichever game is currently active (Phase 2). Phase 3 will route
-                // per-packet by target game so dormant-game items/flags still apply.
-                if (sActiveGame.load() == 1) {
-                    if (MM_Anchor_RecvJson)
-                        MM_Anchor_RecvJson(packet.c_str());
-                } else {
-                    if (SOH_Anchor_RecvJson)
-                        SOH_Anchor_RecvJson(packet.c_str());
-                }
+                // A6: feed every packet to BOTH games. Each RecvJson only enqueues (thread-safe). The
+                // active game drains+handles it on its tick; the dormant game applies its save-affecting
+                // subset via PumpDormant (driven by the active game's per-frame pump call), so a
+                // teammate's progression registers in the dormant game's save live.
+                if (SOH_Anchor_RecvJson)
+                    SOH_Anchor_RecvJson(packet.c_str());
+                if (MM_Anchor_RecvJson)
+                    MM_Anchor_RecvJson(packet.c_str());
                 pos = received.find('\0');
             }
         }
@@ -557,6 +565,19 @@ static void DeliverCrossItem(int targetGame, const char* itemName) {
     } else {
         if (SOH_GrantCrossItem)
             SOH_GrantCrossItem(itemName);
+    }
+}
+
+// A6: invoked each frame BY the active game (via the registered pump seam). Applies queued
+// save-affecting co-op packets to the DORMANT game on the caller's (game) thread, so a teammate's
+// collection registers in the dormant game's save live instead of only on next entry.
+static void PumpDormant() {
+    if (ComboAnchor::sActiveGame.load() == 1) {
+        if (SOH_Anchor_PumpDormant)
+            SOH_Anchor_PumpDormant(); // MM foreground -> apply to dormant OOT
+    } else {
+        if (MM_Anchor_PumpDormant)
+            MM_Anchor_PumpDormant(); // OOT foreground -> apply to dormant MM
     }
 }
 
@@ -1406,6 +1427,10 @@ int main(int argc, char** argv) {
     MM_Anchor_RecvJson = (FnAnchorRecv)GetSym(mmModule, "MM_Anchor_RecvJson");
     MM_Anchor_Activate = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_Activate");
     MM_Anchor_Deactivate = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_Deactivate");
+    SOH_SetPumpDormant = (FnSetPumpDormant)GetSym(sohModule, "SOH_SetPumpDormant");
+    MM_SetPumpDormant = (FnSetPumpDormant)GetSym(mmModule, "MM_SetPumpDormant");
+    SOH_Anchor_PumpDormant = (FnVoidArgless)GetSym(sohModule, "SOH_Anchor_PumpDormant");
+    MM_Anchor_PumpDormant = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_PumpDormant");
 
     // Cross-game item delivery seam (issue #3)
     SOH_SetCrossDeliver = (FnSetCrossRoute)GetSym(sohModule, "SOH_SetCrossDeliver");
@@ -1584,6 +1609,11 @@ int main(int argc, char** argv) {
         SOH_SetMarkForeignObtained(MarkForeignObtained);
     if (MM_SetMarkForeignObtained)
         MM_SetMarkForeignObtained(MarkForeignObtained);
+    // A6: register the per-frame dormant-pump seam into both DLLs.
+    if (SOH_SetPumpDormant)
+        SOH_SetPumpDormant(PumpDormant);
+    if (MM_SetPumpDormant)
+        MM_SetPumpDormant(PumpDormant);
     if (SOH_SetFinalBossDefeatedCb)
         SOH_SetFinalBossDefeatedCb(Combo_OnFinalBossDefeated);
     if (MM_SetFinalBossDefeatedCb)

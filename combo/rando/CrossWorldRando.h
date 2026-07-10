@@ -511,7 +511,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
             foreignMarkers.push_back({ { "checkGame", p.check.game == GAME_OOT ? "oot" : "mm" },
                                        { "checkName", p.check.name },
                                        { "itemGame", p.item.game == GAME_OOT ? "oot" : "mm" },
-                                       { "itemName", p.item.name } });
+                                       { "itemName", p.item.name },
+                                       // Propagate advancement so foreign checks holding an important item
+                                       // still play the held-up pickup animation (else defaulted to junk).
+                                       { "advancement", p.item.advancement } });
         }
     }
 

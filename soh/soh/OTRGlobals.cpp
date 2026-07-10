@@ -3405,8 +3405,9 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             if (name.empty())
                 continue;
             // Link's Pocket is owned by the forced-placement mechanism (SOH_GetForcedPlacements); the
-            // dump must not emit it as a check or a fixed placement or it gets placed twice.
-            if (rc == RC_LINKS_POCKET)
+            // dump must not emit it as a check or a fixed placement or it gets placed twice. RC_WINCON is
+            // a logic-only win-condition marker (no item), not a real check.
+            if (rc == RC_LINKS_POCKET || rc == RC_WINCON)
                 continue;
             // ComboShip: emit non-shuffled shop slots' vanilla RG_BUY_* as fixed so the oracle credits them
             // when the shop is reachable (e.g. Buy Deku Shield gates Mido/Deku Tree); apply skips them.
@@ -3429,8 +3430,11 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
                     fixed.push_back({ { "check", name },
                                       { "item", in },
                                       { "advancement", Rando::StaticData::RetrieveItem(placed).IsAdvancement() } });
-            } else if (loc->GetVanillaItem() != RG_NONE) {
-                // A real fillable check (vanilla-less non-checks like Link's Pocket are excluded above).
+            } else {
+                // A real fillable check. GenerateLocationPool already decided what's shuffled and the
+                // meta markers (Link's Pocket, wincon) are skipped above, so emit regardless of vanilla
+                // item — red ice / icicles / fountain fairies have NO vanilla item (the item exists only
+                // when shuffled) and were being wrongly dropped, leaving them unfilled ("No Item").
                 checks.push_back({ { "name", name } });
                 // itemPool excludes shop slots (CountEmptyLocations(false)), so a shuffled shop check
                 // needs its vanilla buy item added to the pool to stay balanced.

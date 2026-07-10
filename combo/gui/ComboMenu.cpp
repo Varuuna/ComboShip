@@ -827,10 +827,6 @@ void ComboMenu::DrawComboPanel() {
         if (running) {
             int placed = p->placed.load();
             int total = p->total.load();
-            // placed counts every placement while total tracks only the advancement items, so junk
-            // placements can push it past total — clamp the display so the bar never exceeds 100%.
-            if (placed > total)
-                placed = total;
             float frac = total > 0 ? (float)placed / (float)total : 0.0f;
             ImGui::TextUnformatted(ComboGenProgress::PhaseLabel(p->phase.load()));
             ImGui::ProgressBar(frac, ImVec2(360.0f, 0.0f));

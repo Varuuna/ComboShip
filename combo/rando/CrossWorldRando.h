@@ -309,7 +309,8 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
 
     if (progress) {
         progress->phase.store(2); // Placing items
-        progress->total.store(static_cast<int>(advItems.size()));
+        progress->total.store(static_cast<int>(advItems.size())); // tracked phase = advancement fill
+        progress->placed.store(0);
     }
 
     // --- Assumed fill of advancement items, then junk fast-fill; retry whole passes on dead
@@ -409,7 +410,9 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                 filledChecks.insert(checkKey(allChecks[pick]));
             }
             if (progress)
-                progress->placed.store(static_cast<int>(placements.size()));
+                // Count advancement placed (placements started at lockedPlacements), so placed/total is
+                // an honest 0..100% over the advancement fill — not locked+adv+junk over adv alone.
+                progress->placed.store(static_cast<int>(placements.size() - lockedPlacements.size()));
         }
         if (deadEnd)
             continue;

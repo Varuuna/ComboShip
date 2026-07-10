@@ -2933,6 +2933,15 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     std::vector<RandoItemId> itemPool;
     Rando::Logic::GeneratePools(saveInfo, checkPool, itemPool);
 
+    // Some MM static checks vanilla-hold RI_NONE, which GeneratePools pushes into the pool. MM's own
+    // OnFileCreate balances those out, but the cross-world fill would place them literally, delivering
+    // "No Item". Treat them as junk so those checks get a real filler item instead of nothing.
+    for (auto& iid : itemPool) {
+        if (iid == RI_NONE) {
+            iid = RI_JUNK;
+        }
+    }
+
     // Confine own-dungeon items via MM's own logic (writes RANDO_SAVE_CHECKS, shrinks both pools).
     std::vector<RandoCheckId> checkPoolBefore = checkPool;
     Rando::Logic::PreplaceConfinedItems(checkPool, itemPool);

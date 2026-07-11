@@ -1956,14 +1956,19 @@ void SohMenu::AddMenuEnhancements() {
 #ifdef COMBO_BUILD
     // ComboShip: draw the editor inline (SoH embeds it via the window button's EmbedWindow; comboui's
     // flat model doesn't carry that flag). Mirrors "Controller Bindings Inline"; skipped when popped out.
-    AddWidget(path, "Cosmetics Editor Inline", WIDGET_CUSTOM).RaceDisable(false).HideInSearch(true).CustomFunction([](WidgetInfo&) {
-        auto ctx = Ship::Context::GetInstance();
-        if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) return;
-        auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Cosmetics Editor");
-        if (!win || win->IsVisible()) return;
-        win->Update();
-        win->DrawElement();
-    });
+    AddWidget(path, "Cosmetics Editor Inline", WIDGET_CUSTOM)
+        .RaceDisable(false)
+        .HideInSearch(true)
+        .CustomFunction([](WidgetInfo&) {
+            auto ctx = Ship::Context::GetInstance();
+            if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
+                return;
+            auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Cosmetics Editor");
+            if (!win || win->IsVisible())
+                return;
+            win->Update();
+            win->DrawElement();
+        });
 #endif
 
     // Audio Editor
@@ -1977,14 +1982,19 @@ void SohMenu::AddMenuEnhancements() {
         .Options(WindowButtonOptions().Tooltip("Enables the separate Audio Editor Window."));
 #ifdef COMBO_BUILD
     // ComboShip: draw the editor inline (see "Cosmetics Editor Inline"); skipped when popped out.
-    AddWidget(path, "Audio Editor Inline", WIDGET_CUSTOM).RaceDisable(false).HideInSearch(true).CustomFunction([](WidgetInfo&) {
-        auto ctx = Ship::Context::GetInstance();
-        if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) return;
-        auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Audio Editor");
-        if (!win || win->IsVisible()) return;
-        win->Update();
-        win->DrawElement();
-    });
+    AddWidget(path, "Audio Editor Inline", WIDGET_CUSTOM)
+        .RaceDisable(false)
+        .HideInSearch(true)
+        .CustomFunction([](WidgetInfo&) {
+            auto ctx = Ship::Context::GetInstance();
+            if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
+                return;
+            auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Audio Editor");
+            if (!win || win->IsVisible())
+                return;
+            win->Update();
+            win->DrawElement();
+        });
 #endif
 
     // Gameplay Stats
@@ -1998,14 +2008,19 @@ void SohMenu::AddMenuEnhancements() {
         .Options(WindowButtonOptions().Tooltip("Enables the separate Gameplay Stats Window."));
 #ifdef COMBO_BUILD
     // ComboShip: draw the window inline (see "Cosmetics Editor Inline"); skipped when popped out.
-    AddWidget(path, "Gameplay Stats Inline", WIDGET_CUSTOM).RaceDisable(false).HideInSearch(true).CustomFunction([](WidgetInfo&) {
-        auto ctx = Ship::Context::GetInstance();
-        if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) return;
-        auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Gameplay Stats");
-        if (!win || win->IsVisible()) return;
-        win->Update();
-        win->DrawElement();
-    });
+    AddWidget(path, "Gameplay Stats Inline", WIDGET_CUSTOM)
+        .RaceDisable(false)
+        .HideInSearch(true)
+        .CustomFunction([](WidgetInfo&) {
+            auto ctx = Ship::Context::GetInstance();
+            if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
+                return;
+            auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Gameplay Stats");
+            if (!win || win->IsVisible())
+                return;
+            win->Update();
+            win->DrawElement();
+        });
 #endif
 
     // Time Splits
@@ -2019,14 +2034,19 @@ void SohMenu::AddMenuEnhancements() {
         .Options(WindowButtonOptions().Tooltip("Enables the separate Time Splits Window."));
 #ifdef COMBO_BUILD
     // ComboShip: draw the window inline (see "Cosmetics Editor Inline"); skipped when popped out.
-    AddWidget(path, "Time Splits Inline", WIDGET_CUSTOM).RaceDisable(false).HideInSearch(true).CustomFunction([](WidgetInfo&) {
-        auto ctx = Ship::Context::GetInstance();
-        if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) return;
-        auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Time Splits");
-        if (!win || win->IsVisible()) return;
-        win->Update();
-        win->DrawElement();
-    });
+    AddWidget(path, "Time Splits Inline", WIDGET_CUSTOM)
+        .RaceDisable(false)
+        .HideInSearch(true)
+        .CustomFunction([](WidgetInfo&) {
+            auto ctx = Ship::Context::GetInstance();
+            if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
+                return;
+            auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Time Splits");
+            if (!win || win->IsVisible())
+                return;
+            win->Update();
+            win->DrawElement();
+        });
 #endif
 
     // Timers

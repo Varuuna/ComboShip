@@ -18,7 +18,7 @@
 #include "ComboAudioBridge.h"      // Shared-tab audio -> MM mirror
 #include "ComboResolutionEditor.h" // combo-owned Advanced Resolution editor (intercepts broken widgets)
 
-#include <libultraship/libultraship.h> // ImGui-adjacent + CVar bridge (CVarGet/Set*) + color.h
+#include <libultraship/libultraship.h>         // ImGui-adjacent + CVar bridge (CVarGet/Set*) + color.h
 #include <ship/window/gui/IconsFontAwesome4.h> // ICON_FA_* for the window-toggle button (matches SoH)
 #include <imgui.h>
 #include <cstring>

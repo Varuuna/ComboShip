@@ -710,6 +710,23 @@ instead of eager-resolving. This is the **exact mirror** of the OOT-side guard a
 `soh/soh/GbiWrap.cpp:gSPDisplayList` (commit for the OOT-foreign-in-MM feature) — MM was simply
 missing the symmetric half. No original lines deleted; non-combo builds keep eager resolution.
 
+## Fast3D guard: never branch into an unbound N64 segment (foreign-draw crash class) (2026-07-11)
+
+**Why:** a cross-game foreign item can submit a raw `G_DL` that references a segment the host game
+never bound (e.g. an MM item's animated-material segment 8 that OOT's foreign draw didn't set up).
+`SegAddr` returns the raw `0x0S……` address as-is, and `gfx_dl_handler_common` branched into it with
+no validity check → the interpreter ran garbage as GBI (tell: an impossible `G_PUSH_SHADER` no asset
+emits) → null-shader deref in `GfxSpTri1`. Hit by the foreign Moon's Tear (`gGiMoonsTearItemDL`);
+the skull-token flame was the same class, patched ad-hoc earlier.
+
+**`libultraship/src/fast/interpreter.cpp` (COMBO_BUILD-guarded — preserve on future lus merges):**
+`gfx_dl_handler_common` **and** `gfx_dl_index_handler` now reject a resolved target still in the
+unresolved segment range (`ComboIsUnresolvedSegmentTarget`: null, or `<= 0x0FFFFFFF` and not a real
+module address on Windows) — log once per target and skip the command (same `return false` skip the
+OTR-filepath handler uses for a bad route). The predicate mirrors the existing timg validation in
+`gfx_set_timg_handler_rdp`. A legit native DL always binds its segment first, so this only ever fires
+on cross-game garbage.
+
 ## MM Anchor adapter — Phase 2a (MM joins the shared connection) (2026-06-17)
 
 **Why:** MM had no online presence — when a co-op player crossed into MM, peers saw their stale last

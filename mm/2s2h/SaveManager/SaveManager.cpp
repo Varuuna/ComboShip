@@ -136,9 +136,16 @@ void SaveManager_WriteSaveFile(const std::filesystem::path& fileName, nlohmann::
     } catch (...) { SPDLOG_ERROR("[ComboShip] Failed to write save file {}", filePath.string()); }
 }
 
-void SaveManager_InitNewSaveForSlot(int mmFileNum) {
+void SaveManager_InitNewSaveForSlot(int mmFileNum, const unsigned char* ootName8) {
     Sram_InitNewSave();
 #ifdef COMBO_BUILD
+    // ComboShip: carry the OOT-entered file name over (same font codes in both games; anything
+    // outside the shared 0x00-0x3F range, e.g. JP glyphs, becomes a space).
+    if (ootName8 != nullptr) {
+        for (int i = 0; i < 8; i++) {
+            gSaveContext.save.saveInfo.playerData.playerName[i] = (ootName8[i] <= 0x3F) ? ootName8[i] : 0x3E;
+        }
+    }
     // ComboShip: a fresh MM save is always entered mid-playthrough from OOT, never via MM's title/intro.
     // Set it up post-first-cycle — Human Link in South Clock Town, no intro, no Tatl arrival — mirroring
     // the SkipIntroSequence + SkipFirstCycle enhancements and the Rando port's OnFileCreate. gPlayState

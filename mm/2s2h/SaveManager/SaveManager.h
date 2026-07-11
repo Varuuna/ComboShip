@@ -11,7 +11,7 @@ bool SaveManager_HandleFileDropped(char* filePath);
 bool BinarySaveConverter_HandleFileDropped(char* filePath);
 int SaveManager_GetOpenFileSlot();
 void SaveManager_WriteSaveFile(const std::filesystem::path& fileName, nlohmann::json j);
-void SaveManager_InitNewSaveForSlot(int mmFileNum);
+void SaveManager_InitNewSaveForSlot(int mmFileNum, const unsigned char* ootName8 = nullptr);
 void SaveManager_LoadSaveFile(int mmFileNum);
 void SaveManager_SaveCurrentForCombo();
 #else

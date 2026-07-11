@@ -160,6 +160,10 @@ static RegisterShipInitFunc refreshInitFunc(
     { "IS_RANDO" });
 
 RandoItemId Rando::CurrentJunkItem(RandoCheckId randoCheckId) {
+    // Nothing obtainable (e.g. degenerate save state) — avoid Ship_Random(0, -1) underflow.
+    if (obtainableJunkItems.empty()) {
+        return RI_RUPEE_GREEN;
+    }
     if (CVarGetInteger("gRando.JunkItems", 0) == 0) {
         Ship_Random_Seed(gSaveContext.save.shipSaveInfo.rando.finalSeed + randoCheckId +
                          (gPlayState->gameplayFrames / 30));

@@ -114,8 +114,20 @@ void RenderAspect() {
     if (item < 0 || item >= IM_ARRAYSIZE(kAspectLabels)) {
         item = kAspectCustom;
     }
+    // Label above the combo (matches SoH), then a hidden-label combo sized to fit the widest option.
+    ImGui::TextUnformatted("Aspect Ratio");
     ComboMenu_PushCombobox(theme);
-    if (ImGui::BeginCombo("Aspect Ratio", kAspectLabels[item])) {
+    {
+        const ImGuiStyle& st = ImGui::GetStyle();
+        float longest = 0.0f;
+        for (int i = 0; i < IM_ARRAYSIZE(kAspectLabels); ++i) {
+            float x = ImGui::CalcTextSize(kAspectLabels[i]).x;
+            if (x > longest)
+                longest = x;
+        }
+        ImGui::SetNextItemWidth(longest + ImGui::GetFrameHeight() + st.FramePadding.x * 2.0f);
+    }
+    if (ImGui::BeginCombo("##AspectRatio", kAspectLabels[item])) {
         for (int i = 0; i < IM_ARRAYSIZE(kAspectLabels); ++i) {
             const bool sel = (i == item);
             if (ImGui::Selectable(kAspectLabels[i], sel)) {
@@ -237,6 +249,34 @@ void RenderMore() {
         ImGui::BeginDisabled(!ppm);
         if (ImGui::Checkbox("Automatically scale image to fit viewport", &fitAutoV)) {
             CVarSetInteger(CV_ADVRES ".IntegerScale.FitAutomatically", fitAutoV ? 1 : 0);
+            Save();
+        }
+        ImGui::EndDisabled();
+        ComboMenu_PopCheckbox();
+    }
+
+    if (ImGui::CollapsingHeader("Additional Settings")) {
+        const bool ppm = CVarGetInteger(CV_ADVRES ".PixelPerfectMode", 0) != 0;
+        const bool fitAuto = CVarGetInteger(CV_ADVRES ".IntegerScale.FitAutomatically", 0) != 0;
+
+        // Prevent integer scaling from exceeding screen bounds (mirrors SoH; needs Pixel Perfect,
+        // and is moot when auto-fitting). Default on.
+        bool never = CVarGetInteger(CV_ADVRES ".IntegerScale.NeverExceedBounds", 1) != 0;
+        ComboMenu_PushCheckbox(theme);
+        ImGui::BeginDisabled(!ppm || fitAuto);
+        if (ImGui::Checkbox("Prevent integer scaling from exceeding screen bounds.", &never)) {
+            CVarSetInteger(CV_ADVRES ".IntegerScale.NeverExceedBounds", never ? 1 : 0);
+            Save();
+        }
+        ImGui::EndDisabled();
+        ComboMenu_PopCheckbox();
+
+        // Allow the integer scale factor to go +1 above the maximum screen bounds.
+        bool exceed = CVarGetInteger(CV_ADVRES ".IntegerScale.ExceedBoundsBy", 0) != 0;
+        ComboMenu_PushCheckbox(theme);
+        ImGui::BeginDisabled(!ppm);
+        if (ImGui::Checkbox("Allow integer scale factor to go +1 above maximum screen bounds.", &exceed)) {
+            CVarSetInteger(CV_ADVRES ".IntegerScale.ExceedBoundsBy", exceed ? 1 : 0);
             Save();
         }
         ImGui::EndDisabled();

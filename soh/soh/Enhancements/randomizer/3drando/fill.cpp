@@ -1528,6 +1528,23 @@ void ComboFillConfined() {
     }
     PlaceRestrictedSongs();
     RandomizeDungeonItems();
+    // ComboShip: keep the Mask Shop Key in OOT — assumed-fill it within OOT so it leaves itemPool and
+    // can't enter the cross-world pool and land in MM. Other overworld keys stay cross-world eligible.
+    if (ctx->GetOption(RSK_LOCK_OVERWORLD_DOORS)) {
+        std::vector<RandomizerGet> maskShopKey =
+            FilterAndEraseFromPool(itemPool, [](const RandomizerGet i) { return i == RG_MASK_SHOP_KEY; });
+        if (!maskShopKey.empty()) {
+            // TEMP (RSK_COMBO_FORCE_MASK_SHOP_KEY): force the key onto a fixed spawn-reachable KF check so
+            // MM is reachable without the plando; otherwise keep it OOT-confined via a normal assumed fill.
+            RandomizerCheck forced = RC_KF_BEHIND_MIDOS_RUPEE;
+            if (ctx->GetOption(RSK_COMBO_FORCE_MASK_SHOP_KEY) &&
+                std::find(ctx->allLocations.begin(), ctx->allLocations.end(), forced) != ctx->allLocations.end()) {
+                ctx->PlaceItemInLocation(forced, RG_MASK_SHOP_KEY, false, false);
+            } else {
+                AssumedFill(maskShopKey, ctx->allLocations);
+            }
+        }
+    }
     // Erase the temporary shop items so they never enter the cross-world pool.
     std::erase_if(itemPool,
                   [](const auto item) { return Rando::StaticData::RetrieveItem(item).GetItemType() == ITEMTYPE_SHOP; });

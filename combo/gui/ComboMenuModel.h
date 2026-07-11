@@ -18,6 +18,7 @@ struct GameMenu {
     Fn_MenuEvalDisabled evalDisabled = nullptr;
     Fn_MenuDrawCustom drawCustom = nullptr;
     Fn_MenuApplyCVar applyCVarChange = nullptr; // optional; live-applies a changed CVar via ShipInit
+    Fn_MenuDrawWidget drawWidget = nullptr;     // optional; draws a widget via the game's real UIWidgets
     bool loaded = false;
 };
 
@@ -37,7 +38,7 @@ class ComboMenuModel {
 
   private:
     void LoadGame(GameMenu& g, const char* dll, const char* exportSym, const char* invokeSym, const char* evalSym,
-                  const char* drawSym, const char* applySym);
+                  const char* drawSym, const char* applySym, const char* drawWidgetSym);
     GameMenu mOot, mMm;
     bool mLoaded = false;
 };

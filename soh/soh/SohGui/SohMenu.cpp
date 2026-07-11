@@ -394,4 +394,50 @@ void SohMenu::DrawCustomByIndex(int32_t i) {
     }
     w->customFunction(*w);
 }
+
+int32_t SohMenu::DrawWidgetByIndex(int32_t i, int32_t width) {
+    if (i < 0 || i >= (int32_t)mComboExport.flat.size()) {
+        return 0;
+    }
+    auto* w = mComboExport.flat[i];
+    if (!w) {
+        return 0;
+    }
+    // Same dormant guard as DrawCustomByIndex: widgets that probe OOT's live runtime (preFunc /
+    // customFunction) need the game alive; pure declarative/CVar widgets (all rando settings) are
+    // always safe to draw + edit while backgrounded, so they are exempt.
+    bool live = !(OTRGlobals::Instance == nullptr || OTRGlobals::Instance->fontStandardLargest == nullptr);
+    bool isRando = (i < (int32_t)mComboExport.flatRando.size() && mComboExport.flatRando[i]);
+    bool needsLive = (w->preFunc != nullptr) || (w->customFunction != nullptr);
+    if (needsLive && !live && !isRando) {
+        ImGui::TextDisabled("%s", w->name.c_str());
+        return 0;
+    }
+    // Fresh disable pass only when this widget's preFunc consults disable state — MenuDrawItem reads
+    // disabledMap solely inside its preFunc branch (mirrors Menu::DrawElement's top-of-frame pass).
+    if (w->preFunc) {
+        for (auto& [reason, info] : disabledMap) {
+            info.active = info.evaluation(info);
+        }
+    }
+    // SoH's Combobox does comboMap.at(value), which THROWS (and would unwind across the C-ABI
+    // boundary and crash) if the CVar value isn't a current option key. comboui's search/flat render
+    // skips the section update funcs that normally keep it in range — skip drawing when out of range.
+    if (w->type == WIDGET_CVAR_COMBOBOX && w->cVar && w->cVar[0]) {
+        auto opts = std::static_pointer_cast<UIWidgets::ComboboxOptions>(w->options);
+        if (!opts || opts->comboMap.find(CVarGetInteger(w->cVar, 0)) == opts->comboMap.end()) {
+            return 0;
+        }
+    }
+    // Change snapshot for the caller's cross-game audio mirror. Delegated kinds are int- or
+    // float-backed CVars, so an int+float compare covers them without allocating.
+    bool hasCvar = (w->cVar && w->cVar[0]);
+    int32_t beforeI = hasCvar ? CVarGetInteger(w->cVar, 0) : 0;
+    float beforeF = hasCvar ? CVarGetFloat(w->cVar, 0.0f) : 0.0f;
+    MenuDrawItem(*w, (uint32_t)(width > 0 ? width : 90), GetMenuThemeColor());
+    if (!hasCvar) {
+        return 0;
+    }
+    return (CVarGetInteger(w->cVar, 0) != beforeI || CVarGetFloat(w->cVar, 0.0f) != beforeF) ? 1 : 0;
+}
 } // namespace SohGui

@@ -18,9 +18,11 @@
 #include "ComboAudioBridge.h"      // Shared-tab audio -> MM mirror
 #include "ComboResolutionEditor.h" // combo-owned Advanced Resolution editor (intercepts broken widgets)
 
-#include <libultraship/libultraship.h> // ImGui-adjacent + CVar bridge (CVarGet/Set*) + color.h
+#include <libultraship/libultraship.h>         // ImGui-adjacent + CVar bridge (CVarGet/Set*) + color.h
+#include <ship/window/gui/IconsFontAwesome4.h> // ICON_FA_* for the window-toggle button (matches SoH)
 #include <imgui.h>
 #include <cstring>
+#include <string>
 
 namespace ComboRando {
 
@@ -72,8 +74,20 @@ void RenderVideoBackend(const CwWidget& w, const ImVec4& themeColor) {
     const bool only = !avail || avail->size() <= 1;
     if (only)
         ImGui::BeginDisabled(true);
+    // Label above the combo (matches SoH), then a hidden-label combo sized to fit the widest option.
+    ImGui::TextUnformatted(label);
     ComboMenu_PushCombobox(themeColor);
-    if (ImGui::BeginCombo(label, WindowBackendName(curId))) {
+    const ImGuiStyle& st = ImGui::GetStyle();
+    float longest = ImGui::CalcTextSize(WindowBackendName(curId)).x;
+    if (avail) {
+        for (int32_t id : *avail) {
+            float x = ImGui::CalcTextSize(WindowBackendName(id)).x;
+            if (x > longest)
+                longest = x;
+        }
+    }
+    ImGui::SetNextItemWidth(longest + ImGui::GetFrameHeight() + st.FramePadding.x * 2.0f);
+    if (ImGui::BeginCombo("##RendererAPI", WindowBackendName(curId))) {
         if (avail) {
             for (int32_t id : *avail) {
                 const bool sel = (id == curId);
@@ -103,12 +117,27 @@ void RenderAudioBackend(const CwWidget& w, const ImVec4& themeColor) {
     auto audio = ctx->GetAudio();
     auto avail = audio->GetAvailableAudioBackends();
     const Ship::AudioBackend cur = audio->GetCurrentAudioBackend();
-    const char* label = (w.name && w.name[0]) ? w.name : "Audio API";
+    // SoH's MenuDrawItem hardcodes "Audio API" (ignores the widget's "(Needs reload)" name, since
+    // the audio backend applies live) — match that rather than using w.name.
+    const char* label = "Audio API";
     const bool only = !avail || avail->size() <= 1;
     if (only)
         ImGui::BeginDisabled(true);
+    // Label above the combo (matches SoH), then a hidden-label combo sized to fit the widest option
+    // (so "Windows Audio Session API" isn't clipped) — mirrors SoH's CalcComboWidth.
+    ImGui::TextUnformatted(label);
     ComboMenu_PushCombobox(themeColor);
-    if (ImGui::BeginCombo(label, AudioBackendName(cur))) {
+    const ImGuiStyle& st = ImGui::GetStyle();
+    float longest = ImGui::CalcTextSize(AudioBackendName(cur)).x;
+    if (avail) {
+        for (Ship::AudioBackend b : *avail) {
+            float x = ImGui::CalcTextSize(AudioBackendName(b)).x;
+            if (x > longest)
+                longest = x;
+        }
+    }
+    ImGui::SetNextItemWidth(longest + ImGui::GetFrameHeight() + st.FramePadding.x * 2.0f);
+    if (ImGui::BeginCombo("##AudioAPI", AudioBackendName(cur))) {
         if (avail) {
             for (Ship::AudioBackend b : *avail) {
                 const bool sel = (b == cur);
@@ -127,7 +156,29 @@ void RenderAudioBackend(const CwWidget& w, const ImVec4& themeColor) {
 }
 } // namespace
 
-void RenderWidget(const CwWidget& w, const GameMenu& game) {
+// Widget kinds whose draw we delegate to the OWNING GAME's real UIWidgets (label-above, +/- steppers,
+// themed separators, tooltips) so the menu matches upstream exactly and auto-inherits its changes.
+// Buttons / window-buttons / backend selectors / custom stay comboui-owned: they either look correct
+// already or can touch live subsystems that aren't safe to drive while the game is backgrounded.
+static bool DelegatesToGame(CwKind k) {
+    switch (k) {
+        case CW_CHECKBOX:
+        case CW_SLIDER_INT:
+        case CW_SLIDER_FLOAT:
+        case CW_COMBOBOX:
+        case CW_BTN_SELECTOR:
+        // CW_INPUT_TEXT (OOT) and CW_COLOR (MM) are intentionally NOT delegated: the respective
+        // game's MenuDrawItem has no case for them, so they'd draw nothing. Left on the raw path.
+        case CW_SEPARATOR:
+        case CW_SEPARATOR_TEXT:
+        case CW_TEXT:
+            return true;
+        default:
+            return false;
+    }
+}
+
+void RenderWidget(const CwWidget& w, const GameMenu& game, int widthBudget) {
     // Unique id namespace per widget so two widgets sharing a display label don't collide.
     ImGui::PushID(w.index);
 
@@ -137,6 +188,36 @@ void RenderWidget(const CwWidget& w, const GameMenu& game) {
     if (TryRenderResolutionWidget(w)) {
         ImGui::PopID();
         return;
+    }
+
+    // ComboShip: draw declarative/CVar kinds through the owning game's real MenuDrawItem/UIWidgets.
+    // The game applies the change (its own callback + ShipInit) internally, so we must NOT re-invoke
+    // those here — only the cross-game audio mirror stays comboui's concern. Falls through to the
+    // raw path below when the export is absent (older DLL).
+    if (game.drawWidget && DelegatesToGame(w.kind)) {
+        // Enforce the widget's preFunc disable at the comboui level (wrap in BeginDisabled) — same as
+        // the raw path below. The game's MenuDrawItem also applies it internally, but wrapping here is
+        // what reliably makes a preFunc-gated control non-interactive (e.g. "Cull Glitch Useful
+        // Actors", gated on "Widescreen Actor Culling").
+        const bool dis = w.hasPreFunc && game.evalDisabled && game.evalDisabled(w.index, nullptr) != 0;
+        if (dis) {
+            ImGui::BeginDisabled(true);
+        }
+        const bool changed = game.drawWidget(w.index, widthBudget) != 0;
+        if (dis) {
+            ImGui::EndDisabled();
+        }
+        if (changed && w.cvar && w.cvar[0]) {
+            ComboAudio::MirrorIfVolumeCVar(w.cvar);
+        }
+        ImGui::PopID();
+        return;
+    }
+
+    // Same-line flag from the model. Delegated widgets get this inside the game's MenuDrawItem;
+    // raw-path widgets (buttons/backends) need it applied here (mirrors MenuDrawItem's sameLine).
+    if (w.sameLine) {
+        ImGui::SameLine();
     }
 
     // 1) preFunc disable eval (per frame): the game owns the predicate; we call it by index.
@@ -303,24 +384,30 @@ void RenderWidget(const CwWidget& w, const GameMenu& game) {
             }
             break;
         }
-        case CW_BUTTON:
+        case CW_BUTTON: {
             ComboMenu_PushButton(themeColor);
-            if (ImGui::Button(label)) {
+            // These span the full column width (matches SoH); other buttons keep their natural (text)
+            // width so e.g. Generate/Randomize stay side-by-side.
+            const bool fullWidth = w.name && (std::strcmp(w.name, "Open App Files Folder") == 0 ||
+                                              std::strcmp(w.name, "Toggle Fullscreen") == 0 ||
+                                              std::strcmp(w.name, "Test Notification") == 0);
+            if (ImGui::Button(label, fullWidth ? ImVec2(-FLT_MIN, 0.0f) : ImVec2(0.0f, 0.0f))) {
                 changed = true; // button => fire callback (below)
             }
             ComboMenu_PopButton();
             break;
+        }
         case CW_WINDOW_BUTTON: {
-            // Toggle the window via its OBJECT, not just the CVar. GuiWindow gates Draw() on
-            // mIsVisible and only reads the CVar at construction, so a CVar-only toggle never
-            // shows/hides at runtime — and the window's own SyncVisibilityConsoleVariable rewrites
-            // the CVar from stale mIsVisible, reverting the change. Show()/Hide() set mIsVisible and
-            // the CVar together (these are libultraship methods — no game-DLL ImGui context needed),
-            // matching the native WindowButton.
+            // Button with an open/close icon (matches SoH's WindowButton), NOT a checkbox. Toggle via
+            // the window OBJECT: GuiWindow gates Draw() on mIsVisible and only reads the CVar at
+            // construction, so a CVar-only toggle never shows/hides at runtime. ToggleVisibility() is a
+            // libultraship method (no game-DLL ImGui context needed).
             if (w.cvar && w.cvar[0]) {
-                bool v = CVarGetInteger(w.cvar, 0) != 0;
-                ComboMenu_PushCheckbox(themeColor);
-                if (ImGui::Checkbox(label, &v)) {
+                const bool open = CVarGetInteger(w.cvar, 0) != 0;
+                std::string txt = std::string(open ? ICON_FA_WINDOW_CLOSE : ICON_FA_EXTERNAL_LINK_SQUARE) + " " +
+                                  ((w.name && w.name[0]) ? w.name : "");
+                ComboMenu_PushButton(themeColor);
+                if (ImGui::Button(txt.c_str())) {
                     std::shared_ptr<Ship::GuiWindow> win;
                     if (w.windowName && w.windowName[0]) {
                         auto ctx = Ship::Context::GetInstance();
@@ -328,13 +415,13 @@ void RenderWidget(const CwWidget& w, const GameMenu& game) {
                             win = ctx->GetWindow()->GetGui()->GetGuiWindow(w.windowName);
                     }
                     if (win) {
-                        v ? win->Show() : win->Hide();
+                        win->ToggleVisibility();
                     } else {
-                        CVarSetInteger(w.cvar, v ? 1 : 0); // fallback: no window object to drive
+                        CVarSetInteger(w.cvar, open ? 0 : 1); // fallback: no window object to drive
                     }
                     changed = true;
                 }
-                ComboMenu_PopCheckbox();
+                ComboMenu_PopButton();
             } else {
                 ImGui::TextDisabled("%s", w.name ? w.name : "");
             }
@@ -388,34 +475,40 @@ void RenderWidget(const CwWidget& w, const GameMenu& game) {
 
 void RenderSidebarWidgets(const CwSidebar& side, const GameMenu& game) {
     const uint32_t cols = side.columnCount > 0 ? side.columnCount : 1;
+    const int widthBudget = 90 / (int)cols; // label WrappedText budget, matching the native menu
     if (cols <= 1) {
         for (int i = 0; i < side.widgetCount; ++i) {
-            RenderWidget(side.widgets[i], game);
+            RenderWidget(side.widgets[i], game, widthBudget);
         }
         return;
     }
-    // Equal-width stretch columns (no resize/borders) mirror the native menu's per-column child
-    // windows. Widgets are flattened column-major (ComboMenuExport.h) and carry CwWidget.column,
-    // so we render one table cell per column, stacking that column's widgets vertically — the
-    // narrower cell width is exactly what stops the controls from spanning the whole panel.
-    const ImGuiTableFlags flags = ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings;
-    if (ImGui::BeginTable("##sidebarcols", (int)cols, flags)) {
-        ImGui::TableNextRow();
-        for (uint32_t c = 0; c < cols; ++c) {
-            ImGui::TableSetColumnIndex((int)c);
-            for (int i = 0; i < side.widgetCount; ++i) {
-                int wc = side.widgets[i].column;
-                if (wc < 0) {
-                    wc = 0;
-                } else if ((uint32_t)wc >= cols) {
-                    wc = (int)cols - 1; // clamp stray indices into the last column
-                }
-                if ((uint32_t)wc == c) {
-                    RenderWidget(side.widgets[i], game);
-                }
+    // Per-column child windows (mirrors the native menu): each column scrolls INDEPENDENTLY within
+    // the section height, so a long column (e.g. Menu Settings) gets its own scrollbar while a short
+    // one (About) does not — instead of one scrollbar for the whole section. Widgets are flattened
+    // column-major (ComboMenuExport.h) and carry CwWidget.column.
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float sectionW = ImGui::GetContentRegionAvail().x;
+    const float colH = ImGui::GetContentRegionAvail().y;
+    const float colW = (sectionW - st.ItemSpacing.x * (cols - 1)) / (float)cols;
+    for (uint32_t c = 0; c < cols; ++c) {
+        ImGui::PushID((int)c);
+        ImGui::BeginChild("##seccol", ImVec2(colW, colH), 0, ImGuiWindowFlags_NoTitleBar);
+        for (int i = 0; i < side.widgetCount; ++i) {
+            int wc = side.widgets[i].column;
+            if (wc < 0) {
+                wc = 0;
+            } else if ((uint32_t)wc >= cols) {
+                wc = (int)cols - 1; // clamp stray indices into the last column
+            }
+            if ((uint32_t)wc == c) {
+                RenderWidget(side.widgets[i], game, widthBudget);
             }
         }
-        ImGui::EndTable();
+        ImGui::EndChild();
+        ImGui::PopID();
+        if (c + 1 < cols) {
+            ImGui::SameLine();
+        }
     }
 }
 

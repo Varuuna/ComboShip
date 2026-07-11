@@ -497,6 +497,26 @@ void SohMenu::AddMenuSettings() {
         .WindowName("Input Viewer Settings")
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Input Viewer Settings Window."));
+#ifdef COMBO_BUILD
+    // ComboShip: draw the Input Viewer Settings inline (SoH embeds it via the window button's
+    // EmbedWindow; comboui's flat model doesn't carry that flag). Mirrors "Controller Bindings
+    // Inline" above; skipped while popped out so the Gui loop's floating copy isn't double-drawn.
+    AddWidget(path, "Input Viewer Settings Inline", WIDGET_CUSTOM)
+        .RaceDisable(false)
+        .HideInSearch(true)
+        .CustomFunction([](WidgetInfo&) {
+            auto ctx = Ship::Context::GetInstance();
+            if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
+                return;
+            }
+            auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Input Viewer Settings");
+            if (!win || win->IsVisible()) { // not registered, or popped out — don't double-draw
+                return;
+            }
+            win->Update(); // Gui loop only Updates visible windows; we draw it hidden, so Update first
+            win->DrawElement();
+        });
+#endif
 
     // Notifications
     path.sidebarName = "Notifications";
@@ -560,6 +580,26 @@ void SohMenu::AddMenuSettings() {
         .WindowName("Mod Menu")
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Mod Menu Window."));
+#ifdef COMBO_BUILD
+    // ComboShip: draw the Mod Menu inline (SoH embeds it via the window button's EmbedWindow;
+    // comboui's flat model doesn't carry that flag). Mirrors "Controller Bindings Inline"; skipped
+    // while popped out so the Gui loop's floating copy isn't double-drawn.
+    AddWidget(path, "Mod Menu Inline", WIDGET_CUSTOM)
+        .RaceDisable(false)
+        .HideInSearch(true)
+        .CustomFunction([](WidgetInfo&) {
+            auto ctx = Ship::Context::GetInstance();
+            if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
+                return;
+            }
+            auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Mod Menu");
+            if (!win || win->IsVisible()) { // not registered, or popped out — don't double-draw
+                return;
+            }
+            win->Update(); // Gui loop only Updates visible windows; we draw it hidden, so Update first
+            win->DrawElement();
+        });
+#endif
 }
 
 } // namespace SohGui

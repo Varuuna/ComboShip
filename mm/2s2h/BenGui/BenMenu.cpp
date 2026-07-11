@@ -2639,4 +2639,50 @@ void BenMenu::DrawCustomByIndex(int32_t i) {
     }
     w->customFunction(*w);
 }
+
+int32_t BenMenu::DrawWidgetByIndex(int32_t i, int32_t width) {
+    if (i < 0 || i >= (int32_t)mComboExport.flat.size()) {
+        return 0;
+    }
+    auto* w = mComboExport.flat[i];
+    if (!w) {
+        return 0;
+    }
+    // Same dormant guard as DrawCustomByIndex: preFunc/customFunction widgets need MM live; pure
+    // declarative/CVar widgets (all rando settings) are exempt and always drawable/editable.
+    bool live = !(OTRGlobals::Instance == nullptr || OTRGlobals::Instance->fontStandardLargest == nullptr);
+    bool isRando = (i < (int32_t)mComboExport.flatRando.size() && mComboExport.flatRando[i]);
+    bool needsLive = (w->preFunc != nullptr) || (w->customFunction != nullptr);
+    if (needsLive && !live && !isRando) {
+        ImGui::TextDisabled("%s", w->name.c_str());
+        return 0;
+    }
+    // Fresh disable pass only when this widget's preFunc consults disable state (MenuDrawItem reads
+    // disabledMap solely inside its preFunc branch).
+    if (w->preFunc) {
+        for (auto& [reason, info] : disabledMap) {
+            info.active = info.evaluation(info);
+        }
+    }
+    // Change snapshot for the caller's cross-game audio mirror: delegated kinds are int/float CVars.
+    // (MM's UIWidgets::Combobox already clamps an out-of-range value instead of throwing — see
+    // BenGui/UIWidgets.hpp — so unlike SoH it needs no out-of-range guard here.)
+    bool hasCvar = (w->cVar && w->cVar[0]);
+    int32_t beforeI = hasCvar ? CVarGetInteger(w->cVar, 0) : 0;
+    float beforeF = hasCvar ? CVarGetFloat(w->cVar, 0.0f) : 0.0f;
+    // MM's content area uses fontMonoLarger (mirrors MM DrawElement); push it so delegation matches
+    // regardless of comboui's active font.
+    ImFont* contentFont = OTRGlobals::Instance ? OTRGlobals::Instance->fontMonoLarger : nullptr;
+    if (contentFont) {
+        ImGui::PushFont(contentFont);
+    }
+    MenuDrawItem(*w, (uint32_t)(width > 0 ? width : 90), GetMenuThemeColor());
+    if (contentFont) {
+        ImGui::PopFont();
+    }
+    if (!hasCvar) {
+        return 0;
+    }
+    return (CVarGetInteger(w->cVar, 0) != beforeI || CVarGetFloat(w->cVar, 0.0f) != beforeF) ? 1 : 0;
+}
 } // namespace BenGui

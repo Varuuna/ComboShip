@@ -179,6 +179,11 @@ void SohMenu::AddMenuDevTools() {
         .WindowName("Stats##Soh")
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Stats Window."));
+#ifdef COMBO_BUILD
+    AddWidget(path, "Stats Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("Stats##Soh", /*requiresForeground=*/true); // reads live OOT play state
+    });
+#endif
 
     // Console
     path.sidebarName = "Console";
@@ -188,6 +193,11 @@ void SohMenu::AddMenuDevTools() {
         .WindowName("Console##SoH")
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Console Window."));
+#ifdef COMBO_BUILD
+    AddWidget(path, "Console Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("Console##SoH", /*requiresForeground=*/false); // console works anytime
+    });
+#endif
 
     // Save Editor
     path.sidebarName = "Save Editor";

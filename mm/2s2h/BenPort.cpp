@@ -3793,6 +3793,20 @@ extern "C" __declspec(dllexport) void MM_MenuDrawCustom(int32_t i) {
         menu->DrawCustomByIndex(i);
     }
 }
+
+// Draws widget i via MM's real MenuDrawItem (UIWidgets) into comboui's current window/cell. Same
+// context/RM/Init+Update contract as MM_MenuDrawCustom. Returns 1 if the CVar changed this frame.
+extern "C" __declspec(dllexport) int32_t MM_MenuDrawWidget(int32_t i, int32_t width) {
+    ComboMenuContext::UseSharedImGuiContext();
+    Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("mm"));
+    auto menu = Combo_EnsureBenMenu();
+    if (menu) {
+        menu->Init();
+        menu->Update();
+        return menu->DrawWidgetByIndex(i, width);
+    }
+    return 0;
+}
 #endif
 
 // Helper to redirect the user to the boot screen in place of known console crash scenarios, and emits a notification

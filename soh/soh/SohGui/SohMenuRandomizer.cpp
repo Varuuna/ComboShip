@@ -711,6 +711,24 @@ void SohMenu::AddMenuRandomizer() {
         .WindowName("Plandomizer Editor")
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Randomizer Settings Window."));
+#ifdef COMBO_BUILD
+    // ComboShip: draw the Plandomizer inline (SoH embeds it via the window button's EmbedWindow;
+    // comboui's flat model doesn't carry that flag). Mirrors "Controller Bindings Inline"; skipped
+    // while popped out so the Gui loop's floating copy isn't double-drawn.
+    AddWidget(path, "Plandomizer Inline", WIDGET_CUSTOM)
+        .RaceDisable(false)
+        .HideInSearch(true)
+        .CustomFunction([](WidgetInfo&) {
+            auto ctx = Ship::Context::GetInstance();
+            if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
+                return;
+            auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Plandomizer Editor");
+            if (!win || win->IsVisible())
+                return;
+            win->Update();
+            win->DrawElement();
+        });
+#endif
 
     // Item Tracker
     path.sidebarName = "Item Tracker";
@@ -731,6 +749,22 @@ void SohMenu::AddMenuRandomizer() {
         .WindowName("Item Tracker Settings")
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Item Tracker Settings Window."));
+#ifdef COMBO_BUILD
+    // ComboShip: embed the settings inline (see "Plandomizer Inline"); skipped while popped out.
+    AddWidget(path, "Item Tracker Settings Inline", WIDGET_CUSTOM)
+        .RaceDisable(false)
+        .HideInSearch(true)
+        .CustomFunction([](WidgetInfo&) {
+            auto ctx = Ship::Context::GetInstance();
+            if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
+                return;
+            auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Item Tracker Settings");
+            if (!win || win->IsVisible())
+                return;
+            win->Update();
+            win->DrawElement();
+        });
+#endif
 
     // Entrance Tracker
     path.sidebarName = "Entrance Tracker";
@@ -751,6 +785,22 @@ void SohMenu::AddMenuRandomizer() {
         .WindowName("Entrance Tracker Settings")
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Entrance Tracker Settings Window."));
+#ifdef COMBO_BUILD
+    // ComboShip: embed the settings inline (see "Plandomizer Inline"); skipped while popped out.
+    AddWidget(path, "Entrance Tracker Settings Inline", WIDGET_CUSTOM)
+        .RaceDisable(false)
+        .HideInSearch(true)
+        .CustomFunction([](WidgetInfo&) {
+            auto ctx = Ship::Context::GetInstance();
+            if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
+                return;
+            auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Entrance Tracker Settings");
+            if (!win || win->IsVisible())
+                return;
+            win->Update();
+            win->DrawElement();
+        });
+#endif
 
     // Check Tracker
     path.sidebarName = "Check Tracker";
@@ -771,6 +821,22 @@ void SohMenu::AddMenuRandomizer() {
         .WindowName("Check Tracker Settings")
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Check Tracker Settings Window."));
+#ifdef COMBO_BUILD
+    // ComboShip: embed the settings inline (see "Plandomizer Inline"); skipped while popped out.
+    AddWidget(path, "Check Tracker Settings Inline", WIDGET_CUSTOM)
+        .RaceDisable(false)
+        .HideInSearch(true)
+        .CustomFunction([](WidgetInfo&) {
+            auto ctx = Ship::Context::GetInstance();
+            if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
+                return;
+            auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Check Tracker Settings");
+            if (!win || win->IsVisible())
+                return;
+            win->Update();
+            win->DrawElement();
+        });
+#endif
 }
 
 } // namespace SohGui

@@ -15,8 +15,10 @@ namespace ComboRando {
 
 struct GameMenu; // from ComboMenuModel.h
 
-// Render one widget (declarative kinds drawn here; custom/preFunc/callback routed by index).
-void RenderWidget(const CwWidget& w, const GameMenu& game);
+// Render one widget. CVar/declarative kinds are delegated to the owning game's real UIWidgets when
+// its DrawWidget export is present (else drawn here with comboui's raw ImGui). widthBudget is the
+// WrappedText char budget for labels (typically 90/columns).
+void RenderWidget(const CwWidget& w, const GameMenu& game, int widthBudget = 90);
 
 // Render all of a sidebar's widgets honoring CwSidebar::columnCount — the faithful multi-column
 // layout of the native menu (1 column => linear). Widgets carry their source column (CwWidget.column,

@@ -1090,9 +1090,25 @@ static int Combo_OnReloadRequest(const char* path) {
         auto oot = j.value("oot", nlohmann::json::object());
         auto mm = j.value("mm", nlohmann::json::object());
         std::string ootSettings = oot.value("settings", nlohmann::json::object()).dump();
-        std::string ootPlacements = oot.value("placements", nlohmann::json::object()).dump();
         std::string mmSettings = mm.value("settings", nlohmann::json::object()).dump();
-        std::string mmPlacements = mm.value("placements", nlohmann::json::object()).dump();
+
+        // The stored placements are human-readable (foreign items shown by real name). Rebuild the
+        // sentinel apply payloads — each game must see RI_COMBO_FOREIGN at its foreign checks so it
+        // diverts the real item cross-game; MM's apply THROWS on an unresolvable foreign name.
+        nlohmann::json ootApply = oot.value("placements", nlohmann::json::object());
+        nlohmann::json mmApply = mm.value("placements", nlohmann::json::object());
+        for (const auto& fm : j.value("foreign", nlohmann::json::array())) {
+            std::string cg = fm.value("checkGame", "");
+            std::string cn = fm.value("checkName", "");
+            if (cn.empty())
+                continue;
+            if (cg == "oot")
+                ootApply[cn] = ComboRando::kForeignSentinelNameOOT;
+            else if (cg == "mm")
+                mmApply[cn] = ComboRando::kForeignSentinelNameMM;
+        }
+        std::string ootPlacements = ootApply.dump();
+        std::string mmPlacements = mmApply.dump();
 
         // OOT: restore settings -> seed RNG -> prep settings-scoped pool -> apply placements -> hash.
         if (SOH_RestoreRandoSettings)
@@ -1276,6 +1292,14 @@ static int LauncherValidateShipConfig(const char* path) {
 
 int main(int argc, char** argv) {
     std::cout << "ComboShip Launcher - Starting..." << std::endl;
+
+#ifdef _WIN32
+    // Match SoH's DPI awareness (its SHIPOFHARKINIAN.manifest declares permonitorv2). ComboShip.exe
+    // ships no such manifest, so without this Windows renders the framebuffer at the logical
+    // (down-scaled) resolution and upscales it — making the whole menu/UI larger and blurrier on
+    // >100% display scaling. Must run before any window is created.
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+#endif
 
     std::set_terminate(ComboTerminateHandler);
 

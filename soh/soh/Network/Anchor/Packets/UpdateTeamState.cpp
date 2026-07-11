@@ -122,6 +122,14 @@ void Anchor::HandlePacket_UpdateTeamState(nlohmann::json payload) {
         return;
     }
 
+#ifdef COMBO_BUILD
+    // ComboShip: MM's UPDATE_TEAM_STATE has a different state shape; from_json would throw
+    // mid-handler and leave isHandlingUpdateTeamState stuck true (muting check-status sync).
+    if (payload.contains("state") && !payload["state"].contains("healthCapacity")) {
+        return;
+    }
+#endif
+
     isHandlingUpdateTeamState = true;
     // This can happen in between file select and the game starting, so we can't use this check, but we need to ensure
     // we be careful to wrap PlayState usage in this check

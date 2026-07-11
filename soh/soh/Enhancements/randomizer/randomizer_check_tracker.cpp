@@ -2236,6 +2236,12 @@ void InternalRecalculateAvailableChecks(RandomizerRegion startingRegion, RandoAg
     if (!enableAvailableChecks || !GameInteractor::IsSaveLoaded()) {
         return;
     }
+#ifdef COMBO_BUILD
+    // ComboShip: drawn as a dormant peek from the other game's thread; no play state to walk from.
+    if (gPlayState == nullptr) {
+        return;
+    }
+#endif
 
     ResetPerformanceTimer(PT_RECALCULATE_AVAILABLE_CHECKS);
     StartPerformanceTimer(PT_RECALCULATE_AVAILABLE_CHECKS);

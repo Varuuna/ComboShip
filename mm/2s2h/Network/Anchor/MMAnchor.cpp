@@ -165,6 +165,7 @@ void MMAnchor::SendJson(nlohmann::json payload) {
         ownClientId = (uint32_t)CVarGetInteger(kCvarLastClientId, 0); // late-cache fallback
     }
     payload["clientId"] = ownClientId;
+    payload["srcGame"] = "mm"; // shared socket carries both games; receivers filter on this
     gMMComboAnchorSend(payload.dump().c_str());
 }
 
@@ -177,6 +178,12 @@ void MMAnchor::OnIncomingJson(const std::string& payload) {
         return;
     }
     if (!j.contains("type")) {
+        return;
+    }
+    // Drop OOT-originated packets — their shapes collide with ours (GIVE_ITEM, UPDATE_TEAM_STATE...).
+    // Exceptions: cross-game item delivery and the room roster. No srcGame (server) passes through.
+    std::string type = j["type"].get<std::string>();
+    if (j.value("srcGame", "mm") != "mm" && type != PKT_CROSS_ITEM && type != PKT_UPDATE_CLIENT_STATE) {
         return;
     }
     std::lock_guard<std::mutex> lock(incomingMutex);
@@ -715,6 +722,9 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     if (!roomState.syncItemsAndFlags || !payload.contains("state")) {
         return;
     }
+    if (!payload["state"].contains("shipSaveInfo")) {
+        return; // soh-shaped team state; from_json(Save) would throw
+    }
 
     // Unpack the compact rando check array back into the shape from_json(Save) expects.
     if (IS_RANDO && payload["state"]["shipSaveInfo"].contains("rando")) {
@@ -791,6 +801,12 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
 
 extern "C" __declspec(dllexport) void MM_SetAnchorSend(void (*cb)(const char*)) {
     gMMComboAnchorSend = cb;
+    // Create the adapter now (launcher startup, pre-connect). It used to be created on first
+    // Activate, so a client that never entered MM had no instance and RecvJson/PumpDormant dropped
+    // every packet — teammate MM items never reached the dormant MM save.
+    if (MMAnchor::Instance == nullptr) {
+        MMAnchor::Instance = new MMAnchor();
+    }
 }
 
 // A6: launcher registers its per-frame dormant-pump fn; MM calls it each active frame (see hook).

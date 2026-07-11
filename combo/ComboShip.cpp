@@ -1614,6 +1614,8 @@ int main(int argc, char** argv) {
         SOH_SetPumpDormant(PumpDormant);
     if (MM_SetPumpDormant)
         MM_SetPumpDormant(PumpDormant);
+    std::cout << "[ComboShip] Dormant co-op pump seams: soh=" << (SOH_SetPumpDormant && SOH_Anchor_PumpDormant)
+              << " mm=" << (MM_SetPumpDormant && MM_Anchor_PumpDormant) << std::endl;
     if (SOH_SetFinalBossDefeatedCb)
         SOH_SetFinalBossDefeatedCb(Combo_OnFinalBossDefeated);
     if (MM_SetFinalBossDefeatedCb)

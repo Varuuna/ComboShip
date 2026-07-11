@@ -5,6 +5,9 @@
 #include "soh/ObjectExtension/ObjectExtension.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
 #include "soh/Notification/Notification.h"
+#ifdef COMBO_BUILD
+#include "soh/SaveManager.h"
+#endif
 
 extern "C" {
 #include "variables.h"
@@ -273,17 +276,29 @@ void Anchor::PumpDormant() {
         std::lock_guard<std::mutex> lock(incomingPacketQueueMutex);
         packetsToProcess.swap(incomingPacketQueue);
     }
+    dormantDidApply = false;
     while (!packetsToProcess.empty()) {
         nlohmann::json payload = packetsToProcess.front();
         packetsToProcess.pop();
         if (payload.value("type", std::string()) != GIVE_ITEM) {
             continue; // drop presence/puppet/team-state while dormant (re-requested on activation)
         }
+        if (!payload.contains("modId")) {
+            continue; // MM-shaped GIVE_ITEM; the dormant MM pump handles it
+        }
+        SPDLOG_INFO("[Anchor] dormant GIVE_ITEM received: {}", payload.dump());
         isProcessingIncomingPacket = true;
+        isDormantApply = true;
         try {
-            HandlePacket_GiveItem(payload);
+            HandlePacket_GiveItem(payload); // sets dormantDidApply when it actually grants
         } catch (const std::exception& e) { SPDLOG_ERROR("[Anchor] dormant apply exception: {}", e.what()); }
+        isDormantApply = false;
         isProcessingIncomingPacket = false;
+    }
+    // Persist the dormant save so the item survives quitting without ever entering OOT.
+    if (dormantDidApply && SaveManager::Instance && gSaveContext.fileNum != 0xFF) {
+        SaveManager::Instance->SaveFile(gSaveContext.fileNum);
+        SPDLOG_INFO("[Anchor] dormant OOT save persisted (file {})", gSaveContext.fileNum);
     }
 }
 #endif

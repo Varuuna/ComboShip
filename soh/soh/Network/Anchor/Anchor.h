@@ -77,6 +77,8 @@ class Anchor : public Network {
     bool justLoadedSave = false;
     bool isHandlingUpdateTeamState = false;
     bool isProcessingIncomingPacket = false;
+    bool isDormantApply = false;  // true while PumpDormant applies packets (OOT backgrounded)
+    bool dormantDidApply = false; // set by HandlePacket_GiveItem when a dormant grant landed
     std::queue<nlohmann::json> incomingPacketQueue;
     std::mutex incomingPacketQueueMutex;
     std::queue<nlohmann::json> outgoingPacketQueue;

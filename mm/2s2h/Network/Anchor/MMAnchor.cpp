@@ -232,7 +232,8 @@ void MMAnchor::PumpDormant() {
         nlohmann::json payload = toProcess.front();
         toProcess.pop();
         try {
-            if (payload.value("type", std::string()) == PKT_GIVE_ITEM) {
+            if (payload.value("type", std::string()) == PKT_GIVE_ITEM && payload.contains("randoCheckId")) {
+                SPDLOG_INFO("[MMAnchor] dormant GIVE_ITEM received: {}", payload.dump());
                 ApplyDormantGiveItem(payload);
             }
         } catch (const std::exception& e) { SPDLOG_ERROR("[MMAnchor] dormant apply exception: {}", e.what()); }
@@ -247,23 +248,31 @@ void MMAnchor::ApplyDormantGiveItem(const nlohmann::json& payload) {
         return; // reject soh's GIVE_ITEM (modId shape, different item-id space)
     }
     if (payload.value("targetTeamId", std::string("default")) != CVarGetString(kCvarTeamId, "default")) {
+        SPDLOG_INFO("[MMAnchor] dormant GIVE_ITEM dropped: team mismatch");
         return;
     }
-    if (payload.value("clientId", (uint32_t)0) == ownClientId) {
+    uint32_t clientId = payload.value("clientId", (uint32_t)0);
+    // Only a NONZERO match is our own echo — dormant MM may still have ownClientId 0, and a sender
+    // that hasn't been assigned an id yet also stamps 0; 0==0 must not drop a teammate's item.
+    if (clientId != 0 && clientId == ownClientId) {
         return;
     }
     int32_t checkId = payload.value("randoCheckId", -1);
     RandoCheckId rc = (checkId >= 0 && checkId < RC_MAX) ? (RandoCheckId)checkId : RC_UNKNOWN;
-    if (rc != RC_UNKNOWN && RANDO_SAVE_CHECKS[rc].obtained) {
+    if (rc == RC_UNKNOWN) {
+        SPDLOG_INFO("[MMAnchor] dormant GIVE_ITEM dropped: bad check id {}", checkId);
+        return; // no check to mark obtained -> no idempotency; a real sender always has one
+    }
+    if (RANDO_SAVE_CHECKS[rc].obtained) {
+        SPDLOG_INFO("[MMAnchor] dormant GIVE_ITEM dropped: check {} already obtained", checkId);
         return; // idempotent: already collected locally
     }
     RandoItemId rid = Rando::ConvertItem((RandoItemId)payload.value("getItemId", (int)RI_JUNK), rc);
-    if (rc != RC_UNKNOWN) {
-        RANDO_SAVE_CHECKS[rc].obtained = true;
-        RANDO_SAVE_CHECKS[rc].cycleObtained = true;
-        RANDO_SAVE_CHECKS[rc].eligible = false;
-    }
+    RANDO_SAVE_CHECKS[rc].obtained = true;
+    RANDO_SAVE_CHECKS[rc].cycleObtained = true;
+    RANDO_SAVE_CHECKS[rc].eligible = false;
     Combo_MM_GiveDormantResolved(rid);
+    SPDLOG_INFO("[MMAnchor] dormant GIVE_ITEM applied: check={} item={} (persisted)", checkId, (int)rid);
 }
 
 // MARK: - Client state
@@ -493,6 +502,7 @@ void MMAnchor::HandlePacket_DamagePlayer(const nlohmann::json& payload) {
 
 void MMAnchor::SendPacket_GiveItem(int16_t randoItemId, int32_t randoCheckId) {
     if (!isActive || !roomState.syncItemsAndFlags) {
+        SPDLOG_INFO("[MMAnchor] GIVE_ITEM not sent: active={} syncItems={}", isActive, roomState.syncItemsAndFlags);
         return;
     }
     nlohmann::json payload;
@@ -501,6 +511,7 @@ void MMAnchor::SendPacket_GiveItem(int16_t randoItemId, int32_t randoCheckId) {
     payload["getItemId"] = randoItemId;     // RAW rando item id; receiver ConvertItems for its own state
     payload["randoCheckId"] = randoCheckId; // so receivers can mark the check obtained (no double-collect)
     SendJson(payload);
+    SPDLOG_INFO("[MMAnchor] GIVE_ITEM sent: check={} item={}", randoCheckId, randoItemId);
 }
 
 void MMAnchor::HandlePacket_GiveItem(const nlohmann::json& payload) {

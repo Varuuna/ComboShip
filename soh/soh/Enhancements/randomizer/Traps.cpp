@@ -1441,6 +1441,15 @@ Text Rando::Traps::GetTrapName(uint16_t id, uint64_t* state) {
     return ShipUtils::RandomElement(trickNameTable[id], state);
 }
 
+// ComboShip: whether id can disguise an ice trap (has a fake-name entry). Ensures the table is built.
+bool Rando::Traps::CanBeTrapModel(uint16_t id) {
+    if (!initTrickNames) {
+        InitTrickNames();
+        initTrickNames = true;
+    }
+    return id < RG_MAX && !trickNameTable[id].empty();
+}
+
 RandomizerGet Rando::Traps::GetTrapTrickModel(uint64_t* state) {
     auto ctx = Rando::Context::GetInstance();
     RandomizerGet trickModel = ShipUtils::RandomElementFromSet(ctx->possibleIceTrapModels, state);

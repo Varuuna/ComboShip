@@ -3676,11 +3676,41 @@ bool gfx_modify_vtx_handler_f3dex2(F3DGfx** cmd0) {
     return false;
 }
 
+#ifdef COMBO_BUILD
+// ComboShip: a resolved raw-DL target still in the N64 segmented range means SegAddr couldn't
+// resolve it (the segment isn't bound) — branching/calling there executes garbage as GBI. Cross-game
+// foreign draws can submit a DL that references a segment the host game never set up (e.g. an MM
+// item's animated-material segment). Mirrors gfx_set_timg_handler_rdp's timg validation.
+static bool ComboIsUnresolvedSegmentTarget(const void* p) {
+    uintptr_t i = (uintptr_t)p;
+    if (i == 0 || i > 0x0FFFFFFF) {
+        return i == 0; // null: reject; high address: a real pointer, accept
+    }
+#ifdef _WIN32
+    // Low addresses can be legitimate DLL-mapped memory on Windows; only reject if not a module addr.
+    HMODULE module = nullptr;
+    return !GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               reinterpret_cast<LPCSTR>(i), &module);
+#else
+    return true;
+#endif
+}
+#endif
+
 // F3D, F3DEX, and F3DEX2 do the same thing but F3DEX2 has its own opcode number
 bool gfx_dl_handler_common(F3DGfx** cmd0) {
     Interpreter* gfx = mInstance.lock().get();
     F3DGfx* cmd = *cmd0;
     F3DGfx* subGFX = (F3DGfx*)gfx->SegAddr(cmd->words.w1);
+#ifdef COMBO_BUILD
+    if (ComboIsUnresolvedSegmentTarget(subGFX)) {
+        static std::unordered_set<uintptr_t> sReported; // bounded: one entry per unique bad target
+        if (sReported.insert((uintptr_t)subGFX).second) {
+            SPDLOG_ERROR("gfx_dl_handler_common: unresolved segment DL target {}; skipping", (void*)subGFX);
+        }
+        return false; // skip this DL; the main loop advances to the next command (see OTR-filepath skip)
+    }
+#endif
     if (C0(16, 1) == 0) {
         // Push return address
         if (subGFX != nullptr) {
@@ -3726,6 +3756,15 @@ bool gfx_dl_index_handler(F3DGfx** cmd0) {
     uintptr_t segAddr = (segNum << 24) | (index * sizeof(F3DGfx)) + 1;
 
     F3DGfx* subGFX = (F3DGfx*)gfx->SegAddr(segAddr);
+#ifdef COMBO_BUILD
+    if (ComboIsUnresolvedSegmentTarget(subGFX)) { // same unbound-segment guard as gfx_dl_handler_common
+        static std::unordered_set<uintptr_t> sReported;
+        if (sReported.insert((uintptr_t)subGFX).second) {
+            SPDLOG_ERROR("gfx_dl_index_handler: unresolved segment DL target {}; skipping", (void*)subGFX);
+        }
+        return false;
+    }
+#endif
     if (C0(16, 1) == 0) {
         // Push return address
         if (subGFX != nullptr) {

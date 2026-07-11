@@ -4,6 +4,7 @@
 #include "soh/Enhancements/nametag.h"
 #include "soh/ObjectExtension/ObjectExtension.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
+#include "soh/Notification/Notification.h"
 
 extern "C" {
 #include "variables.h"
@@ -68,6 +69,16 @@ static void Anchor_HandleCrossItemPacket(const nlohmann::json& payload) {
     }
     if (gComboMarkForeignObtained && !srcCheckName.empty()) {
         gComboMarkForeignObtained(srcGame, srcCheckName.c_str());
+    }
+    // This handler only runs while OOT is the active game, so a targetGame==0 item is one the OOT
+    // player just received — announce it (the save-only grant is otherwise silent).
+    if (targetGame == 0) {
+        std::string name = itemName;
+        auto it = Rando::StaticData::itemNameToEnum.find(itemName);
+        if (it != Rando::StaticData::itemNameToEnum.end()) {
+            name = Rando::StaticData::RetrieveItem(it->second).GetName().english;
+        }
+        Notification::Emit({ .message = "Received:", .suffix = name });
     }
 }
 #endif
@@ -250,6 +261,32 @@ void Anchor::ProcessIncomingPacketQueue() {
         isProcessingIncomingPacket = false;
     }
 }
+
+#ifdef COMBO_BUILD
+// A6: called on the ACTIVE sibling's game thread while OOT is dormant. Apply only save-data-only,
+// dormant-safe co-op items (GIVE_ITEM); OOT's Item_Give/Randomizer_Item_Give write gSaveContext and
+// null-guard gPlayState (same rationale as SOH_GrantCrossItem). MM-shaped GIVE_ITEM (no modId) throws
+// and is skipped; cross-items to a dormant OOT are applied by the active game's cross-item handler.
+void Anchor::PumpDormant() {
+    std::queue<nlohmann::json> packetsToProcess;
+    {
+        std::lock_guard<std::mutex> lock(incomingPacketQueueMutex);
+        packetsToProcess.swap(incomingPacketQueue);
+    }
+    while (!packetsToProcess.empty()) {
+        nlohmann::json payload = packetsToProcess.front();
+        packetsToProcess.pop();
+        if (payload.value("type", std::string()) != GIVE_ITEM) {
+            continue; // drop presence/puppet/team-state while dormant (re-requested on activation)
+        }
+        isProcessingIncomingPacket = true;
+        try {
+            HandlePacket_GiveItem(payload);
+        } catch (const std::exception& e) { SPDLOG_ERROR("[Anchor] dormant apply exception: {}", e.what()); }
+        isProcessingIncomingPacket = false;
+    }
+}
+#endif
 
 // MARK: - Misc/Helpers
 

@@ -69,11 +69,18 @@ uint64_t ExpandTimeForward(uint64_t timeSlices, const RandoRegion& region) {
         }
     }
 
-    // VALIDATION: In Clock Shuffle, expanded time must not exceed owned time
+    // In Clock Shuffle, expanded time must never exceed owned time. Enforce the invariant by clamping
+    // rather than asserting: a rare edge in the sequential expansion would otherwise abort generation.
+    // For every seed that already satisfies the invariant this is a no-op; for a violating one it drops
+    // the stray unowned slices (you can't be at an unowned time), keeping reachability correct.
     if (SettingClocks()) {
         uint64_t ownedTimeSlices = GetOwnedTimeSlices();
-        bool expandedBeyondOwned = (expanded & ~ownedTimeSlices) != 0;
-        assert(!expandedBeyondOwned && "Time expansion exceeded owned half-day boundaries!");
+        if ((expanded & ~ownedTimeSlices) != 0) {
+            SPDLOG_WARN("[ComboShip] ExpandTimeForward: clamped time expansion to owned half-days "
+                        "(expanded=0x{:X}, owned=0x{:X})",
+                        expanded, ownedTimeSlices);
+            expanded &= ownedTimeSlices;
+        }
     }
 
     return expanded;

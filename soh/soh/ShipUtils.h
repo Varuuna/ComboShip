@@ -52,6 +52,9 @@ template <typename Container> const auto& RandomElement(const Container& contain
 }
 
 template <typename T> const T RandomElementFromSet(const std::set<T>& set, uint64_t* state = nullptr) {
+    if (set.empty()) {
+        return T{}; // guard: dereferencing end() on an empty set is UB
+    }
     if (set.size() == 1) {
         return *set.begin();
     }

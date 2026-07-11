@@ -151,6 +151,7 @@ class Anchor : public Network {
     void ProcessOutgoingPackets();
     void DrawMenu();
     void ProcessIncomingPacketQueue();
+    void PumpDormant(); // A6: drain+apply save-affecting co-op packets while OOT is the dormant game
     void SendJsonToRemote(nlohmann::json packet);
     bool IsSaveLoaded();
     bool CanTeleportTo(uint32_t clientId);

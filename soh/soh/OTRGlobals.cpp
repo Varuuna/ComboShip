@@ -44,6 +44,7 @@
 #include "Enhancements/randomizer/static_data.h"
 #include "soh/Enhancements/randomizer/settings.h"
 #include "soh/Enhancements/randomizer/logic.h"
+#include "soh/Enhancements/randomizer/Traps.h" // ComboShip: Rando::Traps::CanBeTrapModel for disguise curation
 #include "soh/Enhancements/randomizer/3drando/fill.hpp"
 #include "soh/Enhancements/randomizer/3drando/shops.hpp"
 #include "soh/Enhancements/randomizer/3drando/random.hpp"
@@ -2761,6 +2762,17 @@ extern "C" __declspec(dllexport) void SOH_Anchor_OnDisconnected(void) {
         Anchor::Instance->SetConnectedFromCombo(false);
     }
 }
+// A6: launcher registers its per-frame dormant-pump fn; the active game calls it each frame (see the
+// OnGameFrameUpdate hook) so the launcher can drive the dormant sibling's apply on the game thread.
+extern "C" void (*gComboPumpDormant)() = nullptr;
+extern "C" __declspec(dllexport) void SOH_SetPumpDormant(void (*cb)()) {
+    gComboPumpDormant = cb;
+}
+extern "C" __declspec(dllexport) void SOH_Anchor_PumpDormant(void) {
+    if (Anchor::Instance) {
+        Anchor::Instance->PumpDormant();
+    }
+}
 
 // ComboShip: cross-game item delivery seam (issue #3). When the other game collects a check whose
 // item belongs to OOT, the launcher calls SOH_GrantCrossItem to grant it straight into OOT's
@@ -3394,8 +3406,9 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             if (name.empty())
                 continue;
             // Link's Pocket is owned by the forced-placement mechanism (SOH_GetForcedPlacements); the
-            // dump must not emit it as a check or a fixed placement or it gets placed twice.
-            if (rc == RC_LINKS_POCKET)
+            // dump must not emit it as a check or a fixed placement or it gets placed twice. RC_WINCON is
+            // a logic-only win-condition marker (no item), not a real check.
+            if (rc == RC_LINKS_POCKET || rc == RC_WINCON)
                 continue;
             // ComboShip: emit non-shuffled shop slots' vanilla RG_BUY_* as fixed so the oracle credits them
             // when the shop is reachable (e.g. Buy Deku Shield gates Mido/Deku Tree); apply skips them.
@@ -3418,8 +3431,11 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
                     fixed.push_back({ { "check", name },
                                       { "item", in },
                                       { "advancement", Rando::StaticData::RetrieveItem(placed).IsAdvancement() } });
-            } else if (loc->GetVanillaItem() != RG_NONE) {
-                // A real fillable check (vanilla-less non-checks like Link's Pocket are excluded above).
+            } else {
+                // A real fillable check. GenerateLocationPool already decided what's shuffled and the
+                // meta markers (Link's Pocket, wincon) are skipped above, so emit regardless of vanilla
+                // item — red ice / icicles / fountain fairies have NO vanilla item (the item exists only
+                // when shuffled) and were being wrongly dropped, leaving them unfilled ("No Item").
                 checks.push_back({ { "name", name } });
                 // itemPool excludes shop slots (CountEmptyLocations(false)), so a shuffled shop check
                 // needs its vanilla buy item added to the pool to stay balanced.
@@ -3539,6 +3555,12 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
 
         // ItemReset so all locations start with RG_NONE before we apply our placement.
         ctx->ItemReset();
+#ifdef COMBO_BUILD
+        // Combo skips GenerateItemPool (OOT's own fill), which is what normally fills the ice-trap
+        // disguise pool. Rebuild it from the items we actually place below, else every ice trap falls
+        // back to a bottle (empty-set draw).
+        ctx->possibleIceTrapModels.clear();
+#endif
 
         // ComboShip: ItemReset wipes shop prices + placements, so re-run SoH's shop/scrub/merchant
         // setup here (vanilla slots get their RG_BUY_* item + prices; shuffled slots get a custom
@@ -3586,7 +3608,20 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
 #endif
             ctx->PlaceItemInLocation(rc, rg, false, false);
             ++placed;
+#ifdef COMBO_BUILD
+            if (rg != RG_ICE_TRAP && rg != RG_COMBO_FOREIGN && rg != RG_NONE && Rando::Traps::CanBeTrapModel(rg)) {
+                ctx->possibleIceTrapModels.insert(rg); // candidate ice-trap disguise (only named items)
+            }
+#endif
         }
+
+#ifdef COMBO_BUILD
+        // Assign ice-trap disguise models now (combo's fill never runs CreateItemOverrides). Skip if the
+        // pool came out empty so traps keep their default model rather than a null override.
+        if (!ctx->possibleIceTrapModels.empty()) {
+            ctx->CreateItemOverrides();
+        }
+#endif
 
         ctx->SetSeedGenerated(true);
         SPDLOG_INFO("[ComboShip] SOH_ApplyRandoPlacements: placed={} skipped={} seedGenerated=true", placed, skipped);

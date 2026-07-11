@@ -112,6 +112,7 @@ class MMAnchor {
     bool refreshingActors = false; // true while RefreshClientActors is spawning (gates the init hook)
 
     bool IsSaveLoaded();
+    void PumpDormant(); // A6: drain+apply save-affecting co-op packets while MM is the dormant game
 
   private:
     void RegisterHooks();
@@ -125,6 +126,7 @@ class MMAnchor {
     void HandlePacket_DamagePlayer(const nlohmann::json& payload);
     void HandlePacket_GiveItem(const nlohmann::json& payload);
     void HandlePacket_CrossItem(const nlohmann::json& payload); // issue #3 cross-game delivery
+    void ApplyDormantGiveItem(const nlohmann::json& payload);   // A6: dormant-safe co-op item apply
     void HandlePacket_UpdateTeamState(nlohmann::json& payload); // mutates payload (rando check unpack)
     void HandlePacket_RequestTeamState(const nlohmann::json& payload);
 

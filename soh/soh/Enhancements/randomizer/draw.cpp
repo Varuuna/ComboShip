@@ -547,6 +547,10 @@ struct ComboForeignDrawInfo {
     float scale = 0.0f;       // extra model scale; 0 = none (MM remains: 0.02)
     bool hasEnvColor = false; // emit env color before the DLs (MM song notes)
     uint8_t envColor[4] = { 0, 0, 0, 0 };
+    bool xluSeg8TexScroll = false;     // bind segment 8 to the flame texscroll before the XLU layer (skull token)
+    const char* matAnimPath = nullptr; // MM TextureAnimation resource to replicate before the DLs (Moon's Tear)
+    bool matAnimBindOpa = false;       // also bind the animated segment on the OPA layer (item body samples it)
+    bool matAnimBillboard = false;     // Matrix_ReplaceRotation(billboardMtxF) before the XLU layer (glow)
     const char* dls[CW_DRAW_MAX_DLISTS] = { nullptr }; // interned "__OTR__@mm:..." routed paths
     // ComboShip: animated class (no static DL row — MM stray fairies). When animOk, anim describes
     // the item and ComboForeignAnim_Draw renders it; path strings point at 2ship.dll statics.
@@ -623,6 +627,10 @@ const ComboForeignDrawInfo* ComboResolveForeignDrawInfo(RandomizerCheck rc) {
     info.xluStart = raw.xluStartIndex;
     info.scale = raw.scale;
     info.hasEnvColor = raw.hasEnvColor != 0;
+    info.xluSeg8TexScroll = raw.xluSeg8TexScroll != 0;
+    info.matAnimPath = raw.matAnimPath; // 2ship static literal (process-lifetime); loaded, not emitted
+    info.matAnimBindOpa = raw.matAnimBindOpa != 0;
+    info.matAnimBillboard = raw.matAnimBillboard != 0;
     for (int32_t i = 0; i < 4; i++) {
         info.envColor[i] = raw.envColor[i];
     }
@@ -663,6 +671,15 @@ extern "C" void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getIt
 
     OPEN_DISPS(play->state.gfxCtx);
 
+    // ComboShip: replicate the owning game's animated-material segment bind before the DLs (Moon's
+    // Tear: segment-8 two-tex-scroll on both layers, since the item body samples it). Mirrors MM's
+    // AnimatedMat_Draw(gGiMoonsTearTexAnim) in GetItem_DrawMoonsTear; restored after the DLs below.
+    int32_t matSegs[kMaxMatEntries];
+    int32_t matSegCount = 0;
+    if (info->matAnimPath != nullptr) {
+        ComboForeignTexAnim_Run(play, "mm", info->matAnimPath, info->matAnimBindOpa, matSegs, &matSegCount);
+    }
+
     // ComboShip: extra model scale carried from MM's draw func (e.g. boss remains: 0.02).
     if (info->scale > 0.0f) {
         Matrix_Scale(info->scale, info->scale, info->scale, MTXMODE_APPLY);
@@ -683,6 +700,20 @@ extern "C" void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getIt
     }
     if (xs < n) {
         Gfx_SetupDL_25Xlu(play->state.gfxCtx);
+        // ComboShip: replicate MM's GetItem_DrawSkullToken segment-8 flame scroll so the XLU flame
+        // layer animates the same way it does in MM (else the token draws bare/hollow-looking).
+        // Hardcoded (not matAnimPath) because the skull token has no TextureAnimation resource — MM
+        // draws it with an inline Gfx_TwoTexScrollEx, unlike the tear's AnimatedMat_Draw.
+        if (info->xluSeg8TexScroll) {
+            gSPSegment(POLY_XLU_DISP++, 0x08,
+                       (uintptr_t)Gfx_TwoTexScrollEx(play->state.gfxCtx, G_TX_RENDERTILE, 0, play->state.frames * -5,
+                                                     32, 32, 1, 0, 0, 32, 64, 0, -5, 0, 0));
+        }
+        // ComboShip: billboard the XLU layer toward the camera (Moon's Tear glow), mirroring MM's
+        // Matrix_ReplaceRotation before the glow DL. Must precede the matrix capture below.
+        if (info->matAnimBillboard) {
+            Matrix_ReplaceRotation(&play->billboardMtxF);
+        }
         gSPMatrix(POLY_XLU_DISP++, Matrix_NewMtx(play->state.gfxCtx, (char*)__FILE__, __LINE__),
                   G_MTX_MODELVIEW | G_MTX_LOAD);
         if (info->hasEnvColor) {
@@ -691,6 +722,12 @@ extern "C" void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getIt
         for (int32_t i = xs; i < n; i++) {
             gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[i]);
         }
+    }
+
+    // ComboShip: undo the material segment bind so later same-frame draws don't sample this item's
+    // scroll DL (segment hygiene; the bind touches the OPA stream too, unlike the XLU-only flame).
+    if (matSegCount > 0) {
+        ComboForeignTexAnim_Restore(play, matSegs, matSegCount, info->matAnimBindOpa);
     }
 
     CLOSE_DISPS(play->state.gfxCtx);

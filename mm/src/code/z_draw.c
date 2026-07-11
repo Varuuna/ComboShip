@@ -393,7 +393,8 @@ void GetItem_Draw(PlayState* play, s16 drawId) {
 // under OTR extraction); only the 0.02 scale must carry across (*outScale).
 // outDlists is filled in submission order; *outXluStart is the index of the first XLU-layer entry
 // (-1 = all OPA). Returns the dlist count, or 0 if the row is unsupported.
-s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale) {
+s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale,
+                              s32* outXluSeg8TexScroll) {
     static const s8 sOrder0[] = { 0 };
     static const s8 sOrder01[] = { 0, 1 };
     static const s8 sOrder012[] = { 0, 1, 2 };
@@ -412,6 +413,9 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
         return 0;
     }
     *outScale = 0.0f; // 0 = no extra scale
+    if (outXluSeg8TexScroll != NULL) {
+        *outXluSeg8TexScroll = 0;
+    }
     drawFunc = sDrawItemTable[drawId].drawFunc;
     res = sDrawItemTable[drawId].drawResources;
 
@@ -460,11 +464,20 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
         count = 4;
         xluStart = 2;
     } else if (drawFunc == GetItem_DrawSkullToken) {
-        // Static body only (OPA dlists[0]); the XLU flame needs an animated segment-8 texture scroll
-        // that isn't portable to the other game's frame, so it is dropped.
-        order = sOrder0;
-        count = 1;
-        xluStart = -1;
+        // Body (OPA) + flame (XLU). The flame draws with an animated segment-8 texture scroll; the
+        // consumer replicates it (outXluSeg8TexScroll) so the flame renders across the cross-game frame.
+        order = sOrder01;
+        count = 2;
+        xluStart = 1;
+        if (outXluSeg8TexScroll != NULL) {
+            *outXluSeg8TexScroll = 1;
+        }
+    } else if (drawFunc == GetItem_DrawMoonsTear) {
+        // Static item (OPA) + glow (XLU). The AnimatedMat texture scroll + glow billboard aren't
+        // carried in this DL list; the cross-game consumer replicates them (ComboForeignTexAnim_Run).
+        order = sOrder01;
+        count = 2;
+        xluStart = 1;
     } else {
         return 0;
     }

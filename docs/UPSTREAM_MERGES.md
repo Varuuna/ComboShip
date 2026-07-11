@@ -727,6 +727,24 @@ OTR-filepath handler uses for a bad route). The predicate mirrors the existing t
 `gfx_set_timg_handler_rdp`. A legit native DL always binds its segment first, so this only ever fires
 on cross-game garbage.
 
+## Cross-game Moon's Tear render: replicate the animated material + billboard (2026-07-11)
+
+**Why:** the foreign MM Moon's Tear draws a two-tex-scroll animated material on segment 8 (item body
++ glow) via `AnimatedMat_Draw(gGiMoonsTearTexAnim)` and a billboard on the glow. The cross-game
+export carried neither, so the item drew wrong (and, before the guard above, crashed on the unbound
+segment). Generalizes the ad-hoc skull-token `xluSeg8TexScroll` flame path to resource-driven
+animated materials.
+
+**Combo-owned (no vendored churn):** `combo/menu/ComboForeignAnim.h` gains type-1 (DualScroll)
+support + `ComboForeignTexAnim_Run`/`_Restore` (loads the owning game's `TextureAnimation` via
+`CrossRMRegistry`, binds seg 8 on OPA+XLU, restores after the DLs). `combo/menu/ComboItemDrawABI.h`
++ `ComboItemDrawMM.h` add `matAnimPath`/`matAnimBindOpa`/`matAnimBillboard` (MM matches the tear by
+its DL string). `soh/.../randomizer/draw.cpp` binds/billboards/restores around the DL submission.
+
+**`mm/src/code/z_draw.c` (comment only):** the Moon's Tear branch comment in the combo-owned
+`GetItem_GetDrawTableEntry` no longer claims the scroll/billboard "are dropped" (the consumer now
+replicates them).
+
 ## MM Anchor adapter — Phase 2a (MM joins the shared connection) (2026-06-17)
 
 **Why:** MM had no online presence — when a co-op player crossed into MM, peers saw their stale last

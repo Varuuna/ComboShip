@@ -69,9 +69,14 @@ struct CfaColorParams { // AnimatedMatColorParams
 };
 struct CfaMatEntry { // AnimatedMaterial: array terminated by a NEGATIVE segment on the last entry
     int8_t segment;  // |segment| + 7 = real segment id
-    int16_t type;    // TextureAnimationParamsType; only 4 (ColorChangeLagrange) is ported
+    int16_t type;    // TextureAnimationParamsType; only 1 (DualScroll) + 4 (ColorChangeLagrange) are ported
     void* params;
 };
+struct CfaTexScrollEntry { // AnimatedMatTexScrollParams (DualScroll params: two of these)
+    int8_t xStep, yStep;
+    uint8_t width, height;
+};
+constexpr int16_t kMatTypeTwoTexScroll = 1;
 constexpr int16_t kMatTypeColorLagrange = 4;
 constexpr int32_t kMaxMatEntries = 8; // sanity bound when walking the entry array
 constexpr int32_t kMaxKeyFrames = 50; // MM's handler uses fixed f32[50] tables — same bound
@@ -168,16 +173,38 @@ inline void CfaDrawColorLagrange(PlayState* play, int32_t segment, const CfaColo
     CfaSetColorSegment(play, segment, &prim, (p->envColors != NULL) ? &env : NULL);
 }
 
+// AnimatedMat_DrawTwoTexScroll (type 1): build the two-layer scroll DL and point `segment` at it on
+// the XLU stream (+ OPA when bindOpa, mirroring MM's flags=3 for get-item draws — the tear's item
+// body samples the segment on the OPA layer). Formula matches AnimatedMat_TwoLayerTexScroll.
+inline void CfaDrawTwoTexScroll(PlayState* play, int32_t segment, const CfaTexScrollEntry* p, uint32_t step,
+                                bool bindOpa) {
+    int32_t s = (int32_t)step; // signed like MM's sMatAnimStep (s32); avoids unsigned unary-minus
+    Gfx* dl = Gfx_TwoTexScrollEx(play->state.gfxCtx, 0, p[0].xStep * s, -(p[0].yStep * s), p[0].width, p[0].height, 1,
+                                 p[1].xStep * s, -(p[1].yStep * s), p[1].width, p[1].height, p[0].xStep,
+                                 -(p[0].yStep), p[1].xStep, -(p[1].yStep));
+    OPEN_DISPS(play->state.gfxCtx);
+    if (bindOpa) {
+        gSPSegment(POLY_OPA_DISP++, segment, (uintptr_t)dl); // host GbiWrap fn: target is uintptr_t
+    }
+    gSPSegment(POLY_XLU_DISP++, segment, (uintptr_t)dl);
+    CLOSE_DISPS(play->state.gfxCtx);
+}
+
 // AnimatedMat_DrawMain's entry walk for the ported subset. Records which segments were written so
 // the caller can restore them. step = play->gameplayFrames (MM's AnimatedMat_Draw uses the same).
+// bindOpa: also bind on the OPA stream (scroll types only; color types stay XLU-only by design).
 inline void CfaDrawTexAnim(PlayState* play, const CfaMatEntry* mat, uint32_t step, int32_t* outSegs,
-                           int32_t* outSegCount) {
+                           int32_t* outSegCount, bool bindOpa) {
     int32_t seg;
     int32_t guard = 0;
     do {
         seg = mat->segment;
         int32_t segAbs = (seg < 0 ? -seg : seg) + 7;
-        CfaDrawColorLagrange(play, segAbs, (const CfaColorParams*)mat->params, step); // type pre-validated
+        if (mat->type == kMatTypeTwoTexScroll) { // type pre-validated
+            CfaDrawTwoTexScroll(play, segAbs, (const CfaTexScrollEntry*)mat->params, step, bindOpa);
+        } else {
+            CfaDrawColorLagrange(play, segAbs, (const CfaColorParams*)mat->params, step);
+        }
         if (*outSegCount < kMaxMatEntries) {
             outSegs[(*outSegCount)++] = segAbs;
         }
@@ -195,13 +222,18 @@ inline bool CfaValidateTexAnim(const CfaMatEntry* mat) {
     int32_t guard = 0;
     do {
         seg = mat->segment;
-        if (mat->type != kMatTypeColorLagrange) {
+        if (mat->type == kMatTypeTwoTexScroll) {
+            if (mat->params == NULL) {
+                return false;
+            }
+        } else if (mat->type == kMatTypeColorLagrange) {
+            const CfaColorParams* p = (const CfaColorParams*)mat->params;
+            if (p == NULL || p->keyFrameLength == 0 || p->keyFrameCount == 0 || p->keyFrameCount > kMaxKeyFrames ||
+                p->primColors == NULL || p->keyFrames == NULL) {
+                return false;
+            }
+        } else {
             return false; // unported handler type
-        }
-        const CfaColorParams* p = (const CfaColorParams*)mat->params;
-        if (p == NULL || p->keyFrameLength == 0 || p->keyFrameCount == 0 || p->keyFrameCount > kMaxKeyFrames ||
-            p->primColors == NULL || p->keyFrames == NULL) {
-            return false;
         }
         mat++;
     } while (seg >= 0 && ++guard < kMaxMatEntries);
@@ -337,7 +369,7 @@ inline int32_t ComboForeignAnim_Draw(const CwItemAnimDrawInfo* info, const char*
     int32_t writtenSegs[kMaxMatEntries];
     int32_t writtenSegCount = 0;
     if (texAnim != nullptr) {
-        CfaDrawTexAnim(play, texAnim->mat, play->gameplayFrames, writtenSegs, &writtenSegCount);
+        CfaDrawTexAnim(play, texAnim->mat, play->gameplayFrames, writtenSegs, &writtenSegCount, /*bindOpa*/ false);
     }
 
     if (info->billboard) {
@@ -379,6 +411,61 @@ inline int32_t ComboForeignAnim_Draw(const CwItemAnimDrawInfo* info, const char*
 
     CLOSE_DISPS(play->state.gfxCtx);
     return 1;
+}
+
+// Re-point the segments a texanim wrote at a benign empty DL, so later same-frame commands in the
+// OPA/XLU streams don't sample this item's scroll DL (segment hygiene; mirrors ComboForeignAnim_Draw's
+// XLU restore). restoreOpa must match the bind's bindOpa (the segment was written on OPA too).
+inline void ComboForeignTexAnim_Restore(PlayState* play, const int32_t* segs, int32_t count, bool restoreOpa) {
+    if (play == NULL || count <= 0) {
+        return;
+    }
+    Gfx* empty = (Gfx*)Graph_Alloc(play->state.gfxCtx, sizeof(Gfx));
+    Gfx* e = empty;
+    gSPEndDisplayList(e++);
+    OPEN_DISPS(play->state.gfxCtx);
+    for (int32_t i = 0; i < count; i++) {
+        if (restoreOpa) {
+            gSPSegment(POLY_OPA_DISP++, segs[i], (uintptr_t)empty);
+        }
+        gSPSegment(POLY_XLU_DISP++, segs[i], (uintptr_t)empty);
+    }
+    CLOSE_DISPS(play->state.gfxCtx);
+}
+
+/* Static-DL foreign items (e.g. MM's Moon's Tear) whose model samples an animated-material segment:
+ * load the owning game's TextureAnimation (cached) and bind it before the item's DLs are submitted.
+ * Returns true when a valid texanim was bound, filling outSegs/outSegCount with the bound segments so
+ * the caller can ComboForeignTexAnim_Restore them after the DLs. `bindOpa` mirrors MM's flags=3 (the
+ * item body samples the segment on the OPA layer too). `texAnimPath` is the owning game's own
+ * "__OTR__..." path (LoadResource strips the prefix), loaded directly from that game's RM. */
+inline bool ComboForeignTexAnim_Run(PlayState* play, const char* game, const char* texAnimPath, bool bindOpa,
+                                    int32_t* outSegs, int32_t* outSegCount) {
+    *outSegCount = 0;
+    if (play == NULL || game == NULL || texAnimPath == NULL) {
+        return false;
+    }
+    struct CfaStaticTexAnim {
+        bool ok = false;
+        std::shared_ptr<Ship::IResource> res; // held so the resource stays alive in the RM cache
+        const CfaMatEntry* mat = nullptr;
+    };
+    static std::unordered_map<std::string, CfaStaticTexAnim> sCache; // one attempt per path, then cached
+    auto it = sCache.find(texAnimPath);
+    if (it == sCache.end()) {
+        it = sCache.emplace(texAnimPath, CfaStaticTexAnim{}).first;
+        CfaStaticTexAnim& e = it->second;
+        if (auto rm = Ship::CrossRMRegistry::Get(game)) {
+            e.res = rm->LoadResource(texAnimPath);
+            e.mat = e.res ? (const CfaMatEntry*)e.res->GetRawPointer() : nullptr;
+            e.ok = CfaValidateTexAnim(e.mat);
+        }
+    }
+    if (!it->second.ok) {
+        return false;
+    }
+    CfaDrawTexAnim(play, it->second.mat, play->gameplayFrames, outSegs, outSegCount, bindOpa);
+    return true;
 }
 
 #endif /* COMBO_FOREIGN_ANIM_H */

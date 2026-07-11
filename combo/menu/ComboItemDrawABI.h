@@ -23,6 +23,13 @@ typedef struct {
     int32_t xluSeg8TexScroll; /* 1 = bind segment 8 to the animated flame texscroll before the XLU
                                  layer (skulltula token flame); consumer replicates the owning game's
                                  Gfx_TwoTexScrollEx so the dropped animated layer renders again */
+    /* Resource-driven animated material (generalizes xluSeg8TexScroll for items whose animation lives
+     * in a TextureAnimation resource, e.g. MM's Moon's Tear). If matAnimPath != NULL the consumer
+     * loads it from the owning game's RM and binds the animated segment before the DLs (see
+     * ComboForeignTexAnim_Run). matAnimPath is the owning game's own "__OTR__..." path (unrouted). */
+    const char* matAnimPath;   /* TextureAnimation resource, or NULL */
+    int32_t matAnimBindOpa;    /* 1 = also bind the animated segment on the OPA layer (item body samples it) */
+    int32_t matAnimBillboard;  /* 1 = Matrix_ReplaceRotation(billboardMtxF) before the XLU layer (glow) */
 } CwItemDrawInfo;
 
 /* Returns 1 and fills out on success; 0 if the item is unknown/undrawable.

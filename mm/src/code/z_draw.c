@@ -473,8 +473,8 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
             *outXluSeg8TexScroll = 1;
         }
     } else if (drawFunc == GetItem_DrawMoonsTear) {
-        // Static item (OPA) + glow (XLU); the AnimatedMat texture scroll and the glow's billboard
-        // rotation aren't portable to the other game's frame, so they are dropped.
+        // Static item (OPA) + glow (XLU). The AnimatedMat texture scroll + glow billboard aren't
+        // carried in this DL list; the cross-game consumer replicates them (ComboForeignTexAnim_Run).
         order = sOrder01;
         count = 2;
         xluStart = 1;

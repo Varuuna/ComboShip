@@ -9,10 +9,12 @@
 #ifndef COMBO_ITEM_DRAW_MM_H
 #define COMBO_ITEM_DRAW_MM_H
 
+#include <cstring>
 #include "ComboItemDrawABI.h"
 #include "objects/gameplay_keep/gameplay_keep.h"       // stray-fairy skel/anim/texanim paths + limb enums
 #include "objects/object_gi_melody/object_gi_melody.h" // gGiSongNoteDL
 #include "objects/object_sek/object_sek.h"             // gOwlStatueOpenedDL
+#include "objects/object_gi_reserve00/object_gi_reserve00.h" // Moon's Tear item DL + texanim path
 
 // Portable slice of one sDrawItemTable row (defined in mm/src/code/z_draw.c).
 extern "C" s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale,
@@ -171,6 +173,15 @@ extern "C" __declspec(dllexport) int32_t MM_GetItemDrawInfo(const char* itemName
     out->xluSeg8TexScroll = xluSeg8TexScroll;
     for (int32_t i = 0; i < n; i++) {
         out->dlists[i] = (const char*)dls[i];
+    }
+    // ComboShip: the Moon's Tear body/glow sample an animated segment-8 material (GetItem_DrawMoonsTear
+    // runs AnimatedMat_Draw(gGiMoonsTearTexAnim) before its DLs). z_draw.c can't carry that across, so
+    // report the texanim resource + billboard for the consumer to replicate (ComboForeignTexAnim_Run).
+    // Matched by DL string (separate TUs hold distinct `static` copies of the path literal).
+    if (n >= 1 && dls[0] != NULL && strcmp((const char*)dls[0], gGiMoonsTearItemDL) == 0) {
+        out->matAnimPath = gGiMoonsTearTexAnim; // MM's own path; consumer loads via CrossRMRegistry("mm")
+        out->matAnimBindOpa = 1;                // the tear body (OPA) samples the animated segment
+        out->matAnimBillboard = 1;              // the glow (XLU) billboards toward the camera
     }
     return 1;
 }

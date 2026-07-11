@@ -193,6 +193,10 @@ void Anchor::OnIncomingJson(nlohmann::json payload) {
         if (payload.contains("clientId")) {
             uint32_t clientId = payload["clientId"].get<uint32_t>();
             if (clients.contains(clientId) && clients[clientId].clientVersion != clientVersion) {
+#ifdef COMBO_BUILD
+                SPDLOG_INFO("[Anchor] dropped {} from client {}: version '{}' != ours '{}'", packetType, clientId,
+                            clients[clientId].clientVersion, clientVersion);
+#endif
                 return;
             }
         }

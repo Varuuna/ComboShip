@@ -547,7 +547,7 @@ struct ComboForeignDrawInfo {
     float scale = 0.0f;       // extra model scale; 0 = none (MM remains: 0.02)
     bool hasEnvColor = false; // emit env color before the DLs (MM song notes)
     uint8_t envColor[4] = { 0, 0, 0, 0 };
-    bool xluSeg8TexScroll = false; // bind segment 8 to the flame texscroll before the XLU layer (skull token)
+    bool xluSeg8TexScroll = false;     // bind segment 8 to the flame texscroll before the XLU layer (skull token)
     const char* matAnimPath = nullptr; // MM TextureAnimation resource to replicate before the DLs (Moon's Tear)
     bool matAnimBindOpa = false;       // also bind the animated segment on the OPA layer (item body samples it)
     bool matAnimBillboard = false;     // Matrix_ReplaceRotation(billboardMtxF) before the XLU layer (glow)
@@ -706,8 +706,8 @@ extern "C" void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getIt
         // draws it with an inline Gfx_TwoTexScrollEx, unlike the tear's AnimatedMat_Draw.
         if (info->xluSeg8TexScroll) {
             gSPSegment(POLY_XLU_DISP++, 0x08,
-                       (uintptr_t)Gfx_TwoTexScrollEx(play->state.gfxCtx, G_TX_RENDERTILE, 0, play->state.frames * -5, 32,
-                                                     32, 1, 0, 0, 32, 64, 0, -5, 0, 0));
+                       (uintptr_t)Gfx_TwoTexScrollEx(play->state.gfxCtx, G_TX_RENDERTILE, 0, play->state.frames * -5,
+                                                     32, 32, 1, 0, 0, 32, 64, 0, -5, 0, 0));
         }
         // ComboShip: billboard the XLU layer toward the camera (Moon's Tear glow), mirroring MM's
         // Matrix_ReplaceRotation before the glow DL. Must precede the matrix capture below.

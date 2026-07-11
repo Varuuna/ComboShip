@@ -180,8 +180,8 @@ inline void CfaDrawTwoTexScroll(PlayState* play, int32_t segment, const CfaTexSc
                                 bool bindOpa) {
     int32_t s = (int32_t)step; // signed like MM's sMatAnimStep (s32); avoids unsigned unary-minus
     Gfx* dl = Gfx_TwoTexScrollEx(play->state.gfxCtx, 0, p[0].xStep * s, -(p[0].yStep * s), p[0].width, p[0].height, 1,
-                                 p[1].xStep * s, -(p[1].yStep * s), p[1].width, p[1].height, p[0].xStep,
-                                 -(p[0].yStep), p[1].xStep, -(p[1].yStep));
+                                 p[1].xStep * s, -(p[1].yStep * s), p[1].width, p[1].height, p[0].xStep, -(p[0].yStep),
+                                 p[1].xStep, -(p[1].yStep));
     OPEN_DISPS(play->state.gfxCtx);
     if (bindOpa) {
         gSPSegment(POLY_OPA_DISP++, segment, (uintptr_t)dl); // host GbiWrap fn: target is uintptr_t

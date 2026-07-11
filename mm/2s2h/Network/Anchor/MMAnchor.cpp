@@ -235,9 +235,7 @@ void MMAnchor::PumpDormant() {
             if (payload.value("type", std::string()) == PKT_GIVE_ITEM) {
                 ApplyDormantGiveItem(payload);
             }
-        } catch (const std::exception& e) {
-            SPDLOG_ERROR("[MMAnchor] dormant apply exception: {}", e.what());
-        }
+        } catch (const std::exception& e) { SPDLOG_ERROR("[MMAnchor] dormant apply exception: {}", e.what()); }
     }
 }
 

@@ -63,7 +63,8 @@ static inline void ComboPumpDormantTick() {
         gComboPumpDormant();
 }
 #else
-static inline void ComboPumpDormantTick() {}
+static inline void ComboPumpDormantTick() {
+}
 #endif
 
 void Anchor::RegisterHooks() {

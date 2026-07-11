@@ -308,7 +308,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     };
 
     if (progress) {
-        progress->phase.store(2); // Placing items
+        progress->phase.store(2);                                 // Placing items
         progress->total.store(static_cast<int>(advItems.size())); // tracked phase = advancement fill
         progress->placed.store(0);
     }

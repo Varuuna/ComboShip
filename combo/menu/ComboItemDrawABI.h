@@ -16,10 +16,10 @@ extern "C" {
 typedef struct {
     const char* dlists[CW_DRAW_MAX_DLISTS]; /* OTR path strings, in SUBMISSION order */
     int32_t dlistCount;
-    int32_t xluStartIndex; /* dlists[0..xluStart-1] are OPA layers, rest XLU; -1 = all OPA */
-    float scale;           /* extra model scale; 0 = none (e.g. MM boss remains: 0.02f) */
-    int32_t hasEnvColor;   /* 1 = emit envColor before the DLs (e.g. MM song notes) */
-    uint8_t envColor[4];   /* RGBA */
+    int32_t xluStartIndex;    /* dlists[0..xluStart-1] are OPA layers, rest XLU; -1 = all OPA */
+    float scale;              /* extra model scale; 0 = none (e.g. MM boss remains: 0.02f) */
+    int32_t hasEnvColor;      /* 1 = emit envColor before the DLs (e.g. MM song notes) */
+    uint8_t envColor[4];      /* RGBA */
     int32_t xluSeg8TexScroll; /* 1 = bind segment 8 to the animated flame texscroll before the XLU
                                  layer (skulltula token flame); consumer replicates the owning game's
                                  Gfx_TwoTexScrollEx so the dropped animated layer renders again */
@@ -27,9 +27,9 @@ typedef struct {
      * in a TextureAnimation resource, e.g. MM's Moon's Tear). If matAnimPath != NULL the consumer
      * loads it from the owning game's RM and binds the animated segment before the DLs (see
      * ComboForeignTexAnim_Run). matAnimPath is the owning game's own "__OTR__..." path (unrouted). */
-    const char* matAnimPath;   /* TextureAnimation resource, or NULL */
-    int32_t matAnimBindOpa;    /* 1 = also bind the animated segment on the OPA layer (item body samples it) */
-    int32_t matAnimBillboard;  /* 1 = Matrix_ReplaceRotation(billboardMtxF) before the XLU layer (glow) */
+    const char* matAnimPath;  /* TextureAnimation resource, or NULL */
+    int32_t matAnimBindOpa;   /* 1 = also bind the animated segment on the OPA layer (item body samples it) */
+    int32_t matAnimBillboard; /* 1 = Matrix_ReplaceRotation(billboardMtxF) before the XLU layer (glow) */
 } CwItemDrawInfo;
 
 /* Returns 1 and fills out on success; 0 if the item is unknown/undrawable.

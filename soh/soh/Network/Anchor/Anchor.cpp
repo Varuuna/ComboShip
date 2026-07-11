@@ -282,9 +282,7 @@ void Anchor::PumpDormant() {
         isProcessingIncomingPacket = true;
         try {
             HandlePacket_GiveItem(payload);
-        } catch (const std::exception& e) {
-            SPDLOG_ERROR("[Anchor] dormant apply exception: {}", e.what());
-        }
+        } catch (const std::exception& e) { SPDLOG_ERROR("[Anchor] dormant apply exception: {}", e.what()); }
         isProcessingIncomingPacket = false;
     }
 }

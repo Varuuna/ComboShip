@@ -11,9 +11,9 @@
 
 #include <cstring>
 #include "ComboItemDrawABI.h"
-#include "objects/gameplay_keep/gameplay_keep.h"       // stray-fairy skel/anim/texanim paths + limb enums
-#include "objects/object_gi_melody/object_gi_melody.h" // gGiSongNoteDL
-#include "objects/object_sek/object_sek.h"             // gOwlStatueOpenedDL
+#include "objects/gameplay_keep/gameplay_keep.h"             // stray-fairy skel/anim/texanim paths + limb enums
+#include "objects/object_gi_melody/object_gi_melody.h"       // gGiSongNoteDL
+#include "objects/object_sek/object_sek.h"                   // gOwlStatueOpenedDL
 #include "objects/object_gi_reserve00/object_gi_reserve00.h" // Moon's Tear item DL + texanim path
 
 // Portable slice of one sDrawItemTable row (defined in mm/src/code/z_draw.c).
@@ -161,8 +161,8 @@ extern "C" __declspec(dllexport) int32_t MM_GetItemDrawInfo(const char* itemName
     int32_t xluStart = -1;
     f32 scale = 0.0f;
     s32 xluSeg8TexScroll = 0;
-    int32_t n =
-        GetItem_GetDrawTableEntry((s32)it->second.drawId, dls, CW_DRAW_MAX_DLISTS, &xluStart, &scale, &xluSeg8TexScroll);
+    int32_t n = GetItem_GetDrawTableEntry((s32)it->second.drawId, dls, CW_DRAW_MAX_DLISTS, &xluStart, &scale,
+                                          &xluSeg8TexScroll);
     if (n <= 0) {
         return 0;
     }

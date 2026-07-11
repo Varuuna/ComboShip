@@ -292,7 +292,16 @@ void Anchor::PumpDormant() {
     while (!packetsToProcess.empty()) {
         nlohmann::json payload = packetsToProcess.front();
         packetsToProcess.pop();
-        if (payload.value("type", std::string()) != GIVE_ITEM) {
+        std::string type = payload.value("type", std::string());
+        if (type == UPDATE_ROOM_STATE) {
+            // Keep roomState current while dormant — syncItemsAndFlags gates the dormant apply,
+            // and a client that boots straight into MM never handles it foreground.
+            try {
+                HandlePacket_UpdateRoomState(payload);
+            } catch (const std::exception& e) { SPDLOG_ERROR("[Anchor] dormant room state: {}", e.what()); }
+            continue;
+        }
+        if (type != GIVE_ITEM) {
             continue; // drop presence/puppet/team-state while dormant (re-requested on activation)
         }
         if (!payload.contains("modId")) {
@@ -366,6 +375,13 @@ void Anchor::RefreshClientActors() {
 }
 
 bool Anchor::IsSaveLoaded() {
+#ifdef COMBO_BUILD
+    // Dormant OOT has no play state (Play_Destroy nulls it on every transition); judge by the
+    // resident save, which is what the dormant apply writes.
+    if (isDormantApply) {
+        return gSaveContext.fileNum >= 0 && gSaveContext.fileNum <= 2;
+    }
+#endif
     if (gPlayState == nullptr) {
         return false;
     }

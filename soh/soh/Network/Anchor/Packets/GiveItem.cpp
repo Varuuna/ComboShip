@@ -20,6 +20,10 @@ uint8_t incomingIceTrapsFromAnchor = 0;
 
 void Anchor::SendPacket_GiveItem(u16 modId, s16 getItemId) {
     if (!IsSaveLoaded() || isProcessingIncomingPacket || !roomState.syncItemsAndFlags) {
+#ifdef COMBO_BUILD
+        SPDLOG_INFO("[Anchor] GIVE_ITEM not sent: saveLoaded={} processingIncoming={} syncItems={}", IsSaveLoaded(),
+                    isProcessingIncomingPacket, roomState.syncItemsAndFlags);
+#endif
         return;
     }
 
@@ -41,6 +45,9 @@ void Anchor::SendPacket_GiveItem(u16 modId, s16 getItemId) {
     payload["getItemId"] = getItemId;
 
     SendJsonToRemote(payload);
+#ifdef COMBO_BUILD
+    SPDLOG_INFO("[Anchor] GIVE_ITEM sent: modId={} getItemId={}", modId, getItemId);
+#endif
 }
 
 void Anchor::HandlePacket_GiveItem(nlohmann::json payload) {

@@ -68,6 +68,9 @@ static inline void ComboPumpDormantTick() {
 #endif
 
 void Anchor::RegisterHooks() {
+#ifdef COMBO_BUILD
+    SPDLOG_INFO("[Anchor] RegisterHooks (isConnected={})", isConnected);
+#endif
 
     // #region Hooks that are required for basic Anchor functionality
 

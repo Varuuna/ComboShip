@@ -414,7 +414,9 @@ static std::unordered_map<std::string, ComboRando::ForeignItem> g_ootForeignMap;
 
 // ComboShip: also used by MerchantMessages/check tracker to show the real foreign item name.
 const ComboRando::ForeignItem* OOT_LookupForeign(int slot, const std::string& checkName) {
-    if (slot != g_ootForeignSlot) {
+    // Retry while empty: in-session generation queries names for this slot after CleanSlotFiles but
+    // before save creation writes the new consolidated file — don't cache that window forever.
+    if (slot != g_ootForeignSlot || g_ootForeignMap.empty()) {
         g_ootForeignMap = ComboRando::LoadForeignForGame(slot, ComboRando::GAME_OOT);
         g_ootForeignSlot = slot;
     }

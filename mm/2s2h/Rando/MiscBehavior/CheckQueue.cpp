@@ -39,7 +39,9 @@ const ComboRando::ForeignItem* Rando::MiscBehavior::MM_LookupForeign(RandoCheckI
     int slot = gSaveContext.fileNum;
     if (slot == 0xFF)
         return nullptr; // no real save loaded (title screen sentinel)
-    if (slot != g_mmForeignSlot) {
+    // Retry while empty: a lookup can land between CleanSlotFiles and the new consolidated file
+    // being written (in-session generation) — don't cache that window forever.
+    if (slot != g_mmForeignSlot || g_mmForeignMap.empty()) {
         g_mmForeignMap = ComboRando::LoadForeignForGame(slot, ComboRando::GAME_MM);
         g_mmForeignSlot = slot;
     }
@@ -51,7 +53,7 @@ const ComboRando::ForeignItem* Rando::MiscBehavior::MM_LookupForeign(RandoCheckI
 // save (caller sets the obtained flags). Exposed so the shop buy path can reuse it.
 void Rando::MiscBehavior::SendForeignCheck(RandoCheckId rc) {
     int slot = gSaveContext.fileNum;
-    if (slot != g_mmForeignSlot) {
+    if (slot != g_mmForeignSlot || g_mmForeignMap.empty()) {
         g_mmForeignMap = ComboRando::LoadForeignForGame(slot, ComboRando::GAME_MM);
         g_mmForeignSlot = slot;
     }

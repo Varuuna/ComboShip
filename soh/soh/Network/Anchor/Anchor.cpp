@@ -149,7 +149,8 @@ void Anchor::SendJsonToRemote(nlohmann::json payload) {
     // ComboShip: the launcher owns the socket and its own thread-safe outgoing queue, so hand every
     // packet straight to it. There is no game-side network thread to drain a local queue under the
     // combo build (ProcessOutgoingPackets is never pumped). See docs/UPSTREAM_MERGES.md.
-    payload["srcGame"] = "oot"; // shared socket carries both games; receivers filter on this
+    // Routing tag for the shared socket; NOT the cross-item "srcGame" int field (don't clobber it).
+    payload["originGame"] = "oot";
     Network::SendJsonToRemote(payload);
     return;
 #else
@@ -180,8 +181,8 @@ void Anchor::OnIncomingJson(nlohmann::json payload) {
 #ifdef COMBO_BUILD
     // ComboShip: drop MM-originated packets — their shapes collide with ours (e.g. MM's
     // UPDATE_TEAM_STATE lacks healthCapacity and throws in from_json). Exceptions: cross-game item
-    // delivery and the room roster. Packets without srcGame (server, old clients) pass through.
-    if (payload.value("srcGame", "oot") != "oot" && packetType != COMBO_CROSS_ITEM &&
+    // delivery and the room roster. Packets without originGame (server, old clients) pass through.
+    if (payload.value("originGame", "oot") != "oot" && packetType != COMBO_CROSS_ITEM &&
         packetType != UPDATE_CLIENT_STATE) {
         return;
     }

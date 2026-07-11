@@ -165,7 +165,8 @@ void MMAnchor::SendJson(nlohmann::json payload) {
         ownClientId = (uint32_t)CVarGetInteger(kCvarLastClientId, 0); // late-cache fallback
     }
     payload["clientId"] = ownClientId;
-    payload["srcGame"] = "mm"; // shared socket carries both games; receivers filter on this
+    // Routing tag for the shared socket; NOT the cross-item "srcGame" int field (don't clobber it).
+    payload["originGame"] = "mm";
     gMMComboAnchorSend(payload.dump().c_str());
 }
 
@@ -181,9 +182,9 @@ void MMAnchor::OnIncomingJson(const std::string& payload) {
         return;
     }
     // Drop OOT-originated packets — their shapes collide with ours (GIVE_ITEM, UPDATE_TEAM_STATE...).
-    // Exceptions: cross-game item delivery and the room roster. No srcGame (server) passes through.
+    // Exceptions: cross-game item delivery and the room roster. No originGame (server) passes through.
     std::string type = j["type"].get<std::string>();
-    if (j.value("srcGame", "mm") != "mm" && type != PKT_CROSS_ITEM && type != PKT_UPDATE_CLIENT_STATE) {
+    if (j.value("originGame", "mm") != "mm" && type != PKT_CROSS_ITEM && type != PKT_UPDATE_CLIENT_STATE) {
         return;
     }
     std::lock_guard<std::mutex> lock(incomingMutex);

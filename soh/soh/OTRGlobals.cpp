@@ -44,6 +44,7 @@
 #include "Enhancements/randomizer/static_data.h"
 #include "soh/Enhancements/randomizer/settings.h"
 #include "soh/Enhancements/randomizer/logic.h"
+#include "soh/Enhancements/randomizer/Traps.h" // ComboShip: Rando::Traps::CanBeTrapModel for disguise curation
 #include "soh/Enhancements/randomizer/3drando/fill.hpp"
 #include "soh/Enhancements/randomizer/3drando/shops.hpp"
 #include "soh/Enhancements/randomizer/3drando/random.hpp"
@@ -3608,8 +3609,8 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
             ctx->PlaceItemInLocation(rc, rg, false, false);
             ++placed;
 #ifdef COMBO_BUILD
-            if (rg != RG_ICE_TRAP && rg != RG_COMBO_FOREIGN && rg != RG_NONE) {
-                ctx->possibleIceTrapModels.insert(rg); // candidate ice-trap disguise
+            if (rg != RG_ICE_TRAP && rg != RG_COMBO_FOREIGN && rg != RG_NONE && Rando::Traps::CanBeTrapModel(rg)) {
+                ctx->possibleIceTrapModels.insert(rg); // candidate ice-trap disguise (only named items)
             }
 #endif
         }

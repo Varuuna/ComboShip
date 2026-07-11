@@ -2112,31 +2112,32 @@ void Settings::CreateOptions() {
                               WidgetContainerType::SECTION);
     mOptionGroups[RSG_MENU_COLUMN_SHOP_SHUFFLES] =
         OptionGroup::SubGroup("", { &mOptionGroups[RSG_MENU_SECTION_SHOP_SHUFFLES] }, WidgetContainerType::COLUMN);
-    mOptionGroups[RSG_MENU_SECTION_ADDITIONAL_ITEMS] = OptionGroup::SubGroup("Additional Items",
-                                                                             {
-                                                                                 &mOptions[RSK_SHUFFLE_CHILD_WALLET],
-                                                                                 &mOptions[RSK_INCLUDE_TYCOON_WALLET],
-                                                                                 &mOptions[RSK_SHUFFLE_FISHING_POLE],
-                                                                                 &mOptions[RSK_SHUFFLE_DEKU_STICK_BAG],
-                                                                                 &mOptions[RSK_SHUFFLE_DEKU_NUT_BAG],
-                                                                                 &mOptions[RSK_SHUFFLE_OCARINA_BUTTONS],
-                                                                                 &mOptions[RSK_SHUFFLE_SWIM],
-                                                                                 &mOptions[RSK_SHUFFLE_GRAB],
-                                                                                 &mOptions[RSK_SHUFFLE_CLIMB],
-                                                                                 &mOptions[RSK_SHUFFLE_CRAWL],
-                                                                                 &mOptions[RSK_SHUFFLE_SPEAK],
-                                                                                 &mOptions[RSK_SHUFFLE_OPEN_CHEST],
-                                                                                 &mOptions[RSK_SHUFFLE_BEAN_SOULS],
-                                                                                 &mOptions[RSK_ROCS_FEATHER],
-                                                                                 &mOptions[RSK_BOMBCHU_BAG],
-                                                                                 &mOptions[RSK_ENABLE_BOMBCHU_DROPS],
-                                                                                 &mOptions[RSK_INFINITE_UPGRADES],
-                                                                                 &mOptions[RSK_SKELETON_KEY],
+    mOptionGroups[RSG_MENU_SECTION_ADDITIONAL_ITEMS] =
+        OptionGroup::SubGroup("Additional Items",
+                              {
+                                  &mOptions[RSK_SHUFFLE_CHILD_WALLET],
+                                  &mOptions[RSK_INCLUDE_TYCOON_WALLET],
+                                  &mOptions[RSK_SHUFFLE_FISHING_POLE],
+                                  &mOptions[RSK_SHUFFLE_DEKU_STICK_BAG],
+                                  &mOptions[RSK_SHUFFLE_DEKU_NUT_BAG],
+                                  &mOptions[RSK_SHUFFLE_OCARINA_BUTTONS],
+                                  &mOptions[RSK_SHUFFLE_SWIM],
+                                  &mOptions[RSK_SHUFFLE_GRAB],
+                                  &mOptions[RSK_SHUFFLE_CLIMB],
+                                  &mOptions[RSK_SHUFFLE_CRAWL],
+                                  &mOptions[RSK_SHUFFLE_SPEAK],
+                                  &mOptions[RSK_SHUFFLE_OPEN_CHEST],
+                                  &mOptions[RSK_SHUFFLE_BEAN_SOULS],
+                                  &mOptions[RSK_ROCS_FEATHER],
+                                  &mOptions[RSK_BOMBCHU_BAG],
+                                  &mOptions[RSK_ENABLE_BOMBCHU_DROPS],
+                                  &mOptions[RSK_INFINITE_UPGRADES],
+                                  &mOptions[RSK_SKELETON_KEY],
 #ifdef COMBO_BUILD
-                                                                                 &mOptions[RSK_COMBO_FORCE_MASK_SHOP_KEY],
+                                  &mOptions[RSK_COMBO_FORCE_MASK_SHOP_KEY],
 #endif
-                                                                             },
-                                                                             WidgetContainerType::SECTION);
+                              },
+                              WidgetContainerType::SECTION);
     mOptionGroups[RSG_MENU_COLUMN_ADDITIONAL_ITEMS] =
         OptionGroup::SubGroup("", { &mOptionGroups[RSG_MENU_SECTION_ADDITIONAL_ITEMS] }, WidgetContainerType::COLUMN);
     mOptionGroups[RSG_MENU_SIDEBAR_SHUFFLES] =

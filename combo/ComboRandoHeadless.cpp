@@ -112,6 +112,8 @@ int main(int argc, char** argv) {
     auto SOH_DumpEnabledTricks = Sym<FnDump>(soh, "SOH_DumpEnabledTricks");
     auto SOH_SetEnabledTricks = Sym<FnTakeStr>(soh, "SOH_SetEnabledTricks");
     auto SOH_SetAllTricks = Sym<FnVoidV>(soh, "SOH_SetAllTricks");
+    auto SOH_SetCheckPrices = Sym<FnTakeStr>(soh, "SOH_SetCheckPrices");
+    auto MM_SetCheckPrices = Sym<FnTakeStr>(mm, "MM_SetCheckPrices");
 
     ComboRando::OracleFns oot{ Sym<FnOracleVoid>(soh, "Combo_SOH_Rando_Reset"),
                                Sym<FnOracleSetItems>(soh, "Combo_SOH_Rando_SetOwnedItems"),
@@ -158,6 +160,16 @@ int main(int argc, char** argv) {
         auto ootEnabledTricks =
             spoiler.value("oot", nlohmann::json::object()).value("enabledTricks", nlohmann::json::array());
 
+        // Prices are part of the seed: an unknown price can never be treated as buyable, so a spoiler
+        // without them can't be validated honestly. Hard-fail rather than emit an optimistic verdict.
+        auto ootPrices = spoiler.value("oot", nlohmann::json::object()).value("prices", nlohmann::json::object());
+        auto mmPrices = spoiler.value("mm", nlohmann::json::object()).value("prices", nlohmann::json::object());
+        if (ootPrices.empty() || mmPrices.empty() || !SOH_SetCheckPrices || !MM_SetCheckPrices) {
+            std::cerr << "[playthrough] spoiler has no shop prices (predates price export) — regenerate the seed "
+                         "to validate it\n";
+            return 2;
+        }
+
         // One traversal pass. Forces real-logic evaluation (ignore the seed's No-Logic/Glitchless flag).
         // Tricks are set via SOH_SetEnabledTricks/SetAllTricks BEFORE SOH_Dump, whose SOH_PrepRandoContext
         // pushes them into the Context (Combo_ApplyEnabledTricks). SOH_Dump (+seed) sets the OOT/MM contexts
@@ -187,6 +199,10 @@ int main(int argc, char** argv) {
             // oracle still gates on (OOT vanilla shop items, MM boss remains when not shuffled) live in
             // the dump's fixed[]. Merge them in so those gates (e.g. MM RemainsCount for the Moon) resolve.
             std::string sohDump = SOH_Dump(), mmDump = MM_Dump();
+            // Spoiler prices are the seed's truth — they override the dumps' re-rolls in every oracle
+            // reset (SOH) / query (MM), so wallet gates evaluate against what the player actually pays.
+            SOH_SetCheckPrices(ootPrices.dump().c_str());
+            MM_SetCheckPrices(mmPrices.dump().c_str());
             nlohmann::json passFlat = flat;
             auto mergeFixed = [&](const std::string& dump, const char* game) {
                 try {
@@ -262,6 +278,9 @@ int main(int argc, char** argv) {
             if (count == 1 && SOH_DumpSettings && MM_DumpSettings) {
                 try {
                     auto fillSpoiler = nlohmann::json::parse(r.spoilerJson);
+                    auto pricesOf = [](const std::string& dump) {
+                        return nlohmann::json::parse(dump).value("prices", nlohmann::json::object());
+                    };
                     nlohmann::json consolidated;
                     consolidated["fileType"] = "ComboShipRandomizer";
                     consolidated["seed"] = seed;
@@ -270,9 +289,11 @@ int main(int argc, char** argv) {
                                             { "enabledTricks", SOH_DumpEnabledTricks
                                                                    ? nlohmann::json::parse(SOH_DumpEnabledTricks())
                                                                    : nlohmann::json::array() },
-                                            { "placements", fillSpoiler.value("oot", nlohmann::json::object()) } };
+                                            { "placements", fillSpoiler.value("oot", nlohmann::json::object()) },
+                                            { "prices", pricesOf(sohDump) } };
                     consolidated["mm"] = { { "settings", nlohmann::json::parse(MM_DumpSettings()) },
-                                           { "placements", fillSpoiler.value("mm", nlohmann::json::object()) } };
+                                           { "placements", fillSpoiler.value("mm", nlohmann::json::object()) },
+                                           { "prices", pricesOf(mmDump) } };
                     consolidated["foreign"] = fillSpoiler.value("foreign", nlohmann::json::array());
                     std::error_code ec;
                     std::filesystem::create_directories("saves/combo", ec);

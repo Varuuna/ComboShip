@@ -1508,8 +1508,10 @@ int Fill() {
 }
 
 #ifdef COMBO_BUILD
-// ComboShip: run only Fill()'s confined-placement steps (skip shops/entrances/Link's Pocket/free
-// fill), leaving confined items placed in ctx and the free pool in itemPool. See UPSTREAM_MERGES.md.
+extern void Combo_SetupOOTShops(); // OTRGlobals.cpp — seeded shop/scrub/merchant items + prices
+
+// ComboShip: run only Fill()'s confined-placement steps (skip entrances/Link's Pocket/free fill),
+// leaving confined items placed in ctx and the free pool in itemPool. See UPSTREAM_MERGES.md.
 void ComboFillConfined() {
     auto ctx = Rando::Context::GetInstance();
     RegionTable_Init();
@@ -1522,6 +1524,9 @@ void ComboFillConfined() {
     // shield (e.g. a dungeon reward on Gohma) resolves — mirrors Fill()'s temporary injection.
     AddElementsToPool(itemPool, GetMinVanillaShopItems(8));
     SetAreas();
+    // Fill()'s native position for shop items + shop/scrub/merchant prices (its shopsanity block runs
+    // right after SetAreas). Without prices the confined AssumedFills treat every priced slot as free.
+    Combo_SetupOOTShops();
     RandomizeDungeonRewards();
     for (auto dungeon : ctx->GetDungeons()->GetDungeonList()) {
         RandomizeOwnDungeon(dungeon);

@@ -213,6 +213,8 @@ typedef void (*FnSetReloadCb)(int (*)(const char*));
 static FnVoidV SOH_PrepRandoContext = nullptr;
 static FnTakeStr SOH_RestoreRandoSettings = nullptr;
 static FnTakeStr MM_RestoreRandoSettings = nullptr;
+static FnTakeStr SOH_SetCheckPrices = nullptr;
+static FnTakeStr MM_SetCheckPrices = nullptr;
 static FnSetReloadCb SOH_SetOnComboReloadCallback = nullptr;
 
 // ComboShip: OOT forced placements (Link's Pocket etc.) the static dump can't carry — see
@@ -881,10 +883,20 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         consolidated["masterSeed"] = masterSeed;
         consolidated["displaySeed"] = displaySeed;
         consolidated["file_hash"] = fileHashArr;
+        // Rolled shop/scrub/merchant prices (from the dumps) travel in the spoiler so the validator
+        // and the reload path never guess them — unknown price is never treated as buyable.
+        auto pricesOf = [](const std::string& dump) -> nlohmann::json {
+            try {
+                return nlohmann::json::parse(dump).value("prices", nlohmann::json::object());
+            } catch (...) { return nlohmann::json::object(); }
+        };
         consolidated["oot"] = { { "settings", parseOrEmpty(SOH_DumpRandoSettings) },
                                 { "enabledTricks", parseOrEmpty(SOH_DumpEnabledTricks) },
-                                { "placements", ootSpoiler } };
-        consolidated["mm"] = { { "settings", parseOrEmpty(MM_DumpRandoSettings) }, { "placements", mmSpoiler } };
+                                { "placements", ootSpoiler },
+                                { "prices", pricesOf(sohDump) } };
+        consolidated["mm"] = { { "settings", parseOrEmpty(MM_DumpRandoSettings) },
+                               { "placements", mmSpoiler },
+                               { "prices", pricesOf(mmDump) } };
         consolidated["foreign"] = ComboRando::BuildForeignArray(foreignArr);
         consolidated["playthrough"] = playthroughJson;
         g_ConsolidatedJson = consolidated.dump(2);
@@ -1134,6 +1146,17 @@ static int Combo_OnReloadRequest(const char* path) {
         std::string ootPlacements = ootApply.dump();
         std::string mmPlacements = mmApply.dump();
 
+        // Spoiler prices override the seeded re-roll (settings may have drifted since generation).
+        // Absent on pre-price spoilers: log and fall back to the re-roll (OOT) / zero prices (MM).
+        auto ootPrices = oot.value("prices", nlohmann::json::object());
+        auto mmPrices = mm.value("prices", nlohmann::json::object());
+        if (ootPrices.empty() || mmPrices.empty())
+            std::cout << "[ComboShip] Reload: spoiler predates price export; shop prices may not match logic\n";
+        if (SOH_SetCheckPrices)
+            SOH_SetCheckPrices(ootPrices.dump().c_str());
+        if (MM_SetCheckPrices)
+            MM_SetCheckPrices(mmPrices.dump().c_str());
+
         // OOT: restore settings -> seed RNG -> prep settings-scoped pool -> apply placements -> hash.
         if (SOH_RestoreRandoSettings)
             SOH_RestoreRandoSettings(ootSettings.c_str());
@@ -1215,6 +1238,17 @@ static void Combo_OnOOTSaveInit(int fileNum) {
         SOH_GetCurrentPlayerName(playerName);
     if (MM_InitRandoSaveFile && !g_PendingMMPlacements.empty()) {
         std::cout << "[ComboShip] Creating RANDO MM save for OOT slot " << fileNum << std::endl;
+        // Re-assert prices from the seed being applied — a failed re-generation after a reload leaves
+        // the MM DLL's captured price map holding the failed seed's rolls, not this spoiler's.
+        if (MM_SetCheckPrices) {
+            try {
+                auto cj = nlohmann::json::parse(g_ConsolidatedJson);
+                MM_SetCheckPrices(cj.value("mm", nlohmann::json::object())
+                                      .value("prices", nlohmann::json::object())
+                                      .dump()
+                                      .c_str());
+            } catch (...) {}
+        }
         MM_InitRandoSaveFile(fileNum, g_PendingMMPlacements.c_str(), playerName);
         g_PendingMMPlacements.clear();
     } else if (MM_InitSaveFile) {
@@ -1398,6 +1432,8 @@ int main(int argc, char** argv) {
     SOH_PrepRandoContext = (FnVoidV)GetSym(sohModule, "SOH_PrepRandoContext");
     SOH_RestoreRandoSettings = (FnTakeStr)GetSym(sohModule, "SOH_RestoreRandoSettings");
     MM_RestoreRandoSettings = (FnTakeStr)GetSym(mmModule, "MM_RestoreRandoSettings");
+    SOH_SetCheckPrices = (FnTakeStr)GetSym(sohModule, "SOH_SetCheckPrices");
+    MM_SetCheckPrices = (FnTakeStr)GetSym(mmModule, "MM_SetCheckPrices");
     SOH_SetOnComboReloadCallback = (FnSetReloadCb)GetSym(sohModule, "SOH_SetOnComboReloadCallback");
     MM_InitRandoSaveFile = (FnMMInitRandoSave)GetSym(mmModule, "MM_InitRandoSaveFile");
     SOH_SetOnComboGenerateCallback = (FnSetGenerateCb)GetSym(sohModule, "SOH_SetOnComboGenerateCallback");

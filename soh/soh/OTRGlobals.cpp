@@ -3246,11 +3246,9 @@ static bool Combo_IsShopSlot(RandomizerCheck rc, const std::unordered_set<Random
     return shopSlots.count(rc) > 0;
 }
 
-// Re-establish shop/scrub/merchant setup on the live rando context. Called from SOH_ApplyRandoPlacements
-// AFTER ItemReset() (which clears it) and BEFORE the combo placements are applied: shuffled shop slots
-// get a custom price (the combo fill's item is placed into them next), every other shop slot gets its
-// vanilla RG_BUY_* item, and scrubs/merchants get prices — exactly as SoH's Fill() would.
-static void Combo_SetupOOTShops() {
+// Shop items + shop/scrub/merchant prices, exactly as Fill() sets them; called wherever ItemReset()
+// cleared them (ComboFillConfined, oracle reset, apply). Idempotent: reseeded per call.
+void Combo_SetupOOTShops() {
     auto ctx = OTRGlobals::Instance->gRandoContext;
 
     // Seed identically to the dump so the shuffled-slot set (and all prices below) match it exactly.
@@ -3291,6 +3289,32 @@ static void Combo_SetupOOTShops() {
                              ? GetRandomPrice(Rando::StaticData::GetLocation(rc), kComboMerchantPrices)
                              : Rando::StaticData::GetLocation(rc)->GetVanillaPrice();
         ctx->GetItemLocation(rc)->SetCustomPrice(price);
+    }
+}
+
+// Spoiler prices (name -> rupees); reload/validator set them to override the seeded rolls after
+// every price-establishing step. Empty on the generation path (rolls stand).
+static std::unordered_map<std::string, uint16_t> sComboCheckPriceOverrides;
+
+extern "C" __declspec(dllexport) void SOH_SetCheckPrices(const char* json) {
+    sComboCheckPriceOverrides.clear();
+    if (!json)
+        return;
+    try {
+        auto j = nlohmann::json::parse(json);
+        for (auto it = j.begin(); it != j.end(); ++it)
+            sComboCheckPriceOverrides[it.key()] = static_cast<uint16_t>(it.value().get<int>());
+    } catch (const std::exception& e) { SPDLOG_WARN("[ComboShip] SOH_SetCheckPrices: bad JSON: {}", e.what()); }
+}
+
+static void Combo_ApplyPriceOverrides() {
+    if (sComboCheckPriceOverrides.empty())
+        return;
+    auto ctx = OTRGlobals::Instance->gRandoContext;
+    for (const auto& [name, price] : sComboCheckPriceOverrides) {
+        auto it = Rando::StaticData::locationNameToEnum.find(name);
+        if (it != Rando::StaticData::locationNameToEnum.end())
+            ctx->GetItemLocation(it->second)->SetCustomPrice(price);
     }
 }
 
@@ -3381,6 +3405,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
     nlohmann::json pool = nlohmann::json::array();
     nlohmann::json fixed = nlohmann::json::array();
     nlohmann::json items = nlohmann::json::array();
+    nlohmann::json prices = nlohmann::json::object();
 
     bool usedPool = false;
     try {
@@ -3396,6 +3421,9 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         // items/songs are reproducible per seed (mirrors the MM side); Combo_SeedShopRng() below re-seeds
         // so the shop-slot set stays dump/apply-consistent. Confine own-dungeon/reward/song items via
         // OOT's own logic; the residual itemPool is the free cross-world pool.
+        // Generation entry: drop any reload-set price overrides or a prior seed's prices would
+        // silently win over this seed's rolls in every oracle reset and in the final apply.
+        sComboCheckPriceOverrides.clear();
         Combo_SeedShopRng();
         ComboFillConfined();
 
@@ -3464,6 +3492,17 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
                 continue;
             pool.push_back({ { "name", in }, { "advancement", Rando::StaticData::RetrieveItem(rg).IsAdvancement() } });
         }
+        // Rolled prices (set by ComboFillConfined at Fill()'s native position) for every priced
+        // check type — the consolidated spoiler carries these so the validator/reload never guess.
+        for (RandomizerCheck rc : ctx->allLocations) {
+            Rando::Location* loc = Rando::StaticData::GetLocation(rc);
+            if (!loc || loc->GetName().empty())
+                continue;
+            auto t = loc->GetRCType();
+            if (t == RCTYPE_SHOP || t == RCTYPE_SCRUB || t == RCTYPE_MERCHANT)
+                prices[loc->GetName()] = ctx->GetItemLocation(rc)->GetPrice();
+        }
+
         // Fewer pool items than checks would leave checks unfilled; surplus (junk from excluded
         // locations) is fine — the fill drops it.
         if (pool.size() < checks.size()) {
@@ -3543,7 +3582,8 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         { "checks", std::move(checks) },
         { "pool", std::move(pool) },
         { "fixed", std::move(fixed) },
-        { "items", std::move(items) }
+        { "items", std::move(items) },
+        { "prices", std::move(prices) }
     }.dump();
     return cached.c_str();
 }
@@ -3576,6 +3616,7 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
         // vanilla ones), so they land on validly-priced slots and don't clobber the vanilla items.
 #ifdef COMBO_BUILD
         Combo_SetupOOTShops();
+        Combo_ApplyPriceOverrides(); // spoiler prices win over the re-roll on reload
         // Vanilla (non-shuffled) shop slots are owned by Combo_SetupOOTShops above; the dump emits them as
         // fixed for reachability only, so skip them below to avoid clobbering the priced vanilla item.
         Combo_SeedShopRng();
@@ -3797,6 +3838,12 @@ extern "C" __declspec(dllexport) void Combo_SOH_Rando_Reset(void) {
     Regions::AccessReset();
     ctx->LocationReset();
     ctx->ItemReset();
+#ifdef COMBO_BUILD
+    // ItemReset wiped shop/scrub/merchant prices; re-establish them (seeded, so identical every
+    // reset) or the wallet gates in GetCheckPrice() evaluate against 0 and every shop is "free".
+    Combo_SetupOOTShops();
+    Combo_ApplyPriceOverrides();
+#endif
     ApplyStartingInventory();
 }
 

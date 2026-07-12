@@ -2664,6 +2664,8 @@ extern "C" __declspec(dllexport) void MM_LoadSaveForCombo(int fileNum) {
     SaveManager_LoadSaveFile(fileNum + 1);
 }
 
+static void Combo_MM_ApplyCheckPrices();
+
 // ComboShip: create a RANDO MM save for the given OOT slot from a combo placement slice.
 // placementJson is the "mm" object of the combined spoiler: { "<RC_name>": "<itemSpoilerName>", ... }.
 // The combo layer owns placement, so we do NOT run MM's own generator. We build the playable baseline
@@ -2733,6 +2735,10 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
         // The two always-eligible starting checks (mirrors OnFileCreate tail).
         RANDO_SAVE_CHECKS[RC_STARTING_ITEM_DEKU_MASK].eligible = true;
         RANDO_SAVE_CHECKS[RC_STARTING_ITEM_SONG_OF_HEALING].eligible = true;
+
+        // Persist the rolled/spoiler prices into the real save (native OnFileCreate rolls them via
+        // GeneratePools; the string-only placement apply above leaves every price 0).
+        Combo_MM_ApplyCheckPrices();
 
         SPDLOG_INFO("[ComboShip] MM_InitRandoSaveFile: applied {} placements for slot {}", spoiler["checks"].size(),
                     fileNum);
@@ -2911,6 +2917,32 @@ extern "C" __declspec(dllexport) void MM_SetComboRandoSeed(uint64_t seed) {
     sMMComboRandoSeedSet = true;
 }
 
+static const std::unordered_map<std::string, RandoCheckId>& Combo_MM_CheckNameToCheckId();
+
+// GeneratePools' rolled prices (id -> rupees), captured at dump so the oracle reset and the save init
+// can re-apply them (both wipe to 0 = every CAN_AFFORD free). MM_SetCheckPrices swaps in spoiler's.
+static std::unordered_map<uint32_t, uint16_t> sMMComboCheckPrices;
+
+extern "C" __declspec(dllexport) void MM_SetCheckPrices(const char* json) {
+    sMMComboCheckPrices.clear();
+    if (!json)
+        return;
+    try {
+        const auto& nameToId = Combo_MM_CheckNameToCheckId();
+        auto j = nlohmann::json::parse(json);
+        for (auto it = j.begin(); it != j.end(); ++it) {
+            auto cit = nameToId.find(it.key());
+            if (cit != nameToId.end())
+                sMMComboCheckPrices[cit->second] = static_cast<uint16_t>(it.value().get<int>());
+        }
+    } catch (...) {}
+}
+
+static void Combo_MM_ApplyCheckPrices() {
+    for (const auto& [id, price] : sMMComboCheckPrices)
+        RANDO_SAVE_CHECKS[id].price = price;
+}
+
 extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     static std::string cached;
 
@@ -2918,6 +2950,7 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     nlohmann::json pool = nlohmann::json::array();
     nlohmann::json fixed = nlohmann::json::array();
     nlohmann::json items = nlohmann::json::array();
+    nlohmann::json prices = nlohmann::json::object();
 
     // Seed MM's RNG so GeneratePools + PreplaceConfinedItems are reproducible per combo seed.
     if (sMMComboRandoSeedSet)
@@ -2934,6 +2967,18 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     std::vector<RandoCheckId> checkPool;
     std::vector<RandoItemId> itemPool;
     Rando::Logic::GeneratePools(saveInfo, checkPool, itemPool);
+
+    // Capture the prices GeneratePools rolled into this (otherwise discarded) saveInfo — the full
+    // native fresh-generation price state, not just the shop/tingle subset 2Ship's own spoiler keeps.
+    sMMComboCheckPrices.clear();
+    for (auto& [id, chk] : Rando::StaticData::Checks) {
+        uint16_t p = saveInfo.randoSaveChecks[id].price;
+        if (p != 0) {
+            sMMComboCheckPrices[id] = p;
+            if (chk.name && chk.name[0] != '\0')
+                prices[chk.name] = p;
+        }
+    }
 
     // Confine own-dungeon items via MM's own logic (writes RANDO_SAVE_CHECKS, shrinks both pools).
     std::vector<RandoCheckId> checkPoolBefore = checkPool;
@@ -3055,7 +3100,8 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         { "checks", std::move(checks) },
         { "pool", std::move(pool) },
         { "fixed", std::move(fixed) },
-        { "items", std::move(items) }
+        { "items", std::move(items) },
+        { "prices", std::move(prices) }
     }.dump();
     return cached.c_str();
 }
@@ -3476,6 +3522,10 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Reset(void) {
             GiveItemForOracle(Rando::ConvertItem(si));
         }
     }
+
+    // The memset wiped check prices too; re-apply the rolled/spoiler set or every CAN_AFFORD gate
+    // evaluates price==0 and shops/Tingle maps are free to the oracle.
+    Combo_MM_ApplyCheckPrices();
 }
 
 // ComboShip: name->id lookup maps for the oracle hot path, replacing per-name linear scans over

@@ -88,6 +88,8 @@ This document is the authoritative checklist. **Statuses:**
 | GAP-4 | Retry policy diverges from both natives (no outer whole-fill retry; single 10-pass inner loop). Converge per fidelity rule. | Phase 2 |
 | GAP-5 | MM prices are 0 in both the combo oracle (memset, no `GeneratePools`) and the combo in-game save (string-only apply) — shops/Tingle/`CAN_AFFORD` gates are free. Roll per native (`Ship_Random(0,200)`, seeded) and persist into the save. | Phase 1 |
 | GAP-6 | Consolidated spoiler carries no prices for either game. Emit OOT prices (SoH spoiler shape, parsed by `SeedContext.cpp:442`) and MM prices (2Ship object shape, parsed by `Apply.cpp:54`); `--playthrough` consumes spoiler prices only and hard-fails on price-less spoilers. | Phase 1 |
+| GAP-7 | Excluded-locations state leaks from local `comboship.json` into replayed spoilers: it lives in the `ExcludedLocations` CSV **string** CVar (`randomizer.cpp:931`), which `SOH_DumpRandoSettings` doesn't capture and `SOH_RestoreRandoSettings` (integer-only) couldn't restore. Per-location `Option`s have empty CVar names, so they can't be dumped generically. Likely the remaining source of the sphere-19-vs-24 validation divergence. | Phase 2 |
+| GAP-8 | Validator forces `LogicRules=0` per pass, but `GetShopsanityReplaceAmount` shuffles up to 8 slots under No Logic vs 7 otherwise — a No-Logic seed with shopsanity random/8 validates against a different shuffled-slot set. Pre-existing; escalated now that the slot set drives per-reset shop state. | Phase 2 |
 
 Related validator requirement (settled in planning): `--playthrough` must be hermetic — settings
 and prices come from the spoiler it reads, never from the neighboring `comboship.json`.

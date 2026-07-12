@@ -2650,10 +2650,11 @@ extern "C" __declspec(dllexport) void MM_ResumeGame(int fileNum) {
 #endif
 
 // ComboShip: write a default MM save for the given OOT slot (0-indexed) to disk. Called when OOT
-// creates a new save, so MM has a matching save ready for the transition.
-extern "C" __declspec(dllexport) void MM_InitSaveFile(int fileNum) {
+// creates a new save, so MM has a matching save ready for the transition. ootName8 is the
+// OOT-entered file name (8 font-code bytes, same charset as MM); may be null.
+extern "C" __declspec(dllexport) void MM_InitSaveFile(int fileNum, const unsigned char* ootName8) {
     // fileNum is OOT's 0-indexed slot; MM save files are 1-indexed (file1.json, file2.json, file3.json)
-    SaveManager_InitNewSaveForSlot(fileNum + 1);
+    SaveManager_InitNewSaveForSlot(fileNum + 1, ootName8);
 }
 
 // ComboShip: bring the MM save for the given OOT slot (0-indexed) into MM's dormant gSaveContext, so
@@ -2669,9 +2670,10 @@ extern "C" __declspec(dllexport) void MM_LoadSaveForCombo(int fileNum) {
 // (South Clock Town, post-first-cycle Human Link), mark the save SAVETYPE_RANDO, and feed the placement
 // through Rando::Spoiler::ApplyToSaveContext. Headless-safe: never calls GrantStartingItems / Item_Give
 // (those need gPlayState). Falls back to a vanilla save on any error.
-extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const char* placementJson) {
+extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const char* placementJson,
+                                                           const unsigned char* ootName8) {
     // Playable combo baseline first (Human Link, South Clock Town, ocarina/songs, etc.).
-    SaveManager_InitNewSaveForSlot(fileNum + 1);
+    SaveManager_InitNewSaveForSlot(fileNum + 1, ootName8);
     // Sram_InitNewSave (inside the call above) resets fileNum; restore it so SaveManager_SaveCurrentForCombo
     // re-writes the correct slot (it targets gSaveContext.fileNum + 1).
     gSaveContext.fileNum = (s16)fileNum;

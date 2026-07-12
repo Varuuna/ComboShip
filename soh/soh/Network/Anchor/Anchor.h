@@ -62,12 +62,14 @@ typedef struct {
     Player* player;
 } AnchorClient;
 
-typedef struct {
-    uint32_t ownerClientId;
-    u8 pvpMode;           // 0 = off, 1 = on, 2 = on with friendly fire
-    u8 showLocationsMode; // 0 = none, 1 = team, 2 = all
-    u8 teleportMode;      // 0 = off, 1 = team, 2 = all
-    u8 syncItemsAndFlags; // 0 = off, 1 = on
+// Defaults matter in the combo build: a dormant game may apply items before ever handling an
+// UPDATE_ROOM_STATE foreground, and an uninitialized syncItemsAndFlags would drop them.
+typedef struct RoomState {
+    uint32_t ownerClientId = 0;
+    u8 pvpMode = 0;           // 0 = off, 1 = on, 2 = on with friendly fire
+    u8 showLocationsMode = 0; // 0 = none, 1 = team, 2 = all
+    u8 teleportMode = 0;      // 0 = off, 1 = team, 2 = all
+    u8 syncItemsAndFlags = 1; // 0 = off, 1 = on
 } RoomState;
 
 class Anchor : public Network {
@@ -77,6 +79,8 @@ class Anchor : public Network {
     bool justLoadedSave = false;
     bool isHandlingUpdateTeamState = false;
     bool isProcessingIncomingPacket = false;
+    bool isDormantApply = false;  // true while PumpDormant applies packets (OOT backgrounded)
+    bool dormantDidApply = false; // set by HandlePacket_GiveItem when a dormant grant landed
     std::queue<nlohmann::json> incomingPacketQueue;
     std::mutex incomingPacketQueueMutex;
     std::queue<nlohmann::json> outgoingPacketQueue;

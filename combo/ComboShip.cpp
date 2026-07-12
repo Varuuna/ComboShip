@@ -173,7 +173,10 @@ static FnExtract MM_Extract = nullptr;
 static FnInt MM_ArchiveCount = nullptr;
 static FnSetSaveCallback SOH_SetOnNewSaveCallback = nullptr;
 static FnSetSaveCallback SOH_SetOnLoadSaveCallback = nullptr;
-static FnMMInitSave MM_InitSaveFile = nullptr;
+typedef void (*FnMMInitSaveNamed)(int, const unsigned char*);
+typedef void (*FnGetPlayerName)(unsigned char*);
+static FnMMInitSaveNamed MM_InitSaveFile = nullptr;
+static FnGetPlayerName SOH_GetCurrentPlayerName = nullptr;
 static FnMMInitSave MM_LoadSaveForCombo = nullptr;
 // OOT slot whose MM save is live in MM's dormant memory (-1 = none). Guards Combo_OnOOTSaveLoad
 // against reloading stale disk state over MM's in-memory progress after round trips.
@@ -293,7 +296,7 @@ static void DeleteForeignSaveFromMM(int slot) {
 // ComboShip: placement injection exports
 typedef void (*FnSetGenerateCb)(void (*)(int));
 typedef void (*FnApplyPlacements)(const char*);
-typedef void (*FnMMInitRandoSave)(int, const char*);
+typedef void (*FnMMInitRandoSave)(int, const char*, const unsigned char*);
 typedef void (*FnSetComboRandoSeed)(uint64_t);
 typedef void (*FnSetComboSeedHash)(uint32_t);
 static FnSetGenerateCb SOH_SetOnComboGenerateCallback = nullptr;
@@ -1205,14 +1208,19 @@ static void Combo_OnOOTSaveInit(int fileNum) {
             sf << g_ConsolidatedJson;
         std::cout << "[ComboShip] wrote consolidated seed file for slot " << fileNum << std::endl;
     }
+    // The new-save callback runs on OOT's thread with the entered file name current — carry it into
+    // the matching MM save so both files show the player's name.
+    unsigned char playerName[8] = { 0x3E, 0x3E, 0x3E, 0x3E, 0x3E, 0x3E, 0x3E, 0x3E };
+    if (SOH_GetCurrentPlayerName)
+        SOH_GetCurrentPlayerName(playerName);
     if (MM_InitRandoSaveFile && !g_PendingMMPlacements.empty()) {
         std::cout << "[ComboShip] Creating RANDO MM save for OOT slot " << fileNum << std::endl;
-        MM_InitRandoSaveFile(fileNum, g_PendingMMPlacements.c_str());
+        MM_InitRandoSaveFile(fileNum, g_PendingMMPlacements.c_str(), playerName);
         g_PendingMMPlacements.clear();
     } else if (MM_InitSaveFile) {
         // No placement available (e.g. generation was skipped) — fall back to a vanilla MM save.
         std::cout << "[ComboShip] Creating MM save for OOT slot " << fileNum << std::endl;
-        MM_InitSaveFile(fileNum);
+        MM_InitSaveFile(fileNum, playerName);
     }
     // Both creation paths build the save in MM's live gSaveContext.
     g_MmSaveInMemorySlot = fileNum;
@@ -1369,7 +1377,8 @@ int main(int argc, char** argv) {
     MM_ArchiveCount = (FnInt)GetSym(mmModule, "MM_ArchiveCount");
     SOH_SetOnNewSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnNewSaveCallback");
     SOH_SetOnLoadSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnLoadSaveCallback");
-    MM_InitSaveFile = (FnMMInitSave)GetSym(mmModule, "MM_InitSaveFile");
+    MM_InitSaveFile = (FnMMInitSaveNamed)GetSym(mmModule, "MM_InitSaveFile");
+    SOH_GetCurrentPlayerName = (FnGetPlayerName)GetSym(sohModule, "SOH_GetCurrentPlayerName");
     MM_LoadSaveForCombo = (FnMMInitSave)GetSym(mmModule, "MM_LoadSaveForCombo");
     SOH_SetOnSceneSwitchCallback = (FnSetSceneSwitchCallback)GetSym(sohModule, "SOH_SetOnSceneSwitchCallback");
     MM_RunGame = (FnMMRunGame)GetSym(mmModule, "MM_RunGame");
@@ -1614,6 +1623,8 @@ int main(int argc, char** argv) {
         SOH_SetPumpDormant(PumpDormant);
     if (MM_SetPumpDormant)
         MM_SetPumpDormant(PumpDormant);
+    std::cout << "[ComboShip] Dormant co-op pump seams: soh=" << (SOH_SetPumpDormant && SOH_Anchor_PumpDormant)
+              << " mm=" << (MM_SetPumpDormant && MM_Anchor_PumpDormant) << std::endl;
     if (SOH_SetFinalBossDefeatedCb)
         SOH_SetFinalBossDefeatedCb(Combo_OnFinalBossDefeated);
     if (MM_SetFinalBossDefeatedCb)

@@ -5,6 +5,9 @@
 #include "soh/ObjectExtension/ObjectExtension.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
 #include "soh/Notification/Notification.h"
+#ifdef COMBO_BUILD
+#include "soh/SaveManager.h"
+#endif
 
 extern "C" {
 #include "variables.h"
@@ -146,6 +149,8 @@ void Anchor::SendJsonToRemote(nlohmann::json payload) {
     // ComboShip: the launcher owns the socket and its own thread-safe outgoing queue, so hand every
     // packet straight to it. There is no game-side network thread to drain a local queue under the
     // combo build (ProcessOutgoingPackets is never pumped). See docs/UPSTREAM_MERGES.md.
+    // Routing tag for the shared socket; NOT the cross-item "srcGame" int field (don't clobber it).
+    payload["originGame"] = "oot";
     Network::SendJsonToRemote(payload);
     return;
 #else
@@ -173,11 +178,25 @@ void Anchor::OnIncomingJson(nlohmann::json payload) {
 
     std::string packetType = payload["type"].get<std::string>();
 
+#ifdef COMBO_BUILD
+    // ComboShip: drop MM-originated packets — their shapes collide with ours (e.g. MM's
+    // UPDATE_TEAM_STATE lacks healthCapacity and throws in from_json). Exceptions: cross-game item
+    // delivery and the room roster. Packets without originGame (server, old clients) pass through.
+    if (payload.value("originGame", "oot") != "oot" && packetType != COMBO_CROSS_ITEM &&
+        packetType != UPDATE_CLIENT_STATE) {
+        return;
+    }
+#endif
+
     // Ignore packets from mismatched clients, except for ALL_CLIENT_STATE, UPDATE_CLIENT_STATE, and PLAYER_UPDATE
     if (packetType != ALL_CLIENT_STATE && packetType != UPDATE_CLIENT_STATE && packetType != PLAYER_UPDATE) {
         if (payload.contains("clientId")) {
             uint32_t clientId = payload["clientId"].get<uint32_t>();
             if (clients.contains(clientId) && clients[clientId].clientVersion != clientVersion) {
+#ifdef COMBO_BUILD
+                SPDLOG_INFO("[Anchor] dropped {} from client {}: version '{}' != ours '{}'", packetType, clientId,
+                            clients[clientId].clientVersion, clientVersion);
+#endif
                 return;
             }
         }
@@ -273,17 +292,38 @@ void Anchor::PumpDormant() {
         std::lock_guard<std::mutex> lock(incomingPacketQueueMutex);
         packetsToProcess.swap(incomingPacketQueue);
     }
+    dormantDidApply = false;
     while (!packetsToProcess.empty()) {
         nlohmann::json payload = packetsToProcess.front();
         packetsToProcess.pop();
-        if (payload.value("type", std::string()) != GIVE_ITEM) {
+        std::string type = payload.value("type", std::string());
+        if (type == UPDATE_ROOM_STATE) {
+            // Keep roomState current while dormant — syncItemsAndFlags gates the dormant apply,
+            // and a client that boots straight into MM never handles it foreground.
+            try {
+                HandlePacket_UpdateRoomState(payload);
+            } catch (const std::exception& e) { SPDLOG_ERROR("[Anchor] dormant room state: {}", e.what()); }
+            continue;
+        }
+        if (type != GIVE_ITEM) {
             continue; // drop presence/puppet/team-state while dormant (re-requested on activation)
         }
+        if (!payload.contains("modId")) {
+            continue; // MM-shaped GIVE_ITEM; the dormant MM pump handles it
+        }
+        SPDLOG_INFO("[Anchor] dormant GIVE_ITEM received: {}", payload.dump());
         isProcessingIncomingPacket = true;
+        isDormantApply = true;
         try {
-            HandlePacket_GiveItem(payload);
+            HandlePacket_GiveItem(payload); // sets dormantDidApply when it actually grants
         } catch (const std::exception& e) { SPDLOG_ERROR("[Anchor] dormant apply exception: {}", e.what()); }
+        isDormantApply = false;
         isProcessingIncomingPacket = false;
+    }
+    // Persist the dormant save so the item survives quitting without ever entering OOT.
+    if (dormantDidApply && SaveManager::Instance && gSaveContext.fileNum != 0xFF) {
+        SaveManager::Instance->SaveFile(gSaveContext.fileNum);
+        SPDLOG_INFO("[Anchor] dormant OOT save persisted (file {})", gSaveContext.fileNum);
     }
 }
 #endif
@@ -339,6 +379,13 @@ void Anchor::RefreshClientActors() {
 }
 
 bool Anchor::IsSaveLoaded() {
+#ifdef COMBO_BUILD
+    // Dormant OOT has no play state (Play_Destroy nulls it on every transition); judge by the
+    // resident save, which is what the dormant apply writes.
+    if (isDormantApply) {
+        return gSaveContext.fileNum >= 0 && gSaveContext.fileNum <= 2;
+    }
+#endif
     if (gPlayState == nullptr) {
         return false;
     }

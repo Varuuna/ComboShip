@@ -20,6 +20,10 @@ uint8_t incomingIceTrapsFromAnchor = 0;
 
 void Anchor::SendPacket_GiveItem(u16 modId, s16 getItemId) {
     if (!IsSaveLoaded() || isProcessingIncomingPacket || !roomState.syncItemsAndFlags) {
+#ifdef COMBO_BUILD
+        SPDLOG_INFO("[Anchor] GIVE_ITEM not sent: saveLoaded={} processingIncoming={} syncItems={}", IsSaveLoaded(),
+                    isProcessingIncomingPacket, roomState.syncItemsAndFlags);
+#endif
         return;
     }
 
@@ -41,10 +45,19 @@ void Anchor::SendPacket_GiveItem(u16 modId, s16 getItemId) {
     payload["getItemId"] = getItemId;
 
     SendJsonToRemote(payload);
+#ifdef COMBO_BUILD
+    SPDLOG_INFO("[Anchor] GIVE_ITEM sent: modId={} getItemId={}", modId, getItemId);
+#endif
 }
 
 void Anchor::HandlePacket_GiveItem(nlohmann::json payload) {
     if (!IsSaveLoaded() || !roomState.syncItemsAndFlags) {
+#ifdef COMBO_BUILD
+        if (isDormantApply) {
+            SPDLOG_INFO("[Anchor] dormant GIVE_ITEM dropped: saveLoaded={} syncItems={}", IsSaveLoaded(),
+                        roomState.syncItemsAndFlags);
+        }
+#endif
         return;
     }
 #ifdef COMBO_BUILD
@@ -95,6 +108,14 @@ void Anchor::HandlePacket_GiveItem(nlohmann::json payload) {
         gSaveContext.health += 0x10 * (heartPieces / 4);
     }
 
+#ifdef COMBO_BUILD
+    // ComboShip: no toast while OOT is backgrounded — it would surface in the wrong game later.
+    if (isDormantApply) {
+        dormantDidApply = true;
+        SPDLOG_INFO("[Anchor] dormant GIVE_ITEM applied: modId={} getItemId={}", modId, getItemId);
+        return;
+    }
+#endif
     if (getItemEntry.getItemCategory != ITEM_CATEGORY_JUNK) {
         if (getItemEntry.modIndex == MOD_NONE) {
             Notification::Emit({

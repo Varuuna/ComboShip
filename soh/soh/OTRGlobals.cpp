@@ -2710,6 +2710,14 @@ extern "C" __declspec(dllexport) void SOH_SetOnNewSaveCallback(void (*cb)(int fi
     gComboSaveInitCallback = cb;
 }
 
+// ComboShip: the current save's file name (8 font-code bytes). Valid inside the new-save callback,
+// where the launcher copies it into the matching MM save.
+extern "C" __declspec(dllexport) void SOH_GetCurrentPlayerName(unsigned char out8[8]) {
+    for (int i = 0; i < 8; i++) {
+        out8[i] = gSaveContext.playerName[i];
+    }
+}
+
 extern "C" void (*gComboSceneSwitchCallback)(int fileNum) = nullptr;
 
 extern "C" __declspec(dllexport) void SOH_SetOnSceneSwitchCallback(void (*cb)(int fileNum)) {

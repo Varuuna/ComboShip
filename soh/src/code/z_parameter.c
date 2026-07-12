@@ -2255,7 +2255,11 @@ u8 Item_Give(PlayState* play, u8 item) {
         for (i = 1; i < ARRAY_COUNT(gSaveContext.equips.buttonItems); i++) {
             if (gSaveContext.equips.buttonItems[i] == ITEM_OCARINA_FAIRY) {
                 gSaveContext.equips.buttonItems[i] = ITEM_OCARINA_TIME;
-                Interface_LoadItemIcon1(play, i);
+                // ComboShip: null while dormant (network grant into the resident save); the rando
+                // loops below already guard the same call.
+                if (play != NULL) {
+                    Interface_LoadItemIcon1(play, i);
+                }
             }
         }
 

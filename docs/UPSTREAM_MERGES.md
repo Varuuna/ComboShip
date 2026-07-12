@@ -249,7 +249,7 @@ lives in port code (`BenPort.cpp`), and placement is fed through MM's *existing*
 (`GeneratePools`/logic) is never run.
 
 **2ship.dll export added (`mm/2s2h/BenPort.cpp`, `extern "C" __declspec(dllexport)`):**
-- `MM_InitRandoSaveFile(int fileNum, const char* placementJson)` — creates a RANDO MM save for the
+- `MM_InitRandoSaveFile(int fileNum, const char* placementJson, const unsigned char* ootName8)` — creates a RANDO MM save for the
   given OOT slot from the combined spoiler's `"mm"` slice (`{ "<RC_name>": "<itemSpoilerName>", ... }`):
   1. `SaveManager_InitNewSaveForSlot(fileNum + 1)` — playable combo baseline (Human Link, South Clock
      Town, ocarina/songs), then restore `gSaveContext.fileNum = fileNum` (Sram_InitNewSave reset it) so
@@ -267,7 +267,9 @@ lives in port code (`BenPort.cpp`), and placement is fed through MM's *existing*
   so a generator failure can't reuse a stale slice).
 - `Combo_OnOOTSaveInit` calls `MM_InitRandoSaveFile(fileNum, g_PendingMMPlacements)` when a placement is
   stashed (the generate callback fires earlier in the same new-save flow), else falls back to the vanilla
-  `MM_InitSaveFile`. Resolves the new `MM_InitRandoSaveFile` symbol from `2ship.dll`.
+  `MM_InitSaveFile`. Resolves the new `MM_InitRandoSaveFile` symbol from `2ship.dll`. Both init exports
+  also take the OOT-entered file name (`SOH_GetCurrentPlayerName`, same font codes in both games) so the
+  MM save is created with the player's name instead of the LINK default.
 
 ## Cross-World Randomizer — Increment 6: foreign markers + send interception + real grants (2026-06-04)
 

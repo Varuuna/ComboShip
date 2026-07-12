@@ -94,6 +94,13 @@ void Anchor::HandlePacket_GiveItem(nlohmann::json payload) {
         }
     }
 
+#ifdef COMBO_BUILD
+    // ComboShip: mirror the receive-hook side effects (found-shield/tunic flags, Epona event,
+    // Skip-Planting-Beans pre-plant) that this save-direct grant bypasses. See OTRGlobals.cpp.
+    extern void Combo_ApplyItemReceiveSideEffects(const GetItemEntry& gie);
+    Combo_ApplyItemReceiveSideEffects(getItemEntry);
+#endif
+
     // Full heal if getting a heart container or piece
     if (getItemEntry.gid == GID_HEART_CONTAINER || getItemEntry.gid == GID_HEART_PIECE) {
         gSaveContext.healthAccumulator = 0x140;

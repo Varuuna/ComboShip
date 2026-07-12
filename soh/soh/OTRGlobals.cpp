@@ -2789,6 +2789,45 @@ extern "C" __declspec(dllexport) void SOH_Anchor_PumpDormant(void) {
 // Rupees_ChangeBy null-guards gPlayState), so it is safe against a frozen gPlayState. The save is
 // persisted immediately so the item survives quitting before ever switching into OOT. See
 // docs/UPSTREAM_MERGES.md.
+// ComboShip: save-only side effects RandomizerOnItemReceiveHandler applies on a normal pickup
+// (hook_handlers.cpp); grants that bypass the receive hook must mirror them or they're lost.
+void Combo_ApplyItemReceiveSideEffects(const GetItemEntry& gie) {
+    if (gie.modIndex == MOD_NONE) {
+        switch (gie.itemId) {
+            case ITEM_SHIELD_DEKU:
+                Flags_SetRandomizerInf(RAND_INF_HAS_FOUND_DEKU_SHIELD);
+                break;
+            case ITEM_SHIELD_HYLIAN:
+                Flags_SetRandomizerInf(RAND_INF_HAS_FOUND_HYLIAN_SHIELD);
+                break;
+            case ITEM_TUNIC_GORON:
+                Flags_SetRandomizerInf(RAND_INF_HAS_FOUND_GORON_TUNIC);
+                break;
+            case ITEM_TUNIC_ZORA:
+                Flags_SetRandomizerInf(RAND_INF_HAS_FOUND_ZORA_TUNIC);
+                break;
+            case ITEM_SONG_EPONA:
+                Flags_SetEventChkInf(EVENTCHKINF_EPONA_OBTAINED);
+                break;
+        }
+    }
+    // Skip Planting Beans pre-plants on Bean Pack receipt; the live Flags_SetSwitch half of the hook
+    // is deliberately skipped (dormant/foreign scene) — flags apply on next scene load.
+    if (gie.modIndex == MOD_RANDOMIZER && gie.getItemId == RG_MAGIC_BEAN_PACK &&
+        OTRGlobals::Instance->gRandomizer->GetRandoSettingValue(RSK_SKIP_PLANTING_BEANS)) {
+        gSaveContext.sceneFlags[SCENE_DEATH_MOUNTAIN_CRATER].swch |= (1 << 3);
+        gSaveContext.sceneFlags[SCENE_DEATH_MOUNTAIN_TRAIL].swch |= (1 << 6);
+        gSaveContext.sceneFlags[SCENE_DESERT_COLOSSUS].swch |= (1 << 24);
+        gSaveContext.sceneFlags[SCENE_GERUDO_VALLEY].swch |= (1 << 3);
+        gSaveContext.sceneFlags[SCENE_GRAVEYARD].swch |= (1 << 3);
+        gSaveContext.sceneFlags[SCENE_KOKIRI_FOREST].swch |= (1 << 9);
+        gSaveContext.sceneFlags[SCENE_LAKE_HYLIA].swch |= (1 << 1);
+        gSaveContext.sceneFlags[SCENE_LOST_WOODS].swch |= (1 << 4) | (1 << 18);
+        gSaveContext.sceneFlags[SCENE_ZORAS_RIVER].swch |= (1 << 3);
+        AMMO(ITEM_BEAN) = 0;
+    }
+}
+
 extern "C" __declspec(dllexport) void SOH_GrantCrossItem(const char* itemName) {
     if (!itemName)
         return;
@@ -2812,6 +2851,7 @@ extern "C" __declspec(dllexport) void SOH_GrantCrossItem(const char* itemName) {
             Randomizer_Item_Give(gPlayState, gie); // save-direct
         }
     }
+    Combo_ApplyItemReceiveSideEffects(gie); // receive-hook effects the save-direct grant bypasses
     // Full heal on heart container/piece, and roll over a 4th heart piece (mirrors Anchor handler).
     if (gie.gid == GID_HEART_CONTAINER || gie.gid == GID_HEART_PIECE) {
         gSaveContext.healthAccumulator = 0x140;

@@ -10,6 +10,10 @@ doesn't undo a load-bearing adaptation thinking it's a stray edit.
 > (see the HM64 principle). Every deviation below exists for a concrete reason stated inline in the
 > code with a `ComboShip:` comment **and** logged in this file.
 
+After every merge that touches either randomizer, re-walk the fill-parity checklist in
+[`COMBO_FILL_PARITY.md`](COMBO_FILL_PARITY.md) — it maps each native generation step (SoH `Fill()`,
+2Ship `OnFileCreate`) to its combo-pipeline equivalent and tracks the known gaps.
+
 ## Upstreams
 
 | Folder | Upstream repo | Branch we track | Maps to |

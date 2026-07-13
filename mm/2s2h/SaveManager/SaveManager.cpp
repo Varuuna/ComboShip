@@ -6,6 +6,7 @@
 
 #include "BenJsonConversions.hpp"
 #include "BenPort.h"
+#include "2s2h/BenGui/Notification.h"
 #include <ship/window/Window.h>
 
 extern "C" {
@@ -146,6 +147,34 @@ int SaveManager_ReadSaveFile(const std::filesystem::path& fileName, nlohmann::js
     }
 }
 
+// Special "auto save" to prevent save scumming Saria's Song hint. This can be more generic if we
+// find another use case for this functionality.
+void SaveManager_PersistSariaHintsAvailable() {
+    std::string fileName = SaveManager_GetFileName(gSaveContext.fileNum + 1);
+    nlohmann::json j;
+
+    if (SaveManager_ReadSaveFile(fileName, j) != 0) {
+        return;
+    }
+
+    try {
+        u8 hintsAvailable = gSaveContext.save.shipSaveInfo.rando.sariaHintsAvailable;
+
+        if (j.contains("newCycleSave")) {
+            j["newCycleSave"]["save"]["shipSaveInfo"]["rando"]["sariaHintsAvailable"] = hintsAvailable;
+        }
+
+        if (j.contains("owlSave")) {
+            j["owlSave"]["save"]["shipSaveInfo"]["rando"]["sariaHintsAvailable"] = hintsAvailable;
+        }
+    } catch (...) {
+        SPDLOG_ERROR("Failed to patch sariaHintsAvailable into save file");
+        return;
+    }
+
+    SaveManager_WriteSaveFile(fileName, j);
+}
+
 void SaveManager_MoveInvalidSaveFile(const std::filesystem::path& fileName, const std::string& message) {
     const std::filesystem::path filePath = savesFolderPath / fileName;
     const std::filesystem::path backupFilePath =
@@ -157,8 +186,7 @@ void SaveManager_MoveInvalidSaveFile(const std::filesystem::path& fileName, cons
         }
 
         SPDLOG_INFO("{}", message.c_str());
-        auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
-        gui->GetGameOverlay()->TextDrawNotification(30.0f, true, message.c_str());
+        Notification::Emit({ .message = message });
     } catch (...) { SPDLOG_ERROR("Failed to move invalid save file"); }
 }
 
@@ -269,8 +297,7 @@ bool SaveManager_HandleFileDropped(char* filePath) {
         int saveSlot = SaveManager_GetOpenFileSlot();
         if (saveSlot == -1) {
             SPDLOG_ERROR("No save slot available");
-            auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
-            gui->GetGameOverlay()->TextDrawNotification(30.0f, true, "No save slot available");
+            Notification::Emit({ .message = "No save slot available" });
             return true;
         }
 
@@ -285,19 +312,16 @@ bool SaveManager_HandleFileDropped(char* filePath) {
         }
 
         SPDLOG_INFO("Successfully imported save into slot {}", saveSlot);
-        auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
-        gui->GetGameOverlay()->TextDrawNotification(30.0f, true, "Successfully imported save into slot %d", saveSlot);
+        Notification::Emit({ .message = "Successfully imported save into slot", .suffix = std::to_string(saveSlot) });
 
         return true;
     } catch (std::exception& e) {
         SPDLOG_ERROR("Failed to load file: {}", e.what());
-        auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
-        gui->GetGameOverlay()->TextDrawNotification(30.0f, true, "Failed to load file");
+        Notification::Emit({ .message = "Failed to load file" });
         return false;
     } catch (...) {
         SPDLOG_ERROR("Failed to load file");
-        auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
-        gui->GetGameOverlay()->TextDrawNotification(30.0f, true, "Failed to load file");
+        Notification::Emit({ .message = "Failed to load file" });
         return false;
     }
 }

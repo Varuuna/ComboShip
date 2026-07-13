@@ -37,8 +37,8 @@ void Rando::Spoiler::RefreshOptions() {
 
     // If the current spoiler file is not in the randomizer folder, reset the cvar
     if (spoilerFileIndex == -1) {
-        CVarSetInteger("gRando.SpoilerFileIndex", 0);
-        CVarSetString("gRando.SpoilerFile", "");
+        CVarClear("gRando.SpoilerFileIndex");
+        CVarClear("gRando.SpoilerFile");
     } else {
         CVarSetInteger("gRando.SpoilerFileIndex", spoilerFileIndex);
     }

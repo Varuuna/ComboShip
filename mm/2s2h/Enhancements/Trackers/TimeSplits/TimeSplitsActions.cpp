@@ -6,7 +6,6 @@
 #include <ship/window/Window.h>
 #include "2s2h/BenGui/UIWidgets.hpp"
 #include <fstream>
-#include <filesystem>
 
 #include "assets/archives/icon_item_static/icon_item_static_yar.h"
 
@@ -361,13 +360,6 @@ void SplitSaveFileAction(uint32_t action, std::string listName) {
 }
 
 void RegisterTimesplits() {
-    if (!std::filesystem::exists(Ship::Context::GetPathRelativeToAppDirectory("2S2HTimeSplitData.json"))) {
-        json initFile;
-        std::ofstream file(Ship::Context::GetPathRelativeToAppDirectory("2S2HTimeSplitData.json"));
-        file << initFile.dump(4);
-        file.close();
-    }
-
     SplitSaveFileAction(SPLIT_RETRIEVE, "");
 
     COND_HOOK(OnItemGive, CVAR, [](u8 item) {

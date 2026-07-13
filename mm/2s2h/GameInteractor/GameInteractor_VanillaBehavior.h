@@ -328,6 +328,14 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // (bean->unk_1E4 == 2) || (bean->unk_1E4 == 1)
+    // ```
+    // #### `args`
+    // - `ObjBean*`
+    VB_COUNT_BURROWED_BUGS,
+
+    // #### `result`
+    // ```c
     // gHorsePlayedEponasSong
     // ```
     // #### `args`
@@ -1316,6 +1324,14 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // play->actorCtx.actorLists[ACTORCAT_EXPLOSIVES].length >= 3
+    // ```
+    // #### `args`
+    // - None
+    VB_LIMIT_EXPLOSIVES,
+
+    // #### `result`
+    // ```c
     // WaterBox_GetSurface1(play, &play->colCtx, sp4C.x, sp4C.z, &sp44, &waterBox) && ((sp44 - sp48) > 50.0f)
     // ```
     // #### `args`
@@ -1681,6 +1697,17 @@ typedef enum {
     // #### `args`
     // - `*PreRender` (prerender)
     VB_PICTO_TAKE,
+
+    // #### `result`
+    // ```c
+    // i < ARRAY_COUNT(D_8085D798)
+    // ```
+    // #### `args`
+    // - `*Player`
+    // - `*Actor` (interactRangeActor)
+    // - `ItemId`
+    // - `PlayerItemAction`
+    VB_PLAY_BOTTLE_CATCH_TEXT,
 
     // !Play_InCsMode(play) && (play->roomCtx.curRoom.num == 2)
     // ```
@@ -2355,6 +2382,14 @@ typedef enum {
     // #### `args`
     // - `*ObjYasi`
     VB_TREE_DROP_COLLECTIBLE,
+
+    // #### `result`
+    // ```c
+    // true
+    // ```
+    // #### `args`
+    // - `Player*`
+    VB_USE_BOTTLE_ITEM,
 
     // #### `result`
     // ```c

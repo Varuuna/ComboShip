@@ -159,6 +159,7 @@ std::map<RandoItemId, RandoStaticItem> Items = {
     RI(RI_SHIELD_HERO,                "the",  "Hero's Shield",              RITYPE_MAJOR,           ITEM_SHIELD_HERO,                GI_SHIELD_HERO,              GID_SHIELD_HERO),
     RI(RI_SHIELD_MIRROR,              "the",  "Mirror Shield",              RITYPE_MAJOR,           ITEM_SHIELD_MIRROR,              GI_SHIELD_MIRROR,            GID_SHIELD_MIRROR),
     RI(RI_SINGLE_MAGIC,               "the",  "Power of Magic",             RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_MAGIC_JAR_SMALL),
+    RI(RI_SKELETON_KEY,               "the",  "Skeleton Key",               RITYPE_SMALL_KEY,       ITEM_NONE,                       GI_NONE,                     GID_NONE),
     RI(RI_SNOWHEAD_BOSS_KEY,          "the",  "Snowhead Boss Key",          RITYPE_BOSS_KEY,        ITEM_KEY_BOSS,                   GI_KEY_BOSS,                 GID_KEY_BOSS),
     RI(RI_SNOWHEAD_COMPASS,           "the",  "Snowhead Compass",           RITYPE_LESSER,          ITEM_COMPASS,                    GI_COMPASS,                  GID_COMPASS),
     RI(RI_SNOWHEAD_MAP,               "the",  "Snowhead Map",               RITYPE_LESSER,          ITEM_DUNGEON_MAP,                GI_MAP,                      GID_DUNGEON_MAP),
@@ -488,6 +489,8 @@ const char* GetIconTexturePath(RandoItemId randoItemId) {
         case RI_TINGLE_MAP_STONE_TOWER:
         case RI_TINGLE_MAP_WOODFALL:
             return (const char*)gItemIconTingleMapTex;
+        case RI_SKELETON_KEY:
+            return (const char*)gItemIcons[ITEM_KEY_SMALL];
         case RI_TRIFORCE_PIECE:
             return (const char*)gTriforcePieceTex;
         case RI_OCARINA_BUTTON_A:
@@ -569,7 +572,7 @@ std::string GetItemName(RandoItemId randoItemId, bool includeArticle, RandoCheck
         RandoItemId trappedItemId = Rando::CurrentTrapItem(randoCheckId);
         std::string fakeItemName = GetItemName(trappedItemId, false);
         // Pick a random letter in the item name, and double it to fool the player
-        auto letterIndex = Ship_Random(0, fakeItemName.length() - 1);
+        auto letterIndex = Ship_Random(0, fakeItemName.length());
         char letterToDouble = fakeItemName[letterIndex];
         fakeItemName.insert(letterIndex, 1, letterToDouble);
         result.clear();

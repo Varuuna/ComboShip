@@ -65,7 +65,7 @@ std::vector<RandoItemId> GetComputedStartingItems(RandoSaveInfo& randoSaveInfo) 
         if (!hasTimeItem) {
             if (randoSaveInfo.randoSaveOptions[RO_CLOCK_SHUFFLE_PROGRESSIVE] == RO_CLOCK_SHUFFLE_RANDOM) {
                 Ship_Random_Seed(randoSaveInfo.finalSeed);
-                startingItems.push_back((RandoItemId)(RI_TIME_DAY_1 + Ship_Random(0, 5)));
+                startingItems.push_back((RandoItemId)(RI_TIME_DAY_1 + Ship_Random(0, 6)));
             } else {
                 startingItems.push_back(RI_TIME_PROGRESSIVE);
             }

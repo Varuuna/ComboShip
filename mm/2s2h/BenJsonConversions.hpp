@@ -58,6 +58,8 @@ inline void to_json(json& j, const RandoSaveInfo& rando) {
         { "randoStartingItems", rando.randoStartingItems },
         { "foundDungeonKeys", rando.foundDungeonKeys },
         { "foundTriforcePieces", rando.foundTriforcePieces },
+        { "sariaHintsAvailable", rando.sariaHintsAvailable },
+        { "sariaPriorityItems", rando.sariaPriorityItems },
     };
 }
 
@@ -70,6 +72,8 @@ inline void from_json(const json& j, RandoSaveInfo& rando) {
     j.at("randoStartingItems").get_to(rando.randoStartingItems);
     j.at("foundDungeonKeys").get_to(rando.foundDungeonKeys);
     j.at("foundTriforcePieces").get_to(rando.foundTriforcePieces);
+    j.at("sariaHintsAvailable").get_to(rando.sariaHintsAvailable);
+    j.at("sariaPriorityItems").get_to(rando.sariaPriorityItems);
 }
 
 inline void to_json(json& j, const Vec3f& vec) {

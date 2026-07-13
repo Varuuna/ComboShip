@@ -681,7 +681,8 @@ static std::string g_PendingMMPlacements;
 // playthroughOut (optional) receives the structured sphere playthrough for the consolidated file.
 static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRando::OracleFns& ootOracle,
                                   const ComboRando::OracleFns& mmOracle, const std::string& seedLabel,
-                                  nlohmann::json* playthroughOut = nullptr);
+                                  nlohmann::json* playthroughOut = nullptr, const std::string& sohDump = "",
+                                  const std::string& mmDump = "");
 
 // ComboShip: worker that runs the combined-logic fill (or no-logic fallback) on a background
 // thread, reports progress via the ComboGenProgress struct, and stashes placements.
@@ -760,7 +761,8 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             // ComboShip: write the sphere-by-sphere playthrough log. Replays reachability via the
             // oracles BEFORE SOH_ApplyRandoPlacements restores the live OOT context, so it can't
             // corrupt the generated seed. Restores MM itself.
-            WriteComboPlaythrough(result.spoilerJson, ootOracle, mmOracle, inputSeed, &playthroughJson);
+            WriteComboPlaythrough(result.spoilerJson, ootOracle, mmOracle, inputSeed, &playthroughJson, sohDump,
+                                  mmDump);
         } else {
             lastFillError = result.error;
             std::cout << "[ComboShip] RunComboFill: attempt " << (attempt + 1) << "/" << kFillAttempts
@@ -1022,10 +1024,12 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
 // Called both from the env-gated entry below and from RunComboFill on every in-game generation.
 static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRando::OracleFns& ootOracle,
                                   const ComboRando::OracleFns& mmOracle, const std::string& seedLabel,
-                                  nlohmann::json* playthroughOut) {
+                                  nlohmann::json* playthroughOut, const std::string& sohDump,
+                                  const std::string& mmDump) {
     // Thin wrapper over the shared traversal (combo/rando/ComboPlaythrough.h); passes this build's
     // MM oracle-restore pointer. Keeps the in-game generator and headless validator identical.
-    ComboRando::RunPlaythrough(spoilerJson, ootOracle, mmOracle, seedLabel, Combo_MM_Rando_Restore, playthroughOut);
+    ComboRando::RunPlaythrough(spoilerJson, ootOracle, mmOracle, seedLabel, Combo_MM_Rando_Restore, playthroughOut,
+                               sohDump, mmDump);
 }
 
 // Env-gated entry: COMBO_PLAYTHROUGH=<seed> generates that seed headless, then writes its log.
@@ -1045,14 +1049,17 @@ static void RunComboPlaythrough(const std::string& inputSeed) {
     ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
                                        Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
     std::string seedStr = inputSeed.empty() ? "1" : inputSeed;
-    auto fill = ComboRando::CrossWorldCombinedFill(SOH_DumpRandoStaticData(), MM_DumpRandoStaticData(),
-                                                   ComboHash(seedStr.c_str()), ootOracle, mmOracle, "", nullptr);
+    std::string sohDump = SOH_DumpRandoStaticData();
+    std::string mmDump = MM_DumpRandoStaticData();
+    auto fill = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, ComboHash(seedStr.c_str()), ootOracle, mmOracle,
+                                                   "", nullptr);
     if (!fill.success) {
         Combo_MM_Rando_Restore();
         std::cerr << "[PLAYTHROUGH] seed '" << seedStr << "' did not generate: " << fill.error << "\n";
         return;
     }
-    WriteComboPlaythrough(fill.spoilerJson, ootOracle, mmOracle, seedStr); // restores MM at the end
+    // restores MM at the end
+    WriteComboPlaythrough(fill.spoilerJson, ootOracle, mmOracle, seedStr, nullptr, sohDump, mmDump);
 }
 
 // ComboShip: generate-request handler — called by SOH_TriggerComboGenerate from the UI. Runs

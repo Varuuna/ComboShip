@@ -33,9 +33,12 @@ struct PlaythroughResult {
 // Endgame proxies the oracles actually emit (see ComboShip.cpp for the rationale — the literal "Ganon"
 // check needs CanUse(RG_MASTER_SWORD), an equip flag the headless engine doesn't model, so we use
 // tower-top + Boss Key owned; MM uses the in-lair check which already encodes the remains/masks gate).
+// sohDumpJson/mmDumpJson (optional): static-data dumps whose pool[]/fixed[] advancement flags let the
+// text log show only progression items; unknown names default to advancement so nothing is hidden.
 inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const OracleFns& ootOracle,
                                         const OracleFns& mmOracle, const std::string& seedLabel, void (*mmRestore)(),
-                                        nlohmann::json* playthroughOut = nullptr) {
+                                        nlohmann::json* playthroughOut = nullptr, const std::string& sohDumpJson = "",
+                                        const std::string& mmDumpJson = "") {
     static const char* kOotTowerTop = "Ganon's Castle Tower Boss Key Chest";
     static const char* kOotBossKey = "Ganon's Castle Boss Key";
     static const char* kMmWin = "RC_MOON_MAJORA_POT_01";
@@ -47,33 +50,58 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
         std::string check;
         GameId itemGame;
         std::string item;
+        bool advancement;
     };
     std::vector<Placed> placements;
-    std::unordered_set<std::string> foreignKey;
-    std::unordered_map<std::string, GameId> foreignItemGame;
-    std::unordered_map<std::string, std::string> foreignItemName;
+    struct ForeignInfo {
+        GameId itemGame;
+        std::string itemName;
+        bool advancement;
+    };
+    std::unordered_map<std::string, ForeignInfo> foreign; // "<cg>:<cn>"-keyed
+
+    // Per-game item-name -> advancement, from the dumps' pools. Absent dump/name => advancement;
+    // a name emitted with conflicting flags stays advancement (never hide progression).
+    std::unordered_map<std::string, bool> advByName[2];
+    auto loadAdv = [&](GameId g, const std::string& dumpJson) {
+        if (dumpJson.empty())
+            return;
+        try {
+            auto d = nlohmann::json::parse(dumpJson);
+            for (auto& it : d.value("pool", nlohmann::json::array()))
+                advByName[g][it.value("name", "")] |= it.value("advancement", true);
+            for (auto& f : d.value("fixed", nlohmann::json::array()))
+                advByName[g][f.value("item", "")] |= f.value("advancement", true);
+        } catch (...) {}
+    };
+    loadAdv(GAME_OOT, sohDumpJson);
+    loadAdv(GAME_MM, mmDumpJson);
+    auto lookupAdv = [&](GameId g, const std::string& item) {
+        auto it = advByName[g].find(item);
+        return it == advByName[g].end() ? true : it->second;
+    };
     try {
         auto j = nlohmann::json::parse(spoilerJson);
         for (auto& fm : j.value("foreign", nlohmann::json::array())) {
             std::string cg = fm.value("checkGame", ""), cn = fm.value("checkName", "");
             std::string ig = fm.value("itemGame", "");
-            foreignKey.insert(cg + ":" + cn);
-            foreignItemGame[cg + ":" + cn] = (ig == "mm") ? GAME_MM : GAME_OOT;
-            foreignItemName[cg + ":" + cn] = fm.value("itemName", "");
+            foreign[cg + ":" + cn] = { (ig == "mm") ? GAME_MM : GAME_OOT, fm.value("itemName", ""),
+                                       fm.value("advancement", true) };
         }
         auto addGame = [&](const char* key, GameId cg) {
             if (!j.contains(key) || !j[key].is_object())
                 return;
             for (auto& [cn, iv] : j[key].items()) {
-                std::string fk = std::string(key) + ":" + cn;
-                bool isForeign = foreignKey.count(fk) > 0;
-                GameId ig = isForeign ? foreignItemGame[fk] : cg;
+                auto fit = foreign.find(std::string(key) + ":" + cn);
+                bool isForeign = fit != foreign.end();
+                GameId ig = isForeign ? fit->second.itemGame : cg;
                 // A foreign item's placement-map value is its human DISPLAY name, but the owning game's
                 // oracle keys on its internal name (MM: RI_*). Prefer the foreign entry's itemName so the
                 // item is actually credited when handed to that oracle.
                 std::string item =
-                    (isForeign && !foreignItemName[fk].empty()) ? foreignItemName[fk] : iv.get<std::string>();
-                placements.push_back({ cg, cn, ig, item });
+                    (isForeign && !fit->second.itemName.empty()) ? fit->second.itemName : iv.get<std::string>();
+                bool adv = isForeign ? fit->second.advancement : lookupAdv(ig, item);
+                placements.push_back({ cg, cn, ig, item, adv });
             }
         };
         addGame("oot", GAME_OOT);
@@ -130,8 +158,11 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
             log << "Sphere " << sphere << ": (stuck — nothing new reachable, not yet beatable)\n";
             break;
         }
+        size_t newlyAdv = 0;
+        for (auto& p : newly)
+            newlyAdv += p.advancement ? 1 : 0;
         log << "Sphere " << sphere << "  (Ganon=" << (canGanon ? "Y" : "n") << " Majora=" << (canMajora ? "Y" : "n")
-            << ", +" << newly.size() << " items)\n";
+            << ", +" << newly.size() << " items, " << newlyAdv << " progression)\n";
         nlohmann::json sphereSteps = nlohmann::json::array();
         for (auto& p : newly) {
             std::string key = (p.checkGame == GAME_OOT ? "oot:" : "mm:") + p.check;
@@ -142,6 +173,9 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
                                         { "check", p.check },
                                         { "item", p.item },
                                         { "foreign", p.checkGame != p.itemGame } });
+            // Junk is still collected (and kept in playthroughOut for hints) but not printed.
+            if (!p.advancement)
+                continue;
             log << "    [" << (p.checkGame == GAME_OOT ? "OOT" : "MM ") << "] " << p.check << "  <-  " << p.item
                 << (p.checkGame != p.itemGame ? (p.itemGame == GAME_OOT ? "  (OOT item)" : "  (MM item)") : "") << "\n";
         }
@@ -178,6 +212,9 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
                 continue;
             bool got = everReach.count(p.check) > 0;
             got ? ++reached : ++missing;
+            // Reached junk is noise; unreachable stays visible regardless (it's the diagnostic).
+            if (got && !p.advancement)
+                continue;
             log << "    " << (got ? "  " : "! ") << p.check << "  <-  " << p.item
                 << (p.checkGame != p.itemGame ? (p.itemGame == GAME_OOT ? "  (OOT item)" : "  (MM item)") : "")
                 << (got ? "" : "   [UNREACHABLE]") << "\n";
@@ -186,7 +223,7 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
         reachedOut = reached;
         missingOut = missing;
     };
-    log << "\n==== Full placement (all checks) ====\n";
+    log << "\n==== Placement (progression + unreachable; counts cover all checks) ====\n";
     emitGame(GAME_OOT, "OOT", everReachOot, result.reachableOot, result.unreachableOot);
     emitGame(GAME_MM, "MM", everReachMm, result.reachableMm, result.unreachableMm);
 

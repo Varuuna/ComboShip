@@ -3005,8 +3005,9 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     while (itemPool.size() < checkPool.size())
         itemPool.push_back(RI_JUNK);
 
+    // RI_TRAP is RITYPE_LESSER but never gates logic — class it junk like OOT's traps.
     auto isAdvancement = [](const auto& it) {
-        return it.randoItemType != RITYPE_JUNK && it.randoItemType != RITYPE_HEALTH;
+        return it.randoItemType != RITYPE_JUNK && it.randoItemType != RITYPE_HEALTH && it.randoItemId != RI_TRAP;
     };
 
     // Confined pre-placements -> fixed[] (removed checks = checkPoolBefore minus checkPool).
@@ -3102,9 +3103,7 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         // ComboShip: "name" MUST stay spoilerName (RI_*) — grant lookup keys on it. "displayName"
         // is the human string (StaticData's unused .name field) for toasts/shops in the OTHER game.
         // advancement drives whether a foreign item plays the held-up pickup animation.
-        nlohmann::json entry = { { "name", item.spoilerName },
-                                 { "advancement",
-                                   item.randoItemType != RITYPE_JUNK && item.randoItemType != RITYPE_HEALTH } };
+        nlohmann::json entry = { { "name", item.spoilerName }, { "advancement", isAdvancement(item) } };
         if (item.name && item.name[0] != '\0') {
             entry["displayName"] = item.name;
         }

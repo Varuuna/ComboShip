@@ -221,7 +221,7 @@ int main(int argc, char** argv) {
             };
             mergeFixed(sohDump, "oot");
             mergeFixed(mmDump, "mm");
-            return ComboRando::RunPlaythrough(passFlat.dump(), oot, mmO, label, MM_Restore, ptOut);
+            return ComboRando::RunPlaythrough(passFlat.dump(), oot, mmO, label, MM_Restore, ptOut, sohDump, mmDump);
         };
 
         // Affordability canary: re-check every priced purchase in the walk against the wallets held

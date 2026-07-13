@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 0   # need our vendored trees' full history (merge-base derivation)
+          fetch-depth: 0   # full history: keeps prior vendor/upstream objects local for the pins diffs
           # PAT so the opened PR triggers build-artifacts.yml / clang-format.yml (a PR opened by the
           # default GITHUB_TOKEN does NOT trigger other workflows). Falls back to GITHUB_TOKEN if unset
           # (PR is still created; a maintainer push then triggers the build). See docs/UPSTREAM_MERGES.md.
@@ -158,7 +158,7 @@ jobs:
               await core.summary.addRaw(`\n> ℹ️ PR #${n} is already open — left untouched. New upstream commits may have landed since it was opened; close it (and delete the branch) to regenerate.\n`).write();
             }
 
-      # 2a. Prepare the PR branch + per-folder merge bases (derived from develop's own history).
+      # 2a. Prepare the PR branch + per-folder merge bases (synthesized from upstream-pins.json).
       - name: Prepare branch + merge bases
         if: steps.report.outputs.any_new == '1' && steps.guard.outputs.pr_exists != 'true'
         shell: bash
@@ -168,14 +168,21 @@ jobs:
           git config user.email 'comboship-bot@users.noreply.github.com'
           git switch -C bot/upstream-merge
 
-          # vendor-<key> must point at the PREVIOUS vendor commit so the upcoming 3-way merge finds the
-          # right base (= upstream tree at the last-merged SHA). That commit is the 2nd parent of the most
-          # recent per-folder merge on develop — self-healing, no dependence on pushed vendor-* branches.
+          # vendor-<key> starts at a base commit whose tree = upstream at the last-merged SHA grafted
+          # under our prefix (same mktree construction scripts/upstream-merge.ps1 uses for tips). The
+          # base is synthesized from upstream-pins.json, NOT from develop's merge commits: pins are file
+          # content so they survive a squash-merged PR; merge commits don't (the 2026-07-13 run derived
+          # a stale pre-squash base and re-conflicted upstream ranges merged weeks earlier).
           for key in libultraship soh mm; do
-            prev=$(git log --merges -n1 --format=%H --grep="merge(${key}):" origin/develop || true)
-            if [ -z "$prev" ]; then echo "::error::no prior merge($key) commit on develop"; exit 1; fi
-            git branch -f "vendor-${key}" "${prev}^2"
-            echo "vendor-${key} base = $(git rev-parse --short=9 ${prev}^2)"
+            prefix=$(jq -r ".upstreams.\"$key\".prefix"  upstream-pins.json)
+            subtree=$(jq -r ".upstreams.\"$key\".subtree" upstream-pins.json)
+            merged=$(jq -r ".upstreams.\"$key\".mergedSha" upstream-pins.json)
+            if [ -n "$subtree" ]; then treeRef="$merged:$subtree"; else treeRef="$merged^{tree}"; fi
+            sub=$(git rev-parse --verify "$treeRef")   # upstream objects were fetched in step 1
+            baseTree=$(printf '040000 tree %s\t%s\n' "$sub" "$prefix" | git mktree)
+            base=$(git commit-tree "$baseTree" -m "vendor base: $key $merged")
+            git branch -f "vendor-${key}" "$base"
+            echo "vendor-${key} base = $(git rev-parse --short=9 "$base") (upstream $merged)"
           done
 
       # 2b. Reuse the local merge engine for the hard git plumbing: fetch + blob-hydrate + rebuild the
@@ -189,8 +196,10 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $false
           ./scripts/upstream-merge.ps1 -Depth 1000
 
-      # 2c. Mechanical 3-way merge (order: libultraship → soh → mm), one commit per folder. Commit conflict
-      #     markers so the PR is always a complete unit; flag them for the human to resolve on the branch.
+      # 2c. Mechanical 3-way merge (order: libultraship → soh → mm), one commit per folder, via
+      #     merge-tree with the pins-derived base passed explicitly (develop's ancestry is irrelevant,
+      #     so squash-merged PRs can't stale it). Conflict markers land in the committed tree so the PR
+      #     is always a complete unit; the human resolves them on the branch.
       - name: Merge + bookkeeping
         id: merge
         if: steps.report.outputs.any_new == '1' && steps.guard.outputs.pr_exists != 'true'
@@ -208,26 +217,54 @@ jobs:
           for key in libultraship soh mm; do
             branch=$(jq -r ".upstreams.\"$key\".branch" upstream-pins.json)
             old=$(jq -r ".upstreams.\"$key\".mergedSha" upstream-pins.json)
+            prefix=$(jq -r ".upstreams.\"$key\".prefix" upstream-pins.json)
             tip=$(git rev-parse "${REMOTE[$key]}/$branch")
             new=$(git rev-parse --short=9 "$tip")
             if [ "$(git rev-parse "$old")" = "$tip" ]; then continue; fi   # nothing new for this folder
             NEWSHA[$key]=$new
 
-            msg="merge($key): $branch $old -> $new"
-            if [ "$key" = "mm" ]; then
-              MERGE=(git -c merge.renames=false merge --no-ff -m "$msg" "vendor-$key")
-            else
-              MERGE=(git merge --no-ff -m "$msg" "vendor-$key")
+            # Explicit-base 3-way merge. The base = the synthesized vendor commit from step 2a (parent
+            # of the rebuilt vendor tip). renames=false for ALL folders — rename detection is what
+            # spliced soh chest materials into mm assets (#50 and 2026-07-13). On conflicts merge-tree
+            # still writes a full tree (markers baked in) and exits 1 — exactly the commit-the-markers
+            # policy; any other exit is a real error.
+            base=$(git rev-parse "vendor-$key^")
+            set +e
+            out=$(git -c merge.renames=false merge-tree --write-tree --name-only \
+                    --merge-base="$base" HEAD "vendor-$key")
+            status=$?
+            set -e
+            tree=$(printf '%s\n' "$out" | head -n1)
+            if [ "$status" -gt 1 ] || [ -z "$tree" ]; then
+              echo "::error::merge-tree failed for $key (exit $status)"
+              printf '%s\n' "$out"
+              exit 1
             fi
-            if "${MERGE[@]}"; then
-              echo "  $key: clean"
-            else
-              echo "## $key" >> "$CONFLICTS_FILE"
-              git diff --name-only --diff-filter=U >> "$CONFLICTS_FILE"
-              git add -A
-              git commit --no-edit
+
+            msg="merge($key): $branch $old -> $new"
+            commit=$(git commit-tree "$tree" -p HEAD -p "vendor-$key" -m "$msg")
+            git reset --hard "$commit"
+
+            # Tripwire: a folder's merge must never touch files outside its own prefix — cross-folder
+            # writes are the asset-splice signature (mm assets corrupted by the soh merge, twice).
+            stray=$(git diff --name-only HEAD^ HEAD | grep -v "^$prefix/" || true)
+            if [ -n "$stray" ]; then
+              echo "::error::$key merge touched files outside $prefix/ — aborting"
+              echo "$stray"
+              exit 1
+            fi
+
+            if [ "$status" -eq 1 ]; then
+              {
+                echo "## $key"
+                # merge-tree output: line 1 = tree OID, then conflicted paths until the blank line
+                # that separates them from the informational messages.
+                printf '%s\n' "$out" | awk 'NR>1 { if ($0 == "") exit; print }' | sort -u
+              } >> "$CONFLICTS_FILE"
               HAD_CONFLICTS=1
               echo "  $key: CONFLICTS committed as markers"
+            else
+              echo "  $key: clean"
             fi
           done
 
@@ -275,15 +312,12 @@ jobs:
             const fs = require('fs');
             const { owner, repo } = context.repo;
             const head = 'bot/upstream-merge';
-            const conflicts = process.env.HAD_CONFLICTS === '1';
-            const title = `${conflicts ? ' Conflicts — ' : ''}Upstream merge → ${process.env.DATE}`;
+            const title = `Upstream merge → ${process.env.DATE}`;
 
             let body = fs.readFileSync(process.env.REPORT_PATH, 'utf8');
             if (process.env.HAD_CONFLICTS === '1') {
               let conf = '';
               try { conf = fs.readFileSync(process.env.CONFLICTS_PATH, 'utf8'); } catch (e) {}
-              // The required `conflict-markers` check hard-blocks the merge until resolved, so no need to
-              // shout — just point at the work. Keep the conflicted-files list; it's the useful part.
               body = '> **Conflicts committed as markers** — resolve them on the `bot/upstream-merge` '
                    + 'branch (keep COMBO_BUILD blocks; see docs/UPSTREAM_MERGES.md). The required '
                    + '`conflict-markers` check stays red, and lists each `file:line`, until they are gone.\n\n'

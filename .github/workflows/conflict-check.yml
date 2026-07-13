@@ -21,7 +21,9 @@ jobs:
           set -uo pipefail
           # Hunk-start markers (and the diff3 base marker). These never occur in real source/docs, so a
           # plain "=======" line is intentionally NOT matched (it appears in Markdown / comment dividers).
-          pattern='^(<{7}|>{7}|\|{7})( |$)'
+          # {7,} not {7}: rename/path conflicts emit 8-char markers ("<<<<<<<< HEAD:path") — the exact
+          # form of the mm-asset splices that slipped past this gate in #50 and 2026-07-13.
+          pattern='^(<{7,}|>{7,}|\|{7,})( |$)'
           hits=$(git grep -nE "$pattern" -- . ':(exclude).github/workflows/conflict-check.yml' || true)
 
           if [ -z "$hits" ]; then

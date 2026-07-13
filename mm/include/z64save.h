@@ -388,6 +388,8 @@ typedef struct RandoSaveInfo {
     u16 randoStartingItems[256]; // Max 256 starting items, using u16 in case we add more than 255 items
     s8 foundDungeonKeys[9]; // Tracks the number of dungeon keys found, opposed to the number of keys in the inventory
     u16 foundTriforcePieces;
+    u8 sariaHintsAvailable;
+    u16 sariaPriorityItems[16];
 #ifdef COMBO_BUILD
     u8 pendingTrapCount; // ComboShip: cross-world traps granted while MM was dormant; drained on activation
 #endif

@@ -3075,10 +3075,10 @@ void Context::FinalizeSettings(const std::set<RandomizerCheck>& excludedLocation
     }
 }
 
-void Settings::ParseJson(nlohmann::json spoilerFileJson) {
-    mContext->SetSeedString(spoilerFileJson["seed"].get<std::string>());
-    mContext->SetSeed(spoilerFileJson["finalSeed"].get<uint32_t>());
-    nlohmann::json settingsJson = spoilerFileJson["settings"];
+void Settings::ParseJson(const nlohmann::json& spoilerFileJson) {
+    mContext->SetSeedString(spoilerFileJson.at("seed").get<std::string>());
+    mContext->SetSeed(spoilerFileJson.at("finalSeed").get<uint32_t>());
+    nlohmann::json settingsJson = spoilerFileJson.value("settings", nlohmann::json());
     for (auto it = settingsJson.begin(); it != settingsJson.end(); ++it) {
         // todo load into cvars for UI
         // RANDOTODO handle numeric value to options conversion better than brute force
@@ -3088,7 +3088,7 @@ void Settings::ParseJson(nlohmann::json spoilerFileJson) {
         }
     }
 
-    nlohmann::json jsonExcludedLocations = spoilerFileJson["excludedLocations"];
+    nlohmann::json jsonExcludedLocations = spoilerFileJson.value("excludedLocations", nlohmann::json());
     const auto ctx = Context::GetInstance();
 
     for (auto it = jsonExcludedLocations.begin(); it != jsonExcludedLocations.end(); ++it) {
@@ -3096,7 +3096,7 @@ void Settings::ParseJson(nlohmann::json spoilerFileJson) {
         ctx->GetItemLocation(rc)->SetExcludedOption(RO_GENERIC_ON);
     }
 
-    nlohmann::json enabledTricksJson = spoilerFileJson["enabledTricks"];
+    nlohmann::json enabledTricksJson = spoilerFileJson.value("enabledTricks", nlohmann::json());
     for (auto it = enabledTricksJson.begin(); it != enabledTricksJson.end(); ++it) {
         const RandomizerTrick rt = mTrickNameToEnum[it.value()];
         GetTrickSetting(rt).SetContextIndex(RO_GENERIC_ON);

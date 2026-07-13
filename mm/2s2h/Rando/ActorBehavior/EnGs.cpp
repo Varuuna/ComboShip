@@ -131,7 +131,7 @@ RandoCheckId GetRandomCheck(bool repeatableOnlyObtained = false) {
         Ship_Random_Seed(gSaveContext.save.shipSaveInfo.rando.finalSeed + seed);
     }
 
-    u32 roll = Ship_Random(0, totalWeight - 1);
+    u32 roll = Ship_Random(0, totalWeight);
     for (auto& [checkId, cumWeight] : weightedChecks) {
         if (roll < cumWeight) {
             return checkId;
@@ -232,7 +232,7 @@ void Rando::ActorBehavior::InitEnGsBehavior() {
                 entry.msg = "Foolish... Come back later when you have more sense.";
             }
         } else {
-            entry.msg = flavorText[Ship_Random(0, flavorText.size() - 1)];
+            entry.msg = flavorText[Ship_Random(0, flavorText.size())];
         }
 
         CustomMessage::LoadCustomMessageIntoFont(entry);

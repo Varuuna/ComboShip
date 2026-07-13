@@ -9,7 +9,7 @@
 #include <fast/Fast3dGui.h>
 #include <libultraship/bridge/consolevariablebridge.h>
 #include <ship/Context.h>
-#include <ship/window/Window.h>
+#include <ship/window/Window.h> // ComboShip: complete type for GetWindow()->GetGui()
 
 extern "C" {
 #include "macros.h"

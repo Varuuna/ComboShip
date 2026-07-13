@@ -96,6 +96,9 @@ TrackerImageObject GetImageObject(TrackerItemType itemType, u32 itemId) {
                 case RI_TRIFORCE_PIECE: {
                     itemObtained = gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces > 0;
                 } break;
+                case RI_SONG_SARIA: {
+                    itemObtained = gSaveContext.save.shipSaveInfo.rando.sariaHintsAvailable > 0;
+                } break;
                 default: {
                     itemObtained = !Rando::IsItemObtainable(randoItemId);
                 } break;
@@ -201,6 +204,12 @@ std::string GetItemCounts(TrackerItemType itemType, u32 itemId) {
                         auto max = RANDO_SAVE_OPTIONS[RO_TRIFORCE_PIECES_REQUIRED];
                         countStr = fmt::format(FORMAT_COUNT, gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces,
                                                max > 999 ? "1k" : std::to_string(max));
+                    }
+                } break;
+                case RI_SONG_SARIA: {
+                    auto count = gSaveContext.save.shipSaveInfo.rando.sariaHintsAvailable;
+                    if (count > 1) {
+                        countStr = std::to_string(count);
                     }
                 } break;
                 case RI_GS_TOKEN_OCEAN:

@@ -1817,7 +1817,7 @@ void DrawRegEditorTab() {
 
 const char* flagEditorSections[] = {
     "currentSceneFlags", "weekEventReg",        "eventInf",        "scenesVisible",
-    "owlActivation",     "permanentSceneFlags", "cycleSceneFlags",
+    "owlActivation",     "permanentSceneFlags", "cycleSceneFlags", "randoInf",
 };
 
 void DrawFlagsTab() {
@@ -2281,6 +2281,17 @@ void DrawFlagsTab() {
             }
             UIWidgets::DrawFlagArray32("##clearedRoom", gSaveContext.cycleSceneFlags[selectedScene].clearedRoom);
             ImGui::EndGroup();
+            break;
+        case RANDO_INF:
+            for (int i = 0; i < 5; i++) {
+                ImGui::PushID(i);
+                ImGui::AlignTextToFramePadding();
+                ImGui::Text("%02d", i);
+                ImGui::SameLine(ImGui::CalcTextSize("000").x + ImGui::GetStyle().ItemSpacing.x);
+                UIWidgets::DrawFlagTableArray16(flagTables.at(RANDO_INF), i,
+                                                gSaveContext.save.shipSaveInfo.rando.randoInf[i]);
+                ImGui::PopID();
+            }
             break;
     }
     ImGui::PopStyleVar();

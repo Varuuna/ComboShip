@@ -121,11 +121,11 @@ class Context {
 
     GetItemEntry GetFinalGIEntry(RandomizerCheck rc, bool checkObtainability = true, GetItemID ogItemId = GI_NONE);
     void ParseSpoiler(const char* spoilerFileName);
-    void ParseHashIconIndexesJson(nlohmann::json spoilerFileJson);
-    void ParseItemLocationsJson(nlohmann::json spoilerFileJson);
+    void ParseHashIconIndexesJson(const nlohmann::json& spoilerFileJson);
+    void ParseItemLocationsJson(const nlohmann::json& spoilerFileJson);
     void WriteHintJson(nlohmann::ordered_json& spoilerFileJson);
-    void ParseHintJson(nlohmann::json spoilerFileJson);
-    void ParseTricksJson(nlohmann::json spoilerFileJson);
+    void ParseHintJson(const nlohmann::json& spoilerFileJson);
+    void ParseTricksJson(const nlohmann::json& spoilerFileJson);
     std::map<RandomizerCheck, ItemOverride> overrides = {};
     std::vector<std::vector<RandomizerCheck>> playthroughLocations = {};
     std::vector<RandomizerCheck> everyPossibleLocation = {};

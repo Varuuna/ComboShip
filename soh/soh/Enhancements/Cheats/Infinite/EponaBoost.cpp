@@ -1,5 +1,9 @@
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/ShipInit.hpp"
+<<<<<<< HEAD
+=======
+#include "soh/cvar_prefixes.h"
+>>>>>>> vendor-soh
 
 static void RegisterInfiniteEponaBoost() {
     COND_VB_SHOULD(VB_CONSUME_EPONA_BOOST, CVarGetInteger(CVAR_CHEAT("InfiniteEponaBoost"), 0), { *should = false; });

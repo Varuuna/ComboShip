@@ -6,6 +6,10 @@
 #include "soh/OTRGlobals.h"
 
 extern "C" {
+<<<<<<< HEAD
+=======
+#include "z64.h"
+>>>>>>> vendor-soh
 #include "macros.h"
 #include "variables.h"
 }

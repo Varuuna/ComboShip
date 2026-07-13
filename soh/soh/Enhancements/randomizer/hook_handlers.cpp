@@ -14,6 +14,7 @@
 #include "soh/ObjectExtension/ObjectExtension.h"
 #include "item_category_adj.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
+<<<<<<< HEAD
 #ifdef COMBO_BUILD
 #include "rando/CrossForeign.h" // ComboShip: cross-world foreign-item marker map
 // ComboShip (issue #3): immediate cross-game delivery. gComboCrossDeliver (defined in OTRGlobals.cpp)
@@ -22,6 +23,8 @@
 extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName);
 extern "C" void Anchor_BroadcastCrossItem(int targetGame, const char* itemName, const char* srcCheckName);
 #endif
+=======
+>>>>>>> vendor-soh
 #include "soh/Enhancements/randomizer/randomizer_check_tracker.h"
 #include "soh/Enhancements/randomizer/RCToRandInf.h"
 
@@ -1481,8 +1484,8 @@ void RandomizerOnVanillaBehaviorHandler(GIVanillaBehavior id, bool* should, va_l
 
                 // This is typically called when you close the text box after getting an item, in case a previous
                 // function hid the interface.
-                gSaveContext.unk_13EA = 0;
-                Interface_ChangeAlpha(0x32);
+                gSaveContext.hudVisibilityMode = 0;
+                Interface_ChangeHudVisibilityMode(0x32);
                 // EnItem00_SetupAction(item00, func_8001E5C8);
                 // *should = false;
             } else if (item00->actor.params == ITEM00_SOH_GIVE_ITEM_ENTRY_GI) {
@@ -1706,7 +1709,7 @@ void RandomizerOnVanillaBehaviorHandler(GIVanillaBehavior id, bool* should, va_l
                 bool hasShieldHoldingR = (CHECK_BTN_ANY(input.cur.button, BTN_R) &&
                                           CUR_EQUIP_VALUE(EQUIP_TYPE_SHIELD) > EQUIP_VALUE_SHIELD_NONE);
 
-                if (func_8002F368(gPlayState) == EXCH_ITEM_PRESCRIPTION ||
+                if (Actor_GetPlayerExchangeItemId(gPlayState) == EXCH_ITEM_PRESCRIPTION ||
                     (hasShieldHoldingR && INV_CONTENT(ITEM_TRADE_ADULT) < ITEM_FROG)) {
                     Flags_SetRandomizerInf(RAND_INF_ADULT_TRADES_ZD_TRADE_PRESCRIPTION);
                     Flags_UnsetRandomizerInf(RAND_INF_ADULT_TRADES_HAS_PRESCRIPTION);
@@ -1948,6 +1951,17 @@ void RandomizerOnVanillaBehaviorHandler(GIVanillaBehavior id, bool* should, va_l
         case VB_GIVE_ITEM_GERUDO_MEMBERSHIP_CARD: {
             Flags_SetRandomizerInf(RAND_INF_TH_ITEM_FROM_LEADER_OF_FORTRESS);
             *should = false;
+            break;
+        }
+        case VB_PLAYER_SPAWN_SWIMMING: {
+            // Don't swim as adult coming from Domain to Lake with low water.
+            // Caused by waterbox first frame y surface always being -1313.0f
+            Player* player = va_arg(args, Player*);
+            if (gPlayState->sceneNum == SCENE_LAKE_HYLIA && LINK_IS_ADULT &&
+                !Flags_GetEventChkInf(EVENTCHKINF_RAISED_LAKE_HYLIA_WATER) && player->actor.world.pos.y > -1550.0f &&
+                player->actor.world.pos.y < -1500.0f) {
+                *should = false;
+            }
             break;
         }
         case VB_BE_ELIGIBLE_FOR_RAINBOW_BRIDGE: {
@@ -2272,7 +2286,7 @@ void RandomizerOnSceneInitHandler(int16_t sceneNum) {
                 // Reset room ctx back to prev room and then load the new room
                 gPlayState->roomCtx.status = 0;
                 gPlayState->roomCtx.curRoom = gPlayState->roomCtx.prevRoom;
-                func_8009728C(gPlayState, &gPlayState->roomCtx, replacedRoom);
+                Room_RequestNewRoom(gPlayState, &gPlayState->roomCtx, replacedRoom);
             }
         }
 

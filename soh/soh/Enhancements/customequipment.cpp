@@ -8,6 +8,7 @@
 #include "soh/ResourceManagerHelpers.h"
 
 extern "C" {
+#include "z64.h"
 #include "macros.h"
 #include "functions.h"
 #include "variables.h"
@@ -54,7 +55,11 @@ static Gfx* LoadCustomGfx(const char* path) {
     if (!path)
         return nullptr;
     path = ResolveCustomFPSHand(path);
+<<<<<<< HEAD
     if (!ResourceMgr_FileAltExists(path) || !ResourceGetIsCustomByName(path))
+=======
+    if (!ResourceMgr_FileAltExists(path) && !ResourceGetIsCustomByName(path))
+>>>>>>> vendor-soh
         return nullptr;
     return ResourceMgr_LoadGfxByName(path);
 }

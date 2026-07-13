@@ -247,10 +247,13 @@ void BuildItemMessage(u16* textId, bool* loadFromMessageTable) {
         BuildTriforcePieceMessage(msg);
     } else if (player->getItemEntry.getItemId == RG_TRIFORCE) {
         BuildTriforceMessage(msg);
+<<<<<<< HEAD
 #ifdef COMBO_BUILD
     } else if (player->getItemEntry.getItemId == RG_COMBO_FOREIGN) {
         BuildComboForeignMessage(player, msg);
 #endif
+=======
+>>>>>>> vendor-soh
     } else {
         BuildCustomItemMessage(player, msg);
     }

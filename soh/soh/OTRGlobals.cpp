@@ -3286,6 +3286,21 @@ static bool Combo_IsShopSlot(RandomizerCheck rc, const std::unordered_set<Random
     return shopSlots.count(rc) > 0;
 }
 
+// Dump-time snapshot of the shuffled-slot set (GAP-8): the validator forces glitchless logic after
+// the dump, which would shrink a No-Logic seed's 8-slot shops to 7 on every recompute. The
+// computation still runs each call so the RNG stream stays identical to a cache miss.
+static std::unordered_set<RandomizerCheck> sComboShuffledSlotsCache;
+static bool sComboShuffledSlotsCacheValid = false;
+
+static const std::unordered_set<RandomizerCheck>& Combo_GetShuffledShopSlots() {
+    auto computed = Combo_ShuffledShopSlots();
+    if (!sComboShuffledSlotsCacheValid) {
+        sComboShuffledSlotsCache = std::move(computed);
+        sComboShuffledSlotsCacheValid = true;
+    }
+    return sComboShuffledSlotsCache;
+}
+
 // Shop items + shop/scrub/merchant prices, exactly as Fill() sets them; called wherever ItemReset()
 // cleared them (ComboFillConfined, oracle reset, apply). Idempotent: reseeded per call.
 void Combo_SetupOOTShops() {
@@ -3297,7 +3312,7 @@ void Combo_SetupOOTShops() {
     if (ctx->GetOption(RSK_SHOPSANITY).Is(RO_SHOPSANITY_OFF)) {
         PlaceVanillaShopItems();
     } else {
-        auto shuffled = Combo_ShuffledShopSlots();
+        const auto& shuffled = Combo_GetShuffledShopSlots();
         for (RandomizerCheck rc : Rando::StaticData::GetShopLocations()) {
             Rando::ItemLocation* loc = ctx->GetItemLocation(rc);
             if (shuffled.count(rc)) {
@@ -3377,6 +3392,9 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoSettings(void) {
         if (!cv.empty())
             j[cv] = static_cast<int>(opt.GetOptionIndex());
     }
+    // String CVar outside GetAllOptions(); without it a replayed spoiler inherits the local machine's
+    // exclusions (GAP-7). Restore below is type-aware.
+    j[CVAR_RANDOMIZER_SETTING("ExcludedLocations")] = CVarGetString(CVAR_RANDOMIZER_SETTING("ExcludedLocations"), "");
     cached = j.dump();
     return cached.c_str();
 }
@@ -3389,8 +3407,15 @@ extern "C" __declspec(dllexport) void SOH_RestoreRandoSettings(const char* json)
         return;
     try {
         auto j = nlohmann::json::parse(json);
-        for (auto it = j.begin(); it != j.end(); ++it)
-            CVarSetInteger(it.key().c_str(), it.value().get<int>());
+        // Snapshot is authoritative: pre-clear so a spoiler without the key (pre-GAP-7, generated
+        // with no exclusions applied) doesn't inherit this machine's local exclusions.
+        CVarSetString(CVAR_RANDOMIZER_SETTING("ExcludedLocations"), "");
+        for (auto it = j.begin(); it != j.end(); ++it) {
+            if (it.value().is_string())
+                CVarSetString(it.key().c_str(), it.value().get<std::string>().c_str());
+            else
+                CVarSetInteger(it.key().c_str(), it.value().get<int>());
+        }
     } catch (...) {}
 }
 
@@ -3419,13 +3444,27 @@ static void Combo_ApplyEnabledTricks() {
     }
 }
 
+// The ExcludedLocations CSV (check IDs) is only parsed on SoH's GUI generate path
+// (randomizer.cpp:930); the combo prep paths must parse it too or exclusions never apply headless.
+static std::set<RandomizerCheck> Combo_ParseExcludedLocations() {
+    std::set<RandomizerCheck> excluded;
+    std::stringstream ss(CVarGetString(CVAR_RANDOMIZER_SETTING("ExcludedLocations"), ""));
+    std::string tok;
+    while (std::getline(ss, tok, ',')) {
+        try {
+            excluded.insert(static_cast<RandomizerCheck>(std::stoi(tok)));
+        } catch (...) {}
+    }
+    return excluded;
+}
+
 extern "C" __declspec(dllexport) void SOH_PrepRandoContext(void) {
     try {
         auto ctx = OTRGlobals::Instance->gRandoContext;
         Rando::Settings::GetInstance()->SetAllToContext();
         Combo_ApplyEnabledTricks();
         ctx->GetLogic()->Reset();
-        ctx->FinalizeSettings({}, {});
+        ctx->FinalizeSettings(Combo_ParseExcludedLocations(), {});
         RegionTable_Init();
         ctx->GenerateLocationPool();
     } catch (const std::exception& e) { SPDLOG_ERROR("[ComboShip] SOH_PrepRandoContext: {}", e.what()); } catch (...) {
@@ -3464,6 +3503,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         // Generation entry: drop any reload-set price overrides or a prior seed's prices would
         // silently win over this seed's rolls in every oracle reset and in the final apply.
         sComboCheckPriceOverrides.clear();
+        sComboShuffledSlotsCacheValid = false; // new seed/settings -> fresh slot-set snapshot
         Combo_SeedShopRng();
         ComboFillConfined();
 
@@ -3655,6 +3695,13 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
         // price). The combo placements below only cover the shuffled slots (the dump excluded the
         // vanilla ones), so they land on validly-priced slots and don't clobber the vanilla items.
 #ifdef COMBO_BUILD
+        sComboShuffledSlotsCacheValid = false; // reload may carry different settings than the last dump
+        // Combo seeds carry no NPC hints (CreateAllHints never runs; the combo sphere-hint panel is
+        // the hint system). Force the hint settings off so stones/Ganondorf/warp texts behave vanilla
+        // instead of reading the empty hint table; the save inherits these from the context (GAP-3).
+        ctx->GetOption(RSK_GOSSIP_STONE_HINTS).Set(RO_GOSSIP_STONES_NONE);
+        ctx->GetOption(RSK_GANONDORF_HINT).Set(RO_GENERIC_OFF);
+        ctx->GetOption(RSK_WARP_SONG_HINTS).Set(RO_GENERIC_OFF);
         Combo_SetupOOTShops();
         Combo_ApplyPriceOverrides(); // spoiler prices win over the re-roll on reload
         // Vanilla (non-shuffled) shop slots are owned by Combo_SetupOOTShops above; the dump emits them as
@@ -3860,7 +3907,7 @@ static void EnsureOracleInit() {
     Rando::Settings::GetInstance()->SetAllToContext(); // ComboShip: apply chosen CVar settings before finalizing
     Combo_ApplyEnabledTricks();                        // ComboShip: honor the player's tricks (see helper)
     ctx->GetLogic()->Reset();
-    ctx->FinalizeSettings({}, {});
+    ctx->FinalizeSettings(Combo_ParseExcludedLocations(), {});
     RegionTable_Init();
     ctx->GenerateLocationPool();
     // ComboShip: deliberately do NOT call GenerateItemPool() here. It builds OOT's item pool for OOT's

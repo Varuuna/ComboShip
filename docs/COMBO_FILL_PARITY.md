@@ -80,16 +80,20 @@ This document is the authoritative checklist. **Statuses:**
 
 ## GAP register
 
-| GAP | Summary | Fix phase |
+| GAP | Summary | Status |
 |---|---|---|
-| GAP-1 | OOT shop/scrub/merchant prices exist only at apply (`Combo_SetupOOTShops`); fill + oracle + validator evaluate `GetCheckPrice()==0`, so wallet gates vanish during generation. Prices must be rolled at the native position (post-`ItemReset`, pre-placement) in the oracle prep, re-established after every oracle `ItemReset`, and byte-identical to apply (seeded `Combo_SeedShopRng`). | Phase 1 |
-| GAP-2 | `PareDownPlaythrough`/WotH/barren not computed; needed only if hint generation (GAP-3) is adopted. | Phase 2 (blocked on GAP-3 decision) |
-| GAP-3 | `CreateAllHints`/`CreateWarpSongTexts` never run in combo seeds — gossip stone / warp text behavior is undefined rather than decided. | Phase 2 (decision) |
-| GAP-4 | Retry policy diverges from both natives (no outer whole-fill retry; single 10-pass inner loop). Converge per fidelity rule. | Phase 2 |
-| GAP-5 | MM prices are 0 in both the combo oracle (memset, no `GeneratePools`) and the combo in-game save (string-only apply) — shops/Tingle/`CAN_AFFORD` gates are free. Roll per native (`Ship_Random(0,200)`, seeded) and persist into the save. | Phase 1 |
-| GAP-6 | Consolidated spoiler carries no prices for either game. Emit OOT prices (SoH spoiler shape, parsed by `SeedContext.cpp:442`) and MM prices (2Ship object shape, parsed by `Apply.cpp:54`); `--playthrough` consumes spoiler prices only and hard-fails on price-less spoilers. | Phase 1 |
-| GAP-7 | Excluded-locations state leaks from local `comboship.json` into replayed spoilers: it lives in the `ExcludedLocations` CSV **string** CVar (`randomizer.cpp:931`), which `SOH_DumpRandoSettings` doesn't capture and `SOH_RestoreRandoSettings` (integer-only) couldn't restore. Per-location `Option`s have empty CVar names, so they can't be dumped generically. Likely the remaining source of the sphere-19-vs-24 validation divergence. | Phase 2 |
-| GAP-8 | Validator forces `LogicRules=0` per pass, but `GetShopsanityReplaceAmount` shuffles up to 8 slots under No Logic vs 7 otherwise — a No-Logic seed with shopsanity random/8 validates against a different shuffled-slot set. Pre-existing; escalated now that the slot set drives per-reset shop state. | Phase 2 |
+| GAP-1 | OOT shop/scrub/merchant prices existed only at apply; fill/oracle/validator evaluated `GetCheckPrice()==0`. Now rolled at the native position (`ComboFillConfined`), re-established per oracle `ItemReset`, byte-identical to apply. | **Fixed** (Phase 1) |
+| GAP-2 | `PareDownPlaythrough`/WotH/barren not computed — only needed by hint generation. | n/a while GAP-3 interim holds; revisit with the hint feature |
+| GAP-3 | `CreateAllHints`/`CreateWarpSongTexts` never run; hint surfaces read an empty table ("No Hint", no crash). **Interim:** apply forces `RSK_GOSSIP_STONE_HINTS/GANONDORF_HINT/WARP_SONG_HINTS` off so NPCs behave vanilla (ToT altar still shows "No Hint" — its hook is unconditional). The combo sphere-hint panel is the hint system for now. | **Interim fix** (Phase 2); real cross-game hints = planned feature |
+| GAP-4 | No outer whole-fill retry. Now 5 attempts (mirroring SoH) with per-attempt derived master seed, identical in `RunComboFill` and comborando so headless reproduces in-game. | **Fixed** (Phase 2) |
+| GAP-5 | MM prices were 0 in oracle and combo save. Now captured from `GeneratePools` rolls, re-applied in oracle reset + `MM_InitRandoSaveFile`. | **Fixed** (Phase 1) |
+| GAP-6 | Spoiler carried no prices. Now `oot.prices`/`mm.prices`; `--playthrough` is spoiler-hermetic and hard-fails price-less spoilers. | **Fixed** (Phase 1) |
+| GAP-7 | Exclusions: headless generation never parsed the `ExcludedLocations` CSV at all (both prep paths passed `{}` to `FinalizeSettings`), and the string CVar wasn't dumped/restored (both games). Now: prep paths parse the CSV (`Combo_ParseExcludedLocations`), dumps carry the string, restores are type-aware and pre-clear (spoiler-authoritative). MM's `gRando.ExcludedChecks` mirrored. | **Fixed** (Phase 2) |
+| GAP-8 | Validator's forced-glitchless pass shrank a No-Logic seed's 8-slot shops to 7. Now the dump snapshots the shuffled-slot set (`Combo_GetShuffledShopSlots`, RNG-stream-preserving) and the validator dumps under the seed's original rules before forcing glitchless for traversal. | **Fixed** (Phase 2) |
+
+Phase 3 regression net: comborando `--playthrough` runs an affordability canary — any purchase in the
+winning walk exceeding the wallet held at its sphere fails the run (exit 1), catching a silent return
+of the "shops are free" class.
 
 Related validator requirement (settled in planning): `--playthrough` must be hermetic — settings
 and prices come from the spoiler it reads, never from the neighboring `comboship.json`.

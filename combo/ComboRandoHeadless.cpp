@@ -174,16 +174,14 @@ int main(int argc, char** argv) {
         // Tricks are set via SOH_SetEnabledTricks/SetAllTricks BEFORE SOH_Dump, whose SOH_PrepRandoContext
         // pushes them into the Context (Combo_ApplyEnabledTricks). SOH_Dump (+seed) sets the OOT/MM contexts
         // up exactly like the fill so reachability matches. MM has no tricks.
-        auto runPass = [&](bool allTricks) {
-            nlohmann::json os = ootSettings;
-            for (auto it = os.begin(); it != os.end(); ++it)
-                if (it.key().find("LogicRules") != std::string::npos)
-                    it.value() = 0; // glitchless — evaluate real gates
-            SOH_RestoreSettings(os.dump().c_str());
+        auto runPass = [&](bool allTricks, nlohmann::json* ptOut) {
+            // Restore the seed's ORIGINAL settings for the dump so the shuffled-shop-slot set matches
+            // generation (a No-Logic seed shuffles 8 slots/shop; glitchless computes 7 — GAP-8).
+            SOH_RestoreSettings(ootSettings.dump().c_str());
             nlohmann::json ms = mmSettings;
             for (auto it = ms.begin(); it != ms.end(); ++it)
                 if (it.key().find("RO_LOGIC") != std::string::npos)
-                    it.value() = 0;
+                    it.value() = 0; // MM glitchless — pool shape is logic-independent
             MM_RestoreSettings(ms.dump().c_str());
             if (allTricks) {
                 if (SOH_SetAllTricks)
@@ -199,6 +197,14 @@ int main(int argc, char** argv) {
             // oracle still gates on (OOT vanilla shop items, MM boss remains when not shuffled) live in
             // the dump's fixed[]. Merge them in so those gates (e.g. MM RemainsCount for the Moon) resolve.
             std::string sohDump = SOH_Dump(), mmDump = MM_Dump();
+            // NOW force glitchless for traversal (real gates); the dump above froze the seed's slot
+            // set in the DLL-side cache, so this re-prep can't shrink it.
+            nlohmann::json os = ootSettings;
+            for (auto it = os.begin(); it != os.end(); ++it)
+                if (it.key().find("LogicRules") != std::string::npos)
+                    it.value() = 0;
+            SOH_RestoreSettings(os.dump().c_str());
+            SOH_PrepContext();
             // Spoiler prices are the seed's truth — they override the dumps' re-rolls in every oracle
             // reset (SOH) / query (MM), so wallet gates evaluate against what the player actually pays.
             SOH_SetCheckPrices(ootPrices.dump().c_str());
@@ -215,7 +221,48 @@ int main(int argc, char** argv) {
             };
             mergeFixed(sohDump, "oot");
             mergeFixed(mmDump, "mm");
-            return ComboRando::RunPlaythrough(passFlat.dump(), oot, mmO, label, MM_Restore);
+            return ComboRando::RunPlaythrough(passFlat.dump(), oot, mmO, label, MM_Restore, ptOut);
+        };
+
+        // Affordability canary: re-check every priced purchase in the walk against the wallets held
+        // at that sphere. A violation means the oracle's price wiring regressed to "shops are free".
+        // With Child Wallet not shuffled, logic starts at the 99-capacity tier (logic.cpp Reset).
+        const int ootBaseWalletTier =
+            ootSettings.value("gRandoSettings.ShuffleChildWallet", 0) == 0 ? 1 : 0;
+        auto affordabilityViolations = [&](const nlohmann::json& pt) {
+            int ow = 0, mw = 0, bad = 0;
+            for (const auto& sph : pt) {
+                const int owS = ow, mwS = mw; // wallets from earlier spheres only
+                for (const auto& st : sph.value("steps", nlohmann::json::array())) {
+                    std::string game = st.value("game", ""), chk = st.value("check", ""), item = st.value("item", "");
+                    if (game == "oot" && ootPrices.contains(chk)) {
+                        static const int caps[5] = { 0, 99, 200, 500, 999 };
+                        int price = ootPrices[chk].get<int>();
+                        if (price > caps[std::min(ootBaseWalletTier + owS, 4)]) {
+                            ++bad;
+                            std::cerr << "[playthrough] AFFORDABILITY: [OOT] " << chk << " price=" << price
+                                      << " with " << owS << " wallet(s) at sphere " << sph.value("sphere", -1) << "\n";
+                        }
+                    } else if (game == "mm" && mmPrices.contains(chk) &&
+                               (chk.find("SHOP_ITEM") != std::string::npos ||
+                                chk.find("TINGLE_MAP") != std::string::npos ||
+                                chk.find("GORMAN_MILK") != std::string::npos ||
+                                chk.find("MILK_BAR") != std::string::npos ||
+                                chk.find("CURIOSITY") != std::string::npos)) {
+                        int p = mmPrices[chk].get<int>();
+                        if (!(p < 100 || (p <= 200 && mwS >= 1) || mwS >= 2)) {
+                            ++bad;
+                            std::cerr << "[playthrough] AFFORDABILITY: [MM] " << chk << " price=" << p << " with "
+                                      << mwS << " wallet(s) at sphere " << sph.value("sphere", -1) << "\n";
+                        }
+                    }
+                    if (item == "Progressive Wallet")
+                        ++ow;
+                    if (item == "RI_PROGRESSIVE_WALLET")
+                        ++mw;
+                }
+            }
+            return bad;
         };
         // Names the blocking win side from full-inventory reachability, so "stuck" is exact.
         auto blocked = [](const ComboRando::PlaythroughResult& r) -> const char* {
@@ -229,15 +276,22 @@ int main(int argc, char** argv) {
         // Pass 1 — the seed's own settings + enabled tricks: "can this player beat it?"
         std::cout << "[playthrough] seed '" << label << "' — Pass 1 (" << ootEnabledTricks.size()
                   << " enabled trick(s))\n";
-        auto r1 = runPass(false);
+        nlohmann::json pt1 = nlohmann::json::array();
+        auto r1 = runPass(false, &pt1);
         if (r1.beatable) {
+            if (int bad = affordabilityViolations(pt1)) {
+                std::cout << "[playthrough] RESULT: FAIL — beatable but " << bad
+                          << " purchase(s) exceed the wallet held at their sphere (price wiring bug).\n";
+                return 1;
+            }
             std::cout << "[playthrough] RESULT: PASS — seed passed validation, should be beatable (sphere "
                       << r1.beatableSphere << ").\n";
             return 0;
         }
         // Pass 2 — all tricks: separates "needs more tricks than configured" from "impossible".
         std::cout << "[playthrough] Pass 1 stuck (" << blocked(r1) << ") — retrying with ALL tricks\n";
-        auto r2 = runPass(true);
+        nlohmann::json pt2 = nlohmann::json::array();
+        auto r2 = runPass(true, &pt2);
         if (r2.beatable) {
             std::cout << "[playthrough] RESULT: beatable ONLY with tricks beyond the seed's settings (sphere "
                       << r2.beatableSphere << "). With the seed's tricks, Pass 1 got stuck: " << blocked(r1) << ".\n";
@@ -254,17 +308,28 @@ int main(int argc, char** argv) {
     int failures = 0;
     auto t0 = std::chrono::steady_clock::now();
     for (int i = 0; i < count; ++i) {
-        uint32_t masterSeed = ComboHash(seed) + static_cast<uint32_t>(i);
-        if (SOH_SetSeed)
-            SOH_SetSeed(masterSeed);
-        if (MM_SetSeed)
-            MM_SetSeed(masterSeed);
-        std::string sohDump = SOH_Dump();
-        std::string mmDump = MM_Dump();
-        std::string forced = SOH_GetForced ? SOH_GetForced(masterSeed) : "";
-        auto r = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, oot, mmO, "", nullptr, forced);
-        if (MM_Restore)
-            MM_Restore();
+        const uint32_t base = ComboHash(seed) + static_cast<uint32_t>(i);
+        uint32_t masterSeed = base;
+        std::string sohDump, mmDump;
+        ComboRando::CombinedFillResult r{};
+        // Whole-fill retries with re-derived seeds, identical to RunComboFill (GAP-4) so a headless
+        // seed reproduces the in-game one even when early attempts fail.
+        for (int attempt = 0; attempt < 5; ++attempt) {
+            masterSeed = base + attempt * 0x9E3779B9u;
+            if (SOH_SetSeed)
+                SOH_SetSeed(masterSeed);
+            if (MM_SetSeed)
+                MM_SetSeed(masterSeed);
+            sohDump = SOH_Dump();
+            mmDump = MM_Dump();
+            std::string forced = SOH_GetForced ? SOH_GetForced(masterSeed) : "";
+            r = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, oot, mmO, "", nullptr, forced);
+            if (MM_Restore)
+                MM_Restore();
+            if (r.success)
+                break;
+            std::cerr << "[comborando]   attempt " << (attempt + 1) << "/5 failed: " << r.error << "\n";
+        }
         std::string tag = "'" + seed + "'" + (count > 1 ? ("+" + std::to_string(i)) : "");
         if (r.success) {
             size_t foreign = 0;

@@ -2666,6 +2666,15 @@ extern "C" __declspec(dllexport) void MM_LoadSaveForCombo(int fileNum) {
 
 static void Combo_MM_ApplyCheckPrices();
 
+// Combo master seed for MM's RNG, mirroring OOT's SOH_SetComboRandoSeed so confined placement
+// (PreplaceConfinedItems, via Ship_Random) is reproducible per seed.
+static uint64_t sMMComboRandoSeed = 0;
+static bool sMMComboRandoSeedSet = false;
+extern "C" __declspec(dllexport) void MM_SetComboRandoSeed(uint64_t seed) {
+    sMMComboRandoSeed = seed;
+    sMMComboRandoSeedSet = true;
+}
+
 // ComboShip: create a RANDO MM save for the given OOT slot from a combo placement slice.
 // placementJson is the "mm" object of the combined spoiler: { "<RC_name>": "<itemSpoilerName>", ... }.
 // The combo layer owns placement, so we do NOT run MM's own generator. We build the playable baseline
@@ -2705,7 +2714,9 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
         // and checks keys (startingItems and finalSeed throw if absent). For the no-logic native phase
         // we supply empty options/startingItems (defaults) and feed the combo placement as "checks".
         nlohmann::json spoiler;
-        spoiler["finalSeed"] = (uint32_t)0; // Phase 1: not used for runtime delivery (driven by randoSaveChecks)
+        // finalSeed feeds runtime per-check junk/trap variety (ConvertItem.cpp) and the clock-shuffle
+        // starting-time roll; use the combo master seed like native OnFileCreate.
+        spoiler["finalSeed"] = (uint32_t)sMMComboRandoSeed;
         // ComboShip: persist the player's chosen MM options into the save (mirrors OnFileCreate) so MM
         // honors its toggles at runtime; an empty options object would make ApplyToSaveContext default
         // everything (the analog of OOT's SetAllToContext fix).
@@ -2891,6 +2902,9 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoSettings(void) {
         if (opt.cvar && opt.cvar[0])
             j[opt.cvar] = (int)CVarGetInteger(opt.cvar, opt.defaultValue);
     }
+    // Excluded-checks CSV is a string CVar outside the options walk; GeneratePools parses it, so a
+    // replayed spoiler must carry it or local exclusions leak in (GAP-7 mirror).
+    j["gRando.ExcludedChecks"] = CVarGetString("gRando.ExcludedChecks", "");
     cached = j.dump();
     return cached.c_str();
 }
@@ -2903,18 +2917,15 @@ extern "C" __declspec(dllexport) void MM_RestoreRandoSettings(const char* json) 
         return;
     try {
         auto j = nlohmann::json::parse(json);
-        for (auto it = j.begin(); it != j.end(); ++it)
-            CVarSetInteger(it.key().c_str(), it.value().get<int>());
+        // Snapshot is authoritative: pre-clear so pre-GAP-7 spoilers don't inherit local exclusions.
+        CVarSetString("gRando.ExcludedChecks", "");
+        for (auto it = j.begin(); it != j.end(); ++it) {
+            if (it.value().is_string())
+                CVarSetString(it.key().c_str(), it.value().get<std::string>().c_str());
+            else
+                CVarSetInteger(it.key().c_str(), it.value().get<int>());
+        }
     } catch (...) {}
-}
-
-// Combo master seed for MM's RNG, mirroring OOT's SOH_SetComboRandoSeed so confined placement
-// (PreplaceConfinedItems, via Ship_Random) is reproducible per seed.
-static uint64_t sMMComboRandoSeed = 0;
-static bool sMMComboRandoSeedSet = false;
-extern "C" __declspec(dllexport) void MM_SetComboRandoSeed(uint64_t seed) {
-    sMMComboRandoSeed = seed;
-    sMMComboRandoSeedSet = true;
 }
 
 static const std::unordered_map<std::string, RandoCheckId>& Combo_MM_CheckNameToCheckId();
@@ -2957,7 +2968,11 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         Ship_Random_Seed(sMMComboRandoSeed);
 
     // Build a RandoSaveInfo from current CVars — same pattern as Menu.cpp RefreshMetrics().
-    RandoSaveInfo saveInfo;
+    // Zero-init: it's a raw C struct, and garbage in randoSaveChecks[].price leaks into the price
+    // capture while garbage finalSeed reseeds Ship_Random via the clock-shuffle starting-item branch
+    // (StartingItems.cpp), making the whole dump nondeterministic per run.
+    RandoSaveInfo saveInfo = {};
+    saveInfo.finalSeed = (u32)sMMComboRandoSeed; // native OnFileCreate sets it before starting items
     for (auto& [id, opt] : Rando::StaticData::Options) {
         saveInfo.randoSaveOptions[id] = (uint32_t)CVarGetInteger(opt.cvar, opt.defaultValue);
     }
@@ -3500,6 +3515,7 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Reset(void) {
     // (OOT's logic reads ctx->GetOption, which survives Reset; MM's reads gSaveContext, so it must be
     // re-seeded every query.)
     gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_RANDO;
+    gSaveContext.save.shipSaveInfo.rando.finalSeed = (u32)sMMComboRandoSeed; // clock-shuffle reseed source
     for (auto& [id, opt] : Rando::StaticData::Options) {
         gSaveContext.save.shipSaveInfo.rando.randoSaveOptions[id] =
             (uint32_t)CVarGetInteger(opt.cvar, opt.defaultValue);

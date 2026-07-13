@@ -704,29 +704,39 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
 
     if (inputSeed.empty())
         inputSeed = std::to_string(ComboRandRange(0, 1000000));
-    uint32_t masterSeed = ComboHash(inputSeed.c_str());
+    const uint32_t baseSeed = ComboHash(inputSeed.c_str());
+    uint32_t masterSeed = baseSeed;
 
-    // ComboShip: seed OOT's rando RNG BEFORE the dump so its shop/scrub/merchant setup (which runs
-    // both inside the dump and again at SOH_ApplyRandoPlacements) makes identical choices each time.
-    if (SOH_SetComboRandoSeed)
-        SOH_SetComboRandoSeed(masterSeed);
-    if (MM_SetComboRandoSeed)
-        MM_SetComboRandoSeed(masterSeed);
-
-    std::string sohDump = SOH_DumpRandoStaticData();
-    std::string mmDump = MM_DumpRandoStaticData();
-    if (sohDump.empty() || mmDump.empty()) {
-        fail("empty static-data dump");
-        return;
-    }
-
-    std::string spoiler;
+    std::string sohDump, mmDump, spoiler, lastFillError;
     bool usedCombinedFill = false;
     nlohmann::json playthroughJson = nlohmann::json::array(); // structured sphere playthrough (combined-fill only)
 
-    if (Combo_SOH_Rando_Reset && Combo_SOH_Rando_SetOwnedItems && Combo_SOH_Rando_GetReachableChecks &&
-        Combo_SOH_Rando_PlaceItem && Combo_MM_Rando_Reset && Combo_MM_Rando_SetOwnedItems &&
-        Combo_MM_Rando_GetReachableChecks && Combo_MM_Rando_PlaceItem && Combo_MM_Rando_Restore) {
+    const bool haveOracles = Combo_SOH_Rando_Reset && Combo_SOH_Rando_SetOwnedItems &&
+                             Combo_SOH_Rando_GetReachableChecks && Combo_SOH_Rando_PlaceItem && Combo_MM_Rando_Reset &&
+                             Combo_MM_Rando_SetOwnedItems && Combo_MM_Rando_GetReachableChecks &&
+                             Combo_MM_Rando_PlaceItem && Combo_MM_Rando_Restore;
+
+    // Whole-fill retries mirroring SoH's 5-attempt Fill() loop (GAP-4): each attempt re-derives the
+    // master seed, so dumps, confined placement, and prices re-roll deterministically per attempt.
+    const int kFillAttempts = 5;
+    for (int attempt = 0; attempt < kFillAttempts && !usedCombinedFill; ++attempt) {
+        masterSeed = baseSeed + attempt * 0x9E3779B9u;
+
+        // ComboShip: seed OOT's rando RNG BEFORE the dump so its shop/scrub/merchant setup (which runs
+        // both inside the dump and again at SOH_ApplyRandoPlacements) makes identical choices each time.
+        if (SOH_SetComboRandoSeed)
+            SOH_SetComboRandoSeed(masterSeed);
+        if (MM_SetComboRandoSeed)
+            MM_SetComboRandoSeed(masterSeed);
+
+        sohDump = SOH_DumpRandoStaticData();
+        mmDump = MM_DumpRandoStaticData();
+        if (sohDump.empty() || mmDump.empty()) {
+            fail("empty static-data dump");
+            return;
+        }
+        if (!haveOracles)
+            break; // no oracles -> no-logic fallback below; the dumps are still needed
 
         ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
                                             Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem };
@@ -745,17 +755,23 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         if (result.success) {
             spoiler = result.spoilerJson;
             usedCombinedFill = true;
-            std::cout << "[ComboShip] RunComboFill: combined-logic fill succeeded (seed=" << masterSeed << ")\n";
+            std::cout << "[ComboShip] RunComboFill: combined-logic fill succeeded (seed=" << masterSeed
+                      << ", attempt " << (attempt + 1) << ")\n";
             // ComboShip: write the sphere-by-sphere playthrough log. Replays reachability via the
             // oracles BEFORE SOH_ApplyRandoPlacements restores the live OOT context, so it can't
             // corrupt the generated seed. Restores MM itself.
             WriteComboPlaythrough(result.spoilerJson, ootOracle, mmOracle, inputSeed, &playthroughJson);
         } else {
-            Combo_MM_Rando_Restore();
-            fail((std::string("combined fill failed: ") + result.error).c_str());
-            return;
+            lastFillError = result.error;
+            std::cout << "[ComboShip] RunComboFill: attempt " << (attempt + 1) << "/" << kFillAttempts
+                      << " failed: " << lastFillError << "\n";
         }
         Combo_MM_Rando_Restore();
+    }
+
+    if (haveOracles && !usedCombinedFill) {
+        fail((std::string("combined fill failed after retries: ") + lastFillError).c_str());
+        return;
     }
 
     if (!usedCombinedFill) {
@@ -1162,6 +1178,10 @@ static int Combo_OnReloadRequest(const char* path) {
             SOH_RestoreRandoSettings(ootSettings.c_str());
         if (SOH_SetComboRandoSeed)
             SOH_SetComboRandoSeed(masterSeed);
+        // MM too: MM_InitRandoSaveFile writes finalSeed (junk/trap variety, clock-shuffle roll) from
+        // the combo seed — without this a reloaded seed gets finalSeed=0 and diverges from the author.
+        if (MM_SetComboRandoSeed)
+            MM_SetComboRandoSeed(masterSeed);
         if (SOH_PrepRandoContext)
             SOH_PrepRandoContext();
         if (SOH_ApplyRandoPlacements)

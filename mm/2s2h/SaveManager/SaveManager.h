@@ -11,9 +11,13 @@ bool SaveManager_HandleFileDropped(char* filePath);
 bool BinarySaveConverter_HandleFileDropped(char* filePath);
 int SaveManager_GetOpenFileSlot();
 void SaveManager_WriteSaveFile(const std::filesystem::path& fileName, nlohmann::json j);
+<<<<<<< HEAD
 void SaveManager_InitNewSaveForSlot(int mmFileNum, const unsigned char* ootName8 = nullptr);
 void SaveManager_LoadSaveFile(int mmFileNum);
 void SaveManager_SaveCurrentForCombo();
+=======
+void SaveManager_PersistSariaHintsAvailable();
+>>>>>>> vendor-mm
 #else
 void SaveManager_SysFlashrom_WriteData(u8* addr, u32 pageNum, u32 pageCount);
 s32 SaveManager_SysFlashrom_ReadData(void* addr, u32 pageNum, u32 pageCount);

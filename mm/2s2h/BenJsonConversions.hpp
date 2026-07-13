@@ -58,6 +58,8 @@ inline void to_json(json& j, const RandoSaveInfo& rando) {
         { "randoStartingItems", rando.randoStartingItems },
         { "foundDungeonKeys", rando.foundDungeonKeys },
         { "foundTriforcePieces", rando.foundTriforcePieces },
+        { "sariaHintsAvailable", rando.sariaHintsAvailable },
+        { "sariaPriorityItems", rando.sariaPriorityItems },
     };
 #ifdef COMBO_BUILD
     j["pendingTrapCount"] = rando.pendingTrapCount; // ComboShip: deferred cross-world traps
@@ -73,9 +75,14 @@ inline void from_json(const json& j, RandoSaveInfo& rando) {
     j.at("randoStartingItems").get_to(rando.randoStartingItems);
     j.at("foundDungeonKeys").get_to(rando.foundDungeonKeys);
     j.at("foundTriforcePieces").get_to(rando.foundTriforcePieces);
+<<<<<<< HEAD
 #ifdef COMBO_BUILD
     rando.pendingTrapCount = j.value("pendingTrapCount", (u8)0); // tolerate pre-existing combo saves
 #endif
+=======
+    j.at("sariaHintsAvailable").get_to(rando.sariaHintsAvailable);
+    j.at("sariaPriorityItems").get_to(rando.sariaPriorityItems);
+>>>>>>> vendor-mm
 }
 
 inline void to_json(json& j, const Vec3f& vec) {

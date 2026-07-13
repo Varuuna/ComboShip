@@ -2,6 +2,7 @@
 #include <fast/Fast3dGui.h>
 #include "Rando/Spoiler/Spoiler.h"
 #include "2s2h/BenGui/UIWidgets.hpp"
+#include <ship/window/gui/IconsFontAwesome4.h>
 #include "Rando/CheckTracker/CheckTracker.h"
 #include "Rando/MiscBehavior/ClockShuffle.h"
 #include "build.h"
@@ -273,6 +274,7 @@ static RegisterShipInitFunc refreshMetricsInit(RefreshMetrics, {
                                                                    "gRando.Options.RO_SHUFFLE_OWL_STATUES",
                                                                    "gRando.Options.RO_SHUFFLE_POT_DROPS",
                                                                    "gRando.Options.RO_SHUFFLE_SHOPS",
+                                                                   "gRando.Options.RO_SHUFFLE_SKELETON_KEY",
                                                                    "gRando.Options.RO_SHUFFLE_SNOWBALL_DROPS",
                                                                    "gRando.Options.RO_SHUFFLE_SONG_DOUBLE_TIME",
                                                                    "gRando.Options.RO_SHUFFLE_SONG_INVERTED_TIME",
@@ -558,6 +560,145 @@ static void DrawShufflesTab() {
     ImGui::EndChild();
 }
 
+static constexpr int SARIA_MAX_PRIORITY_ITEMS = 16;
+static constexpr float PRIORITY_BUTTON_SIZE = 24.0f;
+
+static void PushPriorityListChildStyle() {
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 3.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 8.0f));
+}
+
+static ButtonOptions PriorityRowButtonOptions(bool disabled = false) {
+    return ButtonOptions({ { .disabled = disabled } })
+        .Size(ImVec2(PRIORITY_BUTTON_SIZE, PRIORITY_BUTTON_SIZE))
+        .Padding(ImVec2(4.0f, 4.0f));
+}
+
+static void DrawPrioritySwapButton(const char* strId, const char* icon, bool disabled,
+                                   std::vector<RandoItemId>& priorityItemsList, size_t a, size_t b) {
+    if (IconButton(strId, icon, PriorityRowButtonOptions(disabled))) {
+        std::swap(priorityItemsList[a], priorityItemsList[b]);
+        Rando::SetSariaPriorityItemsInConfig(priorityItemsList);
+    }
+}
+
+static void DrawPriorityItemsPopup() {
+    static std::vector<RandoItemId> priorityItemsList;
+    if (ImGui::IsWindowAppearing()) {
+        priorityItemsList = Rando::GetSariaPriorityItemsFromConfig();
+    }
+
+    std::string headerLabel = "Priority Items (" + std::to_string(priorityItemsList.size()) + "/" +
+                              std::to_string(SARIA_MAX_PRIORITY_ITEMS) + ")";
+    ImGui::SeparatorText(headerLabel.c_str());
+    ImGui::TextWrapped("Saria's Song hints whichever of these is reachable and not yet found, checked in the "
+                       "order listed below.");
+    if (Button(
+            ICON_FA_UNDO " Reset to Default",
+            ButtonOptions({ { .tooltip = "Replace this list with the default priority items" } }).Size(ImVec2(0, 0)))) {
+        priorityItemsList = Rando::GetDefaultSariaPriorityItems();
+        Rando::SetSariaPriorityItemsInConfig(priorityItemsList);
+    }
+
+    PushPriorityListChildStyle();
+    if (ImGui::BeginChild("priorityItemsCurrentList", ImVec2(0, 180.0f))) {
+        if (priorityItemsList.empty()) {
+            ImGui::TextColored(ColorValues.at(Colors::Gray), "No priority items configured.");
+        } else if (ImGui::BeginTable("priorityItemsTable", 5, ImGuiTableFlags_SizingFixedFit)) {
+            ImGui::TableSetupColumn("icon", ImGuiTableColumnFlags_WidthFixed, PRIORITY_BUTTON_SIZE);
+            ImGui::TableSetupColumn("name", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("up", ImGuiTableColumnFlags_WidthFixed, 32.0f);
+            ImGui::TableSetupColumn("down", ImGuiTableColumnFlags_WidthFixed, 32.0f);
+            ImGui::TableSetupColumn("remove", ImGuiTableColumnFlags_WidthFixed, 32.0f);
+
+            for (size_t index = 0; index < priorityItemsList.size(); index++) {
+                RandoItemId itemId = priorityItemsList[index];
+                Rando::StaticData::RandoStaticItem randoStaticItem = Rando::StaticData::Items[itemId];
+                ImGui::PushID((int)index);
+                ImGui::TableNextRow();
+
+                ImGui::TableNextColumn();
+                const char* texturePath = Rando::StaticData::GetIconTexturePath(itemId);
+                ImTextureID textureId =
+                    Ship::Context::GetInstance()->GetWindow()->GetGui()->GetTextureByName(texturePath);
+                float iconOffsetY = (ImGui::GetFrameHeight() - PRIORITY_BUTTON_SIZE) * 0.5f;
+                if (iconOffsetY > 0.0f) {
+                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + iconOffsetY);
+                }
+                ImGui::Image(textureId, ImVec2(PRIORITY_BUTTON_SIZE, PRIORITY_BUTTON_SIZE), ImVec2(0, 0), ImVec2(1, 1),
+                             Ship_GetItemColorTint(randoStaticItem.itemId), ImVec4(0, 0, 0, 0));
+
+                ImGui::TableNextColumn();
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted(randoStaticItem.name);
+
+                ImGui::TableNextColumn();
+                DrawPrioritySwapButton("##up", ICON_FA_CHEVRON_UP, index == 0, priorityItemsList, index, index - 1);
+
+                ImGui::TableNextColumn();
+                DrawPrioritySwapButton("##down", ICON_FA_CHEVRON_DOWN, index + 1 == priorityItemsList.size(),
+                                       priorityItemsList, index, index + 1);
+
+                ImGui::TableNextColumn();
+                if (IconButton("##remove", ICON_FA_TIMES, PriorityRowButtonOptions().Color(Colors::Red))) {
+                    priorityItemsList.erase(priorityItemsList.begin() + index);
+                    Rando::SetSariaPriorityItemsInConfig(priorityItemsList);
+                }
+
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleVar(2);
+
+    ImGui::Spacing();
+    ImGui::SeparatorText("Add Item");
+
+    static ImGuiTextFilter addItemFilter;
+    UIWidgets::PushStyleCombobox();
+    addItemFilter.Draw("##priorityItemFilter", ImGui::GetContentRegionAvail().x);
+    UIWidgets::PopStyleCombobox();
+    if (!addItemFilter.IsActive()) {
+        ImGui::SameLine(18.0f);
+        ImGui::Text("Search");
+    }
+
+    bool atCap = priorityItemsList.size() >= SARIA_MAX_PRIORITY_ITEMS;
+    PushPriorityListChildStyle();
+    if (ImGui::BeginChild("priorityItemsAddList", ImVec2(0, 0))) {
+        if (atCap) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ColorValues.at(Colors::Orange));
+            ImGui::TextWrapped("Priority list is full (%d/%d). Remove an item above to add a different one.",
+                               SARIA_MAX_PRIORITY_ITEMS, SARIA_MAX_PRIORITY_ITEMS);
+            ImGui::PopStyleColor();
+        } else {
+            for (RandoItemId candidateId : Rando::GetSariaPriorityItemCandidates()) {
+                if (setOfItemsInPool.count(candidateId) == 0) {
+                    continue;
+                }
+                if (std::find(priorityItemsList.begin(), priorityItemsList.end(), candidateId) !=
+                    priorityItemsList.end()) {
+                    continue;
+                }
+
+                const char* name = Rando::StaticData::Items[candidateId].name;
+                if (!addItemFilter.PassFilter(name)) {
+                    continue;
+                }
+
+                if (ImGui::Selectable(name)) {
+                    priorityItemsList.push_back(candidateId);
+                    Rando::SetSariaPriorityItemsInConfig(priorityItemsList);
+                }
+            }
+        }
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleVar(2);
+}
+
 static void DrawItemsTab() {
     f32 columnWidth = ImGui::GetContentRegionAvail().x / 3 - (ImGui::GetStyle().ItemSpacing.x * 2);
     ImGui::BeginChild("randoItemsColumn1", ImVec2(columnWidth, ImGui::GetContentRegionAvail().y));
@@ -578,15 +719,34 @@ static void DrawItemsTab() {
     CVarCheckbox(
         "Saria's Song", Rando::StaticData::Options[RO_SHUFFLE_SONG_SARIA].cvar,
         CheckboxOptions(
-            { { .tooltip = "Adds Saria's Song to the item pool, playing it will give you a hint to a progressive item "
-                           "that is reachable in logic, weighted towards things like bow, bomb, and transformation "
-                           "masks. The song is one time use, you will lose it after using it." } }));
+            { { .tooltip = "Adds Saria's Song to the item pool, playing it will give you a hint to a reachable "
+                           "item, preferring items from your Priority Items list (configurable via the button to "
+                           "the right) in order, and falling back to a random reachable major item or mask if none "
+                           "of your priority items are currently available. The song is one time use, you will "
+                           "lose it after using it." } }));
+    if (CVarGetInteger(Rando::StaticData::Options[RO_SHUFFLE_SONG_SARIA].cvar, 0)) {
+        ImGui::SameLine();
+        if (Button(ICON_FA_COG,
+                   ButtonOptions({ { .tooltip = "Configure the Priority Items list used by the Saria's Song hint" } })
+                       .Size(ImVec2(0, 0)))) {
+            ImGui::OpenPopup("PriorityItemsPopup");
+        }
+        ImGui::SetNextWindowSize(ImVec2(400.0f, 520.0f), ImGuiCond_Always);
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 6.0f);
+        if (ImGui::BeginPopup("PriorityItemsPopup")) {
+            DrawPriorityItemsPopup();
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleVar();
+    }
     CVarCheckbox("Deku Stick Bag", "gPlaceholderBool",
                  CheckboxOptions({ { .disabled = true, .disabledTooltip = "Coming Soon" } }));
     CVarCheckbox("Deku Nut Bag", "gPlaceholderBool",
                  CheckboxOptions({ { .disabled = true, .disabledTooltip = "Coming Soon" } }));
-    CVarCheckbox("Skeleton Key", "gPlaceholderBool",
-                 CheckboxOptions({ { .disabled = true, .disabledTooltip = "Coming Soon" } }));
+    CVarCheckbox(
+        "Skeleton Key", Rando::StaticData::Options[RO_SHUFFLE_SKELETON_KEY].cvar,
+        CheckboxOptions({ { .tooltip = "Adds the Skeleton Key to the item pool. Collecting it immediately grants "
+                                       "the maximum number of Small Keys for every dungeon." } }));
     CVarCheckbox("Tycoon's Wallet", Rando::StaticData::Options[RO_SHUFFLE_TYCOON_WALLET].cvar,
                  CheckboxOptions({ { .tooltip = "Adds the Tycoon's Wallet (5,000 rupees) to the item pool\n"
                                                 "as a third progressive wallet upgrade.",
@@ -645,7 +805,7 @@ static void DrawItemsTab() {
         }
         // Terminal time slider (Final Hours start time)
         {
-            int32_t terminalMinutes = CVarGetInteger(Rando::StaticData::Options[RO_CLOCK_TERMINAL_TIME].cvar, 0);
+            int32_t terminalMinutes = CVarGetInteger(Rando::StaticData::Options[RO_CLOCK_TERMINAL_TIME].cvar, 350);
             int hours = terminalMinutes / 60;
             int minutes = terminalMinutes % 60;
 
@@ -657,7 +817,7 @@ static void DrawItemsTab() {
                 UIWidgets::IntSliderOptions()
                     .Min(0)
                     .Max(359)
-                    .DefaultValue(0)
+                    .DefaultValue(350)
                     .LabelPosition(UIWidgets::LabelPosition::None)
                     .Tooltip("Controls when the final hours countdown begins (00:00 to 05:59). "
                              "When you run out of owned half-days, this allows the player control over how much "

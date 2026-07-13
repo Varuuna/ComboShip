@@ -372,13 +372,12 @@ void LoadGuiTextures() {
     }
 }
 
-std::string convertEnumToReadableName(const std::string& input) {
+std::string convertEnumToReadableName(const std::string& input, const std::string& prefix) {
     std::string result;
     std::string content = input;
 
-    // Step 1: Remove "RC_" prefix if present
-    const std::string prefix = "RC_";
-    if (content.rfind(prefix, 0) == 0) {
+    // Step 1: Remove prefix if present
+    if (!prefix.empty() && content.rfind(prefix, 0) == 0) {
         content = content.substr(prefix.size());
     }
 

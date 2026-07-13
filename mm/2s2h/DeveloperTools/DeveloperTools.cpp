@@ -149,11 +149,11 @@ void RegisterPreventActorInitHooks() {
 void RegisterDebugMode() {
     // Disable various debug options when toggled off
     if (!CVAR_DEBUG_MODE) {
-        CVarSetInteger(CVAR_SAVE_FILE_MODE_NAME, DEBUG_SAVE_INFO_NONE);
-        CVarSetInteger(CVAR_PREVENT_ACTOR_UPDATE_NAME, 0);
-        CVarSetInteger(CVAR_PREVENT_ACTOR_DRAW_NAME, 0);
-        CVarSetInteger(CVAR_PREVENT_ACTOR_INIT_NAME, 0);
-        CVarSetInteger("gDeveloperTools.DisableObjectDependency", 0);
+        CVarClear(CVAR_SAVE_FILE_MODE_NAME);
+        CVarClear(CVAR_PREVENT_ACTOR_UPDATE_NAME);
+        CVarClear(CVAR_PREVENT_ACTOR_DRAW_NAME);
+        CVarClear(CVAR_PREVENT_ACTOR_INIT_NAME);
+        CVarClear("gDeveloperTools.DisableObjectDependency");
 
         if (gPlayState != NULL) {
             gPlayState->frameAdvCtx.enabled = false;

@@ -13,10 +13,7 @@
 #include "soh/frame_interpolation.h"
 #include "soh/OTRGlobals.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
-<<<<<<< HEAD
-=======
 #include "soh/Enhancements/savestate_serialize.h"
->>>>>>> vendor-soh
 #include <libultraship/bridge/resourcebridge.h>
 
 #include <string.h>

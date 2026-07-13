@@ -6,10 +6,6 @@ extern "C" {
 #include "z64save.h"
 extern SaveContext gSaveContext;
 extern PlayState* gPlayState;
-<<<<<<< HEAD
-#include "variables.h"
-=======
->>>>>>> vendor-soh
 }
 
 #define CVAR_NAME CVAR_ENHANCEMENT("3DSceneRender")

@@ -2157,8 +2157,6 @@ typedef enum {
     // - `s16 yawTarget` (stick world-space yaw, promoted to int in va_list)
     VB_PLAYER_ROLL_STEER,
 
-<<<<<<< HEAD
-=======
     // #### `result`
     // ```c
     // this->ageProperties->unk_24 <= ySurface
@@ -2167,7 +2165,6 @@ typedef enum {
     // - `Player*`
     VB_PLAYER_SPAWN_SWIMMING,
 
->>>>>>> vendor-soh
     // #### `result`
     // ```c
     // item == ITEM_SAW
@@ -3290,18 +3287,12 @@ typedef enum {
     VB_PREVENT_HOOKSHOT_PARENT_SOFTLOCK,
 
     // #### `result`
-<<<<<<< HEAD
-    // ```c
-=======
->>>>>>> vendor-soh
     // true if Goron Link is talking
     // ```
     // #### `args`
     // - `*EnGo2` (Goron Link)
     VB_PREVENT_GORON_LINK_SOFTLOCK,
 
-<<<<<<< HEAD
-=======
     // #### `result`
     // ```c
     // play->interfaceCtx.hbaAmmo == 0
@@ -3331,7 +3322,6 @@ typedef enum {
     // - `s32*` camMode
     VB_CHANGE_AIMING_CAMERA,
 
->>>>>>> vendor-soh
     // true
     // ```
     // #### `args`

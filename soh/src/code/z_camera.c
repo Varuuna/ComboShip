@@ -1451,27 +1451,16 @@ s32 Camera_Free(Camera* camera) {
     Parallel1* para1 = (Parallel1*)camera->paramData;
     f32 playerHeight;
 
-<<<<<<< HEAD
-    // SOH [Enhancement] If free-look is resuming after a scene-forced/fixed camera drove the view
-    // (Camera_Free didn't run last frame while manualCamera stayed set, e.g. exiting a Spirit Temple
-    // alcove), re-seed the free-look angles from the camera's current orientation so the view continues
-    // from where it was left instead of snapping back to the pre-interruption angle.
-=======
     // SOH [Enhancement] If free-look resuming after another camera drove view (e.g. Spirit Temple alcove,
     // or crawling), re-seed free-look angles so view continues from where it was left instead of snapping
     // back to the pre-interruption angle. Seed from play->view (what was actually on screen last frame),
     // not camera->at/eye: for a subcamera-driven OnePoint cutscene like crawlspace exit, main camera's own
     // eye is left stale and aims re-seed at sky, while play->view still holds cutscene's final framing of Link.
->>>>>>> vendor-soh
     static s32 sFreeLastFrame = 0;
     s32 curFrame = camera->play->state.frames;
     if (curFrame - sFreeLastFrame > 1) {
         VecSph eyeAdjustment;
-<<<<<<< HEAD
-        OLib_Vec3fDiffToVecSphGeo(&eyeAdjustment, &camera->at, &camera->eye);
-=======
         OLib_Vec3fDiffToVecSphGeo(&eyeAdjustment, &camera->play->view.lookAt, &camera->play->view.eye);
->>>>>>> vendor-soh
         camera->play->camX = eyeAdjustment.yaw;
         camera->play->camY = eyeAdjustment.pitch;
     }

@@ -1713,11 +1713,7 @@ void func_8090120C(BossGanon2* this, PlayState* play) {
                 GameInteractor_ExecuteOnBossDefeat(&this->actor);
                 if (GameInteractor_Should(VB_SLAY_GANON, true)) {
                     this->subCamId = Play_CreateSubCamera(play);
-<<<<<<< HEAD
-                    Play_ChangeCameraStatus(play, MAIN_CAM, CAM_STAT_WAIT);
-=======
                     Play_ChangeCameraStatus(play, CAM_ID_MAIN, CAM_STAT_WAIT);
->>>>>>> vendor-soh
                     Play_ChangeCameraStatus(play, this->subCamId, CAM_STAT_ACTIVE);
                     this->csState = 7;
                     this->csTimer = 0;

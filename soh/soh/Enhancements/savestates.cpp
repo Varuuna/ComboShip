@@ -1,9 +1,6 @@
 #include "savestates.h"
 
-<<<<<<< HEAD
-=======
 #include <memory>
->>>>>>> vendor-soh
 #include <spdlog/spdlog.h>
 
 #include <ship/Context.h>
@@ -16,16 +13,7 @@
 #include "z64save.h"
 #include <variables.h>
 #include <functions.h>
-<<<<<<< HEAD
-#include "z64map_mark.h"
-#include "../../src/overlays/actors/ovl_Boss_Ganon/z_boss_ganon.h"
-#include "../../src/overlays/actors/ovl_Boss_Ganon2/z_boss_ganon2.h"
-#include "../../src/overlays/actors/ovl_Boss_Tw/z_boss_tw.h"
-#include "../../src/overlays/actors/ovl_En_Clear_Tag/z_en_clear_tag.h"
-#include "../../src/overlays/actors/ovl_En_Fr/z_en_fr.h"
-=======
 #include "savestate_serialize.h"
->>>>>>> vendor-soh
 
 extern "C" PlayState* gPlayState;
 
@@ -163,9 +151,6 @@ typedef struct SaveStateInfo {
     u8 transitionActorCount_copy;
     s16 transitionActorIds_copy[256];
 
-    u8 transitionActorCount_copy;
-    s16 transitionActorIds_copy[256];
-
 } SaveStateInfo;
 
 class SaveState {
@@ -185,11 +170,6 @@ class SaveState {
     void LoadSeqScriptState(void);
     void SaveOverlayStaticData(void);
     void LoadOverlayStaticData(void);
-<<<<<<< HEAD
-    void SaveMiscCodeData(void);
-    void LoadMiscCodeData(void);
-=======
->>>>>>> vendor-soh
     void SaveTransitionActors(void);
     void LoadTransitionActors(void);
 
@@ -362,20 +342,6 @@ void SaveState::LoadTransitionActors(void) {
     }
 }
 
-void SaveState::SaveTransitionActors(void) {
-    info->transitionActorCount_copy = gPlayState->transiActorCtx.numActors;
-    for (u32 i = 0; i < info->transitionActorCount_copy; i++) {
-        info->transitionActorIds_copy[i] = gPlayState->transiActorCtx.list[i].id;
-    }
-}
-
-void SaveState::LoadTransitionActors(void) {
-    u32 numActors = MIN(info->transitionActorCount_copy, gPlayState->transiActorCtx.numActors);
-    for (u32 i = 0; i < numActors; i++) {
-        gPlayState->transiActorCtx.list[i].id = info->transitionActorIds_copy[i];
-    }
-}
-
 extern "C" void ProcessSaveStateRequests(void) {
     OTRGlobals::Instance->gSaveStateMgr->ProcessSaveStateRequests();
 }
@@ -475,10 +441,6 @@ void SaveState::Save(void) {
 
     // Various static data
     SaveOverlayStaticData();
-<<<<<<< HEAD
-    SaveMiscCodeData();
-=======
->>>>>>> vendor-soh
     SaveTransitionActors();
 }
 
@@ -506,9 +468,5 @@ void SaveState::Load(void) {
     // Various static data
     D_801755D0 = info->D_801755D0_copy;
     LoadOverlayStaticData();
-<<<<<<< HEAD
-    LoadMiscCodeData();
-=======
->>>>>>> vendor-soh
     LoadTransitionActors();
 }

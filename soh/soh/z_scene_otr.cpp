@@ -338,11 +338,7 @@ bool Scene_CommandAlternateHeaderList(PlayState* play, SOH::ISceneCommand* cmd) 
 
     // osSyncPrintf("\n[ZU]sceneset age    =[%X]", gSaveContext.linkAge);
     // osSyncPrintf("\n[ZU]sceneset time   =[%X]", gSaveContext.cutsceneIndex);
-<<<<<<< HEAD
-    // osSyncPrintf("\n[ZU]sceneset counter=[%X]", gSaveContext.sceneSetupIndex);
-=======
     // osSyncPrintf("\n[ZU]sceneset counter=[%X]", gSaveContext.sceneLayer);
->>>>>>> vendor-soh
 
     if (gSaveContext.sceneLayer != 0) {
         SOH::Scene* desiredHeader =

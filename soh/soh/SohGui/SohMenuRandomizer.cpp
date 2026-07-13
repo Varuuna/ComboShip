@@ -951,7 +951,6 @@ void SohMenu::AddMenuRandomizer() {
         .WindowName("Check Tracker Settings")
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Check Tracker Settings Window."));
-<<<<<<< HEAD
 #ifdef COMBO_BUILD
     // ComboShip: embed the settings inline (see "Plandomizer Inline"); skipped while popped out.
     AddWidget(path, "Check Tracker Settings Inline", WIDGET_CUSTOM)
@@ -968,7 +967,6 @@ void SohMenu::AddMenuRandomizer() {
             win->DrawElement();
         });
 #endif
-=======
 
     // Hint Tracker
     path.sidebarName = "Hint Tracker";
@@ -989,7 +987,6 @@ void SohMenu::AddMenuRandomizer() {
         .WindowName("Hint Tracker Settings")
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Hint Tracker Settings Window."));
->>>>>>> vendor-soh
 }
 
 } // namespace SohGui

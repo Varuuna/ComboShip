@@ -2,20 +2,12 @@
 #include "soh/ShipInit.hpp"
 
 extern "C" {
-<<<<<<< HEAD
-#include "macros.h"
-#include "functions.h"
-#include "variables.h"
-#include "src/overlays/actors/ovl_En_Go2/z_en_go2.h"
-#include "src/overlays/actors/ovl_En_Test/z_en_test.h"
-=======
 #include "functions.h"
 #include "variables.h"
 #include "src/overlays/actors/ovl_En_Go2/z_en_go2.h"
 #include "include/z64camera.h"
 #include "src/overlays/actors/ovl_En_Test/z_en_test.h"
 #include "src/overlays/actors/ovl_En_Horse/z_en_horse.h"
->>>>>>> vendor-soh
 extern void Player_UseItem(PlayState*, Player*, s32);
 extern PlayState* gPlayState;
 }
@@ -51,11 +43,7 @@ void RegisterAlwaysOnFixes() {
     // overwrites it and crashes. Re-set segment 12 before drawing.
     COND_VB_SHOULD(VB_ITEMSHIELD_DRAW, true, {
         GraphicsContext* __gfxCtx = gPlayState->state.gfxCtx;
-<<<<<<< HEAD
-        gSPSegment(POLY_OPA_DISP++, 0x0C, (uintptr_t)SEGMENTED_TO_VIRTUAL(gCullBackDList));
-=======
         gSPSegment(POLY_OPA_DISP++, 0x0C, (uintptr_t)gCullBackDList);
->>>>>>> vendor-soh
     });
 
     // Hookshot not spawning softlocks player (child use, memory full). Clear item on no
@@ -85,8 +73,6 @@ void RegisterAlwaysOnFixes() {
         }
     });
 
-<<<<<<< HEAD
-=======
     COND_VB_SHOULD(VB_PREVENT_HBA_FANFARE_SOFTLOCK_TIMER, true, {
         EnHorse* enHorse = va_arg(args, EnHorse*);
         if (enHorse->hbaFlags & 1) {
@@ -102,15 +88,12 @@ void RegisterAlwaysOnFixes() {
         }
     });
 
->>>>>>> vendor-soh
     COND_ID_HOOK(OnActorDestroy, ACTOR_EN_TEST, true, [](void* refActor) {
         Actor* actor = reinterpret_cast<Actor*>(refActor);
         if (actor->params != STALFOS_TYPE_2 && !EnTest_HasLivingNearby(actor)) {
             func_800F5B58();
         }
     });
-<<<<<<< HEAD
-=======
 
     // Handle first person aiming camera settings
     COND_VB_SHOULD(VB_CHANGE_AIMING_CAMERA, true, {
@@ -137,7 +120,6 @@ void RegisterAlwaysOnFixes() {
             }
         }
     });
->>>>>>> vendor-soh
 }
 
 static RegisterShipInitFunc initAlwaysOnFixes(RegisterAlwaysOnFixes, { "" });

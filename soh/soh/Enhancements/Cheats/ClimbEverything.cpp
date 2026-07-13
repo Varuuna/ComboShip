@@ -1,9 +1,6 @@
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/ShipInit.hpp"
-<<<<<<< HEAD
-=======
 #include "soh/cvar_prefixes.h"
->>>>>>> vendor-soh
 
 static void RegisterClimbEverything() {
     COND_VB_SHOULD(VB_SURFACE_IS_CLIMBABLE, CVarGetInteger(CVAR_CHEAT("ClimbEverything"), 0), { *should = true; });

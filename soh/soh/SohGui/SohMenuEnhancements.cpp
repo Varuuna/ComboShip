@@ -6,10 +6,7 @@
 #include <soh/Enhancements/cosmetics/authenticGfxPatches.h>
 #include <soh/Enhancements/TimeDisplay/TimeDisplay.h>
 #include "soh/Enhancements/randomizer/randomizer.h"
-<<<<<<< HEAD
-=======
 #include "soh/Enhancements/Restorations/GetItemManipulation.h"
->>>>>>> vendor-soh
 #include <ship/Context.h>
 
 extern "C" {

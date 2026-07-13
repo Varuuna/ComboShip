@@ -22,12 +22,9 @@
 #include "soh/ObjectExtension/ObjectExtension.h"
 #include "soh/Enhancements/randomizer/RCToRandInf.h"
 #include "dungeon.h"
-<<<<<<< HEAD
 #ifdef COMBO_BUILD
 #include "hook_handlers.h" // ComboShip: OOT_DeliverForeign for RG_COMBO_FOREIGN grant divert
 #endif
-=======
->>>>>>> vendor-soh
 
 extern "C" {
 #include "src/overlays/actors/ovl_Obj_Bean/z_obj_bean.h"
@@ -1169,10 +1166,6 @@ extern "C" u16 Randomizer_Item_Give(PlayState* play, GetItemEntry giEntry) {
             Rupees_ChangeBy(99);
         } else if (item == RG_GREG_RUPEE) {
             Rupees_ChangeBy(1);
-<<<<<<< HEAD
-            gSaveContext.ship.stats.itemTimestamp[TIMESTAMP_FOUND_GREG] = static_cast<u32>(GAMEPLAYSTAT_TOTAL_TIME);
-=======
->>>>>>> vendor-soh
         }
 
         return Return_Item_Entry(giEntry, RG_NONE);

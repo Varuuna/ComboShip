@@ -2,12 +2,9 @@
 #define SOHMENU_H
 
 #include "Menu.h"
-<<<<<<< HEAD
 #include <fast/backends/gfx_rendering_api.h>
 #include "soh/cvar_prefixes.h"
 #include "ComboMenuExport.h"
-=======
->>>>>>> vendor-soh
 
 extern "C" {
 #include "z64.h"

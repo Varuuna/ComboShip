@@ -620,7 +620,8 @@ static void DrawPriorityItemsPopup() {
                 ImGui::TableNextColumn();
                 const char* texturePath = Rando::StaticData::GetIconTexturePath(itemId);
                 ImTextureID textureId =
-                    Ship::Context::GetInstance()->GetWindow()->GetGui()->GetTextureByName(texturePath);
+                    std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())
+                        ->GetTextureByName(texturePath);
                 float iconOffsetY = (ImGui::GetFrameHeight() - PRIORITY_BUTTON_SIZE) * 0.5f;
                 if (iconOffsetY > 0.0f) {
                     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + iconOffsetY);

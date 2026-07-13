@@ -75,14 +75,11 @@ inline void from_json(const json& j, RandoSaveInfo& rando) {
     j.at("randoStartingItems").get_to(rando.randoStartingItems);
     j.at("foundDungeonKeys").get_to(rando.foundDungeonKeys);
     j.at("foundTriforcePieces").get_to(rando.foundTriforcePieces);
-<<<<<<< HEAD
+    j.at("sariaHintsAvailable").get_to(rando.sariaHintsAvailable);
+    j.at("sariaPriorityItems").get_to(rando.sariaPriorityItems);
 #ifdef COMBO_BUILD
     rando.pendingTrapCount = j.value("pendingTrapCount", (u8)0); // tolerate pre-existing combo saves
 #endif
-=======
-    j.at("sariaHintsAvailable").get_to(rando.sariaHintsAvailable);
-    j.at("sariaPriorityItems").get_to(rando.sariaPriorityItems);
->>>>>>> vendor-mm
 }
 
 inline void to_json(json& j, const Vec3f& vec) {

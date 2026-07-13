@@ -808,12 +808,9 @@ void TimeSaverOnVanillaBehaviorHandler(GIVanillaBehavior id, bool* should, va_li
                     Flags_SetRandomizerInf(flag);
                     gSaveContext.healthAccumulator = MAX_HEALTH;
                     Magic_Fill(gPlayState);
-<<<<<<< HEAD
-=======
                     // Also prevent the cutscene from playing, technically we could let it play in rando but we'd
                     // need to VB prevent the item gives that happen during the cutscene.
                     *should = false;
->>>>>>> vendor-soh
                 } else {
                     // If we're in vanilla, set the flag _if_ we were eligble, so that anchor can send the reward in
                     // co-op

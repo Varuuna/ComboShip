@@ -305,6 +305,15 @@ void Anchor::PumpDormant() {
             } catch (const std::exception& e) { SPDLOG_ERROR("[Anchor] dormant room state: {}", e.what()); }
             continue;
         }
+        if (type == REQUEST_TEAM_STATE) {
+            // Answering is read-only over the frozen save, so it's dormant-safe; without it a
+            // teammate's resync gets nothing whenever this client is in the other game. Applying a
+            // received UPDATE_TEAM_STATE stays foreground-only (dropped below).
+            try {
+                HandlePacket_RequestTeamState(payload);
+            } catch (const std::exception& e) { SPDLOG_ERROR("[Anchor] dormant team-state reply: {}", e.what()); }
+            continue;
+        }
         if (type != GIVE_ITEM) {
             continue; // drop presence/puppet/team-state while dormant (re-requested on activation)
         }

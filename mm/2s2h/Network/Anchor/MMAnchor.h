@@ -102,6 +102,7 @@ class MMAnchor {
     // Save to teammates; on receive, commit saveInfo + shipSaveInfo (top-level Save fields like
     // scene/time/form are left untouched so the receiver isn't teleported).
     void SendPacket_UpdateTeamState(const std::string& targetTeamId);
+    void SendTeamStateFromSave(const std::string& targetTeamId); // no isActive gate: dormant answers too
     void SendPacket_RequestTeamState();
 
     bool isActive = false;

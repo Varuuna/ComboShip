@@ -36,11 +36,13 @@ void Anchor::SendPacket_UpdateTeamState() {
     payload["queue"] = json::array();
 
     payload["state"] = gSaveContext;
-    // manually update current scene flags
-    payload["state"]["sceneFlags"][gPlayState->sceneNum * 4] = gPlayState->actorCtx.flags.chest;
-    payload["state"]["sceneFlags"][gPlayState->sceneNum * 4 + 1] = gPlayState->actorCtx.flags.swch;
-    payload["state"]["sceneFlags"][gPlayState->sceneNum * 4 + 2] = gPlayState->actorCtx.flags.clear;
-    payload["state"]["sceneFlags"][gPlayState->sceneNum * 4 + 3] = gPlayState->actorCtx.flags.collect;
+    // manually update current scene flags (skip while dormant/no play state — the save copy is current)
+    if (gPlayState != NULL) {
+        payload["state"]["sceneFlags"][gPlayState->sceneNum * 4] = gPlayState->actorCtx.flags.chest;
+        payload["state"]["sceneFlags"][gPlayState->sceneNum * 4 + 1] = gPlayState->actorCtx.flags.swch;
+        payload["state"]["sceneFlags"][gPlayState->sceneNum * 4 + 2] = gPlayState->actorCtx.flags.clear;
+        payload["state"]["sceneFlags"][gPlayState->sceneNum * 4 + 3] = gPlayState->actorCtx.flags.collect;
+    }
 
     // The commented out code below is an attempt at sending the entire randomizer seed over, in hopes that a player
     // doesn't have to generate the seed themselves Currently it doesn't work :)

@@ -1587,3 +1587,12 @@ now hard-reads `spoiler["sariaPriorityItems"]` (SariasSongHint.cpp). ComboShip's
 (`mm/2s2h/BenPort.cpp`) builds a synthetic spoiler that lacked the key → `type_error.302` → every combo
 rando save fell back to a vanilla MM save. Fixed by supplying an empty array (combo seeds carry no MM
 hint priorities; cross-game hints are a future feature).
+
+## Cherry-pick: LUS PR #1121 — round interpolated texture tile sizes (2026-07-14)
+
+`libultraship/src/fast/interpreter.cpp`: cherry-picked unmerged upstream PR
+Kenix3/libultraship#1121 (commit `c66cebe2f`, fixes #1119 / Shipwright#6666). Interpolated
+float tile coords truncated to int made the rendered texture window alternate 32×32/32×31
+across interpolation phases → animated water/lava flicker above 20 FPS. New
+`GetTileSizeFromCoordinates()` rounds via `lroundf`. Drop this local copy once the PR lands
+upstream and the pin passes it.

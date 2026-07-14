@@ -2706,6 +2706,8 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
         }
         spoiler["options"] = options;
         spoiler["startingItems"] = nlohmann::json::array();
+        // Required since the Saria's-Song-hint feature; empty = no hint priorities for combo seeds.
+        spoiler["sariaPriorityItems"] = nlohmann::json::array();
         spoiler["checks"] = nlohmann::json::parse(placementJson); // { "RC_*": "<spoilerName>", ... }
 
         Rando::Spoiler::ApplyToSaveContext(spoiler);

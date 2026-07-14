@@ -1579,3 +1579,11 @@ NOTE: this changes generation — seeds made with tricks on become trick-depende
 **Follow-ups (not done):** the in-game apply of the new Remains fixed-placements isn't playtested
 (comborando doesn't apply placements); the port-touching seams aren't runtime-verified in-game; naming the
 exact trick that unblocks Pass 2 (vs. the blocking location) would need bisection.
+
+## MM save init: sariaPriorityItems required by upstream Saria's-Song hint (2026-07-14)
+
+The 2026-07-13 upstream merge added the Saria's-Song-hint feature; `Rando::Spoiler::ApplyToSaveContext`
+now hard-reads `spoiler["sariaPriorityItems"]` (SariasSongHint.cpp). ComboShip's `MM_InitRandoSaveFile`
+(`mm/2s2h/BenPort.cpp`) builds a synthetic spoiler that lacked the key → `type_error.302` → every combo
+rando save fell back to a vanilla MM save. Fixed by supplying an empty array (combo seeds carry no MM
+hint priorities; cross-game hints are a future feature).

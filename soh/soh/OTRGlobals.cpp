@@ -3302,10 +3302,6 @@ static std::unordered_set<RandomizerCheck> Combo_ShuffledShopSlots() {
     return shuffled;
 }
 
-static bool Combo_IsShopSlot(RandomizerCheck rc, const std::unordered_set<RandomizerCheck>& shopSlots) {
-    return shopSlots.count(rc) > 0;
-}
-
 // Dump-time snapshot of the shuffled-slot set (GAP-8): the validator forces glitchless logic after
 // the dump, which would shrink a No-Logic seed's 8-slot shops to 7 on every recompute. The
 // computation still runs each call so the RNG stream stays identical to a cache miss.
@@ -3319,6 +3315,23 @@ static const std::unordered_set<RandomizerCheck>& Combo_GetShuffledShopSlots() {
         sComboShuffledSlotsCacheValid = true;
     }
     return sComboShuffledSlotsCache;
+}
+
+// Min-set placements (ComboFillConfined's native shopsanity AssumedFill), snapshotted so oracle
+// resets replay them exactly; the fill result also flows into the spoiler as fixed[], so the apply
+// path re-places them from the placement map instead of this cache.
+static std::vector<std::pair<RandomizerCheck, RandomizerGet>> sComboMinShopCache;
+static bool sComboMinShopCacheValid = false;
+
+void Combo_SnapshotMinShopItems() {
+    auto ctx = OTRGlobals::Instance->gRandoContext;
+    sComboMinShopCache.clear();
+    for (RandomizerCheck rc : Rando::StaticData::GetShopLocations()) {
+        RandomizerGet rg = ctx->GetItemLocation(rc)->GetPlacedRandomizerGet();
+        if (!ctx->GetItemLocation(rc)->HasCustomPrice() && rg != RG_NONE)
+            sComboMinShopCache.push_back({ rc, rg });
+    }
+    sComboMinShopCacheValid = true;
 }
 
 // Shop items + shop/scrub/merchant prices, exactly as Fill() sets them; called wherever ItemReset()
@@ -3337,9 +3350,13 @@ void Combo_SetupOOTShops() {
             Rando::ItemLocation* loc = ctx->GetItemLocation(rc);
             if (shuffled.count(rc)) {
                 loc->SetCustomPrice(GetRandomPrice(Rando::StaticData::GetLocation(rc), kComboShopPrices));
-            } else {
-                loc->PlaceVanillaItem(); // vanilla RG_BUY_* — a valid, sellable shop item
             }
+            // Non-shuffled slots: min-set items, replayed from the cache below (generation leaves them
+            // empty here — ComboFillConfined's AssumedFill places them right after; apply uses the map).
+        }
+        if (sComboMinShopCacheValid) {
+            for (const auto& [rc, rg] : sComboMinShopCache)
+                ctx->PlaceItemInLocation(rc, rg, false, false);
         }
     }
 
@@ -3524,14 +3541,9 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         // silently win over this seed's rolls in every oracle reset and in the final apply.
         sComboCheckPriceOverrides.clear();
         sComboShuffledSlotsCacheValid = false; // new seed/settings -> fresh slot-set snapshot
+        sComboMinShopCacheValid = false;       // fresh min-set placements (re-filled inside ComboFillConfined)
         Combo_SeedShopRng();
         ComboFillConfined();
-
-        // Vanilla shop slots stay owned by Combo_SetupOOTShops; shuffled ones are normal checks.
-        Combo_SeedShopRng();
-        const auto comboShuffledShops = Combo_ShuffledShopSlots();
-        const auto& comboShopLocsVec = Rando::StaticData::GetShopLocations();
-        const std::unordered_set<RandomizerCheck> comboShopSlots(comboShopLocsVec.begin(), comboShopLocsVec.end());
 
         // Partition allLocations: pre-placed (confined) -> fixed, empty -> fillable check.
         for (RandomizerCheck rc : ctx->allLocations) {
@@ -3546,20 +3558,9 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             // a logic-only win-condition marker (no item), not a real check.
             if (rc == RC_LINKS_POCKET || rc == RC_WINCON)
                 continue;
-            // ComboShip: emit non-shuffled shop slots' vanilla RG_BUY_* as fixed so the oracle credits them
-            // when the shop is reachable (e.g. Buy Deku Shield gates Mido/Deku Tree); apply skips them.
-            if (Combo_IsShopSlot(rc, comboShopSlots) && !comboShuffledShops.count(rc)) {
-                RandomizerGet vrg = loc->GetVanillaItem();
-                if (vrg != RG_NONE) {
-                    const std::string& vin = Rando::StaticData::RetrieveItem(vrg).GetName().GetEnglish();
-                    if (!vin.empty())
-                        fixed.push_back({ { "check", name },
-                                          { "item", vin },
-                                          { "advancement", Rando::StaticData::RetrieveItem(vrg).IsAdvancement() } });
-                }
-                continue;
-            }
 
+            // Shop min-set Buy items are placed by ComboFillConfined, so they flow through the generic
+            // pre-placed branch below: fixed[] for the oracle AND spoiler placements for the apply.
             RandomizerGet placed = ctx->GetItemLocation(rc)->GetPlacedRandomizerGet();
             if (placed != RG_NONE) {
                 const std::string& in = Rando::StaticData::RetrieveItem(placed).GetName().GetEnglish();
@@ -3573,15 +3574,6 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
                 // item — red ice / icicles / fountain fairies have NO vanilla item (the item exists only
                 // when shuffled) and were being wrongly dropped, leaving them unfilled ("No Item").
                 checks.push_back({ { "name", name } });
-                // itemPool excludes shop slots (CountEmptyLocations(false)), so a shuffled shop check
-                // needs its vanilla buy item added to the pool to stay balanced.
-                if (Combo_IsShopSlot(rc, comboShopSlots)) {
-                    RandomizerGet vrg = loc->GetVanillaItem();
-                    const std::string& vin = Rando::StaticData::RetrieveItem(vrg).GetName().GetEnglish();
-                    if (!vin.empty())
-                        pool.push_back({ { "name", vin },
-                                         { "advancement", Rando::StaticData::RetrieveItem(vrg).IsAdvancement() } });
-                }
             }
         }
 
@@ -3591,6 +3583,13 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             if (in.empty())
                 continue;
             pool.push_back({ { "name", in }, { "advancement", Rando::StaticData::RetrieveItem(rg).IsAdvancement() } });
+        }
+        // itemPool excludes shop slots (CountEmptyLocations(false)); shuffled shop checks are covered
+        // by junk, exactly like native FastFill's GetJunkItem() padding — Buy items stay shop-only.
+        while (pool.size() < checks.size()) {
+            RandomizerGet jg = GetJunkItem();
+            pool.push_back({ { "name", Rando::StaticData::RetrieveItem(jg).GetName().GetEnglish() },
+                             { "advancement", Rando::StaticData::RetrieveItem(jg).IsAdvancement() } });
         }
         // Rolled prices (set by ComboFillConfined at Fill()'s native position) for every priced
         // check type — the consolidated spoiler carries these so the validator/reload never guess.
@@ -3603,13 +3602,6 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
                 prices[loc->GetName()] = ctx->GetItemLocation(rc)->GetPrice();
         }
 
-        // Fewer pool items than checks would leave checks unfilled; surplus (junk from excluded
-        // locations) is fine — the fill drops it.
-        if (pool.size() < checks.size()) {
-            SPDLOG_WARN("[ComboShip] SOH_DumpRandoStaticData: pool shortfall ({} pool < {} checks) — checks would "
-                        "be left unfilled",
-                        pool.size(), checks.size());
-        }
         usedPool = true;
 #else
         // Non-combo (unused outside ComboShip): old vanilla-per-check emission.
@@ -3711,11 +3703,12 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
 #endif
 
         // ComboShip: ItemReset wipes shop prices + placements, so re-run SoH's shop/scrub/merchant
-        // setup here (vanilla slots get their RG_BUY_* item + prices; shuffled slots get a custom
-        // price). The combo placements below only cover the shuffled slots (the dump excluded the
-        // vanilla ones), so they land on validly-priced slots and don't clobber the vanilla items.
+        // setup here (shuffled slots get a custom price). Non-shuffled slots' min-set Buy items ride
+        // in the placement map (the dump emits them as fixed[], which the fill echoes into the
+        // spoiler), so the loop below places them like any other check.
 #ifdef COMBO_BUILD
         sComboShuffledSlotsCacheValid = false; // reload may carry different settings than the last dump
+        sComboMinShopCacheValid = false;       // min-set comes from the placement map here, not the cache
         // Combo seeds carry no NPC hints (CreateAllHints never runs; the combo sphere-hint panel is
         // the hint system). Force the hint settings off so stones/Ganondorf/warp texts behave vanilla
         // instead of reading the empty hint table; the save inherits these from the context (GAP-3).
@@ -3724,12 +3717,6 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
         ctx->GetOption(RSK_WARP_SONG_HINTS).Set(RO_GENERIC_OFF);
         Combo_SetupOOTShops();
         Combo_ApplyPriceOverrides(); // spoiler prices win over the re-roll on reload
-        // Vanilla (non-shuffled) shop slots are owned by Combo_SetupOOTShops above; the dump emits them as
-        // fixed for reachability only, so skip them below to avoid clobbering the priced vanilla item.
-        Combo_SeedShopRng();
-        const auto applyShuffledShops = Combo_ShuffledShopSlots();
-        const auto& applyShopLocsVec = Rando::StaticData::GetShopLocations();
-        const std::unordered_set<RandomizerCheck> applyShopSlots(applyShopLocsVec.begin(), applyShopLocsVec.end());
 #endif
 
         nlohmann::json placements = nlohmann::json::parse(json);
@@ -3756,12 +3743,6 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
 
             RandomizerCheck rc = rcIt->second;
             RandomizerGet rg = rgIt->second;
-#ifdef COMBO_BUILD
-            if (Combo_IsShopSlot(rc, applyShopSlots) && !applyShuffledShops.count(rc)) {
-                ++skipped;
-                continue;
-            }
-#endif
             ctx->PlaceItemInLocation(rc, rg, false, false);
             ++placed;
 #ifdef COMBO_BUILD

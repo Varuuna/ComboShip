@@ -324,6 +324,19 @@ void DrawTrapModel() {
     CLOSE_DISPS(gPlayState->state.gfxCtx);
 }
 
+void DrawSkeletonKey() {
+    OPEN_DISPS(gPlayState->state.gfxCtx);
+
+    Gfx_SetupDL25_Opa(gPlayState->state.gfxCtx);
+    Matrix_Scale(0.8f, 0.8f, 0.8f, MTXMODE_APPLY);
+
+    MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gPlayState->state.gfxCtx);
+    gDPSetEnvColor(POLY_OPA_DISP++, 255, 255, 170, 255);
+    gSPDisplayList(POLY_OPA_DISP++, (Gfx*)gSkeletonKeyDL);
+
+    CLOSE_DISPS(gPlayState->state.gfxCtx);
+}
+
 void DrawTriforcePiece(RandoItemId randoItemId) {
     Gfx* triforcePieceModels[3] = {
         (Gfx*)gTriforcePiece0DL,
@@ -665,6 +678,9 @@ void Rando::DrawItem(RandoItemId randoItemId, RandoCheckId randoCheckId, Actor* 
         case RI_TRIFORCE_PIECE_PREVIOUS:
         case RI_TRIFORCE_PIECE:
             DrawTriforcePiece(randoItemId);
+            break;
+        case RI_SKELETON_KEY:
+            DrawSkeletonKey();
             break;
         case RI_TRAP:
             Rando::DrawItem(Rando::CurrentTrapItem(randoCheckId), randoCheckId, actor);

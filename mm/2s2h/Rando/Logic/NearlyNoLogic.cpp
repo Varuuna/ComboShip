@@ -13,7 +13,7 @@ void ApplyNearlyNoLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std::
     PreplaceConfinedItems(checkPool, itemPool);
 
     for (size_t i = 0; i < itemPool.size(); i++) {
-        std::swap(itemPool[i], itemPool[Ship_Random(0, itemPool.size() - 1)]);
+        std::swap(itemPool[i], itemPool[Ship_Random(0, itemPool.size())]);
     }
 
     std::map<RandoItemId, RandoCheckId> importantItems;
@@ -83,7 +83,7 @@ void ApplyNearlyNoLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std::
     }
 
     auto PerformBlacklistReplacement = [&](RandoItemId randoItemId) {
-        auto otherCheckIndex = Ship_Random(0, safeChecks.size() - 1);
+        auto otherCheckIndex = Ship_Random(0, safeChecks.size());
         RANDO_SAVE_CHECKS[importantItems[randoItemId]].randoItemId =
             RANDO_SAVE_CHECKS[safeChecks[otherCheckIndex]].randoItemId;
         RANDO_SAVE_CHECKS[safeChecks[otherCheckIndex]].randoItemId = randoItemId;

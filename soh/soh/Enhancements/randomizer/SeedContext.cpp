@@ -420,8 +420,8 @@ void Context::ParseSpoiler(const char* spoilerFileName) {
     } catch (...) { LUSLOG_ERROR("Failed to load Spoiler File: %s", spoilerFileName); }
 }
 
-void Context::ParseHashIconIndexesJson(nlohmann::json spoilerFileJson) {
-    nlohmann::json hashJson = spoilerFileJson["file_hash"];
+void Context::ParseHashIconIndexesJson(const nlohmann::json& spoilerFileJson) {
+    nlohmann::json hashJson = spoilerFileJson.value("file_hash", nlohmann::json());
     int index = 0;
     for (auto it = hashJson.begin(); it != hashJson.end(); ++it) {
         hashIconIndexes[index] = gSeedTextures[it.value()].id;
@@ -429,8 +429,8 @@ void Context::ParseHashIconIndexesJson(nlohmann::json spoilerFileJson) {
     }
 }
 
-void Context::ParseItemLocationsJson(nlohmann::json spoilerFileJson) {
-    nlohmann::json locationsJson = spoilerFileJson["locations"];
+void Context::ParseItemLocationsJson(const nlohmann::json& spoilerFileJson) {
+    nlohmann::json locationsJson = spoilerFileJson.value("locations", nlohmann::json());
     for (auto it = locationsJson.begin(); it != locationsJson.end(); ++it) {
         RandomizerCheck rc = StaticData::locationNameToEnum[it.key()];
         if (it->is_structured()) {
@@ -458,30 +458,22 @@ void Context::WriteHintJson(nlohmann::ordered_json& spoilerFileJson) {
     }
 }
 
-nlohmann::json getValueForMessage(std::unordered_map<std::string, nlohmann::json> map, CustomMessage message) {
-    std::vector<std::string> strings = message.GetAllMessages();
-    for (uint8_t language = 0; language < LANGUAGE_MAX; language++) {
-        if (map.contains(strings[language])) {
-            return strings[language];
-        }
-    }
-    return {};
-}
-
-void Context::ParseHintJson(nlohmann::json spoilerFileJson) {
-    for (auto hintData : spoilerFileJson["Gossip Stone Hints"].items()) {
+void Context::ParseHintJson(const nlohmann::json& spoilerFileJson) {
+    nlohmann::json gossipHintsJson = spoilerFileJson.value("Gossip Stone Hints", nlohmann::json());
+    for (auto hintData : gossipHintsJson.items()) {
         RandomizerHint hint = (RandomizerHint)StaticData::hintNameToEnum[hintData.key()];
         AddHint(hint, Hint(hint, hintData.value()));
     }
-    for (auto hintData : spoilerFileJson["Static Hints"].items()) {
+    nlohmann::json staticHintsJson = spoilerFileJson.value("Static Hints", nlohmann::json());
+    for (auto hintData : staticHintsJson.items()) {
         RandomizerHint hint = (RandomizerHint)StaticData::hintNameToEnum[hintData.key()];
         AddHint(hint, Hint(hint, hintData.value()));
     }
     CreateStaticHints();
 }
 
-void Context::ParseTricksJson(nlohmann::json spoilerFileJson) {
-    nlohmann::json enabledTricksJson = spoilerFileJson["enabledTricks"];
+void Context::ParseTricksJson(const nlohmann::json& spoilerFileJson) {
+    nlohmann::json enabledTricksJson = spoilerFileJson.value("enabledTricks", nlohmann::json());
     const auto& settings = Rando::Settings::GetInstance();
     for (auto it : enabledTricksJson) {
         int rt = settings->GetRandomizerTrickByName(it);

@@ -123,7 +123,7 @@ void PreplaceConfinedItems(std::vector<RandoCheckId>& checkPool, std::vector<Ran
         if (checks.empty()) {
             continue; // dungeon out of room: leave it for the general pool
         }
-        size_t pick = Ship_Random(0, checks.size() - 1);
+        size_t pick = Ship_Random(0, checks.size());
         RandoCheckId checkId = checks[pick];
         checks.erase(checks.begin() + pick);
 

@@ -248,6 +248,34 @@ int SaveManager_ReadSaveFile(const std::filesystem::path& fileName, nlohmann::js
     }
 }
 
+// Special "auto save" to prevent save scumming Saria's Song hint. This can be more generic if we
+// find another use case for this functionality.
+void SaveManager_PersistSariaHintsAvailable() {
+    std::string fileName = SaveManager_GetFileName(gSaveContext.fileNum + 1);
+    nlohmann::json j;
+
+    if (SaveManager_ReadSaveFile(fileName, j) != 0) {
+        return;
+    }
+
+    try {
+        u8 hintsAvailable = gSaveContext.save.shipSaveInfo.rando.sariaHintsAvailable;
+
+        if (j.contains("newCycleSave")) {
+            j["newCycleSave"]["save"]["shipSaveInfo"]["rando"]["sariaHintsAvailable"] = hintsAvailable;
+        }
+
+        if (j.contains("owlSave")) {
+            j["owlSave"]["save"]["shipSaveInfo"]["rando"]["sariaHintsAvailable"] = hintsAvailable;
+        }
+    } catch (...) {
+        SPDLOG_ERROR("Failed to patch sariaHintsAvailable into save file");
+        return;
+    }
+
+    SaveManager_WriteSaveFile(fileName, j);
+}
+
 void SaveManager_MoveInvalidSaveFile(const std::filesystem::path& fileName, const std::string& message) {
     const std::filesystem::path filePath = savesFolderPath / fileName;
     const std::filesystem::path backupFilePath =

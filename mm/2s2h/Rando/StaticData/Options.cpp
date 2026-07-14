@@ -25,7 +25,7 @@ std::map<RandoOptionId, RandoStaticOption> Options = {
     RO(RO_ACCESS_TRIALS,               RO_ACCESS_TRIALS_20_MASKS),
     RO(RO_CLOCK_SHUFFLE_PROGRESSIVE,   RO_CLOCK_SHUFFLE_RANDOM),
     RO(RO_CLOCK_SHUFFLE,               RO_GENERIC_OFF),
-    RO(RO_CLOCK_TERMINAL_TIME,         0), // Default: 00:00 (midnight)
+    RO(RO_CLOCK_TERMINAL_TIME,         350), // Default: 05:50 (10 "minutes" before crash)
     RO(RO_HINTS_BANK_SIGN,             RO_GENERIC_OFF),
     RO(RO_HINTS_BOSS_REMAINS,          RO_GENERIC_OFF),
     RO(RO_HINTS_GOSSIP_STONE_STRENGTH, 50),
@@ -56,6 +56,7 @@ std::map<RandoOptionId, RandoStaticOption> Options = {
     RO(RO_SHUFFLE_OWL_STATUES,         RO_GENERIC_OFF),
     RO(RO_SHUFFLE_POT_DROPS,           RO_GENERIC_OFF),
     RO(RO_SHUFFLE_SHOPS,               RO_GENERIC_OFF),
+    RO(RO_SHUFFLE_SKELETON_KEY,        RO_GENERIC_OFF),
     RO(RO_SHUFFLE_SNOWBALL_DROPS,      RO_GENERIC_OFF),
     RO(RO_SHUFFLE_SONG_DOUBLE_TIME,    RO_GENERIC_OFF),
     RO(RO_SHUFFLE_SONG_INVERTED_TIME,  RO_GENERIC_OFF),

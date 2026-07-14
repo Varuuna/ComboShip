@@ -36,7 +36,7 @@ static bool HasDisplayOverlayModeInConfig(Ship::Config* conf) {
 }
 
 static void MigrateDisplayOverlayTimerMode(Ship::Config* conf) {
-    if (HasDisplayOverlayModeInConfig(conf)) {
+    if (!HasDisplayOverlayModeInConfig(conf)) {
         return;
     }
 
@@ -51,10 +51,10 @@ static void MigrateDisplayOverlayTimerMode(Ship::Config* conf) {
 }
 
 static void MigrateWarpPoints(Ship::Config* conf) {
-    auto warpPoints = nlohmann::json::object();
-
     if (conf->GetNestedJson().contains("CVars")) {
         if (CVarGetInteger("gDeveloperTools.WarpPoint.Saved", 0) != 0) {
+            auto warpPoints = nlohmann::json::object();
+
             s32 entranceId = CVarGetInteger("gDeveloperTools.WarpPoint.Entrance", 0);
             s8 roomNum = CVarGetInteger("gDeveloperTools.WarpPoint.Room", 0);
             Vec3f pos = { CVarGetFloat("gDeveloperTools.WarpPoint.X", 0.0f),
@@ -67,10 +67,10 @@ static void MigrateWarpPoints(Ship::Config* conf) {
                                                { "pos", { { "x", pos.x }, { "y", pos.y }, { "z", pos.z } } },
                                                { "rotY", rotY },
                                                { "bootToPoint", bootToPoint } };
+
+            Ship::Context::GetInstance()->GetConfig()->SetBlock("WarpPoints", warpPoints);
         }
     }
-
-    Ship::Context::GetInstance()->GetConfig()->SetBlock("WarpPoints", warpPoints);
 }
 
 ConfigVersion1Updater::ConfigVersion1Updater() : ConfigVersionUpdater(1) {

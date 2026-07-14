@@ -22,7 +22,7 @@ typedef enum {
 
     // #### `result`
     // ```c
-    // sBgPoEventPuzzleState == 0xF
+    // sPuzzleState == 0xF
     // ```
     // #### `args`
     // - None
@@ -662,19 +662,30 @@ typedef enum {
 
     // #### `result`
     // ```c
-    // (Message_GetState(&play->msgCtx) == TEXT_STATE_EVENT) && Message_ShouldAdvance(play)
-    // ```
-    // #### `args`
-    // - None
-    VB_END_GERUDO_MEMBERSHIP_TALK,
-
-    // #### `result`
-    // ```c
     // true
     // ```
     // #### `args`
     // - `*EnArrow`
     VB_EN_ARROW_MAGIC_CONSUMPTION,
+
+    // #### `result`
+    // ```c
+    // i + 1 == msgCtx->textDrawPos &&
+    // (msgCtx->msgMode == MSGMODE_TEXT_DISPLAYING ||
+    //  (msgCtx->msgMode >= MSGMODE_OCARINA_STARTING &&
+    //   msgCtx->msgMode < MSGMODE_SCARECROW_LONG_RECORDING_START))
+    // ```
+    // #### `args`
+    // - `u16` (text position)
+    VB_ENABLE_QUICKTEXT,
+
+    // #### `result`
+    // ```c
+    // (Message_GetState(&play->msgCtx) == TEXT_STATE_EVENT) && Message_ShouldAdvance(play)
+    // ```
+    // #### `args`
+    // - None
+    VB_END_GERUDO_MEMBERSHIP_TALK,
 
     // #### `result`
     // ```c
@@ -716,6 +727,12 @@ typedef enum {
     // #### `args`
     // - `*EnElf`
     VB_FAIRY_HEAL,
+
+    // #### `result`
+    // True if the next text position must be beyond the current position; false otherwise
+    // #### `args`
+    // - `u16` (next text position)
+    VB_FIX_TEXT_SPEED_SOFTLOCK,
 
     // #### `result`
     // ```c
@@ -1660,6 +1677,14 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // false
+    // ```
+    // #### `args`
+    // - `None`
+    VB_OWL_CHOOSE_BETTER,
+
+    // #### `result`
+    // ```c
     // this->actor.xzDistToPlayer < targetDist
     // ```
     // #### `args`
@@ -1742,6 +1767,14 @@ typedef enum {
     // #### `args`
     // - `*EnDaiku`
     VB_PLAY_CARPENTER_FREE_CS,
+
+    // #### `result`
+    // ```c
+    // true if one point cutscene skip not enabled, or not randomizer
+    // ```
+    // #### `args`
+    // - none
+    VB_PLAY_TIMEBLOCK_CS,
 
     // #### `result`
     // Close enough & various cutscene checks
@@ -2126,6 +2159,14 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // this->ageProperties->unk_24 <= ySurface
+    // ```
+    // #### `args`
+    // - `Player*`
+    VB_PLAYER_SPAWN_SWIMMING,
+
+    // #### `result`
+    // ```c
     // item == ITEM_SAW
     // ```
     // #### `args`
@@ -2309,7 +2350,7 @@ typedef enum {
 
     // #### `result`
     // ```c
-    // SurfaceType_GetSlope(&play->colCtx, poly, bgId) == 2
+    // SurfaceType_GetFloorEffect(&play->colCtx, poly, bgId) == 2
     // ```
     // #### `args`
     // - `*int16_t` - original next entrance index (`play->setupExitList[exitIndex - 1]`)
@@ -2623,6 +2664,14 @@ typedef enum {
     // - `*CollisionPoly
     // - s32 - background id`
     VB_TARGETABLE_HOOKSHOT_RETICLE,
+
+    // #### `result`
+    // ```c
+    // false
+    // ```
+    // #### `args`
+    // - `u16` (text position)
+    VB_TEXT_CRAWL_FASTER,
 
     // #### `result`
     // ```c
@@ -3238,12 +3287,40 @@ typedef enum {
     VB_PREVENT_HOOKSHOT_PARENT_SOFTLOCK,
 
     // #### `result`
-    // ```c
     // true if Goron Link is talking
     // ```
     // #### `args`
     // - `*EnGo2` (Goron Link)
     VB_PREVENT_GORON_LINK_SOFTLOCK,
+
+    // #### `result`
+    // ```c
+    // play->interfaceCtx.hbaAmmo == 0
+    // ```
+    // Prevent custom fanfares set to loop from softlocking Horseback Archery by
+    // letting players escape the cutscene with A/B/start after a normal number of playframes.
+    // #### `args`
+    // - none
+    VB_PREVENT_HBA_FANFARE_SOFTLOCK_TIMER,
+
+    // #### `result`
+    // ```c
+    // (isFanfarePlaying != 1 && gSaveContext.minigameState != 3)
+    // ```
+    // Prevent custom fanfares set to loop from softlocking Horseback Archery by
+    // letting players escape the cutscene with A/B/start after a normal number of playframes.
+    // #### `args`
+    // - `EnHorse*`
+    VB_PREVENT_HBA_FANFARE_SOFTLOCK_BUTTONS,
+
+    // #### `result`
+    // ```c
+    // sets `camMode` to new mode if applicable
+    // ```
+    // #### `args`
+    // - `s32` player->heldItemAction
+    // - `s32*` camMode
+    VB_CHANGE_AIMING_CAMERA,
 
     // true
     // ```

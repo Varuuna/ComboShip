@@ -73,6 +73,10 @@ void Rando::MiscBehavior::OnFileCreate(s16 fileNum) {
                 auto startingItems = Rando::GetStartingItemsFromConfig();
                 Rando::SetStartingItemsInSave(gSaveContext.save.shipSaveInfo.rando, startingItems);
 
+                // Persist SariaPriorityItems to the save
+                auto priorityItems = Rando::GetSariaPriorityItemsFromConfig();
+                Rando::SetSariaPriorityItemsInSave(gSaveContext.save.shipSaveInfo.rando, priorityItems);
+
                 std::vector<RandoCheckId> checkPool;
                 std::vector<RandoItemId> itemPool;
                 Rando::Logic::GeneratePools(gSaveContext.save.shipSaveInfo.rando, checkPool, itemPool);

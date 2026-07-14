@@ -496,12 +496,13 @@ bool HasEquipment(ItemTrackerItem item) {
     return GameInteractor::IsSaveLoaded() ? (item.data & gSaveContext.inventory.equipment) : false;
 }
 
-void ItemTracker_LoadFromPreset(nlohmann::json trackerInfo) {
+void ItemTracker_LoadFromPreset(const nlohmann::json& trackerInfo) {
     presetLoaded = true;
     for (auto window : itemTrackerWindowIDs) {
         if (trackerInfo.contains(window)) {
-            presetPos[window] = { trackerInfo[window]["pos"]["x"], trackerInfo[window]["pos"]["y"] };
-            presetSize[window] = { trackerInfo[window]["size"]["width"], trackerInfo[window]["size"]["height"] };
+            const nlohmann::json& windowInfo = trackerInfo.at(window);
+            presetPos[window] = { windowInfo.at("pos").at("x"), windowInfo.at("pos").at("y") };
+            presetSize[window] = { windowInfo.at("size").at("width"), windowInfo.at("size").at("height") };
         }
     }
 }

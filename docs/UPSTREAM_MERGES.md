@@ -10,6 +10,10 @@ doesn't undo a load-bearing adaptation thinking it's a stray edit.
 > (see the HM64 principle). Every deviation below exists for a concrete reason stated inline in the
 > code with a `ComboShip:` comment **and** logged in this file.
 
+After every merge that touches either randomizer, re-walk the fill-parity checklist in
+[`COMBO_FILL_PARITY.md`](COMBO_FILL_PARITY.md) — it maps each native generation step (SoH `Fill()`,
+2Ship `OnFileCreate`) to its combo-pipeline equivalent and tracks the known gaps.
+
 ## Upstreams
 
 | Folder | Upstream repo | Branch we track | Maps to |
@@ -1575,3 +1579,63 @@ NOTE: this changes generation — seeds made with tricks on become trick-depende
 **Follow-ups (not done):** the in-game apply of the new Remains fixed-placements isn't playtested
 (comborando doesn't apply placements); the port-touching seams aren't runtime-verified in-game; naming the
 exact trick that unblocks Pass 2 (vs. the blocking location) would need bisection.
+
+## MM save init: sariaPriorityItems required by upstream Saria's-Song hint (2026-07-14)
+
+The 2026-07-13 upstream merge added the Saria's-Song-hint feature; `Rando::Spoiler::ApplyToSaveContext`
+now hard-reads `spoiler["sariaPriorityItems"]` (SariasSongHint.cpp). ComboShip's `MM_InitRandoSaveFile`
+(`mm/2s2h/BenPort.cpp`) builds a synthetic spoiler that lacked the key → `type_error.302` → every combo
+rando save fell back to a vanilla MM save. Fixed by supplying an empty array (combo seeds carry no MM
+hint priorities; cross-game hints are a future feature).
+
+## Cherry-pick: LUS PR #1121 — round interpolated texture tile sizes (2026-07-14)
+
+`libultraship/src/fast/interpreter.cpp`: cherry-picked unmerged upstream PR
+Kenix3/libultraship#1121 (commit `c66cebe2f`, fixes #1119 / Shipwright#6666). Interpolated
+float tile coords truncated to int made the rendered texture window alternate 32×32/32×31
+across interpolation phases → animated water/lava flicker above 20 FPS. New
+`GetTileSizeFromCoordinates()` rounds via `lroundf`. Drop this local copy once the PR lands
+upstream and the pin passes it.
+
+## MM rando save-init strips + combo-return fixes (2026-07-14)
+
+**Why:** Combo MM rando saves started with the vanilla Kokiri Sword / Hero's Shield and the combo
+baseline's force-granted Magic — `MM_InitRandoSaveFile` mirrored native `OnFileCreate` but missed
+its "Remove Sword & Shield" step, and never cleared the baseline's `isMagicAcquired`. Separately,
+the MM→OOT return crashed (UAF in `DungeonInfo::IsVanilla`) and the moon crash kicked the player
+back to OOT instead of restarting the MM cycle.
+
+**Vendored (`COMBO_BUILD`-guarded):**
+- `mm/2s2h/BenPort.cpp` — `MM_InitRandoSaveFile` strips sword/shield equip values and
+  `isMagicAcquired` alongside the existing Ocarina/Deku-Mask/songs strip; the MM→OOT portal
+  trigger now requires `spawnNum == 1` (the South Clock Town door) so cycle resets (moon crash /
+  Song of Time respawn at spawns 0/2/3/6 in `SCENE_INSIDETOWER`) stay in MM.
+- `soh/src/code/title_setup.c` — the combo-return jump fires `GameInteractor_ExecuteOnLoadGame`
+  after `Sram_OpenSave` like `FileChoose_LoadGame` does; `Save_LoadFile` recreates `gRandoContext`,
+  and without the hook the check tracker's region-table `ctx` dangled → UAF on the next recalc.
+
+## Both-games tracker model (2026-07-14)
+
+**Why:** Trackers were foreground-follow with a per-tracker game-swap; the user wants both games'
+trackers visible together, one master enable, and a single customization home in the Combo menu.
+The combo layer carries the model (`ComboTrackerSwap` rewritten to a per-frame reconcile of derived
+per-game CVars: master enable + per-kind HideBackground + hold-to-peek; `ComboTrackerVisibility`
+now follows only the settings popouts; both Shared tracker panels inline the games' own settings
+sidebars with a divider). The old ShownGame/TrueIntent/HoldMomentary CVars are migrated + cleared
+on boot.
+
+**Vendored (`COMBO_BUILD`-guarded, additive):**
+- `mm/2s2h/Enhancements/Trackers/ItemTracker/ItemTracker.cpp` + `mm/2s2h/Rando/CheckTracker/CheckTracker.cpp`
+  — MM's trackers `Begin()` distinct ImGui identities (`"Item Tracker##MM"`, split-group `##<n>MM`,
+  `"Check Tracker##MM"`) so both games' windows can exist simultaneously with their own rects
+  (previously both games drew into the SAME ImGui window; only the Gui-map key carried `##MM`).
+- `mm/2s2h/Rando/Menu.cpp` — "Item/Check Tracker Settings Inline" `WIDGET_CUSTOM` widgets (the
+  SoH issue-#22 inline-window mechanism) so the Shared panels can embed MM's settings; skipped
+  while popped out.
+- `mm/2s2h/Enhancements/Trackers/ItemTracker/ItemTrackerSettings.cpp` +
+  `mm/2s2h/Rando/CheckTracker/CheckTracker.cpp` — the Enable/Disable window buttons inside the
+  settings content are hidden in combo builds (`gWindows.ItemTracker`/`.CheckTracker` are derived
+  from the combo master toggle every frame; the buttons would fight it).
+
+**On future merges:** if upstream renames the tracker ImGui windows or the settings windows,
+update `combo/gui/ComboTrackerCommon.h` (`kKinds[].imguiWin`) and the inline-widget window names.

@@ -1508,8 +1508,11 @@ int Fill() {
 }
 
 #ifdef COMBO_BUILD
-// ComboShip: run only Fill()'s confined-placement steps (skip shops/entrances/Link's Pocket/free
-// fill), leaving confined items placed in ctx and the free pool in itemPool. See UPSTREAM_MERGES.md.
+extern void Combo_SetupOOTShops();        // OTRGlobals.cpp — seeded shop/scrub/merchant items + prices
+extern void Combo_SnapshotMinShopItems(); // OTRGlobals.cpp — cache min-set placements for oracle replay
+
+// ComboShip: run only Fill()'s confined-placement steps (skip entrances/Link's Pocket/free fill),
+// leaving confined items placed in ctx and the free pool in itemPool. See UPSTREAM_MERGES.md.
 void ComboFillConfined() {
     auto ctx = Rando::Context::GetInstance();
     RegionTable_Init();
@@ -1518,10 +1521,31 @@ void ComboFillConfined() {
     GenerateItemPool();
     GenerateStartingInventory();
     FillExcludedLocations();
-    // Assume worst-case shop access during confined placement so reachability that needs a bought
-    // shield (e.g. a dungeon reward on Gohma) resolves — mirrors Fill()'s temporary injection.
-    AddElementsToPool(itemPool, GetMinVanillaShopItems(8));
     SetAreas();
+    // Fill()'s native position for shop items + shop/scrub/merchant prices (its shopsanity block runs
+    // right after SetAreas). Without prices the confined AssumedFills treat every priced slot as free.
+    Combo_SetupOOTShops();
+    // Native shopsanity min-set: non-custom-price slots receive GetMinVanillaShopItems so critical
+    // re-buyables (shield/nuts/sticks/arrows) survive every seed; Buy items stay shop-only. Snapshot
+    // so oracle resets replay identical placements instead of re-filling.
+    if (!ctx->GetOption(RSK_SHOPSANITY).Is(RO_SHOPSANITY_OFF)) {
+        std::vector<RandomizerCheck> shopLocations;
+        int totalReplaced = 0;
+        for (RandomizerCheck rc : Rando::StaticData::GetShopLocations()) {
+            if (ctx->GetItemLocation(rc)->HasCustomPrice()) {
+                totalReplaced++;
+            } else {
+                shopLocations.push_back(rc);
+            }
+        }
+        AssumedFill(GetMinVanillaShopItems(totalReplaced), shopLocations);
+        for (RandomizerCheck rc : shopLocations) {
+            if (ctx->GetItemLocation(rc)->GetPlacedRandomizerGet() == RG_NONE)
+                SPDLOG_ERROR("[ComboShip] ComboFillConfined: min-set shop fill left '{}' empty",
+                             Rando::StaticData::GetLocation(rc)->GetName());
+        }
+        Combo_SnapshotMinShopItems();
+    }
     RandomizeDungeonRewards();
     for (auto dungeon : ctx->GetDungeons()->GetDungeonList()) {
         RandomizeOwnDungeon(dungeon);
@@ -1545,7 +1569,7 @@ void ComboFillConfined() {
             }
         }
     }
-    // Erase the temporary shop items so they never enter the cross-world pool.
+    // Guard: Buy items are shop-only (placed above, never pooled); strip any that leak into itemPool.
     std::erase_if(itemPool,
                   [](const auto item) { return Rando::StaticData::RetrieveItem(item).GetItemType() == ITEMTYPE_SHOP; });
 }

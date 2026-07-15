@@ -492,8 +492,11 @@ comboSkipVisibilityGates:;
         // its own viewport is force-rendered opaque (imgui.cpp RenderWindowDecorations), which
         // showed as a black tracker background during the hold-to-swap gesture.
         ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID);
-#endif
+        // ComboShip: distinct ImGui identity (##MM) so OOT's and MM's item trackers can show together.
+        singleWindowOpen = ImGui::Begin("Item Tracker##MM", nullptr, windowFlags);
+#else
         singleWindowOpen = ImGui::Begin("Item Tracker", nullptr, windowFlags);
+#endif
     }
 
     uint32_t index = 0;
@@ -509,6 +512,7 @@ comboSkipVisibilityGates:;
             ImGui::PushStyleColor(ImGuiCol_WindowBg, windowBg);
             std::string name = std::string(group.name) + "##" + std::to_string(index);
 #ifdef COMBO_BUILD
+            name += "MM"; // distinct ImGui identity vs OOT's split-group windows
             ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID); // same pin as the single window
 #endif
             isWindowOpen = ImGui::Begin(name.c_str(), nullptr, windowFlags);

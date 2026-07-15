@@ -511,6 +511,8 @@ void LoadItemTrackerConfig() {
 void DrawTrackerOptions() {
     if (ImGui::BeginTable("OptionsTable", 3)) {
         ImGui::TableNextColumn();
+#ifndef COMBO_BUILD
+        // ComboShip: gWindows.ItemTracker is derived from the combo master toggle — hide this button.
         if (CVarGetInteger("gWindows.ItemTracker", 0)) {
             UIWidgets::WindowButton("Disable Item Tracker", "gWindows.ItemTracker", BenGui::mItemTrackerWindow,
                                     { .size = UIWidgets::Sizes::Inline, .color = UIWidgets::Colors::Red });
@@ -518,6 +520,7 @@ void DrawTrackerOptions() {
             UIWidgets::WindowButton("Enable Item Tracker", "gWindows.ItemTracker", BenGui::mItemTrackerWindow,
                                     { .size = UIWidgets::Sizes::Inline, .color = UIWidgets::Colors::Green });
         }
+#endif
 
         UIWidgets::CVarCheckbox("Split Window Groups", "gSettings.ItemTracker.WindowGroup");
         UIWidgets::CVarCheckbox("Show Item Counts", "gSettings.ItemTracker.ItemCounts",

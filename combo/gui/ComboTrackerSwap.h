@@ -1,29 +1,24 @@
 // combo/gui/ComboTrackerSwap.h
 //
-// ComboShip-owned: swaps which game's Item/Check Tracker is displayed. Each tracker has a sticky
-// selection CVar (gCombo.Tracker.ShownGame / gCombo.CheckTracker.ShownGame; -1 = follow
-// foreground, 0 = OOT, 1 = MM), toggled by a click-hold on that tracker's body or the Combo
-// Menu's "Tracker shows" combo; the matching HoldMomentary CVar makes the hold a momentary peek
-// (reverts on release). The foreground game's tracker CVar stays the master on/off intent; this
-// module only picks whose window renders. Reconciliation runs every frame from the registered
-// swap window (drawn before either tracker — name-ordered Gui map).
+// ComboShip-owned: per-frame reconcile of the both-games tracker model. Each tracker kind has a
+// master enable (both games' windows show, each with its own ImGui identity/rect) and a
+// HideBackground option (only the foreground game's window draws). In HideBackground mode a
+// click-hold on the visible tracker's body momentarily also shows the dormant game's tracker
+// (peek; reverts on release). Per-game visibility CVars are DERIVED from this model every frame —
+// nothing here needs crash recovery. Reconciliation runs from the registered logic-only window
+// (drawn before either tracker — name-ordered Gui map).
 #pragma once
 
 namespace ComboTracker {
 
-// Trackers the swap manages (indices into the internal config table).
+// Tracker kinds (indices into ComboTrackerCommon.h kKinds).
 enum SwapTrackerId { kSwapItem = 0, kSwapCheck = 1, kSwapCount = 2 };
 
-// Register the logic-only swap window into the shared Gui and recover the true tracker CVars if a
-// crash left mid-swap forced values persisted.
+// Register the logic-only reconcile window into the shared Gui, clear the retired swap-era CVars,
+// and seed the master enables from the per-game CVars an existing config may carry.
 void RegisterSwap();
 
-// Restore both games' true tracker CVars and deactivate. Call BEFORE the visibility manager's
-// intent snapshot/restore (transitions) and before exit-time intent restore.
-void SuspendSwap();
-
-// Master "is this tracker on" switch for the Shared panel. Swap-aware: while a swap is active
-// the foreground game's CVar is forced, so these go through the stashed true intent instead.
+// Master "is this tracker on" switch (both games) for the combo menu panels.
 bool GetMasterVisible(int tracker);
 void SetMasterVisible(int tracker, bool visible);
 

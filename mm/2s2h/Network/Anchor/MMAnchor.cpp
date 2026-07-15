@@ -243,6 +243,12 @@ void MMAnchor::PumpDormant() {
             if (payload.value("type", std::string()) == PKT_GIVE_ITEM && payload.contains("randoCheckId")) {
                 SPDLOG_INFO("[MMAnchor] dormant GIVE_ITEM received: {}", payload.dump());
                 ApplyDormantGiveItem(payload);
+            } else if (payload.value("type", std::string()) == PKT_REQUEST_TEAM_STATE) {
+                // Answering is dormant-safe (read-only over the frozen save); only APPLYING a
+                // received team state is not. Without this, a teammate's resync silently gets
+                // nothing whenever this client is in the other game.
+                SPDLOG_INFO("[MMAnchor] dormant REQUEST_TEAM_STATE: answering from frozen save");
+                SendTeamStateFromSave(payload.value("targetTeamId", std::string("default")));
             }
         } catch (const std::exception& e) { SPDLOG_ERROR("[MMAnchor] dormant apply exception: {}", e.what()); }
     }
@@ -690,6 +696,14 @@ void MMAnchor::HandlePacket_RequestTeamState(const nlohmann::json& payload) {
 
 void MMAnchor::SendPacket_UpdateTeamState(const std::string& targetTeamId) {
     if (!isActive || !roomState.syncItemsAndFlags) {
+        return;
+    }
+    SendTeamStateFromSave(targetTeamId);
+}
+
+// Read-only over gSaveContext, so safe both foreground and dormant (no isActive gate).
+void MMAnchor::SendTeamStateFromSave(const std::string& targetTeamId) {
+    if (!IsSaveLoaded() || !roomState.syncItemsAndFlags) {
         return;
     }
     nlohmann::json payload;

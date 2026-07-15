@@ -213,6 +213,8 @@ typedef void (*FnSetReloadCb)(int (*)(const char*));
 static FnVoidV SOH_PrepRandoContext = nullptr;
 static FnTakeStr SOH_RestoreRandoSettings = nullptr;
 static FnTakeStr MM_RestoreRandoSettings = nullptr;
+static FnTakeStr SOH_SetCheckPrices = nullptr;
+static FnTakeStr MM_SetCheckPrices = nullptr;
 static FnSetReloadCb SOH_SetOnComboReloadCallback = nullptr;
 
 // ComboShip: OOT forced placements (Link's Pocket etc.) the static dump can't carry — see
@@ -679,7 +681,8 @@ static std::string g_PendingMMPlacements;
 // playthroughOut (optional) receives the structured sphere playthrough for the consolidated file.
 static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRando::OracleFns& ootOracle,
                                   const ComboRando::OracleFns& mmOracle, const std::string& seedLabel,
-                                  nlohmann::json* playthroughOut = nullptr);
+                                  nlohmann::json* playthroughOut = nullptr, const std::string& sohDump = "",
+                                  const std::string& mmDump = "");
 
 // ComboShip: worker that runs the combined-logic fill (or no-logic fallback) on a background
 // thread, reports progress via the ComboGenProgress struct, and stashes placements.
@@ -702,29 +705,39 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
 
     if (inputSeed.empty())
         inputSeed = std::to_string(ComboRandRange(0, 1000000));
-    uint32_t masterSeed = ComboHash(inputSeed.c_str());
+    const uint32_t baseSeed = ComboHash(inputSeed.c_str());
+    uint32_t masterSeed = baseSeed;
 
-    // ComboShip: seed OOT's rando RNG BEFORE the dump so its shop/scrub/merchant setup (which runs
-    // both inside the dump and again at SOH_ApplyRandoPlacements) makes identical choices each time.
-    if (SOH_SetComboRandoSeed)
-        SOH_SetComboRandoSeed(masterSeed);
-    if (MM_SetComboRandoSeed)
-        MM_SetComboRandoSeed(masterSeed);
-
-    std::string sohDump = SOH_DumpRandoStaticData();
-    std::string mmDump = MM_DumpRandoStaticData();
-    if (sohDump.empty() || mmDump.empty()) {
-        fail("empty static-data dump");
-        return;
-    }
-
-    std::string spoiler;
+    std::string sohDump, mmDump, spoiler, lastFillError;
     bool usedCombinedFill = false;
     nlohmann::json playthroughJson = nlohmann::json::array(); // structured sphere playthrough (combined-fill only)
 
-    if (Combo_SOH_Rando_Reset && Combo_SOH_Rando_SetOwnedItems && Combo_SOH_Rando_GetReachableChecks &&
-        Combo_SOH_Rando_PlaceItem && Combo_MM_Rando_Reset && Combo_MM_Rando_SetOwnedItems &&
-        Combo_MM_Rando_GetReachableChecks && Combo_MM_Rando_PlaceItem && Combo_MM_Rando_Restore) {
+    const bool haveOracles = Combo_SOH_Rando_Reset && Combo_SOH_Rando_SetOwnedItems &&
+                             Combo_SOH_Rando_GetReachableChecks && Combo_SOH_Rando_PlaceItem && Combo_MM_Rando_Reset &&
+                             Combo_MM_Rando_SetOwnedItems && Combo_MM_Rando_GetReachableChecks &&
+                             Combo_MM_Rando_PlaceItem && Combo_MM_Rando_Restore;
+
+    // Whole-fill retries mirroring SoH's 5-attempt Fill() loop (GAP-4): each attempt re-derives the
+    // master seed, so dumps, confined placement, and prices re-roll deterministically per attempt.
+    const int kFillAttempts = 5;
+    for (int attempt = 0; attempt < kFillAttempts && !usedCombinedFill; ++attempt) {
+        masterSeed = baseSeed + attempt * 0x9E3779B9u;
+
+        // ComboShip: seed OOT's rando RNG BEFORE the dump so its shop/scrub/merchant setup (which runs
+        // both inside the dump and again at SOH_ApplyRandoPlacements) makes identical choices each time.
+        if (SOH_SetComboRandoSeed)
+            SOH_SetComboRandoSeed(masterSeed);
+        if (MM_SetComboRandoSeed)
+            MM_SetComboRandoSeed(masterSeed);
+
+        sohDump = SOH_DumpRandoStaticData();
+        mmDump = MM_DumpRandoStaticData();
+        if (sohDump.empty() || mmDump.empty()) {
+            fail("empty static-data dump");
+            return;
+        }
+        if (!haveOracles)
+            break; // no oracles -> no-logic fallback below; the dumps are still needed
 
         ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
                                             Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem };
@@ -743,17 +756,24 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         if (result.success) {
             spoiler = result.spoilerJson;
             usedCombinedFill = true;
-            std::cout << "[ComboShip] RunComboFill: combined-logic fill succeeded (seed=" << masterSeed << ")\n";
+            std::cout << "[ComboShip] RunComboFill: combined-logic fill succeeded (seed=" << masterSeed << ", attempt "
+                      << (attempt + 1) << ")\n";
             // ComboShip: write the sphere-by-sphere playthrough log. Replays reachability via the
             // oracles BEFORE SOH_ApplyRandoPlacements restores the live OOT context, so it can't
             // corrupt the generated seed. Restores MM itself.
-            WriteComboPlaythrough(result.spoilerJson, ootOracle, mmOracle, inputSeed, &playthroughJson);
+            WriteComboPlaythrough(result.spoilerJson, ootOracle, mmOracle, inputSeed, &playthroughJson, sohDump,
+                                  mmDump);
         } else {
-            Combo_MM_Rando_Restore();
-            fail((std::string("combined fill failed: ") + result.error).c_str());
-            return;
+            lastFillError = result.error;
+            std::cout << "[ComboShip] RunComboFill: attempt " << (attempt + 1) << "/" << kFillAttempts
+                      << " failed: " << lastFillError << "\n";
         }
         Combo_MM_Rando_Restore();
+    }
+
+    if (haveOracles && !usedCombinedFill) {
+        fail((std::string("combined fill failed after retries: ") + lastFillError).c_str());
+        return;
     }
 
     if (!usedCombinedFill) {
@@ -881,10 +901,20 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         consolidated["masterSeed"] = masterSeed;
         consolidated["displaySeed"] = displaySeed;
         consolidated["file_hash"] = fileHashArr;
+        // Rolled shop/scrub/merchant prices (from the dumps) travel in the spoiler so the validator
+        // and the reload path never guess them — unknown price is never treated as buyable.
+        auto pricesOf = [](const std::string& dump) -> nlohmann::json {
+            try {
+                return nlohmann::json::parse(dump).value("prices", nlohmann::json::object());
+            } catch (...) { return nlohmann::json::object(); }
+        };
         consolidated["oot"] = { { "settings", parseOrEmpty(SOH_DumpRandoSettings) },
                                 { "enabledTricks", parseOrEmpty(SOH_DumpEnabledTricks) },
-                                { "placements", ootSpoiler } };
-        consolidated["mm"] = { { "settings", parseOrEmpty(MM_DumpRandoSettings) }, { "placements", mmSpoiler } };
+                                { "placements", ootSpoiler },
+                                { "prices", pricesOf(sohDump) } };
+        consolidated["mm"] = { { "settings", parseOrEmpty(MM_DumpRandoSettings) },
+                               { "placements", mmSpoiler },
+                               { "prices", pricesOf(mmDump) } };
         consolidated["foreign"] = ComboRando::BuildForeignArray(foreignArr);
         consolidated["playthrough"] = playthroughJson;
         g_ConsolidatedJson = consolidated.dump(2);
@@ -994,10 +1024,12 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
 // Called both from the env-gated entry below and from RunComboFill on every in-game generation.
 static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRando::OracleFns& ootOracle,
                                   const ComboRando::OracleFns& mmOracle, const std::string& seedLabel,
-                                  nlohmann::json* playthroughOut) {
+                                  nlohmann::json* playthroughOut, const std::string& sohDump,
+                                  const std::string& mmDump) {
     // Thin wrapper over the shared traversal (combo/rando/ComboPlaythrough.h); passes this build's
     // MM oracle-restore pointer. Keeps the in-game generator and headless validator identical.
-    ComboRando::RunPlaythrough(spoilerJson, ootOracle, mmOracle, seedLabel, Combo_MM_Rando_Restore, playthroughOut);
+    ComboRando::RunPlaythrough(spoilerJson, ootOracle, mmOracle, seedLabel, Combo_MM_Rando_Restore, playthroughOut,
+                               sohDump, mmDump);
 }
 
 // Env-gated entry: COMBO_PLAYTHROUGH=<seed> generates that seed headless, then writes its log.
@@ -1017,14 +1049,17 @@ static void RunComboPlaythrough(const std::string& inputSeed) {
     ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
                                        Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
     std::string seedStr = inputSeed.empty() ? "1" : inputSeed;
-    auto fill = ComboRando::CrossWorldCombinedFill(SOH_DumpRandoStaticData(), MM_DumpRandoStaticData(),
-                                                   ComboHash(seedStr.c_str()), ootOracle, mmOracle, "", nullptr);
+    std::string sohDump = SOH_DumpRandoStaticData();
+    std::string mmDump = MM_DumpRandoStaticData();
+    auto fill = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, ComboHash(seedStr.c_str()), ootOracle, mmOracle, "",
+                                                   nullptr);
     if (!fill.success) {
         Combo_MM_Rando_Restore();
         std::cerr << "[PLAYTHROUGH] seed '" << seedStr << "' did not generate: " << fill.error << "\n";
         return;
     }
-    WriteComboPlaythrough(fill.spoilerJson, ootOracle, mmOracle, seedStr); // restores MM at the end
+    // restores MM at the end
+    WriteComboPlaythrough(fill.spoilerJson, ootOracle, mmOracle, seedStr, nullptr, sohDump, mmDump);
 }
 
 // ComboShip: generate-request handler — called by SOH_TriggerComboGenerate from the UI. Runs
@@ -1134,11 +1169,26 @@ static int Combo_OnReloadRequest(const char* path) {
         std::string ootPlacements = ootApply.dump();
         std::string mmPlacements = mmApply.dump();
 
+        // Spoiler prices override the seeded re-roll (settings may have drifted since generation).
+        // Absent on pre-price spoilers: log and fall back to the re-roll (OOT) / zero prices (MM).
+        auto ootPrices = oot.value("prices", nlohmann::json::object());
+        auto mmPrices = mm.value("prices", nlohmann::json::object());
+        if (ootPrices.empty() || mmPrices.empty())
+            std::cout << "[ComboShip] Reload: spoiler predates price export; shop prices may not match logic\n";
+        if (SOH_SetCheckPrices)
+            SOH_SetCheckPrices(ootPrices.dump().c_str());
+        if (MM_SetCheckPrices)
+            MM_SetCheckPrices(mmPrices.dump().c_str());
+
         // OOT: restore settings -> seed RNG -> prep settings-scoped pool -> apply placements -> hash.
         if (SOH_RestoreRandoSettings)
             SOH_RestoreRandoSettings(ootSettings.c_str());
         if (SOH_SetComboRandoSeed)
             SOH_SetComboRandoSeed(masterSeed);
+        // MM too: MM_InitRandoSaveFile writes finalSeed (junk/trap variety, clock-shuffle roll) from
+        // the combo seed — without this a reloaded seed gets finalSeed=0 and diverges from the author.
+        if (MM_SetComboRandoSeed)
+            MM_SetComboRandoSeed(masterSeed);
         if (SOH_PrepRandoContext)
             SOH_PrepRandoContext();
         if (SOH_ApplyRandoPlacements)
@@ -1215,6 +1265,15 @@ static void Combo_OnOOTSaveInit(int fileNum) {
         SOH_GetCurrentPlayerName(playerName);
     if (MM_InitRandoSaveFile && !g_PendingMMPlacements.empty()) {
         std::cout << "[ComboShip] Creating RANDO MM save for OOT slot " << fileNum << std::endl;
+        // Re-assert prices from the seed being applied — a failed re-generation after a reload leaves
+        // the MM DLL's captured price map holding the failed seed's rolls, not this spoiler's.
+        if (MM_SetCheckPrices) {
+            try {
+                auto cj = nlohmann::json::parse(g_ConsolidatedJson);
+                MM_SetCheckPrices(
+                    cj.value("mm", nlohmann::json::object()).value("prices", nlohmann::json::object()).dump().c_str());
+            } catch (...) {}
+        }
         MM_InitRandoSaveFile(fileNum, g_PendingMMPlacements.c_str(), playerName);
         g_PendingMMPlacements.clear();
     } else if (MM_InitSaveFile) {
@@ -1398,6 +1457,8 @@ int main(int argc, char** argv) {
     SOH_PrepRandoContext = (FnVoidV)GetSym(sohModule, "SOH_PrepRandoContext");
     SOH_RestoreRandoSettings = (FnTakeStr)GetSym(sohModule, "SOH_RestoreRandoSettings");
     MM_RestoreRandoSettings = (FnTakeStr)GetSym(mmModule, "MM_RestoreRandoSettings");
+    SOH_SetCheckPrices = (FnTakeStr)GetSym(sohModule, "SOH_SetCheckPrices");
+    MM_SetCheckPrices = (FnTakeStr)GetSym(mmModule, "MM_SetCheckPrices");
     SOH_SetOnComboReloadCallback = (FnSetReloadCb)GetSym(sohModule, "SOH_SetOnComboReloadCallback");
     MM_InitRandoSaveFile = (FnMMInitRandoSave)GetSym(mmModule, "MM_InitRandoSaveFile");
     SOH_SetOnComboGenerateCallback = (FnSetGenerateCb)GetSym(sohModule, "SOH_SetOnComboGenerateCallback");

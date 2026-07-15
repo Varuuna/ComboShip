@@ -1086,10 +1086,10 @@ extern "C" void InitOTR(int argc, char* argv[]) {
     BenGui::SetupGuiElements();
     ShipInit::InitAll();
 #ifdef COMBO_BUILD
-    // Reverse MM->OOT trigger: entering the Clock Tower interior (SCENE_INSIDETOWER) flags a return;
-    // acted on at the start of the next clean frame so the save + handoff happen outside scene init.
+    // Reverse MM->OOT trigger: the Clock Tower interior's South-Clock-Town door (spawn 1 only —
+    // cycle resets respawn in this scene at spawns 0/2/3/6 and must stay in MM).
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnSceneInit>([](s8 sceneId, s8 spawnNum) {
-        if (sceneId == SCENE_INSIDETOWER) {
+        if (sceneId == SCENE_INSIDETOWER && spawnNum == 1) {
             sComboReturnPending = true;
         }
     });
@@ -2644,6 +2644,17 @@ extern "C" __declspec(dllexport) void MM_LoadSaveForCombo(int fileNum) {
     SaveManager_LoadSaveFile(fileNum + 1);
 }
 
+static void Combo_MM_ApplyCheckPrices();
+
+// Combo master seed for MM's RNG, mirroring OOT's SOH_SetComboRandoSeed so confined placement
+// (PreplaceConfinedItems, via Ship_Random) is reproducible per seed.
+static uint64_t sMMComboRandoSeed = 0;
+static bool sMMComboRandoSeedSet = false;
+extern "C" __declspec(dllexport) void MM_SetComboRandoSeed(uint64_t seed) {
+    sMMComboRandoSeed = seed;
+    sMMComboRandoSeedSet = true;
+}
+
 // ComboShip: create a RANDO MM save for the given OOT slot from a combo placement slice.
 // placementJson is the "mm" object of the combined spoiler: { "<RC_name>": "<itemSpoilerName>", ... }.
 // The combo layer owns placement, so we do NOT run MM's own generator. We build the playable baseline
@@ -2677,13 +2688,20 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
     INV_CONTENT(ITEM_OCARINA_OF_TIME) = ITEM_NONE;
     INV_CONTENT(ITEM_MASK_DEKU) = ITEM_NONE;
     gSaveContext.save.saveInfo.inventory.questItems &= ~((1 << QUEST_SONG_TIME) | (1 << QUEST_SONG_HEALING));
+    gSaveContext.save.saveInfo.playerData.isMagicAcquired = false;
+    // Also strip the vanilla sword & shield (mirrors native OnFileCreate).
+    SET_EQUIP_VALUE(EQUIP_TYPE_SWORD, EQUIP_VALUE_SWORD_NONE);
+    BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_B) = ITEM_NONE;
+    SET_EQUIP_VALUE(EQUIP_TYPE_SHIELD, EQUIP_VALUE_SHIELD_NONE);
 
     try {
         // ApplyToSaveContext consumes a full MM spoiler: it requires finalSeed, options, startingItems
         // and checks keys (startingItems and finalSeed throw if absent). For the no-logic native phase
         // we supply empty options/startingItems (defaults) and feed the combo placement as "checks".
         nlohmann::json spoiler;
-        spoiler["finalSeed"] = (uint32_t)0; // Phase 1: not used for runtime delivery (driven by randoSaveChecks)
+        // finalSeed feeds runtime per-check junk/trap variety (ConvertItem.cpp) and the clock-shuffle
+        // starting-time roll; use the combo master seed like native OnFileCreate.
+        spoiler["finalSeed"] = (uint32_t)sMMComboRandoSeed;
         // ComboShip: persist the player's chosen MM options into the save (mirrors OnFileCreate) so MM
         // honors its toggles at runtime; an empty options object would make ApplyToSaveContext default
         // everything (the analog of OOT's SetAllToContext fix).
@@ -2693,6 +2711,8 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
         }
         spoiler["options"] = options;
         spoiler["startingItems"] = nlohmann::json::array();
+        // Required since the Saria's-Song-hint feature; empty = no hint priorities for combo seeds.
+        spoiler["sariaPriorityItems"] = nlohmann::json::array();
         spoiler["checks"] = nlohmann::json::parse(placementJson); // { "RC_*": "<spoilerName>", ... }
 
         Rando::Spoiler::ApplyToSaveContext(spoiler);
@@ -2714,11 +2734,19 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
         RANDO_SAVE_CHECKS[RC_STARTING_ITEM_DEKU_MASK].eligible = true;
         RANDO_SAVE_CHECKS[RC_STARTING_ITEM_SONG_OF_HEALING].eligible = true;
 
+        // Persist the rolled/spoiler prices into the real save (native OnFileCreate rolls them via
+        // GeneratePools; the string-only placement apply above leaves every price 0).
+        Combo_MM_ApplyCheckPrices();
+
         SPDLOG_INFO("[ComboShip] MM_InitRandoSaveFile: applied {} placements for slot {}", spoiler["checks"].size(),
                     fileNum);
     } catch (const std::exception& e) {
         SPDLOG_ERROR("[ComboShip] MM_InitRandoSaveFile: {} — falling back to vanilla save for slot {}", e.what(),
                      fileNum);
+        // Rebuild the playable baseline: the rando strips above already ran, and a stripped save
+        // persisted as vanilla (no sword/ocarina/magic) would soft-lock the slot.
+        SaveManager_InitNewSaveForSlot(fileNum + 1, ootName8);
+        gSaveContext.fileNum = (s16)fileNum;
         gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_VANILLA;
     }
 
@@ -2865,6 +2893,9 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoSettings(void) {
         if (opt.cvar && opt.cvar[0])
             j[opt.cvar] = (int)CVarGetInteger(opt.cvar, opt.defaultValue);
     }
+    // Excluded-checks CSV is a string CVar outside the options walk; GeneratePools parses it, so a
+    // replayed spoiler must carry it or local exclusions leak in (GAP-7 mirror).
+    j["gRando.ExcludedChecks"] = CVarGetString("gRando.ExcludedChecks", "");
     cached = j.dump();
     return cached.c_str();
 }
@@ -2877,18 +2908,41 @@ extern "C" __declspec(dllexport) void MM_RestoreRandoSettings(const char* json) 
         return;
     try {
         auto j = nlohmann::json::parse(json);
-        for (auto it = j.begin(); it != j.end(); ++it)
-            CVarSetInteger(it.key().c_str(), it.value().get<int>());
+        // Snapshot is authoritative: pre-clear so pre-GAP-7 spoilers don't inherit local exclusions.
+        CVarSetString("gRando.ExcludedChecks", "");
+        for (auto it = j.begin(); it != j.end(); ++it) {
+            if (it.value().is_string())
+                CVarSetString(it.key().c_str(), it.value().get<std::string>().c_str());
+            else
+                CVarSetInteger(it.key().c_str(), it.value().get<int>());
+        }
     } catch (...) {}
 }
 
-// Combo master seed for MM's RNG, mirroring OOT's SOH_SetComboRandoSeed so confined placement
-// (PreplaceConfinedItems, via Ship_Random) is reproducible per seed.
-static uint64_t sMMComboRandoSeed = 0;
-static bool sMMComboRandoSeedSet = false;
-extern "C" __declspec(dllexport) void MM_SetComboRandoSeed(uint64_t seed) {
-    sMMComboRandoSeed = seed;
-    sMMComboRandoSeedSet = true;
+static const std::unordered_map<std::string, RandoCheckId>& Combo_MM_CheckNameToCheckId();
+
+// GeneratePools' rolled prices (id -> rupees), captured at dump so the oracle reset and the save init
+// can re-apply them (both wipe to 0 = every CAN_AFFORD free). MM_SetCheckPrices swaps in spoiler's.
+static std::unordered_map<uint32_t, uint16_t> sMMComboCheckPrices;
+
+extern "C" __declspec(dllexport) void MM_SetCheckPrices(const char* json) {
+    sMMComboCheckPrices.clear();
+    if (!json)
+        return;
+    try {
+        const auto& nameToId = Combo_MM_CheckNameToCheckId();
+        auto j = nlohmann::json::parse(json);
+        for (auto it = j.begin(); it != j.end(); ++it) {
+            auto cit = nameToId.find(it.key());
+            if (cit != nameToId.end())
+                sMMComboCheckPrices[cit->second] = static_cast<uint16_t>(it.value().get<int>());
+        }
+    } catch (...) {}
+}
+
+static void Combo_MM_ApplyCheckPrices() {
+    for (const auto& [id, price] : sMMComboCheckPrices)
+        RANDO_SAVE_CHECKS[id].price = price;
 }
 
 extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
@@ -2898,13 +2952,18 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     nlohmann::json pool = nlohmann::json::array();
     nlohmann::json fixed = nlohmann::json::array();
     nlohmann::json items = nlohmann::json::array();
+    nlohmann::json prices = nlohmann::json::object();
 
     // Seed MM's RNG so GeneratePools + PreplaceConfinedItems are reproducible per combo seed.
     if (sMMComboRandoSeedSet)
         Ship_Random_Seed(sMMComboRandoSeed);
 
     // Build a RandoSaveInfo from current CVars — same pattern as Menu.cpp RefreshMetrics().
-    RandoSaveInfo saveInfo;
+    // Zero-init: it's a raw C struct, and garbage in randoSaveChecks[].price leaks into the price
+    // capture while garbage finalSeed reseeds Ship_Random via the clock-shuffle starting-item branch
+    // (StartingItems.cpp), making the whole dump nondeterministic per run.
+    RandoSaveInfo saveInfo = {};
+    saveInfo.finalSeed = (u32)sMMComboRandoSeed; // native OnFileCreate sets it before starting items
     for (auto& [id, opt] : Rando::StaticData::Options) {
         saveInfo.randoSaveOptions[id] = (uint32_t)CVarGetInteger(opt.cvar, opt.defaultValue);
     }
@@ -2914,6 +2973,18 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     std::vector<RandoCheckId> checkPool;
     std::vector<RandoItemId> itemPool;
     Rando::Logic::GeneratePools(saveInfo, checkPool, itemPool);
+
+    // Capture the prices GeneratePools rolled into this (otherwise discarded) saveInfo — the full
+    // native fresh-generation price state, not just the shop/tingle subset 2Ship's own spoiler keeps.
+    sMMComboCheckPrices.clear();
+    for (auto& [id, chk] : Rando::StaticData::Checks) {
+        uint16_t p = saveInfo.randoSaveChecks[id].price;
+        if (p != 0) {
+            sMMComboCheckPrices[id] = p;
+            if (chk.name && chk.name[0] != '\0')
+                prices[chk.name] = p;
+        }
+    }
 
     // Confine own-dungeon items via MM's own logic (writes RANDO_SAVE_CHECKS, shrinks both pools).
     std::vector<RandoCheckId> checkPoolBefore = checkPool;
@@ -2925,8 +2996,9 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     while (itemPool.size() < checkPool.size())
         itemPool.push_back(RI_JUNK);
 
+    // RI_TRAP is RITYPE_LESSER but never gates logic — class it junk like OOT's traps.
     auto isAdvancement = [](const auto& it) {
-        return it.randoItemType != RITYPE_JUNK && it.randoItemType != RITYPE_HEALTH;
+        return it.randoItemType != RITYPE_JUNK && it.randoItemType != RITYPE_HEALTH && it.randoItemId != RI_TRAP;
     };
 
     // Confined pre-placements -> fixed[] (removed checks = checkPoolBefore minus checkPool).
@@ -3022,9 +3094,7 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         // ComboShip: "name" MUST stay spoilerName (RI_*) — grant lookup keys on it. "displayName"
         // is the human string (StaticData's unused .name field) for toasts/shops in the OTHER game.
         // advancement drives whether a foreign item plays the held-up pickup animation.
-        nlohmann::json entry = { { "name", item.spoilerName },
-                                 { "advancement",
-                                   item.randoItemType != RITYPE_JUNK && item.randoItemType != RITYPE_HEALTH } };
+        nlohmann::json entry = { { "name", item.spoilerName }, { "advancement", isAdvancement(item) } };
         if (item.name && item.name[0] != '\0') {
             entry["displayName"] = item.name;
         }
@@ -3035,7 +3105,8 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         { "checks", std::move(checks) },
         { "pool", std::move(pool) },
         { "fixed", std::move(fixed) },
-        { "items", std::move(items) }
+        { "items", std::move(items) },
+        { "prices", std::move(prices) }
     }.dump();
     return cached.c_str();
 }
@@ -3434,6 +3505,7 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Reset(void) {
     // (OOT's logic reads ctx->GetOption, which survives Reset; MM's reads gSaveContext, so it must be
     // re-seeded every query.)
     gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_RANDO;
+    gSaveContext.save.shipSaveInfo.rando.finalSeed = (u32)sMMComboRandoSeed; // clock-shuffle reseed source
     for (auto& [id, opt] : Rando::StaticData::Options) {
         gSaveContext.save.shipSaveInfo.rando.randoSaveOptions[id] =
             (uint32_t)CVarGetInteger(opt.cvar, opt.defaultValue);
@@ -3456,6 +3528,10 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Reset(void) {
             GiveItemForOracle(Rando::ConvertItem(si));
         }
     }
+
+    // The memset wiped check prices too; re-apply the rolled/spoiler set or every CAN_AFFORD gate
+    // evaluates price==0 and shops/Tingle maps are free to the oracle.
+    Combo_MM_ApplyCheckPrices();
 }
 
 // ComboShip: name->id lookup maps for the oracle hot path, replacing per-name linear scans over

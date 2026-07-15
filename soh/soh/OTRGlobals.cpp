@@ -2809,6 +2809,45 @@ extern "C" __declspec(dllexport) void SOH_Anchor_PumpDormant(void) {
 // Rupees_ChangeBy null-guards gPlayState), so it is safe against a frozen gPlayState. The save is
 // persisted immediately so the item survives quitting before ever switching into OOT. See
 // docs/UPSTREAM_MERGES.md.
+// ComboShip: save-only side effects RandomizerOnItemReceiveHandler applies on a normal pickup
+// (hook_handlers.cpp); grants that bypass the receive hook must mirror them or they're lost.
+void Combo_ApplyItemReceiveSideEffects(const GetItemEntry& gie) {
+    if (gie.modIndex == MOD_NONE) {
+        switch (gie.itemId) {
+            case ITEM_SHIELD_DEKU:
+                Flags_SetRandomizerInf(RAND_INF_HAS_FOUND_DEKU_SHIELD);
+                break;
+            case ITEM_SHIELD_HYLIAN:
+                Flags_SetRandomizerInf(RAND_INF_HAS_FOUND_HYLIAN_SHIELD);
+                break;
+            case ITEM_TUNIC_GORON:
+                Flags_SetRandomizerInf(RAND_INF_HAS_FOUND_GORON_TUNIC);
+                break;
+            case ITEM_TUNIC_ZORA:
+                Flags_SetRandomizerInf(RAND_INF_HAS_FOUND_ZORA_TUNIC);
+                break;
+            case ITEM_SONG_EPONA:
+                Flags_SetEventChkInf(EVENTCHKINF_EPONA_OBTAINED);
+                break;
+        }
+    }
+    // Skip Planting Beans pre-plants on Bean Pack receipt; the live Flags_SetSwitch half of the hook
+    // is deliberately skipped (dormant/foreign scene) — flags apply on next scene load.
+    if (gie.modIndex == MOD_RANDOMIZER && gie.getItemId == RG_MAGIC_BEAN_PACK &&
+        OTRGlobals::Instance->gRandomizer->GetRandoSettingValue(RSK_SKIP_PLANTING_BEANS)) {
+        gSaveContext.sceneFlags[SCENE_DEATH_MOUNTAIN_CRATER].swch |= (1 << 3);
+        gSaveContext.sceneFlags[SCENE_DEATH_MOUNTAIN_TRAIL].swch |= (1 << 6);
+        gSaveContext.sceneFlags[SCENE_DESERT_COLOSSUS].swch |= (1 << 24);
+        gSaveContext.sceneFlags[SCENE_GERUDO_VALLEY].swch |= (1 << 3);
+        gSaveContext.sceneFlags[SCENE_GRAVEYARD].swch |= (1 << 3);
+        gSaveContext.sceneFlags[SCENE_KOKIRI_FOREST].swch |= (1 << 9);
+        gSaveContext.sceneFlags[SCENE_LAKE_HYLIA].swch |= (1 << 1);
+        gSaveContext.sceneFlags[SCENE_LOST_WOODS].swch |= (1 << 4) | (1 << 18);
+        gSaveContext.sceneFlags[SCENE_ZORAS_RIVER].swch |= (1 << 3);
+        AMMO(ITEM_BEAN) = 0;
+    }
+}
+
 extern "C" __declspec(dllexport) void SOH_GrantCrossItem(const char* itemName) {
     if (!itemName)
         return;
@@ -2832,6 +2871,7 @@ extern "C" __declspec(dllexport) void SOH_GrantCrossItem(const char* itemName) {
             Randomizer_Item_Give(gPlayState, gie); // save-direct
         }
     }
+    Combo_ApplyItemReceiveSideEffects(gie); // receive-hook effects the save-direct grant bypasses
     // Full heal on heart container/piece, and roll over a 4th heart piece (mirrors Anchor handler).
     if (gie.gid == GID_HEART_CONTAINER || gie.gid == GID_HEART_PIECE) {
         gSaveContext.healthAccumulator = 0x140;
@@ -3262,15 +3302,41 @@ static std::unordered_set<RandomizerCheck> Combo_ShuffledShopSlots() {
     return shuffled;
 }
 
-static bool Combo_IsShopSlot(RandomizerCheck rc, const std::unordered_set<RandomizerCheck>& shopSlots) {
-    return shopSlots.count(rc) > 0;
+// Dump-time snapshot of the shuffled-slot set (GAP-8): the validator forces glitchless logic after
+// the dump, which would shrink a No-Logic seed's 8-slot shops to 7 on every recompute. The
+// computation still runs each call so the RNG stream stays identical to a cache miss.
+static std::unordered_set<RandomizerCheck> sComboShuffledSlotsCache;
+static bool sComboShuffledSlotsCacheValid = false;
+
+static const std::unordered_set<RandomizerCheck>& Combo_GetShuffledShopSlots() {
+    auto computed = Combo_ShuffledShopSlots();
+    if (!sComboShuffledSlotsCacheValid) {
+        sComboShuffledSlotsCache = std::move(computed);
+        sComboShuffledSlotsCacheValid = true;
+    }
+    return sComboShuffledSlotsCache;
 }
 
-// Re-establish shop/scrub/merchant setup on the live rando context. Called from SOH_ApplyRandoPlacements
-// AFTER ItemReset() (which clears it) and BEFORE the combo placements are applied: shuffled shop slots
-// get a custom price (the combo fill's item is placed into them next), every other shop slot gets its
-// vanilla RG_BUY_* item, and scrubs/merchants get prices — exactly as SoH's Fill() would.
-static void Combo_SetupOOTShops() {
+// Min-set placements (ComboFillConfined's native shopsanity AssumedFill), snapshotted so oracle
+// resets replay them exactly; the fill result also flows into the spoiler as fixed[], so the apply
+// path re-places them from the placement map instead of this cache.
+static std::vector<std::pair<RandomizerCheck, RandomizerGet>> sComboMinShopCache;
+static bool sComboMinShopCacheValid = false;
+
+void Combo_SnapshotMinShopItems() {
+    auto ctx = OTRGlobals::Instance->gRandoContext;
+    sComboMinShopCache.clear();
+    for (RandomizerCheck rc : Rando::StaticData::GetShopLocations()) {
+        RandomizerGet rg = ctx->GetItemLocation(rc)->GetPlacedRandomizerGet();
+        if (!ctx->GetItemLocation(rc)->HasCustomPrice() && rg != RG_NONE)
+            sComboMinShopCache.push_back({ rc, rg });
+    }
+    sComboMinShopCacheValid = true;
+}
+
+// Shop items + shop/scrub/merchant prices, exactly as Fill() sets them; called wherever ItemReset()
+// cleared them (ComboFillConfined, oracle reset, apply). Idempotent: reseeded per call.
+void Combo_SetupOOTShops() {
     auto ctx = OTRGlobals::Instance->gRandoContext;
 
     // Seed identically to the dump so the shuffled-slot set (and all prices below) match it exactly.
@@ -3279,14 +3345,18 @@ static void Combo_SetupOOTShops() {
     if (ctx->GetOption(RSK_SHOPSANITY).Is(RO_SHOPSANITY_OFF)) {
         PlaceVanillaShopItems();
     } else {
-        auto shuffled = Combo_ShuffledShopSlots();
+        const auto& shuffled = Combo_GetShuffledShopSlots();
         for (RandomizerCheck rc : Rando::StaticData::GetShopLocations()) {
             Rando::ItemLocation* loc = ctx->GetItemLocation(rc);
             if (shuffled.count(rc)) {
                 loc->SetCustomPrice(GetRandomPrice(Rando::StaticData::GetLocation(rc), kComboShopPrices));
-            } else {
-                loc->PlaceVanillaItem(); // vanilla RG_BUY_* — a valid, sellable shop item
             }
+            // Non-shuffled slots: min-set items, replayed from the cache below (generation leaves them
+            // empty here — ComboFillConfined's AssumedFill places them right after; apply uses the map).
+        }
+        if (sComboMinShopCacheValid) {
+            for (const auto& [rc, rg] : sComboMinShopCache)
+                ctx->PlaceItemInLocation(rc, rg, false, false);
         }
     }
 
@@ -3314,6 +3384,32 @@ static void Combo_SetupOOTShops() {
     }
 }
 
+// Spoiler prices (name -> rupees); reload/validator set them to override the seeded rolls after
+// every price-establishing step. Empty on the generation path (rolls stand).
+static std::unordered_map<std::string, uint16_t> sComboCheckPriceOverrides;
+
+extern "C" __declspec(dllexport) void SOH_SetCheckPrices(const char* json) {
+    sComboCheckPriceOverrides.clear();
+    if (!json)
+        return;
+    try {
+        auto j = nlohmann::json::parse(json);
+        for (auto it = j.begin(); it != j.end(); ++it)
+            sComboCheckPriceOverrides[it.key()] = static_cast<uint16_t>(it.value().get<int>());
+    } catch (const std::exception& e) { SPDLOG_WARN("[ComboShip] SOH_SetCheckPrices: bad JSON: {}", e.what()); }
+}
+
+static void Combo_ApplyPriceOverrides() {
+    if (sComboCheckPriceOverrides.empty())
+        return;
+    auto ctx = OTRGlobals::Instance->gRandoContext;
+    for (const auto& [name, price] : sComboCheckPriceOverrides) {
+        auto it = Rando::StaticData::locationNameToEnum.find(name);
+        if (it != Rando::StaticData::locationNameToEnum.end())
+            ctx->GetItemLocation(it->second)->SetCustomPrice(price);
+    }
+}
+
 // Combo master seed for OOT-side reproducible generation (shop/scrub/merchant RNG). Set by the combo
 // launcher before SOH_DumpRandoStaticData and reused at SOH_ApplyRandoPlacements so both agree.
 extern "C" __declspec(dllexport) void SOH_SetComboRandoSeed(uint64_t seed) {
@@ -3333,6 +3429,9 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoSettings(void) {
         if (!cv.empty())
             j[cv] = static_cast<int>(opt.GetOptionIndex());
     }
+    // String CVar outside GetAllOptions(); without it a replayed spoiler inherits the local machine's
+    // exclusions (GAP-7). Restore below is type-aware.
+    j[CVAR_RANDOMIZER_SETTING("ExcludedLocations")] = CVarGetString(CVAR_RANDOMIZER_SETTING("ExcludedLocations"), "");
     cached = j.dump();
     return cached.c_str();
 }
@@ -3345,8 +3444,15 @@ extern "C" __declspec(dllexport) void SOH_RestoreRandoSettings(const char* json)
         return;
     try {
         auto j = nlohmann::json::parse(json);
-        for (auto it = j.begin(); it != j.end(); ++it)
-            CVarSetInteger(it.key().c_str(), it.value().get<int>());
+        // Snapshot is authoritative: pre-clear so a spoiler without the key (pre-GAP-7, generated
+        // with no exclusions applied) doesn't inherit this machine's local exclusions.
+        CVarSetString(CVAR_RANDOMIZER_SETTING("ExcludedLocations"), "");
+        for (auto it = j.begin(); it != j.end(); ++it) {
+            if (it.value().is_string())
+                CVarSetString(it.key().c_str(), it.value().get<std::string>().c_str());
+            else
+                CVarSetInteger(it.key().c_str(), it.value().get<int>());
+        }
     } catch (...) {}
 }
 
@@ -3375,13 +3481,27 @@ static void Combo_ApplyEnabledTricks() {
     }
 }
 
+// The ExcludedLocations CSV (check IDs) is only parsed on SoH's GUI generate path
+// (randomizer.cpp:930); the combo prep paths must parse it too or exclusions never apply headless.
+static std::set<RandomizerCheck> Combo_ParseExcludedLocations() {
+    std::set<RandomizerCheck> excluded;
+    std::stringstream ss(CVarGetString(CVAR_RANDOMIZER_SETTING("ExcludedLocations"), ""));
+    std::string tok;
+    while (std::getline(ss, tok, ',')) {
+        try {
+            excluded.insert(static_cast<RandomizerCheck>(std::stoi(tok)));
+        } catch (...) {}
+    }
+    return excluded;
+}
+
 extern "C" __declspec(dllexport) void SOH_PrepRandoContext(void) {
     try {
         auto ctx = OTRGlobals::Instance->gRandoContext;
         Rando::Settings::GetInstance()->SetAllToContext();
         Combo_ApplyEnabledTricks();
         ctx->GetLogic()->Reset();
-        ctx->FinalizeSettings({}, {});
+        ctx->FinalizeSettings(Combo_ParseExcludedLocations(), {});
         RegionTable_Init();
         ctx->GenerateLocationPool();
     } catch (const std::exception& e) { SPDLOG_ERROR("[ComboShip] SOH_PrepRandoContext: {}", e.what()); } catch (...) {
@@ -3401,6 +3521,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
     nlohmann::json pool = nlohmann::json::array();
     nlohmann::json fixed = nlohmann::json::array();
     nlohmann::json items = nlohmann::json::array();
+    nlohmann::json prices = nlohmann::json::object();
 
     bool usedPool = false;
     try {
@@ -3416,14 +3537,13 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         // items/songs are reproducible per seed (mirrors the MM side); Combo_SeedShopRng() below re-seeds
         // so the shop-slot set stays dump/apply-consistent. Confine own-dungeon/reward/song items via
         // OOT's own logic; the residual itemPool is the free cross-world pool.
+        // Generation entry: drop any reload-set price overrides or a prior seed's prices would
+        // silently win over this seed's rolls in every oracle reset and in the final apply.
+        sComboCheckPriceOverrides.clear();
+        sComboShuffledSlotsCacheValid = false; // new seed/settings -> fresh slot-set snapshot
+        sComboMinShopCacheValid = false;       // fresh min-set placements (re-filled inside ComboFillConfined)
         Combo_SeedShopRng();
         ComboFillConfined();
-
-        // Vanilla shop slots stay owned by Combo_SetupOOTShops; shuffled ones are normal checks.
-        Combo_SeedShopRng();
-        const auto comboShuffledShops = Combo_ShuffledShopSlots();
-        const auto& comboShopLocsVec = Rando::StaticData::GetShopLocations();
-        const std::unordered_set<RandomizerCheck> comboShopSlots(comboShopLocsVec.begin(), comboShopLocsVec.end());
 
         // Partition allLocations: pre-placed (confined) -> fixed, empty -> fillable check.
         for (RandomizerCheck rc : ctx->allLocations) {
@@ -3438,20 +3558,9 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             // a logic-only win-condition marker (no item), not a real check.
             if (rc == RC_LINKS_POCKET || rc == RC_WINCON)
                 continue;
-            // ComboShip: emit non-shuffled shop slots' vanilla RG_BUY_* as fixed so the oracle credits them
-            // when the shop is reachable (e.g. Buy Deku Shield gates Mido/Deku Tree); apply skips them.
-            if (Combo_IsShopSlot(rc, comboShopSlots) && !comboShuffledShops.count(rc)) {
-                RandomizerGet vrg = loc->GetVanillaItem();
-                if (vrg != RG_NONE) {
-                    const std::string& vin = Rando::StaticData::RetrieveItem(vrg).GetName().GetEnglish();
-                    if (!vin.empty())
-                        fixed.push_back({ { "check", name },
-                                          { "item", vin },
-                                          { "advancement", Rando::StaticData::RetrieveItem(vrg).IsAdvancement() } });
-                }
-                continue;
-            }
 
+            // Shop min-set Buy items are placed by ComboFillConfined, so they flow through the generic
+            // pre-placed branch below: fixed[] for the oracle AND spoiler placements for the apply.
             RandomizerGet placed = ctx->GetItemLocation(rc)->GetPlacedRandomizerGet();
             if (placed != RG_NONE) {
                 const std::string& in = Rando::StaticData::RetrieveItem(placed).GetName().GetEnglish();
@@ -3465,15 +3574,6 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
                 // item — red ice / icicles / fountain fairies have NO vanilla item (the item exists only
                 // when shuffled) and were being wrongly dropped, leaving them unfilled ("No Item").
                 checks.push_back({ { "name", name } });
-                // itemPool excludes shop slots (CountEmptyLocations(false)), so a shuffled shop check
-                // needs its vanilla buy item added to the pool to stay balanced.
-                if (Combo_IsShopSlot(rc, comboShopSlots)) {
-                    RandomizerGet vrg = loc->GetVanillaItem();
-                    const std::string& vin = Rando::StaticData::RetrieveItem(vrg).GetName().GetEnglish();
-                    if (!vin.empty())
-                        pool.push_back({ { "name", vin },
-                                         { "advancement", Rando::StaticData::RetrieveItem(vrg).IsAdvancement() } });
-                }
             }
         }
 
@@ -3484,13 +3584,24 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
                 continue;
             pool.push_back({ { "name", in }, { "advancement", Rando::StaticData::RetrieveItem(rg).IsAdvancement() } });
         }
-        // Fewer pool items than checks would leave checks unfilled; surplus (junk from excluded
-        // locations) is fine — the fill drops it.
-        if (pool.size() < checks.size()) {
-            SPDLOG_WARN("[ComboShip] SOH_DumpRandoStaticData: pool shortfall ({} pool < {} checks) — checks would "
-                        "be left unfilled",
-                        pool.size(), checks.size());
+        // itemPool excludes shop slots (CountEmptyLocations(false)); shuffled shop checks are covered
+        // by junk, exactly like native FastFill's GetJunkItem() padding — Buy items stay shop-only.
+        while (pool.size() < checks.size()) {
+            RandomizerGet jg = GetJunkItem();
+            pool.push_back({ { "name", Rando::StaticData::RetrieveItem(jg).GetName().GetEnglish() },
+                             { "advancement", Rando::StaticData::RetrieveItem(jg).IsAdvancement() } });
         }
+        // Rolled prices (set by ComboFillConfined at Fill()'s native position) for every priced
+        // check type — the consolidated spoiler carries these so the validator/reload never guess.
+        for (RandomizerCheck rc : ctx->allLocations) {
+            Rando::Location* loc = Rando::StaticData::GetLocation(rc);
+            if (!loc || loc->GetName().empty())
+                continue;
+            auto t = loc->GetRCType();
+            if (t == RCTYPE_SHOP || t == RCTYPE_SCRUB || t == RCTYPE_MERCHANT)
+                prices[loc->GetName()] = ctx->GetItemLocation(rc)->GetPrice();
+        }
+
         usedPool = true;
 #else
         // Non-combo (unused outside ComboShip): old vanilla-per-check emission.
@@ -3563,7 +3674,8 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         { "checks", std::move(checks) },
         { "pool", std::move(pool) },
         { "fixed", std::move(fixed) },
-        { "items", std::move(items) }
+        { "items", std::move(items) },
+        { "prices", std::move(prices) }
     }.dump();
     return cached.c_str();
 }
@@ -3591,17 +3703,20 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
 #endif
 
         // ComboShip: ItemReset wipes shop prices + placements, so re-run SoH's shop/scrub/merchant
-        // setup here (vanilla slots get their RG_BUY_* item + prices; shuffled slots get a custom
-        // price). The combo placements below only cover the shuffled slots (the dump excluded the
-        // vanilla ones), so they land on validly-priced slots and don't clobber the vanilla items.
+        // setup here (shuffled slots get a custom price). Non-shuffled slots' min-set Buy items ride
+        // in the placement map (the dump emits them as fixed[], which the fill echoes into the
+        // spoiler), so the loop below places them like any other check.
 #ifdef COMBO_BUILD
+        sComboShuffledSlotsCacheValid = false; // reload may carry different settings than the last dump
+        sComboMinShopCacheValid = false;       // min-set comes from the placement map here, not the cache
+        // Combo seeds carry no NPC hints (CreateAllHints never runs; the combo sphere-hint panel is
+        // the hint system). Force the hint settings off so stones/Ganondorf/warp texts behave vanilla
+        // instead of reading the empty hint table; the save inherits these from the context (GAP-3).
+        ctx->GetOption(RSK_GOSSIP_STONE_HINTS).Set(RO_GOSSIP_STONES_NONE);
+        ctx->GetOption(RSK_GANONDORF_HINT).Set(RO_GENERIC_OFF);
+        ctx->GetOption(RSK_WARP_SONG_HINTS).Set(RO_GENERIC_OFF);
         Combo_SetupOOTShops();
-        // Vanilla (non-shuffled) shop slots are owned by Combo_SetupOOTShops above; the dump emits them as
-        // fixed for reachability only, so skip them below to avoid clobbering the priced vanilla item.
-        Combo_SeedShopRng();
-        const auto applyShuffledShops = Combo_ShuffledShopSlots();
-        const auto& applyShopLocsVec = Rando::StaticData::GetShopLocations();
-        const std::unordered_set<RandomizerCheck> applyShopSlots(applyShopLocsVec.begin(), applyShopLocsVec.end());
+        Combo_ApplyPriceOverrides(); // spoiler prices win over the re-roll on reload
 #endif
 
         nlohmann::json placements = nlohmann::json::parse(json);
@@ -3628,12 +3743,6 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
 
             RandomizerCheck rc = rcIt->second;
             RandomizerGet rg = rgIt->second;
-#ifdef COMBO_BUILD
-            if (Combo_IsShopSlot(rc, applyShopSlots) && !applyShuffledShops.count(rc)) {
-                ++skipped;
-                continue;
-            }
-#endif
             ctx->PlaceItemInLocation(rc, rg, false, false);
             ++placed;
 #ifdef COMBO_BUILD
@@ -3799,7 +3908,7 @@ static void EnsureOracleInit() {
     Rando::Settings::GetInstance()->SetAllToContext(); // ComboShip: apply chosen CVar settings before finalizing
     Combo_ApplyEnabledTricks();                        // ComboShip: honor the player's tricks (see helper)
     ctx->GetLogic()->Reset();
-    ctx->FinalizeSettings({}, {});
+    ctx->FinalizeSettings(Combo_ParseExcludedLocations(), {});
     RegionTable_Init();
     ctx->GenerateLocationPool();
     // ComboShip: deliberately do NOT call GenerateItemPool() here. It builds OOT's item pool for OOT's
@@ -3817,6 +3926,12 @@ extern "C" __declspec(dllexport) void Combo_SOH_Rando_Reset(void) {
     Regions::AccessReset();
     ctx->LocationReset();
     ctx->ItemReset();
+#ifdef COMBO_BUILD
+    // ItemReset wiped shop/scrub/merchant prices; re-establish them (seeded, so identical every
+    // reset) or the wallet gates in GetCheckPrice() evaluate against 0 and every shop is "free".
+    Combo_SetupOOTShops();
+    Combo_ApplyPriceOverrides();
+#endif
     ApplyStartingInventory();
 }
 

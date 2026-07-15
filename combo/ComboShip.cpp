@@ -34,6 +34,7 @@
 #include "rando/CrossForeign.h"
 #include "rando/CrossWorldRando.h"
 #include "rando/ComboPlaythrough.h"
+#include "rando/CrossHints.h"
 #include "gui/ComboGenProgress.h"
 #include "ComboExtract.h"
 #include "ComboSettingsImport.h"
@@ -207,6 +208,11 @@ static FnDumpData SOH_DumpRandoSettings = nullptr; // {cvar:value} OOT rando set
 static FnDumpData SOH_DumpEnabledTricks = nullptr; // [NameTag,...] the player's enabled OOT tricks
 static FnDumpData MM_DumpRandoSettings = nullptr;  // {cvar:value} MM rando settings snapshot
 static FnDumpData SOH_DumpRandoHintData = nullptr; // OOT hint text/options schema (cross-hint Phase 2)
+// ComboShip: cross-hint Phase 3 — apply combo-generated hints + tell OOT whether this seed has any.
+typedef void (*FnApplyHints)(const char*);
+typedef void (*FnSetHintsPresent)(int);
+static FnApplyHints SOH_ApplyComboHints = nullptr;
+static FnSetHintsPresent SOH_SetComboHintsPresent = nullptr;
 // Reload/remember-seed: restore settings + run the pool prep before re-applying saved placements.
 typedef void (*FnVoidV)(void);
 typedef void (*FnTakeStr)(const char*);
@@ -712,6 +718,31 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     std::string sohDump, mmDump, spoiler, lastFillError, sohHintDump;
     bool usedCombinedFill = false;
     nlohmann::json playthroughJson = nlohmann::json::array(); // structured sphere playthrough (combined-fill only)
+    ComboRando::RequirednessResult pareDownResult; // cross-hint Phase 3 WotH/foolish classification
+
+    // ComboShip: checkName -> area/region string, from each game's own dump. Shared by the pare-down
+    // (foolish-area rollup) and the foreign-array enrichment after the fill loop.
+    auto buildOotCheckAreas = [](const std::string& hintDumpJson) {
+        std::unordered_map<std::string, std::string> out;
+        try {
+            auto hd = nlohmann::json::parse(hintDumpJson.empty() ? "{}" : hintDumpJson);
+            for (auto& c : hd.value("checks", nlohmann::json::array())) {
+                std::string name = c.value("name", ""), area = c.value("area", "");
+                if (!name.empty() && !area.empty())
+                    out.emplace(std::move(name), std::move(area));
+            }
+        } catch (...) {}
+        return out;
+    };
+    auto buildMmCheckAreas = [](const std::string& dumpJson) {
+        std::unordered_map<std::string, std::string> out;
+        try {
+            auto d = nlohmann::json::parse(dumpJson.empty() ? "{}" : dumpJson);
+            for (auto& [chk, region] : d.value("locationHints", nlohmann::json::object()).items())
+                out.emplace(chk, region.get<std::string>());
+        } catch (...) {}
+        return out;
+    };
 
     const bool haveOracles = Combo_SOH_Rando_Reset && Combo_SOH_Rando_SetOwnedItems &&
                              Combo_SOH_Rando_GetReachableChecks && Combo_SOH_Rando_PlaceItem && Combo_MM_Rando_Reset &&
@@ -764,6 +795,12 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             // like trial selection) or the reload-path force-off touches the hint options.
             if (SOH_DumpRandoHintData)
                 sohHintDump = SOH_DumpRandoHintData();
+            // ComboShip: requiredness pare-down (Phase 3) — needs the STILL-LIVE oracle session, so it
+            // runs before WriteComboPlaythrough (which restores MM internally). Doesn't restore itself;
+            // the WriteComboPlaythrough call below (or the loop's own restore) does that once.
+            pareDownResult = ComboRando::PareDownPlaythrough(result.spoilerJson, ootOracle, mmOracle, nullptr, sohDump,
+                                                             mmDump, buildOotCheckAreas(sohHintDump),
+                                                             buildMmCheckAreas(mmDump));
             // ComboShip: write the sphere-by-sphere playthrough log. Replays reachability via the
             // oracles BEFORE SOH_ApplyRandoPlacements restores the live OOT context, so it can't
             // corrupt the generated seed. Restores MM itself.
@@ -923,21 +960,17 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
                                { "prices", pricesOf(mmDump) } };
         // ComboShip: checkName -> OOT area name, from the hint dump's "checks" list, so oot-side
         // foreign entries can carry a "checkArea" (cross-hint Phase 2 schema; consumed in Phase 3).
-        std::unordered_map<std::string, std::string> ootCheckAreas;
-        try {
-            auto hd = nlohmann::json::parse(sohHintDump.empty() ? "{}" : sohHintDump);
-            for (auto& c : hd.value("checks", nlohmann::json::array())) {
-                std::string name = c.value("name", "");
-                std::string area = c.value("area", "");
-                if (!name.empty() && !area.empty())
-                    ootCheckAreas.emplace(std::move(name), std::move(area));
-            }
-        } catch (...) {}
-        consolidated["foreign"] = ComboRando::BuildForeignArray(foreignArr, ootCheckAreas);
+        std::unordered_map<std::string, std::string> ootCheckAreas = buildOotCheckAreas(sohHintDump);
+        auto foreignEnriched = ComboRando::BuildForeignArray(foreignArr, ootCheckAreas);
+        consolidated["foreign"] = foreignEnriched;
         consolidated["playthrough"] = playthroughJson;
-        // ComboShip: cross-game hint scaffold (Phase 2 schema slot only). Phase 3's CrossHints::Generate
-        // fills this in with the actual per-seed hint assignments; empty here reserves the field.
-        consolidated["hints"] = { { "version", 1 } };
+        // ComboShip: cross-game hint generation (Phase 3) — real per-seed hint assignments, from the
+        // pare-down computed above. usedCombinedFill guards the no-logic fallback path (no oracles/
+        // pare-down data there): that path ships with an empty hints payload, same as before Phase 3.
+        consolidated["hints"] = usedCombinedFill
+                                    ? ComboRando::Generate(masterSeed, sohDump, sohHintDump, mmDump, foreignEnriched,
+                                                          spoiler, pareDownResult)
+                                    : nlohmann::json{ { "version", 1 } };
         g_ConsolidatedJson = consolidated.dump(2);
 
         // Write the pending (unbound) file so the seed is remembered and Start-able without regenerating.
@@ -1120,10 +1153,27 @@ static void Combo_OnGenerateThreaded(const char* inputSeed) {
     g_GenerateThread = std::thread([seed]() { RunComboFill(seed, &g_ComboProgress); });
 }
 
+// ComboShip: cross-hint Phase 3 — "hints" only contains "oot" for a seed CrossHints::Generate actually
+// ran on; older/no-logic-fallback seeds keep the Phase 2 {"version":1} scaffold and fall back to the
+// pre-Phase-3 force-off behavior (back-compat).
+static bool ComboHintsPresentInJson(const std::string& consolidatedJson) {
+    try {
+        return nlohmann::json::parse(consolidatedJson).value("hints", nlohmann::json::object()).contains("oot");
+    } catch (...) { return false; }
+}
+static std::string ComboHintsJsonFrom(const std::string& consolidatedJson) {
+    try {
+        return nlohmann::json::parse(consolidatedJson).value("hints", nlohmann::json::object()).dump();
+    } catch (...) { return "{}"; }
+}
+
 // ComboShip: main-thread finalize — the gSaveContext-mutating apply + seed-hash set. Runs from
 // Combo_PollFinalize on the main thread once the worker has stashed its result. NEVER call from the
 // worker thread (that race crashed the prior threaded attempt).
 static void Combo_FinalizeGenerate() {
+    bool hintsPresent = ComboHintsPresentInJson(g_ConsolidatedJson);
+    if (SOH_SetComboHintsPresent)
+        SOH_SetComboHintsPresent(hintsPresent ? 1 : 0);
     if (SOH_ApplyRandoPlacements) {
         SOH_ApplyRandoPlacements(g_FinalizeOotApply.c_str());
         std::cout << "[ComboShip] Combo_FinalizeGenerate: OOT placements applied\n";
@@ -1132,6 +1182,8 @@ static void Combo_FinalizeGenerate() {
     }
     if (SOH_SetComboSeedHash)
         SOH_SetComboSeedHash(g_FinalizeDisplaySeed);
+    if (hintsPresent && SOH_ApplyComboHints)
+        SOH_ApplyComboHints(ComboHintsJsonFrom(g_ConsolidatedJson).c_str());
     g_ComboProgress.running.store(false);
 }
 
@@ -1212,10 +1264,15 @@ static int Combo_OnReloadRequest(const char* path) {
             MM_SetComboRandoSeed(masterSeed);
         if (SOH_PrepRandoContext)
             SOH_PrepRandoContext();
+        bool hintsPresent = j.value("hints", nlohmann::json::object()).contains("oot");
+        if (SOH_SetComboHintsPresent)
+            SOH_SetComboHintsPresent(hintsPresent ? 1 : 0);
         if (SOH_ApplyRandoPlacements)
             SOH_ApplyRandoPlacements(ootPlacements.c_str());
         if (SOH_SetComboSeedHash)
             SOH_SetComboSeedHash(displaySeed);
+        if (hintsPresent && SOH_ApplyComboHints)
+            SOH_ApplyComboHints(j.value("hints", nlohmann::json::object()).dump().c_str());
 
         // MM: restore settings (MM_InitRandoSaveFile reads CVars) + stash placements for the MM save.
         if (MM_RestoreRandoSettings)
@@ -1476,6 +1533,8 @@ int main(int argc, char** argv) {
     SOH_DumpEnabledTricks = (FnDumpData)GetSym(sohModule, "SOH_DumpEnabledTricks");
     MM_DumpRandoSettings = (FnDumpData)GetSym(mmModule, "MM_DumpRandoSettings");
     SOH_DumpRandoHintData = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoHintData");
+    SOH_ApplyComboHints = (FnApplyHints)GetSym(sohModule, "SOH_ApplyComboHints");
+    SOH_SetComboHintsPresent = (FnSetHintsPresent)GetSym(sohModule, "SOH_SetComboHintsPresent");
     SOH_PrepRandoContext = (FnVoidV)GetSym(sohModule, "SOH_PrepRandoContext");
     SOH_RestoreRandoSettings = (FnTakeStr)GetSym(sohModule, "SOH_RestoreRandoSettings");
     MM_RestoreRandoSettings = (FnTakeStr)GetSym(mmModule, "MM_RestoreRandoSettings");

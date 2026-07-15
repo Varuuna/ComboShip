@@ -7,8 +7,10 @@
 #pragma once
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -20,39 +22,24 @@
 
 namespace ComboRando {
 
-struct PlaythroughResult {
-    bool beatable = false;
-    int beatableSphere = -1;
-    size_t reachableOot = 0, unreachableOot = 0;
-    size_t reachableMm = 0, unreachableMm = 0;
-    // Win-side reachability at FULL placed inventory — names which side blocks a stuck seed
-    // (Ganon = OOT tower-top + Boss Key; Majora = MM lair).
-    bool ganonReachable = false, majoraReachable = false;
+// A single placed item, parsed from a combined-fill spoiler (see ParseSpoilerPlacements). Shared by
+// RunPlaythrough and PareDownPlaythrough so both traverse the identical placement set.
+struct CwPlacedItem {
+    GameId checkGame;
+    std::string check;
+    GameId itemGame;
+    std::string item;
+    bool advancement;
 };
 
-// Endgame proxies the oracles actually emit (see ComboShip.cpp for the rationale — the literal "Ganon"
-// check needs CanUse(RG_MASTER_SWORD), an equip flag the headless engine doesn't model, so we use
-// tower-top + Boss Key owned; MM uses the in-lair check which already encodes the remains/masks gate).
-// sohDumpJson/mmDumpJson (optional): static-data dumps whose pool[]/fixed[] advancement flags let the
-// text log show only progression items; unknown names default to advancement so nothing is hidden.
-inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const OracleFns& ootOracle,
-                                        const OracleFns& mmOracle, const std::string& seedLabel, void (*mmRestore)(),
-                                        nlohmann::json* playthroughOut = nullptr, const std::string& sohDumpJson = "",
-                                        const std::string& mmDumpJson = "") {
-    static const char* kOotTowerTop = "Ganon's Castle Tower Boss Key Chest";
-    static const char* kOotBossKey = "Ganon's Castle Boss Key";
-    static const char* kMmWin = "RC_MOON_MAJORA_POT_01";
-
-    PlaythroughResult result;
-
-    struct Placed {
-        GameId checkGame;
-        std::string check;
-        GameId itemGame;
-        std::string item;
-        bool advancement;
-    };
-    std::vector<Placed> placements;
+// Parses a combined-fill spoilerJson ("oot"/"mm" flat check->item maps + "foreign" array, the shape
+// CrossWorldCombinedFill/CrossHints::Generate produce) into placements. sohDumpJson/mmDumpJson
+// (optional) resolve each item's advancement flag from the pool; absent -> defaults to advancement
+// (never hide progression). Mirrors RunPlaythrough's own parse (factored out for reuse).
+inline std::vector<CwPlacedItem> ParseSpoilerPlacements(const std::string& spoilerJson,
+                                                        const std::string& sohDumpJson = "",
+                                                        const std::string& mmDumpJson = "") {
+    std::vector<CwPlacedItem> placements;
     struct ForeignInfo {
         GameId itemGame;
         std::string itemName;
@@ -60,8 +47,6 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
     };
     std::unordered_map<std::string, ForeignInfo> foreign; // "<cg>:<cn>"-keyed
 
-    // Per-game item-name -> advancement, from the dumps' pools. Absent dump/name => advancement;
-    // a name emitted with conflicting flags stays advancement (never hide progression).
     std::unordered_map<std::string, bool> advByName[2];
     auto loadAdv = [&](GameId g, const std::string& dumpJson) {
         if (dumpJson.empty())
@@ -95,9 +80,6 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
                 auto fit = foreign.find(std::string(key) + ":" + cn);
                 bool isForeign = fit != foreign.end();
                 GameId ig = isForeign ? fit->second.itemGame : cg;
-                // A foreign item's placement-map value is its human DISPLAY name, but the owning game's
-                // oracle keys on its internal name (MM: RI_*). Prefer the foreign entry's itemName so the
-                // item is actually credited when handed to that oracle.
                 std::string item =
                     (isForeign && !fit->second.itemName.empty()) ? fit->second.itemName : iv.get<std::string>();
                 bool adv = isForeign ? fit->second.advancement : lookupAdv(ig, item);
@@ -108,22 +90,160 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
         addGame("mm", GAME_MM);
     } catch (const std::exception& e) {
         std::cerr << "[PLAYTHROUGH] spoiler parse error: " << e.what() << "\n";
-        return result;
     }
+    return placements;
+}
 
-    auto queryReachable = [&](const OracleFns& o, const std::vector<std::string>& owned) {
-        nlohmann::json arr = nlohmann::json::array();
-        for (auto& n : owned)
-            arr.push_back(n);
-        o.Reset();
-        o.SetOwnedItems(arr.dump().c_str());
-        std::unordered_set<std::string> out;
-        try {
-            for (auto& n : nlohmann::json::parse(o.GetReachableChecks()))
-                out.insert(n.get<std::string>());
-        } catch (...) {}
-        return out;
+inline std::unordered_set<std::string> QueryReachable(const OracleFns& o, const std::vector<std::string>& owned) {
+    nlohmann::json arr = nlohmann::json::array();
+    for (auto& n : owned)
+        arr.push_back(n);
+    o.Reset();
+    o.SetOwnedItems(arr.dump().c_str());
+    std::unordered_set<std::string> out;
+    try {
+        for (auto& n : nlohmann::json::parse(o.GetReachableChecks()))
+            out.insert(n.get<std::string>());
+    } catch (...) {}
+    return out;
+}
+
+// Default win condition: OOT tower-top + Boss Key owned (Ganon) AND MM's in-lair check (Majora).
+// A pluggable goal so a future goal (e.g. Triforce hunt) can be swapped in without touching the
+// traversal machinery below.
+using GoalPredicate = std::function<bool(const std::unordered_set<std::string>& ootReach,
+                                        const std::unordered_set<std::string>& mmReach,
+                                        const std::vector<std::string>& ownedOot)>;
+inline bool DefaultGanonMajoraGoal(const std::unordered_set<std::string>& ootReach,
+                                   const std::unordered_set<std::string>& mmReach,
+                                   const std::vector<std::string>& ownedOot) {
+    static const char* kOotTowerTop = "Ganon's Castle Tower Boss Key Chest";
+    static const char* kOotBossKey = "Ganon's Castle Boss Key";
+    static const char* kMmWin = "RC_MOON_MAJORA_POT_01";
+    bool canGanon = ootReach.count(kOotTowerTop) > 0 &&
+                    std::find(ownedOot.begin(), ownedOot.end(), kOotBossKey) != ownedOot.end();
+    bool canMajora = mmReach.count(kMmWin) > 0;
+    return canGanon && canMajora;
+}
+
+struct RequirednessResult {
+    // "oot:<check>"/"mm:<check>" -> required (WotH, true) or foolish-candidate (false).
+    std::unordered_map<std::string, bool> requiredByCheck;
+    // "oot:<area>"/"mm:<area>" -> true once ANY advancement item placed there is required.
+    std::unordered_map<std::string, bool> areaHasRequired;
+    int candidateCount = 0;
+    int64_t ms = 0;
+};
+
+// Requiredness pare-down over the COMBINED world: for each placed advancement item, tentatively
+// remove it (its check still exists, but never credits the item to the owned set) and re-run the
+// sphere-collect fixpoint from empty; if the goal is still reachable without it, the item is NOT
+// required (foolish candidate); otherwise it IS required (WotH). ootCheckAreas/mmCheckAreas (checkName
+// -> area/region string) let the caller roll this up into per-area foolish/WotH classification.
+// mmRestore resets the MM oracle's snapshot guard afterward (same contract as RunPlaythrough).
+inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, const OracleFns& ootOracle,
+                                              const OracleFns& mmOracle, void (*mmRestore)(),
+                                              const std::string& sohDumpJson = "", const std::string& mmDumpJson = "",
+                                              const std::unordered_map<std::string, std::string>& ootCheckAreas = {},
+                                              const std::unordered_map<std::string, std::string>& mmCheckAreas = {},
+                                              GoalPredicate goalReached = DefaultGanonMajoraGoal) {
+    RequirednessResult result;
+    auto placements = ParseSpoilerPlacements(spoilerJson, sohDumpJson, mmDumpJson);
+
+    auto checkKey = [](const CwPlacedItem& p) { return std::string(p.checkGame == GAME_OOT ? "oot:" : "mm:") + p.check; };
+
+    // Excludes ONE placement's check from ever crediting its item, then sphere-collects everything
+    // else from empty until stable. Cheaper than a full fixpoint per test would suggest: most
+    // candidates settle in a handful of iterations since only one item is missing from the world.
+    auto reachableWithoutOne = [&](const std::string& excludeKey) {
+        std::vector<std::string> ootOwned, mmOwned;
+        std::vector<bool> credited(placements.size(), false);
+        std::unordered_set<std::string> ootReach, mmReach;
+        for (;;) {
+            ootReach = QueryReachable(ootOracle, ootOwned);
+            mmReach = QueryReachable(mmOracle, mmOwned);
+            bool changed = false;
+            for (size_t i = 0; i < placements.size(); ++i) {
+                if (credited[i])
+                    continue;
+                const auto& p = placements[i];
+                std::string key = checkKey(p);
+                if (key == excludeKey) {
+                    credited[i] = true; // never collect the excluded check's item
+                    continue;
+                }
+                const auto& reach = (p.checkGame == GAME_OOT) ? ootReach : mmReach;
+                if (reach.count(p.check)) {
+                    (p.itemGame == GAME_OOT ? ootOwned : mmOwned).push_back(p.item);
+                    credited[i] = true;
+                    changed = true;
+                }
+            }
+            if (!changed)
+                break;
+        }
+        return goalReached(ootReach, mmReach, ootOwned);
     };
+
+    auto t0 = std::chrono::steady_clock::now();
+    for (const auto& p : placements) {
+        if (!p.advancement)
+            continue; // junk is never required/foolish-relevant
+        ++result.candidateCount;
+        std::string key = checkKey(p);
+        bool winnableWithout = reachableWithoutOne(key);
+        bool required = !winnableWithout;
+        result.requiredByCheck[key] = required;
+        const auto& areaMap = (p.checkGame == GAME_OOT) ? ootCheckAreas : mmCheckAreas;
+        auto ait = areaMap.find(p.check);
+        if (ait != areaMap.end()) {
+            std::string areaKey = (p.checkGame == GAME_OOT ? "oot:" : "mm:") + ait->second;
+            if (required)
+                result.areaHasRequired[areaKey] = true;
+            else
+                result.areaHasRequired.emplace(areaKey, false);
+        }
+    }
+    result.ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+
+    if (mmRestore)
+        mmRestore();
+
+    std::cout << "[PLAYTHROUGH] pare-down: " << result.candidateCount << " advancement candidates, " << result.ms
+              << " ms\n";
+    return result;
+}
+
+struct PlaythroughResult {
+    bool beatable = false;
+    int beatableSphere = -1;
+    size_t reachableOot = 0, unreachableOot = 0;
+    size_t reachableMm = 0, unreachableMm = 0;
+    // Win-side reachability at FULL placed inventory — names which side blocks a stuck seed
+    // (Ganon = OOT tower-top + Boss Key; Majora = MM lair).
+    bool ganonReachable = false, majoraReachable = false;
+};
+
+// Endgame proxies the oracles actually emit (see ComboShip.cpp for the rationale — the literal "Ganon"
+// check needs CanUse(RG_MASTER_SWORD), an equip flag the headless engine doesn't model, so we use
+// tower-top + Boss Key owned; MM uses the in-lair check which already encodes the remains/masks gate).
+// sohDumpJson/mmDumpJson (optional): static-data dumps whose pool[]/fixed[] advancement flags let the
+// text log show only progression items; unknown names default to advancement so nothing is hidden.
+inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const OracleFns& ootOracle,
+                                        const OracleFns& mmOracle, const std::string& seedLabel, void (*mmRestore)(),
+                                        nlohmann::json* playthroughOut = nullptr, const std::string& sohDumpJson = "",
+                                        const std::string& mmDumpJson = "") {
+    static const char* kOotTowerTop = "Ganon's Castle Tower Boss Key Chest";
+    static const char* kOotBossKey = "Ganon's Castle Boss Key";
+    static const char* kMmWin = "RC_MOON_MAJORA_POT_01";
+
+    PlaythroughResult result;
+
+    using Placed = CwPlacedItem;
+    std::vector<Placed> placements = ParseSpoilerPlacements(spoilerJson, sohDumpJson, mmDumpJson);
+
+    auto queryReachable = QueryReachable;
 
     std::vector<std::string> ownedOot, ownedMm;
     std::unordered_set<std::string> collected; // "<cg>:<cn>"

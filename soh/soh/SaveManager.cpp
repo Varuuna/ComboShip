@@ -223,6 +223,23 @@ void SaveManager::LoadRandomizer() {
         auto hint = RandomizerHint(i);
         nlohmann::json json;
         SaveManager::Instance->LoadData("", json);
+#ifdef COMBO_BUILD
+        // ComboShip: combo-injected MESSAGE hints save their full en/de/fr triple (see SaveRandomizer
+        // below) since Hint(hint, json)'s "messages" array is current-language-only.
+        if (json.value("enabled", false) && json.contains("comboMessagesEn")) {
+            std::vector<CustomMessage> msgs;
+            auto& en = json["comboMessagesEn"];
+            auto de = json.value("comboMessagesDe", nlohmann::json::array());
+            auto fr = json.value("comboMessagesFr", nlohmann::json::array());
+            for (size_t m = 0; m < en.size(); m++) {
+                std::string e = en[m].get<std::string>();
+                msgs.emplace_back(e, m < de.size() ? de[m].get<std::string>() : e,
+                                  m < fr.size() ? fr[m].get<std::string>() : e);
+            }
+            randoContext->AddHint(hint, Rando::Hint(hint, msgs));
+            return;
+        }
+#endif
         randoContext->AddHint(hint, Rando::Hint(hint, json));
     });
 
@@ -326,6 +343,20 @@ void SaveManager::SaveRandomizer(SaveContext* saveContext, int sectionID, bool f
                 std::vector<std::string> messages = hint->GetAllMessageStrings(MF_RAW);
                 SaveManager::Instance->SaveArray("messages", messages.size(),
                                                  [&](size_t i) { SaveManager::Instance->SaveData("", messages[i]); });
+#ifdef COMBO_BUILD
+                // ComboShip: preserve all 3 languages for combo-injected MESSAGE hints (see LoadRandomizer).
+                if (hint->GetHintType() == HINT_TYPE_MESSAGE) {
+                    SaveManager::Instance->SaveArray("comboMessagesEn", messages.size(), [&](size_t i) {
+                        SaveManager::Instance->SaveData("", hint->GetHintMessage(MF_RAW, i).GetEnglish(MF_RAW));
+                    });
+                    SaveManager::Instance->SaveArray("comboMessagesDe", messages.size(), [&](size_t i) {
+                        SaveManager::Instance->SaveData("", hint->GetHintMessage(MF_RAW, i).GetGerman(MF_RAW));
+                    });
+                    SaveManager::Instance->SaveArray("comboMessagesFr", messages.size(), [&](size_t i) {
+                        SaveManager::Instance->SaveData("", hint->GetHintMessage(MF_RAW, i).GetFrench(MF_RAW));
+                    });
+                }
+#endif
 
                 SaveManager::Instance->SaveData("distribution", hint->GetDistribution());
                 SaveManager::Instance->SaveData(

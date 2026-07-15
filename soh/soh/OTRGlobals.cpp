@@ -55,6 +55,7 @@
 #include "soh/Enhancements/randomizer/randomizer_check_objects.h" // ComboShip: GetRCAreaName/AreaIsDungeon for hint dump
 #include "soh/Enhancements/randomizer/trial.h"                    // ComboShip: GetTrials() for resolved trial dump
 #include "soh/Enhancements/randomizer/randomizerEnumStrings.h"    // ComboShip: EnumToString<RandomizerHintTextKey>()
+#include "soh/Enhancements/randomizer/hint.h" // ComboShip: Rando::Hint/AddHint for SOH_ApplyComboHints
 #include "Enhancements/gameplaystats.h"
 #include "soh/Enhancements/savestates.h"
 #include "frame_interpolation.h"
@@ -3814,6 +3815,94 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
     return cached.c_str();
 }
 
+#ifdef COMBO_BUILD
+// ComboShip: whether the seed being applied carries a cross-hint payload (see SOH_ApplyComboHints).
+// Set by the launcher just before SOH_ApplyRandoPlacements; back-compat default is "no" so an old
+// dropped seed file (generated before Phase 3) still gets the force-off vanilla-hint behavior.
+static bool sComboHintsPresent = false;
+#endif
+
+extern "C" __declspec(dllexport) void SOH_SetComboHintsPresent(int present) {
+#ifdef COMBO_BUILD
+    sComboHintsPresent = present != 0;
+#endif
+}
+
+// ComboShip: apply combo-generated hints (cross-hint Phase 3). Input: {"oot":[{checkName,messages:
+// [{en,de,fr},...]},...], ...} (see combo/rando/CrossHints.h for the generator). checkName is either a
+// gossip-stone check name (resolved via locationNameToEnum + gossipStoneCheckToHint) or the sentinel
+// "__GANONDORF__"/"__TRIAL__.../"__JUNK__..." handled below. Never throws across the ABI. Must run
+// AFTER SOH_ApplyRandoPlacements (placements need to exist for native CreateStaticHints/
+// CreateWarpSongTexts, called at the end, to fill in whatever combo didn't pre-populate).
+extern "C" __declspec(dllexport) void SOH_ApplyComboHints(const char* json) {
+    if (!json)
+        return;
+#ifdef COMBO_BUILD
+    try {
+        auto ctx = OTRGlobals::Instance->gRandoContext;
+        nlohmann::json hints = nlohmann::json::parse(json);
+        int applied = 0, skipped = 0;
+        for (auto& entry : hints.value("oot", nlohmann::json::array())) {
+            std::string checkName = entry.value("checkName", "");
+            std::vector<CustomMessage> messages;
+            for (auto& m : entry.value("messages", nlohmann::json::array()))
+                messages.emplace_back(m.value("en", ""), m.value("de", ""), m.value("fr", ""));
+            if (messages.empty()) {
+                ++skipped;
+                continue;
+            }
+
+            RandomizerHint rh = RH_NONE;
+            if (checkName == "__GANONDORF__") {
+                rh = RH_GANONDORF_HINT;
+            } else if (checkName.rfind("__", 0) == 0) {
+                // "__STONE__N"/"__TRIAL__.../"__JUNK__...": CrossHints.h assigns these to an abstract
+                // stone SLOT (count only, not a specific check — combo doesn't pick which physical
+                // stone gets which content). Claim the next still-empty gossip-stone check for it.
+                auto stones = Rando::StaticData::GetGossipStoneLocations();
+                RandomizerCheck freeStone = RC_UNKNOWN_CHECK;
+                for (RandomizerCheck rc : stones) {
+                    RandomizerHint candidate = Rando::StaticData::gossipStoneCheckToHint.count(rc)
+                                                    ? Rando::StaticData::gossipStoneCheckToHint[rc]
+                                                    : RH_NONE;
+                    if (candidate != RH_NONE && !ctx->GetHint(candidate)->IsEnabled()) {
+                        freeStone = rc;
+                        rh = candidate;
+                        break;
+                    }
+                }
+                if (freeStone == RC_UNKNOWN_CHECK) {
+                    ++skipped;
+                    continue;
+                }
+            } else {
+                auto rcIt = Rando::StaticData::locationNameToEnum.find(checkName);
+                if (rcIt == Rando::StaticData::locationNameToEnum.end() ||
+                    !Rando::StaticData::gossipStoneCheckToHint.count(rcIt->second)) {
+                    ++skipped;
+                    continue;
+                }
+                rh = Rando::StaticData::gossipStoneCheckToHint[rcIt->second];
+            }
+            if (rh == RH_NONE || ctx->GetHint(rh)->IsEnabled()) {
+                ++skipped;
+                continue;
+            }
+            ctx->AddHint(rh, Rando::Hint(rh, messages));
+            ++applied;
+        }
+
+        // Native fills whatever combo didn't pre-populate (altar/Biggoron/mask-shop/skulltula-count/
+        // ganondorf-joke/etc static hints; each self-skips an already-enabled key) + warp song texts.
+        CreateStaticHints();
+        CreateWarpSongTexts();
+        SPDLOG_INFO("[ComboShip] SOH_ApplyComboHints: applied={} skipped={}", applied, skipped);
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[ComboShip] SOH_ApplyComboHints: exception: {}", e.what());
+    } catch (...) { SPDLOG_ERROR("[ComboShip] SOH_ApplyComboHints: unknown exception"); }
+#endif
+}
+
 // ComboShip: apply a placement mapping produced by the combo generator.
 // Input JSON: {"<checkName>":"<itemName>", ...} (the "oot" object from the combined spoiler).
 // For each entry, look up the check and item enums and place it. Then SetSeedGenerated(true) so
@@ -3834,6 +3923,9 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
         // disguise pool. Rebuild it from the items we actually place below, else every ice trap falls
         // back to a bottle (empty-set draw).
         ctx->possibleIceTrapModels.clear();
+        // Combo also skips native Fill()'s HintReset() call — without it, a same-session regenerate
+        // would see the PREVIOUS seed's hints still marked enabled and skip re-populating them.
+        ctx->HintReset();
 #endif
 
         // ComboShip: ItemReset wipes shop prices + placements, so re-run SoH's shop/scrub/merchant
@@ -3846,9 +3938,14 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
         // Combo seeds carry no NPC hints (CreateAllHints never runs; the combo sphere-hint panel is
         // the hint system). Force the hint settings off so stones/Ganondorf/warp texts behave vanilla
         // instead of reading the empty hint table; the save inherits these from the context (GAP-3).
-        ctx->GetOption(RSK_GOSSIP_STONE_HINTS).Set(RO_GOSSIP_STONES_NONE);
-        ctx->GetOption(RSK_GANONDORF_HINT).Set(RO_GENERIC_OFF);
-        ctx->GetOption(RSK_WARP_SONG_HINTS).Set(RO_GENERIC_OFF);
+        // Cross-hint Phase 3: only force hint options off for a seed with no combo hints payload
+        // (old pre-hint-system seed files, back-compat). New seeds honor the player's own settings —
+        // SOH_ApplyComboHints (called right after this) supplies the actual hint content.
+        if (!sComboHintsPresent) {
+            ctx->GetOption(RSK_GOSSIP_STONE_HINTS).Set(RO_GOSSIP_STONES_NONE);
+            ctx->GetOption(RSK_GANONDORF_HINT).Set(RO_GENERIC_OFF);
+            ctx->GetOption(RSK_WARP_SONG_HINTS).Set(RO_GENERIC_OFF);
+        }
         Combo_SetupOOTShops();
         Combo_ApplyPriceOverrides(); // spoiler prices win over the re-roll on reload
 #endif

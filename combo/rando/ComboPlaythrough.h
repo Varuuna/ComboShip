@@ -142,6 +142,8 @@ struct RequirednessResult {
 // required (foolish candidate); otherwise it IS required (WotH). ootCheckAreas/mmCheckAreas (checkName
 // -> area/region string) let the caller roll this up into per-area foolish/WotH classification.
 // mmRestore resets the MM oracle's snapshot guard afterward (same contract as RunPlaythrough).
+// Win-harvest and group testing presume MONOTONE oracle reachability (more owned items never lose
+// checks); a violation could only mislabel a hint, never break the seed (fill validates separately).
 inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, const OracleFns& ootOracle,
                                               const OracleFns& mmOracle, void (*mmRestore)(),
                                               const std::string& sohDumpJson = "", const std::string& mmDumpJson = "",

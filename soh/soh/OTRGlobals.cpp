@@ -52,6 +52,9 @@
 #include "soh/Enhancements/randomizer/3drando/item_pool.hpp"
 #include "soh/Enhancements/randomizer/3drando/starting_inventory.hpp"
 #include "soh/Enhancements/randomizer/3drando/hints.hpp" // ComboShip: CreateChildAltarHint/CreateAdultAltarHint
+#include "soh/Enhancements/randomizer/randomizer_check_objects.h" // ComboShip: GetRCAreaName/AreaIsDungeon for hint dump
+#include "soh/Enhancements/randomizer/trial.h"                    // ComboShip: GetTrials() for resolved trial dump
+#include "soh/Enhancements/randomizer/randomizerEnumStrings.h"    // ComboShip: EnumToString<RandomizerHintTextKey>()
 #include "Enhancements/gameplaystats.h"
 #include "soh/Enhancements/savestates.h"
 #include "frame_interpolation.h"
@@ -3678,6 +3681,136 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         { "items", std::move(items) },
         { "prices", std::move(prices) }
     }.dump();
+    return cached.c_str();
+}
+
+// ComboShip: serialize a HintText's clear/ambiguous/obscure CustomMessage variants to JSON, in the
+// raw (un-substituted, "#...#"/"[[N]]" markers intact) format so the combo hint composer can splice
+// its own text in. Called only from SOH_DumpRandoHintData below.
+static nlohmann::json Combo_CustomMessageToJson(const CustomMessage& msg) {
+    return { { "en", msg.GetEnglish(MF_RAW) }, { "de", msg.GetGerman(MF_RAW) }, { "fr", msg.GetFrench(MF_RAW) } };
+}
+static nlohmann::json Combo_HintTextToJson(const HintText& ht) {
+    nlohmann::json ambiguous = nlohmann::json::array();
+    for (size_t i = 0; i < ht.GetAmbiguousSize(); ++i)
+        ambiguous.push_back(Combo_CustomMessageToJson(ht.GetAmbiguous(i)));
+    nlohmann::json obscure = nlohmann::json::array();
+    for (size_t i = 0; i < ht.GetObscureSize(); ++i)
+        obscure.push_back(Combo_CustomMessageToJson(ht.GetObscure(i)));
+    return { { "clear", Combo_CustomMessageToJson(ht.GetClear()) },
+             { "ambiguous", std::move(ambiguous) },
+             { "obscure", std::move(obscure) } };
+}
+
+// ComboShip: hint schema/data export for the combo hint layer (cross-game hint system, Phase 2).
+// Pure reader of already-resolved Context state (options, StaticData tables, resolved trials) — does
+// NOT call SOH_PrepRandoContext (that re-rolls RNG-derived state like trial selection). Must be
+// called once per successful fill, immediately after that attempt's SOH_DumpRandoStaticData, so the
+// Context is still the winning attempt's state. Returns a JSON object; never throws across the ABI.
+extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
+    static std::string cached;
+    nlohmann::json out = nlohmann::json::object();
+    try {
+        auto ctx = OTRGlobals::Instance->gRandoContext;
+
+        // Resolved hint-affecting options (honest player settings; the reload path's force-off
+        // happens later, in SOH_ApplyRandoPlacements, so this read is unaffected by it).
+        out["options"] = {
+            { "gossipStoneHints", static_cast<int>(ctx->GetOption(RSK_GOSSIP_STONE_HINTS).Get()) },
+            { "hintClarity", static_cast<int>(ctx->GetOption(RSK_HINT_CLARITY).Get()) },
+            { "hintDistribution", static_cast<int>(ctx->GetOption(RSK_HINT_DISTRIBUTION).Get()) },
+            { "ganondorfHint", static_cast<int>(ctx->GetOption(RSK_GANONDORF_HINT).Get()) },
+            { "warpSongHints", static_cast<int>(ctx->GetOption(RSK_WARP_SONG_HINTS).Get()) },
+            { "totAltarHint", static_cast<int>(ctx->GetOption(RSK_TOT_ALTAR_HINT).Get()) },
+        };
+
+        // Area list: static per-check area (RCAREA_*) — Location::GetArea(), not the runtime
+        // ItemLocation::GetRandomArea() the native hint distributor groups by (that needs a live
+        // reachability traversal). Phase 3's combined-world foolish/area logic will need its own
+        // area assignment either way, since it must span both games; documented as a Phase 2->3 seam.
+        nlohmann::json areas = nlohmann::json::array();
+        for (int a = 0; a < RCAREA_INVALID; ++a) {
+            auto area = static_cast<RandomizerCheckArea>(a);
+            areas.push_back({ { "key", static_cast<int>(area) },
+                               { "name", RandomizerCheckObjects::GetRCAreaName(area) },
+                               { "dungeon", RandomizerCheckObjects::AreaIsDungeon(area) } });
+        }
+        out["areas"] = std::move(areas);
+
+        // Gossip stone slots (~40 checks) — the stones the combo distributor may target.
+        nlohmann::json stones = nlohmann::json::array();
+        for (RandomizerCheck rc : Rando::StaticData::GetGossipStoneLocations()) {
+            Rando::Location* loc = Rando::StaticData::GetLocation(rc);
+            if (loc && !loc->GetName().empty())
+                stones.push_back(loc->GetName());
+        }
+        out["stones"] = std::move(stones);
+
+        // Per-check hint text (every static check, not just this settings' shuffled subset — the
+        // combo distributor decides which checks are hintable for its combined world).
+        nlohmann::json checks = nlohmann::json::array();
+        for (int i = 0; i < RC_MAX; ++i) {
+            Rando::Location* loc = Rando::StaticData::GetLocation(static_cast<RandomizerCheck>(i));
+            if (!loc || loc->GetName().empty())
+                continue;
+            checks.push_back({ { "name", loc->GetName() },
+                                { "area", RandomizerCheckObjects::GetRCAreaName(loc->GetArea()) },
+                                { "dungeon", loc->IsDungeon() },
+                                { "overworld", loc->IsOverworld() },
+                                { "song", loc->GetRCType() == RCTYPE_SONG_LOCATION },
+                                { "locationHint", Combo_HintTextToJson(*loc->GetHint()) } });
+        }
+        out["checks"] = std::move(checks);
+
+        // Per-item hint text (English item name as key, matching the items[] dump elsewhere).
+        nlohmann::json items = nlohmann::json::array();
+        for (int rg = 0; rg < RG_MAX; ++rg) {
+            Rando::Item& item = Rando::StaticData::RetrieveItem(static_cast<RandomizerGet>(rg));
+            const std::string& name = item.GetName().GetEnglish();
+            if (name.empty())
+                continue;
+            items.push_back({ { "name", name }, { "hint", Combo_HintTextToJson(item.GetHint()) } });
+        }
+        out["items"] = std::move(items);
+
+        // Full hint-text-fragment table, keyed by RHT_* enum name — covers every hand-written
+        // template (WotH/Foolish/CanBeFoundAt/Hoards, junk RHT_JUNK01-71, per-trial texts, warp song
+        // texts, Ganondorf-hint variants) without hand-picking keys that may drift.
+        nlohmann::json templates = nlohmann::json::object();
+        for (int k = 0; k < RHT_MAX; ++k) {
+            auto key = static_cast<RandomizerHintTextKey>(k);
+            auto name = EnumToString(key);
+            if (!name.has_value())
+                continue;
+            templates[std::string(*name)] = Combo_HintTextToJson(Rando::StaticData::hintTextTable[key]);
+        }
+        out["hintTextTable"] = std::move(templates);
+
+        // Always-hint candidates (settings-applied: RC_MARKET_10_BIG_POES, Biggoron's Claim Check, etc).
+        nlohmann::json always = nlohmann::json::array();
+#ifdef COMBO_BUILD
+        for (RandomizerCheck rc : GetAlwaysHintCandidates()) {
+            Rando::Location* loc = Rando::StaticData::GetLocation(rc);
+            if (loc && !loc->GetName().empty())
+                always.push_back(loc->GetName());
+        }
+#endif
+        out["alwaysHintChecks"] = std::move(always);
+
+        // Resolved Ganon's Trials (FinalizeSettings already rolled RSK_GANONS_TRIALS' random-number
+        // case via Random() during SOH_PrepRandoContext, before this function runs) — the combo hint
+        // gen must hint the SAME trials the save actually requires.
+        nlohmann::json trials = nlohmann::json::array();
+        for (auto* t : ctx->GetTrials()->GetTrialList()) {
+            if (t->IsRequired())
+                trials.push_back(t->GetName().GetEnglish(MF_RAW));
+        }
+        out["requiredTrials"] = std::move(trials);
+    } catch (const std::exception& e) {
+        SPDLOG_WARN("[ComboShip] SOH_DumpRandoHintData: {}", e.what());
+    } catch (...) { SPDLOG_WARN("[ComboShip] SOH_DumpRandoHintData: unknown exception"); }
+
+    cached = out.dump();
     return cached.c_str();
 }
 

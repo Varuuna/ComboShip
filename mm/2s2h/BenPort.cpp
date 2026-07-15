@@ -2946,6 +2946,11 @@ static void Combo_MM_ApplyCheckPrices() {
         RANDO_SAVE_CHECKS[id].price = price;
 }
 
+// ComboShip: reuse EnGs.cpp's gossip-stone weight classification (same maps the runtime stone draw
+// uses) so the cross-game hint layer's "no world bias" weighting stays consistent with MM's own.
+extern std::unordered_map<RandoItemId, u32> riToWeight;
+extern std::unordered_map<RandoItemType, u32> itemTypeToWeight;
+
 extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     static std::string cached;
 
@@ -3099,7 +3104,26 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         if (item.name && item.name[0] != '\0') {
             entry["displayName"] = item.name;
         }
+        // ComboShip: hint-weight class (same cascade EnGs.cpp's gossip-stone draw uses, minus the
+        // per-check rcToWeight overrides, which need a check context). Cross-game hint gen uses this
+        // to weight MM items the same way MM's own stones would.
+        u32 weight = 1;
+        if (riToWeight.contains(id)) {
+            weight = riToWeight[id];
+        } else if (itemTypeToWeight.contains(item.randoItemType)) {
+            weight = itemTypeToWeight[item.randoItemType];
+        }
+        entry["weightClass"] = weight;
         items.push_back(std::move(entry));
+    }
+
+    // ComboShip: per-check hint-safe location name (GetLocationNameForHint(rc,false)) — the combo
+    // hint layer's cross-game text composition needs the same "region" phrasing MM's own hints use.
+    nlohmann::json locationHints = nlohmann::json::object();
+    for (auto& [id, chk] : Rando::StaticData::Checks) {
+        if (!chk.name || chk.name[0] == '\0')
+            continue;
+        locationHints[chk.name] = Rando::StaticData::GetLocationNameForHint(id, false);
     }
 
     cached = nlohmann::json{
@@ -3107,7 +3131,8 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         { "pool", std::move(pool) },
         { "fixed", std::move(fixed) },
         { "items", std::move(items) },
-        { "prices", std::move(prices) }
+        { "prices", std::move(prices) },
+        { "locationHints", std::move(locationHints) }
     }.dump();
     return cached.c_str();
 }

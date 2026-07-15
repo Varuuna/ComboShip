@@ -109,7 +109,11 @@ inline void CleanSlotFiles(int slot) {
 
 // Tag a spoiler "foreign" array's displayNames with their home-game suffix for the consolidated file.
 // Every display surface (shops, hints, trackers, toasts) reads displayName, so tag once here.
-inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray) {
+// ootCheckAreas (checkName -> OOT area name, from SOH_DumpRandoHintData's "checks" list) is optional;
+// when given, oot-side entries get a "checkArea" field for the combo hint layer's foolish-area logic.
+// MM-side entries omit it — MM's own dump carries its per-check "locationHints" (region names) instead.
+inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray,
+                                        const std::unordered_map<std::string, std::string>& ootCheckAreas = {}) {
     nlohmann::json out = nlohmann::json::array();
     for (const auto& fm : foreignArray) {
         std::string checkGame = fm.value("checkGame", "");
@@ -121,12 +125,18 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray) {
         std::string displayName = fm.value("displayName", itemName);
         if (!displayName.empty() && (itemGame == "mm" || itemGame == "oot"))
             displayName += (itemGame == "mm") ? " (MM)" : " (OOT)";
-        out.push_back({ { "checkGame", checkGame },
-                        { "checkName", checkName },
-                        { "itemGame", itemGame },
-                        { "itemName", itemName },
-                        { "displayName", displayName },
-                        { "advancement", fm.value("advancement", false) } });
+        nlohmann::json entry = { { "checkGame", checkGame },
+                                 { "checkName", checkName },
+                                 { "itemGame", itemGame },
+                                 { "itemName", itemName },
+                                 { "displayName", displayName },
+                                 { "advancement", fm.value("advancement", false) } };
+        if (checkGame == "oot") {
+            auto it = ootCheckAreas.find(checkName);
+            if (it != ootCheckAreas.end())
+                entry["checkArea"] = it->second;
+        }
+        out.push_back(std::move(entry));
     }
     return out;
 }

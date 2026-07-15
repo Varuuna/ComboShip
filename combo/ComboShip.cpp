@@ -206,6 +206,7 @@ static FnDumpData MM_DumpRandoStaticData = nullptr;
 static FnDumpData SOH_DumpRandoSettings = nullptr; // {cvar:value} OOT rando settings snapshot
 static FnDumpData SOH_DumpEnabledTricks = nullptr; // [NameTag,...] the player's enabled OOT tricks
 static FnDumpData MM_DumpRandoSettings = nullptr;  // {cvar:value} MM rando settings snapshot
+static FnDumpData SOH_DumpRandoHintData = nullptr; // OOT hint text/options schema (cross-hint Phase 2)
 // Reload/remember-seed: restore settings + run the pool prep before re-applying saved placements.
 typedef void (*FnVoidV)(void);
 typedef void (*FnTakeStr)(const char*);
@@ -708,7 +709,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     const uint32_t baseSeed = ComboHash(inputSeed.c_str());
     uint32_t masterSeed = baseSeed;
 
-    std::string sohDump, mmDump, spoiler, lastFillError;
+    std::string sohDump, mmDump, spoiler, lastFillError, sohHintDump;
     bool usedCombinedFill = false;
     nlohmann::json playthroughJson = nlohmann::json::array(); // structured sphere playthrough (combined-fill only)
 
@@ -758,6 +759,11 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             usedCombinedFill = true;
             std::cout << "[ComboShip] RunComboFill: combined-logic fill succeeded (seed=" << masterSeed << ", attempt "
                       << (attempt + 1) << ")\n";
+            // ComboShip: cross-hint schema dump (Phase 2) — must run on THIS attempt's still-live OOT
+            // Context, before anything re-runs FinalizeSettings (which would re-roll RNG-derived state
+            // like trial selection) or the reload-path force-off touches the hint options.
+            if (SOH_DumpRandoHintData)
+                sohHintDump = SOH_DumpRandoHintData();
             // ComboShip: write the sphere-by-sphere playthrough log. Replays reachability via the
             // oracles BEFORE SOH_ApplyRandoPlacements restores the live OOT context, so it can't
             // corrupt the generated seed. Restores MM itself.
@@ -915,8 +921,23 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         consolidated["mm"] = { { "settings", parseOrEmpty(MM_DumpRandoSettings) },
                                { "placements", mmSpoiler },
                                { "prices", pricesOf(mmDump) } };
-        consolidated["foreign"] = ComboRando::BuildForeignArray(foreignArr);
+        // ComboShip: checkName -> OOT area name, from the hint dump's "checks" list, so oot-side
+        // foreign entries can carry a "checkArea" (cross-hint Phase 2 schema; consumed in Phase 3).
+        std::unordered_map<std::string, std::string> ootCheckAreas;
+        try {
+            auto hd = nlohmann::json::parse(sohHintDump.empty() ? "{}" : sohHintDump);
+            for (auto& c : hd.value("checks", nlohmann::json::array())) {
+                std::string name = c.value("name", "");
+                std::string area = c.value("area", "");
+                if (!name.empty() && !area.empty())
+                    ootCheckAreas.emplace(std::move(name), std::move(area));
+            }
+        } catch (...) {}
+        consolidated["foreign"] = ComboRando::BuildForeignArray(foreignArr, ootCheckAreas);
         consolidated["playthrough"] = playthroughJson;
+        // ComboShip: cross-game hint scaffold (Phase 2 schema slot only). Phase 3's CrossHints::Generate
+        // fills this in with the actual per-seed hint assignments; empty here reserves the field.
+        consolidated["hints"] = { { "version", 1 } };
         g_ConsolidatedJson = consolidated.dump(2);
 
         // Write the pending (unbound) file so the seed is remembered and Start-able without regenerating.
@@ -1454,6 +1475,7 @@ int main(int argc, char** argv) {
     SOH_DumpRandoSettings = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoSettings");
     SOH_DumpEnabledTricks = (FnDumpData)GetSym(sohModule, "SOH_DumpEnabledTricks");
     MM_DumpRandoSettings = (FnDumpData)GetSym(mmModule, "MM_DumpRandoSettings");
+    SOH_DumpRandoHintData = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoHintData");
     SOH_PrepRandoContext = (FnVoidV)GetSym(sohModule, "SOH_PrepRandoContext");
     SOH_RestoreRandoSettings = (FnTakeStr)GetSym(sohModule, "SOH_RestoreRandoSettings");
     MM_RestoreRandoSettings = (FnTakeStr)GetSym(mmModule, "MM_RestoreRandoSettings");

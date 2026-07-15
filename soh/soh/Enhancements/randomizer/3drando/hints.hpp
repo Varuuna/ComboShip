@@ -78,4 +78,6 @@ RandomizerHintTextKey GetRandomJunkHint();
 // rest of CreateStaticHints, which the combo hint layer will own separately).
 void CreateChildAltarHint();
 void CreateAdultAltarHint();
+// ComboShip: resolved (settings-applied) always-hint check list, for the combo hint dump.
+std::vector<RandomizerCheck> GetAlwaysHintCandidates();
 #endif

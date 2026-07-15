@@ -29,6 +29,7 @@
 
 #include "rando/CrossWorldRando.h"
 #include "rando/ComboPlaythrough.h"
+#include "rando/CrossForeign.h" // BuildForeignArray (foreign enrichment parity with RunComboFill)
 #include "rando/CrossHints.h"
 
 namespace {
@@ -381,7 +382,19 @@ int main(int argc, char** argv) {
                     consolidated["mm"] = { { "settings", nlohmann::json::parse(MM_DumpSettings()) },
                                            { "placements", fillSpoiler.value("mm", nlohmann::json::object()) },
                                            { "prices", pricesOf(mmDump) } };
-                    consolidated["foreign"] = fillSpoiler.value("foreign", nlohmann::json::array());
+                    // ComboShip: enrich the foreign array exactly like RunComboFill (displayName game
+                    // suffix + oot checkArea) so the headless consolidated file matches the in-game one.
+                    std::unordered_map<std::string, std::string> ootCheckAreas;
+                    try {
+                        auto hd = nlohmann::json::parse(sohHintDump.empty() ? "{}" : sohHintDump);
+                        for (auto& c : hd.value("checks", nlohmann::json::array())) {
+                            std::string name = c.value("name", ""), area = c.value("area", "");
+                            if (!name.empty() && !area.empty())
+                                ootCheckAreas.emplace(std::move(name), std::move(area));
+                        }
+                    } catch (...) {}
+                    consolidated["foreign"] =
+                        ComboRando::BuildForeignArray(fillSpoiler.value("foreign", nlohmann::json::array()), ootCheckAreas);
                     // Cross-hint generation (mirrors RunComboFill) — enables the headless determinism check.
                     consolidated["hints"] = ComboRando::Generate(masterSeed, sohDump, sohHintDump, mmDump,
                                                                  consolidated["foreign"], r.spoilerJson, pareDownResult);

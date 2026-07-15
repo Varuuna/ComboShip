@@ -264,14 +264,26 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
     }
 
     // Required / foolish AREA pools (native's WotH/Foolish hint an area, not a specific item).
+    // Unmapped MM checks roll up as "Unknown" — a useless hint target, so drop those keys.
     std::vector<std::string> requiredAreas, foolishAreas;
-    for (auto& [key, hasRequired] : pareDown.areaHasRequired)
+    for (auto& [key, hasRequired] : pareDown.areaHasRequired) {
+        if (key.find("Unknown") != std::string::npos)
+            continue;
         (hasRequired ? requiredAreas : foolishAreas).push_back(key);
+    }
+    // Stable order (unordered_map iteration feeds the RNG picks) — sort so determinism never
+    // depends on the STL's bucket layout.
+    std::sort(requiredAreas.begin(), requiredAreas.end());
+    std::sort(foolishAreas.begin(), foolishAreas.end());
 
     std::unordered_set<std::string> usedCheckKeys, usedAreaKeys;
     auto areaText = [&](const std::string& areaKey) -> Tri {
         size_t colon = areaKey.find(':');
         std::string plain = colon == std::string::npos ? areaKey : areaKey.substr(colon + 1);
+        // MM region strings come prefixed from GetLocationNameForHint ("in Woodfall Temple") — strip
+        // the "in " so the templates' own prepositions read correctly.
+        if (areaKey.rfind("mm:", 0) == 0 && plain.rfind("in ", 0) == 0)
+            plain = plain.substr(3);
         return EnglishOnly(plain);
     };
 
@@ -373,7 +385,17 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
                 int pick = pickUnused(idxs, keys, usedCheckKeys);
                 if (pick >= 0) {
                     usedKey = keys[pick];
-                    msg = PickTemplate(candidates[pick].locationHint, hintClarity, rng);
+                    const auto& cand = candidates[pick];
+                    if (cand.checkGame == GAME_OOT) {
+                        // OOT location HintTexts are full sentences with [[1]] = the item name.
+                        msg = PickTemplate(cand.locationHint, hintClarity, rng);
+                        ReplacePlaceholder(msg, 1, PickTemplate(cand.itemHint, hintClarity, rng));
+                    } else {
+                        // MM checks have no authored location sentence — compose item + region.
+                        msg = PickTemplate(tmpl("RHT_CAN_BE_FOUND_AT"), hintClarity, rng);
+                        ReplacePlaceholder(msg, 1, PickTemplate(cand.itemHint, hintClarity, rng));
+                        ReplacePlaceholder(msg, 2, areaText(cand.areaKey));
+                    }
                     usedCheckKeys.insert(usedKey);
                     placed = true;
                 }
@@ -424,11 +446,11 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
         }
     }
 
-    // MM gossip pool preview (Phase 4 wires EnGs.cpp to actually draw from this): every OOT-owned
-    // advancement item's location, phrased for an MM stone to say. Weight mirrors the item's own
-    // required/weight standing so cross entries compete fairly with MM's native pool (grill #3).
+    // MM gossip pool (EnGs.cpp draws from this): every advancement item sitting on an OOT CHECK —
+    // the checks MM's native stone draw can't see (MM checks, foreign-held or not, it already
+    // covers itself). Weight mirrors requiredness so cross entries compete fairly (grill #3).
     for (auto& c : candidates) {
-        if (c.itemGame != GAME_OOT)
+        if (c.checkGame != GAME_OOT)
             continue;
         Tri itemName = PickTemplate(c.itemHint, 2, rng);
         Tri area = areaText(c.areaKey);

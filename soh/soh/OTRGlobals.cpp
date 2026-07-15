@@ -3807,11 +3807,15 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
                 trials.push_back(t->GetName().GetEnglish(MF_RAW));
         }
         out["requiredTrials"] = std::move(trials);
+        // dump() with a replace error handler so malformed UTF-8 in any authored text can never throw
+        // across the DLL boundary (nlohmann::json::type_error.316).
+        cached = out.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+        return cached.c_str();
     } catch (const std::exception& e) { SPDLOG_WARN("[ComboShip] SOH_DumpRandoHintData: {}", e.what()); } catch (...) {
         SPDLOG_WARN("[ComboShip] SOH_DumpRandoHintData: unknown exception");
     }
 
-    cached = out.dump();
+    cached = nlohmann::json::object().dump();
     return cached.c_str();
 }
 

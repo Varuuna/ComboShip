@@ -192,7 +192,8 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
 
     // MM per-check region text + per-item weight/displayName.
     std::unordered_map<std::string, std::string> mmLocationHints;
-    for (auto& [chk, region] : mmDump.value("locationHints", nlohmann::json::object()).items())
+    const auto mmLocHintsJson = mmDump.value("locationHints", nlohmann::json::object());
+    for (auto& [chk, region] : mmLocHintsJson.items())
         mmLocationHints.emplace(chk, region.get<std::string>());
     struct MmItemInfo {
         std::string displayName;

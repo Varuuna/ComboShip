@@ -162,6 +162,10 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
         for (;;) {
             ootReach = QueryReachable(ootOracle, ootOwned);
             mmReach = QueryReachable(mmOracle, mmOwned);
+            // Reachability only grows as items are credited, so the goal can be tested per sphere:
+            // an early win is final. Cuts the pare-down's fixpoint cost roughly in half.
+            if (goalReached(ootReach, mmReach, ootOwned))
+                return true;
             bool changed = false;
             for (size_t i = 0; i < placements.size(); ++i) {
                 if (credited[i])

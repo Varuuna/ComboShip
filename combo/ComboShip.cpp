@@ -738,7 +738,8 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         std::unordered_map<std::string, std::string> out;
         try {
             auto d = nlohmann::json::parse(dumpJson.empty() ? "{}" : dumpJson);
-            for (auto& [chk, region] : d.value("locationHints", nlohmann::json::object()).items())
+            const auto locHints = d.value("locationHints", nlohmann::json::object());
+            for (auto& [chk, region] : locHints.items())
                 out.emplace(chk, region.get<std::string>());
         } catch (...) {}
         return out;

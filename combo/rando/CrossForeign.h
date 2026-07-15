@@ -236,7 +236,8 @@ inline MmHints LoadHintsMM(int slot) {
         auto mm = j.value("hints", nlohmann::json::object()).value("mm", nlohmann::json::object());
         for (auto& g : mm.value("gossipPool", nlohmann::json::array()))
             out.gossipPool.push_back({ g.value("weight", 1u), g.value("text", "") });
-        for (auto& [k, v] : mm.value("itemLocations", nlohmann::json::object()).items())
+        const auto itemLocs = mm.value("itemLocations", nlohmann::json::object());
+        for (auto& [k, v] : itemLocs.items())
             out.itemLocations.emplace(k, v.get<std::string>());
     } catch (...) { /* corrupt -> treat as empty */
     }

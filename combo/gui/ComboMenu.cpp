@@ -3,7 +3,7 @@
 #include "ComboMenuModel.h"
 #include "ComboWidgetRender.h"
 #include "ComboWidgetStyle.h"
-#include "ComboForeground.h"    // dormant-game gate for inline tracker popout buttons
+#include "ComboForeground.h" // dormant-game gate for inline tracker popout buttons
 #include "ComboTrackerBridge.h"
 #include "ComboTrackerCommon.h" // kKinds (HideBackground CVars for the tracker panels)
 #include "ComboTrackerSwap.h"

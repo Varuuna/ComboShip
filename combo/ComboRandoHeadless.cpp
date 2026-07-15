@@ -227,8 +227,7 @@ int main(int argc, char** argv) {
         // Affordability canary: re-check every priced purchase in the walk against the wallets held
         // at that sphere. A violation means the oracle's price wiring regressed to "shops are free".
         // With Child Wallet not shuffled, logic starts at the 99-capacity tier (logic.cpp Reset).
-        const int ootBaseWalletTier =
-            ootSettings.value("gRandoSettings.ShuffleChildWallet", 0) == 0 ? 1 : 0;
+        const int ootBaseWalletTier = ootSettings.value("gRandoSettings.ShuffleChildWallet", 0) == 0 ? 1 : 0;
         auto affordabilityViolations = [&](const nlohmann::json& pt) {
             int ow = 0, mw = 0, bad = 0;
             for (const auto& sph : pt) {
@@ -240,8 +239,8 @@ int main(int argc, char** argv) {
                         int price = ootPrices[chk].get<int>();
                         if (price > caps[std::min(ootBaseWalletTier + owS, 4)]) {
                             ++bad;
-                            std::cerr << "[playthrough] AFFORDABILITY: [OOT] " << chk << " price=" << price
-                                      << " with " << owS << " wallet(s) at sphere " << sph.value("sphere", -1) << "\n";
+                            std::cerr << "[playthrough] AFFORDABILITY: [OOT] " << chk << " price=" << price << " with "
+                                      << owS << " wallet(s) at sphere " << sph.value("sphere", -1) << "\n";
                         }
                     } else if (game == "mm" && mmPrices.contains(chk) &&
                                (chk.find("SHOP_ITEM") != std::string::npos ||

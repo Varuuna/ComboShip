@@ -756,8 +756,8 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         if (result.success) {
             spoiler = result.spoilerJson;
             usedCombinedFill = true;
-            std::cout << "[ComboShip] RunComboFill: combined-logic fill succeeded (seed=" << masterSeed
-                      << ", attempt " << (attempt + 1) << ")\n";
+            std::cout << "[ComboShip] RunComboFill: combined-logic fill succeeded (seed=" << masterSeed << ", attempt "
+                      << (attempt + 1) << ")\n";
             // ComboShip: write the sphere-by-sphere playthrough log. Replays reachability via the
             // oracles BEFORE SOH_ApplyRandoPlacements restores the live OOT context, so it can't
             // corrupt the generated seed. Restores MM itself.
@@ -1051,8 +1051,8 @@ static void RunComboPlaythrough(const std::string& inputSeed) {
     std::string seedStr = inputSeed.empty() ? "1" : inputSeed;
     std::string sohDump = SOH_DumpRandoStaticData();
     std::string mmDump = MM_DumpRandoStaticData();
-    auto fill = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, ComboHash(seedStr.c_str()), ootOracle, mmOracle,
-                                                   "", nullptr);
+    auto fill = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, ComboHash(seedStr.c_str()), ootOracle, mmOracle, "",
+                                                   nullptr);
     if (!fill.success) {
         Combo_MM_Rando_Restore();
         std::cerr << "[PLAYTHROUGH] seed '" << seedStr << "' did not generate: " << fill.error << "\n";
@@ -1270,10 +1270,8 @@ static void Combo_OnOOTSaveInit(int fileNum) {
         if (MM_SetCheckPrices) {
             try {
                 auto cj = nlohmann::json::parse(g_ConsolidatedJson);
-                MM_SetCheckPrices(cj.value("mm", nlohmann::json::object())
-                                      .value("prices", nlohmann::json::object())
-                                      .dump()
-                                      .c_str());
+                MM_SetCheckPrices(
+                    cj.value("mm", nlohmann::json::object()).value("prices", nlohmann::json::object()).dump().c_str());
             } catch (...) {}
         }
         MM_InitRandoSaveFile(fileNum, g_PendingMMPlacements.c_str(), playerName);

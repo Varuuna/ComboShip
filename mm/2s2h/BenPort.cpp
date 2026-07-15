@@ -3126,9 +3126,18 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         locationHints[chk.name] = Rando::StaticData::GetLocationNameForHint(id, false);
     }
 
+    // ComboShip: the two hint options that decide whether the combo hint layer's cross gossip pool is
+    // even consumed (EnGs.cpp) — lets the pare-down gate skip requiredness work when both are off.
+    nlohmann::json options = {
+        { "RO_HINTS_GOSSIP_STONES", (uint32_t)saveInfo.randoSaveOptions[RO_HINTS_GOSSIP_STONES] },
+        { "RO_HINTS_PURCHASEABLE", (uint32_t)saveInfo.randoSaveOptions[RO_HINTS_PURCHASEABLE] }
+    };
+
     cached = nlohmann::json{
-        { "checks", std::move(checks) }, { "pool", std::move(pool) },     { "fixed", std::move(fixed) },
-        { "items", std::move(items) },   { "prices", std::move(prices) }, { "locationHints", std::move(locationHints) }
+        { "checks", std::move(checks) },  { "pool", std::move(pool) },
+        { "fixed", std::move(fixed) },    { "items", std::move(items) },
+        { "prices", std::move(prices) },  { "locationHints", std::move(locationHints) },
+        { "options", std::move(options) }
     }.dump();
     return cached.c_str();
 }

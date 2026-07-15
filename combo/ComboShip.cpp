@@ -798,10 +798,16 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
                 sohHintDump = SOH_DumpRandoHintData();
             // ComboShip: requiredness pare-down (Phase 3) — needs the STILL-LIVE oracle session, so it
             // runs before WriteComboPlaythrough (which restores MM internally). Doesn't restore itself;
-            // the WriteComboPlaythrough call below (or the loop's own restore) does that once.
-            pareDownResult = ComboRando::PareDownPlaythrough(result.spoilerJson, ootOracle, mmOracle, nullptr, sohDump,
-                                                             mmDump, buildOotCheckAreas(sohHintDump),
-                                                             buildMmCheckAreas(mmDump));
+            // the WriteComboPlaythrough call below (or the loop's own restore) does that once. Skipped
+            // entirely when no enabled hint surface consumes requiredness (empty result = all non-required).
+            if (ComboRando::NeedsRequirednessPareDown(sohHintDump, mmDump)) {
+                pareDownResult =
+                    ComboRando::PareDownPlaythrough(result.spoilerJson, ootOracle, mmOracle, nullptr, sohDump, mmDump,
+                                                    buildOotCheckAreas(sohHintDump), buildMmCheckAreas(mmDump));
+            } else {
+                std::cout << "[ComboShip] RunComboFill: pare-down skipped (no enabled hint surface needs "
+                             "requiredness)\n";
+            }
             // ComboShip: write the sphere-by-sphere playthrough log. Replays reachability via the
             // oracles BEFORE SOH_ApplyRandoPlacements restores the live OOT context, so it can't
             // corrupt the generated seed. Restores MM itself.

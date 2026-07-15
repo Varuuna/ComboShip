@@ -34,6 +34,24 @@
 
 namespace ComboRando {
 
+// Whether any enabled hint surface actually consumes requiredness (WotH/Foolish areas, or MM's cross
+// gossip pool weighting below, c.required). If neither side wants it, PareDownPlaythrough can be
+// skipped entirely: Generate() still produces every other hint category from an empty RequirednessResult.
+inline bool NeedsRequirednessPareDown(const std::string& sohHintDumpJson, const std::string& mmDumpJson) {
+    try {
+        auto hd = nlohmann::json::parse(sohHintDumpJson.empty() ? "{}" : sohHintDumpJson);
+        if (hd.value("options", nlohmann::json::object()).value("gossipStoneHints", 0) != 0)
+            return true;
+    } catch (...) {}
+    try {
+        auto md = nlohmann::json::parse(mmDumpJson.empty() ? "{}" : mmDumpJson);
+        auto opts = md.value("options", nlohmann::json::object());
+        if (opts.value("RO_HINTS_GOSSIP_STONES", 0) != 0 || opts.value("RO_HINTS_PURCHASEABLE", 0) != 0)
+            return true;
+    } catch (...) {}
+    return false;
+}
+
 // A hint fragment in all 3 OOT-displayed languages. MM-sourced content (no translation available)
 // duplicates its English text into de/fr, per the design's "English in all 3 slots" convention.
 struct Tri {

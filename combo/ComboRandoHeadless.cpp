@@ -344,8 +344,11 @@ int main(int argc, char** argv) {
                     for (auto& [chk, region] : locHints.items())
                         mmAreas.emplace(chk, region.get<std::string>());
                 } catch (...) {}
-                pareDownResult = ComboRando::PareDownPlaythrough(r.spoilerJson, oot, mmO, nullptr, sohDump, mmDump,
-                                                                 ootAreas, mmAreas);
+                if (ComboRando::NeedsRequirednessPareDown(sohHintDump, mmDump))
+                    pareDownResult = ComboRando::PareDownPlaythrough(r.spoilerJson, oot, mmO, nullptr, sohDump, mmDump,
+                                                                     ootAreas, mmAreas);
+                else
+                    std::cout << "[comborando]   pare-down skipped (no enabled hint surface needs requiredness)\n";
             }
             if (MM_Restore)
                 MM_Restore();

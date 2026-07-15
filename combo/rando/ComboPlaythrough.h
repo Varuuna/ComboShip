@@ -132,6 +132,7 @@ struct RequirednessResult {
     // "oot:<area>"/"mm:<area>" -> true once ANY advancement item placed there is required.
     std::unordered_map<std::string, bool> areaHasRequired;
     int candidateCount = 0;
+    int replayedCount = 0; // counterfactual fixpoint replays actually run (group tests + singletons)
     int64_t ms = 0;
 };
 
@@ -152,30 +153,28 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
 
     auto checkKey = [](const CwPlacedItem& p) { return std::string(p.checkGame == GAME_OOT ? "oot:" : "mm:") + p.check; };
 
-    // Excludes ONE placement's check from ever crediting its item, then sphere-collects everything
-    // else from empty until stable. Cheaper than a full fixpoint per test would suggest: most
-    // candidates settle in a handful of iterations since only one item is missing from the world.
-    auto reachableWithoutOne = [&](const std::string& excludeKey) {
+    // Excludes a SET of placements from ever crediting their items, then sphere-collects everything
+    // else from empty until stable. creditedOut (optional) reports what was credited when the run
+    // ended (at a win: exactly what was collected strictly before the goal first held).
+    auto winsWithout = [&](const std::unordered_set<size_t>& excludeIdx, std::vector<char>* creditedOut) {
         std::vector<std::string> ootOwned, mmOwned;
-        std::vector<bool> credited(placements.size(), false);
+        std::vector<char> credited(placements.size(), 0);
         std::unordered_set<std::string> ootReach, mmReach;
+        bool won = false;
         for (;;) {
             ootReach = QueryReachable(ootOracle, ootOwned);
             mmReach = QueryReachable(mmOracle, mmOwned);
             // Reachability only grows as items are credited, so the goal can be tested per sphere:
             // an early win is final. Cuts the pare-down's fixpoint cost roughly in half.
-            if (goalReached(ootReach, mmReach, ootOwned))
-                return true;
+            if (goalReached(ootReach, mmReach, ootOwned)) {
+                won = true;
+                break;
+            }
             bool changed = false;
             for (size_t i = 0; i < placements.size(); ++i) {
-                if (credited[i])
+                if (credited[i] || excludeIdx.count(i))
                     continue;
                 const auto& p = placements[i];
-                std::string key = checkKey(p);
-                if (key == excludeKey) {
-                    credited[i] = true; // never collect the excluded check's item
-                    continue;
-                }
                 const auto& reach = (p.checkGame == GAME_OOT) ? ootReach : mmReach;
                 if (reach.count(p.check)) {
                     (p.itemGame == GAME_OOT ? ootOwned : mmOwned).push_back(p.item);
@@ -186,17 +185,75 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
             if (!changed)
                 break;
         }
-        return goalReached(ootReach, mmReach, ootOwned);
+        if (!won)
+            won = goalReached(ootReach, mmReach, ootOwned);
+        if (creditedOut)
+            *creditedOut = std::move(credited);
+        return won;
     };
 
     auto t0 = std::chrono::steady_clock::now();
-    for (const auto& p : placements) {
-        if (!p.advancement)
-            continue; // junk is never required/foolish-relevant
-        ++result.candidateCount;
+
+    // Candidates (advancement placements only), sorted by item name so duplicate copies form one
+    // contiguous group — they usually clear together in a single group test below.
+    std::vector<size_t> cand;
+    for (size_t i = 0; i < placements.size(); ++i)
+        if (placements[i].advancement)
+            cand.push_back(i);
+    result.candidateCount = static_cast<int>(cand.size());
+    std::stable_sort(cand.begin(), cand.end(),
+                     [&](size_t a, size_t b) { return placements[a].item < placements[b].item; });
+
+    std::vector<signed char> classified(placements.size(), -1); // -1 unknown, 0 not-required, 1 required
+
+    // Any candidate NOT credited when a counterfactual run wins is provably not required: that win
+    // used only the credited set, which survives intact (monotone logic) once the candidate is removed.
+    auto harvestWin = [&](const std::vector<char>& credited, const std::unordered_set<size_t>& excluded) {
+        for (size_t i : cand)
+            if (classified[i] < 0 && !credited[i] && !excluded.count(i))
+                classified[i] = 0;
+    };
+
+    // Group testing over the unclassified candidates: excluding a whole RANGE and still winning proves
+    // every member individually not-required (removing less can only help — monotone); a losing range
+    // is split and both halves re-tested, down to singletons, whose test IS the per-candidate replay.
+    std::function<void(size_t, size_t)> solve = [&](size_t lo, size_t hi) {
+        std::unordered_set<size_t> excl;
+        for (size_t k = lo; k < hi; ++k)
+            if (classified[cand[k]] < 0)
+                excl.insert(cand[k]);
+        if (excl.empty())
+            return;
+        std::vector<char> credited;
+        ++result.replayedCount;
+        if (winsWithout(excl, &credited)) {
+            for (size_t i : excl)
+                classified[i] = 0;
+            harvestWin(credited, excl);
+            return;
+        }
+        if (excl.size() == 1) {
+            classified[*excl.begin()] = 1;
+            return;
+        }
+        size_t mid = lo + (hi - lo) / 2;
+        solve(lo, mid);
+        solve(mid, hi);
+    };
+    // Baseline win (nothing excluded) seeds the harvest; a stuck baseline harvests nothing and
+    // group tests on an unbeatable seed all fail down to singletons (same result as the full sweep).
+    {
+        std::vector<char> credited;
+        ++result.replayedCount;
+        if (winsWithout({}, &credited))
+            harvestWin(credited, {});
+    }
+    solve(0, cand.size());
+
+    for (size_t pi : cand) {
+        const auto& p = placements[pi];
         std::string key = checkKey(p);
-        bool winnableWithout = reachableWithoutOne(key);
-        bool required = !winnableWithout;
+        bool required = classified[pi] == 1;
         result.requiredByCheck[key] = required;
         const auto& areaMap = (p.checkGame == GAME_OOT) ? ootCheckAreas : mmCheckAreas;
         auto ait = areaMap.find(p.check);
@@ -214,8 +271,8 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
     if (mmRestore)
         mmRestore();
 
-    std::cout << "[PLAYTHROUGH] pare-down: " << result.candidateCount << " advancement candidates, " << result.ms
-              << " ms\n";
+    std::cout << "[PLAYTHROUGH] pare-down: " << result.candidateCount << " advancement candidates, "
+              << result.replayedCount << " oracle replays, " << result.ms << " ms\n";
     return result;
 }
 

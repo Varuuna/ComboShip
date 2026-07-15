@@ -1695,6 +1695,17 @@ runtime lookups on either game's side, since only the combo layer sees both worl
 - `combo/rando/CrossForeign.h` — `MmHints`/`LoadHintsMM(slot)`: per-slot lazy loader for the
   consolidated file's `hints.mm` object, mirroring `LoadForeignForGame`'s never-throws contract.
 
+**Code-review fixes (2026-07-15):**
+- `soh/soh/OTRGlobals.cpp` — `SOH_DumpRandoHintData`'s `dump()` moved inside the try + uses
+  `error_handler_t::replace`, so malformed UTF-8 in authored hint text can no longer throw
+  `type_error.316` across the extern "C" boundary.
+- `combo/rando/CrossHints.h` — native "Always"-hint checks (Big Poes, Mask Shop, frogs, skull-reward
+  counts, etc) are now actually distributed: `Preset` gained `alwaysCopies` (mirroring
+  `hintSettingTable`'s 0/1/2/2), and `Generate` places one hint per exported `alwaysHintChecks` entry
+  (× copies) before the weighted loop, using the same location+item composition as the other
+  categories. Previously these were exported but never consumed, so native always-hints never landed
+  on a gossip stone.
+
 **Known v1 limitations (documented, not bugs):** trial/gossip text for cross entries is English-only
 (no translation source); MM can't exclude an already-obtained OOT item from its own gossip pool
 (only its own-game repeat-hint pool is protected); Ganondorf's combined-hint phrasing variant isn't

@@ -9,9 +9,11 @@
 // All randomness here goes through ONE seeded RNG (CwRng(masterSeed ^ 0x48494E54)) for determinism.
 //
 // Design note (documented simplification vs native OOT hints, Phase 3 scope):
-//  - Native "Always"-hint checks (Big Poes, Mask Shop, frogs, Malon, skulltula counts, etc) are NOT
-//    mirrored here — those stay OOT-local and are unaffected by cross-game placement, so native
-//    CreateStaticHints() (run after this) already covers them without a dedicated gossip-stone slot.
+//  - Native "Always"-hint checks (Big Poes, Mask Shop, frogs, Malon, skulltula counts, etc) ARE
+//    mirrored here: SOH_DumpRandoHintData's pre-filtered alwaysHintChecks list is placed with
+//    alwaysCopies stone copies each (per-preset, matching native hintSettingTable), before the
+//    weighted distribution loop, using the same location+item composition as the Song/Overworld/
+//    Dungeon categories below.
 //  - Trial hints are English-only (the dump only exports the English trial name).
 //  - Ganondorf's combined "Light Arrows + Master Sword" phrasing variant is not mirrored; combo
 //    always uses the Light-Arrows-only template (still correct, just less detailed in that one case).
@@ -21,6 +23,7 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -100,22 +103,26 @@ struct DistCategory {
     uint32_t weight;
 };
 struct Preset {
+    uint8_t alwaysCopies;
     uint8_t trialCopies;
     uint32_t junkWeight;
     std::vector<DistCategory> cats; // order: WotH, Foolish, Song, Overworld, Dungeon, NamedItem, Random
 };
 inline const std::array<Preset, 4>& HintPresets() {
     static const std::array<Preset, 4> kPresets{ {
-        { 0, 1, {} }, // Useless: no dedicated categories -> always junk
+        { 0, 0, 1, {} }, // Useless: no dedicated categories -> always junk
         { 1,
+         1,
          6,
          { { "WotH", 7 }, { "Foolish", 4 }, { "Song", 2 }, { "Overworld", 4 }, { "Dungeon", 3 }, { "NamedItem", 10 },
            { "Random", 12 } } }, // Balanced
-        { 1,
+        { 2,
+         1,
          0,
          { { "WotH", 12 }, { "Foolish", 12 }, { "Song", 4 }, { "Overworld", 6 }, { "Dungeon", 6 }, { "NamedItem", 8 },
            { "Random", 8 } } }, // Strong
-        { 1,
+        { 2,
+         1,
          0,
          { { "WotH", 15 },
            { "Foolish", 15 },
@@ -207,6 +214,21 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
         mmItems.emplace(it.value("name", ""), std::move(info));
     }
 
+    // Item-hint text + weight for either game's item (shared by the fill-time candidate list and
+    // the always-hint block below, so both compose text identically).
+    auto itemHintAndWeight = [&](GameId itemGame, const std::string& itemKey,
+                                 bool required) -> std::pair<nlohmann::json, uint32_t> {
+        if (itemGame == GAME_OOT) {
+            auto it = ootItemHints.find(itemKey);
+            nlohmann::json hint = it != ootItemHints.end() ? it->second : nlohmann::json::object();
+            return { hint, required ? 3u : 1u };
+        }
+        auto it = mmItems.find(itemKey);
+        std::string dn = it != mmItems.end() ? it->second.displayName : itemKey;
+        nlohmann::json hint = { { "clear", { { "en", dn }, { "de", dn }, { "fr", dn } } } };
+        return { hint, it != mmItems.end() ? std::max<uint32_t>(1, it->second.weightClass) : 1u };
+    };
+
     // Family-B upgrade data (Phase 4 consumes this): MM items placed at an OOT check, keyed by the
     // MM item's own RI_* name -> "in <area> (OOT)".
     for (auto& fm : foreignArray) {
@@ -221,6 +243,12 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
     // Build the candidate list from the same placements the pare-down scored, so requiredness lines
     // up exactly with what gets hinted.
     auto placements = ParseSpoilerPlacements(spoilerJson, sohDumpJson, mmDumpJson);
+    // Full OOT check->placement index (unfiltered by advancement) — the always-hint checks below
+    // may hold non-advancement items (e.g. a Piece of Heart at the Big Poes reward).
+    std::unordered_map<std::string, size_t> ootPlacementIndex;
+    for (size_t i = 0; i < placements.size(); ++i)
+        if (placements[i].checkGame == GAME_OOT)
+            ootPlacementIndex.emplace(placements[i].check, i);
     std::vector<HintCandidate> candidates;
     candidates.reserve(placements.size());
     for (auto& p : placements) {
@@ -250,16 +278,7 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
             c.overworld = true; // MM checks bucket into "Overworld" (no dungeon/song split exported)
             c.locationHint = { { "clear", { { "en", region }, { "de", region }, { "fr", region } } } };
         }
-        if (p.itemGame == GAME_OOT) {
-            auto it = ootItemHints.find(p.item);
-            c.itemHint = it != ootItemHints.end() ? it->second : nlohmann::json::object();
-            c.weight = c.required ? 3 : 1;
-        } else {
-            auto it = mmItems.find(p.item);
-            std::string dn = it != mmItems.end() ? it->second.displayName : p.item;
-            c.itemHint = { { "clear", { { "en", dn }, { "de", dn }, { "fr", dn } } } };
-            c.weight = it != mmItems.end() ? std::max<uint32_t>(1, it->second.weightClass) : 1;
-        }
+        std::tie(c.itemHint, c.weight) = itemHintAndWeight(p.itemGame, p.item, c.required);
         candidates.push_back(std::move(c));
     }
 
@@ -334,6 +353,38 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
     }
 
     if (gossipStoneHints != 0) {
+        // Always-hint checks (native "Always" category: Big Poes, Mask Shop, frogs, skull-reward
+        // counts, etc): one hint per exported always-check, alwaysCopies stone copies each, placed
+        // before the weighted loop so it can't re-target these checks (mirrors native SetHintAccesible
+        // exclusion). alwaysHintChecks is already settings-filtered on the OOT side — trust it.
+        if (preset.alwaysCopies > 0) {
+            for (auto& an : hintDump.value("alwaysHintChecks", nlohmann::json::array())) {
+                if (totalStones == 0)
+                    break;
+                std::string checkName = an.get<std::string>();
+                std::string checkKey = "oot:" + checkName;
+                if (usedCheckKeys.count(checkKey))
+                    continue;
+                auto locIt = ootChecks.find(checkName);
+                auto plIt = ootPlacementIndex.find(checkName);
+                if (locIt == ootChecks.end() || plIt == ootPlacementIndex.end())
+                    continue;
+                const auto& placed = placements[plIt->second];
+                nlohmann::json itemHint = itemHintAndWeight(placed.itemGame, placed.item, false).first;
+                Tri msg = PickTemplate(locIt->second.locationHint, hintClarity, rng);
+                ReplacePlaceholder(msg, 1, PickTemplate(itemHint, hintClarity, rng));
+                uint8_t copies = std::min<uint8_t>(preset.alwaysCopies, static_cast<uint8_t>(totalStones));
+                for (uint8_t copy = 0; copy < copies; ++copy) {
+                    ootHints.push_back({ { "checkName", "__ALWAYS__" + checkName + std::to_string(copy) },
+                                         { "type", "always" },
+                                         { "messages", { { { "en", msg.en }, { "de", msg.de }, { "fr", msg.fr } } } } });
+                    ++producedHints;
+                }
+                totalStones -= copies;
+                usedCheckKeys.insert(checkKey);
+            }
+        }
+
         std::vector<DistCategory> dist = preset.cats; // mutable local copy (weights zeroed on exhaustion)
         while (totalStones > 0) {
             uint32_t totalWeight = 0;

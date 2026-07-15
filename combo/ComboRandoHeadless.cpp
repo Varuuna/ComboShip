@@ -327,10 +327,24 @@ int main(int argc, char** argv) {
             std::string forced = SOH_GetForced ? SOH_GetForced(masterSeed) : "";
             r = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, oot, mmO, "", nullptr, forced);
             if (r.success) {
-                // Cross-hint data (Phase 2/3 mirror): must run on this attempt's still-live oracle
-                // session, before MM_Restore below.
+                // Cross-hint data (Phase 2/3 mirror of RunComboFill, incl. the same area maps so the
+                // WotH/Foolish rollup matches in-game): needs this attempt's still-live oracle session.
                 sohHintDump = SOH_DumpRandoHintData ? SOH_DumpRandoHintData() : "";
-                pareDownResult = ComboRando::PareDownPlaythrough(r.spoilerJson, oot, mmO, nullptr, sohDump, mmDump);
+                std::unordered_map<std::string, std::string> ootAreas, mmAreas;
+                try {
+                    auto hd = nlohmann::json::parse(sohHintDump.empty() ? "{}" : sohHintDump);
+                    for (auto& c : hd.value("checks", nlohmann::json::array())) {
+                        std::string name = c.value("name", ""), area = c.value("area", "");
+                        if (!name.empty() && !area.empty())
+                            ootAreas.emplace(std::move(name), std::move(area));
+                    }
+                    auto d = nlohmann::json::parse(mmDump);
+                    const auto locHints = d.value("locationHints", nlohmann::json::object());
+                    for (auto& [chk, region] : locHints.items())
+                        mmAreas.emplace(chk, region.get<std::string>());
+                } catch (...) {}
+                pareDownResult = ComboRando::PareDownPlaythrough(r.spoilerJson, oot, mmO, nullptr, sohDump, mmDump,
+                                                                 ootAreas, mmAreas);
             }
             if (MM_Restore)
                 MM_Restore();

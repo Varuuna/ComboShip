@@ -3127,12 +3127,8 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     }
 
     cached = nlohmann::json{
-        { "checks", std::move(checks) },
-        { "pool", std::move(pool) },
-        { "fixed", std::move(fixed) },
-        { "items", std::move(items) },
-        { "prices", std::move(prices) },
-        { "locationHints", std::move(locationHints) }
+        { "checks", std::move(checks) }, { "pool", std::move(pool) },     { "fixed", std::move(fixed) },
+        { "items", std::move(items) },   { "prices", std::move(prices) }, { "locationHints", std::move(locationHints) }
     }.dump();
     return cached.c_str();
 }

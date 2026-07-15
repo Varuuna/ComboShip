@@ -3733,8 +3733,8 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
         for (int a = 0; a < RCAREA_INVALID; ++a) {
             auto area = static_cast<RandomizerCheckArea>(a);
             areas.push_back({ { "key", static_cast<int>(area) },
-                               { "name", RandomizerCheckObjects::GetRCAreaName(area) },
-                               { "dungeon", RandomizerCheckObjects::AreaIsDungeon(area) } });
+                              { "name", RandomizerCheckObjects::GetRCAreaName(area) },
+                              { "dungeon", RandomizerCheckObjects::AreaIsDungeon(area) } });
         }
         out["areas"] = std::move(areas);
 
@@ -3755,11 +3755,11 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
             if (!loc || loc->GetName().empty())
                 continue;
             checks.push_back({ { "name", loc->GetName() },
-                                { "area", RandomizerCheckObjects::GetRCAreaName(loc->GetArea()) },
-                                { "dungeon", loc->IsDungeon() },
-                                { "overworld", loc->IsOverworld() },
-                                { "song", loc->GetRCType() == RCTYPE_SONG_LOCATION },
-                                { "locationHint", Combo_HintTextToJson(*loc->GetHint()) } });
+                               { "area", RandomizerCheckObjects::GetRCAreaName(loc->GetArea()) },
+                               { "dungeon", loc->IsDungeon() },
+                               { "overworld", loc->IsOverworld() },
+                               { "song", loc->GetRCType() == RCTYPE_SONG_LOCATION },
+                               { "locationHint", Combo_HintTextToJson(*loc->GetHint()) } });
         }
         out["checks"] = std::move(checks);
 
@@ -3807,9 +3807,9 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
                 trials.push_back(t->GetName().GetEnglish(MF_RAW));
         }
         out["requiredTrials"] = std::move(trials);
-    } catch (const std::exception& e) {
-        SPDLOG_WARN("[ComboShip] SOH_DumpRandoHintData: {}", e.what());
-    } catch (...) { SPDLOG_WARN("[ComboShip] SOH_DumpRandoHintData: unknown exception"); }
+    } catch (const std::exception& e) { SPDLOG_WARN("[ComboShip] SOH_DumpRandoHintData: {}", e.what()); } catch (...) {
+        SPDLOG_WARN("[ComboShip] SOH_DumpRandoHintData: unknown exception");
+    }
 
     cached = out.dump();
     return cached.c_str();
@@ -3863,8 +3863,8 @@ extern "C" __declspec(dllexport) void SOH_ApplyComboHints(const char* json) {
                 RandomizerCheck freeStone = RC_UNKNOWN_CHECK;
                 for (RandomizerCheck rc : stones) {
                     RandomizerHint candidate = Rando::StaticData::gossipStoneCheckToHint.count(rc)
-                                                    ? Rando::StaticData::gossipStoneCheckToHint[rc]
-                                                    : RH_NONE;
+                                                   ? Rando::StaticData::gossipStoneCheckToHint[rc]
+                                                   : RH_NONE;
                     if (candidate != RH_NONE && !ctx->GetHint(candidate)->IsEnabled()) {
                         freeStone = rc;
                         rh = candidate;

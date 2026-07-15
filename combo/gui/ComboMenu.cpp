@@ -3,7 +3,9 @@
 #include "ComboMenuModel.h"
 #include "ComboWidgetRender.h"
 #include "ComboWidgetStyle.h"
+#include "ComboForeground.h"    // dormant-game gate for inline tracker popout buttons
 #include "ComboTrackerBridge.h"
+#include "ComboTrackerCommon.h" // kKinds (HideBackground CVars for the tracker panels)
 #include "ComboTrackerSwap.h"
 #include <imgui.h>
 #include <ship/window/gui/IconsFontAwesome4.h> // ICON_FA_* for the header action buttons
@@ -338,8 +340,76 @@ void AppendSectionEntries(std::vector<HubEntry>& out, const char* groupLabel, Hu
         break; // first matching section only
     }
 }
-// Shared > Item Tracker: combo-owned appearance CVars (mirrored into both games, see
-// ComboTrackerBridge) + the sticky game-swap selection (ComboTrackerSwap).
+// Render one game's tracker sidebar inline (linear; the tracker sidebars are single-column).
+// Structural skips: the sidebar's main-window toggle (identified by its CVar — the combo master
+// supersedes it), its redundant header separator, and the dormant game's window buttons (a popout
+// shown while its game is dormant would draw without that game's RM scope).
+void RenderGameTrackerBlock(int gameIdx, int kind, const char* wantSection, const char* wantSidebar) {
+    auto& model = ComboMenuModel::Get();
+    const ComboRando::GameMenu& game = (gameIdx == 0) ? model.Oot() : model.Mm();
+    if (!game.loaded || !game.menu) {
+        ImGui::TextDisabled("Game menu not available yet.");
+        return;
+    }
+    const char* mainTrackerCvar = ComboTracker::kTrackers[gameIdx][ComboTracker::kKinds[kind].column].cvar;
+    const bool foreground = ComboUI::GetForegroundGame() == gameIdx;
+    const CwMenu* m = game.menu;
+    for (int s = 0; s < m->sectionCount; ++s) {
+        const CwSection& sec = m->sections[s];
+        if (!sec.sectionLabel || strcmp(sec.sectionLabel, wantSection) != 0)
+            continue;
+        for (int sb = 0; sb < sec.sidebarCount; ++sb) {
+            const CwSidebar& side = sec.sidebars[sb];
+            if (!side.sidebarName || strcmp(side.sidebarName, wantSidebar) != 0)
+                continue;
+            for (int i = 0; i < side.widgetCount; ++i) {
+                const CwWidget& w = side.widgets[i];
+                if (w.kind == CW_WINDOW_BUTTON) {
+                    if (w.cvar && strcmp(w.cvar, mainTrackerCvar) == 0)
+                        continue; // main tracker toggle — the combo master supersedes it
+                    if (!foreground)
+                        continue; // dormant popout — unsafe to open, its content is inline anyway
+                }
+                if (w.kind == CW_SEPARATOR_TEXT && w.name && strcmp(w.name, wantSidebar) == 0)
+                    continue; // redundant "<sidebar name>" header inside our own panel
+                ComboRando::RenderWidget(w, game);
+            }
+            return;
+        }
+    }
+    ImGui::TextDisabled("Tracker settings not found in the game menu.");
+}
+
+// Common head of both tracker panels: master enable (both games) + hide-background + peek hint.
+// Returns true if a CVar changed (caller persists).
+bool DrawTrackerMasterHead(int kind, const char* label, const ImVec4& theme) {
+    bool changed = false;
+    bool shown = ComboTracker::GetMasterVisible(kind);
+    // Icon-button toggle (matches SoH's window-toggle buttons), not a checkbox.
+    std::string txt = std::string(shown ? ICON_FA_WINDOW_CLOSE : ICON_FA_EXTERNAL_LINK_SQUARE) + " " + label;
+    ComboRando::ComboMenu_PushButton(theme);
+    if (ImGui::Button(txt.c_str())) {
+        ComboTracker::SetMasterVisible(kind, !shown);
+        changed = true;
+    }
+    ComboRando::ComboMenu_PopButton();
+    ImGui::TextDisabled("On for both games at once; each game's window keeps its own position.");
+
+    bool hideB = CVarGetInteger(ComboTracker::kKinds[kind].hideBgCvar, 0) != 0;
+    ComboRando::ComboMenu_PushCheckbox(theme);
+    if (ImGui::Checkbox("Only show the active game's tracker", &hideB)) {
+        CVarSetInteger(ComboTracker::kKinds[kind].hideBgCvar, hideB ? 1 : 0);
+        changed = true;
+    }
+    ComboRando::ComboMenu_PopCheckbox();
+    if (hideB) {
+        ImGui::TextDisabled("Click and hold the tracker for half a second to peek at the other game's.");
+    }
+    return changed;
+}
+
+// Shared > Item Tracker: master visibility + combo-owned appearance CVars (mirrored into both
+// games, see ComboTrackerBridge), then both games' own item-tracker settings inline.
 void DrawTrackerSharedPanel() {
     const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
     bool changed = false;
@@ -347,79 +417,57 @@ void DrawTrackerSharedPanel() {
     // Same narrow-column layout as the game pages (RenderSidebarWidgets): widgets in the first
     // cell of a two-column stretch table instead of spanning the whole panel.
     const ImGuiTableFlags tableFlags = ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings;
-    if (!ImGui::BeginTable("##trackercols", 2, tableFlags)) {
-        return;
-    }
-    ImGui::TableNextRow();
-    ImGui::TableSetColumnIndex(0);
+    if (ImGui::BeginTable("##trackercols", 2, tableFlags)) {
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
 
-    bool shown = ComboTracker::GetMasterVisible(ComboTracker::kSwapItem);
-    // Icon-button toggle (matches SoH's window-toggle buttons), not a checkbox.
-    std::string itemTxt =
-        std::string(shown ? ICON_FA_WINDOW_CLOSE : ICON_FA_EXTERNAL_LINK_SQUARE) + " Toggle Item Tracker";
-    ComboRando::ComboMenu_PushButton(theme);
-    if (ImGui::Button(itemTxt.c_str())) {
-        ComboTracker::SetMasterVisible(ComboTracker::kSwapItem, !shown);
-        changed = true;
-    }
-    ComboRando::ComboMenu_PopButton();
+        changed |= DrawTrackerMasterHead(ComboTracker::kSwapItem, "Toggle Item Tracker", theme);
 
-    int px = CVarGetInteger("gCombo.Tracker.IconSize", ComboTracker::kDefaultIconSize);
-    ComboRando::ComboMenu_PushSlider(theme);
-    if (ImGui::SliderInt("Icon size (px)", &px, 16, 64)) {
-        CVarSetInteger("gCombo.Tracker.IconSize", px);
-        changed = true;
-    }
-    float op = CVarGetFloat("gCombo.Tracker.Opacity", ComboTracker::kDefaultOpacity);
-    if (ImGui::SliderFloat("Background opacity", &op, 0.0f, 1.0f, "%.2f")) {
-        CVarSetFloat("gCombo.Tracker.Opacity", op);
-        changed = true;
-    }
-    ComboRando::ComboMenu_PopSlider();
+        ImGui::SeparatorText("Appearance (both games)");
+        bool appearanceChanged = false;
+        int px = CVarGetInteger("gCombo.Tracker.IconSize", ComboTracker::kDefaultIconSize);
+        ComboRando::ComboMenu_PushSlider(theme);
+        if (ImGui::SliderInt("Icon size (px)", &px, 16, 64)) {
+            CVarSetInteger("gCombo.Tracker.IconSize", px);
+            appearanceChanged = true;
+        }
+        float op = CVarGetFloat("gCombo.Tracker.Opacity", ComboTracker::kDefaultOpacity);
+        if (ImGui::SliderFloat("Background opacity", &op, 0.0f, 1.0f, "%.2f")) {
+            CVarSetFloat("gCombo.Tracker.Opacity", op);
+            appearanceChanged = true;
+        }
+        ComboRando::ComboMenu_PopSlider();
 
-    const char* kWindowTypes[] = { "Floating (overlay)", "Window" };
-    int wt = CVarGetInteger("gCombo.Tracker.WindowType", ComboTracker::kDefaultWindowType);
-    ComboRando::ComboMenu_PushCombobox(theme);
-    if (ImGui::Combo("Window type", &wt, kWindowTypes, 2)) {
-        CVarSetInteger("gCombo.Tracker.WindowType", wt);
-        changed = true;
-    }
-    ComboRando::ComboMenu_PopCombobox();
+        const char* kWindowTypes[] = { "Floating (overlay)", "Window" };
+        int wt = CVarGetInteger("gCombo.Tracker.WindowType", ComboTracker::kDefaultWindowType);
+        ComboRando::ComboMenu_PushCombobox(theme);
+        if (ImGui::Combo("Window type", &wt, kWindowTypes, 2)) {
+            CVarSetInteger("gCombo.Tracker.WindowType", wt);
+            appearanceChanged = true;
+        }
+        ComboRando::ComboMenu_PopCombobox();
 
-    int drag = CVarGetInteger("gCombo.Tracker.Draggable", ComboTracker::kDefaultDraggable);
-    bool dragB = drag != 0;
-    ComboRando::ComboMenu_PushCheckbox(theme);
-    if (ImGui::Checkbox("Draggable (floating tracker accepts the mouse)", &dragB)) {
-        CVarSetInteger("gCombo.Tracker.Draggable", dragB ? 1 : 0);
-        changed = true;
-    }
-    ComboRando::ComboMenu_PopCheckbox();
-    if (changed) {
-        ComboTracker::SyncAppearance();
+        int drag = CVarGetInteger("gCombo.Tracker.Draggable", ComboTracker::kDefaultDraggable);
+        bool dragB = drag != 0;
+        ComboRando::ComboMenu_PushCheckbox(theme);
+        if (ImGui::Checkbox("Draggable (floating tracker accepts the mouse)", &dragB)) {
+            CVarSetInteger("gCombo.Tracker.Draggable", dragB ? 1 : 0);
+            appearanceChanged = true;
+        }
+        ComboRando::ComboMenu_PopCheckbox();
+        if (appearanceChanged) {
+            ComboTracker::SyncAppearance();
+            changed = true;
+        }
+
+        ImGui::EndTable();
     }
 
-    ImGui::SeparatorText("Game");
-    const char* kShown[] = { "Follow foreground game", "Ocarina of Time", "Majora's Mask" };
-    int sg = CVarGetInteger("gCombo.Tracker.ShownGame", -1);
-    int idx = (sg == 0 || sg == 1) ? sg + 1 : 0;
-    ComboRando::ComboMenu_PushCombobox(theme);
-    if (ImGui::Combo("Tracker shows", &idx, kShown, 3)) {
-        CVarSetInteger("gCombo.Tracker.ShownGame", idx - 1); // swap window reconciles next frame
-        changed = true;
-    }
-    ComboRando::ComboMenu_PopCombobox();
-    int mom = CVarGetInteger("gCombo.Tracker.HoldMomentary", 0);
-    bool momB = mom != 0;
-    ComboRando::ComboMenu_PushCheckbox(theme);
-    if (ImGui::Checkbox("Hold is a peek only (switch back on release)", &momB)) {
-        CVarSetInteger("gCombo.Tracker.HoldMomentary", momB ? 1 : 0);
-        changed = true;
-    }
-    ComboRando::ComboMenu_PopCheckbox();
-    ImGui::TextDisabled("Click and hold the tracker overlay for half a second to switch game.");
-    ImGui::TextDisabled("Which items each game's tracker lists is set in its own Item Tracker Settings.");
-
-    ImGui::EndTable();
+    // Per-game detail settings, inline (full panel width — the settings tables are wide).
+    ImGui::SeparatorText("Ocarina of Time");
+    RenderGameTrackerBlock(0, ComboTracker::kSwapItem, "Randomizer", "Item Tracker");
+    ImGui::SeparatorText("Majora's Mask");
+    RenderGameTrackerBlock(1, ComboTracker::kSwapItem, "Rando", "Item Tracker");
 
     if (changed) {
         if (auto ctx = Ship::Context::GetInstance(); ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
@@ -428,62 +476,38 @@ void DrawTrackerSharedPanel() {
     }
 }
 
-// Shared > Check Tracker: master visibility + the sticky game-swap selection (ComboTrackerSwap).
-// No shared appearance here — colors/filters stay in each game's own Check Tracker Settings.
+// Shared > Check Tracker: master visibility + shared window type, then both games' own
+// check-tracker settings inline (colors/filters stay per game).
 void DrawCheckTrackerSharedPanel() {
     const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
     bool changed = false;
 
     const ImGuiTableFlags tableFlags = ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings;
-    if (!ImGui::BeginTable("##checktrackercols", 2, tableFlags)) {
-        return;
-    }
-    ImGui::TableNextRow();
-    ImGui::TableSetColumnIndex(0);
+    if (ImGui::BeginTable("##checktrackercols", 2, tableFlags)) {
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
 
-    bool shown = ComboTracker::GetMasterVisible(ComboTracker::kSwapCheck);
-    // Icon-button toggle (matches SoH's window-toggle buttons), not a checkbox.
-    std::string checkTxt =
-        std::string(shown ? ICON_FA_WINDOW_CLOSE : ICON_FA_EXTERNAL_LINK_SQUARE) + " Toggle Check Tracker";
-    ComboRando::ComboMenu_PushButton(theme);
-    if (ImGui::Button(checkTxt.c_str())) {
-        ComboTracker::SetMasterVisible(ComboTracker::kSwapCheck, !shown);
-        changed = true;
-    }
-    ComboRando::ComboMenu_PopButton();
+        changed |= DrawTrackerMasterHead(ComboTracker::kSwapCheck, "Toggle Check Tracker", theme);
 
-    const char* kWindowTypes[] = { "Floating (overlay)", "Window" };
-    int wt = CVarGetInteger("gCombo.CheckTracker.WindowType", ComboTracker::kDefaultCheckWindowType);
-    ComboRando::ComboMenu_PushCombobox(theme);
-    if (ImGui::Combo("Window type", &wt, kWindowTypes, 2)) {
-        CVarSetInteger("gCombo.CheckTracker.WindowType", wt);
-        ComboTracker::SyncAppearance(); // mirrors into OOT's CVar; MM's seam reads it directly
-        changed = true;
-    }
-    ComboRando::ComboMenu_PopCombobox();
+        ImGui::SeparatorText("Appearance (both games)");
+        const char* kWindowTypes[] = { "Floating (overlay)", "Window" };
+        int wt = CVarGetInteger("gCombo.CheckTracker.WindowType", ComboTracker::kDefaultCheckWindowType);
+        ComboRando::ComboMenu_PushCombobox(theme);
+        if (ImGui::Combo("Window type", &wt, kWindowTypes, 2)) {
+            CVarSetInteger("gCombo.CheckTracker.WindowType", wt);
+            ComboTracker::SyncAppearance(); // mirrors into OOT's CVar; MM's seam reads it directly
+            changed = true;
+        }
+        ComboRando::ComboMenu_PopCombobox();
 
-    ImGui::SeparatorText("Game");
-    const char* kShown[] = { "Follow foreground game", "Ocarina of Time", "Majora's Mask" };
-    int sg = CVarGetInteger("gCombo.CheckTracker.ShownGame", -1);
-    int idx = (sg == 0 || sg == 1) ? sg + 1 : 0;
-    ComboRando::ComboMenu_PushCombobox(theme);
-    if (ImGui::Combo("Tracker shows", &idx, kShown, 3)) {
-        CVarSetInteger("gCombo.CheckTracker.ShownGame", idx - 1); // swap window reconciles next frame
-        changed = true;
+        ImGui::EndTable();
     }
-    ComboRando::ComboMenu_PopCombobox();
-    int mom = CVarGetInteger("gCombo.CheckTracker.HoldMomentary", 0);
-    bool momB = mom != 0;
-    ComboRando::ComboMenu_PushCheckbox(theme);
-    if (ImGui::Checkbox("Hold is a peek only (switch back on release)", &momB)) {
-        CVarSetInteger("gCombo.CheckTracker.HoldMomentary", momB ? 1 : 0);
-        changed = true;
-    }
-    ComboRando::ComboMenu_PopCheckbox();
-    ImGui::TextDisabled("Click and hold the check tracker for half a second to switch game.");
-    ImGui::TextDisabled("Appearance and filters are set in each game's own Check Tracker Settings.");
 
-    ImGui::EndTable();
+    // Per-game detail settings, inline (full panel width).
+    ImGui::SeparatorText("Ocarina of Time");
+    RenderGameTrackerBlock(0, ComboTracker::kSwapCheck, "Randomizer", "Check Tracker");
+    ImGui::SeparatorText("Majora's Mask");
+    RenderGameTrackerBlock(1, ComboTracker::kSwapCheck, "Rando", "Check Tracker");
 
     if (changed) {
         if (auto ctx = Ship::Context::GetInstance(); ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
@@ -671,11 +695,23 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
              strcmp(sidebar, "General") == 0)) {
             return false;
         }
-        // The rando section's settings live in the Shared tab; here we surface only its trackers.
+        // Rando settings live in Shared, Item/Check Tracker sidebars in the Shared tracker panels;
+        // only Entrance/Hint Tracker (OOT-only, no shared panel yet) remain here.
         const char* randoSec = isOot ? "Randomizer" : "Rando";
-        if (section && strcmp(section, randoSec) == 0)
-            return IsTrackerSidebar(sidebar);
+        if (section && strcmp(section, randoSec) == 0) {
+            return sidebar && (strcmp(sidebar, "Entrance Tracker") == 0 || strcmp(sidebar, "Hint Tracker") == 0);
+        }
         return true;
+    };
+
+    // A section with no shown sidebars (e.g. the rando section after the tracker move) has no
+    // content here — drop it from the header strip and the active-section resolution.
+    auto sectionShown = [&](const CwSection& sec) -> bool {
+        for (int sb = 0; sb < sec.sidebarCount; ++sb) {
+            if (sidebarShown(sec.sectionLabel, sec.sidebars[sb].sidebarName))
+                return true;
+        }
+        return false;
     };
 
     // (activeHeader, activeSidebar) for this game; persists across frames.
@@ -686,6 +722,8 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
     const CwSection* firstSec = nullptr;
     for (int s = 0; s < m->sectionCount; ++s) {
         const CwSection& sec = m->sections[s];
+        if (!sectionShown(sec))
+            continue;
         if (!firstSec)
             firstSec = &sec;
         if (sec.sectionLabel && nav.first == sec.sectionLabel)
@@ -703,6 +741,8 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
     bool firstHdr = true;
     for (int s = 0; s < m->sectionCount; ++s) {
         const CwSection& sec = m->sections[s];
+        if (!sectionShown(sec))
+            continue;
         if (!firstHdr)
             ImGui::SameLine();
         firstHdr = false;

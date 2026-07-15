@@ -574,7 +574,8 @@ comboSkipVisibilityGates:;
     if (CVarGetInteger("gCombo.CheckTracker.WindowType", 1) == 0) {
         comboWinFlags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDocking;
     }
-    ImGui::Begin("Check Tracker", nullptr, comboWinFlags);
+    // ComboShip: distinct ImGui identity (##MM) so OOT's and MM's check trackers can show together.
+    ImGui::Begin("Check Tracker##MM", nullptr, comboWinFlags);
 #else
     ImGui::Begin("Check Tracker", nullptr, ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing);
 #endif
@@ -714,6 +715,8 @@ comboSkipSaveGate:;
 }
 
 void SettingsWindow::DrawElement() {
+#ifndef COMBO_BUILD
+    // ComboShip: gWindows.CheckTracker is derived from the combo master toggle — hide this button.
     if (CVarGetInteger("gWindows.CheckTracker", 0)) {
         UIWidgets::WindowButton("Disable Check Tracker", "gWindows.CheckTracker", BenGui::mRandoCheckTrackerWindow,
                                 { .size = UIWidgets::Sizes::Inline, .color = UIWidgets::Colors::Red });
@@ -721,6 +724,7 @@ void SettingsWindow::DrawElement() {
         UIWidgets::WindowButton("Enable Check Tracker", "gWindows.CheckTracker", BenGui::mRandoCheckTrackerWindow,
                                 { .size = UIWidgets::Sizes::Inline, .color = UIWidgets::Colors::Green });
     }
+#endif
     if (ImGui::BeginTable("Settings Table", 2)) {
         ImGui::TableSetupColumn("col1", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("col2", ImGuiTableColumnFlags_WidthStretch);

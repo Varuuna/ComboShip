@@ -1596,6 +1596,7 @@ float tile coords truncated to int made the rendered texture window alternate 32
 across interpolation phases → animated water/lava flicker above 20 FPS. New
 `GetTileSizeFromCoordinates()` rounds via `lroundf`. Drop this local copy once the PR lands
 upstream and the pin passes it.
+
 ## MM rando save-init strips + combo-return fixes (2026-07-14)
 
 **Why:** Combo MM rando saves started with the vanilla Kokiri Sword / Hero's Shield and the combo
@@ -1613,3 +1614,28 @@ back to OOT instead of restarting the MM cycle.
   after `Sram_OpenSave` like `FileChoose_LoadGame` does; `Save_LoadFile` recreates `gRandoContext`,
   and without the hook the check tracker's region-table `ctx` dangled → UAF on the next recalc.
 
+## Both-games tracker model (2026-07-14)
+
+**Why:** Trackers were foreground-follow with a per-tracker game-swap; the user wants both games'
+trackers visible together, one master enable, and a single customization home in the Combo menu.
+The combo layer carries the model (`ComboTrackerSwap` rewritten to a per-frame reconcile of derived
+per-game CVars: master enable + per-kind HideBackground + hold-to-peek; `ComboTrackerVisibility`
+now follows only the settings popouts; both Shared tracker panels inline the games' own settings
+sidebars with a divider). The old ShownGame/TrueIntent/HoldMomentary CVars are migrated + cleared
+on boot.
+
+**Vendored (`COMBO_BUILD`-guarded, additive):**
+- `mm/2s2h/Enhancements/Trackers/ItemTracker/ItemTracker.cpp` + `mm/2s2h/Rando/CheckTracker/CheckTracker.cpp`
+  — MM's trackers `Begin()` distinct ImGui identities (`"Item Tracker##MM"`, split-group `##<n>MM`,
+  `"Check Tracker##MM"`) so both games' windows can exist simultaneously with their own rects
+  (previously both games drew into the SAME ImGui window; only the Gui-map key carried `##MM`).
+- `mm/2s2h/Rando/Menu.cpp` — "Item/Check Tracker Settings Inline" `WIDGET_CUSTOM` widgets (the
+  SoH issue-#22 inline-window mechanism) so the Shared panels can embed MM's settings; skipped
+  while popped out.
+- `mm/2s2h/Enhancements/Trackers/ItemTracker/ItemTrackerSettings.cpp` +
+  `mm/2s2h/Rando/CheckTracker/CheckTracker.cpp` — the Enable/Disable window buttons inside the
+  settings content are hidden in combo builds (`gWindows.ItemTracker`/`.CheckTracker` are derived
+  from the combo master toggle every frame; the buttons would fight it).
+
+**On future merges:** if upstream renames the tracker ImGui windows or the settings windows,
+update `combo/gui/ComboTrackerCommon.h` (`kKinds[].imguiWin`) and the inline-widget window names.

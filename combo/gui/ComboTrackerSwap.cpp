@@ -4,107 +4,65 @@
 #include "ComboForeground.h"
 #include <libultraship/libultraship.h>
 #include <ship/resource/CrossRMRegistry.h>
-#include <imgui_internal.h> // FindWindowByName / ImGuiWindow rects
+#include <imgui_internal.h> // FindWindowByName / SetWindowPos / ImGuiWindow rects
 #ifdef _WIN32
-#include <windows.h> // GetModuleHandleA/GetProcAddress (lazy MM save load for the peek)
+#include <windows.h> // GetModuleHandleA/GetProcAddress (lazy MM save load for dormant draws)
 #endif
 
 namespace {
 
+using ComboTracker::kKinds;
 using ComboTracker::kTrackers;
-
-// One managed tracker: config (which per-game windows, which CVars) + swap/gesture state. The
-// item and check trackers swap independently — each has its own ShownGame selection and hold.
-struct Swap {
-    // Config.
-    int column;                    // kTrackers column (kItemTracker / kCheckTracker)
-    const char* imguiWindow;       // both games Begin() the same ImGui window name
-    const char* shownGameCVar;     // -1 = follow foreground, 0 = OOT, 1 = MM
-    const char* trueIntentCVar[2]; // crash-recovery stash (value+1, 0 = no stash), per game
-    const char* holdMomentaryCVar; // hold is a peek: revert ShownGame on release
-
-    // While a swap is active the real per-game visibility CVars hold forced values; the true
-    // values live here (mirrored in trueIntentCVar so a crash-time CVar save can be undone).
-    bool active = false;
-    int fg = 0;                // foreground game at activation
-    int shown = 0;             // dormant game being displayed
-    int saved[2] = { 0, 0 };   // both games' true tracker CVar values
-    bool shownVisible = false; // what we last wrote to the shown game's CVar
-
-    // Click-hold gesture state.
-    bool holdArmed = false; // press started on this tracker's body
-    bool holdFired = false; // this press already triggered the swap
-    int holdPrevShown = -1; // ShownGame before the hold (momentary revert)
-};
-
-Swap sSwaps[ComboTracker::kSwapCount] = {
-    { ComboTracker::kItemTracker,
-      "Item Tracker",
-      "gCombo.Tracker.ShownGame",
-      { "gCombo.Tracker.TrueIntentOot", "gCombo.Tracker.TrueIntentMm" },
-      "gCombo.Tracker.HoldMomentary" },
-    { ComboTracker::kCheckTracker,
-      "Check Tracker",
-      "gCombo.CheckTracker.ShownGame",
-      { "gCombo.CheckTracker.TrueIntentOot", "gCombo.CheckTracker.TrueIntentMm" },
-      "gCombo.CheckTracker.HoldMomentary" },
-};
 
 constexpr float kHoldSeconds = 0.5f;
 constexpr float kHoldDragCancelSqr = 5.0f * 5.0f; // px² of movement that turns a hold into a drag
+constexpr float kFirstShowGapPx = 8.0f;           // gap between OOT's and MM's windows on first show
 
-void StashTrueIntent(Swap& sw, int game, int value) {
-    sw.saved[game] = value;
-    CVarSetInteger(sw.trueIntentCVar[game], value + 1);
-}
+// Peek gesture state per tracker kind (HideBackground mode only).
+struct Peek {
+    bool holdArmed = false; // press started on this tracker's body
+    bool held = false;      // hold fired; the dormant game's window shows until release
+};
+Peek sPeeks[ComboTracker::kSwapCount];
 
-// ShownGame resolved to the game to display. Falls back to follow-foreground while the selected
-// game's ResourceManager isn't registered yet (early boot) — its icons couldn't resolve.
-int Effective(const Swap& sw, int fg) {
-    int sg = CVarGetInteger(sw.shownGameCVar, -1);
-    if (sg != 0 && sg != 1) {
-        return fg;
-    }
-    if (sg != fg && !Ship::CrossRMRegistry::Get(sg == 0 ? "oot" : "mm")) {
-        return fg;
-    }
-    return sg;
-}
-
-void RestoreSaved(Swap& sw) {
-    ComboTracker::SetTracker(kTrackers[0][sw.column], sw.saved[0] != 0);
-    ComboTracker::SetTracker(kTrackers[1][sw.column], sw.saved[1] != 0);
-    CVarSetInteger(sw.trueIntentCVar[0], 0);
-    CVarSetInteger(sw.trueIntentCVar[1], 0);
-    sw.active = false;
-}
-
-// A peek can precede any MM visit, and until then nothing has loaded the slot's MM save into MM's
-// dormant gSaveContext (it holds boot defaults — the tracker would read all-blank). Load it here,
-// once per slot. Never after MM has been foreground: its live memory is newer than the disk file.
-void EnsureMmSaveLoadedForPeek() {
+// Active OOT save slot (0-2), or -1 at the title/file-select screens.
+int OotActiveSlot() {
 #ifdef _WIN32
-    if (ComboUI::MmEverForeground()) {
-        return;
-    }
     static int (*sGetFileNum)(void) = nullptr;
-    static void (*sLoadMmSave)(int) = nullptr;
     static bool sTried = false;
     if (!sTried) {
         sTried = true;
         if (HMODULE soh = GetModuleHandleA("soh.dll")) {
             sGetFileNum = (int (*)(void))GetProcAddress(soh, "SOH_GetActiveFileNum");
         }
+    }
+    if (sGetFileNum) {
+        int slot = sGetFileNum();
+        return (slot >= 0 && slot <= 2) ? slot : -1;
+    }
+#endif
+    return -1;
+}
+
+// A dormant MM draw can precede any MM visit, and until then nothing has loaded the slot's MM save
+// into MM's dormant gSaveContext (it holds boot defaults — the tracker would read all-blank). Load
+// it here, once per slot. Never after MM has been foreground: its live memory is newer than disk.
+void EnsureMmSaveLoadedForDormantDraw() {
+#ifdef _WIN32
+    if (ComboUI::MmEverForeground()) {
+        return;
+    }
+    static void (*sLoadMmSave)(int) = nullptr;
+    static bool sTried = false;
+    if (!sTried) {
+        sTried = true;
         if (HMODULE mm = GetModuleHandleA("2ship.dll")) {
             sLoadMmSave = (void (*)(int))GetProcAddress(mm, "MM_LoadSaveForCombo");
         }
     }
     static int sLoadedSlot = -1;
-    if (!sGetFileNum || !sLoadMmSave) {
-        return;
-    }
-    int slot = sGetFileNum();
-    if (slot < 0 || slot > 2 || slot == sLoadedSlot) {
+    int slot = OotActiveSlot();
+    if (!sLoadMmSave || slot < 0 || slot == sLoadedSlot) {
         return;
     }
     sLoadMmSave(slot);
@@ -112,56 +70,88 @@ void EnsureMmSaveLoadedForPeek() {
 #endif
 }
 
-// AlwaysAutoResize windows size from the PREVIOUS frame's content, so when the displayed game
-// changes, the incoming tracker paints its backdrop across the outgoing tracker's stale rect for
-// one frame (visible black flash with MM's opaque bg). Hide that frame while still measuring
-// content — ImGui's own appearing-window mechanism.
-void SkipTrackerSizingFrame(const Swap& sw) {
+// Write the derived visibility only on change (SetTracker writes the CVar and Show/Hides the
+// GuiWindow; doing that unconditionally every frame would fight the games' own Draw gating).
+void ApplyDerived(const ComboTracker::Win& w, bool visible) {
+    if ((CVarGetInteger(w.cvar, 0) != 0) != visible) {
+        ComboTracker::SetTracker(w, visible);
+    }
+}
+
+// AlwaysAutoResize windows size from the PREVIOUS frame's content, so a newly appearing tracker
+// paints its backdrop across a stale rect for one frame. Hide that frame while still measuring.
+void SkipSizingFrame(const char* imguiWin) {
     if (!ImGui::GetCurrentContext()) {
         return;
     }
-    if (ImGuiWindow* w = ImGui::FindWindowByName(sw.imguiWindow)) {
+    if (ImGuiWindow* w = ImGui::FindWindowByName(imguiWin)) {
         w->HiddenFramesCannotSkipItems = 1;
     }
 }
 
-// Per-frame reconcile of the displayed tracker with ShownGame + foreground.
-void ApplySwap(Swap& sw) {
-    int fg = ComboUI::GetForegroundGame();
-    int eff = Effective(sw, fg);
-    bool want = (eff != fg);
-    if (sw.active && (!want || sw.shown != eff || sw.fg != fg)) {
-        RestoreSaved(sw);
-        SkipTrackerSizingFrame(sw);
+// First time MM's window shows on a config, place it beside OOT's instead of on the ImGui default
+// (stacked over OOT's). Runs while MM's window is visible until both windows exist, then latches.
+void PlaceMmWindowOnFirstShow(int kindIdx) {
+    const ComboTracker::Kind& kind = kKinds[kindIdx];
+    static bool sLatched[ComboTracker::kSwapCount] = {};
+    if (sLatched[kindIdx]) {
+        return;
     }
-    if (want && !sw.active) {
-        if (eff == 1) {
-            EnsureMmSaveLoadedForPeek();
+    if (CVarGetInteger(kind.mmPlacedCvar, 0)) {
+        sLatched[kindIdx] = true;
+        return;
+    }
+    ImGuiWindow* mm = ImGui::FindWindowByName(KindWindowName(kind, 1));
+    if (!mm) {
+        return; // split-group item layout never creates the main window — keep trying while shown
+    }
+    ImGuiWindow* oot = ImGui::FindWindowByName(KindWindowName(kind, 0));
+    if (!oot) {
+        return;
+    }
+    ImGui::SetWindowPos(mm, ImVec2(oot->Pos.x + oot->Size.x + kFirstShowGapPx, oot->Pos.y), ImGuiCond_Always);
+    CVarSetInteger(kind.mmPlacedCvar, 1);
+    sLatched[kindIdx] = true;
+}
+
+// Per-frame derivation of both games' visibility CVars from the master model.
+void Reconcile(int kindIdx) {
+    const ComboTracker::Kind& kind = kKinds[kindIdx];
+    const int fg = ComboUI::GetForegroundGame();
+    const int bg = fg ^ 1;
+
+    const bool master = CVarGetInteger(kind.enabledCvar, 0) != 0;
+    const bool hideBg = CVarGetInteger(kind.hideBgCvar, 0) != 0;
+
+    bool wantFg = master;
+    bool wantBg = master && (!hideBg || sPeeks[kindIdx].held);
+    // A dormant game's tracker needs its ResourceManager registered (icons) and, for dormant MM,
+    // an active OOT save whose MM counterpart it can show — not the title/file-select screens.
+    if (wantBg && !Ship::CrossRMRegistry::Get(bg == 0 ? "oot" : "mm")) {
+        wantBg = false;
+    }
+    if (wantBg && bg == 1) {
+        if (OotActiveSlot() < 0) {
+            wantBg = false;
+        } else {
+            EnsureMmSaveLoadedForDormantDraw();
         }
-        sw.fg = fg;
-        sw.shown = eff;
-        StashTrueIntent(sw, 0, CVarGetInteger(kTrackers[0][sw.column].cvar, 0));
-        StashTrueIntent(sw, 1, CVarGetInteger(kTrackers[1][sw.column].cvar, 0));
-        SetTracker(kTrackers[fg][sw.column], false);
-        // Master on/off = the foreground game's intent at activation.
-        sw.shownVisible = sw.saved[fg] != 0;
-        SetTracker(kTrackers[eff][sw.column], sw.shownVisible);
-        SkipTrackerSizingFrame(sw);
-        sw.active = true;
-    } else if (sw.active) {
-        // The foreground checkbox reads 0 while swapped (its window must stay hidden — Show/Hide
-        // always writes the CVar); re-checking it turns the displayed tracker ON. Unchecking the
-        // displayed game's own box (its per-game menu tab) turns it OFF.
-        if (CVarGetInteger(kTrackers[sw.fg][sw.column].cvar, 0) != 0) {
-            StashTrueIntent(sw, sw.fg, 1);
-            SetTracker(kTrackers[sw.fg][sw.column], false);
-            sw.shownVisible = true;
-            SetTracker(kTrackers[sw.shown][sw.column], true);
-            SkipTrackerSizingFrame(sw);
-        } else if (sw.shownVisible && CVarGetInteger(kTrackers[sw.shown][sw.column].cvar, 0) == 0) {
-            StashTrueIntent(sw, sw.fg, 0);
-            sw.shownVisible = false;
-        }
+    }
+
+    const bool fgWas = CVarGetInteger(kTrackers[fg][kind.column].cvar, 0) != 0;
+    const bool bgWas = CVarGetInteger(kTrackers[bg][kind.column].cvar, 0) != 0;
+    ApplyDerived(kTrackers[fg][kind.column], wantFg);
+    ApplyDerived(kTrackers[bg][kind.column], wantBg);
+    // Any newly appearing window gets a hidden sizing frame (AlwaysAutoResize stale-rect flash).
+    if (wantFg && !fgWas) {
+        SkipSizingFrame(KindWindowName(kind, fg));
+    }
+    if (wantBg && !bgWas) {
+        SkipSizingFrame(KindWindowName(kind, bg));
+    }
+    // MM's window can only newly exist on frames it draws.
+    if ((fg == 1 && wantFg) || (bg == 1 && wantBg)) {
+        PlaceMmWindowOnFirstShow(kindIdx);
     }
 }
 
@@ -177,9 +167,9 @@ int DisplayOrder(ImGuiWindow* w) {
     return -1;
 }
 
-// Logic-only window: no Begin/End, just the per-frame reconcile + gesture. Registered under a
-// name that sorts before "Check Tracker" and "Item Tracker" (leading space) so a swap applies
-// before either tracker draws the same frame.
+// Logic-only window: no Begin/End, just the per-frame reconcile + peek gesture. Registered under
+// a name that sorts before "Check Tracker" and "Item Tracker" (leading space) so the derived
+// visibility applies before either tracker draws the same frame.
 class SwapWindow final : public Ship::GuiWindow {
   public:
     using GuiWindow::GuiWindow;
@@ -204,35 +194,39 @@ void SwapWindow::Draw() {
     // comboui's per-module GImGui must point at the shared context (same pattern as ComboMenu).
     ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
 
-    for (Swap& sw : sSwaps) {
-        ApplySwap(sw);
+    for (int k = 0; k < ComboTracker::kSwapCount; ++k) {
+        Reconcile(k);
     }
 
-    // Click-and-hold a tracker body to switch its game. Detection is passive (works through
-    // NoInputs click-through); the press still reaches the game. A drag (mouse moved) cancels
-    // the hold so draggable/docked trackers keep working.
+    // HideBackground peek: click-hold the visible tracker's body to also show the dormant game's
+    // tracker until release. Detection is passive (works through NoInputs click-through); the
+    // press still reaches the game. A drag (mouse moved) cancels the hold so draggable/docked
+    // trackers keep working.
     ImGuiIO& io = ImGui::GetIO();
+    const int fg = ComboUI::GetForegroundGame();
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         // At most one tracker arms per press; overlapping bodies resolve to the topmost.
-        Swap* best = nullptr;
+        Peek* best = nullptr;
         int bestOrder = -1;
-        for (Swap& sw : sSwaps) {
-            sw.holdArmed = false;
-            sw.holdFired = false;
+        for (int k = 0; k < ComboTracker::kSwapCount; ++k) {
+            Peek& pk = sPeeks[k];
+            pk.holdArmed = false;
             if (CVarGetInteger("gOpenWindows.Menu", 0)) { // fullscreen combo menu covers everything
                 continue;
             }
-            // Both games' tracker is the same ImGui window (MM's ##MM suffix is only on the
-            // Gui-map key), so one rect test covers both. InnerRect = body only.
+            // The peek only exists in HideBackground mode with the tracker on.
+            if (!CVarGetInteger(kKinds[k].enabledCvar, 0) || !CVarGetInteger(kKinds[k].hideBgCvar, 0)) {
+                continue;
+            }
             // Known gap: the item tracker's separate-section / split-group layouts have no main
-            // window — the menu's "Tracker shows" combo is the fallback there.
-            ImGuiWindow* w = ImGui::FindWindowByName(sw.imguiWindow);
+            // window — no peek there.
+            ImGuiWindow* w = ImGui::FindWindowByName(KindWindowName(kKinds[k], fg));
             ImGuiWindow* hovered = ImGui::GetCurrentContext()->HoveredWindow;
             if (w && w->WasActive && !w->Hidden && w->InnerRect.Contains(io.MousePos) &&
                 (!hovered || hovered->RootWindow == w->RootWindow)) {
                 int order = DisplayOrder(w);
                 if (order > bestOrder) {
-                    best = &sw;
+                    best = &pk;
                     bestOrder = order;
                 }
             }
@@ -241,22 +235,18 @@ void SwapWindow::Draw() {
             best->holdArmed = true;
         }
     }
-    for (Swap& sw : sSwaps) {
-        if (sw.holdArmed && !sw.holdFired && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+    for (int k = 0; k < ComboTracker::kSwapCount; ++k) {
+        Peek& pk = sPeeks[k];
+        if (pk.holdArmed && !pk.held && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             if (io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] > kHoldDragCancelSqr) {
-                sw.holdArmed = false; // it's a drag, not a hold
+                pk.holdArmed = false; // it's a drag, not a hold
             } else if (io.MouseDownDuration[ImGuiMouseButton_Left] >= kHoldSeconds) {
-                sw.holdFired = true;
-                sw.holdPrevShown = CVarGetInteger(sw.shownGameCVar, -1);
-                int fg = ComboUI::GetForegroundGame();
-                // Toggling back to the foreground's own tracker restores follow mode.
-                CVarSetInteger(sw.shownGameCVar, Effective(sw, fg) == fg ? (fg ^ 1) : -1);
-                ApplySwap(sw);
-                // A draggable tracker's click also started an ImGui window-move; end it so the
-                // rest of the hold doesn't keep the window in drag state (docking-drag visuals,
-                // cursor-glue).
+                pk.held = true;
+                Reconcile(k); // show the dormant tracker this same frame
+                // A draggable tracker's press also started an ImGui window-move; end it so the
+                // rest of the hold doesn't drag the tracker along (cursor-glue).
                 ImGuiContext* g = ImGui::GetCurrentContext();
-                ImGuiWindow* tracker = ImGui::FindWindowByName(sw.imguiWindow);
+                ImGuiWindow* tracker = ImGui::FindWindowByName(KindWindowName(kKinds[k], fg));
                 if (g->MovingWindow && tracker && g->MovingWindow->RootWindow == tracker->RootWindow) {
                     g->MovingWindow = nullptr;
                     ImGui::ClearActiveID();
@@ -264,44 +254,24 @@ void SwapWindow::Draw() {
             }
         }
         if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
-            // Momentary mode: the hold is a peek; revert to the pre-hold selection on release.
-            if (sw.holdFired && CVarGetInteger(sw.holdMomentaryCVar, 0)) {
-                CVarSetInteger(sw.shownGameCVar, sw.holdPrevShown);
-                ApplySwap(sw);
+            if (pk.held) {
+                pk.held = false;
+                Reconcile(k); // hide it again
             }
-            sw.holdArmed = false;
-            sw.holdFired = false;
+            pk.holdArmed = false;
         }
     }
 }
 
 } // namespace
 
-void ComboTracker::SuspendSwap() {
-    for (Swap& sw : sSwaps) {
-        if (sw.active) {
-            RestoreSaved(sw);
-        }
-    }
-}
-
 bool ComboTracker::GetMasterVisible(int tracker) {
-    Swap& sw = sSwaps[tracker];
-    if (sw.active) {
-        return sw.saved[sw.fg] != 0;
-    }
-    return CVarGetInteger(kTrackers[ComboUI::GetForegroundGame()][sw.column].cvar, 0) != 0;
+    return CVarGetInteger(kKinds[tracker].enabledCvar, 0) != 0;
 }
 
 void ComboTracker::SetMasterVisible(int tracker, bool visible) {
-    Swap& sw = sSwaps[tracker];
-    if (sw.active) {
-        StashTrueIntent(sw, sw.fg, visible ? 1 : 0);
-        sw.shownVisible = visible;
-        SetTracker(kTrackers[sw.shown][sw.column], visible);
-        return;
-    }
-    SetTracker(kTrackers[ComboUI::GetForegroundGame()][sw.column], visible);
+    CVarSetInteger(kKinds[tracker].enabledCvar, visible ? 1 : 0);
+    // The reconcile window applies it next frame.
 }
 
 void ComboTracker::RegisterSwap() {
@@ -309,16 +279,30 @@ void ComboTracker::RegisterSwap() {
     if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
         return;
     }
-    // Crash recovery: if the app died mid-swap, the forced CVars may have been persisted; put the
-    // stashed true values back before the first reconcile.
-    for (Swap& sw : sSwaps) {
-        for (int g = 0; g < 2; ++g) {
-            int v = CVarGetInteger(sw.trueIntentCVar[g], 0);
-            if (v) {
-                CVarSetInteger(kTrackers[g][sw.column].cvar, v - 1);
-                CVarSetInteger(sw.trueIntentCVar[g], 0);
-            }
+    // One-shot migration from the retired swap-era scheme (latched by EnabledSeeded).
+    static const char* const kLegacyPrefix[2] = { "gCombo.Tracker.", "gCombo.CheckTracker." };
+    for (int k = 0; k < kSwapCount; ++k) {
+        const std::string pre = kLegacyPrefix[k];
+        const std::string seeded = pre + "EnabledSeeded";
+        if (CVarGetInteger(seeded.c_str(), 0)) {
+            continue;
         }
+        CVarSetInteger(seeded.c_str(), 1);
+        // Recover crash-persisted forced visibility, then drop the retired CVars.
+        for (int g = 0; g < 2; ++g) {
+            const std::string stash = pre + (g == 0 ? "TrueIntentOot" : "TrueIntentMm");
+            int v = CVarGetInteger(stash.c_str(), 0);
+            if (v) {
+                CVarSetInteger(kTrackers[g][kKinds[k].column].cvar, v - 1);
+            }
+            CVarClear(stash.c_str());
+        }
+        CVarClear((pre + "ShownGame").c_str());
+        CVarClear((pre + "HoldMomentary").c_str());
+        // Master enable seeds from the per-game CVars an existing config carries.
+        bool on = CVarGetInteger(kTrackers[0][kKinds[k].column].cvar, 0) != 0 ||
+                  CVarGetInteger(kTrackers[1][kKinds[k].column].cvar, 0) != 0;
+        CVarSetInteger(kKinds[k].enabledCvar, on ? 1 : 0);
     }
     if (!sSwapWindow) {
         // Empty CVar name: visibility is never consulted (Draw is overridden), so don't persist

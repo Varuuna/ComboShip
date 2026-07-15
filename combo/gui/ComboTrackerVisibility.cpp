@@ -1,11 +1,9 @@
 // combo/gui/ComboTrackerVisibility.cpp
 //
-// ComboShip-owned: makes per-game GUI windows "follow" the active game. Only the foreground game's
-// windows participate in the shared Gui's draw loop; the other game's are suppressed. This covers
-// the Check/Item tracker popouts AND the toast/notification window. It is both the feature the user
-// asked for (UI that switches OOT<->MM) AND a correctness requirement: the single shared libultraship
-// Gui draws EVERY registered window each frame, and a background game's Draw/UpdateElement would run
-// against that DLL's stale per-module ImGui context.
+// ComboShip-owned: makes the per-game SETTINGS popouts and the toast/notification window "follow"
+// the active game. The MAIN tracker windows no longer follow — they are derived every frame from
+// the both-games master model in ComboTrackerSwap (master enable + HideBackground), so this module
+// only snapshots/restores the settings-window intents on transitions.
 //
 // Trackers and notifications use DIFFERENT levers:
 //   - Trackers honor GuiWindow visibility, so toggling Show()/Hide() (+ the CVar) gates their Draw().
@@ -32,7 +30,6 @@
 #include "ComboAudioBridge.h"          // ComboAudio::SyncAllToMM (on MM entry)
 #include "ComboTrackerCommon.h"        // kTrackers/SetTracker (shared with ComboTrackerSwap)
 #include "ComboTrackerBridge.h"        // ComboTracker::SyncAppearance (re-assert on transitions)
-#include "ComboTrackerSwap.h"          // SuspendSwap/ApplySwap around the intent snapshot/restore
 #ifdef _WIN32
 #include <windows.h> // GetModuleHandleA/GetProcAddress for the MM_ReloadControls entry point
 #endif
@@ -47,9 +44,13 @@ bool sMmEverForeground = false;
 using ComboTracker::kTrackers;
 using ComboTracker::SetTracker;
 
-// Remembered user intent per window. -1 = not snapshotted yet (so the foreground pass leaves the
-// loaded config value untouched on the very first call).
-int sIntent[2][4] = { { -1, -1, -1, -1 }, { -1, -1, -1, -1 } };
+// The settings popouts still follow the foreground game (the main trackers are reconciled by
+// ComboTrackerSwap instead). kTrackers columns of the two settings windows.
+constexpr int kSettingsColumns[2] = { 1, 3 };
+
+// Remembered user intent per settings window. -1 = not snapshotted yet (so the foreground pass
+// leaves the loaded config value untouched on the very first call).
+int sIntent[2][2] = { { -1, -1 }, { -1, -1 } };
 
 // Notification windows: OOT registers the plain name; MM appends "##MM" (BenGui.cpp). Indexed by
 // game: 0 = OOT, 1 = MM. These are gated by Gui-map presence, NOT visibility — see the file header.
@@ -134,21 +135,19 @@ extern "C" __declspec(dllexport) void ComboUI_OnForegroundGame(int game) {
         sMmEverForeground = true;
     }
 
-    // Restore true tracker CVars before snapshotting, so a swapped state is never recorded as intent.
-    ComboTracker::SuspendSwap();
-
-    // Background game: remember the user's current intent, then hide its trackers.
-    for (int i = 0; i < 4; ++i) {
-        sIntent[bg][i] = CVarGetInteger(kTrackers[bg][i].cvar, 0);
-        SetTracker(kTrackers[bg][i], false);
+    // Background game: remember the user's settings-window intent, then hide its popouts. The main
+    // tracker windows are NOT touched — ComboTrackerSwap derives them every frame.
+    for (int i = 0; i < 2; ++i) {
+        sIntent[bg][i] = CVarGetInteger(kTrackers[bg][kSettingsColumns[i]].cvar, 0);
+        SetTracker(kTrackers[bg][kSettingsColumns[i]], false);
     }
     // Foreground game: restore remembered intent. Skip until we've snapshotted at least once, so
     // the game that owns the foreground at startup keeps whatever its loaded config asked for.
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 2; ++i) {
         if (sIntent[fg][i] < 0) {
             continue;
         }
-        SetTracker(kTrackers[fg][i], sIntent[fg][i] != 0);
+        SetTracker(kTrackers[fg][kSettingsColumns[i]], sIntent[fg][i] != 0);
     }
 
     // Notification window follows the active game too (so MM's toasts show only while MM is foreground
@@ -169,18 +168,15 @@ extern "C" __declspec(dllexport) void ComboUI_OnForegroundGame(int game) {
     ComboTracker::SyncAppearance();
 }
 
-// Called by the launcher just before shutdown teardown. Restores both games' tracker CVars to the
-// remembered intent so the game that happened to be backgrounded at exit does not persist its
-// tracker as "off" (Hide() zeroes the CVar, and ~Context saves the live CVar values on exit).
+// Launcher, just before shutdown: restore the backgrounded game's settings-window CVars so they
+// don't persist as "off" (main tracker CVars are derived and recomputed on next boot).
 extern "C" __declspec(dllexport) void ComboUI_RestoreTrackerIntent(void) {
-    // A swap forces both item-tracker CVars; put the true values back before they get persisted.
-    ComboTracker::SuspendSwap();
     // Only the background game's CVars are forced-hidden; the foreground game's live values already
     // reflect the user's latest toggles (a stale snapshot would clobber them).
     const int bg = sForegroundGame ^ 1;
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 2; ++i) {
         if (sIntent[bg][i] >= 0) {
-            CVarSetInteger(kTrackers[bg][i].cvar, sIntent[bg][i]);
+            CVarSetInteger(kTrackers[bg][kSettingsColumns[i]].cvar, sIntent[bg][i]);
         }
     }
 }

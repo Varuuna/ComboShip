@@ -1373,12 +1373,38 @@ void Rando::RegisterMenu() {
     mBenMenu->AddWidget(path, "Popout Settings", WIDGET_WINDOW_BUTTON)
         .CVar("gWindows.ItemTrackerSettings")
         .WindowName("Item Tracker Settings" COMBO_MM_TRACKER_SUFFIX);
+#ifdef COMBO_BUILD
+    // ComboShip: embed the settings inline (mirrors SoH's tracker sidebars); skipped while popped out.
+    mBenMenu->AddWidget(path, "Item Tracker Settings Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        auto ctx = Ship::Context::GetInstance();
+        if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
+            return;
+        auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Item Tracker Settings" COMBO_MM_TRACKER_SUFFIX);
+        if (!win || win->IsVisible())
+            return;
+        win->Update();
+        win->DrawElement();
+    });
+#endif
 
     mBenMenu->AddSidebarEntry("Rando", "Check Tracker", 1);
     path.sidebarName = "Check Tracker";
     mBenMenu->AddWidget(path, "Popout Settings", WIDGET_WINDOW_BUTTON)
         .CVar("gWindows.CheckTrackerSettings")
         .WindowName("Check Tracker Settings" COMBO_MM_TRACKER_SUFFIX);
+#ifdef COMBO_BUILD
+    // ComboShip: embed the settings inline (mirrors SoH's tracker sidebars); skipped while popped out.
+    mBenMenu->AddWidget(path, "Check Tracker Settings Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        auto ctx = Ship::Context::GetInstance();
+        if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
+            return;
+        auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Check Tracker Settings" COMBO_MM_TRACKER_SUFFIX);
+        if (!win || win->IsVisible())
+            return;
+        win->Update();
+        win->DrawElement();
+    });
+#endif
 }
 
 static RegisterMenuInitFunc initFunc(Rando::RegisterMenu);

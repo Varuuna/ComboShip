@@ -2,7 +2,11 @@
 #include <libultraship/bridge/consolevariablebridge.h>
 #include "2s2h/ShipUtils.h"
 #include "2s2h/CustomMessage/CustomMessage.h"
+#ifdef COMBO_BUILD
+#include "rando/CrossForeign.h" // ComboShip: cross-game gossip-stone pool
+#endif
 
+#include <algorithm>
 #include <vector>
 
 extern "C" {
@@ -86,7 +90,9 @@ s32 GetNormalizedCost() {
     return MAX(10, MIN(250, 10 + (obtainedChecks * (250 - 10)) / (maxChecks)));
 }
 
-RandoCheckId GetRandomCheck(bool repeatableOnlyObtained = false) {
+// outForeignText: ComboShip out-param — set when the pick lands on a cross-game (OOT) hint, which
+// has no RandoCheckId. Caller must display it directly instead of resolving a check/item name.
+RandoCheckId GetRandomCheck(bool repeatableOnlyObtained = false, std::string* outForeignText = nullptr) {
     Player* player = GET_PLAYER(gPlayState);
     if (player->talkActor == nullptr || player->talkActor->id != ACTOR_EN_GS) {
         return RC_UNKNOWN;
@@ -120,7 +126,30 @@ RandoCheckId GetRandomCheck(bool repeatableOnlyObtained = false) {
         weightedChecks.push_back({ randoCheckId, totalWeight });
     }
 
-    if (weightedChecks.empty()) {
+    // ComboShip: fold OOT-owned cross-game hints into the SAME weighted draw (never a second RNG
+    // source). Excluded when repeatableOnlyObtained (purchasable repeat hint) — MM can't see OOT's
+    // obtained-state, so a cross entry could repeat an already-collected OOT item.
+    std::vector<std::string> comboTexts;
+    std::vector<std::pair<size_t, u32>> comboWeighted;
+#ifdef COMBO_BUILD
+    if (!repeatableOnlyObtained) {
+        int slot = gSaveContext.fileNum;
+        static int s_hintsSlot = -1;
+        static ComboRando::MmHints s_hints;
+        if (slot != s_hintsSlot) {
+            s_hints = ComboRando::LoadHintsMM(slot);
+            s_hintsSlot = slot;
+        }
+        for (auto& g : s_hints.gossipPool) {
+            u32 w = std::max<uint32_t>(1, g.weight);
+            totalWeight += 100 + (w - 1) * strength;
+            comboTexts.push_back(g.text);
+            comboWeighted.push_back({ comboTexts.size() - 1, totalWeight });
+        }
+    }
+#endif
+
+    if (weightedChecks.empty() && comboWeighted.empty()) {
         return RC_UNKNOWN;
     }
 
@@ -137,7 +166,15 @@ RandoCheckId GetRandomCheck(bool repeatableOnlyObtained = false) {
             return checkId;
         }
     }
-    return weightedChecks.back().first;
+    for (auto& [comboIdx, cumWeight] : comboWeighted) {
+        if (roll < cumWeight) {
+            if (outForeignText) {
+                *outForeignText = comboTexts[comboIdx];
+            }
+            return RC_UNKNOWN;
+        }
+    }
+    return weightedChecks.empty() ? RC_UNKNOWN : weightedChecks.back().first;
 }
 
 void Rando::ActorBehavior::InitEnGsBehavior() {
@@ -156,25 +193,31 @@ void Rando::ActorBehavior::InitEnGsBehavior() {
         auto entry = CustomMessage::LoadVanillaMessageTableEntry(*textId);
 
         if (RANDO_SAVE_OPTIONS[RO_HINTS_GOSSIP_STONES]) {
-            RandoCheckId randoCheckId = GetRandomCheck();
-            if (randoCheckId == RC_UNKNOWN) {
+            std::string foreignText; // ComboShip: set when the pick is a cross-game (OOT) hint
+            RandoCheckId randoCheckId = GetRandomCheck(false, &foreignText);
+            if (randoCheckId == RC_UNKNOWN && foreignText.empty()) {
                 return;
             }
 
             entry.autoFormat = false;
-            auto& saveCheck = RANDO_SAVE_CHECKS[randoCheckId];
 
-            bool showExact = false;
-            if (rcToWeight.contains(randoCheckId)) {
-                showExact = true;
+            if (!foreignText.empty()) {
+                entry.msg = "They say " + foreignText + ".";
+            } else {
+                auto& saveCheck = RANDO_SAVE_CHECKS[randoCheckId];
+
+                bool showExact = false;
+                if (rcToWeight.contains(randoCheckId)) {
+                    showExact = true;
+                }
+
+                entry.msg = "They say %g{{item}}%w is hidden %y{{location}}%w.";
+
+                CustomMessage::Replace(&entry.msg, "{{item}}",
+                                       Rando::StaticData::GetItemName(saveCheck.randoItemId, true, randoCheckId));
+                CustomMessage::Replace(&entry.msg, "{{location}}",
+                                       Rando::StaticData::GetLocationNameForHint(randoCheckId, showExact));
             }
-
-            entry.msg = "They say %g{{item}}%w is hidden %y{{location}}%w.";
-
-            CustomMessage::Replace(&entry.msg, "{{item}}",
-                                   Rando::StaticData::GetItemName(saveCheck.randoItemId, true, randoCheckId));
-            CustomMessage::Replace(&entry.msg, "{{location}}",
-                                   Rando::StaticData::GetLocationNameForHint(randoCheckId, showExact));
 
             // Replace colors before line break calculation
             CustomMessage::ReplaceColorChars(&entry.msg);

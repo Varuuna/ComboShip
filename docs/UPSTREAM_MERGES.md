@@ -1639,3 +1639,63 @@ on boot.
 
 **On future merges:** if upstream renames the tracker ImGui windows or the settings windows,
 update `combo/gui/ComboTrackerCommon.h` (`kKinds[].imguiWin`) and the inline-widget window names.
+
+## Cross-game hints (closes GAP-2/GAP-3, 4 phases, 2026-07-14/15)
+
+**Why:** native `CreateAllHints`/`CreateWarpSongTexts`/`PareDownPlaythrough` never ran for combo
+seeds (GAP-3's interim was forcing hint settings off, vanilla NPC text). This feature runs a
+combo-owned equivalent (`combo/rando/CrossHints.h::Generate`, Phase 3) after the pare-down
+(`ComboPlaythrough.h`, Phase 3) and wires both games to *display* its pre-rendered output — no
+runtime lookups on either game's side, since only the combo layer sees both worlds.
+
+**Phase 1 (bug fixes preceding the feature):**
+- `mm/2s2h/Rando/Rando.cpp`/`.h` — new `GetItemLocationHintName(randoItemId, exact)`: resolves a
+  hint's location whether the item lives in an MM check or was cross-placed into OOT (family-B),
+  replacing ad hoc `FindItemPlacement` + `GetLocationNameForHint` call pairs at 6 call sites
+  (`DmStk.cpp`, `EnKgy.cpp`×2, `EnTimeTag.cpp`, `EnTalk.cpp`×2, `EnZow.cpp`) that broke for
+  cross-placed items (no `RandoCheckId` to find).
+- `mm/2s2h/BenPort.cpp` — dump additions feeding `GetItemLocationHintName`'s and CrossHints's data
+  needs (locationHints/weightClass — see Phase 2).
+- `soh/soh/OTRGlobals.cpp` — hint dump + apply-time hookup for the combo hint layer.
+
+**Phase 2 (schema/data exports):**
+- `soh/soh/Enhancements/randomizer/3drando/hints.cpp`/`.hpp` — `GetAlwaysHintCandidates()` (resolved
+  always-hint check list) and per-piece `CreateChildAltarHint()`/`CreateAdultAltarHint()` exposed
+  (combo owns hint distribution separately from `CreateStaticHints()`'s bundle).
+- `soh/soh/Enhancements/randomizer/Messages/StaticHints.cpp` — skulltula reward + 100-skulls hint
+  text now check `RG_COMBO_FOREIGN` and substitute the real cross-placed item's display name via
+  `OOT_LookupForeign` (previously showed the sentinel's own placeholder hint).
+- `soh/soh/OTRGlobals.cpp` — `SOH_DumpRandoHintData` (checks/items/hintTextTable/requiredTrials
+  schema `CrossHints.h` consumes).
+
+**Phase 3 (generation + OOT injection):**
+- `combo/rando/CrossHints.h` (new) — `ComboRando::Generate`: seeded (`masterSeed ^ 0x48494E54`)
+  weighted hint distribution mirroring `hintSettingTable`, drawing candidates from both games'
+  dumps with no world bias; outputs `{oot: [...], mm: {gossipPool, itemLocations}, stats}`.
+  Superseded the ComboMenu-owned sphere-hint panel (removed from `combo/gui/ComboMenu.cpp`/`.h`).
+- `combo/rando/ComboPlaythrough.h` — `RequirednessResult`/pare-down parsing feeding WotH/Foolish
+  hint categories (closes GAP-2).
+- `combo/ComboShip.cpp` — `SOH_ApplyComboHints` call after OOT placement apply (generate + reload
+  paths).
+- `soh/soh/OTRGlobals.cpp` — `SOH_ApplyComboHints` applies the consolidated `hints.oot[]` array as
+  real `Rando::Hint` MESSAGE-type entries (gossip stones, trials, Ganondorf).
+- `soh/soh/SaveManager.cpp` — combo MESSAGE hints round-trip all 3 languages (`comboMessagesEn/De/Fr`)
+  since the native per-hint save schema is current-language-only.
+
+**Phase 4 (MM gossip stones + Family-B upgrade + docs, this phase):**
+- `mm/2s2h/Rando/ActorBehavior/EnGs.cpp` — `GetRandomCheck` folds `hints.mm.gossipPool` entries
+  (loaded lazily per save-slot, cached like `MM_LookupForeign`) into the SAME weighted draw via the
+  existing `100 + (w-1)*strength` formula — one RNG source, no bias. A cross entry has no
+  `RandoCheckId`; it's returned via a new `outForeignText` out-param the caller displays directly,
+  short-circuiting the native item/location lookup. Excluded from the purchasable-repeat pool
+  (`repeatableOnlyObtained`) since MM can't see OOT's obtained-state.
+- `mm/2s2h/Rando/Rando.cpp` — `GetItemLocationHintName`'s family-B path tries `hints.mm.itemLocations`
+  (Phase-3 region-rendered text) first, falling back to Phase 1's raw check-name string for seeds
+  generated before the hints object existed.
+- `combo/rando/CrossForeign.h` — `MmHints`/`LoadHintsMM(slot)`: per-slot lazy loader for the
+  consolidated file's `hints.mm` object, mirroring `LoadForeignForGame`'s never-throws contract.
+
+**Known v1 limitations (documented, not bugs):** trial/gossip text for cross entries is English-only
+(no translation source); MM can't exclude an already-obtained OOT item from its own gossip pool
+(only its own-game repeat-hint pool is protected); Ganondorf's combined-hint phrasing variant isn't
+mirrored.

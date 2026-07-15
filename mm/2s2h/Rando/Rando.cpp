@@ -60,18 +60,30 @@ std::string Rando::GetItemLocationHintName(RandoItemId randoItemId, bool exact) 
         return Rando::StaticData::GetLocationNameForHint(rc, exact);
     }
 #ifdef COMBO_BUILD
-    // ComboShip: this MM item was placed at an OOT check by the combo fill; look it up by item name
-    // instead of check name. V1: raw check name, not full location-hint clarity text.
+    // ComboShip: this MM item was placed at an OOT check by the combo fill. Try Phase 3's
+    // pre-rendered region text first; fall back to Phase 1's raw check-name string for seeds
+    // generated before hints.mm.itemLocations existed.
     int slot = gSaveContext.fileNum;
     if (slot != 0xFF) {
-        static int s_slot = -1;
-        static std::unordered_map<std::string, ComboRando::ForeignPlacement> s_map;
-        if (slot != s_slot || s_map.empty()) {
-            s_map = ComboRando::LoadForeignByItem(slot, ComboRando::GAME_MM);
-            s_slot = slot;
-        }
         const char* spoilerName = Rando::StaticData::Items[randoItemId].spoilerName;
         if (spoilerName && spoilerName[0] != '\0') {
+            static int s_hintsSlot = -1;
+            static ComboRando::MmHints s_hints;
+            if (slot != s_hintsSlot) {
+                s_hints = ComboRando::LoadHintsMM(slot);
+                s_hintsSlot = slot;
+            }
+            auto hintIt = s_hints.itemLocations.find(spoilerName);
+            if (hintIt != s_hints.itemLocations.end()) {
+                return hintIt->second;
+            }
+
+            static int s_slot = -1;
+            static std::unordered_map<std::string, ComboRando::ForeignPlacement> s_map;
+            if (slot != s_slot || s_map.empty()) {
+                s_map = ComboRando::LoadForeignByItem(slot, ComboRando::GAME_MM);
+                s_slot = slot;
+            }
             auto it = s_map.find(spoilerName);
             if (it != s_map.end()) {
                 return "at " + it->second.checkName + " (OOT)";

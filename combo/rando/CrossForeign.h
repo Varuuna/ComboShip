@@ -17,6 +17,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <vector>
 #include <filesystem>
 #include <fstream>
 #include <cstdint>
@@ -207,6 +208,39 @@ inline std::unordered_map<std::string, ForeignPlacement> LoadForeignByItem(int s
     } catch (...) { /* corrupt -> treat as empty */
     }
     return map;
+}
+
+// Phase 4: MM's cross-game hint consumption. Mirrors the "hints.mm" object CrossHints.h::Generate
+// writes (gossipPool for gossip-stone draws, itemLocations for family-B GetItemLocationHintName).
+struct HintGossipEntry {
+    uint32_t weight = 1;
+    std::string text;
+};
+struct MmHints {
+    std::vector<HintGossipEntry> gossipPool;
+    std::unordered_map<std::string, std::string> itemLocations; // itemName -> "in <area> (OOT)"
+};
+
+// Load slot N's hints.mm object. Empty (never throws) on missing/corrupt file.
+inline MmHints LoadHintsMM(int slot) {
+    MmHints out;
+    auto path = SlotReadPath(slot);
+    if (path.empty())
+        return out;
+    std::ifstream in(path);
+    if (!in.is_open())
+        return out;
+    try {
+        nlohmann::json j;
+        in >> j;
+        auto mm = j.value("hints", nlohmann::json::object()).value("mm", nlohmann::json::object());
+        for (auto& g : mm.value("gossipPool", nlohmann::json::array()))
+            out.gossipPool.push_back({ g.value("weight", 1u), g.value("text", "") });
+        for (auto& [k, v] : mm.value("itemLocations", nlohmann::json::object()).items())
+            out.itemLocations.emplace(k, v.get<std::string>());
+    } catch (...) { /* corrupt -> treat as empty */
+    }
+    return out;
 }
 
 } // namespace ComboRando

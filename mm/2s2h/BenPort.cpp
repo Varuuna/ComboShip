@@ -2711,8 +2711,9 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
         }
         spoiler["options"] = options;
         spoiler["startingItems"] = nlohmann::json::array();
-        // Required since the Saria's-Song-hint feature; empty = no hint priorities for combo seeds.
-        spoiler["sariaPriorityItems"] = nlohmann::json::array();
+        // ComboShip: mirror native OnFileCreate's use of the player's configured priority list.
+        auto sariaPriorityItems = Rando::GetSariaPriorityItemsFromConfig();
+        Rando::SetSariaPriorityItemsInSpoiler(spoiler, sariaPriorityItems);
         spoiler["checks"] = nlohmann::json::parse(placementJson); // { "RC_*": "<spoilerName>", ... }
 
         Rando::Spoiler::ApplyToSaveContext(spoiler);

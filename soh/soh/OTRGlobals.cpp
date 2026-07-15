@@ -51,6 +51,7 @@
 #include "soh/Enhancements/randomizer/location_access.h"
 #include "soh/Enhancements/randomizer/3drando/item_pool.hpp"
 #include "soh/Enhancements/randomizer/3drando/starting_inventory.hpp"
+#include "soh/Enhancements/randomizer/3drando/hints.hpp" // ComboShip: CreateChildAltarHint/CreateAdultAltarHint
 #include "Enhancements/gameplaystats.h"
 #include "soh/Enhancements/savestates.h"
 #include "frame_interpolation.h"
@@ -3758,6 +3759,11 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
         if (!ctx->possibleIceTrapModels.empty()) {
             ctx->CreateItemOverrides();
         }
+        // Combo never runs CreateStaticHints(), so the ToT altar hint table stays empty ("No Hint").
+        // These two are option-composed and self-skip when RSK_TOT_ALTAR_HINT is off; run them here
+        // (placements are all applied by now) instead of pulling in the rest of CreateStaticHints().
+        CreateChildAltarHint();
+        CreateAdultAltarHint();
 #endif
 
         ctx->SetSeedGenerated(true);

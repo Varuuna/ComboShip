@@ -21,6 +21,9 @@ RandoItemId CurrentTrapItem(RandoCheckId randoCheckId = RC_UNKNOWN);
 bool IsItemObtainable(RandoItemId randoItemId, RandoCheckId randoCheckId = RC_UNKNOWN);
 RandoItemId ConvertItem(RandoItemId randoItemId, RandoCheckId randoCheckId = RC_UNKNOWN);
 RandoCheckId FindItemPlacement(RandoItemId randoItemId);
+// Like GetLocationNameForHint(FindItemPlacement(id)); on ComboShip builds, falls back to the combo
+// foreign map when the item was cross-placed into OOT instead of an MM check.
+std::string GetItemLocationHintName(RandoItemId randoItemId, bool exact);
 void RegisterMenu();
 
 std::vector<RandoItemId> GetComputedStartingItems(RandoSaveInfo& randoSaveInfo);

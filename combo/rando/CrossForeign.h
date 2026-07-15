@@ -161,4 +161,42 @@ inline std::unordered_map<std::string, ForeignItem> LoadForeignForGame(int slot,
     return map;
 }
 
+// A foreign check's location, keyed the other way round (by itemName) for a game that wants to know
+// where ITS OWN item ended up when placed at a check in the other game (family-B: MM item -> OOT check).
+struct ForeignPlacement {
+    GameId checkGame;
+    std::string checkName;
+    std::string displayName;
+    bool advancement = false;
+};
+
+// Load itemGame's cross-placed items, keyed by itemName (the item's own namespace). Used when a
+// display routine's local check scan fails and it needs to know which OTHER game's check holds it.
+inline std::unordered_map<std::string, ForeignPlacement> LoadForeignByItem(int slot, GameId itemGame) {
+    std::unordered_map<std::string, ForeignPlacement> map;
+    auto path = SlotReadPath(slot);
+    if (path.empty())
+        return map;
+    std::ifstream in(path);
+    if (!in.is_open())
+        return map;
+    try {
+        nlohmann::json j;
+        in >> j;
+        const std::string key = GameIdToKey(itemGame);
+        for (const auto& fm : j.value("foreign", nlohmann::json::array())) {
+            if (fm.value("itemGame", "") != key)
+                continue;
+            ForeignPlacement fp;
+            fp.checkGame = KeyToGameId(fm.value("checkGame", ""));
+            fp.checkName = fm.value("checkName", "");
+            fp.displayName = fm.value("displayName", fp.checkName);
+            fp.advancement = fm.value("advancement", false);
+            map.emplace(fm.value("itemName", ""), std::move(fp));
+        }
+    } catch (...) { /* corrupt -> treat as empty */
+    }
+    return map;
+}
+
 } // namespace ComboRando

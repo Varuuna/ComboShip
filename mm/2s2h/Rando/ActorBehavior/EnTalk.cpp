@@ -46,8 +46,7 @@ void ApplyRemainsHint(u16* textId, bool* loadFromMessageTable) {
         }
 
         icon = Rando::StaticData::GetIconForZMessage(randoItemId);
-        RandoCheckId randoCheckId = Rando::FindItemPlacement(randoItemId);
-        CustomMessage::Replace(&msg, "{{location}}", Rando::StaticData::GetLocationNameForHint(randoCheckId, false));
+        CustomMessage::Replace(&msg, "{{location}}", Rando::GetItemLocationHintName(randoItemId, false));
     }
 
     CustomMessage::Entry entry = {
@@ -121,7 +120,10 @@ void ApplyTransformationHints(u16* textId, bool* loadFromMessageTable) {
             }
             CustomMessage::Replace(&msg, "{{locations}}", locationStr);
         } else {
-            CustomMessage::Replace(&msg, "{{locations}}", "%gLink's pocket%w");
+            // ComboShip: no MM check holds this mask; it may have been cross-placed into OOT.
+            std::string foreignLoc = Rando::GetItemLocationHintName(randoItemId, false);
+            CustomMessage::Replace(&msg, "{{locations}}",
+                                   foreignLoc != "in an Unknown Location" ? foreignLoc : "%gLink's pocket%w");
         }
     }
 

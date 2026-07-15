@@ -11,8 +11,7 @@ void ApplyHookshotHint(u16* textId, bool* loadFromMessageTable) {
     std::string msg = "I overheard those Pirates talk about treasure "
                       "%y{{location}}%w that can help you reach the unreachable!";
 
-    RandoCheckId randoCheckId = Rando::FindItemPlacement(RI_HOOKSHOT);
-    CustomMessage::Replace(&msg, "{{location}}", Rando::StaticData::GetLocationNameForHint(randoCheckId, false));
+    CustomMessage::Replace(&msg, "{{location}}", Rando::GetItemLocationHintName(RI_HOOKSHOT, false));
 
     CustomMessage::Entry entry = {
         .nextMessageID = (u16)0xFFFF,

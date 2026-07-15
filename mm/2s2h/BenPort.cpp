@@ -1086,10 +1086,10 @@ extern "C" void InitOTR(int argc, char* argv[]) {
     BenGui::SetupGuiElements();
     ShipInit::InitAll();
 #ifdef COMBO_BUILD
-    // Reverse MM->OOT trigger: entering the Clock Tower interior (SCENE_INSIDETOWER) flags a return;
-    // acted on at the start of the next clean frame so the save + handoff happen outside scene init.
+    // Reverse MM->OOT trigger: the Clock Tower interior's South-Clock-Town door (spawn 1 only —
+    // cycle resets respawn in this scene at spawns 0/2/3/6 and must stay in MM).
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnSceneInit>([](s8 sceneId, s8 spawnNum) {
-        if (sceneId == SCENE_INSIDETOWER) {
+        if (sceneId == SCENE_INSIDETOWER && spawnNum == 1) {
             sComboReturnPending = true;
         }
     });
@@ -2688,6 +2688,11 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
     INV_CONTENT(ITEM_OCARINA_OF_TIME) = ITEM_NONE;
     INV_CONTENT(ITEM_MASK_DEKU) = ITEM_NONE;
     gSaveContext.save.saveInfo.inventory.questItems &= ~((1 << QUEST_SONG_TIME) | (1 << QUEST_SONG_HEALING));
+    gSaveContext.save.saveInfo.playerData.isMagicAcquired = false;
+    // Also strip the vanilla sword & shield (mirrors native OnFileCreate).
+    SET_EQUIP_VALUE(EQUIP_TYPE_SWORD, EQUIP_VALUE_SWORD_NONE);
+    BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_B) = ITEM_NONE;
+    SET_EQUIP_VALUE(EQUIP_TYPE_SHIELD, EQUIP_VALUE_SHIELD_NONE);
 
     try {
         // ApplyToSaveContext consumes a full MM spoiler: it requires finalSeed, options, startingItems
@@ -2738,6 +2743,10 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
     } catch (const std::exception& e) {
         SPDLOG_ERROR("[ComboShip] MM_InitRandoSaveFile: {} — falling back to vanilla save for slot {}", e.what(),
                      fileNum);
+        // Rebuild the playable baseline: the rando strips above already ran, and a stripped save
+        // persisted as vanilla (no sword/ocarina/magic) would soft-lock the slot.
+        SaveManager_InitNewSaveForSlot(fileNum + 1, ootName8);
+        gSaveContext.fileNum = (s16)fileNum;
         gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_VANILLA;
     }
 

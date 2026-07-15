@@ -1596,3 +1596,20 @@ float tile coords truncated to int made the rendered texture window alternate 32
 across interpolation phases → animated water/lava flicker above 20 FPS. New
 `GetTileSizeFromCoordinates()` rounds via `lroundf`. Drop this local copy once the PR lands
 upstream and the pin passes it.
+## MM rando save-init strips + combo-return fixes (2026-07-14)
+
+**Why:** Combo MM rando saves started with the vanilla Kokiri Sword / Hero's Shield and the combo
+baseline's force-granted Magic — `MM_InitRandoSaveFile` mirrored native `OnFileCreate` but missed
+its "Remove Sword & Shield" step, and never cleared the baseline's `isMagicAcquired`. Separately,
+the MM→OOT return crashed (UAF in `DungeonInfo::IsVanilla`) and the moon crash kicked the player
+back to OOT instead of restarting the MM cycle.
+
+**Vendored (`COMBO_BUILD`-guarded):**
+- `mm/2s2h/BenPort.cpp` — `MM_InitRandoSaveFile` strips sword/shield equip values and
+  `isMagicAcquired` alongside the existing Ocarina/Deku-Mask/songs strip; the MM→OOT portal
+  trigger now requires `spawnNum == 1` (the South Clock Town door) so cycle resets (moon crash /
+  Song of Time respawn at spawns 0/2/3/6 in `SCENE_INSIDETOWER`) stay in MM.
+- `soh/src/code/title_setup.c` — the combo-return jump fires `GameInteractor_ExecuteOnLoadGame`
+  after `Sram_OpenSave` like `FileChoose_LoadGame` does; `Save_LoadFile` recreates `gRandoContext`,
+  and without the hook the check tracker's region-table `ctx` dangled → UAF on the next recalc.
+

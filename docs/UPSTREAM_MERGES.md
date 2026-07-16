@@ -1737,3 +1737,12 @@ Known limitation (not fixed — see `randomizer_check_objects.cpp` `UpdateImGuiV
 function reacts to) the user's live config, not the loaded seed's — opening that menu mid-session can
 compute check-tracker visibility against the wrong option set. Rewriting ~67 vendored reads to go
 through the rando context was judged too large/risky for this fix; left as a documented gap.
+
+## Anchor auto-reconnect on boot restored (2026-07-16)
+
+**Why:** `Combo_FinishInit` (OTRGlobals.cpp) had a `COMBO_BUILD` branch that `CVarClear`ed
+`gAnchor.Enabled` on every boot ("Anchor always starts DISABLED") instead of auto-connecting, so
+Anchor stayed disconnected after a restart. That predated the launcher wiring the Anchor connect
+transport before `SOH_Init`; with the transport now registered first, boot-time `Enable()` opens a
+real socket rather than wedging on "Connecting…". Dropped the combo-only branch so boot auto-connects
+from the persisted `gAnchor.Enabled` flag, matching upstream SoH (a deviation removed, not added).

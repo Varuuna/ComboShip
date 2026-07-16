@@ -3537,6 +3537,12 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
     nlohmann::json fixed = nlohmann::json::array();
     nlohmann::json items = nlohmann::json::array();
     nlohmann::json prices = nlohmann::json::object();
+    // ComboShip: OOT accessibility settings the combo fill honors per-game. Defaults = ALL_REACHABLE
+    // (safe: unchanged fill behavior) if the prep throws before these are read.
+    nlohmann::json accessibility = { { "noLogic", false },
+                                     { "allLocationsReachable", true },
+                                     { "lockOverworldDoors", false },
+                                     { "forceMaskShopKey", false } };
 
     // ComboShip: mirror MM (BenPort isAdvancement) — hearts are never logic-required under glitchless,
     // so class PoH/HC/treasure-game heart as junk. Shrinks the OOT advancement pool (fewer dead-ends).
@@ -3638,6 +3644,12 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
                 prices[loc->GetName()] = ctx->GetItemLocation(rc)->GetPrice();
         }
 
+        // ComboShip: accessibility settings the combo fill maps to an OotAccess mode (per-game relax).
+        accessibility["noLogic"] = ctx->GetOption(RSK_LOGIC_RULES).Is(RO_LOGIC_NO_LOGIC);
+        accessibility["allLocationsReachable"] = static_cast<bool>(ctx->GetOption(RSK_ALL_LOCATIONS_REACHABLE));
+        accessibility["lockOverworldDoors"] = static_cast<bool>(ctx->GetOption(RSK_LOCK_OVERWORLD_DOORS));
+        accessibility["forceMaskShopKey"] = static_cast<bool>(ctx->GetOption(RSK_COMBO_FORCE_MASK_SHOP_KEY));
+
         usedPool = true;
 #else
         // Non-combo (unused outside ComboShip): old vanilla-per-check emission.
@@ -3712,7 +3724,8 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         { "pool", std::move(pool) },
         { "fixed", std::move(fixed) },
         { "items", std::move(items) },
-        { "prices", std::move(prices) }
+        { "prices", std::move(prices) },
+        { "accessibility", std::move(accessibility) }
     }.dump();
     return cached.c_str();
 }

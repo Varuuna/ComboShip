@@ -56,6 +56,26 @@ struct OracleFns {
 
 // ---------- Data types ----------
 
+// Per-game OOT accessibility, mapped from OOT's RSK_LOGIC_RULES + RSK_ALL_LOCATIONS_REACHABLE.
+// MM is always ALL_REACHABLE. See CrossWorldCombinedFill for the per-mode fill/validation behavior.
+//   ALL_REACHABLE  every OOT advancement item lands reachable (default; unchanged behavior)
+//   BEATABLE_ONLY  OOT progression may strand off-path, but the seed stays beatable (ALR-off)
+//   NO_LOGIC       OOT items land anywhere; only MM stays fully reachable
+enum class OotAccess { ALL_REACHABLE, BEATABLE_ONLY, NO_LOGIC };
+
+// Maps the OOT dump's "accessibility" block to a mode: No Logic wins; else ALR-off => BEATABLE_ONLY;
+// else ALL_REACHABLE. Missing/old dumps default to ALL_REACHABLE (unchanged behavior).
+inline OotAccess OotAccessFromDump(const std::string& sohDumpJson) {
+    try {
+        auto a = nlohmann::json::parse(sohDumpJson).value("accessibility", nlohmann::json::object());
+        if (a.value("noLogic", false))
+            return OotAccess::NO_LOGIC;
+        if (!a.value("allLocationsReachable", true))
+            return OotAccess::BEATABLE_ONLY;
+    } catch (...) {}
+    return OotAccess::ALL_REACHABLE;
+}
+
 // Reuses GameId from CrossForeign.h (GAME_OOT = 0, GAME_MM = 1)
 using Game = GameId;
 
@@ -92,7 +112,8 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                                                  uint32_t masterSeed, const OracleFns& ootOracle,
                                                  const OracleFns& mmOracle, const std::string& portalCheckName = "",
                                                  ComboRando::ComboGenProgress* progress = nullptr,
-                                                 const std::string& forcedOotJson = "") {
+                                                 const std::string& forcedOotJson = "",
+                                                 OotAccess ootAccess = OotAccess::ALL_REACHABLE) {
     CombinedFillResult result;
     result.success = false;
 

@@ -326,7 +326,9 @@ int main(int argc, char** argv) {
             sohDump = SOH_Dump();
             mmDump = MM_Dump();
             std::string forced = SOH_GetForced ? SOH_GetForced(masterSeed) : "";
-            r = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, oot, mmO, "", nullptr, forced);
+            ComboRando::OotAccess ootAccess = ComboRando::OotAccessFromDump(sohDump);
+            r = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, oot, mmO, "", nullptr, forced,
+                                                   ootAccess);
             if (r.success) {
                 // Cross-hint data (Phase 2/3 mirror of RunComboFill, incl. the same area maps so the
                 // WotH/Foolish rollup matches in-game): needs this attempt's still-live oracle session.

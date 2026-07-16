@@ -175,10 +175,8 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         return result;
     }
 
-    // Portal-key guard: with Overworld Keys ON but Force Mask Shop Key OFF, the Mask Shop Key is
-    // OOT-AssumedFill'd (not a locked sphere-0 placement), so a relaxed OOT mode could strand its
-    // reach-path — and with portalCheckName="" the fill can't detect it, risking an MM-unreachable
-    // seed. Warn loudly (the intended combo config is Force ON, or Overworld Keys OFF).
+    // Portal-key guard: Overworld Keys ON + Force Mask Shop Key OFF under a relaxed mode may strand the
+    // Mask Shop Key (portalCheckName="" can't detect it) → MM unreachable. Warn. See docs/UPSTREAM_MERGES.
     if (ootAccess != OotAccess::ALL_REACHABLE && portalCheckName.empty()) {
         try {
             auto a = nlohmann::json::parse(sohDumpJson).value("accessibility", nlohmann::json::object());
@@ -377,11 +375,8 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         for (const auto& lp : lockedPlacements)
             filledChecks.insert(checkKey(lp.check));
 
-        // Phase A: place advancement items with logic, assuming only UNPLACED ones are owned.
-        // Per-game accessibility: NO_LOGIC assumed-fills only MM advancement (OOT adv is fast-filled as
-        // junk below); ALL_REACHABLE/BEATABLE_ONLY assumed-fill the full set (BEATABLE_ONLY may later
-        // strand a stuck OOT item — see the dead-end handler). ALL_REACHABLE keeps advItems unreordered
-        // so a fixed seed reproduces bit-for-bit.
+        // Phase A: place advancement items with logic, assuming only UNPLACED ones are owned. NO_LOGIC
+        // assumed-fills only MM adv (OOT adv rides Phase B junk); other modes keep advItems unreordered.
         std::vector<CwItem> toPlace;
         if (ootAccess == OotAccess::NO_LOGIC) {
             for (const auto& it : advItems)

@@ -1199,6 +1199,12 @@ static void Combo_FinalizeGenerate() {
         SOH_SetComboSeedHash(g_FinalizeDisplaySeed);
     if (hintsPresent && SOH_ApplyComboHints)
         SOH_ApplyComboHints(ComboHintsJsonFrom(g_ConsolidatedJson).c_str());
+    // A fresh generation's live MM CVars already ARE this seed's settings, so slot-bind must fall
+    // through to reading them directly — clear any stale reload-restore state left by an unstarted
+    // pending seed (else it would apply THAT seed's MM settings over this generation's placements).
+    g_PendingMMSettingsJson.clear();
+    g_UserMMSettingsSnapshot.clear();
+    g_ComboReloadRestoreUserMM = false;
     g_ComboProgress.running.store(false);
 }
 
@@ -1274,8 +1280,11 @@ static int Combo_OnReloadRequest(const char* path) {
         // Silent auto-load: snapshot the user's current settings so they can be put back once the
         // seed's OOT settings have done their job (reproduction), instead of persisting to disk.
         std::string userOotSnapshot;
-        if (isSilentAutoLoad && SOH_DumpRandoSettings)
+        if (isSilentAutoLoad && SOH_DumpRandoSettings) {
             userOotSnapshot = SOH_DumpRandoSettings();
+            if (userOotSnapshot.empty())
+                std::cout << "[ComboShip] Reload: SOH_DumpRandoSettings returned empty snapshot\n";
+        }
 
         // OOT: restore settings -> seed RNG -> prep settings-scoped pool -> apply placements -> hash.
         if (SOH_RestoreRandoSettings)
@@ -1300,7 +1309,9 @@ static int Combo_OnReloadRequest(const char* path) {
 
         // Reproduction is done — put the user's OOT settings back so comboship.json (and the menu)
         // stay authoritative. An explicit drop instead keeps the seed's settings as the new baseline.
-        if (isSilentAutoLoad && SOH_RestoreRandoSettings && !userOotSnapshot.empty())
+        // Gated on isSilentAutoLoad alone: an empty dump (warned above) must not skip the restore,
+        // else the seed's OOT CVars would stick and leak to comboship.json — the bug being fixed.
+        if (isSilentAutoLoad && SOH_RestoreRandoSettings)
             SOH_RestoreRandoSettings(userOotSnapshot.c_str());
 
         // MM: MM_InitRandoSaveFile reads gRando.* CVars, but only at slot-bind time (Combo_OnOOTSaveInit),
@@ -1313,6 +1324,11 @@ static int Combo_OnReloadRequest(const char* path) {
         g_PendingMMSettingsJson = mmSettings;
         g_ComboReloadRestoreUserMM = isSilentAutoLoad;
         g_PendingMMPlacements = mmPlacements;
+        // An explicit drop makes the seed the new baseline immediately for OOT (above); mirror that
+        // for MM here instead of waiting for slot-bind, so quit-before-Start doesn't persist a mixed
+        // OOT=seed/MM=old-user comboship.json.
+        if (!isSilentAutoLoad && MM_RestoreRandoSettings)
+            MM_RestoreRandoSettings(mmSettings.c_str());
 
         // Keep the loaded seed so Start binds it to the chosen slot; recompute the hash-icon filename.
         g_ConsolidatedJson = j.dump(2);

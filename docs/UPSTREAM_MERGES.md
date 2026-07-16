@@ -1723,3 +1723,17 @@ configured settings, which then leaked into `comboship.json`. Fix, all in `combo
   (`g_UserMMSettingsSnapshot`) is restored right after.
 - An explicit dropped-file load (non-null path) is a deliberate seed switch: its settings are left in
   place instead of being restored back (`g_ComboReloadRestoreUserMM`).
+
+**Settings-persistence review follow-up (2026-07-16):** `Combo_FinalizeGenerate` (a fresh in-game
+generate, not a reload) now clears `g_PendingMMSettingsJson`/`g_UserMMSettingsSnapshot`/
+`g_ComboReloadRestoreUserMM` — a stale pending-seed's MM settings were otherwise left to apply at the
+next slot-bind over the freshly generated seed's placements. An explicit drop also applies its MM
+settings to CVars immediately (not just at slot-bind), matching OOT's immediate baseline switch, so
+quit-before-Start can't persist a mixed OOT=seed/MM=old-user `comboship.json`.
+
+Known limitation (not fixed — see `randomizer_check_objects.cpp` `UpdateImGuiVisibility`, called from
+`SohMenuRandomizer.cpp`): it reads ~67 `CVAR_RANDOMIZER_SETTING(...)` CVars directly rather than
+`gRandoContext->GetOption()`. During a combo session the OOT Randomizer settings menu shows (and this
+function reacts to) the user's live config, not the loaded seed's — opening that menu mid-session can
+compute check-tracker visibility against the wrong option set. Rewriting ~67 vendored reads to go
+through the rando context was judged too large/risky for this fix; left as a documented gap.

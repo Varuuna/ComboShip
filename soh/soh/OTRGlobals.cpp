@@ -3993,6 +3993,10 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
         if (!ctx->possibleIceTrapModels.empty()) {
             ctx->CreateItemOverrides();
         }
+        // Combo skips native Fill(), so ItemLocation areas are never assigned; the hint creators below
+        // (and SOH_ApplyComboHints' CreateStaticHints) read GetRandomArea/GetFirstArea and assert on an
+        // empty set. SetAreas() populates them from the region graph (RA_NONE for disconnected regions).
+        SetAreas();
         // Combo never runs CreateStaticHints(), so the ToT altar hint table stays empty ("No Hint").
         // These two are option-composed and self-skip when RSK_TOT_ALTAR_HINT is off; run them here
         // (placements are all applied by now) instead of pulling in the rest of CreateStaticHints().

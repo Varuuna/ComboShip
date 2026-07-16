@@ -684,6 +684,14 @@ static int g_PendingMMFileNum = -1;
 // later Combo_OnOOTSaveInit callback can hand it to MM_InitRandoSaveFile.
 static std::string g_PendingMMPlacements;
 
+// ComboShip: reload settings-persistence (see docs/UPSTREAM_MERGES.md). A silent auto-reload must
+// never let the pending seed's settings overwrite the user's configured gRando.* CVars on disk.
+// MM only reads its gRando.* CVars at slot-bind (MM_InitRandoSaveFile), so its restore is deferred
+// there instead of running inline in Combo_OnReloadRequest like OOT's.
+static std::string g_PendingMMSettingsJson;  // seed's MM settings, applied right before slot-bind
+static std::string g_UserMMSettingsSnapshot; // user's MM settings, restored right after slot-bind
+static bool g_ComboReloadRestoreUserMM = false; // false for an explicit drop (seed settings stick)
+
 // Forward decl: defined later, called from RunComboFill on every successful in-game generation.
 // playthroughOut (optional) receives the structured sphere playthrough for the consolidated file.
 static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRando::OracleFns& ootOracle,
@@ -1215,6 +1223,9 @@ static int Combo_PollFinalize() {
 static int Combo_OnReloadRequest(const char* path) {
     if (g_GenerateBusy.load() || g_ComboPendingFinalize.load())
         return 0; // a generation is in flight — don't race it
+    // A null/empty path is the silent first-frame auto-reload; a non-empty path is an explicit drop
+    // (a deliberate seed switch, so its settings are allowed to become the new persisted baseline).
+    bool isSilentAutoLoad = !(path && path[0]);
     std::string file = (path && path[0]) ? std::string(path) : ComboRando::PendingPath().string();
     std::ifstream in(file);
     if (!in.is_open())
@@ -1260,6 +1271,12 @@ static int Combo_OnReloadRequest(const char* path) {
         if (MM_SetCheckPrices)
             MM_SetCheckPrices(mmPrices.dump().c_str());
 
+        // Silent auto-load: snapshot the user's current settings so they can be put back once the
+        // seed's OOT settings have done their job (reproduction), instead of persisting to disk.
+        std::string userOotSnapshot;
+        if (isSilentAutoLoad && SOH_DumpRandoSettings)
+            userOotSnapshot = SOH_DumpRandoSettings();
+
         // OOT: restore settings -> seed RNG -> prep settings-scoped pool -> apply placements -> hash.
         if (SOH_RestoreRandoSettings)
             SOH_RestoreRandoSettings(ootSettings.c_str());
@@ -1281,9 +1298,20 @@ static int Combo_OnReloadRequest(const char* path) {
         if (hintsPresent && SOH_ApplyComboHints)
             SOH_ApplyComboHints(j.value("hints", nlohmann::json::object()).dump().c_str());
 
-        // MM: restore settings (MM_InitRandoSaveFile reads CVars) + stash placements for the MM save.
-        if (MM_RestoreRandoSettings)
-            MM_RestoreRandoSettings(mmSettings.c_str());
+        // Reproduction is done — put the user's OOT settings back so comboship.json (and the menu)
+        // stay authoritative. An explicit drop instead keeps the seed's settings as the new baseline.
+        if (isSilentAutoLoad && SOH_RestoreRandoSettings && !userOotSnapshot.empty())
+            SOH_RestoreRandoSettings(userOotSnapshot.c_str());
+
+        // MM: MM_InitRandoSaveFile reads gRando.* CVars, but only at slot-bind time (Combo_OnOOTSaveInit),
+        // which may be many frames away — stash the seed's settings there instead of writing them now,
+        // so they never leak into comboship.json before (or without) a slot ever being started.
+        if (isSilentAutoLoad && MM_DumpRandoSettings)
+            g_UserMMSettingsSnapshot = MM_DumpRandoSettings();
+        else
+            g_UserMMSettingsSnapshot.clear();
+        g_PendingMMSettingsJson = mmSettings;
+        g_ComboReloadRestoreUserMM = isSilentAutoLoad;
         g_PendingMMPlacements = mmPlacements;
 
         // Keep the loaded seed so Start binds it to the chosen slot; recompute the hash-icon filename.
@@ -1359,8 +1387,19 @@ static void Combo_OnOOTSaveInit(int fileNum) {
                     cj.value("mm", nlohmann::json::object()).value("prices", nlohmann::json::object()).dump().c_str());
             } catch (...) {}
         }
+        // A reloaded seed's MM settings only get written here (MM_InitRandoSaveFile is where MM reads
+        // them) — never at reload time, so they can't leak into comboship.json before a slot is bound.
+        if (!g_PendingMMSettingsJson.empty() && MM_RestoreRandoSettings)
+            MM_RestoreRandoSettings(g_PendingMMSettingsJson.c_str());
         MM_InitRandoSaveFile(fileNum, g_PendingMMPlacements.c_str(), playerName);
         g_PendingMMPlacements.clear();
+        // Silent auto-load: the save now has the seed's settings baked in — return the CVars to the
+        // user's config. An explicit drop leaves the seed's settings as the new persisted baseline.
+        if (g_ComboReloadRestoreUserMM && MM_RestoreRandoSettings && !g_UserMMSettingsSnapshot.empty())
+            MM_RestoreRandoSettings(g_UserMMSettingsSnapshot.c_str());
+        g_PendingMMSettingsJson.clear();
+        g_UserMMSettingsSnapshot.clear();
+        g_ComboReloadRestoreUserMM = false;
     } else if (MM_InitSaveFile) {
         // No placement available (e.g. generation was skipped) — fall back to a vanilla MM save.
         std::cout << "[ComboShip] Creating MM save for OOT slot " << fileNum << std::endl;

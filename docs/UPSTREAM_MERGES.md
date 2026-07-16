@@ -1710,3 +1710,16 @@ runtime lookups on either game's side, since only the combo layer sees both worl
 (no translation source); MM can't exclude an already-obtained OOT item from its own gossip pool
 (only its own-game repeat-hint pool is protected); Ganondorf's combined-hint phrasing variant isn't
 mirrored.
+
+**Settings-persistence fix (2026-07-16):** the silent file-select auto-reload
+(`Combo_OnReloadRequest(NULL)`) was writing the pending seed's `gRando.*` CVars over the user's
+configured settings, which then leaked into `comboship.json`. Fix, all in `combo/ComboShip.cpp`:
+- OOT: snapshot the user's settings (`SOH_DumpRandoSettings`) before the seed's are restored for
+  reproduction, then restore the snapshot right after `SOH_ApplyRandoPlacements`/hints — OOT only
+  reads settings CVars at that prep step, never again during play.
+- MM: `MM_RestoreRandoSettings(mmSettings)` no longer runs at reload time. The seed's MM settings are
+  stashed (`g_PendingMMSettingsJson`) and applied in `Combo_OnOOTSaveInit`, immediately before
+  `MM_InitRandoSaveFile` (the only place MM reads them), then the user's snapshot
+  (`g_UserMMSettingsSnapshot`) is restored right after.
+- An explicit dropped-file load (non-null path) is a deliberate seed switch: its settings are left in
+  place instead of being restored back (`g_ComboReloadRestoreUserMM`).

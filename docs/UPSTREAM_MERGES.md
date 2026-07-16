@@ -1025,8 +1025,12 @@ Link's Pocket is a rando-only OOT check with no vanilla item, so it's absent fro
 dump and the combined fill never placed it — leaving it unset, which crashed save creation
 (`Item_Give(0xFF)` assert) and ignored `RSK_LINKS_POCKET`.
 
-- `soh/.../OTRGlobals.cpp`: new `SOH_GetForcedPlacements` picks Link's Pocket's item per
-  `RSK_LINKS_POCKET` (+ `RSK_LINKS_POCKET_REWARD`).
+- `soh/.../OTRGlobals.cpp`: new `SOH_GetForcedPlacements` returns Link's Pocket's item. For the
+  dungeon-reward case it now reads the item `RandomizeDungeonRewards` already placed at
+  `RC_LINKS_POCKET` (inside the preceding `SOH_DumpRandoStaticData`), instead of re-rolling a separate
+  LCG. The old re-roll disagreed with the fill's pick, so one dungeon reward was orphaned (nowhere in
+  the spoiler → altar hint "an unknown place") and another duplicated. Non-dungeon-reward modes
+  (advancement/any/nothing) unchanged.
 - `soh/.../savefile.cpp`: `StartingItemGive` skips an unresolved (ITEM_NONE/MOD_NONE) item instead of
   asserting — safety net for any residual unplaced save-creation check.
 - `combo/rando/CrossWorldRando.h` + `ComboShip.cpp`: the fill reserves forced items out of the pool,

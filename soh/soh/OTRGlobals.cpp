@@ -4400,6 +4400,7 @@ extern "C" __declspec(dllexport) void SOH_SetAllTricks(void) {
 // from the cross pool. Returns { "Link's Pocket": {"item":"<name>"} } (dungeon-reward) or
 // {"category":"advancement"|"any"} (combo picks); {} for NOTHING. See docs/UPSTREAM_MERGES.md.
 extern "C" __declspec(dllexport) const char* SOH_GetForcedPlacements(uint32_t seed) {
+    (void)seed; // dungeon-reward pick now read from the placed context, not re-rolled from the seed
     static std::string buf;
     nlohmann::json out = nlohmann::json::object();
     try {
@@ -4407,27 +4408,12 @@ extern "C" __declspec(dllexport) const char* SOH_GetForcedPlacements(uint32_t se
         Rando::Settings::GetInstance()->SetAllToContext(); // ensure chosen CVar settings are live
         auto lp = ctx->GetOption(RSK_LINKS_POCKET);
         if (lp.Is(RO_LINKS_POCKET_DUNGEON_REWARD)) {
-            std::vector<RandomizerGet> rewards;
-            auto addRange = [&](int lo, int hi) {
-                for (int r = lo; r <= hi; ++r)
-                    rewards.push_back(static_cast<RandomizerGet>(r));
-            };
-            auto sub = ctx->GetOption(RSK_LINKS_POCKET_REWARD);
-            if (sub.Is(RO_LINKS_POCKET_ANY_STONE)) {
-                addRange(RG_KOKIRI_EMERALD, RG_ZORA_SAPPHIRE);
-            } else if (sub.Is(RO_LINKS_POCKET_LIGHT_MEDALLION)) {
-                rewards.push_back(RG_LIGHT_MEDALLION);
-            } else if (sub.Is(RO_LINKS_POCKET_ANY_MEDALLION)) {
-                addRange(RG_FOREST_MEDALLION, RG_LIGHT_MEDALLION);
-            } else { // RO_LINKS_POCKET_ANY_REWARD (default)
-                addRange(RG_KOKIRI_EMERALD, RG_ZORA_SAPPHIRE);
-                addRange(RG_FOREST_MEDALLION, RG_LIGHT_MEDALLION);
-            }
-            if (!rewards.empty()) {
-                uint64_t s = (seed ? seed : 0x9E3779B97F4A7C15ULL) * 6364136223846793005ULL + 1442695040888963407ULL;
-                RandomizerGet pick = rewards[static_cast<size_t>(s >> 33) % rewards.size()];
-                out["Link's Pocket"]["item"] = Rando::StaticData::RetrieveItem(pick).GetName().GetEnglish();
-            }
+            // ComboShip: RandomizeDungeonRewards (inside SOH_DumpRandoStaticData->ComboFillConfined, run
+            // just before this) already picked+placed Link's Pocket's reward and erased it from the pool.
+            // Return THAT exact item; re-rolling a separate LCG orphaned one reward and duplicated another.
+            RandomizerGet placed = ctx->GetItemLocation(RC_LINKS_POCKET)->GetPlacedRandomizerGet();
+            if (placed != RG_NONE)
+                out["Link's Pocket"]["item"] = Rando::StaticData::RetrieveItem(placed).GetName().GetEnglish();
         } else if (lp.Is(RO_LINKS_POCKET_ADVANCEMENT)) {
             out["Link's Pocket"]["category"] = "advancement";
         } else if (lp.Is(RO_LINKS_POCKET_ANYTHING)) {

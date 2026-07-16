@@ -3582,7 +3582,8 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
                 if (!in.empty())
                     fixed.push_back({ { "check", name },
                                       { "item", in },
-                                      { "advancement", Rando::StaticData::RetrieveItem(placed).IsAdvancement() } });
+                                      { "advancement", Rando::StaticData::RetrieveItem(placed).IsAdvancement() },
+                                      { "major", Rando::StaticData::RetrieveItem(placed).IsMajorItem() } });
             } else {
                 // A real fillable check. GenerateLocationPool already decided what's shuffled and the
                 // meta markers (Link's Pocket, wincon) are skipped above, so emit regardless of vanilla
@@ -3593,18 +3594,22 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         }
 
         // Pool = the real free item pool (every settings-added item, confined items already removed).
+        // ComboShip: `major` (IsMajorItem) feeds the native barren predicate (barren = no WotH + no major).
         for (RandomizerGet rg : itemPool) {
             const std::string& in = Rando::StaticData::RetrieveItem(rg).GetName().GetEnglish();
             if (in.empty())
                 continue;
-            pool.push_back({ { "name", in }, { "advancement", Rando::StaticData::RetrieveItem(rg).IsAdvancement() } });
+            pool.push_back({ { "name", in },
+                             { "advancement", Rando::StaticData::RetrieveItem(rg).IsAdvancement() },
+                             { "major", Rando::StaticData::RetrieveItem(rg).IsMajorItem() } });
         }
         // itemPool excludes shop slots (CountEmptyLocations(false)); shuffled shop checks are covered
         // by junk, exactly like native FastFill's GetJunkItem() padding — Buy items stay shop-only.
         while (pool.size() < checks.size()) {
             RandomizerGet jg = GetJunkItem();
             pool.push_back({ { "name", Rando::StaticData::RetrieveItem(jg).GetName().GetEnglish() },
-                             { "advancement", Rando::StaticData::RetrieveItem(jg).IsAdvancement() } });
+                             { "advancement", Rando::StaticData::RetrieveItem(jg).IsAdvancement() },
+                             { "major", Rando::StaticData::RetrieveItem(jg).IsMajorItem() } });
         }
         // Rolled prices (set by ComboFillConfined at Fill()'s native position) for every priced
         // check type — the consolidated spoiler carries these so the validator/reload never guess.

@@ -1902,3 +1902,25 @@ and is skipped, leaving `InsertNames` with fewer areas than template slots.
 twice produces byte-identical `hints` and placements (determinism preserved); consolidated spoiler's
 `hints.oot[]` altar entries contain `%`-color codes and every `[[N]]` slot filled (no literal
 placeholder) except the one known residual gap above.
+
+## Native barren predicate: major-item signal (2026-07-16)
+
+**Why:** Native (`fill.cpp CalculateBarren`) marks a region barren iff it has NO WotH item AND
+NO major item (`Item::IsMajorItem`, `item.cpp`). ComboShip's cross-hint rollup had only a WotH
+signal (`areaHasRequired`), so it over-marked barren: a region holding a major-but-not-required
+item (e.g. a second progressive copy) was wrongly foolish.
+
+**`soh/soh/OTRGlobals.cpp` (`SOH_DumpRandoStaticData`, COMBO_BUILD pool/fixed):** each `pool[]`
+and `fixed[]` entry now also emits `"major": RetrieveItem(rg).IsMajorItem()` beside `advancement`.
+`IsMajorItem` reads the live Context options, same as `IsAdvancement`, so it's valid during the dump.
+
+**MM:** no `IsMajorItem` equivalent; `MM_DumpRandoStaticData` is unchanged and emits no `major`
+flag. `ParseSpoilerPlacements` falls back to `major = advancement` when the flag is absent, so MM
+placements treat every advancement item as major (conservative — never over-marks barren).
+
+**`combo/rando/ComboPlaythrough.h`:** `CwPlacedItem` gains `major`; `ParseSpoilerPlacements` loads
+`majorByName` from the dump (fallback to advancement) and stamps each placement.
+**`combo/rando/CrossHints.h`:** a region enters the foolish pool only if it has no WotH item AND
+no major item (`areaHasMajor`). Deliberately produces fewer barren regions than before (native parity).
+
+**If future upstream touches `Item::IsMajorItem`:** re-check the dump flag and the barren derivation.

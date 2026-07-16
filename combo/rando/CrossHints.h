@@ -282,6 +282,7 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
             ootPlacementIndex.emplace(placements[i].check, i);
     std::vector<HintCandidate> candidates;
     candidates.reserve(placements.size());
+    std::unordered_set<std::string> areaHasMajor; // native barren predicate: barren = no WotH + no major
     for (auto& p : placements) {
         if (!p.advancement)
             continue; // junk is never hinted as WotH/Foolish/item content
@@ -310,6 +311,8 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
             c.locationHint = { { "clear", { { "en", region }, { "de", region }, { "fr", region } } } };
         }
         std::tie(c.itemHint, c.weight) = itemHintAndWeight(p.itemGame, p.item, c.required);
+        if (p.major && !c.areaKey.empty())
+            areaHasMajor.insert(c.areaKey);
         candidates.push_back(std::move(c));
     }
 
@@ -319,7 +322,10 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
     for (auto& [key, hasRequired] : pareDown.areaHasRequired) {
         if (key.find("Unknown") != std::string::npos)
             continue;
-        (hasRequired ? requiredAreas : foolishAreas).push_back(key);
+        if (hasRequired)
+            requiredAreas.push_back(key);
+        else if (!areaHasMajor.count(key)) // barren only if no WotH AND no major item (native parity)
+            foolishAreas.push_back(key);
     }
     // Stable order (unordered_map iteration feeds the RNG picks) — sort so determinism never
     // depends on the STL's bucket layout.

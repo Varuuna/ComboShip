@@ -31,6 +31,7 @@ struct CwPlacedItem {
     GameId itemGame;
     std::string item;
     bool advancement;
+    bool major; // native IsMajorItem: drives the barren predicate (barren = no WotH + no major)
 };
 
 // Parses a combined-fill spoilerJson ("oot"/"mm" flat check->item maps + "foreign" array, the shape
@@ -49,15 +50,22 @@ inline std::vector<CwPlacedItem> ParseSpoilerPlacements(const std::string& spoil
     std::unordered_map<std::string, ForeignInfo> foreign; // "<cg>:<cn>"-keyed
 
     std::unordered_map<std::string, bool> advByName[2];
+    std::unordered_map<std::string, bool> majorByName[2]; // absent (e.g. MM dump) -> falls back to advancement
     auto loadAdv = [&](GameId g, const std::string& dumpJson) {
         if (dumpJson.empty())
             return;
         try {
             auto d = nlohmann::json::parse(dumpJson);
-            for (auto& it : d.value("pool", nlohmann::json::array()))
-                advByName[g][it.value("name", "")] |= it.value("advancement", true);
-            for (auto& f : d.value("fixed", nlohmann::json::array()))
-                advByName[g][f.value("item", "")] |= f.value("advancement", true);
+            for (auto& it : d.value("pool", nlohmann::json::array())) {
+                bool adv = it.value("advancement", true);
+                advByName[g][it.value("name", "")] |= adv;
+                majorByName[g][it.value("name", "")] |= it.value("major", adv);
+            }
+            for (auto& f : d.value("fixed", nlohmann::json::array())) {
+                bool adv = f.value("advancement", true);
+                advByName[g][f.value("item", "")] |= adv;
+                majorByName[g][f.value("item", "")] |= f.value("major", adv);
+            }
         } catch (...) {}
     };
     loadAdv(GAME_OOT, sohDumpJson);
@@ -65,6 +73,10 @@ inline std::vector<CwPlacedItem> ParseSpoilerPlacements(const std::string& spoil
     auto lookupAdv = [&](GameId g, const std::string& item) {
         auto it = advByName[g].find(item);
         return it == advByName[g].end() ? true : it->second;
+    };
+    auto lookupMajor = [&](GameId g, const std::string& item) {
+        auto it = majorByName[g].find(item);
+        return it == majorByName[g].end() ? lookupAdv(g, item) : it->second;
     };
     try {
         auto j = nlohmann::json::parse(spoilerJson);
@@ -84,7 +96,8 @@ inline std::vector<CwPlacedItem> ParseSpoilerPlacements(const std::string& spoil
                 std::string item =
                     (isForeign && !fit->second.itemName.empty()) ? fit->second.itemName : iv.get<std::string>();
                 bool adv = isForeign ? fit->second.advancement : lookupAdv(ig, item);
-                placements.push_back({ cg, cn, ig, item, adv });
+                bool major = isForeign ? fit->second.advancement : lookupMajor(ig, item);
+                placements.push_back({ cg, cn, ig, item, adv, major });
             }
         };
         addGame("oot", GAME_OOT);

@@ -3694,11 +3694,14 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
     return cached.c_str();
 }
 
-// ComboShip: serialize a HintText's clear/ambiguous/obscure CustomMessage variants to JSON, in the
-// raw (un-substituted, "#...#"/"[[N]]" markers intact) format so the combo hint composer can splice
-// its own text in. Called only from SOH_DumpRandoHintData below.
+// ComboShip: serialize a HintText's clear/ambiguous/obscure CustomMessage variants to JSON, with
+// "[[N]]" markers intact so the combo hint composer can splice its own text in. MF_ENCODE (not
+// MF_RAW) so the native colors vector gets baked into %g/%w escapes before it's lost to JSON export;
+// otherwise the reconstructed CustomMessage on the combo side has no colors and displays as plain text.
 static nlohmann::json Combo_CustomMessageToJson(const CustomMessage& msg) {
-    return { { "en", msg.GetEnglish(MF_RAW) }, { "de", msg.GetGerman(MF_RAW) }, { "fr", msg.GetFrench(MF_RAW) } };
+    return { { "en", msg.GetEnglish(MF_ENCODE) },
+             { "de", msg.GetGerman(MF_ENCODE) },
+             { "fr", msg.GetFrench(MF_ENCODE) } };
 }
 static nlohmann::json Combo_HintTextToJson(const HintText& ht) {
     nlohmann::json ambiguous = nlohmann::json::array();

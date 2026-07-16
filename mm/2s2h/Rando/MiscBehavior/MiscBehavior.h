@@ -24,6 +24,10 @@ void SendForeignCheck(RandoCheckId rc);
 // ComboShip: whether a foreign check plays the get-item cutscene, mirroring the foreign item's
 // home-game importance against the skip-get-item-cutscene setting.
 bool ShouldShowForeignCutscene(RandoCheckId rc);
+// ComboShip (bug 1): shared post-grant co-op broadcast seam for grant paths outside CheckQueue (e.g.
+// shop buys). Broadcasts iff wasObtained is false — cycleObtained wipes every Song of Time, so a
+// caller must capture the check's `obtained` flag BEFORE setting it and pass it in here.
+void BroadcastCheckObtainedIfFirst(RandoCheckId rc, RandoItemId rawItemId, bool wasObtained);
 #endif
 void InitFileSelect();
 void InitKaleidoItemPage();

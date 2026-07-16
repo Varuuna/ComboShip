@@ -75,18 +75,33 @@ void EnGirlA_RandoBuyFunc(PlayState* play, EnGirlA* enGirlA) {
     Rupees_ChangeBy(-play->msgCtx.unk1206C);
 #ifdef COMBO_BUILD
     // ComboShip: OOT-bound item — deliver cross-game instead of granting locally (mirrors CheckQueue).
+    // Bug 3: guard on wasObtained — cycleObtained resets every Song of Time and could re-trigger this
+    // buy, which would re-deliver the item into OOT's save.
     if (randoSaveCheck.randoItemId == RI_COMBO_FOREIGN) {
+        bool wasObtained = randoSaveCheck.obtained;
         randoSaveCheck.cycleObtained = true;
         randoSaveCheck.obtained = true;
-        Rando::MiscBehavior::SendForeignCheck((RandoCheckId)enGirlA->actor.world.rot.z);
+        if (!wasObtained) {
+            Rando::MiscBehavior::SendForeignCheck((RandoCheckId)enGirlA->actor.world.rot.z);
+        }
         return;
     }
+#endif
+#ifdef COMBO_BUILD
+    // ComboShip (bug 1): shop buys never went through CheckQueue's broadcast; capture obtained
+    // BEFORE the grant (bug 3 pattern — see CheckQueue.cpp) so a re-buy of a renewable doesn't
+    // re-share an already-permanent check.
+    bool wasObtained = randoSaveCheck.obtained;
 #endif
     randoSaveCheck.obtained = true;
     if (randoItemId == RI_TRAP) {
         RollTrapType();
     }
     Rando::GiveItem(randoItemId);
+#ifdef COMBO_BUILD
+    Rando::MiscBehavior::BroadcastCheckObtainedIfFirst((RandoCheckId)enGirlA->actor.world.rot.z,
+                                                         randoSaveCheck.randoItemId, wasObtained);
+#endif
 }
 
 void EnGirlA_RandoBuyFanfareFunc(PlayState* play, EnGirlA* enGirlA) {

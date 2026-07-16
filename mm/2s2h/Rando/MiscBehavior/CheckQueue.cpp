@@ -79,6 +79,14 @@ void Rando::MiscBehavior::SendForeignCheck(RandoCheckId rc) {
     SaveManager_SaveCurrentForCombo();
 }
 
+// ComboShip (bug 1): shared co-op broadcast seam, called by any grant path (CheckQueue below, MM
+// shop buys in EnGirlA.cpp). No-op if wasObtained (see MiscBehavior.h).
+void Rando::MiscBehavior::BroadcastCheckObtainedIfFirst(RandoCheckId rc, RandoItemId rawItemId, bool wasObtained) {
+    if (!wasObtained) {
+        MMAnchor_BroadcastCheckItem((int)rc, (int)rawItemId);
+    }
+}
+
 // ComboShip: mirror ShouldShowGetItemCutscene, but for a foreign check use the foreign item's
 // home-game importance (advancement) against the skip-get-item-cutscene setting.
 bool Rando::MiscBehavior::ShouldShowForeignCutscene(RandoCheckId rc) {
@@ -225,9 +233,8 @@ void Rando::MiscBehavior::CheckQueue() {
                         // ComboShip: shared-progression co-op — broadcast this obtained check's RAW
                         // item to Anchor teammates (CUSTOM_ITEM_PARAM is still the checkId here; it is
                         // overwritten with the item id on the next line). No-op if Anchor is inactive.
-                        if (!wasObtained) {
-                            MMAnchor_BroadcastCheckItem((int)CUSTOM_ITEM_PARAM, (int)randoSaveCheck.randoItemId);
-                        }
+                        Rando::MiscBehavior::BroadcastCheckObtainedIfFirst(
+                            (RandoCheckId)CUSTOM_ITEM_PARAM, randoSaveCheck.randoItemId, wasObtained);
 #endif
                         CUSTOM_ITEM_PARAM = randoItemId;
                     },

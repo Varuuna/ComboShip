@@ -1766,3 +1766,17 @@ Fixes, all `COMBO_BUILD`:
   `shipSaveInfo` assignment and restores any the incoming state lacked; OOT only advances
   `RandomizerCheckStatus` (progressive enum) instead of unconditionally overwriting it, so a
   stale/incomplete peer's resync can't un-collect a check.
+
+## Anchor co-op sync hardening, bug 1: MM shop buys never broadcast (2026-07-16)
+
+**Why:** MM broadcast co-op progress only from `CheckQueue.cpp` (the physical rando check path);
+Bomb/Curiosity shop buys grant directly through `EnGirlA_RandoBuyFunc` (`EnGirlA.cpp`, `EnFsn.cpp`
+just forwards to the same `buyFunc`) without ever calling `MMAnchor_BroadcastCheckItem`, so shop
+purchases never reached teammates.
+
+Fix: factored the bug-3 first-time-obtained broadcast guard into a shared seam,
+`Rando::MiscBehavior::BroadcastCheckObtainedIfFirst` (`MiscBehavior.h`/`CheckQueue.cpp`), and wired
+`EnGirlA_RandoBuyFunc` to call it (both the normal buy and the OOT-bound foreign-item buy branch,
+which gets the same wasObtained guard as `CheckQueue.cpp`'s foreign path). `CheckQueue.cpp`'s own
+broadcast call now goes through the same seam instead of calling `MMAnchor_BroadcastCheckItem`
+directly, so future MM grant paths have one shared, idempotent broadcast point to hook into.

@@ -331,7 +331,6 @@ int main(int argc, char** argv) {
                 // Cross-hint data (Phase 2/3 mirror of RunComboFill, incl. the same area maps so the
                 // WotH/Foolish rollup matches in-game): needs this attempt's still-live oracle session.
                 sohHintDump = SOH_DumpRandoHintData ? SOH_DumpRandoHintData() : "";
-                std::cout << "[comborando] SOH_DumpRandoHintData: " << sohHintDump.size() << " bytes\n";
                 std::unordered_map<std::string, std::string> ootAreas, mmAreas;
                 try {
                     auto hd = nlohmann::json::parse(sohHintDump.empty() ? "{}" : sohHintDump);

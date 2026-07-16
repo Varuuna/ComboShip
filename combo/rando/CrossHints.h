@@ -439,12 +439,12 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
             if (key.empty())
                 return {};
             Tri t = PickTemplate(tmpl(key.c_str()), hintClarity, rng);
+            // Unconditional like native InsertNumber — no-op when the template has no [[d]]/bar, so a
+            // count-based clause configured with 0 still fills [[d]] instead of leaving it literal.
             int count = options.value(countKey, 0);
-            if (count != 0) {
-                insertNumber(t.en, count);
-                insertNumber(t.de, count);
-                insertNumber(t.fr, count);
-            }
+            insertNumber(t.en, count);
+            insertNumber(t.de, count);
+            insertNumber(t.fr, count);
             return t;
         };
 

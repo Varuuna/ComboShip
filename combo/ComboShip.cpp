@@ -856,7 +856,6 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             // like trial selection) or the reload-path force-off touches the hint options.
             if (SOH_DumpRandoHintData) {
                 sohHintDump = SOH_DumpRandoHintData();
-                std::cout << "[ComboShip] SOH_DumpRandoHintData: " << sohHintDump.size() << " bytes\n";
             }
             ootCheckAreasCache = buildOotCheckAreas(sohHintDump); // parsed once, reused below and after the loop
             // ComboShip: requiredness pare-down (Phase 3) — needs the STILL-LIVE oracle session, so it

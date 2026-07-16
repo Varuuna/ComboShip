@@ -156,6 +156,11 @@ class Anchor : public Network {
     void DrawMenu();
     void ProcessIncomingPacketQueue();
     void PumpDormant(); // A6: drain+apply save-affecting co-op packets while OOT is the dormant game
+#ifdef COMBO_BUILD
+    // Bug 2: request a fresh team-state from teammates regardless of active/dormant (bypasses the
+    // foreground-only assumption baked into the menu button's direct SendPacket_RequestTeamState call).
+    void RequestResyncDormantSafe();
+#endif
     void SendJsonToRemote(nlohmann::json packet);
     bool IsSaveLoaded();
     bool CanTeleportTo(uint32_t clientId);

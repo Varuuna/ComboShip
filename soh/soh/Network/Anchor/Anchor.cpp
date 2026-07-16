@@ -309,9 +309,14 @@ void Anchor::PumpDormant() {
             // Answering is read-only over the frozen save, so it's dormant-safe; without it a
             // teammate's resync gets nothing whenever this client is in the other game. Applying a
             // received UPDATE_TEAM_STATE stays foreground-only (dropped below).
+            // Bug 2: this branch was missing the isDormantApply wrap the GIVE_ITEM branch below has,
+            // so IsSaveLoaded() (gated on gPlayState) always failed here while dormant — dormant OOT
+            // never actually answered.
+            isDormantApply = true;
             try {
                 HandlePacket_RequestTeamState(payload);
             } catch (const std::exception& e) { SPDLOG_ERROR("[Anchor] dormant team-state reply: {}", e.what()); }
+            isDormantApply = false;
             continue;
         }
         if (type != GIVE_ITEM) {
@@ -334,6 +339,18 @@ void Anchor::PumpDormant() {
         SaveManager::Instance->SaveFile(gSaveContext.fileNum);
         SPDLOG_INFO("[Anchor] dormant OOT save persisted (file {})", gSaveContext.fileNum);
     }
+}
+
+// Bug 2: launcher-orchestrated resync (auto on connect + the combo menu button). Forces
+// IsSaveLoaded() through its dormant (save-only) branch when there's no play state, so this works
+// whether OOT is the active or the dormant game.
+void Anchor::RequestResyncDormantSafe() {
+    bool wasDormantApply = isDormantApply;
+    if (gPlayState == nullptr) {
+        isDormantApply = true;
+    }
+    SendPacket_RequestTeamState();
+    isDormantApply = wasDormantApply;
 }
 #endif
 

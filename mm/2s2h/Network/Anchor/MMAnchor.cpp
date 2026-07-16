@@ -687,6 +687,21 @@ void MMAnchor::SendPacket_RequestTeamState() {
     SendJson(payload);
 }
 
+// Bug 2: launcher-orchestrated resync (auto on connect + combo menu button). Bypasses SendJson's
+// isActive gate — the whole point is that a dormant MM must also ask teammates for a fresh state,
+// which SendPacket_RequestTeamState (isActive-gated) can't do.
+void MMAnchor::RequestResyncDormantSafe() {
+    if (gMMComboAnchorSend == nullptr || !roomState.syncItemsAndFlags) {
+        return;
+    }
+    nlohmann::json payload;
+    payload["type"] = PKT_REQUEST_TEAM_STATE;
+    payload["targetTeamId"] = CVarGetString(kCvarTeamId, "default");
+    payload["clientId"] = ownClientId;
+    payload["originGame"] = "mm";
+    gMMComboAnchorSend(payload.dump().c_str());
+}
+
 void MMAnchor::HandlePacket_RequestTeamState(const nlohmann::json& payload) {
     if (!IsSaveLoaded() || !roomState.syncItemsAndFlags) {
         return;
@@ -703,7 +718,11 @@ void MMAnchor::SendPacket_UpdateTeamState(const std::string& targetTeamId) {
 
 // Read-only over gSaveContext, so safe both foreground and dormant (no isActive gate).
 void MMAnchor::SendTeamStateFromSave(const std::string& targetTeamId) {
-    if (!IsSaveLoaded() || !roomState.syncItemsAndFlags) {
+    // Bug 2: IsSaveLoaded() requires gPlayState (foreground only) — a dormant MM has none, so the
+    // dormant answer path silently dropped every request. Judge by the resident save instead
+    // (mirrors OOT's isDormantApply branch of Anchor::IsSaveLoaded).
+    bool saveOnDisk = gSaveContext.fileNum >= 0 && gSaveContext.fileNum <= 2;
+    if (!saveOnDisk || !roomState.syncItemsAndFlags) {
         return;
     }
     nlohmann::json payload;
@@ -848,6 +867,13 @@ extern "C" __declspec(dllexport) void MM_SetPumpDormant(void (*cb)()) {
 extern "C" __declspec(dllexport) void MM_Anchor_PumpDormant(void) {
     if (MMAnchor::Instance) {
         MMAnchor::Instance->PumpDormant();
+    }
+}
+
+// Bug 2: launcher-orchestrated resync (auto on connect + combo menu button), dormant-safe.
+extern "C" __declspec(dllexport) void MM_Anchor_RequestResync(void) {
+    if (MMAnchor::Instance) {
+        MMAnchor::Instance->RequestResyncDormantSafe();
     }
 }
 

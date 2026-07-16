@@ -358,6 +358,8 @@ static FnSetAnchorDisconnect SOH_SetAnchorDisconnect = nullptr;
 static FnAnchorRecv SOH_Anchor_RecvJson = nullptr;
 static FnVoidArgless SOH_Anchor_OnConnected = nullptr;
 static FnVoidArgless SOH_Anchor_OnDisconnected = nullptr;
+// Bug 2: launcher-orchestrated resync, dormant-safe (see ComboAnchor::RequestFullResync below).
+static FnVoidArgless SOH_Anchor_RequestResync = nullptr;
 
 // MM Anchor adapter exports (Phase 2). MM piggybacks on the same launcher-owned connection; it is
 // activated/deactivated on transitions and receives inbound packets when it is the active game.
@@ -365,6 +367,7 @@ static FnSetAnchorSend MM_SetAnchorSend = nullptr;
 static FnAnchorRecv MM_Anchor_RecvJson = nullptr;
 static FnVoidArgless MM_Anchor_Activate = nullptr;
 static FnVoidArgless MM_Anchor_Deactivate = nullptr;
+static FnVoidArgless MM_Anchor_RequestResync = nullptr;
 
 // A6: live dormant-game co-op sync. The launcher feeds every inbound packet to BOTH games; the active
 // game calls the registered pump each frame so the dormant sibling applies save-affecting packets on
@@ -451,6 +454,13 @@ static void ReceiveLoop() {
             SOH_Anchor_OnConnected();
         if (sActiveGame.load() == 1 && MM_Anchor_Activate)
             MM_Anchor_Activate();
+        // Bug 2: full both-games resync on every (re)connect. Both requests go out unconditionally
+        // (dormant-safe), so a late-joiner/reconnect pulls the peer's OOT AND MM progress, and this
+        // client's own dormant sibling gets asked too.
+        if (SOH_Anchor_RequestResync)
+            SOH_Anchor_RequestResync();
+        if (MM_Anchor_RequestResync)
+            MM_Anchor_RequestResync();
 
         SDLNet_SocketSet set = SDLNet_AllocSocketSet(1);
         SDLNet_TCP_AddSocket(set, socket);
@@ -1654,6 +1664,8 @@ int main(int argc, char** argv) {
     MM_Anchor_RecvJson = (FnAnchorRecv)GetSym(mmModule, "MM_Anchor_RecvJson");
     MM_Anchor_Activate = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_Activate");
     MM_Anchor_Deactivate = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_Deactivate");
+    SOH_Anchor_RequestResync = (FnVoidArgless)GetSym(sohModule, "SOH_Anchor_RequestResync");
+    MM_Anchor_RequestResync = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_RequestResync");
     SOH_SetPumpDormant = (FnSetPumpDormant)GetSym(sohModule, "SOH_SetPumpDormant");
     MM_SetPumpDormant = (FnSetPumpDormant)GetSym(mmModule, "MM_SetPumpDormant");
     SOH_Anchor_PumpDormant = (FnVoidArgless)GetSym(sohModule, "SOH_Anchor_PumpDormant");

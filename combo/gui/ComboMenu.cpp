@@ -42,6 +42,24 @@ void ResolveComboGenSyms() {
         sIsOnFileSelect = (FnIsOnFileSelect)GetProcAddress(h, "SOH_IsOnFileSelect");
 #endif
 }
+
+// Bug 2: Anchor resync exports, one per game DLL — resolved the same way as the combo-gen syms
+// above. The button calls both so a resync pulls the peer's OOT AND MM team-state.
+typedef void (*FnRequestResync)(void);
+FnRequestResync sSohRequestResync = nullptr;
+FnRequestResync sMmRequestResync = nullptr;
+void ResolveAnchorResyncSyms() {
+#ifdef _WIN32
+    if (!sSohRequestResync) {
+        if (HMODULE h = GetModuleHandleA("soh.dll"))
+            sSohRequestResync = (FnRequestResync)GetProcAddress(h, "SOH_Anchor_RequestResync");
+    }
+    if (!sMmRequestResync) {
+        if (HMODULE h = GetModuleHandleA("2ship.dll"))
+            sMmRequestResync = (FnRequestResync)GetProcAddress(h, "MM_Anchor_RequestResync");
+    }
+#endif
+}
 } // namespace
 
 namespace ComboRando {
@@ -275,7 +293,7 @@ namespace {
 struct HubEntry {
     std::string label; // shown in the left panel
     std::string group; // owning group label (for the unique key)
-    enum Kind { ENGINE, OOT_RANDO, MM_RANDO, COMBO_GEN, COMBO_TRACKER, COMBO_CHECK_TRACKER } kind;
+    enum Kind { ENGINE, OOT_RANDO, MM_RANDO, COMBO_GEN, COMBO_TRACKER, COMBO_CHECK_TRACKER, COMBO_NETWORK } kind;
     const ComboRando::GameMenu* game = nullptr; // ENGINE/OOT_RANDO/MM_RANDO
     int sectionIndex = -1;
     int sidebarIndex = -1;
@@ -499,6 +517,23 @@ void DrawCheckTrackerSharedPanel() {
         }
     }
 }
+
+// Shared > Network: launcher-orchestrated Anchor resync (bug 2). Full "Ship of Harkinian ->
+// Network" settings migration is a separate follow-up; this is just the resync control.
+void DrawNetworkSharedPanel() {
+    const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
+    ResolveAnchorResyncSyms();
+    ImGui::TextWrapped("Pull the latest team progress from your Anchor teammates for BOTH games.");
+    ComboRando::ComboMenu_PushButton(theme);
+    if (ImGui::Button("Resync team state", ImVec2(-1.0f, 0.0f))) {
+        if (sSohRequestResync)
+            sSohRequestResync();
+        if (sMmRequestResync)
+            sMmRequestResync();
+    }
+    ComboRando::ComboMenu_PopButton();
+    ImGui::TextDisabled("Use this if you're missing items/flags a teammate has collected in either game.");
+}
 } // namespace
 
 void ComboMenu::DrawSharedPanel() {
@@ -532,6 +567,12 @@ void ComboMenu::DrawSharedPanel() {
         chk.group = "Settings";
         chk.kind = HubEntry::COMBO_CHECK_TRACKER;
         e.push_back(std::move(chk));
+        // Combo-owned Network panel: launcher-orchestrated Anchor resync (bug 2).
+        HubEntry net;
+        net.label = "Network";
+        net.group = "Settings";
+        net.kind = HubEntry::COMBO_NETWORK;
+        e.push_back(std::move(net));
         if (!e.empty())
             groups.push_back({ "Settings", std::move(e) });
     } else {
@@ -636,6 +677,8 @@ void ComboMenu::DrawSharedPanel() {
         DrawTrackerSharedPanel();
     } else if (active->kind == HubEntry::COMBO_CHECK_TRACKER) {
         DrawCheckTrackerSharedPanel();
+    } else if (active->kind == HubEntry::COMBO_NETWORK) {
+        DrawNetworkSharedPanel();
     } else {
         const CwSidebar& side = active->game->menu->sections[active->sectionIndex].sidebars[active->sidebarIndex];
         RenderSidebarWidgets(side, *active->game);

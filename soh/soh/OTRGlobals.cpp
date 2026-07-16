@@ -2802,6 +2802,12 @@ extern "C" __declspec(dllexport) void SOH_Anchor_PumpDormant(void) {
         Anchor::Instance->PumpDormant();
     }
 }
+// Bug 2: launcher-orchestrated resync (auto on connect + combo menu button), dormant-safe.
+extern "C" __declspec(dllexport) void SOH_Anchor_RequestResync(void) {
+    if (Anchor::Instance) {
+        Anchor::Instance->RequestResyncDormantSafe();
+    }
+}
 
 // ComboShip: cross-game item delivery seam (issue #3). When the other game collects a check whose
 // item belongs to OOT, the launcher calls SOH_GrantCrossItem to grant it straight into OOT's

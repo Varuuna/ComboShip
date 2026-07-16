@@ -1780,3 +1780,32 @@ Fix: factored the bug-3 first-time-obtained broadcast guard into a shared seam,
 which gets the same wasObtained guard as `CheckQueue.cpp`'s foreign path). `CheckQueue.cpp`'s own
 broadcast call now goes through the same seam instead of calling `MMAnchor_BroadcastCheckItem`
 directly, so future MM grant paths have one shared, idempotent broadcast point to hook into.
+
+## Anchor co-op sync hardening, bug 2: launcher-owned both-games resync (2026-07-16)
+
+**Why:** the resync button was OOT-only and foreground-only (`soh/soh/Network/Anchor/Menu.cpp:132`);
+`REQUEST_TEAM_STATE`'s dormant answer path was broken in both games (OOT's `PumpDormant` REQUEST
+branch didn't set `isDormantApply` like its `GIVE_ITEM` branch did, so `IsSaveLoaded()` always failed;
+MM's `SendTeamStateFromSave` gated on `IsSaveLoaded()`, which requires `gPlayState` — always null while
+MM is dormant); and nothing let a dormant sibling itself REQUEST a resync (MM's
+`SendPacket_RequestTeamState` is `isActive`-gated).
+
+Fixes, all `COMBO_BUILD`:
+- `Anchor::PumpDormant` (`soh/soh/Network/Anchor/Anchor.cpp`) now wraps the `REQUEST_TEAM_STATE`
+  branch in `isDormantApply` like the `GIVE_ITEM` branch already did.
+- `MMAnchor::SendTeamStateFromSave` (`mm/2s2h/Network/Anchor/MMAnchor.cpp`) now judges by
+  `gSaveContext.fileNum` instead of `IsSaveLoaded()`, so it answers even while MM is dormant.
+- New dormant-safe request seam per game: `Anchor::RequestResyncDormantSafe()` /
+  `MMAnchor::RequestResyncDormantSafe()`, exported as `SOH_Anchor_RequestResync()` /
+  `MM_Anchor_RequestResync()`. MM's bypasses `SendJson`'s `isActive` gate (constructs+sends the
+  `REQUEST_TEAM_STATE` JSON directly) since the whole point is a dormant MM asking for a resync too.
+- Launcher orchestration (`combo/ComboShip.cpp`): both exports are called, unconditionally, on every
+  (re)connect — a late-joiner/reconnect resync now pulls a peer's OOT AND MM progress, and this
+  client's own dormant sibling gets asked too. Per-game `originGame` packet isolation is untouched;
+  orchestration happens at the launcher, not inside either game's filter.
+- Manual control: a "Resync team state" button in the combo-owned Shared > Settings > Network panel
+  (`combo/gui/ComboMenu.cpp`), resolving both exports the same way the existing combo-gen syms are
+  resolved (`GetModuleHandleA`/`GetProcAddress` — comboui.dll has no other way to call into the game
+  DLLs) and calling both. This is NOT the full "Ship of Harkinian -> Network settings" migration to
+  combo-owned UI (separate follow-up) — just the resync control. The existing OOT Menu.cpp button is
+  unchanged and still works.

@@ -1837,3 +1837,68 @@ Fixes, all `COMBO_BUILD`:
   `masterSeed` changes (regen or reload-from-file), so a check name reused across seeds isn't dropped
   as a false duplicate. `ResetCrossItemDedupForSeed` runs on the generation worker thread while
   `DeliverCrossItem` runs on the game thread, so both now take `sAppliedCrossChecksMutex`.
+
+## Cross-hint playtest fixes: color, dump size, altar (2026-07-16)
+
+**Why:** playtest of the cross-hints feature found 3 issues: hint text displayed with no color,
+Debug seed-gen was slow due to a ~2MB hint-schema JSON dump per fill, and the altar hint showed a
+literal `[[3]]`/`[[N]]` for any dungeon reward cross-placed into MM.
+
+**Fix 1 (color lost):** `soh/soh/OTRGlobals.cpp`'s `Combo_CustomMessageToJson` exported hint text with
+`MF_RAW`, which never runs `EncodeColors` — the native `colors` vector (never itself serialized) was
+silently dropped, so the reconstructed `CustomMessage` on the combo side had no colors and rendered
+plain. Switched to `MF_ENCODE`, which bakes colors into `%g`/`%w`-style escapes while the vector is
+still attached and leaves `[[N]]`/`&`/`^`/`|sing|plur|` untouched, so combo's substitution and the
+existing display path are unaffected.
+
+**Fix 2 (perf, partial — safe wins only, per explicit scope):**
+- `soh/soh/OTRGlobals.cpp`'s `SOH_DumpRandoHintData`: `hintTextTable` trimmed from all ~1646 `RHT_*`
+  entries to `Combo_IsUsedHintTemplate`'s allowlist (the WotH/Foolish/CanBeFoundAt/Hoards/Ganondorf/
+  junk/altar + option-driven end-clause templates `CrossHints.h` can actually emit). Checks/items
+  dumps were NOT trimmed: an attempt to filter them to the seed's placed set (`checks[]`/`items[]`
+  restricted via a caller-supplied filter) caused a reproducible crash in headless verification and
+  was reverted — flagged as a follow-up, not shipped. Net effect: ~2.05MB -> ~1.53MB dump (seed 1).
+- `combo/ComboShip.cpp`: `buildOotCheckAreas(sohHintDump)` was re-parsed twice (once for the pare-down
+  call, once for the foreign-array enrichment after the fill loop) — now parsed once into
+  `ootCheckAreasCache` and reused. `Combo_FinalizeGenerate`'s `ComboHintsPresentInJson`/
+  `ComboHintsJsonFrom` both re-parsed the whole consolidated spoiler just to check/extract the
+  `hints` field — merged into one `ComboHintsJsonFrom` that returns the parsed sub-object directly.
+- `combo/rando/CrossHints.h`'s `NeedsRequirednessPareDown`: also skips the pare-down when
+  `hintDistribution` is 0 ("Useless" preset — no WotH/Foolish category at all), not just when gossip
+  stones are off; conservative for every other distribution (WotH/Foolish always nonzero there).
+
+**Fix 3 (altar `[[N]]` literal):** native `CreateChildAltarHint`/`CreateAdultAltarHint`
+(`3drando/hints.cpp`) resolve reward locations via `FindItemsAndMarkHinted`, which only searches
+`ctx->allLocations` (OOT's own checks) — a reward cross-placed into MM comes back `RC_UNKNOWN_CHECK`
+and is skipped, leaving `InsertNames` with fewer areas than template slots.
+- `soh/soh/OTRGlobals.cpp`: `SOH_ApplyRandoPlacements` now skips its own
+  `CreateChildAltarHint()`/`CreateAdultAltarHint()` calls when `sComboHintsPresent` (combo supplies
+  the altar hint instead, via `SOH_ApplyComboHints`'s new `"__ALTAR_CHILD__"`/`"__ALTAR_ADULT__"`
+  sentinels -> `RH_ALTAR_CHILD`/`RH_ALTAR_ADULT`, added as `HINT_TYPE_MESSAGE`); `CreateStaticHints()`
+  (called at the end of `SOH_ApplyComboHints`) self-skips the already-enabled key, so native never
+  overwrites combo's version. Back-compat (no combo hints payload) is unaffected — those two calls
+  still run as before.
+  `SOH_DumpRandoHintData`'s options now also resolve the exact end-clause template key + count for
+  each option family (bridge/Ganon's-boss-key/Ganon's-soul/win-condition + door-of-time), mirroring
+  `hint.cpp`'s `GetBridgeReqsText`/`GetGanonBossKeyText`/`GetGanonsSoulText`/`GetWinconText`/altar
+  door-of-time branch exactly (same `Is()` checks) — the combo side gets a template NAME + count, not
+  an enum ordinal to reinterpret, so there's no ordinal-drift risk if the enums change.
+- `combo/rando/CrossHints.h`: composes both altar hints from `RHT_CHILD_ALTAR_STONES`/
+  `RHT_ADULT_ALTAR_MEDALLIONS`, resolving each reward (`Kokiri's Emerald`/`Goron's Ruby`/
+  `Zora's Sapphire`/5 medallions + Light Medallion) by scanning the FULL placement list (not the
+  advancement-filtered candidate list — a reward's advancement stamp isn't guaranteed reliable) for
+  an OOT-owned item of that name, then resolving its check's area via `ootChecks`/`mmLocationHints`
+  regardless of which game holds the check. Appends the resolved end clauses (door-of-time for child;
+  bridge+GBK+soul+wincon+text-end for adult), replicating `InsertNumber`'s `|singular|plural|`+`[[d]]`
+  substitution. Only emitted when `totAltarHint` is on (matches native gating; off leaves the earlier
+  "No Hint" fix's behavior untouched).
+  **Known residual gap:** one dungeon-reward item occasionally isn't found in the placement list at
+  all for a given seed (pre-existing fill/dump completeness gap, not something introduced by this
+  composition) — degrades to "an unknown place" for that one slot rather than crashing or leaving a
+  literal `[[N]]`; needs its own investigation, out of scope here.
+
+**Verified:** all 4 targets (soh/2ship/ComboShip/comborando) build clean; headless
+`comborando.exe --seed <n>` run repeatedly (multiple seeds, 3x each) with no crash; same seed run
+twice produces byte-identical `hints` and placements (determinism preserved); consolidated spoiler's
+`hints.oot[]` altar entries contain `%`-color codes and every `[[N]]` slot filled (no literal
+placeholder) except the one known residual gap above.

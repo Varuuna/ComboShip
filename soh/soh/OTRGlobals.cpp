@@ -6,6 +6,7 @@
 #include <fstream>
 #include <set>
 #include <sstream>
+#include <unordered_set>
 #include <vector>
 #include <chrono>
 #include <optional>
@@ -3715,11 +3716,42 @@ static nlohmann::json Combo_HintTextToJson(const HintText& ht) {
              { "obscure", std::move(obscure) } };
 }
 
+// ComboShip: hintTextTable keys the combo hint composer (CrossHints.h) can actually emit — every
+// other RHT_* key is a native-only template (native reads its own in-process table directly, so
+// trimming this JSON export never affects native hint behavior). Keeping the dump to this allowlist
+// (+ RHT_JUNK* below) is most of the Debug dump-size win: the full table is ~1646 entries.
+static bool Combo_IsUsedHintTemplate(const std::string& name) {
+    static const std::unordered_set<std::string> kAllow = {
+        "RHT_WAY_OF_THE_HERO", "RHT_FOOLISH", "RHT_CAN_BE_FOUND_AT", "RHT_HOARDS",
+        "RHT_GANONDORF_HINT_LA_ONLY",
+        // Altar templates + option-driven end clauses (Fix 3: combo composes altar hints itself).
+        "RHT_CHILD_ALTAR_STONES", "RHT_CHILD_ALTAR_TEXT_END_DOTOPEN", "RHT_CHILD_ALTAR_TEXT_END_DOTSONGONLY",
+        "RHT_CHILD_ALTAR_TEXT_END_DOTCLOSED", "RHT_ADULT_ALTAR_MEDALLIONS", "RHT_ADULT_ALTAR_TEXT_END",
+        "RHT_BRIDGE_OPEN_HINT", "RHT_BRIDGE_VANILLA_HINT", "RHT_BRIDGE_STONES_HINT", "RHT_BRIDGE_MEDALLIONS_HINT",
+        "RHT_BRIDGE_REWARDS_HINT", "RHT_BRIDGE_DUNGEONS_HINT", "RHT_BRIDGE_TOKENS_HINT",
+        "RHT_BRIDGE_TRIFORCE_PIECES_HINT", "RHT_BRIDGE_GREG_HINT",
+        "RHT_GANON_BK_START_WITH_HINT", "RHT_GANON_BK_VANILLA_HINT", "RHT_GANON_BK_OWN_DUNGEON_HINT",
+        "RHT_GANON_BK_ANY_DUNGEON_HINT", "RHT_GANON_BK_OVERWORLD_HINT", "RHT_GANON_BK_ANYWHERE_HINT",
+        "RHT_GBK_STONES_HINT", "RHT_GBK_MEDALLIONS_HINT", "RHT_GBK_REWARDS_HINT", "RHT_GBK_DUNGEONS_HINT",
+        "RHT_GBK_TOKENS_HINT", "RHT_GBK_TRIFORCE_PIECES_HINT",
+        "RHT_GANONS_SOUL_STONES_HINT", "RHT_GANONS_SOUL_MEDALLIONS_HINT", "RHT_GANONS_SOUL_REWARDS_HINT",
+        "RHT_GANONS_SOUL_DUNGEONS_HINT", "RHT_GANONS_SOUL_TOKENS_HINT", "RHT_GANONS_SOUL_TRIFORCE_PIECES_HINT",
+        "RHT_WINCON_ANYWHERE_HINT", "RHT_WINCON_STONES_HINT", "RHT_WINCON_MEDALLIONS_HINT",
+        "RHT_WINCON_REWARDS_HINT", "RHT_WINCON_DUNGEONS_HINT", "RHT_WINCON_TOKENS_HINT",
+        "RHT_WINCON_TRIFORCE_PIECES_HINT",
+    };
+    return kAllow.count(name) != 0 || name.rfind("RHT_JUNK", 0) == 0;
+}
+
 // ComboShip: hint schema/data export for the combo hint layer (cross-game hint system, Phase 2).
 // Pure reader of already-resolved Context state (options, StaticData tables, resolved trials) — does
 // NOT call SOH_PrepRandoContext (that re-rolls RNG-derived state like trial selection). Must be
 // called once per successful fill, immediately after that attempt's SOH_DumpRandoStaticData, so the
 // Context is still the winning attempt's state. Returns a JSON object; never throws across the ABI.
+// Checks[]/items[] dump every static check/item regardless of this seed's placements (the combo
+// distributor decides which are hintable for its combined world) — trimming that further to a
+// placed-set filter hit a reproducible crash during headless verification and was backed out; only
+// hintTextTable (below) is trimmed for now. See docs/UPSTREAM_MERGES.md cross-hints entry.
 extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
     static std::string cached;
     nlohmann::json out = nlohmann::json::object();
@@ -3728,6 +3760,64 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
 
         // Resolved hint-affecting options (honest player settings; the reload path's force-off
         // happens later, in SOH_ApplyRandoPlacements, so this read is unaffected by it).
+        // Altar end-clause option-composition (Fix 3): resolve the exact RHT_* template key + count
+        // combo should splice in, mirroring hint.cpp's GetBridgeReqsText/GetGanonBossKeyText/
+        // GetGanonsSoulText/GetWinconText option->template selection exactly (same Is() checks) —
+        // avoids the combo side having to guess RSK_* enum ordinals.
+        auto bridge = [&]() -> std::pair<const char*, int> {
+            auto& o = ctx->GetOption(RSK_RAINBOW_BRIDGE);
+            if (o.Is(RO_BRIDGE_ALWAYS_OPEN)) return { "RHT_BRIDGE_OPEN_HINT", 0 };
+            if (o.Is(RO_BRIDGE_VANILLA)) return { "RHT_BRIDGE_VANILLA_HINT", 0 };
+            if (o.Is(RO_BRIDGE_STONES)) return { "RHT_BRIDGE_STONES_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_STONE_COUNT).Get() };
+            if (o.Is(RO_BRIDGE_MEDALLIONS)) return { "RHT_BRIDGE_MEDALLIONS_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_MEDALLION_COUNT).Get() };
+            if (o.Is(RO_BRIDGE_DUNGEON_REWARDS)) return { "RHT_BRIDGE_REWARDS_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_REWARD_COUNT).Get() };
+            if (o.Is(RO_BRIDGE_DUNGEONS)) return { "RHT_BRIDGE_DUNGEONS_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_DUNGEON_COUNT).Get() };
+            if (o.Is(RO_BRIDGE_TOKENS)) return { "RHT_BRIDGE_TOKENS_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_TOKEN_COUNT).Get() };
+            if (o.Is(RO_BRIDGE_TRIFORCE_PIECES)) return { "RHT_BRIDGE_TRIFORCE_PIECES_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_TRIFORCE_COUNT).Get() };
+            if (o.Is(RO_BRIDGE_GREG)) return { "RHT_BRIDGE_GREG_HINT", 0 };
+            return { "", 0 };
+        }();
+        auto gbk = [&]() -> std::pair<const char*, int> {
+            auto& o = ctx->GetOption(RSK_GANONS_BOSS_KEY);
+            if (o.Is(RO_GANON_BOSS_KEY_STARTWITH)) return { "RHT_GANON_BK_START_WITH_HINT", 0 };
+            if (o.Is(RO_GANON_BOSS_KEY_VANILLA)) return { "RHT_GANON_BK_VANILLA_HINT", 0 };
+            if (o.Is(RO_GANON_BOSS_KEY_OWN_DUNGEON)) return { "RHT_GANON_BK_OWN_DUNGEON_HINT", 0 };
+            if (o.Is(RO_GANON_BOSS_KEY_ANY_DUNGEON)) return { "RHT_GANON_BK_ANY_DUNGEON_HINT", 0 };
+            if (o.Is(RO_GANON_BOSS_KEY_OVERWORLD)) return { "RHT_GANON_BK_OVERWORLD_HINT", 0 };
+            if (o.Is(RO_GANON_BOSS_KEY_ANYWHERE)) return { "RHT_GANON_BK_ANYWHERE_HINT", 0 };
+            if (o.Is(RO_GANON_BOSS_KEY_STONES)) return { "RHT_GBK_STONES_HINT", ctx->GetOption(RSK_GBK_STONE_COUNT).Get() };
+            if (o.Is(RO_GANON_BOSS_KEY_MEDALLIONS)) return { "RHT_GBK_MEDALLIONS_HINT", ctx->GetOption(RSK_GBK_MEDALLION_COUNT).Get() };
+            if (o.Is(RO_GANON_BOSS_KEY_REWARDS)) return { "RHT_GBK_REWARDS_HINT", ctx->GetOption(RSK_GBK_REWARD_COUNT).Get() };
+            if (o.Is(RO_GANON_BOSS_KEY_DUNGEONS)) return { "RHT_GBK_DUNGEONS_HINT", ctx->GetOption(RSK_GBK_DUNGEON_COUNT).Get() };
+            if (o.Is(RO_GANON_BOSS_KEY_TOKENS)) return { "RHT_GBK_TOKENS_HINT", ctx->GetOption(RSK_GBK_TOKEN_COUNT).Get() };
+            if (o.Is(RO_GANON_BOSS_KEY_TRIFORCE_PIECES)) return { "RHT_GBK_TRIFORCE_PIECES_HINT", ctx->GetOption(RSK_GBK_TRIFORCE_COUNT).Get() };
+            return { "", 0 };
+        }();
+        auto soul = [&]() -> std::pair<const char*, int> {
+            auto& o = ctx->GetOption(RSK_GANONS_SOUL);
+            if (o.Is(RO_GANONS_SOUL_STONES)) return { "RHT_GANONS_SOUL_STONES_HINT", ctx->GetOption(RSK_GANONS_SOUL_STONE_COUNT).Get() };
+            if (o.Is(RO_GANONS_SOUL_MEDALLIONS)) return { "RHT_GANONS_SOUL_MEDALLIONS_HINT", ctx->GetOption(RSK_GANONS_SOUL_MEDALLION_COUNT).Get() };
+            if (o.Is(RO_GANONS_SOUL_REWARDS)) return { "RHT_GANONS_SOUL_REWARDS_HINT", ctx->GetOption(RSK_GANONS_SOUL_REWARD_COUNT).Get() };
+            if (o.Is(RO_GANONS_SOUL_DUNGEONS)) return { "RHT_GANONS_SOUL_DUNGEONS_HINT", ctx->GetOption(RSK_GANONS_SOUL_DUNGEON_COUNT).Get() };
+            if (o.Is(RO_GANONS_SOUL_TOKENS)) return { "RHT_GANONS_SOUL_TOKENS_HINT", ctx->GetOption(RSK_GANONS_SOUL_TOKEN_COUNT).Get() };
+            if (o.Is(RO_GANONS_SOUL_TRIFORCE_PIECES)) return { "RHT_GANONS_SOUL_TRIFORCE_PIECES_HINT", ctx->GetOption(RSK_GANONS_SOUL_TRIFORCE_COUNT).Get() };
+            return { "", 0 }; // RO_GANONS_SOUL_NONE: native emits nothing for this clause either
+        }();
+        auto wincon = [&]() -> std::pair<const char*, int> {
+            auto& o = ctx->GetOption(RSK_WINCON);
+            if (o.Is(RO_WINCON_ANYWHERE)) return { "RHT_WINCON_ANYWHERE_HINT", 0 };
+            if (o.Is(RO_WINCON_STONES)) return { "RHT_WINCON_STONES_HINT", ctx->GetOption(RSK_WINCON_STONE_COUNT).Get() };
+            if (o.Is(RO_WINCON_MEDALLIONS)) return { "RHT_WINCON_MEDALLIONS_HINT", ctx->GetOption(RSK_WINCON_MEDALLION_COUNT).Get() };
+            if (o.Is(RO_WINCON_REWARDS)) return { "RHT_WINCON_REWARDS_HINT", ctx->GetOption(RSK_WINCON_REWARD_COUNT).Get() };
+            if (o.Is(RO_WINCON_DUNGEONS)) return { "RHT_WINCON_DUNGEONS_HINT", ctx->GetOption(RSK_WINCON_DUNGEON_COUNT).Get() };
+            if (o.Is(RO_WINCON_TOKENS)) return { "RHT_WINCON_TOKENS_HINT", ctx->GetOption(RSK_WINCON_TOKEN_COUNT).Get() };
+            if (o.Is(RO_WINCON_TRIFORCE_PIECES)) return { "RHT_WINCON_TRIFORCE_PIECES_HINT", ctx->GetOption(RSK_WINCON_TRIFORCE_COUNT).Get() };
+            return { "", 0 };
+        }();
+        const char* doorOfTimeKey = ctx->GetOption(RSK_DOOR_OF_TIME).Is(RO_DOOROFTIME_OPEN) ? "RHT_CHILD_ALTAR_TEXT_END_DOTOPEN"
+                                    : ctx->GetOption(RSK_DOOR_OF_TIME).Is(RO_DOOROFTIME_SONGONLY) ? "RHT_CHILD_ALTAR_TEXT_END_DOTSONGONLY"
+                                                                                                  : "RHT_CHILD_ALTAR_TEXT_END_DOTCLOSED";
+
         out["options"] = {
             { "gossipStoneHints", static_cast<int>(ctx->GetOption(RSK_GOSSIP_STONE_HINTS).Get()) },
             { "hintClarity", static_cast<int>(ctx->GetOption(RSK_HINT_CLARITY).Get()) },
@@ -3735,6 +3825,11 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
             { "ganondorfHint", static_cast<int>(ctx->GetOption(RSK_GANONDORF_HINT).Get()) },
             { "warpSongHints", static_cast<int>(ctx->GetOption(RSK_WARP_SONG_HINTS).Get()) },
             { "totAltarHint", static_cast<int>(ctx->GetOption(RSK_TOT_ALTAR_HINT).Get()) },
+            { "doorOfTimeTemplate", doorOfTimeKey },
+            { "bridgeTemplate", bridge.first }, { "bridgeCount", bridge.second },
+            { "gbkTemplate", gbk.first }, { "gbkCount", gbk.second },
+            { "soulTemplate", soul.first }, { "soulCount", soul.second },
+            { "winconTemplate", wincon.first }, { "winconCount", wincon.second },
         };
 
         // Area list: static per-check area (RCAREA_*) — Location::GetArea(), not the runtime
@@ -3758,6 +3853,17 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
                 stones.push_back(loc->GetName());
         }
         out["stones"] = std::move(stones);
+
+        // Always-hint candidates (settings-applied: RC_MARKET_10_BIG_POES, Biggoron's Claim Check, etc).
+        nlohmann::json always = nlohmann::json::array();
+#ifdef COMBO_BUILD
+        for (RandomizerCheck rc : GetAlwaysHintCandidates()) {
+            Rando::Location* loc = Rando::StaticData::GetLocation(rc);
+            if (loc && !loc->GetName().empty())
+                always.push_back(loc->GetName());
+        }
+#endif
+        out["alwaysHintChecks"] = std::move(always);
 
         // Per-check hint text (every static check, not just this settings' shuffled subset — the
         // combo distributor decides which checks are hintable for its combined world).
@@ -3786,29 +3892,19 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
         }
         out["items"] = std::move(items);
 
-        // Full hint-text-fragment table, keyed by RHT_* enum name — covers every hand-written
-        // template (WotH/Foolish/CanBeFoundAt/Hoards, junk RHT_JUNK01-71, per-trial texts, warp song
-        // texts, Ganondorf-hint variants) without hand-picking keys that may drift.
+        // Hint-text-fragment table, keyed by RHT_* enum name. Trimmed to Combo_IsUsedHintTemplate's
+        // allowlist (the templates CrossHints.h's distributor + altar/end-clause composition can
+        // actually emit) instead of every RHT_MAX (~1646) entry — a missing key degrades to an empty
+        // {clear:{}} entry on the combo side (PickTemplate's fallbacks), never a crash.
         nlohmann::json templates = nlohmann::json::object();
         for (int k = 0; k < RHT_MAX; ++k) {
             auto key = static_cast<RandomizerHintTextKey>(k);
             auto name = EnumToString(key);
-            if (!name.has_value())
+            if (!name.has_value() || !Combo_IsUsedHintTemplate(std::string(*name)))
                 continue;
             templates[std::string(*name)] = Combo_HintTextToJson(Rando::StaticData::hintTextTable[key]);
         }
         out["hintTextTable"] = std::move(templates);
-
-        // Always-hint candidates (settings-applied: RC_MARKET_10_BIG_POES, Biggoron's Claim Check, etc).
-        nlohmann::json always = nlohmann::json::array();
-#ifdef COMBO_BUILD
-        for (RandomizerCheck rc : GetAlwaysHintCandidates()) {
-            Rando::Location* loc = Rando::StaticData::GetLocation(rc);
-            if (loc && !loc->GetName().empty())
-                always.push_back(loc->GetName());
-        }
-#endif
-        out["alwaysHintChecks"] = std::move(always);
 
         // Resolved Ganon's Trials (FinalizeSettings already rolled RSK_GANONS_TRIALS' random-number
         // case via Random() during SOH_PrepRandoContext, before this function runs) — the combo hint
@@ -3871,6 +3967,10 @@ extern "C" __declspec(dllexport) void SOH_ApplyComboHints(const char* json) {
             RandomizerHint rh = RH_NONE;
             if (checkName == "__GANONDORF__") {
                 rh = RH_GANONDORF_HINT;
+            } else if (checkName == "__ALTAR_CHILD__") {
+                rh = RH_ALTAR_CHILD;
+            } else if (checkName == "__ALTAR_ADULT__") {
+                rh = RH_ALTAR_ADULT;
             } else if (checkName.rfind("__", 0) == 0) {
                 // "__STONE__N"/"__TRIAL__.../"__JUNK__...": CrossHints.h assigns these to an abstract
                 // stone SLOT (count only, not a specific check — combo doesn't pick which physical
@@ -4012,8 +4112,14 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
         // Combo never runs CreateStaticHints(), so the ToT altar hint table stays empty ("No Hint").
         // These two are option-composed and self-skip when RSK_TOT_ALTAR_HINT is off; run them here
         // (placements are all applied by now) instead of pulling in the rest of CreateStaticHints().
-        CreateChildAltarHint();
-        CreateAdultAltarHint();
+        // Skipped when a cross-hint payload is coming: SOH_ApplyComboHints composes the altar hint
+        // itself (every reward resolved across BOTH games, native's FindItemsAndMarkHinted only sees
+        // OOT's own locations) and runs CreateStaticHints() at the end, which self-skips an
+        // already-enabled key — calling these here first would let native's version win instead.
+        if (!sComboHintsPresent) {
+            CreateChildAltarHint();
+            CreateAdultAltarHint();
+        }
 #endif
 
         ctx->SetSeedGenerated(true);

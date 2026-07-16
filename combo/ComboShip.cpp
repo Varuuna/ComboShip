@@ -774,6 +774,10 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     bool usedCombinedFill = false;
     nlohmann::json playthroughJson = nlohmann::json::array(); // structured sphere playthrough (combined-fill only)
     ComboRando::RequirednessResult pareDownResult; // cross-hint Phase 3 WotH/foolish classification
+    // ComboShip: checkName -> OOT area, computed once from sohHintDump right after the winning attempt's
+    // dump (below) — reused by the pare-down call and the foreign-array enrichment after the fill loop,
+    // instead of re-parsing sohHintDump twice for the same map.
+    std::unordered_map<std::string, std::string> ootCheckAreasCache;
 
     // ComboShip: checkName -> area/region string, from each game's own dump. Shared by the pare-down
     // (foolish-area rollup) and the foreign-array enrichment after the fill loop.
@@ -850,16 +854,19 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             // ComboShip: cross-hint schema dump (Phase 2) — must run on THIS attempt's still-live OOT
             // Context, before anything re-runs FinalizeSettings (which would re-roll RNG-derived state
             // like trial selection) or the reload-path force-off touches the hint options.
-            if (SOH_DumpRandoHintData)
+            if (SOH_DumpRandoHintData) {
                 sohHintDump = SOH_DumpRandoHintData();
+                std::cout << "[ComboShip] SOH_DumpRandoHintData: " << sohHintDump.size() << " bytes\n";
+            }
+            ootCheckAreasCache = buildOotCheckAreas(sohHintDump); // parsed once, reused below and after the loop
             // ComboShip: requiredness pare-down (Phase 3) — needs the STILL-LIVE oracle session, so it
             // runs before WriteComboPlaythrough (which restores MM internally). Doesn't restore itself;
             // the WriteComboPlaythrough call below (or the loop's own restore) does that once. Skipped
             // entirely when no enabled hint surface consumes requiredness (empty result = all non-required).
             if (ComboRando::NeedsRequirednessPareDown(sohHintDump, mmDump)) {
-                pareDownResult =
-                    ComboRando::PareDownPlaythrough(result.spoilerJson, ootOracle, mmOracle, nullptr, sohDump, mmDump,
-                                                    buildOotCheckAreas(sohHintDump), buildMmCheckAreas(mmDump));
+                pareDownResult = ComboRando::PareDownPlaythrough(result.spoilerJson, ootOracle, mmOracle, nullptr,
+                                                                 sohDump, mmDump, ootCheckAreasCache,
+                                                                 buildMmCheckAreas(mmDump));
             } else {
                 std::cout << "[ComboShip] RunComboFill: pare-down skipped (no enabled hint surface needs "
                              "requiredness)\n";
@@ -1021,10 +1028,9 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         consolidated["mm"] = { { "settings", parseOrEmpty(MM_DumpRandoSettings) },
                                { "placements", mmSpoiler },
                                { "prices", pricesOf(mmDump) } };
-        // ComboShip: checkName -> OOT area name, from the hint dump's "checks" list, so oot-side
-        // foreign entries can carry a "checkArea" (cross-hint Phase 2 schema; consumed in Phase 3).
-        std::unordered_map<std::string, std::string> ootCheckAreas = buildOotCheckAreas(sohHintDump);
-        auto foreignEnriched = ComboRando::BuildForeignArray(foreignArr, ootCheckAreas);
+        // ComboShip: checkName -> OOT area name (cross-hint Phase 2 schema; consumed in Phase 3) — reuses
+        // the same parse done above, right after sohHintDump was produced, instead of re-parsing it here.
+        auto foreignEnriched = ComboRando::BuildForeignArray(foreignArr, ootCheckAreasCache);
         consolidated["foreign"] = foreignEnriched;
         consolidated["playthrough"] = playthroughJson;
         // ComboShip: cross-game hint generation (Phase 3) — real per-seed hint assignments, from the
@@ -1219,22 +1225,20 @@ static void Combo_OnGenerateThreaded(const char* inputSeed) {
 // ComboShip: cross-hint Phase 3 — "hints" only contains "oot" for a seed CrossHints::Generate actually
 // ran on; older/no-logic-fallback seeds keep the Phase 2 {"version":1} scaffold and fall back to the
 // pre-Phase-3 force-off behavior (back-compat).
-static bool ComboHintsPresentInJson(const std::string& consolidatedJson) {
+// ComboShip: slices the "hints" sub-object out of the consolidated spoiler once (parse-once — this
+// used to be two separate re-parses of the whole consolidated blob just to check/extract one field).
+static nlohmann::json ComboHintsJsonFrom(const std::string& consolidatedJson) {
     try {
-        return nlohmann::json::parse(consolidatedJson).value("hints", nlohmann::json::object()).contains("oot");
-    } catch (...) { return false; }
-}
-static std::string ComboHintsJsonFrom(const std::string& consolidatedJson) {
-    try {
-        return nlohmann::json::parse(consolidatedJson).value("hints", nlohmann::json::object()).dump();
-    } catch (...) { return "{}"; }
+        return nlohmann::json::parse(consolidatedJson).value("hints", nlohmann::json::object());
+    } catch (...) { return nlohmann::json::object(); }
 }
 
 // ComboShip: main-thread finalize — the gSaveContext-mutating apply + seed-hash set. Runs from
 // Combo_PollFinalize on the main thread once the worker has stashed its result. NEVER call from the
 // worker thread (that race crashed the prior threaded attempt).
 static void Combo_FinalizeGenerate() {
-    bool hintsPresent = ComboHintsPresentInJson(g_ConsolidatedJson);
+    nlohmann::json hints = ComboHintsJsonFrom(g_ConsolidatedJson);
+    bool hintsPresent = hints.contains("oot");
     if (SOH_SetComboHintsPresent)
         SOH_SetComboHintsPresent(hintsPresent ? 1 : 0);
     if (SOH_ApplyRandoPlacements) {
@@ -1246,7 +1250,7 @@ static void Combo_FinalizeGenerate() {
     if (SOH_SetComboSeedHash)
         SOH_SetComboSeedHash(g_FinalizeDisplaySeed);
     if (hintsPresent && SOH_ApplyComboHints)
-        SOH_ApplyComboHints(ComboHintsJsonFrom(g_ConsolidatedJson).c_str());
+        SOH_ApplyComboHints(hints.dump().c_str());
     // A fresh generation's live MM CVars already ARE this seed's settings, so slot-bind must fall
     // through to reading them directly — clear any stale reload-restore state left by an unstarted
     // pending seed (else it would apply THAT seed's MM settings over this generation's placements).

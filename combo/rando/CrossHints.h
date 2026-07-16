@@ -37,10 +37,16 @@ namespace ComboRando {
 // Whether any enabled hint surface actually consumes requiredness (WotH/Foolish areas, or MM's cross
 // gossip pool weighting below, c.required). If neither side wants it, PareDownPlaythrough can be
 // skipped entirely: Generate() still produces every other hint category from an empty RequirednessResult.
+// hintDistribution 0 ("Useless" — see HintPresets() below) has no WotH/Foolish category at all, so even
+// with gossip stones on, requiredness is never consumed on the OOT side; conservative otherwise (any
+// other distribution keeps WotH+Foolish nonzero, so falls through to the existing gossip-stone check).
 inline bool NeedsRequirednessPareDown(const std::string& sohHintDumpJson, const std::string& mmDumpJson) {
     try {
         auto hd = nlohmann::json::parse(sohHintDumpJson.empty() ? "{}" : sohHintDumpJson);
-        if (hd.value("options", nlohmann::json::object()).value("gossipStoneHints", 0) != 0)
+        auto opts = hd.value("options", nlohmann::json::object());
+        int gossipStoneHints = opts.value("gossipStoneHints", 0);
+        int hintDistribution = opts.value("hintDistribution", 1);
+        if (gossipStoneHints != 0 && hintDistribution != 0)
             return true;
     } catch (...) {}
     try {
@@ -62,6 +68,13 @@ inline Tri EnglishOnly(const std::string& s) {
 }
 inline Tri FromJson(const nlohmann::json& j) {
     return { j.value("en", ""), j.value("de", ""), j.value("fr", "") };
+}
+// Per-language concatenation (mirrors CustomMessage::operator+, used to append altar end clauses).
+inline Tri& operator+=(Tri& a, const Tri& b) {
+    a.en += b.en;
+    a.de += b.de;
+    a.fr += b.fr;
+    return a;
 }
 
 // Picks one clear/ambiguous/obscure variant from a {clear:{en,de,fr}, ambiguous:[...], obscure:[...]}
@@ -368,6 +381,95 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
                                  { "type", "ganondorf" },
                                  { "messages", { { { "en", msg.en }, { "de", msg.de }, { "fr", msg.fr } } } } });
         }
+    }
+
+    // Altar hints (Fix 3): composed here (not left to native CreateChildAltarHint/CreateAdultAltarHint)
+    // because native's FindItemsAndMarkHinted only searches ctx->allLocations (OOT's own checks) — a
+    // dungeon reward cross-placed into MM comes back RC_UNKNOWN_CHECK and gets skipped, leaving a
+    // literal "[[N]]" in the displayed hint. Resolving each reward via `candidates` (which spans both
+    // games) fills every slot regardless of which game holds it.
+    if (options.value("totAltarHint", 0) != 0) {
+        // Searches the FULL placement list (not the advancement-filtered `candidates`) — dungeon
+        // rewards are always progression, but a fixed/own-dungeon reward's advancement stamp in the
+        // dump isn't guaranteed, and a missed reward here would wrongly read as "an unknown place".
+        auto rewardArea = [&](const char* itemName) -> Tri {
+            auto it = std::find_if(placements.begin(), placements.end(), [&](const CwPlacedItem& p) {
+                return p.itemGame == GAME_OOT && p.item == itemName;
+            });
+            if (it == placements.end())
+                return EnglishOnly("an unknown place"); // graceful: seen when a reward isn't in the
+                                                          // placement dump at all (pre-existing fill gap,
+                                                          // not an altar-composition bug — see UPSTREAM_MERGES.md)
+            if (it->checkGame == GAME_OOT) {
+                auto ck = ootChecks.find(it->check);
+                if (ck != ootChecks.end())
+                    return areaText("oot:" + ck->second.area);
+            } else {
+                auto mk = mmLocationHints.find(it->check);
+                return areaText("mm:" + (mk != mmLocationHints.end() ? mk->second : it->check));
+            }
+            return EnglishOnly("an unknown place");
+        };
+        auto endClause = [&](const char* jsonKey) -> Tri {
+            std::string key = options.value(jsonKey, "");
+            return key.empty() ? Tri{} : PickTemplate(tmpl(key.c_str()), hintClarity, rng);
+        };
+        // Mirrors CustomMessage::InsertNumber (CustomMessageManager.cpp:643): "|singular|plural|"
+        // collapses to whichever branch matches num==1, then "[[d]]" becomes the number.
+        auto insertNumber = [](std::string& s, int num) {
+            size_t bar1 = s.find('|');
+            if (bar1 != std::string::npos) {
+                size_t bar2 = s.find('|', bar1 + 1);
+                size_t bar3 = bar2 == std::string::npos ? std::string::npos : s.find('|', bar2 + 1);
+                if (bar3 != std::string::npos) {
+                    if (num == 1)
+                        s.erase(bar2, bar3 - bar2);
+                    else
+                        s.erase(bar1, bar2 - bar1);
+                }
+            }
+            size_t p;
+            while ((p = s.find('|')) != std::string::npos)
+                s.erase(p, 1);
+            while ((p = s.find("[[d]]")) != std::string::npos)
+                s.replace(p, 5, std::to_string(num));
+        };
+        auto withCount = [&](const char* templateKey, const char* countKey) -> Tri {
+            std::string key = options.value(templateKey, "");
+            if (key.empty())
+                return {};
+            Tri t = PickTemplate(tmpl(key.c_str()), hintClarity, rng);
+            int count = options.value(countKey, 0);
+            if (count != 0) {
+                insertNumber(t.en, count);
+                insertNumber(t.de, count);
+                insertNumber(t.fr, count);
+            }
+            return t;
+        };
+
+        static const char* kChildRewards[3] = { "Kokiri's Emerald", "Goron's Ruby", "Zora's Sapphire" };
+        Tri childMsg = PickTemplate(tmpl("RHT_CHILD_ALTAR_STONES"), hintClarity, rng);
+        for (int i = 0; i < 3; ++i)
+            ReplacePlaceholder(childMsg, i + 1, rewardArea(kChildRewards[i]));
+        childMsg += endClause("doorOfTimeTemplate");
+        ootHints.push_back({ { "checkName", "__ALTAR_CHILD__" },
+                             { "type", "altarChild" },
+                             { "messages", { { { "en", childMsg.en }, { "de", childMsg.de }, { "fr", childMsg.fr } } } } });
+
+        static const char* kAdultRewards[6] = { "Light Medallion",  "Forest Medallion", "Fire Medallion",
+                                                "Water Medallion", "Spirit Medallion", "Shadow Medallion" };
+        Tri adultMsg = PickTemplate(tmpl("RHT_ADULT_ALTAR_MEDALLIONS"), hintClarity, rng);
+        for (int i = 0; i < 6; ++i)
+            ReplacePlaceholder(adultMsg, i + 1, rewardArea(kAdultRewards[i]));
+        adultMsg += withCount("bridgeTemplate", "bridgeCount");
+        adultMsg += withCount("gbkTemplate", "gbkCount");
+        adultMsg += withCount("soulTemplate", "soulCount");
+        adultMsg += withCount("winconTemplate", "winconCount");
+        adultMsg += PickTemplate(tmpl("RHT_ADULT_ALTAR_TEXT_END"), hintClarity, rng);
+        ootHints.push_back({ { "checkName", "__ALTAR_ADULT__" },
+                             { "type", "altarAdult" },
+                             { "messages", { { { "en", adultMsg.en }, { "de", adultMsg.de }, { "fr", adultMsg.fr } } } } });
     }
 
     if (gossipStoneHints != 0) {

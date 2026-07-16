@@ -1819,15 +1819,11 @@ static void Combo_FinishInit() {
     if (CVarGetInteger(CVAR_REMOTE_SAIL("Enabled"), 0)) {
         Sail::Instance->Enable();
     }
-#ifdef COMBO_BUILD
-    // ComboShip: Anchor always starts DISABLED — clear the persisted enable flag on boot instead of
-    // auto-connecting (standalone SoH keeps its remembered state).
-    CVarClear(CVAR_REMOTE_ANCHOR("Enabled"));
-#else
+    // Auto-reconnect Anchor from the persisted enable flag on boot (combo: the launcher wires the
+    // connect transport before SOH_Init, so Enable() opens a real socket rather than wedging).
     if (CVarGetInteger(CVAR_REMOTE_ANCHOR("Enabled"), 0)) {
         Anchor::Instance->Enable();
     }
-#endif
     ShipInit::InitAll();
     Rando::StaticData::InitHashMaps();
     OTRGlobals::Instance->gRandoContext->AddExcludedOptions();

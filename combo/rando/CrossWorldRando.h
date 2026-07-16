@@ -175,6 +175,20 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         return result;
     }
 
+    // Portal-key guard: with Overworld Keys ON but Force Mask Shop Key OFF, the Mask Shop Key is
+    // OOT-AssumedFill'd (not a locked sphere-0 placement), so a relaxed OOT mode could strand its
+    // reach-path — and with portalCheckName="" the fill can't detect it, risking an MM-unreachable
+    // seed. Warn loudly (the intended combo config is Force ON, or Overworld Keys OFF).
+    if (ootAccess != OotAccess::ALL_REACHABLE && portalCheckName.empty()) {
+        try {
+            auto a = nlohmann::json::parse(sohDumpJson).value("accessibility", nlohmann::json::object());
+            if (a.value("lockOverworldDoors", false) && !a.value("forceMaskShopKey", false))
+                std::cerr << "[ComboShip] CrossWorldCombinedFill: WARNING — Overworld Keys ON + Force Mask Shop "
+                             "Key OFF under a relaxed OOT mode: the Mask Shop Key's reach-path is not guaranteed "
+                             "(portal ungated); MM may be unreachable. Enable Force Mask Shop Key.\n";
+        } catch (...) {}
+    }
+
     // Forced OOT placements (e.g. Link's Pocket): reserve each item out of the cross pool and treat
     // it as owned-from-start (auto-granted at save creation). Appended to placements after the fill.
     std::vector<CwPlacement> forcedPlacements;

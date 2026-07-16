@@ -275,6 +275,14 @@ int main(int argc, char** argv) {
                        : "both ends reachable with full inventory but the forward walk dead-ends (item cycle)";
         };
 
+        // No Logic seeds may be OOT-unbeatable by design; the verdict below tolerates that as long as
+        // MM stays fully reachable + Majora beatable.
+        bool ootNoLogic = false;
+        for (auto it = ootSettings.begin(); it != ootSettings.end(); ++it)
+            if (it.key().find("LogicRules") != std::string::npos && it.value().is_number() &&
+                it.value().get<int>() == 1)
+                ootNoLogic = true;
+
         // Pass 1 — the seed's own settings + enabled tricks: "can this player beat it?"
         std::cout << "[playthrough] seed '" << label << "' — Pass 1 (" << ootEnabledTricks.size()
                   << " enabled trick(s))\n";
@@ -298,6 +306,16 @@ int main(int argc, char** argv) {
             std::cout << "[playthrough] RESULT: beatable ONLY with tricks beyond the seed's settings (sphere "
                       << r2.beatableSphere << "). With the seed's tricks, Pass 1 got stuck: " << blocked(r1) << ".\n";
             return 3;
+        }
+        // No Logic: tolerate OOT/Ganon unbeatability, but still hard-require Majora reachable (MM's win
+        // chain intact — MM adv is assumed-filled reachably by the generator). unreachableMm is not
+        // required 0: every seed has ~1 under-modeled MM junk check (oracle evaluates MM with zeroed
+        // save options), present even under ALL_REACHABLE.
+        if (ootNoLogic && r2.majoraReachable) {
+            std::cout << "[playthrough] RESULT: PASS (No Logic) — Majora beatable (MM reachable); OOT/Ganon "
+                         "unbeatability tolerated ("
+                      << blocked(r2) << ").\n";
+            return 0;
         }
         std::cout << "[playthrough] RESULT: FAIL — not beatable even with all tricks; stuck: " << blocked(r2)
                   << " (OOT unreachable=" << r2.unreachableOot << ", MM unreachable=" << r2.unreachableMm
@@ -347,8 +365,11 @@ int main(int argc, char** argv) {
                         mmAreas.emplace(chk, region.get<std::string>());
                 } catch (...) {}
                 if (ComboRando::NeedsRequirednessPareDown(sohHintDump, mmDump))
-                    pareDownResult = ComboRando::PareDownPlaythrough(r.spoilerJson, oot, mmO, nullptr, sohDump, mmDump,
-                                                                     ootAreas, mmAreas);
+                    // NO_LOGIC: gate requiredness on MM only (OOT may be unbeatable by design).
+                    pareDownResult = ComboRando::PareDownPlaythrough(
+                        r.spoilerJson, oot, mmO, nullptr, sohDump, mmDump, ootAreas, mmAreas,
+                        ootAccess == ComboRando::OotAccess::NO_LOGIC ? ComboRando::MmOnlyMajoraGoal
+                                                                     : ComboRando::DefaultGanonMajoraGoal);
                 else
                     std::cout << "[comborando]   pare-down skipped (no enabled hint surface needs requiredness)\n";
             }

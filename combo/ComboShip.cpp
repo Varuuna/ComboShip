@@ -867,9 +867,12 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             // the WriteComboPlaythrough call below (or the loop's own restore) does that once. Skipped
             // entirely when no enabled hint surface consumes requiredness (empty result = all non-required).
             if (ComboRando::NeedsRequirednessPareDown(sohHintDump, mmDump)) {
-                pareDownResult = ComboRando::PareDownPlaythrough(result.spoilerJson, ootOracle, mmOracle, nullptr,
-                                                                 sohDump, mmDump, ootCheckAreasCache,
-                                                                 buildMmCheckAreas(mmDump));
+                // NO_LOGIC: gate requiredness on MM only (OOT may be unbeatable by design).
+                pareDownResult = ComboRando::PareDownPlaythrough(
+                    result.spoilerJson, ootOracle, mmOracle, nullptr, sohDump, mmDump, ootCheckAreasCache,
+                    buildMmCheckAreas(mmDump),
+                    ootAccess == ComboRando::OotAccess::NO_LOGIC ? ComboRando::MmOnlyMajoraGoal
+                                                                 : ComboRando::DefaultGanonMajoraGoal);
             } else {
                 std::cout << "[ComboShip] RunComboFill: pare-down skipped (no enabled hint surface needs "
                              "requiredness)\n";

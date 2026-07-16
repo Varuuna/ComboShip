@@ -167,6 +167,16 @@ inline bool DefaultGanonMajoraGoal(const std::unordered_set<std::string>& ootRea
     return canGanon && canMajora;
 }
 
+// NO_LOGIC goal: OOT may be structurally unbeatable from empty (the combined goal would degenerate and
+// every OOT item would look "required"), so gate requiredness on MM (Majora) only. Keeps MM-side WotH
+// meaningful; OOT-side requiredness is not evaluated under No Logic (matching its semantics).
+inline bool MmOnlyMajoraGoal(const std::unordered_set<std::string>& /*ootReach*/,
+                             const std::unordered_set<std::string>& mmReach,
+                             const std::vector<std::string>& /*ownedOot*/) {
+    static const char* kMmWin = "RC_MOON_MAJORA_POT_01";
+    return mmReach.count(kMmWin) > 0;
+}
+
 struct RequirednessResult {
     // "oot:<check>"/"mm:<check>" -> required (WotH, true) or foolish-candidate (false).
     std::unordered_map<std::string, bool> requiredByCheck;

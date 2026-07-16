@@ -170,8 +170,8 @@ struct RequirednessResult {
 // required (foolish candidate); otherwise it IS required (WotH). ootCheckAreas/mmCheckAreas (checkName
 // -> area/region string) let the caller roll this up into per-area foolish/WotH classification.
 // mmRestore resets the MM oracle's snapshot guard afterward (same contract as RunPlaythrough).
-// Win-harvest and group testing presume MONOTONE oracle reachability (more owned items never lose
-// checks); a violation could only mislabel a hint, never break the seed (fill validates separately).
+// Each candidate is tested individually (native IsBeatableWithout) so no monotonicity is assumed;
+// candidates are restricted to the winning playthrough's checks, which is sound unconditionally.
 inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, const OracleFns& ootOracle,
                                               const OracleFns& mmOracle, void (*mmRestore)(),
                                               const std::string& sohDumpJson = "", const std::string& mmDumpJson = "",
@@ -228,67 +228,47 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
 
     auto t0 = std::chrono::steady_clock::now();
 
-    // Candidates (advancement placements only), sorted by item name so duplicate copies form one
-    // contiguous group — they usually clear together in a single group test below.
-    std::vector<size_t> cand;
+    std::vector<size_t> candAll; // every advancement placement (drives the per-area rollup below)
     for (size_t i = 0; i < placements.size(); ++i)
         if (placements[i].advancement)
-            cand.push_back(i);
-    result.candidateCount = static_cast<int>(cand.size());
-    std::stable_sort(cand.begin(), cand.end(),
-                     [&](size_t a, size_t b) { return placements[a].item < placements[b].item; });
+            candAll.push_back(i);
 
     std::vector<signed char> classified(placements.size(), -1); // -1 unknown, 0 not-required, 1 required
 
-    // Any candidate NOT credited when a counterfactual run wins is provably not required: that win
-    // used only the credited set, which survives intact (monotone logic) once the candidate is removed.
-    auto harvestWin = [&](const std::vector<char>& credited, const std::unordered_set<size_t>& excluded) {
-        for (size_t i : cand)
-            if (classified[i] < 0 && !credited[i] && !excluded.count(i))
-                classified[i] = 0;
-    };
+    // Baseline win (nothing excluded) yields the winning playthrough's collected set. We pare only
+    // those checks: blanking a check the winning path never collected cannot break that path, so an
+    // off-playthrough advancement item is not required regardless of monotonicity — no test needed.
+    std::vector<char> baseCredited;
+    ++result.replayedCount;
+    bool baseWon = winsWithout({}, &baseCredited);
 
-    // Group testing over the unclassified candidates: excluding a whole RANGE and still winning proves
-    // every member individually not-required (removing less can only help — monotone); a losing range
-    // is split and both halves re-tested, down to singletons, whose test IS the per-candidate replay.
-    std::function<void(size_t, size_t)> solve = [&](size_t lo, size_t hi) {
-        std::unordered_set<size_t> excl;
-        for (size_t k = lo; k < hi; ++k)
-            if (classified[cand[k]] < 0)
-                excl.insert(cand[k]);
-        if (excl.empty())
-            return;
-        std::vector<char> credited;
-        ++result.replayedCount;
-        if (winsWithout(excl, &credited)) {
-            for (size_t i : excl)
+    // Candidates = advancement checks on the winning path. A stuck baseline can never win, so blanking
+    // any one item still can't win: every advancement item is required, tested none.
+    std::vector<size_t> cand;
+    if (baseWon) {
+        for (size_t i : candAll)
+            if (baseCredited[i])
+                cand.push_back(i);
+            else
                 classified[i] = 0;
-            harvestWin(credited, excl);
-            return;
-        }
-        if (excl.size() == 1) {
-            classified[*excl.begin()] = 1;
-            return;
-        }
-        size_t mid = lo + (hi - lo) / 2;
-        solve(lo, mid);
-        solve(mid, hi);
-    };
-    // Baseline win (nothing excluded) seeds the harvest; a stuck baseline harvests nothing and
-    // group tests on an unbeatable seed all fail down to singletons (same result as the full sweep).
-    {
-        std::vector<char> credited;
-        ++result.replayedCount;
-        if (winsWithout({}, &credited))
-            harvestWin(credited, {});
+    } else {
+        for (size_t i : candAll)
+            classified[i] = 1;
     }
-    solve(0, cand.size());
+    result.candidateCount = static_cast<int>(cand.size());
 
-    for (size_t pi : cand) {
+    // Per-item WotH (native IsBeatableWithout): blank exactly one candidate check and replay from
+    // empty. Still wins -> not required; loses -> required. Definitionally correct, no monotonicity
+    // assumption (unlike the old group-test binary split, which our cross-game oracle broke).
+    for (size_t i : cand) {
+        ++result.replayedCount;
+        classified[i] = winsWithout({ i }, nullptr) ? 0 : 1;
+    }
+
+    for (size_t pi : candAll) {
         const auto& p = placements[pi];
-        std::string key = checkKey(p);
         bool required = classified[pi] == 1;
-        result.requiredByCheck[key] = required;
+        result.requiredByCheck[checkKey(p)] = required;
         const auto& areaMap = (p.checkGame == GAME_OOT) ? ootCheckAreas : mmCheckAreas;
         auto ait = areaMap.find(p.check);
         if (ait != areaMap.end()) {

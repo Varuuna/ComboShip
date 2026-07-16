@@ -249,9 +249,15 @@ void Anchor::HandlePacket_UpdateTeamState(nlohmann::json payload) {
                 auto itemLocation = payload["state"]["rando"].at("itemLocations").at(i);
                 // randoContext->GetItemLocation(i)->RefPlacedItem() =
                 // itemLocation.at("rgID").get<RandomizerGet>();
-                OTRGlobals::Instance->gRandoContext->GetItemLocation(i)->SetCheckStatus(
-                    itemLocation.at(0).get<RandomizerCheckStatus>());
-                OTRGlobals::Instance->gRandoContext->GetItemLocation(i)->SetIsSkipped(itemLocation.at(1).get<u8>());
+                auto* loc = OTRGlobals::Instance->gRandoContext->GetItemLocation(i);
+                // ComboShip (bug 3): union not replace — the enum is progressive (unchecked < ...
+                // < collected < saved), so only advance status; a stale/incomplete peer must not
+                // un-collect a check we already have.
+                RandomizerCheckStatus incoming = itemLocation.at(0).get<RandomizerCheckStatus>();
+                if (incoming > loc->GetCheckStatus()) {
+                    loc->SetCheckStatus(incoming);
+                }
+                loc->SetIsSkipped(itemLocation.at(1).get<u8>());
 
                 // if (itemLocation.contains("fakeRgID")) {
                 //     randoContext->overrides.emplace(static_cast<RandomizerCheck>(i),

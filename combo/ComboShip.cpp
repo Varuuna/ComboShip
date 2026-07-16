@@ -380,9 +380,11 @@ static FnVoidArgless MM_Anchor_PumpDormant = nullptr;
 // the target DLL's save-only grant export. The same dispatcher serves the single-player and
 // networked paths. targetGame/srcGame use the GameId convention 0 = OOT, 1 = MM (== sActiveGame).
 typedef void (*FnSetCrossRoute)(void (*)(int, const char*));
+// Deliver callback carries srcCheckName too (bug 3: keys the launcher-side receive dedup below).
+typedef void (*FnSetCrossDeliver)(void (*)(int, const char*, const char*));
 typedef void (*FnGrantCrossItem)(const char*);
-static FnSetCrossRoute SOH_SetCrossDeliver = nullptr;
-static FnSetCrossRoute MM_SetCrossDeliver = nullptr;
+static FnSetCrossDeliver SOH_SetCrossDeliver = nullptr;
+static FnSetCrossDeliver MM_SetCrossDeliver = nullptr;
 static FnGrantCrossItem SOH_GrantCrossItem = nullptr;
 static FnGrantCrossItem MM_GrantCrossItem = nullptr;
 static FnSetCrossRoute SOH_SetMarkForeignObtained = nullptr;
@@ -570,7 +572,19 @@ static void SetActiveGame(int game /* 0 = OOT, 1 = MM */) {
 // (network). Grants the item into the TARGET game's resident save via its save-only export — the
 // target is normally the dormant game, which isn't ticking, so its save struct isn't being mutated
 // underneath us. The grant export persists the target save immediately.
-static void DeliverCrossItem(int targetGame, const char* itemName) {
+// ComboShip (bug 3): the SAME wire COMBO_CROSS_ITEM packet reaches both DLLs' incoming queues (the
+// originGame filter has an explicit exception for it), so whichever game is active when a packet
+// arrives AND whichever game later becomes active can each independently drain their own copy and
+// call this — double-delivering the item. Dedup here, the one launcher-owned spot both directions
+// share, keyed on srcCheckName (empty for the manual debug-console senders, which don't dedup).
+static std::set<std::string> sAppliedCrossChecks;
+
+static void DeliverCrossItem(int targetGame, const char* itemName, const char* srcCheckName) {
+    if (srcCheckName && srcCheckName[0] != '\0') {
+        if (!sAppliedCrossChecks.insert(srcCheckName).second) {
+            return; // already delivered for this check
+        }
+    }
     if (targetGame == 1) {
         if (MM_GrantCrossItem)
             MM_GrantCrossItem(itemName);
@@ -1646,8 +1660,8 @@ int main(int argc, char** argv) {
     MM_Anchor_PumpDormant = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_PumpDormant");
 
     // Cross-game item delivery seam (issue #3)
-    SOH_SetCrossDeliver = (FnSetCrossRoute)GetSym(sohModule, "SOH_SetCrossDeliver");
-    MM_SetCrossDeliver = (FnSetCrossRoute)GetSym(mmModule, "MM_SetCrossDeliver");
+    SOH_SetCrossDeliver = (FnSetCrossDeliver)GetSym(sohModule, "SOH_SetCrossDeliver");
+    MM_SetCrossDeliver = (FnSetCrossDeliver)GetSym(mmModule, "MM_SetCrossDeliver");
     SOH_GrantCrossItem = (FnGrantCrossItem)GetSym(sohModule, "SOH_GrantCrossItem");
     MM_GrantCrossItem = (FnGrantCrossItem)GetSym(mmModule, "MM_GrantCrossItem");
     SOH_SetMarkForeignObtained = (FnSetCrossRoute)GetSym(sohModule, "SOH_SetMarkForeignObtained");

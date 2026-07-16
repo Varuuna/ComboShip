@@ -23,7 +23,7 @@ extern PlayState* gPlayState;
 // seams (defined in OTRGlobals.cpp) route a delivered item into the TARGET game and mark the SOURCE
 // check obtained. See docs/UPSTREAM_MERGES.md.
 static const std::string COMBO_CROSS_ITEM = "COMBO_CROSS_ITEM";
-extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName);
+extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName);
 extern "C" void (*gComboMarkForeignObtained)(int srcGame, const char* checkName);
 
 // Broadcast a locally-collected foreign item to teammates (called from hook_handlers.cpp). No-op
@@ -68,7 +68,7 @@ static void Anchor_HandleCrossItemPacket(const nlohmann::json& payload) {
         return;
     }
     if (gComboCrossDeliver) {
-        gComboCrossDeliver(targetGame, itemName.c_str());
+        gComboCrossDeliver(targetGame, itemName.c_str(), srcCheckName.c_str());
     }
     if (gComboMarkForeignObtained && !srcCheckName.empty()) {
         gComboMarkForeignObtained(srcGame, srcCheckName.c_str());

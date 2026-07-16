@@ -2914,8 +2914,8 @@ extern "C" __declspec(dllexport) void SOH_MarkForeignObtained(const char* checkN
 
 // ComboShip: routing seam — the launcher registers DeliverCrossItem here so OOT's foreign-check
 // detection can hand an item to the OTHER game immediately (mirrors SOH_SetAnchorSend).
-extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName) = nullptr;
-extern "C" __declspec(dllexport) void SOH_SetCrossDeliver(void (*cb)(int, const char*)) {
+extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName) = nullptr;
+extern "C" __declspec(dllexport) void SOH_SetCrossDeliver(void (*cb)(int, const char*, const char*)) {
     gComboCrossDeliver = cb;
 }
 // ComboShip: routing seam for the network-receive idempotency mark (see SOH_MarkForeignObtained).

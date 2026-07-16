@@ -1746,3 +1746,23 @@ Anchor stayed disconnected after a restart. That predated the launcher wiring th
 transport before `SOH_Init`; with the transport now registered first, boot-time `Enable()` opens a
 real socket rather than wedging on "Connecting…". Dropped the combo-only branch so boot auto-connects
 from the persisted `gAnchor.Enabled` flag, matching upstream SoH (a deviation removed, not added).
+
+## Anchor co-op sync hardening, bug 3: MM time-travel duplicate grants (2026-07-16)
+
+**Why:** MM's `RandoSaveCheck` has two flags: `cycleObtained` (wiped every Song of Time,
+`OnCycleSave.cpp`) and `obtained` (permanent). Co-op broadcast and cross-game delivery were driven by
+the give-lambda running again each cycle, re-sharing/re-delivering an already-permanent check.
+
+Fixes, all `COMBO_BUILD`:
+- `CheckQueue.cpp`: capture `obtained` BEFORE the grant; only call `MMAnchor_BroadcastCheckItem` /
+  `SendForeignCheck` (cross-deliver) the first time a check becomes permanently obtained. Local grant
+  (`Rando::GiveItem`) is untouched — renewables still re-give locally, only re-SHARING is suppressed.
+- `gComboCrossDeliver`/`gMMComboCrossDeliver` gained a `srcCheckName` parameter. The launcher's
+  `DeliverCrossItem` (`combo/ComboShip.cpp`) dedups on it: the same wire `COMBO_CROSS_ITEM` packet
+  reaches both DLLs' queues (an explicit `originGame` filter exception), so whichever games later
+  process their own copy could each independently deliver — one shared in-memory set closes that.
+- `MMAnchor::HandlePacket_UpdateTeamState` / OOT's `UpdateTeamState.cpp`: resync now unions rather than
+  replaces permanent progress — MM snapshots local `obtained` flags before the wholesale
+  `shipSaveInfo` assignment and restores any the incoming state lacked; OOT only advances
+  `RandomizerCheckStatus` (progressive enum) instead of unconditionally overwriting it, so a
+  stale/incomplete peer's resync can't un-collect a check.

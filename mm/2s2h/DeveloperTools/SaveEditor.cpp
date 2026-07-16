@@ -13,7 +13,7 @@
 #include <spdlog/spdlog.h>
 #include "rando/CrossForeign.h" // ComboShip: GameId
 // ComboShip (issue #3): immediate cross-game delivery seam (defined in BenPort.cpp).
-extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName);
+extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName);
 #endif
 
 #include "interface/icon_item_dungeon_static/icon_item_dungeon_static.h"
@@ -2306,7 +2306,7 @@ void DrawRandoTab() {
             SPDLOG_WARN("[ComboShip] MM cross-send: no save loaded (fileNum=0x{:X})", (unsigned)gSaveContext.fileNum);
         } else if (gMMComboCrossDeliver) {
             // Deliver an OOT-bound item straight into OOT's resident save NOW (issue #3).
-            gMMComboCrossDeliver(ComboRando::GAME_OOT, "DEBUG_ITEM");
+            gMMComboCrossDeliver(ComboRando::GAME_OOT, "DEBUG_ITEM", "");
             SPDLOG_INFO("[ComboShip] MM cross-send: delivered DEBUG_ITEM to OOT (slot {})", (int)gSaveContext.fileNum);
         }
     }

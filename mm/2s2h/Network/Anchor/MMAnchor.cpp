@@ -46,7 +46,7 @@ void (*gMMComboAnchorSend)(const char* json) = nullptr;
 
 // Issue #3: cross-game delivery seams, defined in BenPort.cpp and registered by the launcher. Route
 // a received cross-game item into the TARGET game's save, and mark the SOURCE check obtained.
-extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName);
+extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName);
 extern "C" void (*gMMComboMarkForeignObtained)(int srcGame, const char* checkName);
 
 // ComboShip A6: launcher pump fn (set via MM_SetPumpDormant). The ACTIVE game calls it each frame so
@@ -619,7 +619,7 @@ void MMAnchor::HandlePacket_CrossItem(const nlohmann::json& payload) {
     // Grant into the TARGET game's save (routes through the launcher to whichever DLL owns it; the
     // grant export bypasses the check-collect path, so this won't re-broadcast).
     if (gMMComboCrossDeliver) {
-        gMMComboCrossDeliver(targetGame, itemName.c_str());
+        gMMComboCrossDeliver(targetGame, itemName.c_str(), srcCheckName.c_str());
     }
     // Mark the source check obtained so we won't physically collect it later and double-deliver.
     if (gMMComboMarkForeignObtained && !srcCheckName.empty()) {
@@ -755,6 +755,14 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
 
     Save loadedData = payload["state"].get<Save>();
 
+    // ComboShip (bug 3): union not replace — a teammate's team-state can be stale/incomplete (they
+    // haven't reached a check we already have). Remember our permanently-obtained checks so the
+    // wholesale shipSaveInfo assignment below can't clear one.
+    bool localObtained[RC_MAX];
+    for (int i = 0; i < RC_MAX; i++) {
+        localObtained[i] = RANDO_SAVE_CHECKS[i].obtained;
+    }
+
     // Restore bottle contents (unless Deku Princess).
     for (int i = 0; i < 6; i++) {
         if (gSaveContext.save.saveInfo.inventory.items[SLOT_BOTTLE_1 + i] != ITEM_NONE &&
@@ -791,6 +799,13 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     // playerForm/cycle) are intentionally left untouched so the receiver isn't relocated.
     gSaveContext.save.saveInfo = loadedData.saveInfo;
     gSaveContext.save.shipSaveInfo = loadedData.shipSaveInfo;
+
+    // Restore permanently-obtained checks the incoming state didn't have.
+    for (int i = 0; i < RC_MAX; i++) {
+        if (localObtained[i]) {
+            RANDO_SAVE_CHECKS[i].obtained = true;
+        }
+    }
 
     Notification::Emit({
         .message = "Save updated from team",

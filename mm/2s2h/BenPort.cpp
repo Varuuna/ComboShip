@@ -3676,8 +3676,8 @@ extern "C" __declspec(dllexport) void MM_MarkForeignObtained(const char* checkNa
 
 // ComboShip: routing seams — the launcher registers DeliverCrossItem / MarkForeignObtained here so
 // MM's foreign-check detection can hand an item to the OTHER game immediately (mirrors MM_SetAnchorSend).
-extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName) = nullptr;
-extern "C" __declspec(dllexport) void MM_SetCrossDeliver(void (*cb)(int, const char*)) {
+extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName) = nullptr;
+extern "C" __declspec(dllexport) void MM_SetCrossDeliver(void (*cb)(int, const char*, const char*)) {
     gMMComboCrossDeliver = cb;
 }
 extern "C" void (*gMMComboMarkForeignObtained)(int srcGame, const char* checkName) = nullptr;

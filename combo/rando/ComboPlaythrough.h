@@ -12,6 +12,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -108,6 +109,33 @@ inline std::unordered_set<std::string> QueryReachable(const OracleFns& o, const 
     return out;
 }
 
+using ReachSet = std::shared_ptr<const std::unordered_set<std::string>>;
+
+// Memo key for an owned-item MULTISET: reachability depends on which items and HOW MANY (1 vs 2
+// Hookshots differ), not grant order. Sort only — dedupe would collapse progressive counts (stale hit).
+inline std::string CanonicalOwnedKey(std::vector<std::string> owned) {
+    std::sort(owned.begin(), owned.end());
+    std::string key;
+    for (auto& n : owned) {
+        key += n;
+        key += '\x1f';
+    }
+    return key;
+}
+
+// Memoized QueryReachable keyed on CanonicalOwnedKey: the same owned-set prefixes recur across the
+// hundreds of counterfactual replays (each starts from empty), so caching collapses the repeats.
+inline ReachSet QueryReachableMemo(const OracleFns& o, const std::vector<std::string>& owned,
+                                   std::unordered_map<std::string, ReachSet>& memo) {
+    std::string key = CanonicalOwnedKey(owned);
+    auto it = memo.find(key);
+    if (it != memo.end())
+        return it->second;
+    auto reach = std::make_shared<const std::unordered_set<std::string>>(QueryReachable(o, owned));
+    memo.emplace(std::move(key), reach);
+    return reach;
+}
+
 // Default win condition: OOT tower-top + Boss Key owned (Ganon) AND MM's in-lair check (Majora).
 // A pluggable goal so a future goal (e.g. Triforce hunt) can be swapped in without touching the
 // traversal machinery below.
@@ -155,20 +183,24 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
 
     auto checkKey = [](const CwPlacedItem& p) { return std::string(p.checkGame == GAME_OOT ? "oot:" : "mm:") + p.check; };
 
+    // Per-invocation reachability memo (one per oracle): the same owned-set prefixes recur across
+    // every counterfactual replay (sphere 0 is identical in all), so caching collapses the repeats.
+    std::unordered_map<std::string, ReachSet> ootMemo, mmMemo;
+
     // Excludes a SET of placements from ever crediting their items, then sphere-collects everything
     // else from empty until stable. creditedOut (optional) reports what was credited when the run
     // ended (at a win: exactly what was collected strictly before the goal first held).
     auto winsWithout = [&](const std::unordered_set<size_t>& excludeIdx, std::vector<char>* creditedOut) {
         std::vector<std::string> ootOwned, mmOwned;
         std::vector<char> credited(placements.size(), 0);
-        std::unordered_set<std::string> ootReach, mmReach;
+        ReachSet ootReach, mmReach;
         bool won = false;
         for (;;) {
-            ootReach = QueryReachable(ootOracle, ootOwned);
-            mmReach = QueryReachable(mmOracle, mmOwned);
+            ootReach = QueryReachableMemo(ootOracle, ootOwned, ootMemo);
+            mmReach = QueryReachableMemo(mmOracle, mmOwned, mmMemo);
             // Reachability only grows as items are credited, so the goal can be tested per sphere:
             // an early win is final. Cuts the pare-down's fixpoint cost roughly in half.
-            if (goalReached(ootReach, mmReach, ootOwned)) {
+            if (goalReached(*ootReach, *mmReach, ootOwned)) {
                 won = true;
                 break;
             }
@@ -177,7 +209,7 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
                 if (credited[i] || excludeIdx.count(i))
                     continue;
                 const auto& p = placements[i];
-                const auto& reach = (p.checkGame == GAME_OOT) ? ootReach : mmReach;
+                const auto& reach = (p.checkGame == GAME_OOT) ? *ootReach : *mmReach;
                 if (reach.count(p.check)) {
                     (p.itemGame == GAME_OOT ? ootOwned : mmOwned).push_back(p.item);
                     credited[i] = true;
@@ -188,7 +220,7 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
                 break;
         }
         if (!won)
-            won = goalReached(ootReach, mmReach, ootOwned);
+            won = goalReached(*ootReach, *mmReach, ootOwned);
         if (creditedOut)
             *creditedOut = std::move(credited);
         return won;

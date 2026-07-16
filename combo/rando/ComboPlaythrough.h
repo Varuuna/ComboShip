@@ -173,7 +173,7 @@ struct RequirednessResult {
     // "oot:<area>"/"mm:<area>" -> true once ANY advancement item placed there is required.
     std::unordered_map<std::string, bool> areaHasRequired;
     int candidateCount = 0;
-    int replayedCount = 0; // counterfactual fixpoint replays actually run (group tests + singletons)
+    int replayedCount = 0; // per-item counterfactual fixpoint replays actually run (cache misses)
     int64_t ms = 0;
 };
 
@@ -211,8 +211,8 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
         for (;;) {
             ootReach = QueryReachableMemo(ootOracle, ootOwned, ootMemo);
             mmReach = QueryReachableMemo(mmOracle, mmOwned, mmMemo);
-            // Reachability only grows as items are credited, so the goal can be tested per sphere:
-            // an early win is final. Cuts the pare-down's fixpoint cost roughly in half.
+            // Test the goal per sphere and stop at the first win: we only break when the goal IS met
+            // and never un-credit an item, so an early win is final regardless of oracle monotonicity.
             if (goalReached(*ootReach, *mmReach, ootOwned)) {
                 won = true;
                 break;

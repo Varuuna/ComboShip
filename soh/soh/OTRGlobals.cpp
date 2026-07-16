@@ -3560,6 +3560,14 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         Combo_SeedShopRng();
         ComboFillConfined();
 
+        // Barren parity: native CalculateBarren counts a region non-barren if it holds a major item OR
+        // (under the shop shield/tunic gate) a shield/tunic. Fold the gate into the exported `major`.
+        const bool shieldTunicGate = ctx->GetOption(RSK_SHOP_SHIELDS_AND_TUNICS_ONLY_REFILL).Is(RO_GENERIC_ON);
+        auto isMajor = [&](RandomizerGet rg) {
+            const auto& it = Rando::StaticData::RetrieveItem(rg);
+            return it.IsMajorItem() || (shieldTunicGate && it.IsShieldOrTunic());
+        };
+
         // Partition allLocations: pre-placed (confined) -> fixed, empty -> fillable check.
         for (RandomizerCheck rc : ctx->allLocations) {
             Rando::Location* loc = Rando::StaticData::GetLocation(rc);
@@ -3583,7 +3591,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
                     fixed.push_back({ { "check", name },
                                       { "item", in },
                                       { "advancement", Rando::StaticData::RetrieveItem(placed).IsAdvancement() },
-                                      { "major", Rando::StaticData::RetrieveItem(placed).IsMajorItem() } });
+                                      { "major", isMajor(placed) } });
             } else {
                 // A real fillable check. GenerateLocationPool already decided what's shuffled and the
                 // meta markers (Link's Pocket, wincon) are skipped above, so emit regardless of vanilla
@@ -3601,7 +3609,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
                 continue;
             pool.push_back({ { "name", in },
                              { "advancement", Rando::StaticData::RetrieveItem(rg).IsAdvancement() },
-                             { "major", Rando::StaticData::RetrieveItem(rg).IsMajorItem() } });
+                             { "major", isMajor(rg) } });
         }
         // itemPool excludes shop slots (CountEmptyLocations(false)); shuffled shop checks are covered
         // by junk, exactly like native FastFill's GetJunkItem() padding — Buy items stay shop-only.
@@ -3609,7 +3617,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             RandomizerGet jg = GetJunkItem();
             pool.push_back({ { "name", Rando::StaticData::RetrieveItem(jg).GetName().GetEnglish() },
                              { "advancement", Rando::StaticData::RetrieveItem(jg).IsAdvancement() },
-                             { "major", Rando::StaticData::RetrieveItem(jg).IsMajorItem() } });
+                             { "major", isMajor(jg) } });
         }
         // Rolled prices (set by ComboFillConfined at Fill()'s native position) for every priced
         // check type — the consolidated spoiler carries these so the validator/reload never guess.

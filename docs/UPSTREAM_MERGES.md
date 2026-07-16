@@ -1928,3 +1928,16 @@ placements treat every advancement item as major (conservative — never over-ma
 no major item (`areaHasMajor`). Deliberately produces fewer barren regions than before (native parity).
 
 **If future upstream touches `Item::IsMajorItem`:** re-check the dump flag and the barren derivation.
+
+## OOT hearts as junk in the combo fill (2026-07-17)
+
+**Why:** MM already dumps hearts as non-advancement (`BenPort.cpp` `isAdvancement` skips
+`RITYPE_HEALTH`). OOT's `IsAdvancement()` marks Piece of Heart / Heart Container / Treasure-Game
+Heart as advancement, bloating the OOT advancement pool the cross-fill must place reachably. Hearts
+are never logic-required under glitchless, so treating them as junk shrinks dead-ends. Only caveat:
+high `RSK_DAMAGE_MULTIPLIER` (8x/16x) — conservative, matches MM, never a softlock.
+
+**`soh/soh/OTRGlobals.cpp` (`SOH_DumpRandoStaticData`):** a local `comboIsAdv(rg)` returns false for
+`RG_PIECE_OF_HEART`/`RG_HEART_CONTAINER`/`RG_TREASURE_GAME_HEART`, else `IsAdvancement()`. Used at
+every advancement emit site (pool, fixed, fallback, items). `item_list.cpp`/`IsAdvancement()` is NOT
+touched, so native single-game SoH is unchanged.

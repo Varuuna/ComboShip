@@ -3538,6 +3538,14 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
     nlohmann::json items = nlohmann::json::array();
     nlohmann::json prices = nlohmann::json::object();
 
+    // ComboShip: mirror MM (BenPort isAdvancement) — hearts are never logic-required under glitchless,
+    // so class PoH/HC/treasure-game heart as junk. Shrinks the OOT advancement pool (fewer dead-ends).
+    auto comboIsAdv = [](RandomizerGet rg) {
+        if (rg == RG_PIECE_OF_HEART || rg == RG_HEART_CONTAINER || rg == RG_TREASURE_GAME_HEART)
+            return false;
+        return Rando::StaticData::RetrieveItem(rg).IsAdvancement();
+    };
+
     bool usedPool = false;
     try {
         auto ctx = OTRGlobals::Instance->gRandoContext;
@@ -3590,7 +3598,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
                 if (!in.empty())
                     fixed.push_back({ { "check", name },
                                       { "item", in },
-                                      { "advancement", Rando::StaticData::RetrieveItem(placed).IsAdvancement() },
+                                      { "advancement", comboIsAdv(placed) },
                                       { "major", isMajor(placed) } });
             } else {
                 // A real fillable check. GenerateLocationPool already decided what's shuffled and the
@@ -3608,7 +3616,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             if (in.empty())
                 continue;
             pool.push_back({ { "name", in },
-                             { "advancement", Rando::StaticData::RetrieveItem(rg).IsAdvancement() },
+                             { "advancement", comboIsAdv(rg) },
                              { "major", isMajor(rg) } });
         }
         // itemPool excludes shop slots (CountEmptyLocations(false)); shuffled shop checks are covered
@@ -3648,7 +3656,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
                 continue;
             checks.push_back({ { "name", name },
                                { "vanillaItem", vigName },
-                               { "advancement", Rando::StaticData::RetrieveItem(vanillaRG).IsAdvancement() } });
+                               { "advancement", comboIsAdv(vanillaRG) } });
         }
         usedPool = true;
 #endif
@@ -3682,7 +3690,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             // ComboShip: advancement flag — same as the pool path above.
             checks.push_back({ { "name", name },
                                { "vanillaItem", vigName },
-                               { "advancement", Rando::StaticData::RetrieveItem(vanillaRG).IsAdvancement() } });
+                               { "advancement", comboIsAdv(vanillaRG) } });
         }
     }
 
@@ -3695,7 +3703,8 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         // ComboShip: OOT item names are already human English; displayName == name keeps the
         // dump schema symmetric with MM's (which needs the distinction: RI_* vs human).
         // advancement drives whether a foreign item plays the held-up pickup animation.
-        items.push_back({ { "name", name }, { "displayName", name }, { "advancement", item.IsAdvancement() } });
+        items.push_back(
+            { { "name", name }, { "displayName", name }, { "advancement", comboIsAdv(static_cast<RandomizerGet>(rg)) } });
     }
 
     cached = nlohmann::json{

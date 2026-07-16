@@ -782,6 +782,16 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
         localObtained[i] = RANDO_SAVE_CHECKS[i].obtained;
     }
 
+    // ComboShip (finding 1): mirror OOT's OR-merge (eventChkInf/randomizerInf/gsFlags) — snapshot
+    // permanent progress so the wholesale saveInfo replace below can't regress an ahead player.
+    u8 localWeekEventReg[100];
+    memcpy(localWeekEventReg, gSaveContext.save.saveInfo.weekEventReg, sizeof(localWeekEventReg));
+    u8 localMasks[24];
+    memcpy(localMasks, &gSaveContext.save.saveInfo.inventory.items[24], sizeof(localMasks));
+    u32 localQuestItems = gSaveContext.save.saveInfo.inventory.questItems;
+    u32 localUpgrades = gSaveContext.save.saveInfo.inventory.upgrades;
+    s16 localHealthCapacity = gSaveContext.save.saveInfo.playerData.healthCapacity;
+
     // Restore bottle contents (unless Deku Princess).
     for (int i = 0; i < 6; i++) {
         if (gSaveContext.save.saveInfo.inventory.items[SLOT_BOTTLE_1 + i] != ITEM_NONE &&
@@ -824,6 +834,30 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
         if (localObtained[i]) {
             RANDO_SAVE_CHECKS[i].obtained = true;
         }
+    }
+
+    // Finding 1: OR/max-merge permanent progress back in — resync can only ADD, never remove.
+    for (int i = 0; i < 100; i++) {
+        gSaveContext.save.saveInfo.weekEventReg[i] |= localWeekEventReg[i];
+    }
+    for (int i = 0; i < 24; i++) {
+        if (localMasks[i] != ITEM_NONE) {
+            gSaveContext.save.saveInfo.inventory.items[24 + i] = localMasks[i];
+        }
+    }
+    gSaveContext.save.saveInfo.inventory.questItems |= localQuestItems;
+    for (int i = 0; i < 8; i++) {
+        u32 mask = gUpgradeMasks[i];
+        u8 shift = gUpgradeShifts[i];
+        u32 localVal = (localUpgrades & mask) >> shift;
+        u32 curVal = (gSaveContext.save.saveInfo.inventory.upgrades & mask) >> shift;
+        if (localVal > curVal) {
+            gSaveContext.save.saveInfo.inventory.upgrades =
+                (gSaveContext.save.saveInfo.inventory.upgrades & ~mask) | (localVal << shift);
+        }
+    }
+    if (localHealthCapacity > gSaveContext.save.saveInfo.playerData.healthCapacity) {
+        gSaveContext.save.saveInfo.playerData.healthCapacity = localHealthCapacity;
     }
 
     Notification::Emit({
@@ -871,9 +905,16 @@ extern "C" __declspec(dllexport) void MM_Anchor_PumpDormant(void) {
 }
 
 // Bug 2: launcher-orchestrated resync (auto on connect + combo menu button), dormant-safe.
+// Finding 3: never let an exception unwind across this extern "C" boundary.
 extern "C" __declspec(dllexport) void MM_Anchor_RequestResync(void) {
-    if (MMAnchor::Instance) {
-        MMAnchor::Instance->RequestResyncDormantSafe();
+    try {
+        if (MMAnchor::Instance) {
+            MMAnchor::Instance->RequestResyncDormantSafe();
+        }
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[MM_Anchor_RequestResync] {}", e.what());
+    } catch (...) {
+        SPDLOG_ERROR("[MM_Anchor_RequestResync] unknown exception");
     }
 }
 

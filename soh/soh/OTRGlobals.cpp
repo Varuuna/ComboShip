@@ -2803,9 +2803,16 @@ extern "C" __declspec(dllexport) void SOH_Anchor_PumpDormant(void) {
     }
 }
 // Bug 2: launcher-orchestrated resync (auto on connect + combo menu button), dormant-safe.
+// Finding 3: never let an exception unwind across this extern "C" boundary.
 extern "C" __declspec(dllexport) void SOH_Anchor_RequestResync(void) {
-    if (Anchor::Instance) {
-        Anchor::Instance->RequestResyncDormantSafe();
+    try {
+        if (Anchor::Instance) {
+            Anchor::Instance->RequestResyncDormantSafe();
+        }
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[SOH_Anchor_RequestResync] {}", e.what());
+    } catch (...) {
+        SPDLOG_ERROR("[SOH_Anchor_RequestResync] unknown exception");
     }
 }
 

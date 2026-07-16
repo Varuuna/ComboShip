@@ -416,6 +416,9 @@ static std::queue<std::string> sOutQueue;
 // Which game inbound packets are dispatched to. 0 = OOT, 1 = MM. Updated by the game-switch loop
 // via SetActiveGame on each transition. Phase 3 will route per-packet by TARGET game instead.
 static std::atomic<int> sActiveGame{ 0 };
+// Finding 4: on-connect resync must run on the game thread (RequestResyncDormantSafe touches
+// gPlayState/isDormantApply, which PumpDormant also mutates there). Set here, drained by PumpDormant.
+static std::atomic<bool> sResyncPending{ false };
 
 // Background loop: connect, then relay outbound packets and feed inbound packets to the active
 // game. Mirrors soh's original Network::ReceiveFromServer framing (NUL-delimited JSON), only the
@@ -456,11 +459,8 @@ static void ReceiveLoop() {
             MM_Anchor_Activate();
         // Bug 2: full both-games resync on every (re)connect. Both requests go out unconditionally
         // (dormant-safe), so a late-joiner/reconnect pulls the peer's OOT AND MM progress, and this
-        // client's own dormant sibling gets asked too.
-        if (SOH_Anchor_RequestResync)
-            SOH_Anchor_RequestResync();
-        if (MM_Anchor_RequestResync)
-            MM_Anchor_RequestResync();
+        // client's own dormant sibling gets asked too. Deferred to the game thread (finding 4).
+        sResyncPending.store(true);
 
         SDLNet_SocketSet set = SDLNet_AllocSocketSet(1);
         SDLNet_TCP_AddSocket(set, socket);
@@ -588,9 +588,25 @@ static void SetActiveGame(int game /* 0 = OOT, 1 = MM */) {
 // call this — double-delivering the item. Dedup here, the one launcher-owned spot both directions
 // share, keyed on srcCheckName (empty for the manual debug-console senders, which don't dedup).
 static std::set<std::string> sAppliedCrossChecks;
+// ComboShip (finding 2): dedup is scoped to a seed via this — see ResetCrossItemDedupForSeed.
+static uint32_t sCrossItemDedupSeed = 0;
+// ResetCrossItemDedupForSeed runs on the generation worker thread; DeliverCrossItem runs on the
+// game thread (via PumpDormant/packet handling) — both mutate sAppliedCrossChecks.
+static std::mutex sAppliedCrossChecksMutex;
+
+// Clears the dedup set whenever the active seed changes (regen/new-file), so a check name reused
+// across seeds isn't silently dropped as a stale "already delivered" duplicate.
+static void ResetCrossItemDedupForSeed(uint32_t seed) {
+    std::lock_guard<std::mutex> lock(sAppliedCrossChecksMutex);
+    if (seed != sCrossItemDedupSeed) {
+        sAppliedCrossChecks.clear();
+        sCrossItemDedupSeed = seed;
+    }
+}
 
 static void DeliverCrossItem(int targetGame, const char* itemName, const char* srcCheckName) {
     if (srcCheckName && srcCheckName[0] != '\0') {
+        std::lock_guard<std::mutex> lock(sAppliedCrossChecksMutex);
         if (!sAppliedCrossChecks.insert(srcCheckName).second) {
             return; // already delivered for this check
         }
@@ -608,6 +624,13 @@ static void DeliverCrossItem(int targetGame, const char* itemName, const char* s
 // save-affecting co-op packets to the DORMANT game on the caller's (game) thread, so a teammate's
 // collection registers in the dormant game's save live instead of only on next entry.
 static void PumpDormant() {
+    // Finding 4: drain the on-connect resync here (game thread), once per connect.
+    if (ComboAnchor::sResyncPending.exchange(false)) {
+        if (SOH_Anchor_RequestResync)
+            SOH_Anchor_RequestResync();
+        if (MM_Anchor_RequestResync)
+            MM_Anchor_RequestResync();
+    }
     if (ComboAnchor::sActiveGame.load() == 1) {
         if (SOH_Anchor_PumpDormant)
             SOH_Anchor_PumpDormant(); // MM foreground -> apply to dormant OOT
@@ -787,6 +810,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     const int kFillAttempts = 5;
     for (int attempt = 0; attempt < kFillAttempts && !usedCombinedFill; ++attempt) {
         masterSeed = baseSeed + attempt * 0x9E3779B9u;
+        ResetCrossItemDedupForSeed(masterSeed);
 
         // ComboShip: seed OOT's rando RNG BEFORE the dump so its shop/scrub/merchant setup (which runs
         // both inside the dump and again at SOH_ApplyRandoPlacements) makes identical choices each time.
@@ -1266,6 +1290,7 @@ static int Combo_OnReloadRequest(const char* path) {
         if (j.value("fileType", std::string()) != "ComboShipRandomizer")
             return 0;
         uint32_t masterSeed = j.value("masterSeed", 0u);
+        ResetCrossItemDedupForSeed(masterSeed);
         uint32_t displaySeed = j.value("displaySeed", 0u);
         auto oot = j.value("oot", nlohmann::json::object());
         auto mm = j.value("mm", nlohmann::json::object());

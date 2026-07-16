@@ -257,7 +257,11 @@ void Anchor::HandlePacket_UpdateTeamState(nlohmann::json payload) {
                 if (incoming > loc->GetCheckStatus()) {
                     loc->SetCheckStatus(incoming);
                 }
-                loc->SetIsSkipped(itemLocation.at(1).get<u8>());
+                // ComboShip (finding 5): only advance skip, a stale peer must not un-skip.
+                u8 incomingSkipped = itemLocation.at(1).get<u8>();
+                if (incomingSkipped > (u8)loc->GetIsSkipped()) {
+                    loc->SetIsSkipped(incomingSkipped);
+                }
 
                 // if (itemLocation.contains("fakeRgID")) {
                 //     randoContext->overrides.emplace(static_cast<RandomizerCheck>(i),

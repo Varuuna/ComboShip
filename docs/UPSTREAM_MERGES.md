@@ -1809,3 +1809,31 @@ Fixes, all `COMBO_BUILD`:
   DLLs) and calling both. This is NOT the full "Ship of Harkinian -> Network settings" migration to
   combo-owned UI (separate follow-up) — just the resync control. The existing OOT Menu.cpp button is
   unchanged and still works.
+
+## Anchor co-op sync: code-review fixes on bugs 1-3 (2026-07-16)
+
+**Why:** review of the above three entries found the bug-3 union was incomplete (MM still lost
+permanent progress on resync) and three smaller issues in the bug-2 plumbing.
+
+Fixes, all `COMBO_BUILD`:
+- `MMAnchor::HandlePacket_UpdateTeamState` (`mm/2s2h/Network/Anchor/MMAnchor.cpp`): the bug-3 union
+  only covered `RANDO_SAVE_CHECKS[i].obtained`; the wholesale `saveInfo`/`shipSaveInfo` assignment
+  still let a stale peer erase `weekEventReg`, owned masks, quest items, upgrade tiers, and heart
+  containers. Now snapshots those before the assignment and OR/max-merges them back in: `weekEventReg`
+  (byte-wise OR, MM's analog of OOT's `eventChkInf`), `inventory.items[24..47]` (mask ownership slots,
+  restore-if-local-non-empty), `inventory.questItems` (OR), `inventory.upgrades` (per-field max via
+  `gUpgradeMasks`/`gUpgradeShifts`), `playerData.healthCapacity` (max).
+- `soh/soh/Network/Anchor/Packets/UpdateTeamState.cpp`: `SetIsSkipped` was unconditional next to the
+  now-progressive `SetCheckStatus`; a stale peer with `isSkipped=false` could un-skip a local skip. Now
+  only applies the incoming skip when it's `true` and local isn't already.
+- `SOH_Anchor_RequestResync`/`MM_Anchor_RequestResync` (`OTRGlobals.cpp`/`MMAnchor.cpp`): wrapped in
+  try/catch — both call into JSON/CVar code with no prior guard, and are `extern "C"` exports the
+  launcher calls, so a throw would have unwound across the DLL boundary.
+- `combo/ComboShip.cpp`: the auto-resync-on-connect call moved off the network `ReceiveLoop` thread. It
+  now sets an `std::atomic<bool> sResyncPending` flag; the existing per-frame `PumpDormant` (already
+  running on the active game's thread) drains it once and fires both resync exports there, avoiding a
+  race with `PumpDormant`'s own `isDormantApply`/`gPlayState` use. Also scoped the cross-item dedup set
+  (`sAppliedCrossChecks`) to the active seed — cleared via `ResetCrossItemDedupForSeed` whenever
+  `masterSeed` changes (regen or reload-from-file), so a check name reused across seeds isn't dropped
+  as a false duplicate. `ResetCrossItemDedupForSeed` runs on the generation worker thread while
+  `DeliverCrossItem` runs on the game thread, so both now take `sAppliedCrossChecksMutex`.

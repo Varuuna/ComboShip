@@ -299,8 +299,14 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     // both games because an MM item at an OOT check (or vice versa) can open progress anywhere,
     // including the portal itself — so portal openness is re-evaluated every iteration.
     std::vector<CwPlacement> placements;
-    auto reachableFixpoint = [&](const std::vector<std::string>& ootBase, const std::vector<std::string>& mmBase)
-        -> std::pair<std::unordered_set<std::string>, std::unordered_set<std::string>> {
+    // ootReachable/mmReachable = reachable checks at the fixpoint; ootOwned = OOT items collected along
+    // the way (drives the BEATABLE_ONLY boss-key goal check without a second traversal).
+    struct FixResult {
+        std::unordered_set<std::string> ootReachable, mmReachable;
+        std::vector<std::string> ootOwned;
+    };
+    auto reachableFixpoint = [&](const std::vector<std::string>& ootBase,
+                                 const std::vector<std::string>& mmBase) -> FixResult {
         std::vector<std::string> ootOwned = ootBase, mmOwned = mmBase;
         // Forced placements (Link's Pocket etc.) are granted at save creation → owned from the start.
         ootOwned.insert(ootOwned.end(), ootForcedOwned.begin(), ootForcedOwned.end());
@@ -324,7 +330,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                 }
             }
             if (!changed)
-                return { std::move(ootReachable), std::move(mmReachable) };
+                return { std::move(ootReachable), std::move(mmReachable), std::move(ootOwned) };
         }
     };
 
@@ -358,7 +364,19 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
             filledChecks.insert(checkKey(lp.check));
 
         // Phase A: place advancement items with logic, assuming only UNPLACED ones are owned.
-        std::vector<CwItem> toPlace = advItems;
+        // Per-game accessibility: NO_LOGIC assumed-fills only MM advancement (OOT adv is fast-filled as
+        // junk below); ALL_REACHABLE/BEATABLE_ONLY assumed-fill the full set (BEATABLE_ONLY may later
+        // strand a stuck OOT item — see the dead-end handler). ALL_REACHABLE keeps advItems unreordered
+        // so a fixed seed reproduces bit-for-bit.
+        std::vector<CwItem> toPlace;
+        if (ootAccess == OotAccess::NO_LOGIC) {
+            for (const auto& it : advItems)
+                if (it.game == GAME_MM)
+                    toPlace.push_back(it);
+        } else {
+            toPlace = advItems;
+        }
+        std::vector<CwItem> relaxedToJunk; // OOT adv stranded off-path under BEATABLE_ONLY dead-ends
         cwShuffle(toPlace, rng);
         std::vector<std::string> ootRemaining, mmRemaining;
         for (const auto& it : toPlace)
@@ -394,7 +412,9 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                 removeOne(batch.back().game == GAME_OOT ? ootRemaining : mmRemaining, batch.back().name);
             }
 
-            auto [ootReachable, mmReachable] = reachableFixpoint(ootRemaining, mmRemaining);
+            auto fr = reachableFixpoint(ootRemaining, mmRemaining);
+            auto& ootReachable = fr.ootReachable;
+            auto& mmReachable = fr.mmReachable;
 
             std::vector<size_t> candidates;
             for (size_t ci = 0; ci < allChecks.size(); ++ci) {
@@ -406,6 +426,13 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
             }
 
             if (candidates.size() < batch.size()) {
+                // BEATABLE_ONLY: a single OOT advancement item with no reachable check may strand
+                // off-path — move it to the junk fast-fill and continue (already removed from
+                // toPlace/ootRemaining above). MM items and ALL_REACHABLE always retry instead.
+                if (batch.size() == 1 && ootAccess == OotAccess::BEATABLE_ONLY && batch.front().game == GAME_OOT) {
+                    relaxedToJunk.push_back(batch.front());
+                    continue;
+                }
                 // Put the batch back (reverse order restores the pop sequence — deterministic).
                 for (auto it = batch.rbegin(); it != batch.rend(); ++it) {
                     (it->game == GAME_OOT ? ootRemaining : mmRemaining).push_back(it->name);
@@ -438,8 +465,16 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         if (deadEnd)
             continue;
 
-        // Phase B: junk fast-fill into the remaining checks — zero oracle calls.
+        // Phase B: junk fast-fill into the remaining checks — zero oracle calls. Relaxed OOT
+        // advancement (NO_LOGIC: all OOT adv; BEATABLE_ONLY: stranded dead-end items) rides this
+        // stream — placed without logic, tolerated-if-unreachable by the mode-aware validation below.
         std::vector<CwItem> junkToPlace = junkItems;
+        if (ootAccess == OotAccess::NO_LOGIC) {
+            for (const auto& it : advItems)
+                if (it.game == GAME_OOT)
+                    junkToPlace.push_back(it);
+        }
+        junkToPlace.insert(junkToPlace.end(), relaxedToJunk.begin(), relaxedToJunk.end());
         cwShuffle(junkToPlace, rng);
         size_t ji = 0;
         for (size_t ci = 0; ci < allChecks.size() && ji < junkToPlace.size(); ++ci) {
@@ -459,8 +494,13 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         // (e.g. MM logic evaluated with zeroed save options), so some checks never appear
         // reachable even with full inventory — the fill can only ever put junk there. Count and
         // log those, don't fail on them.
-        auto [ootFinal, mmFinal] = reachableFixpoint({}, {});
-        size_t advUnreachable = 0, junkUnreachable = 0, junkUnreachableOot = 0;
+        auto vf = reachableFixpoint({}, {});
+        auto& ootFinal = vf.ootReachable;
+        auto& mmFinal = vf.mmReachable;
+        // Classify unreachable advancement by ITEM game: MM adv unreachable is always fatal (MM must
+        // stay all-reachable); OOT adv unreachable is fatal only under ALL_REACHABLE, tolerated under
+        // the relaxed modes (it was placed off-logic on purpose).
+        size_t mmAdvUnreachable = 0, ootAdvUnreachable = 0, junkUnreachable = 0, junkUnreachableOot = 0;
         for (const auto& p : placements) {
             // Locked placements are the game's own guaranteed-reachable vanilla/confined items — not
             // the cross-fill's responsibility, and the oracles under-model some. Don't validate them.
@@ -470,19 +510,38 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
             if (reach.count(p.check.name))
                 continue;
             if (p.item.advancement) {
-                ++advUnreachable;
+                (p.item.game == GAME_MM ? mmAdvUnreachable : ootAdvUnreachable)++;
             } else {
                 ++junkUnreachable;
                 if (p.check.game == GAME_OOT)
                     ++junkUnreachableOot;
             }
         }
-        if (advUnreachable > 0) {
-            std::cerr << "[ComboShip] CrossWorldCombinedFill: validation failed — " << advUnreachable
-                      << " advancement items on unreachable checks (pass " << pass << ", " << passMs()
-                      << " ms) — retrying\n";
+        // BEATABLE_ONLY additionally requires the win still holds (mirrors DefaultGanonMajoraGoal;
+        // duplicated here to keep this header free of ComboPlaythrough.h). NO_LOGIC accepts an
+        // OOT-unbeatable seed; MM stays reachable+beatable regardless.
+        auto beatableGoal = [&]() {
+            static const char* kOotTowerTop = "Ganon's Castle Tower Boss Key Chest";
+            static const char* kOotBossKey = "Ganon's Castle Boss Key";
+            static const char* kMmWin = "RC_MOON_MAJORA_POT_01";
+            return ootFinal.count(kOotTowerTop) > 0 &&
+                   std::find(vf.ootOwned.begin(), vf.ootOwned.end(), kOotBossKey) != vf.ootOwned.end() &&
+                   mmFinal.count(kMmWin) > 0;
+        };
+        bool goalOk = (ootAccess != OotAccess::BEATABLE_ONLY) || beatableGoal();
+        bool needRetry = mmAdvUnreachable > 0 ||
+                         (ootAccess == OotAccess::ALL_REACHABLE && ootAdvUnreachable > 0) ||
+                         (ootAccess == OotAccess::BEATABLE_ONLY && !goalOk);
+        if (needRetry) {
+            std::cerr << "[ComboShip] CrossWorldCombinedFill: validation failed — mmAdvUnreachable="
+                      << mmAdvUnreachable << " ootAdvUnreachable=" << ootAdvUnreachable
+                      << (ootAccess == OotAccess::BEATABLE_ONLY ? (goalOk ? " goal=ok" : " goal=UNBEATABLE") : "")
+                      << " (pass " << pass << ", " << passMs() << " ms) — retrying\n";
             continue;
         }
+        if (ootAdvUnreachable > 0)
+            std::cout << "[ComboShip] CrossWorldCombinedFill: " << ootAdvUnreachable
+                      << " OOT advancement item(s) on unreachable checks — tolerated (relaxed OOT mode)\n";
 
         std::cout << "[ComboShip] CrossWorldCombinedFill: all " << advItems.size()
                   << " advancement items reachable from scratch (pass " << pass << ", " << passMs() << " ms; "

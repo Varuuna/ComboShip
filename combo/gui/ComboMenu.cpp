@@ -609,25 +609,8 @@ void DrawNetworkSharedPanel() {
     const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
     ResolveAnchorResyncSyms();
 
-    // Render the Ship of Harkinian "Network > Anchor" settings (host/port/connect) from the game
-    // model, so the full Anchor config lives here with the team-sync control.
-    auto& model = ComboMenuModel::Get();
-    model.EnsureLoaded();
-    const ComboRando::GameMenu& oot = model.Oot();
-    if (oot.loaded && oot.menu) {
-        for (int s = 0; s < oot.menu->sectionCount; ++s) {
-            const CwSection& sec = oot.menu->sections[s];
-            if (!sec.sectionLabel || strcmp(sec.sectionLabel, "Network") != 0)
-                continue;
-            for (int sb = 0; sb < sec.sidebarCount; ++sb) {
-                if (sec.sidebars[sb].sidebarName && strcmp(sec.sidebars[sb].sidebarName, "Anchor") == 0)
-                    RenderSidebarWidgets(sec.sidebars[sb], oot);
-            }
-            break;
-        }
-    }
-
-    // Team sync is an Anchor feature (covers both games), so it lives in this Anchor panel.
+    // Team sync is an Anchor feature (covers both games) — keep it at the top of the Anchor panel so
+    // it's immediately visible, above the Ship of Harkinian Anchor connection settings.
     ImGui::SeparatorText("Team Sync");
     ImGui::TextWrapped("Pull the latest team progress from your Anchor teammates for BOTH games.");
     ComboRando::ComboMenu_PushButton(theme);
@@ -639,6 +622,26 @@ void DrawNetworkSharedPanel() {
     }
     ComboRando::ComboMenu_PopButton();
     ImGui::TextDisabled("Use this if you're missing items/flags a teammate has collected in either game.");
+
+    // Below it, the Ship of Harkinian "Network > Anchor" settings (host/port/connect) rendered from the
+    // game model, so the full Anchor config lives here too.
+    auto& model = ComboMenuModel::Get();
+    model.EnsureLoaded();
+    const ComboRando::GameMenu& oot = model.Oot();
+    if (oot.loaded && oot.menu) {
+        for (int s = 0; s < oot.menu->sectionCount; ++s) {
+            const CwSection& sec = oot.menu->sections[s];
+            if (!sec.sectionLabel || strcmp(sec.sectionLabel, "Network") != 0)
+                continue;
+            for (int sb = 0; sb < sec.sidebarCount; ++sb) {
+                if (sec.sidebars[sb].sidebarName && strcmp(sec.sidebars[sb].sidebarName, "Anchor") == 0) {
+                    ImGui::SeparatorText("Anchor Connection");
+                    RenderSidebarWidgets(sec.sidebars[sb], oot);
+                }
+            }
+            break;
+        }
+    }
 }
 
 // Build the combined item picker list from both games' static-data dumps (items[] = full item table

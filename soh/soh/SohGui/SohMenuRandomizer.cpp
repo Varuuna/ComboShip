@@ -832,7 +832,9 @@ void SohMenu::AddMenuRandomizer() {
     AddSidebarEntry("Randomizer", path.sidebarName, 1);
     AddWidget(path, "Tricks/Glitches", WIDGET_CUSTOM).CustomFunction(DrawTricksMenu);
 
-    // Plandomizer
+#ifndef COMBO_BUILD
+    // Plandomizer. ComboShip: the OOT-only plando can't parse combo consolidated spoilers; the
+    // combo-aware plandomizer lives in the Combo menu instead, so hide this one in combo builds.
     path.sidebarName = "Plandomizer";
     AddSidebarEntry("Randomizer", path.sidebarName, 1);
     AddWidget(path, "Popout Plandomizer Window", WIDGET_WINDOW_BUTTON)
@@ -841,23 +843,6 @@ void SohMenu::AddMenuRandomizer() {
         .WindowName("Plandomizer Editor")
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Randomizer Settings Window."));
-#ifdef COMBO_BUILD
-    // ComboShip: draw the Plandomizer inline (SoH embeds it via the window button's EmbedWindow;
-    // comboui's flat model doesn't carry that flag). Mirrors "Controller Bindings Inline"; skipped
-    // while popped out so the Gui loop's floating copy isn't double-drawn.
-    AddWidget(path, "Plandomizer Inline", WIDGET_CUSTOM)
-        .RaceDisable(false)
-        .HideInSearch(true)
-        .CustomFunction([](WidgetInfo&) {
-            auto ctx = Ship::Context::GetInstance();
-            if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
-                return;
-            auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Plandomizer Editor");
-            if (!win || win->IsVisible())
-                return;
-            win->Update();
-            win->DrawElement();
-        });
 #endif
 
     // Item Tracker

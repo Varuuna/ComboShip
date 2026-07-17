@@ -65,15 +65,16 @@ std::string Rando::GetItemLocationHintName(RandoItemId randoItemId, bool exact) 
     // generated before hints.mm.itemLocations existed.
     int slot = gSaveContext.fileNum;
     if (slot != 0xFF) {
-        const char* spoilerName = Rando::StaticData::Items[randoItemId].spoilerName;
-        if (spoilerName && spoilerName[0] != '\0') {
+        // ComboShip: the consolidated file keys foreign items by the friendly combo-spoiler name.
+        const std::string& friendlyName = Rando::StaticData::GetItemDisplayName(randoItemId);
+        if (!friendlyName.empty()) {
             static int s_hintsSlot = -1;
             static ComboRando::MmHints s_hints;
             if (slot != s_hintsSlot) {
                 s_hints = ComboRando::LoadHintsMM(slot);
                 s_hintsSlot = slot;
             }
-            auto hintIt = s_hints.itemLocations.find(spoilerName);
+            auto hintIt = s_hints.itemLocations.find(friendlyName);
             if (hintIt != s_hints.itemLocations.end()) {
                 return hintIt->second;
             }
@@ -84,7 +85,7 @@ std::string Rando::GetItemLocationHintName(RandoItemId randoItemId, bool exact) 
                 s_map = ComboRando::LoadForeignByItem(slot, ComboRando::GAME_MM);
                 s_slot = slot;
             }
-            auto it = s_map.find(spoilerName);
+            auto it = s_map.find(friendlyName);
             if (it != s_map.end()) {
                 return "at " + it->second.checkName + " (OOT)";
             }

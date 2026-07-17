@@ -134,16 +134,19 @@ static int32_t MM_FillOwlDrawInfo(RandoItemId id, CwItemDrawInfo* out) {
 
 // Cross-game item draw info. OOT resolves this via GetProcAddress to learn which MM display lists
 // render a foreign item, then submits them through "__OTR__@mm:"-routed paths resolved against
-// MM's ResourceManager (CrossRMRegistry). itemName is the MM RI_* spoilerName — the same grant key
-// the foreign map carries (GetItemIdFromName keys spoilerName, see Rando/StaticData/Items.cpp).
-// The returned dlists point at MM's static OTR asset-path string literals, valid for process
-// lifetime. Returns 0 for unknown items / non-portable draw funcs; the caller falls back to its
-// sentinel.
+// MM's ResourceManager (CrossRMRegistry). itemName is the friendly combo-spoiler name the foreign
+// map carries (resolve via GetItemIdFromDisplayName; fall back to the RI_ spoilerName for the
+// sentinel / any raw id). The returned dlists point at MM's static OTR asset-path string literals,
+// valid for process lifetime. Returns 0 for unknown items / non-portable draw funcs; the caller
+// falls back to its sentinel.
 extern "C" __declspec(dllexport) int32_t MM_GetItemDrawInfo(const char* itemName, CwItemDrawInfo* out) {
     if (itemName == nullptr || out == nullptr) {
         return 0;
     }
-    RandoItemId id = Rando::StaticData::GetItemIdFromName(itemName);
+    RandoItemId id = Rando::StaticData::GetItemIdFromDisplayName(itemName);
+    if (id == RI_UNKNOWN) {
+        id = Rando::StaticData::GetItemIdFromName(itemName); // sentinel / raw RI_
+    }
     if (id == RI_UNKNOWN) {
         return 0;
     }
@@ -196,7 +199,12 @@ extern "C" __declspec(dllexport) int32_t MM_GetItemAnimDrawInfo(const char* item
         return 0;
     }
     const char* texAnim;
-    switch (Rando::StaticData::GetItemIdFromName(itemName)) {
+    // ComboShip: itemName is the friendly combo-spoiler name; fall back to the RI_ spoilerName.
+    RandoItemId animId = Rando::StaticData::GetItemIdFromDisplayName(itemName);
+    if (animId == RI_UNKNOWN) {
+        animId = Rando::StaticData::GetItemIdFromName(itemName);
+    }
+    switch (animId) {
         case RI_WOODFALL_STRAY_FAIRY:
             texAnim = gStrayFairyWoodfallTexAnim;
             break;

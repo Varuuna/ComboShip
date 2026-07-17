@@ -1013,6 +1013,11 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
                 return nlohmann::json::parse(fn());
             } catch (...) { return nlohmann::json::object(); }
         };
+        // ComboShip: suffix cross-game item-name collisions (e.g. "Mirror Shield") in the human-readable
+        // placements so the consolidated file / plandomizer read unambiguously; each game strips its own
+        // "(OOT)"/"(MM)" on apply. Foreign checks are skipped (carried by foreign[]).
+        ComboRando::SuffixCrossGameItems(ootSpoiler, mmSpoiler, foreignArr, sohDump, mmDump);
+
         nlohmann::json consolidated;
         consolidated["fileType"] = "ComboShipRandomizer";
         consolidated["version"] = 1;

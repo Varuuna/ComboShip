@@ -2714,7 +2714,36 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
         // ComboShip: mirror native OnFileCreate's use of the player's configured priority list.
         auto sariaPriorityItems = Rando::GetSariaPriorityItemsFromConfig();
         Rando::SetSariaPriorityItemsInSpoiler(spoiler, sariaPriorityItems);
-        spoiler["checks"] = nlohmann::json::parse(placementJson); // { "RC_*": "<spoilerName>", ... }
+        // ComboShip: the combo spoiler is friendly-named (check + item), cross-game collisions suffixed
+        // "(MM)". Translate to the RC_/RI_ shape ApplyToSaveContext consumes so that shared code stays
+        // untouched. Strip our own "(MM)" suffix; the foreign sentinel + any raw RI_ pass through.
+        auto stripMM = [](std::string s) {
+            static const std::string suf = " (MM)";
+            if (s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0)
+                s.resize(s.size() - suf.size());
+            return s;
+        };
+        nlohmann::json checks = nlohmann::json::object();
+        nlohmann::json rawPlacements = nlohmann::json::parse(placementJson); // bind before .items() (no dangling temp)
+        for (auto& [friendlyCheck, val] : rawPlacements.items()) {
+            if (!val.is_string())
+                continue;
+            RandoCheckId cid = Rando::StaticData::GetCheckIdFromDisplayName(stripMM(friendlyCheck).c_str());
+            if (cid == RC_UNKNOWN) {
+                SPDLOG_WARN("[ComboShip] MM_InitRandoSaveFile: unknown check '{}'", friendlyCheck);
+                continue;
+            }
+            std::string v = stripMM(val.get<std::string>());
+            RandoItemId iid = Rando::StaticData::GetItemIdFromDisplayName(v.c_str());
+            if (iid == RI_UNKNOWN)
+                iid = Rando::StaticData::GetItemIdFromName(v.c_str()); // foreign sentinel / raw RI_
+            if (iid == RI_UNKNOWN) {
+                SPDLOG_WARN("[ComboShip] MM_InitRandoSaveFile: unknown item '{}' at '{}'", v, friendlyCheck);
+                continue;
+            }
+            checks[Rando::StaticData::Checks[cid].name] = Rando::StaticData::Items[iid].spoilerName;
+        }
+        spoiler["checks"] = std::move(checks);
 
         Rando::Spoiler::ApplyToSaveContext(spoiler);
 
@@ -2987,8 +3016,9 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         uint16_t p = saveInfo.randoSaveChecks[id].price;
         if (p != 0) {
             sMMComboCheckPrices[id] = p;
-            if (chk.name && chk.name[0] != '\0')
-                prices[chk.name] = p;
+            const std::string& cn = Rando::StaticData::GetCheckDisplayName(id); // ComboShip: friendly name
+            if (!cn.empty())
+                prices[cn] = p;
         }
     }
 
@@ -3017,8 +3047,9 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         auto iit = Rando::StaticData::Items.find(RANDO_SAVE_CHECKS[id].randoItemId);
         if (iit == Rando::StaticData::Items.end() || !iit->second.spoilerName || iit->second.spoilerName[0] == '\0')
             continue;
-        fixed.push_back({ { "check", chkIt->second.name },
-                          { "item", iit->second.spoilerName },
+        // ComboShip: friendly check + item names for the normalized combo spoiler.
+        fixed.push_back({ { "check", Rando::StaticData::GetCheckDisplayName(id) },
+                          { "item", Rando::StaticData::GetItemDisplayName(iit->first) },
                           { "advancement", isAdvancement(iit->second) } });
     }
 
@@ -3033,7 +3064,10 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
             auto iit = Rando::StaticData::Items.find(chk.randoItemId);
             if (iit == Rando::StaticData::Items.end() || !iit->second.spoilerName || iit->second.spoilerName[0] == '\0')
                 continue;
-            fixed.push_back({ { "check", chk.name }, { "item", iit->second.spoilerName }, { "advancement", true } });
+            // ComboShip: friendly check + item names for the normalized combo spoiler.
+            fixed.push_back({ { "check", Rando::StaticData::GetCheckDisplayName(id) },
+                              { "item", Rando::StaticData::GetItemDisplayName(iit->first) },
+                              { "advancement", true } });
         }
     }
 
@@ -3048,11 +3082,12 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
             skippedNoStatic++;
             continue;
         }
-        if (!chkIt->second.name || chkIt->second.name[0] == '\0') {
+        const std::string& cn = Rando::StaticData::GetCheckDisplayName(id); // ComboShip: friendly name
+        if (cn.empty()) {
             skippedNoName++;
             continue;
         }
-        checks.push_back({ { "name", chkIt->second.name } });
+        checks.push_back({ { "name", cn } });
     }
 
     // Pool = the real free item pool (every settings-added item; confined items already removed).
@@ -3062,7 +3097,8 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
             poolNoName++;
             continue;
         }
-        pool.push_back({ { "name", it->second.spoilerName }, { "advancement", isAdvancement(it->second) } });
+        // ComboShip: friendly item name for the normalized combo spoiler.
+        pool.push_back({ { "name", Rando::StaticData::GetItemDisplayName(iid) }, { "advancement", isAdvancement(it->second) } });
     }
 
     // ComboShip canary: written to a file because 2ship.dll's spdlog default logger is never
@@ -3097,10 +3133,11 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     for (auto& [id, item] : Rando::StaticData::Items) {
         if (!item.spoilerName || item.spoilerName[0] == '\0')
             continue;
-        // ComboShip: "name" MUST stay spoilerName (RI_*) — grant lookup keys on it. "displayName"
-        // is the human string (StaticData's unused .name field) for toasts/shops in the OTHER game.
+        // ComboShip: "name" is the friendly combo-spoiler key the grant/apply paths resolve.
+        // "displayName" is the human string for toasts/shops in the OTHER game (suffixed there).
         // advancement drives whether a foreign item plays the held-up pickup animation.
-        nlohmann::json entry = { { "name", item.spoilerName }, { "advancement", isAdvancement(item) } };
+        nlohmann::json entry = { { "name", Rando::StaticData::GetItemDisplayName(id) },
+                                 { "advancement", isAdvancement(item) } };
         if (item.name && item.name[0] != '\0') {
             entry["displayName"] = item.name;
         }
@@ -3121,9 +3158,10 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     // hint layer's cross-game text composition needs the same "region" phrasing MM's own hints use.
     nlohmann::json locationHints = nlohmann::json::object();
     for (auto& [id, chk] : Rando::StaticData::Checks) {
-        if (!chk.name || chk.name[0] == '\0')
+        const std::string& cn = Rando::StaticData::GetCheckDisplayName(id); // ComboShip: friendly name
+        if (cn.empty())
             continue;
-        locationHints[chk.name] = Rando::StaticData::GetLocationNameForHint(id, false);
+        locationHints[cn] = Rando::StaticData::GetLocationNameForHint(id, false);
     }
 
     // ComboShip: the two hint options that decide whether the combo hint layer's cross gossip pool is
@@ -3152,6 +3190,18 @@ static uint64_t sMM_OracleSavedRegionTime;
 // so Restore would write garbage (zeros) back into MM's live save after generation.
 static bool sMM_OracleActive = false;
 using Rando::Logic::gCurrentRegionTime;
+
+// ComboShip (#61): cross-grant only set the trade item's obtained flag, leaving the shared trade
+// slot's main item empty (item stuck as a rotatable offset, invisible to the tracker). Populate the
+// main slot when empty, dormant-safe (no gPlayState), mirroring real pickup's Item_Give.
+static void ComboGrantTradeSlot(u8 itemId) {
+    if (itemId >= ARRAY_COUNT(gItemSlots) || gItemSlots[itemId] == SLOT_NONE) {
+        return;
+    }
+    if (INV_CONTENT(itemId) == ITEM_NONE) {
+        INV_CONTENT(itemId) = itemId;
+    }
+}
 
 // Headless item-give: sets gSaveContext fields without ever touching gPlayState.
 // Covers the save-context mutations that logic conditions read (INV_CONTENT, equipment,
@@ -3317,33 +3367,42 @@ static void GiveItemForOracle(RandoItemId ri) {
             gSaveContext.save.saveInfo.inventory.strayFairies[DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE]++;
             break;
 
-        // Rando-flag items (deeds, keys, letters, etc.)
+        // Rando-flag items (deeds, keys, letters, etc.) — also populate the shared trade slot (#61).
         case RI_MOONS_TEAR:
             Flags_SetRandoInf(RANDO_INF_OBTAINED_MOONS_TEAR);
+            ComboGrantTradeSlot(ITEM_MOONS_TEAR);
             break;
         case RI_DEED_LAND:
             Flags_SetRandoInf(RANDO_INF_OBTAINED_DEED_LAND);
+            ComboGrantTradeSlot(ITEM_DEED_LAND);
             break;
         case RI_DEED_SWAMP:
             Flags_SetRandoInf(RANDO_INF_OBTAINED_DEED_SWAMP);
+            ComboGrantTradeSlot(ITEM_DEED_SWAMP);
             break;
         case RI_DEED_MOUNTAIN:
             Flags_SetRandoInf(RANDO_INF_OBTAINED_DEED_MOUNTAIN);
+            ComboGrantTradeSlot(ITEM_DEED_MOUNTAIN);
             break;
         case RI_DEED_OCEAN:
             Flags_SetRandoInf(RANDO_INF_OBTAINED_DEED_OCEAN);
+            ComboGrantTradeSlot(ITEM_DEED_OCEAN);
             break;
         case RI_ROOM_KEY:
             Flags_SetRandoInf(RANDO_INF_OBTAINED_ROOM_KEY);
+            ComboGrantTradeSlot(ITEM_ROOM_KEY);
             break;
         case RI_LETTER_TO_MAMA:
             Flags_SetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_MAMA);
+            ComboGrantTradeSlot(ITEM_LETTER_MAMA);
             break;
         case RI_LETTER_TO_KAFEI:
             Flags_SetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_KAFEI);
+            ComboGrantTradeSlot(ITEM_LETTER_TO_KAFEI);
             break;
         case RI_PENDANT_OF_MEMORIES:
             Flags_SetRandoInf(RANDO_INF_OBTAINED_PENDANT_OF_MEMORIES);
+            ComboGrantTradeSlot(ITEM_PENDANT_OF_MEMORIES);
             break;
         case RI_POWDER_KEG:
             Flags_SetWeekEventReg(WEEKEVENTREG_HAS_POWDERKEG_PRIVILEGES);
@@ -3568,12 +3627,15 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Reset(void) {
 // ComboShip: name->id lookup maps for the oracle hot path, replacing per-name linear scans over
 // StaticData that dominated fill time. StaticData is immutable after eager boot and the oracle runs
 // single-threaded, so build-once function-local statics are safe.
+// ComboShip: keyed on the FRIENDLY combo-spoiler names (GetItemDisplayName / GetCheckDisplayName), so
+// the oracle, cross-item grant and price/apply paths all resolve the same normalized names the dump emits.
 static const std::unordered_map<std::string, RandoItemId>& Combo_MM_SpoilerNameToItemId() {
     static const std::unordered_map<std::string, RandoItemId> map = [] {
         std::unordered_map<std::string, RandoItemId> m;
         for (auto& [id, item] : Rando::StaticData::Items) {
-            if (item.spoilerName && item.spoilerName[0] != '\0')
-                m.emplace(item.spoilerName, id);
+            const std::string& n = Rando::StaticData::GetItemDisplayName(id);
+            if (!n.empty())
+                m.emplace(n, id);
         }
         return m;
     }();
@@ -3584,8 +3646,9 @@ static const std::unordered_map<std::string, RandoCheckId>& Combo_MM_CheckNameTo
     static const std::unordered_map<std::string, RandoCheckId> map = [] {
         std::unordered_map<std::string, RandoCheckId> m;
         for (auto& [id, chk] : Rando::StaticData::Checks) {
-            if (chk.name && chk.name[0] != '\0')
-                m.emplace(chk.name, id);
+            const std::string& n = Rando::StaticData::GetCheckDisplayName(id);
+            if (!n.empty())
+                m.emplace(n, id);
         }
         return m;
     }();
@@ -3739,10 +3802,10 @@ extern "C" __declspec(dllexport) const char* Combo_MM_Rando_GetReachableChecks(v
 
         for (auto& [checkId, checkLogic] : region.checks) {
             if (checkLogic.first()) {
-                auto chkIt = Rando::StaticData::Checks.find(checkId);
-                if (chkIt != Rando::StaticData::Checks.end() && chkIt->second.name) {
-                    out.push_back(chkIt->second.name);
-                }
+                // ComboShip: emit the friendly combo-spoiler name the fill/oracle key on.
+                const std::string& n = Rando::StaticData::GetCheckDisplayName(checkId);
+                if (!n.empty())
+                    out.push_back(n);
             }
         }
     }

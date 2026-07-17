@@ -7,6 +7,7 @@
 #include "ComboTrackerBridge.h"
 #include "ComboTrackerCommon.h" // kKinds (HideBackground CVars for the tracker panels)
 #include "ComboTrackerSwap.h"
+#include "rando/ComboPlaythrough.h" // plando: ParseSpoilerPlacements + Suffix/BuildForeignArray + slot paths
 #include <imgui.h>
 #include <ship/window/gui/IconsFontAwesome4.h> // ICON_FA_* for the header action buttons
 #include <memory>
@@ -60,6 +61,54 @@ void ResolveAnchorResyncSyms() {
     }
 #endif
 }
+
+// Combo plandomizer exports: each game's static-data dump (friendly item names) + the reload trigger
+// that plays an edited consolidated spoiler back verbatim. Resolved like the combo-gen syms above.
+typedef const char* (*FnDump)(void);
+typedef int (*FnRequestReload)(const char*);
+typedef int (*FnGetActiveFileNum)(void);
+FnDump sSohDump = nullptr;
+FnDump sMmDump = nullptr;
+FnRequestReload sRequestReload = nullptr;
+FnGetActiveFileNum sGetActiveFileNum = nullptr;
+void ResolvePlandoSyms() {
+#ifdef _WIN32
+    if (HMODULE h = GetModuleHandleA("soh.dll")) {
+        if (!sSohDump)
+            sSohDump = (FnDump)GetProcAddress(h, "SOH_DumpRandoStaticData");
+        if (!sRequestReload)
+            sRequestReload = (FnRequestReload)GetProcAddress(h, "SOH_RequestComboReload");
+        if (!sGetActiveFileNum)
+            sGetActiveFileNum = (FnGetActiveFileNum)GetProcAddress(h, "SOH_GetActiveFileNum");
+    }
+    if (HMODULE h = GetModuleHandleA("2ship.dll")) {
+        if (!sMmDump)
+            sMmDump = (FnDump)GetProcAddress(h, "MM_DumpRandoStaticData");
+    }
+#endif
+}
+
+// Combo plandomizer editable state (single ComboMenu instance -> file-static). rows is the edited
+// placement model; loadedJson is the original consolidated file, preserved on write-back so only
+// placements/foreign change. items is the combined per-game picker list (bare name + game + display).
+struct PlandoPickItem {
+    std::string name; // bare friendly name (item's own game namespace)
+    ComboRando::GameId game;
+    bool advancement;
+    std::string display; // "name (OOT)" / "name (MM)"
+};
+struct PlandoState {
+    bool loaded = false;
+    bool statusError = false;
+    std::string status;
+    std::string loadedJson; // original consolidated file text (write-back base)
+    std::string sohDump, mmDump;
+    std::vector<ComboRando::CwPlacedItem> rows;
+    std::vector<PlandoPickItem> items;
+    char filter[128] = { 0 };
+    char pickerFilter[128] = { 0 };
+};
+static PlandoState sPlando;
 } // namespace
 
 namespace ComboRando {
@@ -293,7 +342,16 @@ namespace {
 struct HubEntry {
     std::string label; // shown in the left panel
     std::string group; // owning group label (for the unique key)
-    enum Kind { ENGINE, OOT_RANDO, MM_RANDO, COMBO_GEN, COMBO_TRACKER, COMBO_CHECK_TRACKER, COMBO_NETWORK } kind;
+    enum Kind {
+        ENGINE,
+        OOT_RANDO,
+        MM_RANDO,
+        COMBO_GEN,
+        COMBO_PLANDO,
+        COMBO_TRACKER,
+        COMBO_CHECK_TRACKER,
+        COMBO_NETWORK
+    } kind;
     const ComboRando::GameMenu* game = nullptr; // ENGINE/OOT_RANDO/MM_RANDO
     int sectionIndex = -1;
     int sidebarIndex = -1;
@@ -534,6 +592,252 @@ void DrawNetworkSharedPanel() {
     ComboRando::ComboMenu_PopButton();
     ImGui::TextDisabled("Use this if you're missing items/flags a teammate has collected in either game.");
 }
+
+// Build the combined item picker list from both games' static-data dumps (items[] = full item table
+// with friendly name + advancement). Each game's items get its own "(OOT)"/"(MM)" display tag.
+void PlandoBuildItems() {
+    sPlando.items.clear();
+    auto add = [&](const std::string& dump, ComboRando::GameId g, const char* suf) {
+        try {
+            auto d = nlohmann::json::parse(dump);
+            std::unordered_set<std::string> seen;
+            for (auto& it : d.value("items", nlohmann::json::array())) {
+                std::string n = it.value("name", std::string{});
+                if (n.empty() || !seen.insert(n).second)
+                    continue;
+                sPlando.items.push_back({ n, g, it.value("advancement", true), n + suf });
+            }
+        } catch (...) {}
+    };
+    add(sPlando.sohDump, ComboRando::GAME_OOT, " (OOT)");
+    add(sPlando.mmDump, ComboRando::GAME_MM, " (MM)");
+}
+
+// Load the current pending/slot consolidated spoiler into the editable model (the #73 fix — the
+// vendored OOT plando can't parse the consolidated schema). Flattens oot/mm.placements + foreign[]
+// into the shape ParseSpoilerPlacements expects, resolving foreign checks to their real cross-game item.
+void PlandoLoad() {
+    ResolvePlandoSyms();
+    sPlando.loaded = false;
+    sPlando.rows.clear();
+    int slot = sGetActiveFileNum ? sGetActiveFileNum() : -1;
+    std::filesystem::path path = (slot >= 0) ? ComboRando::SlotReadPath(slot) : std::filesystem::path{};
+    if (path.empty())
+        path = ComboRando::PendingPath();
+    std::ifstream in(path);
+    if (!in.is_open()) {
+        sPlando.status = "No generated seed found to load.";
+        sPlando.statusError = true;
+        return;
+    }
+    std::stringstream ss;
+    ss << in.rdbuf();
+    sPlando.loadedJson = ss.str();
+    nlohmann::json j;
+    try {
+        j = nlohmann::json::parse(sPlando.loadedJson);
+    } catch (...) {
+        sPlando.status = "Failed to parse the spoiler file.";
+        sPlando.statusError = true;
+        return;
+    }
+    if (j.value("fileType", std::string()) != "ComboShipRandomizer") {
+        sPlando.status = "Not a ComboShip seed (regenerate with this build).";
+        sPlando.statusError = true;
+        return;
+    }
+    sPlando.sohDump = sSohDump ? sSohDump() : "";
+    sPlando.mmDump = sMmDump ? sMmDump() : "";
+    PlandoBuildItems();
+
+    nlohmann::json flat;
+    flat["oot"] = j.value("oot", nlohmann::json::object()).value("placements", nlohmann::json::object());
+    flat["mm"] = j.value("mm", nlohmann::json::object()).value("placements", nlohmann::json::object());
+    flat["foreign"] = j.value("foreign", nlohmann::json::array());
+    sPlando.rows = ComboRando::ParseSpoilerPlacements(flat.dump(), sPlando.sohDump, sPlando.mmDump);
+    std::sort(sPlando.rows.begin(), sPlando.rows.end(), [](const auto& a, const auto& b) {
+        if (a.checkGame != b.checkGame)
+            return a.checkGame < b.checkGame;
+        return a.check < b.check;
+    });
+    sPlando.loaded = true;
+    sPlando.statusError = false;
+    sPlando.status = "Loaded " + std::to_string(sPlando.rows.size()) + " placements from " + path.filename().string();
+}
+
+// Serialize the edited model back to the consolidated schema and play it verbatim. Preserves the
+// original file and replaces only oot/mm.placements + foreign[], mirroring the generator's emit
+// (SuffixCrossGameItems on native collisions + BuildForeignArray for cross-game entries).
+void PlandoSavePlay() {
+    ResolvePlandoSyms();
+    nlohmann::json j;
+    try {
+        j = nlohmann::json::parse(sPlando.loadedJson);
+    } catch (...) {
+        sPlando.status = "Internal parse error.";
+        sPlando.statusError = true;
+        return;
+    }
+
+    nlohmann::json ootPl = nlohmann::json::object();
+    nlohmann::json mmPl = nlohmann::json::object();
+    nlohmann::json foreignRaw = nlohmann::json::array();
+    for (const auto& r : sPlando.rows) {
+        // The check's own game stores the REAL foreign item's bare name; the sentinel is injected at
+        // apply time by Combo_OnReloadRequest, never written here.
+        (r.checkGame == ComboRando::GAME_OOT ? ootPl : mmPl)[r.check] = r.item;
+        if (r.checkGame != r.itemGame) {
+            foreignRaw.push_back({ { "checkGame", r.checkGame == ComboRando::GAME_OOT ? "oot" : "mm" },
+                                   { "checkName", r.check },
+                                   { "itemGame", r.itemGame == ComboRando::GAME_OOT ? "oot" : "mm" },
+                                   { "itemName", r.item },
+                                   { "displayName", r.item }, // BuildForeignArray appends the game suffix
+                                   { "advancement", r.advancement } });
+        }
+    }
+    // Native cross-game name collisions get their own-game suffix; foreign checks are skipped (their
+    // real item travels in foreign[]). Exactly the generator's write path.
+    ComboRando::SuffixCrossGameItems(ootPl, mmPl, foreignRaw, sPlando.sohDump, sPlando.mmDump);
+    nlohmann::json foreign = ComboRando::BuildForeignArray(foreignRaw);
+
+    j["oot"]["placements"] = ootPl;
+    j["mm"]["placements"] = mmPl;
+    j["foreign"] = foreign;
+
+    std::error_code ec;
+    std::filesystem::create_directories(ComboRando::ConsolidatedDir(), ec);
+    auto path = ComboRando::PendingPath();
+    {
+        std::ofstream out(path, std::ios::trunc);
+        if (!out.is_open()) {
+            sPlando.status = "Failed to write the pending file.";
+            sPlando.statusError = true;
+            return;
+        }
+        out << j.dump(2);
+    }
+    sPlando.loadedJson = j.dump(2); // keep in sync for a follow-up edit
+    if (!sRequestReload) {
+        sPlando.status = "Reload export unavailable (soh.dll not loaded).";
+        sPlando.statusError = true;
+        return;
+    }
+    int ok = sRequestReload(path.string().c_str());
+    if (ok) {
+        sPlando.status = "Saved. Start a file to play it.";
+        sPlando.statusError = false;
+    } else {
+        sPlando.status = "Reload rejected (be on the file-select screen; no generation running).";
+        sPlando.statusError = true;
+    }
+}
+
+// Combo > Plandomizer: load a generated combo seed, edit item placements (native OR cross-game),
+// then Save & Play. Placements-only MVP; prices/settings/tricks/hints are preserved read-only.
+void DrawComboPlandoPanel() {
+    const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
+    ResolvePlandoSyms();
+    ResolveComboGenSyms(); // sIsOnFileSelect gates Save & Play (reload mutates save state)
+    ImGui::TextWrapped("Load a generated combo seed, edit item placements (assign any item to any check "
+                       "in either game, including cross-game), then Save & Play. Use on the file-select screen.");
+    ImGui::Separator();
+
+    ComboRando::ComboMenu_PushButton(theme);
+    if (ImGui::Button("Load"))
+        PlandoLoad();
+    ComboRando::ComboMenu_PopButton();
+
+    if (sPlando.loaded) {
+        ImGui::SameLine();
+        const bool onFileSelect = sIsOnFileSelect && sIsOnFileSelect();
+        const bool canPlay = sRequestReload && onFileSelect;
+        if (!canPlay)
+            ImGui::BeginDisabled();
+        ComboRando::ComboMenu_PushButton(theme);
+        if (ImGui::Button("Save"))
+            PlandoSavePlay();
+        ComboRando::ComboMenu_PopButton();
+        if (!canPlay)
+            ImGui::EndDisabled();
+        if (sRequestReload && !onFileSelect) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(available on the file-select screen)");
+        }
+    }
+
+    if (!sPlando.status.empty()) {
+        ImVec4 c = sPlando.statusError ? ImVec4(1.0f, 0.4f, 0.4f, 1.0f) : ImVec4(0.5f, 1.0f, 0.5f, 1.0f);
+        ImGui::TextColored(c, "%s", sPlando.status.c_str());
+    }
+    if (!sPlando.loaded)
+        return;
+
+    ImGui::Separator();
+    ImGui::SetNextItemWidth(320.0f);
+    ComboRando::ComboMenu_PushInput(theme);
+    ImGui::InputTextWithHint("##plandofilter", "Filter by check or item name...", sPlando.filter, sizeof(sPlando.filter));
+    ComboRando::ComboMenu_PopInput();
+
+    const std::string q = NormalizeSearch(sPlando.filter);
+
+    ImGui::BeginChild("##plandotable", ImVec2(0, 0));
+    const ImGuiTableFlags tf = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY |
+                               ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_SizingStretchProp;
+    if (ImGui::BeginTable("##plandorows", 3, tf)) {
+        ImGui::TableSetupColumn("Game", ImGuiTableColumnFlags_WidthFixed, 48.0f);
+        ImGui::TableSetupColumn("Check", ImGuiTableColumnFlags_WidthStretch, 0.5f);
+        ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch, 0.5f);
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableHeadersRow();
+        for (int i = 0; i < (int)sPlando.rows.size(); ++i) {
+            auto& r = sPlando.rows[i];
+            if (!q.empty() && NormalizeSearch(r.check + r.item).find(q) == std::string::npos)
+                continue;
+            const bool cross = r.checkGame != r.itemGame;
+            const char* itag = r.itemGame == ComboRando::GAME_OOT ? " (OOT)" : " (MM)";
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextUnformatted(r.checkGame == ComboRando::GAME_OOT ? "OOT" : "MM");
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TextUnformatted(r.check.c_str());
+            ImGui::TableSetColumnIndex(2);
+            ImGui::PushID(i);
+            std::string label = r.item + itag;
+            if (cross) // highlight cross-game placements (the harness's whole point)
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.4f, 1.0f));
+            ComboRando::ComboMenu_PushButton(theme);
+            if (ImGui::Button(label.c_str(), ImVec2(-1.0f, 0.0f))) {
+                sPlando.pickerFilter[0] = '\0';
+                ImGui::OpenPopup("##itempicker");
+            }
+            ComboRando::ComboMenu_PopButton();
+            if (cross)
+                ImGui::PopStyleColor();
+            if (ImGui::BeginPopup("##itempicker")) {
+                ImGui::SetNextItemWidth(300.0f);
+                ImGui::InputTextWithHint("##pickfilter", "Search items...", sPlando.pickerFilter,
+                                         sizeof(sPlando.pickerFilter));
+                const std::string pq = NormalizeSearch(sPlando.pickerFilter);
+                ImGui::BeginChild("##pickerlist", ImVec2(340.0f, 380.0f));
+                for (const auto& pit : sPlando.items) {
+                    if (!pq.empty() && NormalizeSearch(pit.name).find(pq) == std::string::npos)
+                        continue;
+                    if (ImGui::Selectable(pit.display.c_str())) {
+                        r.item = pit.name;
+                        r.itemGame = pit.game;
+                        r.advancement = pit.advancement;
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+                ImGui::EndChild();
+                ImGui::EndPopup();
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    ImGui::EndChild();
+}
 } // namespace
 
 void ComboMenu::DrawSharedPanel() {
@@ -592,11 +896,18 @@ void ComboMenu::DrawSharedPanel() {
                 groups.push_back({ "MM Randomizer", std::move(e) });
         }
         {
+            std::vector<HubEntry> e;
             HubEntry gen;
             gen.label = "Generate";
             gen.group = "Combo";
             gen.kind = HubEntry::COMBO_GEN;
-            groups.push_back({ "Combo", { std::move(gen) } });
+            e.push_back(std::move(gen));
+            HubEntry pl;
+            pl.label = "Plandomizer";
+            pl.group = "Combo";
+            pl.kind = HubEntry::COMBO_PLANDO;
+            e.push_back(std::move(pl));
+            groups.push_back({ "Combo", std::move(e) });
         }
     }
 
@@ -673,6 +984,8 @@ void ComboMenu::DrawSharedPanel() {
         ImGui::TextUnformatted("Select an option.");
     } else if (active->kind == HubEntry::COMBO_GEN) {
         DrawComboPanel();
+    } else if (active->kind == HubEntry::COMBO_PLANDO) {
+        DrawComboPlandoPanel();
     } else if (active->kind == HubEntry::COMBO_TRACKER) {
         DrawTrackerSharedPanel();
     } else if (active->kind == HubEntry::COMBO_CHECK_TRACKER) {

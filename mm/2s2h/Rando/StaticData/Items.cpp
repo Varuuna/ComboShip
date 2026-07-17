@@ -1,4 +1,5 @@
 #include "StaticData.h"
+#include <unordered_map>
 #include <libultraship/bridge/consolevariablebridge.h>
 #include "2s2h/ShipUtils.h"
 #include "2s2h/Rando/Rando.h"
@@ -322,6 +323,55 @@ RandoItemId GetItemIdFromName(const char* name) {
     }
     return RI_UNKNOWN;
 }
+
+#ifdef COMBO_BUILD
+// ComboShip: friendly item name <-> id for the normalized combo spoiler. Emits `name` (human) instead
+// of the RI_ spoilerName. Names shared by 2+ items fall back to the RI_ spoilerName so lookup stays 1:1.
+// RI_TRIFORCE_PIECE_PREVIOUS is draw-only (never placed) and shares "Piece of the Triforce" with the
+// real RI_TRIFORCE_PIECE — excluded from the collision count so the friendly resolves to the real one.
+static const std::unordered_map<RandoItemId, std::string>& ComboItemEmitNames() {
+    static const std::unordered_map<RandoItemId, std::string> map = [] {
+        std::unordered_map<std::string, int> nameCount;
+        for (auto& [id, it] : Items) {
+            if (id == RI_TRIFORCE_PIECE_PREVIOUS)
+                continue;
+            if (it.name && it.name[0] != '\0')
+                nameCount[it.name]++;
+        }
+        std::unordered_map<RandoItemId, std::string> m;
+        for (auto& [id, it] : Items) {
+            const char* sp = (it.spoilerName && it.spoilerName[0] != '\0') ? it.spoilerName : "";
+            if (id == RI_TRIFORCE_PIECE_PREVIOUS || !it.name || it.name[0] == '\0' || nameCount[it.name] > 1)
+                m[id] = sp; // ambiguous or draw-only -> keep enum spoilerName
+            else
+                m[id] = it.name;
+        }
+        return m;
+    }();
+    return map;
+}
+
+const std::string& GetItemDisplayName(RandoItemId id) {
+    static const std::string empty;
+    const auto& m = ComboItemEmitNames();
+    auto it = m.find(id);
+    return it == m.end() ? empty : it->second;
+}
+
+RandoItemId GetItemIdFromDisplayName(const char* name) {
+    if (!name)
+        return RI_UNKNOWN;
+    static const std::unordered_map<std::string, RandoItemId> inv = [] {
+        std::unordered_map<std::string, RandoItemId> m;
+        for (auto& [id, emit] : ComboItemEmitNames())
+            if (!emit.empty())
+                m.emplace(emit, id); // emit names are unique by construction
+        return m;
+    }();
+    auto it = inv.find(name);
+    return it == inv.end() ? RI_UNKNOWN : it->second;
+}
+#endif
 
 RandoItemId GetItemIdFromVanillaItemId(u32 itemId) {
     for (auto& [randoItemId, randoStaticItem] : Items) {

@@ -32,6 +32,11 @@ extern std::array<std::string, RC_MAX> CheckNames;
 
 RandoStaticCheck GetCheckFromFlag(FlagType flagType, s32 flag, s16 sceneId = SCENE_MAX);
 RandoCheckId GetCheckIdFromName(const char* name);
+#ifdef COMBO_BUILD
+// ComboShip: friendly check name <-> id for the normalized combo spoiler (see Checks.cpp).
+const std::string& GetCheckDisplayName(RandoCheckId id);
+RandoCheckId GetCheckIdFromDisplayName(const char* name);
+#endif
 void PopulateCheckNames();
 std::string GetLocationNameForHint(RandoCheckId randoCheckId, bool exact);
 
@@ -51,6 +56,11 @@ extern std::map<StartingItemCategory, std::vector<RandoItemId>> StartingItemsMap
 extern std::map<RandoItemId, u8> MaxStartingItemsMap;
 
 RandoItemId GetItemIdFromName(const char* name);
+#ifdef COMBO_BUILD
+// ComboShip: friendly item name <-> id for the normalized combo spoiler (see Items.cpp).
+const std::string& GetItemDisplayName(RandoItemId id);
+RandoItemId GetItemIdFromDisplayName(const char* name);
+#endif
 RandoItemId GetItemIdFromVanillaItemId(u32 itemId);
 u8 GetIconForZMessage(RandoItemId itemId);
 const char* GetIconTexturePath(RandoItemId itemId);

@@ -270,7 +270,7 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
     };
 
     // Family-B upgrade data (Phase 4 consumes this): MM items placed at an OOT check, keyed by the
-    // MM item's own RI_* name -> "in <area> (OOT)".
+    // MM item's own friendly name -> "in <area> (OOT)".
     for (auto& fm : foreignArray) {
         if (fm.value("checkGame", "") != "oot" || fm.value("itemGame", "") != "mm")
             continue;

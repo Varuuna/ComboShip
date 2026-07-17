@@ -608,6 +608,27 @@ void DrawCheckTrackerSharedPanel() {
 void DrawNetworkSharedPanel() {
     const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
     ResolveAnchorResyncSyms();
+
+    // Render the Ship of Harkinian "Network > Anchor" settings (host/port/connect) from the game
+    // model, so the full Anchor config lives here with the team-sync control.
+    auto& model = ComboMenuModel::Get();
+    model.EnsureLoaded();
+    const ComboRando::GameMenu& oot = model.Oot();
+    if (oot.loaded && oot.menu) {
+        for (int s = 0; s < oot.menu->sectionCount; ++s) {
+            const CwSection& sec = oot.menu->sections[s];
+            if (!sec.sectionLabel || strcmp(sec.sectionLabel, "Network") != 0)
+                continue;
+            for (int sb = 0; sb < sec.sidebarCount; ++sb) {
+                if (sec.sidebars[sb].sidebarName && strcmp(sec.sidebars[sb].sidebarName, "Anchor") == 0)
+                    RenderSidebarWidgets(sec.sidebars[sb], oot);
+            }
+            break;
+        }
+    }
+
+    // Team sync is an Anchor feature (covers both games), so it lives in this Anchor panel.
+    ImGui::SeparatorText("Team Sync");
     ImGui::TextWrapped("Pull the latest team progress from your Anchor teammates for BOTH games.");
     ComboRando::ComboMenu_PushButton(theme);
     if (ImGui::Button("Resync team state", ImVec2(-1.0f, 0.0f))) {
@@ -933,12 +954,15 @@ void ComboMenu::DrawSharedPanel() {
         // OOT tab so all network settings live in one shared place.
         {
             std::vector<HubEntry> netE;
-            HubEntry sync;
-            sync.label = "Team Sync";
-            sync.group = "Network";
-            sync.kind = HubEntry::COMBO_NETWORK;
-            netE.push_back(std::move(sync));
-            AppendSectionEntries(netE, "Network", HubEntry::ENGINE, model.Oot(), "Network", {});
+            // Anchor panel = SoH Network "Anchor" settings + the team-sync resync (both combo-owned draw).
+            HubEntry anchor;
+            anchor.label = "Anchor";
+            anchor.group = "Network";
+            anchor.kind = HubEntry::COMBO_NETWORK;
+            netE.push_back(std::move(anchor));
+            // The Anchor sidebar is drawn inside the panel above; surface only the other SoH Network
+            // sidebars (Sail, Crowd Control) as their own entries.
+            AppendSectionEntries(netE, "Network", HubEntry::ENGINE, model.Oot(), "Network", { "Anchor" });
             groups.push_back({ "Network", std::move(netE) });
         }
     } else {

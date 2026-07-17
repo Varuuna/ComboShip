@@ -584,6 +584,14 @@ void PresetManager_RefreshPresets() {
     presets.clear();
     presets.insert(
         { "Defaults (Everything Off)", { defaultsPresetJ, { "Developer Tools", "Enhancements", "HUD", "Rando" } } });
+#ifdef COMBO_BUILD
+    // ComboShip: curated preset must set MM's namespaced debug key, not OOT's shared one (issue #67)
+    if (curatedPresetJ["CVars"]["gDeveloperTools"].contains("DebugEnabled")) {
+        auto& devTools = curatedPresetJ["CVars"]["gDeveloperTools"];
+        devTools["DebugEnabledMM"] = devTools["DebugEnabled"];
+        devTools.erase("DebugEnabled");
+    }
+#endif
     presets.insert({ "Curated", { curatedPresetJ, { "Developer Tools", "Enhancements", "HUD" } } });
     presets.insert({ "Voyage 3", { voyage3PresetJ, { "Developer Tools", "Enhancements", "Rando" } } });
 

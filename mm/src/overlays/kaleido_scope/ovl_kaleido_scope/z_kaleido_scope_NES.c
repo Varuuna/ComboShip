@@ -531,7 +531,13 @@ void KaleidoScope_HandlePageToggles(PlayState* play, Input* input) {
     InterfaceContext* interfaceCtx = &play->interfaceCtx;
 
     // 2S2H [Debug] Restoring input check for debug inventory editor based on OOT debug
-    if (CVarGetInteger("gDeveloperTools.DebugEnabled", 0) && (pauseCtx->debugEditor == DEBUG_EDITOR_NONE) &&
+    // ComboShip: MM's own debug CVar so MM debug can't leak into OOT (shared CVar store, issue #67)
+#ifdef COMBO_BUILD
+#define CVAR_MM_DEBUG_MODE_NAME "gDeveloperTools.DebugEnabledMM"
+#else
+#define CVAR_MM_DEBUG_MODE_NAME "gDeveloperTools.DebugEnabled"
+#endif
+    if (CVarGetInteger(CVAR_MM_DEBUG_MODE_NAME, 0) && (pauseCtx->debugEditor == DEBUG_EDITOR_NONE) &&
         CHECK_BTN_ALL(input->press.button, BTN_L)) {
         pauseCtx->debugEditor = DEBUG_EDITOR_INVENTORY_INIT;
         return;

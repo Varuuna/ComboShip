@@ -735,8 +735,8 @@ static std::string g_PendingMMPlacements;
 // never let the pending seed's settings overwrite the user's configured gRando.* CVars on disk.
 // MM only reads its gRando.* CVars at slot-bind (MM_InitRandoSaveFile), so its restore is deferred
 // there instead of running inline in Combo_OnReloadRequest like OOT's.
-static std::string g_PendingMMSettingsJson;  // seed's MM settings, applied right before slot-bind
-static std::string g_UserMMSettingsSnapshot; // user's MM settings, restored right after slot-bind
+static std::string g_PendingMMSettingsJson;     // seed's MM settings, applied right before slot-bind
+static std::string g_UserMMSettingsSnapshot;    // user's MM settings, restored right after slot-bind
 static bool g_ComboReloadRestoreUserMM = false; // false for an explicit drop (seed settings stick)
 
 // Forward decl: defined later, called from RunComboFill on every successful in-game generation.
@@ -773,7 +773,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     std::string sohDump, mmDump, spoiler, lastFillError, sohHintDump;
     bool usedCombinedFill = false;
     nlohmann::json playthroughJson = nlohmann::json::array(); // structured sphere playthrough (combined-fill only)
-    ComboRando::RequirednessResult pareDownResult; // cross-hint Phase 3 WotH/foolish classification
+    ComboRando::RequirednessResult pareDownResult;            // cross-hint Phase 3 WotH/foolish classification
     // ComboShip: checkName -> OOT area, computed once from sohHintDump right after the winning attempt's
     // dump (below) — reused by the pare-down call and the foreign-array enrichment after the fill loop,
     // instead of re-parsing sohHintDump twice for the same map.
@@ -863,9 +863,9 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             // the WriteComboPlaythrough call below (or the loop's own restore) does that once. Skipped
             // entirely when no enabled hint surface consumes requiredness (empty result = all non-required).
             if (ComboRando::NeedsRequirednessPareDown(sohHintDump, mmDump)) {
-                pareDownResult = ComboRando::PareDownPlaythrough(result.spoilerJson, ootOracle, mmOracle, nullptr,
-                                                                 sohDump, mmDump, ootCheckAreasCache,
-                                                                 buildMmCheckAreas(mmDump));
+                pareDownResult =
+                    ComboRando::PareDownPlaythrough(result.spoilerJson, ootOracle, mmOracle, nullptr, sohDump, mmDump,
+                                                    ootCheckAreasCache, buildMmCheckAreas(mmDump));
             } else {
                 std::cout << "[ComboShip] RunComboFill: pare-down skipped (no enabled hint surface needs "
                              "requiredness)\n";
@@ -1035,10 +1035,9 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         // ComboShip: cross-game hint generation (Phase 3) — real per-seed hint assignments, from the
         // pare-down computed above. usedCombinedFill guards the no-logic fallback path (no oracles/
         // pare-down data there): that path ships with an empty hints payload, same as before Phase 3.
-        consolidated["hints"] = usedCombinedFill
-                                    ? ComboRando::Generate(masterSeed, sohDump, sohHintDump, mmDump, foreignEnriched,
-                                                          spoiler, pareDownResult)
-                                    : nlohmann::json{ { "version", 1 } };
+        consolidated["hints"] = usedCombinedFill ? ComboRando::Generate(masterSeed, sohDump, sohHintDump, mmDump,
+                                                                        foreignEnriched, spoiler, pareDownResult)
+                                                 : nlohmann::json{ { "version", 1 } };
         g_ConsolidatedJson = consolidated.dump(2);
 
         // Write the pending (unbound) file so the seed is remembered and Start-able without regenerating.

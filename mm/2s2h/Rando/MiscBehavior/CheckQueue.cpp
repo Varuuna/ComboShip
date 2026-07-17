@@ -233,8 +233,8 @@ void Rando::MiscBehavior::CheckQueue() {
                         // ComboShip: shared-progression co-op — broadcast this obtained check's RAW
                         // item to Anchor teammates (CUSTOM_ITEM_PARAM is still the checkId here; it is
                         // overwritten with the item id on the next line). No-op if Anchor is inactive.
-                        Rando::MiscBehavior::BroadcastCheckObtainedIfFirst(
-                            (RandoCheckId)CUSTOM_ITEM_PARAM, randoSaveCheck.randoItemId, wasObtained);
+                        Rando::MiscBehavior::BroadcastCheckObtainedIfFirst((RandoCheckId)CUSTOM_ITEM_PARAM,
+                                                                           randoSaveCheck.randoItemId, wasObtained);
 #endif
                         CUSTOM_ITEM_PARAM = randoItemId;
                     },

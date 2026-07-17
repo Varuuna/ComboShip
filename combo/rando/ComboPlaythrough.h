@@ -102,9 +102,7 @@ inline std::vector<CwPlacedItem> ParseSpoilerPlacements(const std::string& spoil
         };
         addGame("oot", GAME_OOT);
         addGame("mm", GAME_MM);
-    } catch (const std::exception& e) {
-        std::cerr << "[PLAYTHROUGH] spoiler parse error: " << e.what() << "\n";
-    }
+    } catch (const std::exception& e) { std::cerr << "[PLAYTHROUGH] spoiler parse error: " << e.what() << "\n"; }
     return placements;
 }
 
@@ -152,17 +150,17 @@ inline ReachSet QueryReachableMemo(const OracleFns& o, const std::vector<std::st
 // Default win condition: OOT tower-top + Boss Key owned (Ganon) AND MM's in-lair check (Majora).
 // A pluggable goal so a future goal (e.g. Triforce hunt) can be swapped in without touching the
 // traversal machinery below.
-using GoalPredicate = std::function<bool(const std::unordered_set<std::string>& ootReach,
-                                        const std::unordered_set<std::string>& mmReach,
-                                        const std::vector<std::string>& ownedOot)>;
+using GoalPredicate =
+    std::function<bool(const std::unordered_set<std::string>& ootReach, const std::unordered_set<std::string>& mmReach,
+                       const std::vector<std::string>& ownedOot)>;
 inline bool DefaultGanonMajoraGoal(const std::unordered_set<std::string>& ootReach,
                                    const std::unordered_set<std::string>& mmReach,
                                    const std::vector<std::string>& ownedOot) {
     static const char* kOotTowerTop = "Ganon's Castle Tower Boss Key Chest";
     static const char* kOotBossKey = "Ganon's Castle Boss Key";
     static const char* kMmWin = "RC_MOON_MAJORA_POT_01";
-    bool canGanon = ootReach.count(kOotTowerTop) > 0 &&
-                    std::find(ownedOot.begin(), ownedOot.end(), kOotBossKey) != ownedOot.end();
+    bool canGanon =
+        ootReach.count(kOotTowerTop) > 0 && std::find(ownedOot.begin(), ownedOot.end(), kOotBossKey) != ownedOot.end();
     bool canMajora = mmReach.count(kMmWin) > 0;
     return canGanon && canMajora;
 }
@@ -194,7 +192,9 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
     RequirednessResult result;
     auto placements = ParseSpoilerPlacements(spoilerJson, sohDumpJson, mmDumpJson);
 
-    auto checkKey = [](const CwPlacedItem& p) { return std::string(p.checkGame == GAME_OOT ? "oot:" : "mm:") + p.check; };
+    auto checkKey = [](const CwPlacedItem& p) {
+        return std::string(p.checkGame == GAME_OOT ? "oot:" : "mm:") + p.check;
+    };
 
     // Per-invocation reachability memo (one per oracle): the same owned-set prefixes recur across
     // every counterfactual replay (sphere 0 is identical in all), so caching collapses the repeats.
@@ -292,8 +292,7 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
                 result.areaHasRequired.emplace(areaKey, false);
         }
     }
-    result.ms =
-        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+    result.ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
 
     if (mmRestore)
         mmRestore();

@@ -911,9 +911,7 @@ extern "C" __declspec(dllexport) void MM_Anchor_RequestResync(void) {
         if (MMAnchor::Instance) {
             MMAnchor::Instance->RequestResyncDormantSafe();
         }
-    } catch (const std::exception& e) {
-        SPDLOG_ERROR("[MM_Anchor_RequestResync] {}", e.what());
-    } catch (...) {
+    } catch (const std::exception& e) { SPDLOG_ERROR("[MM_Anchor_RequestResync] {}", e.what()); } catch (...) {
         SPDLOG_ERROR("[MM_Anchor_RequestResync] unknown exception");
     }
 }

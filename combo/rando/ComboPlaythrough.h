@@ -7,9 +7,12 @@
 #pragma once
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -19,6 +22,285 @@
 #include "CrossWorldRando.h"
 
 namespace ComboRando {
+
+// A single placed item, parsed from a combined-fill spoiler (see ParseSpoilerPlacements). Shared by
+// RunPlaythrough and PareDownPlaythrough so both traverse the identical placement set.
+struct CwPlacedItem {
+    GameId checkGame;
+    std::string check;
+    GameId itemGame;
+    std::string item;
+    bool advancement;
+    bool major; // native IsMajorItem: drives the barren predicate (barren = no WotH + no major)
+};
+
+// Parses a combined-fill spoilerJson ("oot"/"mm" flat check->item maps + "foreign" array, the shape
+// CrossWorldCombinedFill/CrossHints::Generate produce) into placements. sohDumpJson/mmDumpJson
+// (optional) resolve each item's advancement flag from the pool; absent -> defaults to advancement
+// (never hide progression). Mirrors RunPlaythrough's own parse (factored out for reuse).
+inline std::vector<CwPlacedItem> ParseSpoilerPlacements(const std::string& spoilerJson,
+                                                        const std::string& sohDumpJson = "",
+                                                        const std::string& mmDumpJson = "") {
+    std::vector<CwPlacedItem> placements;
+    struct ForeignInfo {
+        GameId itemGame;
+        std::string itemName;
+        bool advancement;
+    };
+    std::unordered_map<std::string, ForeignInfo> foreign; // "<cg>:<cn>"-keyed
+
+    std::unordered_map<std::string, bool> advByName[2];
+    std::unordered_map<std::string, bool> majorByName[2]; // absent (e.g. MM dump) -> falls back to advancement
+    auto loadAdv = [&](GameId g, const std::string& dumpJson) {
+        if (dumpJson.empty())
+            return;
+        try {
+            auto d = nlohmann::json::parse(dumpJson);
+            for (auto& it : d.value("pool", nlohmann::json::array())) {
+                bool adv = it.value("advancement", true);
+                advByName[g][it.value("name", "")] |= adv;
+                majorByName[g][it.value("name", "")] |= it.value("major", adv);
+            }
+            for (auto& f : d.value("fixed", nlohmann::json::array())) {
+                bool adv = f.value("advancement", true);
+                advByName[g][f.value("item", "")] |= adv;
+                majorByName[g][f.value("item", "")] |= f.value("major", adv);
+            }
+        } catch (...) {}
+    };
+    loadAdv(GAME_OOT, sohDumpJson);
+    loadAdv(GAME_MM, mmDumpJson);
+    auto lookupAdv = [&](GameId g, const std::string& item) {
+        auto it = advByName[g].find(item);
+        return it == advByName[g].end() ? true : it->second;
+    };
+    auto lookupMajor = [&](GameId g, const std::string& item) {
+        auto it = majorByName[g].find(item);
+        return it == majorByName[g].end() ? lookupAdv(g, item) : it->second;
+    };
+    try {
+        auto j = nlohmann::json::parse(spoilerJson);
+        for (auto& fm : j.value("foreign", nlohmann::json::array())) {
+            std::string cg = fm.value("checkGame", ""), cn = fm.value("checkName", "");
+            std::string ig = fm.value("itemGame", "");
+            foreign[cg + ":" + cn] = { (ig == "mm") ? GAME_MM : GAME_OOT, fm.value("itemName", ""),
+                                       fm.value("advancement", true) };
+        }
+        auto addGame = [&](const char* key, GameId cg) {
+            if (!j.contains(key) || !j[key].is_object())
+                return;
+            for (auto& [cn, iv] : j[key].items()) {
+                auto fit = foreign.find(std::string(key) + ":" + cn);
+                bool isForeign = fit != foreign.end();
+                GameId ig = isForeign ? fit->second.itemGame : cg;
+                std::string item =
+                    (isForeign && !fit->second.itemName.empty()) ? fit->second.itemName : iv.get<std::string>();
+                bool adv = isForeign ? fit->second.advancement : lookupAdv(ig, item);
+                bool major = isForeign ? fit->second.advancement : lookupMajor(ig, item);
+                placements.push_back({ cg, cn, ig, item, adv, major });
+            }
+        };
+        addGame("oot", GAME_OOT);
+        addGame("mm", GAME_MM);
+    } catch (const std::exception& e) { std::cerr << "[PLAYTHROUGH] spoiler parse error: " << e.what() << "\n"; }
+    return placements;
+}
+
+inline std::unordered_set<std::string> QueryReachable(const OracleFns& o, const std::vector<std::string>& owned) {
+    nlohmann::json arr = nlohmann::json::array();
+    for (auto& n : owned)
+        arr.push_back(n);
+    o.Reset();
+    o.SetOwnedItems(arr.dump().c_str());
+    std::unordered_set<std::string> out;
+    try {
+        for (auto& n : nlohmann::json::parse(o.GetReachableChecks()))
+            out.insert(n.get<std::string>());
+    } catch (...) {}
+    return out;
+}
+
+using ReachSet = std::shared_ptr<const std::unordered_set<std::string>>;
+
+// Memo key for an owned-item MULTISET: reachability depends on which items and HOW MANY (1 vs 2
+// Hookshots differ), not grant order. Sort only — dedupe would collapse progressive counts (stale hit).
+inline std::string CanonicalOwnedKey(std::vector<std::string> owned) {
+    std::sort(owned.begin(), owned.end());
+    std::string key;
+    for (auto& n : owned) {
+        key += n;
+        key += '\x1f';
+    }
+    return key;
+}
+
+// Memoized QueryReachable keyed on CanonicalOwnedKey: the same owned-set prefixes recur across the
+// hundreds of counterfactual replays (each starts from empty), so caching collapses the repeats.
+inline ReachSet QueryReachableMemo(const OracleFns& o, const std::vector<std::string>& owned,
+                                   std::unordered_map<std::string, ReachSet>& memo) {
+    std::string key = CanonicalOwnedKey(owned);
+    auto it = memo.find(key);
+    if (it != memo.end())
+        return it->second;
+    auto reach = std::make_shared<const std::unordered_set<std::string>>(QueryReachable(o, owned));
+    memo.emplace(std::move(key), reach);
+    return reach;
+}
+
+// Default win condition: OOT tower-top + Boss Key owned (Ganon) AND MM's in-lair check (Majora).
+// A pluggable goal so a future goal (e.g. Triforce hunt) can be swapped in without touching the
+// traversal machinery below.
+using GoalPredicate =
+    std::function<bool(const std::unordered_set<std::string>& ootReach, const std::unordered_set<std::string>& mmReach,
+                       const std::vector<std::string>& ownedOot)>;
+inline bool DefaultGanonMajoraGoal(const std::unordered_set<std::string>& ootReach,
+                                   const std::unordered_set<std::string>& mmReach,
+                                   const std::vector<std::string>& ownedOot) {
+    static const char* kOotTowerTop = "Ganon's Castle Tower Boss Key Chest";
+    static const char* kOotBossKey = "Ganon's Castle Boss Key";
+    static const char* kMmWin = "RC_MOON_MAJORA_POT_01";
+    bool canGanon =
+        ootReach.count(kOotTowerTop) > 0 && std::find(ownedOot.begin(), ownedOot.end(), kOotBossKey) != ownedOot.end();
+    bool canMajora = mmReach.count(kMmWin) > 0;
+    return canGanon && canMajora;
+}
+
+struct RequirednessResult {
+    // "oot:<check>"/"mm:<check>" -> required (WotH, true) or foolish-candidate (false).
+    std::unordered_map<std::string, bool> requiredByCheck;
+    // "oot:<area>"/"mm:<area>" -> true once ANY advancement item placed there is required.
+    std::unordered_map<std::string, bool> areaHasRequired;
+    int candidateCount = 0;
+    int replayedCount = 0; // per-item counterfactual fixpoint replays actually run (cache misses)
+    int64_t ms = 0;
+};
+
+// Requiredness pare-down over the COMBINED world: for each placed advancement item, tentatively
+// remove it (its check still exists, but never credits the item to the owned set) and re-run the
+// sphere-collect fixpoint from empty; if the goal is still reachable without it, the item is NOT
+// required (foolish candidate); otherwise it IS required (WotH). ootCheckAreas/mmCheckAreas (checkName
+// -> area/region string) let the caller roll this up into per-area foolish/WotH classification.
+// mmRestore resets the MM oracle's snapshot guard afterward (same contract as RunPlaythrough).
+// Each candidate is tested individually (native IsBeatableWithout) so no monotonicity is assumed;
+// candidates are restricted to the winning playthrough's checks, which is sound unconditionally.
+inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, const OracleFns& ootOracle,
+                                              const OracleFns& mmOracle, void (*mmRestore)(),
+                                              const std::string& sohDumpJson = "", const std::string& mmDumpJson = "",
+                                              const std::unordered_map<std::string, std::string>& ootCheckAreas = {},
+                                              const std::unordered_map<std::string, std::string>& mmCheckAreas = {},
+                                              GoalPredicate goalReached = DefaultGanonMajoraGoal) {
+    RequirednessResult result;
+    auto placements = ParseSpoilerPlacements(spoilerJson, sohDumpJson, mmDumpJson);
+
+    auto checkKey = [](const CwPlacedItem& p) {
+        return std::string(p.checkGame == GAME_OOT ? "oot:" : "mm:") + p.check;
+    };
+
+    // Per-invocation reachability memo (one per oracle): the same owned-set prefixes recur across
+    // every counterfactual replay (sphere 0 is identical in all), so caching collapses the repeats.
+    std::unordered_map<std::string, ReachSet> ootMemo, mmMemo;
+
+    // Excludes a SET of placements from ever crediting their items, then sphere-collects everything
+    // else from empty until stable. creditedOut (optional) reports what was credited when the run
+    // ended (at a win: exactly what was collected strictly before the goal first held).
+    auto winsWithout = [&](const std::unordered_set<size_t>& excludeIdx, std::vector<char>* creditedOut) {
+        std::vector<std::string> ootOwned, mmOwned;
+        std::vector<char> credited(placements.size(), 0);
+        ReachSet ootReach, mmReach;
+        bool won = false;
+        for (;;) {
+            ootReach = QueryReachableMemo(ootOracle, ootOwned, ootMemo);
+            mmReach = QueryReachableMemo(mmOracle, mmOwned, mmMemo);
+            // Test the goal per sphere and stop at the first win: we only break when the goal IS met
+            // and never un-credit an item, so an early win is final regardless of oracle monotonicity.
+            if (goalReached(*ootReach, *mmReach, ootOwned)) {
+                won = true;
+                break;
+            }
+            bool changed = false;
+            for (size_t i = 0; i < placements.size(); ++i) {
+                if (credited[i] || excludeIdx.count(i))
+                    continue;
+                const auto& p = placements[i];
+                const auto& reach = (p.checkGame == GAME_OOT) ? *ootReach : *mmReach;
+                if (reach.count(p.check)) {
+                    (p.itemGame == GAME_OOT ? ootOwned : mmOwned).push_back(p.item);
+                    credited[i] = true;
+                    changed = true;
+                }
+            }
+            if (!changed)
+                break;
+        }
+        if (!won)
+            won = goalReached(*ootReach, *mmReach, ootOwned);
+        if (creditedOut)
+            *creditedOut = std::move(credited);
+        return won;
+    };
+
+    auto t0 = std::chrono::steady_clock::now();
+
+    std::vector<size_t> candAll; // every advancement placement (drives the per-area rollup below)
+    for (size_t i = 0; i < placements.size(); ++i)
+        if (placements[i].advancement)
+            candAll.push_back(i);
+
+    std::vector<signed char> classified(placements.size(), -1); // -1 unknown, 0 not-required, 1 required
+
+    // Baseline win (nothing excluded) yields the winning playthrough's collected set. We pare only
+    // those checks: blanking a check the winning path never collected cannot break that path, so an
+    // off-playthrough advancement item is not required regardless of monotonicity — no test needed.
+    std::vector<char> baseCredited;
+    ++result.replayedCount;
+    bool baseWon = winsWithout({}, &baseCredited);
+
+    // Candidates = advancement checks on the winning path. A stuck baseline can never win, so blanking
+    // any one item still can't win: every advancement item is required, tested none.
+    std::vector<size_t> cand;
+    if (baseWon) {
+        for (size_t i : candAll)
+            if (baseCredited[i])
+                cand.push_back(i);
+            else
+                classified[i] = 0;
+    } else {
+        for (size_t i : candAll)
+            classified[i] = 1;
+    }
+    result.candidateCount = static_cast<int>(cand.size());
+
+    // Per-item WotH (native IsBeatableWithout): blank exactly one candidate check and replay from
+    // empty. Still wins -> not required; loses -> required. Definitionally correct, no monotonicity
+    // assumption (unlike the old group-test binary split, which our cross-game oracle broke).
+    for (size_t i : cand) {
+        ++result.replayedCount;
+        classified[i] = winsWithout({ i }, nullptr) ? 0 : 1;
+    }
+
+    for (size_t pi : candAll) {
+        const auto& p = placements[pi];
+        bool required = classified[pi] == 1;
+        result.requiredByCheck[checkKey(p)] = required;
+        const auto& areaMap = (p.checkGame == GAME_OOT) ? ootCheckAreas : mmCheckAreas;
+        auto ait = areaMap.find(p.check);
+        if (ait != areaMap.end()) {
+            std::string areaKey = (p.checkGame == GAME_OOT ? "oot:" : "mm:") + ait->second;
+            if (required)
+                result.areaHasRequired[areaKey] = true;
+            else
+                result.areaHasRequired.emplace(areaKey, false);
+        }
+    }
+    result.ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+
+    if (mmRestore)
+        mmRestore();
+
+    std::cout << "[PLAYTHROUGH] pare-down: " << result.candidateCount << " advancement candidates, "
+              << result.replayedCount << " oracle replays, " << result.ms << " ms\n";
+    return result;
+}
 
 struct PlaythroughResult {
     bool beatable = false;
@@ -45,85 +327,10 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
 
     PlaythroughResult result;
 
-    struct Placed {
-        GameId checkGame;
-        std::string check;
-        GameId itemGame;
-        std::string item;
-        bool advancement;
-    };
-    std::vector<Placed> placements;
-    struct ForeignInfo {
-        GameId itemGame;
-        std::string itemName;
-        bool advancement;
-    };
-    std::unordered_map<std::string, ForeignInfo> foreign; // "<cg>:<cn>"-keyed
+    using Placed = CwPlacedItem;
+    std::vector<Placed> placements = ParseSpoilerPlacements(spoilerJson, sohDumpJson, mmDumpJson);
 
-    // Per-game item-name -> advancement, from the dumps' pools. Absent dump/name => advancement;
-    // a name emitted with conflicting flags stays advancement (never hide progression).
-    std::unordered_map<std::string, bool> advByName[2];
-    auto loadAdv = [&](GameId g, const std::string& dumpJson) {
-        if (dumpJson.empty())
-            return;
-        try {
-            auto d = nlohmann::json::parse(dumpJson);
-            for (auto& it : d.value("pool", nlohmann::json::array()))
-                advByName[g][it.value("name", "")] |= it.value("advancement", true);
-            for (auto& f : d.value("fixed", nlohmann::json::array()))
-                advByName[g][f.value("item", "")] |= f.value("advancement", true);
-        } catch (...) {}
-    };
-    loadAdv(GAME_OOT, sohDumpJson);
-    loadAdv(GAME_MM, mmDumpJson);
-    auto lookupAdv = [&](GameId g, const std::string& item) {
-        auto it = advByName[g].find(item);
-        return it == advByName[g].end() ? true : it->second;
-    };
-    try {
-        auto j = nlohmann::json::parse(spoilerJson);
-        for (auto& fm : j.value("foreign", nlohmann::json::array())) {
-            std::string cg = fm.value("checkGame", ""), cn = fm.value("checkName", "");
-            std::string ig = fm.value("itemGame", "");
-            foreign[cg + ":" + cn] = { (ig == "mm") ? GAME_MM : GAME_OOT, fm.value("itemName", ""),
-                                       fm.value("advancement", true) };
-        }
-        auto addGame = [&](const char* key, GameId cg) {
-            if (!j.contains(key) || !j[key].is_object())
-                return;
-            for (auto& [cn, iv] : j[key].items()) {
-                auto fit = foreign.find(std::string(key) + ":" + cn);
-                bool isForeign = fit != foreign.end();
-                GameId ig = isForeign ? fit->second.itemGame : cg;
-                // A foreign item's placement-map value is its human DISPLAY name, but the owning game's
-                // oracle keys on its internal name (MM: RI_*). Prefer the foreign entry's itemName so the
-                // item is actually credited when handed to that oracle.
-                std::string item =
-                    (isForeign && !fit->second.itemName.empty()) ? fit->second.itemName : iv.get<std::string>();
-                bool adv = isForeign ? fit->second.advancement : lookupAdv(ig, item);
-                placements.push_back({ cg, cn, ig, item, adv });
-            }
-        };
-        addGame("oot", GAME_OOT);
-        addGame("mm", GAME_MM);
-    } catch (const std::exception& e) {
-        std::cerr << "[PLAYTHROUGH] spoiler parse error: " << e.what() << "\n";
-        return result;
-    }
-
-    auto queryReachable = [&](const OracleFns& o, const std::vector<std::string>& owned) {
-        nlohmann::json arr = nlohmann::json::array();
-        for (auto& n : owned)
-            arr.push_back(n);
-        o.Reset();
-        o.SetOwnedItems(arr.dump().c_str());
-        std::unordered_set<std::string> out;
-        try {
-            for (auto& n : nlohmann::json::parse(o.GetReachableChecks()))
-                out.insert(n.get<std::string>());
-        } catch (...) {}
-        return out;
-    };
+    auto queryReachable = QueryReachable;
 
     std::vector<std::string> ownedOot, ownedMm;
     std::unordered_set<std::string> collected; // "<cg>:<cn>"

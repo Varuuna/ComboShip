@@ -73,3 +73,11 @@ extern void CreateAllHints();
 extern void CreateWarpSongTexts();
 void CreateStaticHints();
 RandomizerHintTextKey GetRandomJunkHint();
+#ifdef COMBO_BUILD
+// ComboShip: expose the altar hint creators individually — combo seeds need only these two (not the
+// rest of CreateStaticHints, which the combo hint layer will own separately).
+void CreateChildAltarHint();
+void CreateAdultAltarHint();
+// ComboShip: resolved (settings-applied) always-hint check list, for the combo hint dump.
+std::vector<RandomizerCheck> GetAlwaysHintCandidates();
+#endif

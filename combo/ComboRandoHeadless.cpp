@@ -29,6 +29,8 @@
 
 #include "rando/CrossWorldRando.h"
 #include "rando/ComboPlaythrough.h"
+#include "rando/CrossForeign.h" // BuildForeignArray (foreign enrichment parity with RunComboFill)
+#include "rando/CrossHints.h"
 
 namespace {
 
@@ -110,6 +112,7 @@ int main(int argc, char** argv) {
     auto SOH_GetForced = Sym<FnGetForced>(soh, "SOH_GetForcedPlacements");
     auto MM_Restore = Sym<FnOracleVoid>(mm, "Combo_MM_Rando_Restore");
     auto SOH_DumpEnabledTricks = Sym<FnDump>(soh, "SOH_DumpEnabledTricks");
+    auto SOH_DumpRandoHintData = Sym<FnDump>(soh, "SOH_DumpRandoHintData"); // cross-hint verification
     auto SOH_SetEnabledTricks = Sym<FnTakeStr>(soh, "SOH_SetEnabledTricks");
     auto SOH_SetAllTricks = Sym<FnVoidV>(soh, "SOH_SetAllTricks");
     auto SOH_SetCheckPrices = Sym<FnTakeStr>(soh, "SOH_SetCheckPrices");
@@ -309,8 +312,9 @@ int main(int argc, char** argv) {
     for (int i = 0; i < count; ++i) {
         const uint32_t base = ComboHash(seed) + static_cast<uint32_t>(i);
         uint32_t masterSeed = base;
-        std::string sohDump, mmDump;
+        std::string sohDump, mmDump, sohHintDump;
         ComboRando::CombinedFillResult r{};
+        ComboRando::RequirednessResult pareDownResult; // cross-hint verification (headless mirror of RunComboFill)
         // Whole-fill retries with re-derived seeds, identical to RunComboFill (GAP-4) so a headless
         // seed reproduces the in-game one even when early attempts fail.
         for (int attempt = 0; attempt < 5; ++attempt) {
@@ -323,6 +327,29 @@ int main(int argc, char** argv) {
             mmDump = MM_Dump();
             std::string forced = SOH_GetForced ? SOH_GetForced(masterSeed) : "";
             r = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, oot, mmO, "", nullptr, forced);
+            if (r.success) {
+                // Cross-hint data (Phase 2/3 mirror of RunComboFill, incl. the same area maps so the
+                // WotH/Foolish rollup matches in-game): needs this attempt's still-live oracle session.
+                sohHintDump = SOH_DumpRandoHintData ? SOH_DumpRandoHintData() : "";
+                std::unordered_map<std::string, std::string> ootAreas, mmAreas;
+                try {
+                    auto hd = nlohmann::json::parse(sohHintDump.empty() ? "{}" : sohHintDump);
+                    for (auto& c : hd.value("checks", nlohmann::json::array())) {
+                        std::string name = c.value("name", ""), area = c.value("area", "");
+                        if (!name.empty() && !area.empty())
+                            ootAreas.emplace(std::move(name), std::move(area));
+                    }
+                    auto d = nlohmann::json::parse(mmDump);
+                    const auto locHints = d.value("locationHints", nlohmann::json::object());
+                    for (auto& [chk, region] : locHints.items())
+                        mmAreas.emplace(chk, region.get<std::string>());
+                } catch (...) {}
+                if (ComboRando::NeedsRequirednessPareDown(sohHintDump, mmDump))
+                    pareDownResult = ComboRando::PareDownPlaythrough(r.spoilerJson, oot, mmO, nullptr, sohDump, mmDump,
+                                                                     ootAreas, mmAreas);
+                else
+                    std::cout << "[comborando]   pare-down skipped (no enabled hint surface needs requiredness)\n";
+            }
             if (MM_Restore)
                 MM_Restore();
             if (r.success)
@@ -358,7 +385,23 @@ int main(int argc, char** argv) {
                     consolidated["mm"] = { { "settings", nlohmann::json::parse(MM_DumpSettings()) },
                                            { "placements", fillSpoiler.value("mm", nlohmann::json::object()) },
                                            { "prices", pricesOf(mmDump) } };
-                    consolidated["foreign"] = fillSpoiler.value("foreign", nlohmann::json::array());
+                    // ComboShip: enrich the foreign array exactly like RunComboFill (displayName game
+                    // suffix + oot checkArea) so the headless consolidated file matches the in-game one.
+                    std::unordered_map<std::string, std::string> ootCheckAreas;
+                    try {
+                        auto hd = nlohmann::json::parse(sohHintDump.empty() ? "{}" : sohHintDump);
+                        for (auto& c : hd.value("checks", nlohmann::json::array())) {
+                            std::string name = c.value("name", ""), area = c.value("area", "");
+                            if (!name.empty() && !area.empty())
+                                ootCheckAreas.emplace(std::move(name), std::move(area));
+                        }
+                    } catch (...) {}
+                    consolidated["foreign"] = ComboRando::BuildForeignArray(
+                        fillSpoiler.value("foreign", nlohmann::json::array()), ootCheckAreas);
+                    // Cross-hint generation (mirrors RunComboFill) — enables the headless determinism check.
+                    consolidated["hints"] =
+                        ComboRando::Generate(masterSeed, sohDump, sohHintDump, mmDump, consolidated["foreign"],
+                                             r.spoilerJson, pareDownResult);
                     std::error_code ec;
                     std::filesystem::create_directories("saves/combo", ec);
                     std::ofstream f("saves/combo/comborando.spoiler.json", std::ios::trunc);

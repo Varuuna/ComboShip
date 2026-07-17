@@ -1025,8 +1025,12 @@ Link's Pocket is a rando-only OOT check with no vanilla item, so it's absent fro
 dump and the combined fill never placed it — leaving it unset, which crashed save creation
 (`Item_Give(0xFF)` assert) and ignored `RSK_LINKS_POCKET`.
 
-- `soh/.../OTRGlobals.cpp`: new `SOH_GetForcedPlacements` picks Link's Pocket's item per
-  `RSK_LINKS_POCKET` (+ `RSK_LINKS_POCKET_REWARD`).
+- `soh/.../OTRGlobals.cpp`: new `SOH_GetForcedPlacements` returns Link's Pocket's item. For the
+  dungeon-reward case it now reads the item `RandomizeDungeonRewards` already placed at
+  `RC_LINKS_POCKET` (inside the preceding `SOH_DumpRandoStaticData`), instead of re-rolling a separate
+  LCG. The old re-roll disagreed with the fill's pick, so one dungeon reward was orphaned (nowhere in
+  the spoiler → altar hint "an unknown place") and another duplicated. Non-dungeon-reward modes
+  (advancement/any/nothing) unchanged.
 - `soh/.../savefile.cpp`: `StartingItemGive` skips an unresolved (ITEM_NONE/MOD_NONE) item instead of
   asserting — safety net for any residual unplaced save-creation check.
 - `combo/rando/CrossWorldRando.h` + `ComboShip.cpp`: the fill reserves forced items out of the pool,
@@ -1639,3 +1643,288 @@ on boot.
 
 **On future merges:** if upstream renames the tracker ImGui windows or the settings windows,
 update `combo/gui/ComboTrackerCommon.h` (`kKinds[].imguiWin`) and the inline-widget window names.
+
+## Cross-game hints (closes GAP-2/GAP-3, 4 phases, 2026-07-14/15)
+
+**Why:** native `CreateAllHints`/`CreateWarpSongTexts`/`PareDownPlaythrough` never ran for combo
+seeds (GAP-3's interim was forcing hint settings off, vanilla NPC text). This feature runs a
+combo-owned equivalent (`combo/rando/CrossHints.h::Generate`, Phase 3) after the pare-down
+(`ComboPlaythrough.h`, Phase 3) and wires both games to *display* its pre-rendered output — no
+runtime lookups on either game's side, since only the combo layer sees both worlds.
+
+**Phase 1 (bug fixes preceding the feature):**
+- `mm/2s2h/Rando/Rando.cpp`/`.h` — new `GetItemLocationHintName(randoItemId, exact)`: resolves a
+  hint's location whether the item lives in an MM check or was cross-placed into OOT (family-B),
+  replacing ad hoc `FindItemPlacement` + `GetLocationNameForHint` call pairs at 6 call sites
+  (`DmStk.cpp`, `EnKgy.cpp`×2, `EnTimeTag.cpp`, `EnTalk.cpp`×2, `EnZow.cpp`) that broke for
+  cross-placed items (no `RandoCheckId` to find).
+- `mm/2s2h/BenPort.cpp` — dump additions feeding `GetItemLocationHintName`'s and CrossHints's data
+  needs (locationHints/weightClass — see Phase 2).
+- `soh/soh/OTRGlobals.cpp` — hint dump + apply-time hookup for the combo hint layer.
+
+**Phase 2 (schema/data exports):**
+- `soh/soh/Enhancements/randomizer/3drando/hints.cpp`/`.hpp` — `GetAlwaysHintCandidates()` (resolved
+  always-hint check list) and per-piece `CreateChildAltarHint()`/`CreateAdultAltarHint()` exposed
+  (combo owns hint distribution separately from `CreateStaticHints()`'s bundle).
+- `soh/soh/Enhancements/randomizer/Messages/StaticHints.cpp` — skulltula reward + 100-skulls hint
+  text now check `RG_COMBO_FOREIGN` and substitute the real cross-placed item's display name via
+  `OOT_LookupForeign` (previously showed the sentinel's own placeholder hint).
+- `soh/soh/OTRGlobals.cpp` — `SOH_DumpRandoHintData` (checks/items/hintTextTable/requiredTrials
+  schema `CrossHints.h` consumes).
+
+**Phase 3 (generation + OOT injection):**
+- `combo/rando/CrossHints.h` (new) — `ComboRando::Generate`: seeded (`masterSeed ^ 0x48494E54`)
+  weighted hint distribution mirroring `hintSettingTable`, drawing candidates from both games'
+  dumps with no world bias; outputs `{oot: [...], mm: {gossipPool, itemLocations}, stats}`.
+  Superseded the ComboMenu-owned sphere-hint panel (removed from `combo/gui/ComboMenu.cpp`/`.h`).
+- `combo/rando/ComboPlaythrough.h` — `RequirednessResult`/pare-down parsing feeding WotH/Foolish
+  hint categories (closes GAP-2).
+- `combo/ComboShip.cpp` — `SOH_ApplyComboHints` call after OOT placement apply (generate + reload
+  paths).
+- `soh/soh/OTRGlobals.cpp` — `SOH_ApplyComboHints` applies the consolidated `hints.oot[]` array as
+  real `Rando::Hint` MESSAGE-type entries (gossip stones, trials, Ganondorf).
+- `soh/soh/SaveManager.cpp` — combo MESSAGE hints round-trip all 3 languages (`comboMessagesEn/De/Fr`)
+  since the native per-hint save schema is current-language-only.
+
+**Phase 4 (MM gossip stones + Family-B upgrade + docs, this phase):**
+- `mm/2s2h/Rando/ActorBehavior/EnGs.cpp` — `GetRandomCheck` folds `hints.mm.gossipPool` entries
+  (loaded lazily per save-slot, cached like `MM_LookupForeign`) into the SAME weighted draw via the
+  existing `100 + (w-1)*strength` formula — one RNG source, no bias. A cross entry has no
+  `RandoCheckId`; it's returned via a new `outForeignText` out-param the caller displays directly,
+  short-circuiting the native item/location lookup. Excluded from the purchasable-repeat pool
+  (`repeatableOnlyObtained`) since MM can't see OOT's obtained-state.
+- `mm/2s2h/Rando/Rando.cpp` — `GetItemLocationHintName`'s family-B path tries `hints.mm.itemLocations`
+  (Phase-3 region-rendered text) first, falling back to Phase 1's raw check-name string for seeds
+  generated before the hints object existed.
+- `combo/rando/CrossForeign.h` — `MmHints`/`LoadHintsMM(slot)`: per-slot lazy loader for the
+  consolidated file's `hints.mm` object, mirroring `LoadForeignForGame`'s never-throws contract.
+
+**Code-review fixes (2026-07-15):**
+- `soh/soh/OTRGlobals.cpp` — `SOH_DumpRandoHintData`'s `dump()` moved inside the try + uses
+  `error_handler_t::replace`, so malformed UTF-8 in authored hint text can no longer throw
+  `type_error.316` across the extern "C" boundary.
+- `combo/rando/CrossHints.h` — native "Always"-hint checks (Big Poes, Mask Shop, frogs, skull-reward
+  counts, etc) are now actually distributed: `Preset` gained `alwaysCopies` (mirroring
+  `hintSettingTable`'s 0/1/2/2), and `Generate` places one hint per exported `alwaysHintChecks` entry
+  (× copies) before the weighted loop, using the same location+item composition as the other
+  categories. Previously these were exported but never consumed, so native always-hints never landed
+  on a gossip stone.
+
+**Known v1 limitations (documented, not bugs):** trial/gossip text for cross entries is English-only
+(no translation source); MM can't exclude an already-obtained OOT item from its own gossip pool
+(only its own-game repeat-hint pool is protected); Ganondorf's combined-hint phrasing variant isn't
+mirrored.
+
+**Settings-persistence fix (2026-07-16):** the silent file-select auto-reload
+(`Combo_OnReloadRequest(NULL)`) was writing the pending seed's `gRando.*` CVars over the user's
+configured settings, which then leaked into `comboship.json`. Fix, all in `combo/ComboShip.cpp`:
+- OOT: snapshot the user's settings (`SOH_DumpRandoSettings`) before the seed's are restored for
+  reproduction, then restore the snapshot right after `SOH_ApplyRandoPlacements`/hints — OOT only
+  reads settings CVars at that prep step, never again during play.
+- MM: `MM_RestoreRandoSettings(mmSettings)` no longer runs at reload time. The seed's MM settings are
+  stashed (`g_PendingMMSettingsJson`) and applied in `Combo_OnOOTSaveInit`, immediately before
+  `MM_InitRandoSaveFile` (the only place MM reads them), then the user's snapshot
+  (`g_UserMMSettingsSnapshot`) is restored right after.
+- An explicit dropped-file load (non-null path) is a deliberate seed switch: its settings are left in
+  place instead of being restored back (`g_ComboReloadRestoreUserMM`).
+
+**Settings-persistence review follow-up (2026-07-16):** `Combo_FinalizeGenerate` (a fresh in-game
+generate, not a reload) now clears `g_PendingMMSettingsJson`/`g_UserMMSettingsSnapshot`/
+`g_ComboReloadRestoreUserMM` — a stale pending-seed's MM settings were otherwise left to apply at the
+next slot-bind over the freshly generated seed's placements. An explicit drop also applies its MM
+settings to CVars immediately (not just at slot-bind), matching OOT's immediate baseline switch, so
+quit-before-Start can't persist a mixed OOT=seed/MM=old-user `comboship.json`.
+
+Known limitation (not fixed — see `randomizer_check_objects.cpp` `UpdateImGuiVisibility`, called from
+`SohMenuRandomizer.cpp`): it reads ~67 `CVAR_RANDOMIZER_SETTING(...)` CVars directly rather than
+`gRandoContext->GetOption()`. During a combo session the OOT Randomizer settings menu shows (and this
+function reacts to) the user's live config, not the loaded seed's — opening that menu mid-session can
+compute check-tracker visibility against the wrong option set. Rewriting ~67 vendored reads to go
+through the rando context was judged too large/risky for this fix; left as a documented gap.
+
+## Anchor auto-reconnect on boot restored (2026-07-16)
+
+**Why:** `Combo_FinishInit` (OTRGlobals.cpp) had a `COMBO_BUILD` branch that `CVarClear`ed
+`gAnchor.Enabled` on every boot ("Anchor always starts DISABLED") instead of auto-connecting, so
+Anchor stayed disconnected after a restart. That predated the launcher wiring the Anchor connect
+transport before `SOH_Init`; with the transport now registered first, boot-time `Enable()` opens a
+real socket rather than wedging on "Connecting…". Dropped the combo-only branch so boot auto-connects
+from the persisted `gAnchor.Enabled` flag, matching upstream SoH (a deviation removed, not added).
+
+## Anchor co-op sync hardening, bug 3: MM time-travel duplicate grants (2026-07-16)
+
+**Why:** MM's `RandoSaveCheck` has two flags: `cycleObtained` (wiped every Song of Time,
+`OnCycleSave.cpp`) and `obtained` (permanent). Co-op broadcast and cross-game delivery were driven by
+the give-lambda running again each cycle, re-sharing/re-delivering an already-permanent check.
+
+Fixes, all `COMBO_BUILD`:
+- `CheckQueue.cpp`: capture `obtained` BEFORE the grant; only call `MMAnchor_BroadcastCheckItem` /
+  `SendForeignCheck` (cross-deliver) the first time a check becomes permanently obtained. Local grant
+  (`Rando::GiveItem`) is untouched — renewables still re-give locally, only re-SHARING is suppressed.
+- `gComboCrossDeliver`/`gMMComboCrossDeliver` gained a `srcCheckName` parameter. The launcher's
+  `DeliverCrossItem` (`combo/ComboShip.cpp`) dedups on it: the same wire `COMBO_CROSS_ITEM` packet
+  reaches both DLLs' queues (an explicit `originGame` filter exception), so whichever games later
+  process their own copy could each independently deliver — one shared in-memory set closes that.
+- `MMAnchor::HandlePacket_UpdateTeamState` / OOT's `UpdateTeamState.cpp`: resync now unions rather than
+  replaces permanent progress — MM snapshots local `obtained` flags before the wholesale
+  `shipSaveInfo` assignment and restores any the incoming state lacked; OOT only advances
+  `RandomizerCheckStatus` (progressive enum) instead of unconditionally overwriting it, so a
+  stale/incomplete peer's resync can't un-collect a check.
+
+## Anchor co-op sync hardening, bug 1: MM shop buys never broadcast (2026-07-16)
+
+**Why:** MM broadcast co-op progress only from `CheckQueue.cpp` (the physical rando check path);
+Bomb/Curiosity shop buys grant directly through `EnGirlA_RandoBuyFunc` (`EnGirlA.cpp`, `EnFsn.cpp`
+just forwards to the same `buyFunc`) without ever calling `MMAnchor_BroadcastCheckItem`, so shop
+purchases never reached teammates.
+
+Fix: factored the bug-3 first-time-obtained broadcast guard into a shared seam,
+`Rando::MiscBehavior::BroadcastCheckObtainedIfFirst` (`MiscBehavior.h`/`CheckQueue.cpp`), and wired
+`EnGirlA_RandoBuyFunc` to call it (both the normal buy and the OOT-bound foreign-item buy branch,
+which gets the same wasObtained guard as `CheckQueue.cpp`'s foreign path). `CheckQueue.cpp`'s own
+broadcast call now goes through the same seam instead of calling `MMAnchor_BroadcastCheckItem`
+directly, so future MM grant paths have one shared, idempotent broadcast point to hook into.
+
+## Anchor co-op sync hardening, bug 2: launcher-owned both-games resync (2026-07-16)
+
+**Why:** the resync button was OOT-only and foreground-only (`soh/soh/Network/Anchor/Menu.cpp:132`);
+`REQUEST_TEAM_STATE`'s dormant answer path was broken in both games (OOT's `PumpDormant` REQUEST
+branch didn't set `isDormantApply` like its `GIVE_ITEM` branch did, so `IsSaveLoaded()` always failed;
+MM's `SendTeamStateFromSave` gated on `IsSaveLoaded()`, which requires `gPlayState` — always null while
+MM is dormant); and nothing let a dormant sibling itself REQUEST a resync (MM's
+`SendPacket_RequestTeamState` is `isActive`-gated).
+
+Fixes, all `COMBO_BUILD`:
+- `Anchor::PumpDormant` (`soh/soh/Network/Anchor/Anchor.cpp`) now wraps the `REQUEST_TEAM_STATE`
+  branch in `isDormantApply` like the `GIVE_ITEM` branch already did.
+- `MMAnchor::SendTeamStateFromSave` (`mm/2s2h/Network/Anchor/MMAnchor.cpp`) now judges by
+  `gSaveContext.fileNum` instead of `IsSaveLoaded()`, so it answers even while MM is dormant.
+- New dormant-safe request seam per game: `Anchor::RequestResyncDormantSafe()` /
+  `MMAnchor::RequestResyncDormantSafe()`, exported as `SOH_Anchor_RequestResync()` /
+  `MM_Anchor_RequestResync()`. MM's bypasses `SendJson`'s `isActive` gate (constructs+sends the
+  `REQUEST_TEAM_STATE` JSON directly) since the whole point is a dormant MM asking for a resync too.
+- Launcher orchestration (`combo/ComboShip.cpp`): both exports are called, unconditionally, on every
+  (re)connect — a late-joiner/reconnect resync now pulls a peer's OOT AND MM progress, and this
+  client's own dormant sibling gets asked too. Per-game `originGame` packet isolation is untouched;
+  orchestration happens at the launcher, not inside either game's filter.
+- Manual control: a "Resync team state" button in the combo-owned Shared > Settings > Network panel
+  (`combo/gui/ComboMenu.cpp`), resolving both exports the same way the existing combo-gen syms are
+  resolved (`GetModuleHandleA`/`GetProcAddress` — comboui.dll has no other way to call into the game
+  DLLs) and calling both. This is NOT the full "Ship of Harkinian -> Network settings" migration to
+  combo-owned UI (separate follow-up) — just the resync control. The existing OOT Menu.cpp button is
+  unchanged and still works.
+
+## Anchor co-op sync: code-review fixes on bugs 1-3 (2026-07-16)
+
+**Why:** review of the above three entries found the bug-3 union was incomplete (MM still lost
+permanent progress on resync) and three smaller issues in the bug-2 plumbing.
+
+Fixes, all `COMBO_BUILD`:
+- `MMAnchor::HandlePacket_UpdateTeamState` (`mm/2s2h/Network/Anchor/MMAnchor.cpp`): the bug-3 union
+  only covered `RANDO_SAVE_CHECKS[i].obtained`; the wholesale `saveInfo`/`shipSaveInfo` assignment
+  still let a stale peer erase `weekEventReg`, owned masks, quest items, upgrade tiers, and heart
+  containers. Now snapshots those before the assignment and OR/max-merges them back in: `weekEventReg`
+  (byte-wise OR, MM's analog of OOT's `eventChkInf`), `inventory.items[24..47]` (mask ownership slots,
+  restore-if-local-non-empty), `inventory.questItems` (OR), `inventory.upgrades` (per-field max via
+  `gUpgradeMasks`/`gUpgradeShifts`), `playerData.healthCapacity` (max).
+- `soh/soh/Network/Anchor/Packets/UpdateTeamState.cpp`: `SetIsSkipped` was unconditional next to the
+  now-progressive `SetCheckStatus`; a stale peer with `isSkipped=false` could un-skip a local skip. Now
+  only applies the incoming skip when it's `true` and local isn't already.
+- `SOH_Anchor_RequestResync`/`MM_Anchor_RequestResync` (`OTRGlobals.cpp`/`MMAnchor.cpp`): wrapped in
+  try/catch — both call into JSON/CVar code with no prior guard, and are `extern "C"` exports the
+  launcher calls, so a throw would have unwound across the DLL boundary.
+- `combo/ComboShip.cpp`: the auto-resync-on-connect call moved off the network `ReceiveLoop` thread. It
+  now sets an `std::atomic<bool> sResyncPending` flag; the existing per-frame `PumpDormant` (already
+  running on the active game's thread) drains it once and fires both resync exports there, avoiding a
+  race with `PumpDormant`'s own `isDormantApply`/`gPlayState` use. Also scoped the cross-item dedup set
+  (`sAppliedCrossChecks`) to the active seed — cleared via `ResetCrossItemDedupForSeed` whenever
+  `masterSeed` changes (regen or reload-from-file), so a check name reused across seeds isn't dropped
+  as a false duplicate. `ResetCrossItemDedupForSeed` runs on the generation worker thread while
+  `DeliverCrossItem` runs on the game thread, so both now take `sAppliedCrossChecksMutex`.
+
+## Cross-hint playtest fixes: color, dump size, altar (2026-07-16)
+
+**Why:** playtest of the cross-hints feature found 3 issues: hint text displayed with no color,
+Debug seed-gen was slow due to a ~2MB hint-schema JSON dump per fill, and the altar hint showed a
+literal `[[3]]`/`[[N]]` for any dungeon reward cross-placed into MM.
+
+**Fix 1 (color lost):** `soh/soh/OTRGlobals.cpp`'s `Combo_CustomMessageToJson` exported hint text with
+`MF_RAW`, which never runs `EncodeColors` — the native `colors` vector (never itself serialized) was
+silently dropped, so the reconstructed `CustomMessage` on the combo side had no colors and rendered
+plain. Switched to `MF_ENCODE`, which bakes colors into `%g`/`%w`-style escapes while the vector is
+still attached and leaves `[[N]]`/`&`/`^`/`|sing|plur|` untouched, so combo's substitution and the
+existing display path are unaffected.
+
+**Fix 2 (perf, partial — safe wins only, per explicit scope):**
+- `soh/soh/OTRGlobals.cpp`'s `SOH_DumpRandoHintData`: `hintTextTable` trimmed from all ~1646 `RHT_*`
+  entries to `Combo_IsUsedHintTemplate`'s allowlist (the WotH/Foolish/CanBeFoundAt/Hoards/Ganondorf/
+  junk/altar + option-driven end-clause templates `CrossHints.h` can actually emit). Checks/items
+  dumps were NOT trimmed: an attempt to filter them to the seed's placed set (`checks[]`/`items[]`
+  restricted via a caller-supplied filter) caused a reproducible crash in headless verification and
+  was reverted — flagged as a follow-up, not shipped. Net effect: ~2.05MB -> ~1.53MB dump (seed 1).
+- `combo/ComboShip.cpp`: `buildOotCheckAreas(sohHintDump)` was re-parsed twice (once for the pare-down
+  call, once for the foreign-array enrichment after the fill loop) — now parsed once into
+  `ootCheckAreasCache` and reused. `Combo_FinalizeGenerate`'s `ComboHintsPresentInJson`/
+  `ComboHintsJsonFrom` both re-parsed the whole consolidated spoiler just to check/extract the
+  `hints` field — merged into one `ComboHintsJsonFrom` that returns the parsed sub-object directly.
+- `combo/rando/CrossHints.h`'s `NeedsRequirednessPareDown`: also skips the pare-down when
+  `hintDistribution` is 0 ("Useless" preset — no WotH/Foolish category at all), not just when gossip
+  stones are off; conservative for every other distribution (WotH/Foolish always nonzero there).
+
+**Fix 3 (altar `[[N]]` literal):** native `CreateChildAltarHint`/`CreateAdultAltarHint`
+(`3drando/hints.cpp`) resolve reward locations via `FindItemsAndMarkHinted`, which only searches
+`ctx->allLocations` (OOT's own checks) — a reward cross-placed into MM comes back `RC_UNKNOWN_CHECK`
+and is skipped, leaving `InsertNames` with fewer areas than template slots.
+- `soh/soh/OTRGlobals.cpp`: `SOH_ApplyRandoPlacements` now skips its own
+  `CreateChildAltarHint()`/`CreateAdultAltarHint()` calls when `sComboHintsPresent` (combo supplies
+  the altar hint instead, via `SOH_ApplyComboHints`'s new `"__ALTAR_CHILD__"`/`"__ALTAR_ADULT__"`
+  sentinels -> `RH_ALTAR_CHILD`/`RH_ALTAR_ADULT`, added as `HINT_TYPE_MESSAGE`); `CreateStaticHints()`
+  (called at the end of `SOH_ApplyComboHints`) self-skips the already-enabled key, so native never
+  overwrites combo's version. Back-compat (no combo hints payload) is unaffected — those two calls
+  still run as before.
+  `SOH_DumpRandoHintData`'s options now also resolve the exact end-clause template key + count for
+  each option family (bridge/Ganon's-boss-key/Ganon's-soul/win-condition + door-of-time), mirroring
+  `hint.cpp`'s `GetBridgeReqsText`/`GetGanonBossKeyText`/`GetGanonsSoulText`/`GetWinconText`/altar
+  door-of-time branch exactly (same `Is()` checks) — the combo side gets a template NAME + count, not
+  an enum ordinal to reinterpret, so there's no ordinal-drift risk if the enums change.
+- `combo/rando/CrossHints.h`: composes both altar hints from `RHT_CHILD_ALTAR_STONES`/
+  `RHT_ADULT_ALTAR_MEDALLIONS`, resolving each reward (`Kokiri's Emerald`/`Goron's Ruby`/
+  `Zora's Sapphire`/5 medallions + Light Medallion) by scanning the FULL placement list (not the
+  advancement-filtered candidate list — a reward's advancement stamp isn't guaranteed reliable) for
+  an OOT-owned item of that name, then resolving its check's area via `ootChecks`/`mmLocationHints`
+  regardless of which game holds the check. Appends the resolved end clauses (door-of-time for child;
+  bridge+GBK+soul+wincon+text-end for adult), replicating `InsertNumber`'s `|singular|plural|`+`[[d]]`
+  substitution. Only emitted when `totAltarHint` is on (matches native gating; off leaves the earlier
+  "No Hint" fix's behavior untouched).
+  **Known residual gap:** one dungeon-reward item occasionally isn't found in the placement list at
+  all for a given seed (pre-existing fill/dump completeness gap, not something introduced by this
+  composition) — degrades to "an unknown place" for that one slot rather than crashing or leaving a
+  literal `[[N]]`; needs its own investigation, out of scope here.
+
+**Verified:** all 4 targets (soh/2ship/ComboShip/comborando) build clean; headless
+`comborando.exe --seed <n>` run repeatedly (multiple seeds, 3x each) with no crash; same seed run
+twice produces byte-identical `hints` and placements (determinism preserved); consolidated spoiler's
+`hints.oot[]` altar entries contain `%`-color codes and every `[[N]]` slot filled (no literal
+placeholder) except the one known residual gap above.
+
+## Native barren predicate: major-item signal (2026-07-16)
+
+**Why:** Native (`fill.cpp CalculateBarren`) marks a region barren iff it has NO WotH item AND
+NO major item (`Item::IsMajorItem`, `item.cpp`). ComboShip's cross-hint rollup had only a WotH
+signal (`areaHasRequired`), so it over-marked barren: a region holding a major-but-not-required
+item (e.g. a second progressive copy) was wrongly foolish.
+
+**`soh/soh/OTRGlobals.cpp` (`SOH_DumpRandoStaticData`, COMBO_BUILD pool/fixed):** each `pool[]`
+and `fixed[]` entry now also emits `"major": RetrieveItem(rg).IsMajorItem()` beside `advancement`.
+`IsMajorItem` reads the live Context options, same as `IsAdvancement`, so it's valid during the dump.
+
+**MM:** no `IsMajorItem` equivalent; `MM_DumpRandoStaticData` is unchanged and emits no `major`
+flag. `ParseSpoilerPlacements` falls back to `major = advancement` when the flag is absent, so MM
+placements treat every advancement item as major (conservative — never over-marks barren).
+
+**`combo/rando/ComboPlaythrough.h`:** `CwPlacedItem` gains `major`; `ParseSpoilerPlacements` loads
+`majorByName` from the dump (fallback to advancement) and stamps each placement.
+**`combo/rando/CrossHints.h`:** a region enters the foolish pool only if it has no WotH item AND
+no major item (`areaHasMajor`). Deliberately produces fewer barren regions than before (native parity).
+
+**If future upstream touches `Item::IsMajorItem`:** re-check the dump flag and the barren derivation.

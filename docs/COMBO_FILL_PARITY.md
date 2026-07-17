@@ -83,8 +83,8 @@ This document is the authoritative checklist. **Statuses:**
 | GAP | Summary | Status |
 |---|---|---|
 | GAP-1 | OOT shop/scrub/merchant prices existed only at apply; fill/oracle/validator evaluated `GetCheckPrice()==0`. Now rolled at the native position (`ComboFillConfined`), re-established per oracle `ItemReset`, byte-identical to apply. | **Fixed** (Phase 1) |
-| GAP-2 | `PareDownPlaythrough`/WotH/barren not computed — only needed by hint generation. | n/a while GAP-3 interim holds; revisit with the hint feature |
-| GAP-3 | `CreateAllHints`/`CreateWarpSongTexts` never run; hint surfaces read an empty table ("No Hint", no crash). **Interim:** apply forces `RSK_GOSSIP_STONE_HINTS/GANONDORF_HINT/WARP_SONG_HINTS` off so NPCs behave vanilla (ToT altar still shows "No Hint" — its hook is unconditional). The combo sphere-hint panel is the hint system for now. | **Interim fix** (Phase 2); real cross-game hints = planned feature |
+| GAP-2 | `PareDownPlaythrough`/WotH/barren not computed — only needed by hint generation. | **Fixed** (cross-hints feature Phase 3: `RequirednessResult`/`ParsePlaythroughPareDown` feed `CrossHints.h::Generate`'s WotH/Foolish categories) |
+| GAP-3 | `CreateAllHints`/`CreateWarpSongTexts` never run; hint surfaces read an empty table. | **Fixed** (cross-hints feature, Phases 1-4): `CrossHints.h::Generate` composes cross-game-aware OOT gossip/hint text + MM gossip-stone pool/item-location strings; OOT altar and MM `EnGs` stones both consume the consolidated file's `hints` object instead of running vanilla-off |
 | GAP-4 | No outer whole-fill retry. Now 5 attempts (mirroring SoH) with per-attempt derived master seed, identical in `RunComboFill` and comborando so headless reproduces in-game. | **Fixed** (Phase 2) |
 | GAP-5 | MM prices were 0 in oracle and combo save. Now captured from `GeneratePools` rolls, re-applied in oracle reset + `MM_InitRandoSaveFile`. | **Fixed** (Phase 1) |
 | GAP-6 | Spoiler carried no prices. Now `oot.prices`/`mm.prices`; `--playthrough` is spoiler-hermetic and hard-fails price-less spoilers. | **Fixed** (Phase 1) |

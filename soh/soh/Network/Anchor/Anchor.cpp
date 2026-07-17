@@ -23,7 +23,7 @@ extern PlayState* gPlayState;
 // seams (defined in OTRGlobals.cpp) route a delivered item into the TARGET game and mark the SOURCE
 // check obtained. See docs/UPSTREAM_MERGES.md.
 static const std::string COMBO_CROSS_ITEM = "COMBO_CROSS_ITEM";
-extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName);
+extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName);
 extern "C" void (*gComboMarkForeignObtained)(int srcGame, const char* checkName);
 
 // Broadcast a locally-collected foreign item to teammates (called from hook_handlers.cpp). No-op
@@ -68,7 +68,7 @@ static void Anchor_HandleCrossItemPacket(const nlohmann::json& payload) {
         return;
     }
     if (gComboCrossDeliver) {
-        gComboCrossDeliver(targetGame, itemName.c_str());
+        gComboCrossDeliver(targetGame, itemName.c_str(), srcCheckName.c_str());
     }
     if (gComboMarkForeignObtained && !srcCheckName.empty()) {
         gComboMarkForeignObtained(srcGame, srcCheckName.c_str());
@@ -309,9 +309,14 @@ void Anchor::PumpDormant() {
             // Answering is read-only over the frozen save, so it's dormant-safe; without it a
             // teammate's resync gets nothing whenever this client is in the other game. Applying a
             // received UPDATE_TEAM_STATE stays foreground-only (dropped below).
+            // Bug 2: this branch was missing the isDormantApply wrap the GIVE_ITEM branch below has,
+            // so IsSaveLoaded() (gated on gPlayState) always failed here while dormant — dormant OOT
+            // never actually answered.
+            isDormantApply = true;
             try {
                 HandlePacket_RequestTeamState(payload);
             } catch (const std::exception& e) { SPDLOG_ERROR("[Anchor] dormant team-state reply: {}", e.what()); }
+            isDormantApply = false;
             continue;
         }
         if (type != GIVE_ITEM) {
@@ -334,6 +339,18 @@ void Anchor::PumpDormant() {
         SaveManager::Instance->SaveFile(gSaveContext.fileNum);
         SPDLOG_INFO("[Anchor] dormant OOT save persisted (file {})", gSaveContext.fileNum);
     }
+}
+
+// Bug 2: launcher-orchestrated resync (auto on connect + the combo menu button). Forces
+// IsSaveLoaded() through its dormant (save-only) branch when there's no play state, so this works
+// whether OOT is the active or the dormant game.
+void Anchor::RequestResyncDormantSafe() {
+    bool wasDormantApply = isDormantApply;
+    if (gPlayState == nullptr) {
+        isDormantApply = true;
+    }
+    SendPacket_RequestTeamState();
+    isDormantApply = wasDormantApply;
 }
 #endif
 

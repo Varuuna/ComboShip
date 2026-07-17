@@ -19,7 +19,7 @@
 // ComboShip (issue #3): immediate cross-game delivery. gComboCrossDeliver (defined in OTRGlobals.cpp)
 // routes a foreign item to the OTHER game's resident save NOW; Anchor_BroadcastCrossItem shares it
 // with networked teammates (no-op when Anchor is inactive).
-extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName);
+extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName);
 extern "C" void Anchor_BroadcastCrossItem(int targetGame, const char* itemName, const char* srcCheckName);
 #endif
 #include "soh/Enhancements/randomizer/randomizer_check_tracker.h"
@@ -451,7 +451,7 @@ void OOT_DeliverForeign(RandomizerCheck rc) {
         // Grant straight into the dormant target game's resident save (and persist it there), then
         // share with networked teammates. Replaces the old JSON mailbox + per-frame drain.
         if (gComboCrossDeliver)
-            gComboCrossDeliver((int)fi->itemGame, fi->itemName.c_str());
+            gComboCrossDeliver((int)fi->itemGame, fi->itemName.c_str(), checkName.c_str());
         Anchor_BroadcastCrossItem((int)fi->itemGame, fi->itemName.c_str(), checkName.c_str());
         Notification::Emit({ .message = "Sent to Termina:", .suffix = fi->displayName });
         SPDLOG_INFO("[ComboShip] OOT delivered foreign item '{}' to MM (from check '{}')", fi->itemName, checkName);

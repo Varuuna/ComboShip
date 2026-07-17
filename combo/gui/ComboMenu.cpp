@@ -15,9 +15,7 @@
 #include <algorithm>
 #include <cstring>
 #include <cstdio>
-#include <fstream>
 #include <unordered_set>
-#include "rando/CrossForeign.h" // ComboRando::SlotReadPath for the active seed's playthrough
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -28,14 +26,9 @@ namespace {
 typedef void (*FnTriggerGenerate)(void);
 typedef const ComboRando::ComboGenProgress* (*FnGetProgress)(void);
 typedef unsigned char (*FnIsOnFileSelect)(void);
-typedef const char* (*FnGetStr)(void);
-typedef int (*FnGetInt)(void);
 FnTriggerGenerate sTrigger = nullptr;
 FnGetProgress sGetProgress = nullptr;
 FnIsOnFileSelect sIsOnFileSelect = nullptr;
-FnGetInt sGetFileNum = nullptr;  // SOH_GetActiveFileNum (soh.dll)
-FnGetStr sSohObtained = nullptr; // Combo_SOH_GetObtainedChecks (soh.dll)
-FnGetStr sMmObtained = nullptr;  // Combo_MM_GetObtainedChecks (2ship.dll)
 void ResolveComboGenSyms() {
 #ifdef _WIN32
     HMODULE h = GetModuleHandleA("soh.dll");
@@ -47,14 +40,23 @@ void ResolveComboGenSyms() {
         sGetProgress = (FnGetProgress)GetProcAddress(h, "SOH_GetComboGenProgress");
     if (!sIsOnFileSelect)
         sIsOnFileSelect = (FnIsOnFileSelect)GetProcAddress(h, "SOH_IsOnFileSelect");
-    if (!sGetFileNum)
-        sGetFileNum = (FnGetInt)GetProcAddress(h, "SOH_GetActiveFileNum");
-    if (!sSohObtained)
-        sSohObtained = (FnGetStr)GetProcAddress(h, "Combo_SOH_GetObtainedChecks");
-    if (!sMmObtained) {
-        HMODULE mm = GetModuleHandleA("2ship.dll");
-        if (mm)
-            sMmObtained = (FnGetStr)GetProcAddress(mm, "Combo_MM_GetObtainedChecks");
+#endif
+}
+
+// Bug 2: Anchor resync exports, one per game DLL — resolved the same way as the combo-gen syms
+// above. The button calls both so a resync pulls the peer's OOT AND MM team-state.
+typedef void (*FnRequestResync)(void);
+FnRequestResync sSohRequestResync = nullptr;
+FnRequestResync sMmRequestResync = nullptr;
+void ResolveAnchorResyncSyms() {
+#ifdef _WIN32
+    if (!sSohRequestResync) {
+        if (HMODULE h = GetModuleHandleA("soh.dll"))
+            sSohRequestResync = (FnRequestResync)GetProcAddress(h, "SOH_Anchor_RequestResync");
+    }
+    if (!sMmRequestResync) {
+        if (HMODULE h = GetModuleHandleA("2ship.dll"))
+            sMmRequestResync = (FnRequestResync)GetProcAddress(h, "MM_Anchor_RequestResync");
     }
 #endif
 }
@@ -291,7 +293,7 @@ namespace {
 struct HubEntry {
     std::string label; // shown in the left panel
     std::string group; // owning group label (for the unique key)
-    enum Kind { ENGINE, OOT_RANDO, MM_RANDO, COMBO_GEN, COMBO_TRACKER, COMBO_CHECK_TRACKER } kind;
+    enum Kind { ENGINE, OOT_RANDO, MM_RANDO, COMBO_GEN, COMBO_TRACKER, COMBO_CHECK_TRACKER, COMBO_NETWORK } kind;
     const ComboRando::GameMenu* game = nullptr; // ENGINE/OOT_RANDO/MM_RANDO
     int sectionIndex = -1;
     int sidebarIndex = -1;
@@ -515,6 +517,23 @@ void DrawCheckTrackerSharedPanel() {
         }
     }
 }
+
+// Shared > Network: launcher-orchestrated Anchor resync (bug 2). Full "Ship of Harkinian ->
+// Network" settings migration is a separate follow-up; this is just the resync control.
+void DrawNetworkSharedPanel() {
+    const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
+    ResolveAnchorResyncSyms();
+    ImGui::TextWrapped("Pull the latest team progress from your Anchor teammates for BOTH games.");
+    ComboRando::ComboMenu_PushButton(theme);
+    if (ImGui::Button("Resync team state", ImVec2(-1.0f, 0.0f))) {
+        if (sSohRequestResync)
+            sSohRequestResync();
+        if (sMmRequestResync)
+            sMmRequestResync();
+    }
+    ComboRando::ComboMenu_PopButton();
+    ImGui::TextDisabled("Use this if you're missing items/flags a teammate has collected in either game.");
+}
 } // namespace
 
 void ComboMenu::DrawSharedPanel() {
@@ -548,6 +567,12 @@ void ComboMenu::DrawSharedPanel() {
         chk.group = "Settings";
         chk.kind = HubEntry::COMBO_CHECK_TRACKER;
         e.push_back(std::move(chk));
+        // Combo-owned Network panel: launcher-orchestrated Anchor resync (bug 2).
+        HubEntry net;
+        net.label = "Network";
+        net.group = "Settings";
+        net.kind = HubEntry::COMBO_NETWORK;
+        e.push_back(std::move(net));
         if (!e.empty())
             groups.push_back({ "Settings", std::move(e) });
     } else {
@@ -652,6 +677,8 @@ void ComboMenu::DrawSharedPanel() {
         DrawTrackerSharedPanel();
     } else if (active->kind == HubEntry::COMBO_CHECK_TRACKER) {
         DrawCheckTrackerSharedPanel();
+    } else if (active->kind == HubEntry::COMBO_NETWORK) {
+        DrawNetworkSharedPanel();
     } else {
         const CwSidebar& side = active->game->menu->sections[active->sectionIndex].sidebars[active->sidebarIndex];
         RenderSidebarWidgets(side, *active->game);
@@ -894,78 +921,6 @@ void ComboMenu::DrawComboPanel() {
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Error: %s", p->error);
             }
         }
-    }
-
-    DrawHintSection();
-}
-
-// ComboShip: sphere "Get a hint" helper. When a combo save is active, loads that seed's playthrough
-// from its per-slot consolidated file and, comparing against the checks obtained in BOTH games,
-// reveals the next not-yet-collected step's location (one more per click). Low-spoiler: location only.
-void ComboMenu::DrawHintSection() {
-    int fn = sGetFileNum ? sGetFileNum() : -1;
-    if (fn < 0)
-        return; // no save loaded — hints are an in-game helper
-
-    // (Re)load the active seed's playthrough when the slot changes.
-    if (fn != mHintFileNum) {
-        mHintFileNum = fn;
-        mHintsRevealed = 0;
-        mHintSteps.clear();
-        try {
-            auto path = ComboRando::SlotReadPath(fn);
-            if (!path.empty()) {
-                std::ifstream in(path);
-                nlohmann::json j;
-                in >> j;
-                for (auto& sph : j.value("playthrough", nlohmann::json::array()))
-                    for (auto& st : sph.value("steps", nlohmann::json::array()))
-                        mHintSteps.emplace_back(st.value("game", std::string()), st.value("check", std::string()));
-            }
-        } catch (...) {}
-    }
-
-    ImGui::Separator();
-    ImGui::TextUnformatted("Sphere Hints");
-    if (mHintSteps.empty()) {
-        ImGui::TextDisabled("No playthrough available for this seed.");
-        return;
-    }
-
-    // Obtained checks across BOTH games (active live + dormant from in-RAM save state).
-    std::unordered_set<std::string> obtained;
-    auto addFrom = [&](FnGetStr fn2) {
-        if (!fn2)
-            return;
-        try {
-            for (auto& n : nlohmann::json::parse(fn2()))
-                obtained.insert(n.get<std::string>());
-        } catch (...) {}
-    };
-    addFrom(sSohObtained);
-    addFrom(sMmObtained);
-
-    // Not-yet-collected steps, in playthrough (sphere) order.
-    std::vector<const std::pair<std::string, std::string>*> uncollected;
-    for (const auto& s : mHintSteps)
-        if (!obtained.count(s.second))
-            uncollected.push_back(&s);
-
-    if (uncollected.empty()) {
-        ImGui::TextDisabled("All playthrough checks collected.");
-        return;
-    }
-
-    if (ImGui::Button("Get a hint") && mHintsRevealed < (int)uncollected.size())
-        mHintsRevealed++;
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Reset hints"))
-        mHintsRevealed = 0;
-
-    int show = mHintsRevealed > (int)uncollected.size() ? (int)uncollected.size() : mHintsRevealed;
-    for (int i = 0; i < show; ++i) {
-        const auto& s = *uncollected[i];
-        ImGui::BulletText("[%s] %s", s.first == "oot" ? "OOT" : "MM", s.second.c_str());
     }
 }
 

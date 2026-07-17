@@ -114,6 +114,9 @@ class MMAnchor {
 
     bool IsSaveLoaded();
     void PumpDormant(); // A6: drain+apply save-affecting co-op packets while MM is the dormant game
+    // Bug 2: request a fresh team-state from teammates regardless of active/dormant (bypasses
+    // SendPacket_RequestTeamState's isActive gate — a resync must go out from the dormant sibling too).
+    void RequestResyncDormantSafe();
 
   private:
     void RegisterHooks();

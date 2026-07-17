@@ -324,6 +324,16 @@ static bool ConditionalAlwaysHintApplies(const ConditionalAlwaysHint& h) {
     return !h.extra || h.extra();
 }
 
+// ComboShip: expose the resolved (settings-applied) always-hint check list for the combo hint dump.
+std::vector<RandomizerCheck> GetAlwaysHintCandidates() {
+    std::vector<RandomizerCheck> out;
+    for (const auto& h : conditionalAlwaysHints) {
+        if (ConditionalAlwaysHintApplies(h))
+            out.push_back(h.loc);
+    }
+    return out;
+}
+
 static std::vector<RandomizerCheck> GetEmptyGossipStones() {
     auto emptyGossipStones = GetEmptyLocations(Rando::StaticData::GetGossipStoneLocations());
     return emptyGossipStones;

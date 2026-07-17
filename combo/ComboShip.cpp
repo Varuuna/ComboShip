@@ -34,6 +34,7 @@
 #include "rando/CrossForeign.h"
 #include "rando/CrossWorldRando.h"
 #include "rando/ComboPlaythrough.h"
+#include "rando/CrossHints.h"
 #include "gui/ComboGenProgress.h"
 #include "ComboExtract.h"
 #include "ComboSettingsImport.h"
@@ -206,6 +207,12 @@ static FnDumpData MM_DumpRandoStaticData = nullptr;
 static FnDumpData SOH_DumpRandoSettings = nullptr; // {cvar:value} OOT rando settings snapshot
 static FnDumpData SOH_DumpEnabledTricks = nullptr; // [NameTag,...] the player's enabled OOT tricks
 static FnDumpData MM_DumpRandoSettings = nullptr;  // {cvar:value} MM rando settings snapshot
+static FnDumpData SOH_DumpRandoHintData = nullptr; // OOT hint text/options schema (cross-hint Phase 2)
+// ComboShip: cross-hint Phase 3 — apply combo-generated hints + tell OOT whether this seed has any.
+typedef void (*FnApplyHints)(const char*);
+typedef void (*FnSetHintsPresent)(int);
+static FnApplyHints SOH_ApplyComboHints = nullptr;
+static FnSetHintsPresent SOH_SetComboHintsPresent = nullptr;
 // Reload/remember-seed: restore settings + run the pool prep before re-applying saved placements.
 typedef void (*FnVoidV)(void);
 typedef void (*FnTakeStr)(const char*);
@@ -351,6 +358,8 @@ static FnSetAnchorDisconnect SOH_SetAnchorDisconnect = nullptr;
 static FnAnchorRecv SOH_Anchor_RecvJson = nullptr;
 static FnVoidArgless SOH_Anchor_OnConnected = nullptr;
 static FnVoidArgless SOH_Anchor_OnDisconnected = nullptr;
+// Bug 2: launcher-orchestrated resync, dormant-safe (see ComboAnchor::RequestFullResync below).
+static FnVoidArgless SOH_Anchor_RequestResync = nullptr;
 
 // MM Anchor adapter exports (Phase 2). MM piggybacks on the same launcher-owned connection; it is
 // activated/deactivated on transitions and receives inbound packets when it is the active game.
@@ -358,6 +367,7 @@ static FnSetAnchorSend MM_SetAnchorSend = nullptr;
 static FnAnchorRecv MM_Anchor_RecvJson = nullptr;
 static FnVoidArgless MM_Anchor_Activate = nullptr;
 static FnVoidArgless MM_Anchor_Deactivate = nullptr;
+static FnVoidArgless MM_Anchor_RequestResync = nullptr;
 
 // A6: live dormant-game co-op sync. The launcher feeds every inbound packet to BOTH games; the active
 // game calls the registered pump each frame so the dormant sibling applies save-affecting packets on
@@ -373,9 +383,11 @@ static FnVoidArgless MM_Anchor_PumpDormant = nullptr;
 // the target DLL's save-only grant export. The same dispatcher serves the single-player and
 // networked paths. targetGame/srcGame use the GameId convention 0 = OOT, 1 = MM (== sActiveGame).
 typedef void (*FnSetCrossRoute)(void (*)(int, const char*));
+// Deliver callback carries srcCheckName too (bug 3: keys the launcher-side receive dedup below).
+typedef void (*FnSetCrossDeliver)(void (*)(int, const char*, const char*));
 typedef void (*FnGrantCrossItem)(const char*);
-static FnSetCrossRoute SOH_SetCrossDeliver = nullptr;
-static FnSetCrossRoute MM_SetCrossDeliver = nullptr;
+static FnSetCrossDeliver SOH_SetCrossDeliver = nullptr;
+static FnSetCrossDeliver MM_SetCrossDeliver = nullptr;
 static FnGrantCrossItem SOH_GrantCrossItem = nullptr;
 static FnGrantCrossItem MM_GrantCrossItem = nullptr;
 static FnSetCrossRoute SOH_SetMarkForeignObtained = nullptr;
@@ -404,6 +416,9 @@ static std::queue<std::string> sOutQueue;
 // Which game inbound packets are dispatched to. 0 = OOT, 1 = MM. Updated by the game-switch loop
 // via SetActiveGame on each transition. Phase 3 will route per-packet by TARGET game instead.
 static std::atomic<int> sActiveGame{ 0 };
+// Finding 4: on-connect resync must run on the game thread (RequestResyncDormantSafe touches
+// gPlayState/isDormantApply, which PumpDormant also mutates there). Set here, drained by PumpDormant.
+static std::atomic<bool> sResyncPending{ false };
 
 // Background loop: connect, then relay outbound packets and feed inbound packets to the active
 // game. Mirrors soh's original Network::ReceiveFromServer framing (NUL-delimited JSON), only the
@@ -442,6 +457,10 @@ static void ReceiveLoop() {
             SOH_Anchor_OnConnected();
         if (sActiveGame.load() == 1 && MM_Anchor_Activate)
             MM_Anchor_Activate();
+        // Bug 2: full both-games resync on every (re)connect. Both requests go out unconditionally
+        // (dormant-safe), so a late-joiner/reconnect pulls the peer's OOT AND MM progress, and this
+        // client's own dormant sibling gets asked too. Deferred to the game thread (finding 4).
+        sResyncPending.store(true);
 
         SDLNet_SocketSet set = SDLNet_AllocSocketSet(1);
         SDLNet_TCP_AddSocket(set, socket);
@@ -563,7 +582,35 @@ static void SetActiveGame(int game /* 0 = OOT, 1 = MM */) {
 // (network). Grants the item into the TARGET game's resident save via its save-only export — the
 // target is normally the dormant game, which isn't ticking, so its save struct isn't being mutated
 // underneath us. The grant export persists the target save immediately.
-static void DeliverCrossItem(int targetGame, const char* itemName) {
+// ComboShip (bug 3): the SAME wire COMBO_CROSS_ITEM packet reaches both DLLs' incoming queues (the
+// originGame filter has an explicit exception for it), so whichever game is active when a packet
+// arrives AND whichever game later becomes active can each independently drain their own copy and
+// call this — double-delivering the item. Dedup here, the one launcher-owned spot both directions
+// share, keyed on srcCheckName (empty for the manual debug-console senders, which don't dedup).
+static std::set<std::string> sAppliedCrossChecks;
+// ComboShip (finding 2): dedup is scoped to a seed via this — see ResetCrossItemDedupForSeed.
+static uint32_t sCrossItemDedupSeed = 0;
+// ResetCrossItemDedupForSeed runs on the generation worker thread; DeliverCrossItem runs on the
+// game thread (via PumpDormant/packet handling) — both mutate sAppliedCrossChecks.
+static std::mutex sAppliedCrossChecksMutex;
+
+// Clears the dedup set whenever the active seed changes (regen/new-file), so a check name reused
+// across seeds isn't silently dropped as a stale "already delivered" duplicate.
+static void ResetCrossItemDedupForSeed(uint32_t seed) {
+    std::lock_guard<std::mutex> lock(sAppliedCrossChecksMutex);
+    if (seed != sCrossItemDedupSeed) {
+        sAppliedCrossChecks.clear();
+        sCrossItemDedupSeed = seed;
+    }
+}
+
+static void DeliverCrossItem(int targetGame, const char* itemName, const char* srcCheckName) {
+    if (srcCheckName && srcCheckName[0] != '\0') {
+        std::lock_guard<std::mutex> lock(sAppliedCrossChecksMutex);
+        if (!sAppliedCrossChecks.insert(srcCheckName).second) {
+            return; // already delivered for this check
+        }
+    }
     if (targetGame == 1) {
         if (MM_GrantCrossItem)
             MM_GrantCrossItem(itemName);
@@ -577,6 +624,13 @@ static void DeliverCrossItem(int targetGame, const char* itemName) {
 // save-affecting co-op packets to the DORMANT game on the caller's (game) thread, so a teammate's
 // collection registers in the dormant game's save live instead of only on next entry.
 static void PumpDormant() {
+    // Finding 4: drain the on-connect resync here (game thread), once per connect.
+    if (ComboAnchor::sResyncPending.exchange(false)) {
+        if (SOH_Anchor_RequestResync)
+            SOH_Anchor_RequestResync();
+        if (MM_Anchor_RequestResync)
+            MM_Anchor_RequestResync();
+    }
     if (ComboAnchor::sActiveGame.load() == 1) {
         if (SOH_Anchor_PumpDormant)
             SOH_Anchor_PumpDormant(); // MM foreground -> apply to dormant OOT
@@ -677,6 +731,14 @@ static int g_PendingMMFileNum = -1;
 // later Combo_OnOOTSaveInit callback can hand it to MM_InitRandoSaveFile.
 static std::string g_PendingMMPlacements;
 
+// ComboShip: reload settings-persistence (see docs/UPSTREAM_MERGES.md). A silent auto-reload must
+// never let the pending seed's settings overwrite the user's configured gRando.* CVars on disk.
+// MM only reads its gRando.* CVars at slot-bind (MM_InitRandoSaveFile), so its restore is deferred
+// there instead of running inline in Combo_OnReloadRequest like OOT's.
+static std::string g_PendingMMSettingsJson;     // seed's MM settings, applied right before slot-bind
+static std::string g_UserMMSettingsSnapshot;    // user's MM settings, restored right after slot-bind
+static bool g_ComboReloadRestoreUserMM = false; // false for an explicit drop (seed settings stick)
+
 // Forward decl: defined later, called from RunComboFill on every successful in-game generation.
 // playthroughOut (optional) receives the structured sphere playthrough for the consolidated file.
 static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRando::OracleFns& ootOracle,
@@ -708,9 +770,39 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     const uint32_t baseSeed = ComboHash(inputSeed.c_str());
     uint32_t masterSeed = baseSeed;
 
-    std::string sohDump, mmDump, spoiler, lastFillError;
+    std::string sohDump, mmDump, spoiler, lastFillError, sohHintDump;
     bool usedCombinedFill = false;
     nlohmann::json playthroughJson = nlohmann::json::array(); // structured sphere playthrough (combined-fill only)
+    ComboRando::RequirednessResult pareDownResult;            // cross-hint Phase 3 WotH/foolish classification
+    // ComboShip: checkName -> OOT area, computed once from sohHintDump right after the winning attempt's
+    // dump (below) — reused by the pare-down call and the foreign-array enrichment after the fill loop,
+    // instead of re-parsing sohHintDump twice for the same map.
+    std::unordered_map<std::string, std::string> ootCheckAreasCache;
+
+    // ComboShip: checkName -> area/region string, from each game's own dump. Shared by the pare-down
+    // (foolish-area rollup) and the foreign-array enrichment after the fill loop.
+    auto buildOotCheckAreas = [](const std::string& hintDumpJson) {
+        std::unordered_map<std::string, std::string> out;
+        try {
+            auto hd = nlohmann::json::parse(hintDumpJson.empty() ? "{}" : hintDumpJson);
+            for (auto& c : hd.value("checks", nlohmann::json::array())) {
+                std::string name = c.value("name", ""), area = c.value("area", "");
+                if (!name.empty() && !area.empty())
+                    out.emplace(std::move(name), std::move(area));
+            }
+        } catch (...) {}
+        return out;
+    };
+    auto buildMmCheckAreas = [](const std::string& dumpJson) {
+        std::unordered_map<std::string, std::string> out;
+        try {
+            auto d = nlohmann::json::parse(dumpJson.empty() ? "{}" : dumpJson);
+            const auto locHints = d.value("locationHints", nlohmann::json::object());
+            for (auto& [chk, region] : locHints.items())
+                out.emplace(chk, region.get<std::string>());
+        } catch (...) {}
+        return out;
+    };
 
     const bool haveOracles = Combo_SOH_Rando_Reset && Combo_SOH_Rando_SetOwnedItems &&
                              Combo_SOH_Rando_GetReachableChecks && Combo_SOH_Rando_PlaceItem && Combo_MM_Rando_Reset &&
@@ -722,6 +814,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     const int kFillAttempts = 5;
     for (int attempt = 0; attempt < kFillAttempts && !usedCombinedFill; ++attempt) {
         masterSeed = baseSeed + attempt * 0x9E3779B9u;
+        ResetCrossItemDedupForSeed(masterSeed);
 
         // ComboShip: seed OOT's rando RNG BEFORE the dump so its shop/scrub/merchant setup (which runs
         // both inside the dump and again at SOH_ApplyRandoPlacements) makes identical choices each time.
@@ -758,6 +851,25 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             usedCombinedFill = true;
             std::cout << "[ComboShip] RunComboFill: combined-logic fill succeeded (seed=" << masterSeed << ", attempt "
                       << (attempt + 1) << ")\n";
+            // ComboShip: cross-hint schema dump (Phase 2) — must run on THIS attempt's still-live OOT
+            // Context, before anything re-runs FinalizeSettings (which would re-roll RNG-derived state
+            // like trial selection) or the reload-path force-off touches the hint options.
+            if (SOH_DumpRandoHintData) {
+                sohHintDump = SOH_DumpRandoHintData();
+            }
+            ootCheckAreasCache = buildOotCheckAreas(sohHintDump); // parsed once, reused below and after the loop
+            // ComboShip: requiredness pare-down (Phase 3) — needs the STILL-LIVE oracle session, so it
+            // runs before WriteComboPlaythrough (which restores MM internally). Doesn't restore itself;
+            // the WriteComboPlaythrough call below (or the loop's own restore) does that once. Skipped
+            // entirely when no enabled hint surface consumes requiredness (empty result = all non-required).
+            if (ComboRando::NeedsRequirednessPareDown(sohHintDump, mmDump)) {
+                pareDownResult =
+                    ComboRando::PareDownPlaythrough(result.spoilerJson, ootOracle, mmOracle, nullptr, sohDump, mmDump,
+                                                    ootCheckAreasCache, buildMmCheckAreas(mmDump));
+            } else {
+                std::cout << "[ComboShip] RunComboFill: pare-down skipped (no enabled hint surface needs "
+                             "requiredness)\n";
+            }
             // ComboShip: write the sphere-by-sphere playthrough log. Replays reachability via the
             // oracles BEFORE SOH_ApplyRandoPlacements restores the live OOT context, so it can't
             // corrupt the generated seed. Restores MM itself.
@@ -915,8 +1027,17 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         consolidated["mm"] = { { "settings", parseOrEmpty(MM_DumpRandoSettings) },
                                { "placements", mmSpoiler },
                                { "prices", pricesOf(mmDump) } };
-        consolidated["foreign"] = ComboRando::BuildForeignArray(foreignArr);
+        // ComboShip: checkName -> OOT area name (cross-hint Phase 2 schema; consumed in Phase 3) — reuses
+        // the same parse done above, right after sohHintDump was produced, instead of re-parsing it here.
+        auto foreignEnriched = ComboRando::BuildForeignArray(foreignArr, ootCheckAreasCache);
+        consolidated["foreign"] = foreignEnriched;
         consolidated["playthrough"] = playthroughJson;
+        // ComboShip: cross-game hint generation (Phase 3) — real per-seed hint assignments, from the
+        // pare-down computed above. usedCombinedFill guards the no-logic fallback path (no oracles/
+        // pare-down data there): that path ships with an empty hints payload, same as before Phase 3.
+        consolidated["hints"] = usedCombinedFill ? ComboRando::Generate(masterSeed, sohDump, sohHintDump, mmDump,
+                                                                        foreignEnriched, spoiler, pareDownResult)
+                                                 : nlohmann::json{ { "version", 1 } };
         g_ConsolidatedJson = consolidated.dump(2);
 
         // Write the pending (unbound) file so the seed is remembered and Start-able without regenerating.
@@ -1099,10 +1220,25 @@ static void Combo_OnGenerateThreaded(const char* inputSeed) {
     g_GenerateThread = std::thread([seed]() { RunComboFill(seed, &g_ComboProgress); });
 }
 
+// ComboShip: cross-hint Phase 3 — "hints" only contains "oot" for a seed CrossHints::Generate actually
+// ran on; older/no-logic-fallback seeds keep the Phase 2 {"version":1} scaffold and fall back to the
+// pre-Phase-3 force-off behavior (back-compat).
+// ComboShip: slices the "hints" sub-object out of the consolidated spoiler once (parse-once — this
+// used to be two separate re-parses of the whole consolidated blob just to check/extract one field).
+static nlohmann::json ComboHintsJsonFrom(const std::string& consolidatedJson) {
+    try {
+        return nlohmann::json::parse(consolidatedJson).value("hints", nlohmann::json::object());
+    } catch (...) { return nlohmann::json::object(); }
+}
+
 // ComboShip: main-thread finalize — the gSaveContext-mutating apply + seed-hash set. Runs from
 // Combo_PollFinalize on the main thread once the worker has stashed its result. NEVER call from the
 // worker thread (that race crashed the prior threaded attempt).
 static void Combo_FinalizeGenerate() {
+    nlohmann::json hints = ComboHintsJsonFrom(g_ConsolidatedJson);
+    bool hintsPresent = hints.contains("oot");
+    if (SOH_SetComboHintsPresent)
+        SOH_SetComboHintsPresent(hintsPresent ? 1 : 0);
     if (SOH_ApplyRandoPlacements) {
         SOH_ApplyRandoPlacements(g_FinalizeOotApply.c_str());
         std::cout << "[ComboShip] Combo_FinalizeGenerate: OOT placements applied\n";
@@ -1111,6 +1247,14 @@ static void Combo_FinalizeGenerate() {
     }
     if (SOH_SetComboSeedHash)
         SOH_SetComboSeedHash(g_FinalizeDisplaySeed);
+    if (hintsPresent && SOH_ApplyComboHints)
+        SOH_ApplyComboHints(hints.dump().c_str());
+    // A fresh generation's live MM CVars already ARE this seed's settings, so slot-bind must fall
+    // through to reading them directly — clear any stale reload-restore state left by an unstarted
+    // pending seed (else it would apply THAT seed's MM settings over this generation's placements).
+    g_PendingMMSettingsJson.clear();
+    g_UserMMSettingsSnapshot.clear();
+    g_ComboReloadRestoreUserMM = false;
     g_ComboProgress.running.store(false);
 }
 
@@ -1135,6 +1279,9 @@ static int Combo_PollFinalize() {
 static int Combo_OnReloadRequest(const char* path) {
     if (g_GenerateBusy.load() || g_ComboPendingFinalize.load())
         return 0; // a generation is in flight — don't race it
+    // A null/empty path is the silent first-frame auto-reload; a non-empty path is an explicit drop
+    // (a deliberate seed switch, so its settings are allowed to become the new persisted baseline).
+    bool isSilentAutoLoad = !(path && path[0]);
     std::string file = (path && path[0]) ? std::string(path) : ComboRando::PendingPath().string();
     std::ifstream in(file);
     if (!in.is_open())
@@ -1145,6 +1292,7 @@ static int Combo_OnReloadRequest(const char* path) {
         if (j.value("fileType", std::string()) != "ComboShipRandomizer")
             return 0;
         uint32_t masterSeed = j.value("masterSeed", 0u);
+        ResetCrossItemDedupForSeed(masterSeed);
         uint32_t displaySeed = j.value("displaySeed", 0u);
         auto oot = j.value("oot", nlohmann::json::object());
         auto mm = j.value("mm", nlohmann::json::object());
@@ -1180,6 +1328,15 @@ static int Combo_OnReloadRequest(const char* path) {
         if (MM_SetCheckPrices)
             MM_SetCheckPrices(mmPrices.dump().c_str());
 
+        // Silent auto-load: snapshot the user's current settings so they can be put back once the
+        // seed's OOT settings have done their job (reproduction), instead of persisting to disk.
+        std::string userOotSnapshot;
+        if (isSilentAutoLoad && SOH_DumpRandoSettings) {
+            userOotSnapshot = SOH_DumpRandoSettings();
+            if (userOotSnapshot.empty())
+                std::cout << "[ComboShip] Reload: SOH_DumpRandoSettings returned empty snapshot\n";
+        }
+
         // OOT: restore settings -> seed RNG -> prep settings-scoped pool -> apply placements -> hash.
         if (SOH_RestoreRandoSettings)
             SOH_RestoreRandoSettings(ootSettings.c_str());
@@ -1191,15 +1348,38 @@ static int Combo_OnReloadRequest(const char* path) {
             MM_SetComboRandoSeed(masterSeed);
         if (SOH_PrepRandoContext)
             SOH_PrepRandoContext();
+        bool hintsPresent = j.value("hints", nlohmann::json::object()).contains("oot");
+        if (SOH_SetComboHintsPresent)
+            SOH_SetComboHintsPresent(hintsPresent ? 1 : 0);
         if (SOH_ApplyRandoPlacements)
             SOH_ApplyRandoPlacements(ootPlacements.c_str());
         if (SOH_SetComboSeedHash)
             SOH_SetComboSeedHash(displaySeed);
+        if (hintsPresent && SOH_ApplyComboHints)
+            SOH_ApplyComboHints(j.value("hints", nlohmann::json::object()).dump().c_str());
 
-        // MM: restore settings (MM_InitRandoSaveFile reads CVars) + stash placements for the MM save.
-        if (MM_RestoreRandoSettings)
-            MM_RestoreRandoSettings(mmSettings.c_str());
+        // Reproduction is done — put the user's OOT settings back so comboship.json (and the menu)
+        // stay authoritative. An explicit drop instead keeps the seed's settings as the new baseline.
+        // Gated on isSilentAutoLoad alone: an empty dump (warned above) must not skip the restore,
+        // else the seed's OOT CVars would stick and leak to comboship.json — the bug being fixed.
+        if (isSilentAutoLoad && SOH_RestoreRandoSettings)
+            SOH_RestoreRandoSettings(userOotSnapshot.c_str());
+
+        // MM: MM_InitRandoSaveFile reads gRando.* CVars, but only at slot-bind time (Combo_OnOOTSaveInit),
+        // which may be many frames away — stash the seed's settings there instead of writing them now,
+        // so they never leak into comboship.json before (or without) a slot ever being started.
+        if (isSilentAutoLoad && MM_DumpRandoSettings)
+            g_UserMMSettingsSnapshot = MM_DumpRandoSettings();
+        else
+            g_UserMMSettingsSnapshot.clear();
+        g_PendingMMSettingsJson = mmSettings;
+        g_ComboReloadRestoreUserMM = isSilentAutoLoad;
         g_PendingMMPlacements = mmPlacements;
+        // An explicit drop makes the seed the new baseline immediately for OOT (above); mirror that
+        // for MM here instead of waiting for slot-bind, so quit-before-Start doesn't persist a mixed
+        // OOT=seed/MM=old-user comboship.json.
+        if (!isSilentAutoLoad && MM_RestoreRandoSettings)
+            MM_RestoreRandoSettings(mmSettings.c_str());
 
         // Keep the loaded seed so Start binds it to the chosen slot; recompute the hash-icon filename.
         g_ConsolidatedJson = j.dump(2);
@@ -1274,8 +1454,19 @@ static void Combo_OnOOTSaveInit(int fileNum) {
                     cj.value("mm", nlohmann::json::object()).value("prices", nlohmann::json::object()).dump().c_str());
             } catch (...) {}
         }
+        // A reloaded seed's MM settings only get written here (MM_InitRandoSaveFile is where MM reads
+        // them) — never at reload time, so they can't leak into comboship.json before a slot is bound.
+        if (!g_PendingMMSettingsJson.empty() && MM_RestoreRandoSettings)
+            MM_RestoreRandoSettings(g_PendingMMSettingsJson.c_str());
         MM_InitRandoSaveFile(fileNum, g_PendingMMPlacements.c_str(), playerName);
         g_PendingMMPlacements.clear();
+        // Silent auto-load: the save now has the seed's settings baked in — return the CVars to the
+        // user's config. An explicit drop leaves the seed's settings as the new persisted baseline.
+        if (g_ComboReloadRestoreUserMM && MM_RestoreRandoSettings && !g_UserMMSettingsSnapshot.empty())
+            MM_RestoreRandoSettings(g_UserMMSettingsSnapshot.c_str());
+        g_PendingMMSettingsJson.clear();
+        g_UserMMSettingsSnapshot.clear();
+        g_ComboReloadRestoreUserMM = false;
     } else if (MM_InitSaveFile) {
         // No placement available (e.g. generation was skipped) — fall back to a vanilla MM save.
         std::cout << "[ComboShip] Creating MM save for OOT slot " << fileNum << std::endl;
@@ -1454,6 +1645,9 @@ int main(int argc, char** argv) {
     SOH_DumpRandoSettings = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoSettings");
     SOH_DumpEnabledTricks = (FnDumpData)GetSym(sohModule, "SOH_DumpEnabledTricks");
     MM_DumpRandoSettings = (FnDumpData)GetSym(mmModule, "MM_DumpRandoSettings");
+    SOH_DumpRandoHintData = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoHintData");
+    SOH_ApplyComboHints = (FnApplyHints)GetSym(sohModule, "SOH_ApplyComboHints");
+    SOH_SetComboHintsPresent = (FnSetHintsPresent)GetSym(sohModule, "SOH_SetComboHintsPresent");
     SOH_PrepRandoContext = (FnVoidV)GetSym(sohModule, "SOH_PrepRandoContext");
     SOH_RestoreRandoSettings = (FnTakeStr)GetSym(sohModule, "SOH_RestoreRandoSettings");
     MM_RestoreRandoSettings = (FnTakeStr)GetSym(mmModule, "MM_RestoreRandoSettings");
@@ -1497,14 +1691,16 @@ int main(int argc, char** argv) {
     MM_Anchor_RecvJson = (FnAnchorRecv)GetSym(mmModule, "MM_Anchor_RecvJson");
     MM_Anchor_Activate = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_Activate");
     MM_Anchor_Deactivate = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_Deactivate");
+    SOH_Anchor_RequestResync = (FnVoidArgless)GetSym(sohModule, "SOH_Anchor_RequestResync");
+    MM_Anchor_RequestResync = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_RequestResync");
     SOH_SetPumpDormant = (FnSetPumpDormant)GetSym(sohModule, "SOH_SetPumpDormant");
     MM_SetPumpDormant = (FnSetPumpDormant)GetSym(mmModule, "MM_SetPumpDormant");
     SOH_Anchor_PumpDormant = (FnVoidArgless)GetSym(sohModule, "SOH_Anchor_PumpDormant");
     MM_Anchor_PumpDormant = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_PumpDormant");
 
     // Cross-game item delivery seam (issue #3)
-    SOH_SetCrossDeliver = (FnSetCrossRoute)GetSym(sohModule, "SOH_SetCrossDeliver");
-    MM_SetCrossDeliver = (FnSetCrossRoute)GetSym(mmModule, "MM_SetCrossDeliver");
+    SOH_SetCrossDeliver = (FnSetCrossDeliver)GetSym(sohModule, "SOH_SetCrossDeliver");
+    MM_SetCrossDeliver = (FnSetCrossDeliver)GetSym(mmModule, "MM_SetCrossDeliver");
     SOH_GrantCrossItem = (FnGrantCrossItem)GetSym(sohModule, "SOH_GrantCrossItem");
     MM_GrantCrossItem = (FnGrantCrossItem)GetSym(mmModule, "MM_GrantCrossItem");
     SOH_SetMarkForeignObtained = (FnSetCrossRoute)GetSym(sohModule, "SOH_SetMarkForeignObtained");

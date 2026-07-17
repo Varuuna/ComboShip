@@ -23,9 +23,7 @@ void Rando::ActorBehavior::InitEnTimeTagBehavior() {
             auto entry = CustomMessage::LoadVanillaMessageTableEntry(*textId);
             entry.msg = "A note is carved into the stone...\x10What you seek lies %y{{location}}%w.";
 
-            RandoCheckId randoCheckId = Rando::FindItemPlacement(RI_SONG_SOARING);
-            CustomMessage::Replace(&entry.msg, "{{location}}",
-                                   Rando::StaticData::GetLocationNameForHint(randoCheckId, false));
+            CustomMessage::Replace(&entry.msg, "{{location}}", Rando::GetItemLocationHintName(RI_SONG_SOARING, false));
             CustomMessage::LoadCustomMessageIntoFont(entry);
             *loadFromMessageTable = false;
         }

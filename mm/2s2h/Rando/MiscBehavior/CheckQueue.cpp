@@ -15,7 +15,7 @@ extern "C" void MMAnchor_BroadcastCheckItem(int randoCheckId, int randoItemId);
 // ComboShip (issue #3): immediate cross-game delivery. gMMComboCrossDeliver (defined in BenPort.cpp)
 // routes a foreign item to the OTHER game's resident save NOW; MMAnchor_BroadcastCrossItem shares it
 // with networked teammates (no-op when Anchor is inactive).
-extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName);
+extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName);
 extern "C" void MMAnchor_BroadcastCrossItem(int targetGame, const char* itemName, const char* srcCheckName);
 #endif
 
@@ -66,7 +66,7 @@ void Rando::MiscBehavior::SendForeignCheck(RandoCheckId rc) {
         // Grant straight into the dormant target game's resident save (and persist it there), then
         // share with networked teammates. Replaces the old JSON mailbox + per-frame drain.
         if (gMMComboCrossDeliver)
-            gMMComboCrossDeliver((int)it->second.itemGame, it->second.itemName.c_str());
+            gMMComboCrossDeliver((int)it->second.itemGame, it->second.itemName.c_str(), checkName.c_str());
         MMAnchor_BroadcastCrossItem((int)it->second.itemGame, it->second.itemName.c_str(), checkName.c_str());
         Notification::Emit({ .message = "Sent to Hyrule:", .suffix = it->second.displayName });
         SPDLOG_INFO("[ComboShip] MM delivered foreign item '{}' to OOT (from check '{}')", it->second.itemName,
@@ -77,6 +77,14 @@ void Rando::MiscBehavior::SendForeignCheck(RandoCheckId rc) {
     // Persist the obtained flags (set by the caller) straight into the save so the collected state
     // survives a transition to OOT and back.
     SaveManager_SaveCurrentForCombo();
+}
+
+// ComboShip (bug 1): shared co-op broadcast seam, called by any grant path (CheckQueue below, MM
+// shop buys in EnGirlA.cpp). No-op if wasObtained (see MiscBehavior.h).
+void Rando::MiscBehavior::BroadcastCheckObtainedIfFirst(RandoCheckId rc, RandoItemId rawItemId, bool wasObtained) {
+    if (!wasObtained) {
+        MMAnchor_BroadcastCheckItem((int)rc, (int)rawItemId);
+    }
 }
 
 // ComboShip: mirror ShouldShowGetItemCutscene, but for a foreign check use the foreign item's
@@ -146,10 +154,17 @@ void Rando::MiscBehavior::CheckQueue() {
                             } else if (Rando::MiscBehavior::ShouldShowForeignCutscene(cid)) {
                                 CustomMessage::StartTextbox(entry.msg + "\x1C\x02\x10", entry);
                             }
+                            // ComboShip (bug 3): cycleObtained wipes every Song of Time, so this branch
+                            // re-runs on cycle re-collection. Only cross-deliver/broadcast the FIRST
+                            // time this check is permanently obtained, or a cycle reset would re-grant
+                            // the item into OOT's save on every replay.
+                            bool wasObtained = randoSaveCheck.obtained;
                             randoSaveCheck.cycleObtained = true;
                             randoSaveCheck.obtained = true;
                             randoSaveCheck.eligible = false;
-                            Rando::MiscBehavior::SendForeignCheck(cid); // cross-deliver + toast + save
+                            if (!wasObtained) {
+                                Rando::MiscBehavior::SendForeignCheck(cid); // cross-deliver + toast + save
+                            }
                             queued = false;
                             CUSTOM_ITEM_PARAM = RI_COMBO_FOREIGN;
                             return;
@@ -202,6 +217,13 @@ void Rando::MiscBehavior::CheckQueue() {
                                 });
                             }
                         }
+#ifdef COMBO_BUILD
+                        // ComboShip (bug 3): capture BEFORE the grant — cycleObtained wipes every Song
+                        // of Time, so renewables/consumables re-run this lambda every cycle. Local grant
+                        // still happens every time; only the teammate broadcast is gated so a re-collect
+                        // doesn't re-share an already-permanent check.
+                        bool wasObtained = randoSaveCheck.obtained;
+#endif
                         Rando::GiveItem(randoItemId);
                         randoSaveCheck.cycleObtained = true;
                         randoSaveCheck.obtained = true;
@@ -211,7 +233,8 @@ void Rando::MiscBehavior::CheckQueue() {
                         // ComboShip: shared-progression co-op — broadcast this obtained check's RAW
                         // item to Anchor teammates (CUSTOM_ITEM_PARAM is still the checkId here; it is
                         // overwritten with the item id on the next line). No-op if Anchor is inactive.
-                        MMAnchor_BroadcastCheckItem((int)CUSTOM_ITEM_PARAM, (int)randoSaveCheck.randoItemId);
+                        Rando::MiscBehavior::BroadcastCheckObtainedIfFirst((RandoCheckId)CUSTOM_ITEM_PARAM,
+                                                                           randoSaveCheck.randoItemId, wasObtained);
 #endif
                         CUSTOM_ITEM_PARAM = randoItemId;
                     },

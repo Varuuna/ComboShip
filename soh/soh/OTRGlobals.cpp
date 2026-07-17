@@ -6,6 +6,7 @@
 #include <fstream>
 #include <set>
 #include <sstream>
+#include <unordered_set>
 #include <vector>
 #include <chrono>
 #include <optional>
@@ -51,6 +52,11 @@
 #include "soh/Enhancements/randomizer/location_access.h"
 #include "soh/Enhancements/randomizer/3drando/item_pool.hpp"
 #include "soh/Enhancements/randomizer/3drando/starting_inventory.hpp"
+#include "soh/Enhancements/randomizer/3drando/hints.hpp" // ComboShip: CreateChildAltarHint/CreateAdultAltarHint
+#include "soh/Enhancements/randomizer/randomizer_check_objects.h" // ComboShip: GetRCAreaName/AreaIsDungeon for hint dump
+#include "soh/Enhancements/randomizer/trial.h"                    // ComboShip: GetTrials() for resolved trial dump
+#include "soh/Enhancements/randomizer/randomizerEnumStrings.h"    // ComboShip: EnumToString<RandomizerHintTextKey>()
+#include "soh/Enhancements/randomizer/hint.h" // ComboShip: Rando::Hint/AddHint for SOH_ApplyComboHints
 #include "Enhancements/gameplaystats.h"
 #include "soh/Enhancements/savestates.h"
 #include "frame_interpolation.h"
@@ -1814,15 +1820,11 @@ static void Combo_FinishInit() {
     if (CVarGetInteger(CVAR_REMOTE_SAIL("Enabled"), 0)) {
         Sail::Instance->Enable();
     }
-#ifdef COMBO_BUILD
-    // ComboShip: Anchor always starts DISABLED — clear the persisted enable flag on boot instead of
-    // auto-connecting (standalone SoH keeps its remembered state).
-    CVarClear(CVAR_REMOTE_ANCHOR("Enabled"));
-#else
+    // Auto-reconnect Anchor from the persisted enable flag on boot (combo: the launcher wires the
+    // connect transport before SOH_Init, so Enable() opens a real socket rather than wedging).
     if (CVarGetInteger(CVAR_REMOTE_ANCHOR("Enabled"), 0)) {
         Anchor::Instance->Enable();
     }
-#endif
     ShipInit::InitAll();
     Rando::StaticData::InitHashMaps();
     OTRGlobals::Instance->gRandoContext->AddExcludedOptions();
@@ -2801,6 +2803,17 @@ extern "C" __declspec(dllexport) void SOH_Anchor_PumpDormant(void) {
         Anchor::Instance->PumpDormant();
     }
 }
+// Bug 2: launcher-orchestrated resync (auto on connect + combo menu button), dormant-safe.
+// Finding 3: never let an exception unwind across this extern "C" boundary.
+extern "C" __declspec(dllexport) void SOH_Anchor_RequestResync(void) {
+    try {
+        if (Anchor::Instance) {
+            Anchor::Instance->RequestResyncDormantSafe();
+        }
+    } catch (const std::exception& e) { SPDLOG_ERROR("[SOH_Anchor_RequestResync] {}", e.what()); } catch (...) {
+        SPDLOG_ERROR("[SOH_Anchor_RequestResync] unknown exception");
+    }
+}
 
 // ComboShip: cross-game item delivery seam (issue #3). When the other game collects a check whose
 // item belongs to OOT, the launcher calls SOH_GrantCrossItem to grant it straight into OOT's
@@ -2913,8 +2926,8 @@ extern "C" __declspec(dllexport) void SOH_MarkForeignObtained(const char* checkN
 
 // ComboShip: routing seam — the launcher registers DeliverCrossItem here so OOT's foreign-check
 // detection can hand an item to the OTHER game immediately (mirrors SOH_SetAnchorSend).
-extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName) = nullptr;
-extern "C" __declspec(dllexport) void SOH_SetCrossDeliver(void (*cb)(int, const char*)) {
+extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName) = nullptr;
+extern "C" __declspec(dllexport) void SOH_SetCrossDeliver(void (*cb)(int, const char*, const char*)) {
     gComboCrossDeliver = cb;
 }
 // ComboShip: routing seam for the network-receive idempotency mark (see SOH_MarkForeignObtained).
@@ -3545,6 +3558,14 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         Combo_SeedShopRng();
         ComboFillConfined();
 
+        // Barren parity: native CalculateBarren counts a region non-barren if it holds a major item OR
+        // (under the shop shield/tunic gate) a shield/tunic. Fold the gate into the exported `major`.
+        const bool shieldTunicGate = ctx->GetOption(RSK_SHOP_SHIELDS_AND_TUNICS_ONLY_REFILL).Is(RO_GENERIC_ON);
+        auto isMajor = [&](RandomizerGet rg) {
+            const auto& it = Rando::StaticData::RetrieveItem(rg);
+            return it.IsMajorItem() || (shieldTunicGate && it.IsShieldOrTunic());
+        };
+
         // Partition allLocations: pre-placed (confined) -> fixed, empty -> fillable check.
         for (RandomizerCheck rc : ctx->allLocations) {
             Rando::Location* loc = Rando::StaticData::GetLocation(rc);
@@ -3567,7 +3588,8 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
                 if (!in.empty())
                     fixed.push_back({ { "check", name },
                                       { "item", in },
-                                      { "advancement", Rando::StaticData::RetrieveItem(placed).IsAdvancement() } });
+                                      { "advancement", Rando::StaticData::RetrieveItem(placed).IsAdvancement() },
+                                      { "major", isMajor(placed) } });
             } else {
                 // A real fillable check. GenerateLocationPool already decided what's shuffled and the
                 // meta markers (Link's Pocket, wincon) are skipped above, so emit regardless of vanilla
@@ -3578,18 +3600,22 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         }
 
         // Pool = the real free item pool (every settings-added item, confined items already removed).
+        // ComboShip: `major` (IsMajorItem) feeds the native barren predicate (barren = no WotH + no major).
         for (RandomizerGet rg : itemPool) {
             const std::string& in = Rando::StaticData::RetrieveItem(rg).GetName().GetEnglish();
             if (in.empty())
                 continue;
-            pool.push_back({ { "name", in }, { "advancement", Rando::StaticData::RetrieveItem(rg).IsAdvancement() } });
+            pool.push_back({ { "name", in },
+                             { "advancement", Rando::StaticData::RetrieveItem(rg).IsAdvancement() },
+                             { "major", isMajor(rg) } });
         }
         // itemPool excludes shop slots (CountEmptyLocations(false)); shuffled shop checks are covered
         // by junk, exactly like native FastFill's GetJunkItem() padding — Buy items stay shop-only.
         while (pool.size() < checks.size()) {
             RandomizerGet jg = GetJunkItem();
             pool.push_back({ { "name", Rando::StaticData::RetrieveItem(jg).GetName().GetEnglish() },
-                             { "advancement", Rando::StaticData::RetrieveItem(jg).IsAdvancement() } });
+                             { "advancement", Rando::StaticData::RetrieveItem(jg).IsAdvancement() },
+                             { "major", isMajor(jg) } });
         }
         // Rolled prices (set by ComboFillConfined at Fill()'s native position) for every priced
         // check type — the consolidated spoiler carries these so the validator/reload never guess.
@@ -3680,6 +3706,398 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
     return cached.c_str();
 }
 
+// ComboShip: serialize a HintText's clear/ambiguous/obscure CustomMessage variants to JSON, with
+// "[[N]]" markers intact so the combo hint composer can splice its own text in. MF_ENCODE (not
+// MF_RAW) so the native colors vector gets baked into %g/%w escapes before it's lost to JSON export;
+// otherwise the reconstructed CustomMessage on the combo side has no colors and displays as plain text.
+static nlohmann::json Combo_CustomMessageToJson(const CustomMessage& msg) {
+    return { { "en", msg.GetEnglish(MF_ENCODE) },
+             { "de", msg.GetGerman(MF_ENCODE) },
+             { "fr", msg.GetFrench(MF_ENCODE) } };
+}
+static nlohmann::json Combo_HintTextToJson(const HintText& ht) {
+    nlohmann::json ambiguous = nlohmann::json::array();
+    for (size_t i = 0; i < ht.GetAmbiguousSize(); ++i)
+        ambiguous.push_back(Combo_CustomMessageToJson(ht.GetAmbiguous(i)));
+    nlohmann::json obscure = nlohmann::json::array();
+    for (size_t i = 0; i < ht.GetObscureSize(); ++i)
+        obscure.push_back(Combo_CustomMessageToJson(ht.GetObscure(i)));
+    return { { "clear", Combo_CustomMessageToJson(ht.GetClear()) },
+             { "ambiguous", std::move(ambiguous) },
+             { "obscure", std::move(obscure) } };
+}
+
+// ComboShip: hintTextTable keys the combo hint composer (CrossHints.h) can actually emit — every
+// other RHT_* key is a native-only template (native reads its own in-process table directly, so
+// trimming this JSON export never affects native hint behavior). Keeping the dump to this allowlist
+// (+ RHT_JUNK* below) is most of the Debug dump-size win: the full table is ~1646 entries.
+static bool Combo_IsUsedHintTemplate(const std::string& name) {
+    static const std::unordered_set<std::string> kAllow = {
+        "RHT_WAY_OF_THE_HERO",
+        "RHT_FOOLISH",
+        "RHT_CAN_BE_FOUND_AT",
+        "RHT_HOARDS",
+        "RHT_GANONDORF_HINT_LA_ONLY",
+        // Altar templates + option-driven end clauses (Fix 3: combo composes altar hints itself).
+        "RHT_CHILD_ALTAR_STONES",
+        "RHT_CHILD_ALTAR_TEXT_END_DOTOPEN",
+        "RHT_CHILD_ALTAR_TEXT_END_DOTSONGONLY",
+        "RHT_CHILD_ALTAR_TEXT_END_DOTCLOSED",
+        "RHT_ADULT_ALTAR_MEDALLIONS",
+        "RHT_ADULT_ALTAR_TEXT_END",
+        "RHT_BRIDGE_OPEN_HINT",
+        "RHT_BRIDGE_VANILLA_HINT",
+        "RHT_BRIDGE_STONES_HINT",
+        "RHT_BRIDGE_MEDALLIONS_HINT",
+        "RHT_BRIDGE_REWARDS_HINT",
+        "RHT_BRIDGE_DUNGEONS_HINT",
+        "RHT_BRIDGE_TOKENS_HINT",
+        "RHT_BRIDGE_TRIFORCE_PIECES_HINT",
+        "RHT_BRIDGE_GREG_HINT",
+        "RHT_GANON_BK_START_WITH_HINT",
+        "RHT_GANON_BK_VANILLA_HINT",
+        "RHT_GANON_BK_OWN_DUNGEON_HINT",
+        "RHT_GANON_BK_ANY_DUNGEON_HINT",
+        "RHT_GANON_BK_OVERWORLD_HINT",
+        "RHT_GANON_BK_ANYWHERE_HINT",
+        "RHT_GBK_STONES_HINT",
+        "RHT_GBK_MEDALLIONS_HINT",
+        "RHT_GBK_REWARDS_HINT",
+        "RHT_GBK_DUNGEONS_HINT",
+        "RHT_GBK_TOKENS_HINT",
+        "RHT_GBK_TRIFORCE_PIECES_HINT",
+        "RHT_GANONS_SOUL_STONES_HINT",
+        "RHT_GANONS_SOUL_MEDALLIONS_HINT",
+        "RHT_GANONS_SOUL_REWARDS_HINT",
+        "RHT_GANONS_SOUL_DUNGEONS_HINT",
+        "RHT_GANONS_SOUL_TOKENS_HINT",
+        "RHT_GANONS_SOUL_TRIFORCE_PIECES_HINT",
+        "RHT_WINCON_ANYWHERE_HINT",
+        "RHT_WINCON_STONES_HINT",
+        "RHT_WINCON_MEDALLIONS_HINT",
+        "RHT_WINCON_REWARDS_HINT",
+        "RHT_WINCON_DUNGEONS_HINT",
+        "RHT_WINCON_TOKENS_HINT",
+        "RHT_WINCON_TRIFORCE_PIECES_HINT",
+    };
+    return kAllow.count(name) != 0 || name.rfind("RHT_JUNK", 0) == 0;
+}
+
+// ComboShip: hint schema/data export for the combo hint layer (cross-game hint system, Phase 2).
+// Pure reader of already-resolved Context state (options, StaticData tables, resolved trials) — does
+// NOT call SOH_PrepRandoContext (that re-rolls RNG-derived state like trial selection). Must be
+// called once per successful fill, immediately after that attempt's SOH_DumpRandoStaticData, so the
+// Context is still the winning attempt's state. Returns a JSON object; never throws across the ABI.
+// Checks[]/items[] dump every static check/item regardless of this seed's placements (the combo
+// distributor decides which are hintable for its combined world) — trimming that further to a
+// placed-set filter hit a reproducible crash during headless verification and was backed out; only
+// hintTextTable (below) is trimmed for now. See docs/UPSTREAM_MERGES.md cross-hints entry.
+extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
+    static std::string cached;
+    nlohmann::json out = nlohmann::json::object();
+    try {
+        auto ctx = OTRGlobals::Instance->gRandoContext;
+
+        // Resolved hint-affecting options (honest player settings; the reload path's force-off
+        // happens later, in SOH_ApplyRandoPlacements, so this read is unaffected by it).
+        // Altar end-clause option-composition (Fix 3): resolve the exact RHT_* template key + count
+        // combo should splice in, mirroring hint.cpp's GetBridgeReqsText/GetGanonBossKeyText/
+        // GetGanonsSoulText/GetWinconText option->template selection exactly (same Is() checks) —
+        // avoids the combo side having to guess RSK_* enum ordinals.
+        auto bridge = [&]() -> std::pair<const char*, int> {
+            auto& o = ctx->GetOption(RSK_RAINBOW_BRIDGE);
+            if (o.Is(RO_BRIDGE_ALWAYS_OPEN))
+                return { "RHT_BRIDGE_OPEN_HINT", 0 };
+            if (o.Is(RO_BRIDGE_VANILLA))
+                return { "RHT_BRIDGE_VANILLA_HINT", 0 };
+            if (o.Is(RO_BRIDGE_STONES))
+                return { "RHT_BRIDGE_STONES_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_STONE_COUNT).Get() };
+            if (o.Is(RO_BRIDGE_MEDALLIONS))
+                return { "RHT_BRIDGE_MEDALLIONS_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_MEDALLION_COUNT).Get() };
+            if (o.Is(RO_BRIDGE_DUNGEON_REWARDS))
+                return { "RHT_BRIDGE_REWARDS_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_REWARD_COUNT).Get() };
+            if (o.Is(RO_BRIDGE_DUNGEONS))
+                return { "RHT_BRIDGE_DUNGEONS_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_DUNGEON_COUNT).Get() };
+            if (o.Is(RO_BRIDGE_TOKENS))
+                return { "RHT_BRIDGE_TOKENS_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_TOKEN_COUNT).Get() };
+            if (o.Is(RO_BRIDGE_TRIFORCE_PIECES))
+                return { "RHT_BRIDGE_TRIFORCE_PIECES_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_TRIFORCE_COUNT).Get() };
+            if (o.Is(RO_BRIDGE_GREG))
+                return { "RHT_BRIDGE_GREG_HINT", 0 };
+            return { "", 0 };
+        }();
+        auto gbk = [&]() -> std::pair<const char*, int> {
+            auto& o = ctx->GetOption(RSK_GANONS_BOSS_KEY);
+            if (o.Is(RO_GANON_BOSS_KEY_STARTWITH))
+                return { "RHT_GANON_BK_START_WITH_HINT", 0 };
+            if (o.Is(RO_GANON_BOSS_KEY_VANILLA))
+                return { "RHT_GANON_BK_VANILLA_HINT", 0 };
+            if (o.Is(RO_GANON_BOSS_KEY_OWN_DUNGEON))
+                return { "RHT_GANON_BK_OWN_DUNGEON_HINT", 0 };
+            if (o.Is(RO_GANON_BOSS_KEY_ANY_DUNGEON))
+                return { "RHT_GANON_BK_ANY_DUNGEON_HINT", 0 };
+            if (o.Is(RO_GANON_BOSS_KEY_OVERWORLD))
+                return { "RHT_GANON_BK_OVERWORLD_HINT", 0 };
+            if (o.Is(RO_GANON_BOSS_KEY_ANYWHERE))
+                return { "RHT_GANON_BK_ANYWHERE_HINT", 0 };
+            if (o.Is(RO_GANON_BOSS_KEY_STONES))
+                return { "RHT_GBK_STONES_HINT", ctx->GetOption(RSK_GBK_STONE_COUNT).Get() };
+            if (o.Is(RO_GANON_BOSS_KEY_MEDALLIONS))
+                return { "RHT_GBK_MEDALLIONS_HINT", ctx->GetOption(RSK_GBK_MEDALLION_COUNT).Get() };
+            if (o.Is(RO_GANON_BOSS_KEY_REWARDS))
+                return { "RHT_GBK_REWARDS_HINT", ctx->GetOption(RSK_GBK_REWARD_COUNT).Get() };
+            if (o.Is(RO_GANON_BOSS_KEY_DUNGEONS))
+                return { "RHT_GBK_DUNGEONS_HINT", ctx->GetOption(RSK_GBK_DUNGEON_COUNT).Get() };
+            if (o.Is(RO_GANON_BOSS_KEY_TOKENS))
+                return { "RHT_GBK_TOKENS_HINT", ctx->GetOption(RSK_GBK_TOKEN_COUNT).Get() };
+            if (o.Is(RO_GANON_BOSS_KEY_TRIFORCE_PIECES))
+                return { "RHT_GBK_TRIFORCE_PIECES_HINT", ctx->GetOption(RSK_GBK_TRIFORCE_COUNT).Get() };
+            return { "", 0 };
+        }();
+        auto soul = [&]() -> std::pair<const char*, int> {
+            auto& o = ctx->GetOption(RSK_GANONS_SOUL);
+            if (o.Is(RO_GANONS_SOUL_STONES))
+                return { "RHT_GANONS_SOUL_STONES_HINT", ctx->GetOption(RSK_GANONS_SOUL_STONE_COUNT).Get() };
+            if (o.Is(RO_GANONS_SOUL_MEDALLIONS))
+                return { "RHT_GANONS_SOUL_MEDALLIONS_HINT", ctx->GetOption(RSK_GANONS_SOUL_MEDALLION_COUNT).Get() };
+            if (o.Is(RO_GANONS_SOUL_REWARDS))
+                return { "RHT_GANONS_SOUL_REWARDS_HINT", ctx->GetOption(RSK_GANONS_SOUL_REWARD_COUNT).Get() };
+            if (o.Is(RO_GANONS_SOUL_DUNGEONS))
+                return { "RHT_GANONS_SOUL_DUNGEONS_HINT", ctx->GetOption(RSK_GANONS_SOUL_DUNGEON_COUNT).Get() };
+            if (o.Is(RO_GANONS_SOUL_TOKENS))
+                return { "RHT_GANONS_SOUL_TOKENS_HINT", ctx->GetOption(RSK_GANONS_SOUL_TOKEN_COUNT).Get() };
+            if (o.Is(RO_GANONS_SOUL_TRIFORCE_PIECES))
+                return { "RHT_GANONS_SOUL_TRIFORCE_PIECES_HINT", ctx->GetOption(RSK_GANONS_SOUL_TRIFORCE_COUNT).Get() };
+            return { "", 0 }; // RO_GANONS_SOUL_NONE: native emits nothing for this clause either
+        }();
+        auto wincon = [&]() -> std::pair<const char*, int> {
+            auto& o = ctx->GetOption(RSK_WINCON);
+            if (o.Is(RO_WINCON_ANYWHERE))
+                return { "RHT_WINCON_ANYWHERE_HINT", 0 };
+            if (o.Is(RO_WINCON_STONES))
+                return { "RHT_WINCON_STONES_HINT", ctx->GetOption(RSK_WINCON_STONE_COUNT).Get() };
+            if (o.Is(RO_WINCON_MEDALLIONS))
+                return { "RHT_WINCON_MEDALLIONS_HINT", ctx->GetOption(RSK_WINCON_MEDALLION_COUNT).Get() };
+            if (o.Is(RO_WINCON_REWARDS))
+                return { "RHT_WINCON_REWARDS_HINT", ctx->GetOption(RSK_WINCON_REWARD_COUNT).Get() };
+            if (o.Is(RO_WINCON_DUNGEONS))
+                return { "RHT_WINCON_DUNGEONS_HINT", ctx->GetOption(RSK_WINCON_DUNGEON_COUNT).Get() };
+            if (o.Is(RO_WINCON_TOKENS))
+                return { "RHT_WINCON_TOKENS_HINT", ctx->GetOption(RSK_WINCON_TOKEN_COUNT).Get() };
+            if (o.Is(RO_WINCON_TRIFORCE_PIECES))
+                return { "RHT_WINCON_TRIFORCE_PIECES_HINT", ctx->GetOption(RSK_WINCON_TRIFORCE_COUNT).Get() };
+            return { "", 0 };
+        }();
+        const char* doorOfTimeKey =
+            ctx->GetOption(RSK_DOOR_OF_TIME).Is(RO_DOOROFTIME_OPEN)       ? "RHT_CHILD_ALTAR_TEXT_END_DOTOPEN"
+            : ctx->GetOption(RSK_DOOR_OF_TIME).Is(RO_DOOROFTIME_SONGONLY) ? "RHT_CHILD_ALTAR_TEXT_END_DOTSONGONLY"
+                                                                          : "RHT_CHILD_ALTAR_TEXT_END_DOTCLOSED";
+
+        out["options"] = {
+            { "gossipStoneHints", static_cast<int>(ctx->GetOption(RSK_GOSSIP_STONE_HINTS).Get()) },
+            { "hintClarity", static_cast<int>(ctx->GetOption(RSK_HINT_CLARITY).Get()) },
+            { "hintDistribution", static_cast<int>(ctx->GetOption(RSK_HINT_DISTRIBUTION).Get()) },
+            { "ganondorfHint", static_cast<int>(ctx->GetOption(RSK_GANONDORF_HINT).Get()) },
+            { "warpSongHints", static_cast<int>(ctx->GetOption(RSK_WARP_SONG_HINTS).Get()) },
+            { "totAltarHint", static_cast<int>(ctx->GetOption(RSK_TOT_ALTAR_HINT).Get()) },
+            { "doorOfTimeTemplate", doorOfTimeKey },
+            { "bridgeTemplate", bridge.first },
+            { "bridgeCount", bridge.second },
+            { "gbkTemplate", gbk.first },
+            { "gbkCount", gbk.second },
+            { "soulTemplate", soul.first },
+            { "soulCount", soul.second },
+            { "winconTemplate", wincon.first },
+            { "winconCount", wincon.second },
+        };
+
+        // Area list: static per-check area (RCAREA_*) — Location::GetArea(), not the runtime
+        // ItemLocation::GetRandomArea() the native hint distributor groups by (that needs a live
+        // reachability traversal). Phase 3's combined-world foolish/area logic will need its own
+        // area assignment either way, since it must span both games; documented as a Phase 2->3 seam.
+        nlohmann::json areas = nlohmann::json::array();
+        for (int a = 0; a < RCAREA_INVALID; ++a) {
+            auto area = static_cast<RandomizerCheckArea>(a);
+            areas.push_back({ { "key", static_cast<int>(area) },
+                              { "name", RandomizerCheckObjects::GetRCAreaName(area) },
+                              { "dungeon", RandomizerCheckObjects::AreaIsDungeon(area) } });
+        }
+        out["areas"] = std::move(areas);
+
+        // Gossip stone slots (~40 checks) — the stones the combo distributor may target.
+        nlohmann::json stones = nlohmann::json::array();
+        for (RandomizerCheck rc : Rando::StaticData::GetGossipStoneLocations()) {
+            Rando::Location* loc = Rando::StaticData::GetLocation(rc);
+            if (loc && !loc->GetName().empty())
+                stones.push_back(loc->GetName());
+        }
+        out["stones"] = std::move(stones);
+
+        // Always-hint candidates (settings-applied: RC_MARKET_10_BIG_POES, Biggoron's Claim Check, etc).
+        nlohmann::json always = nlohmann::json::array();
+#ifdef COMBO_BUILD
+        for (RandomizerCheck rc : GetAlwaysHintCandidates()) {
+            Rando::Location* loc = Rando::StaticData::GetLocation(rc);
+            if (loc && !loc->GetName().empty())
+                always.push_back(loc->GetName());
+        }
+#endif
+        out["alwaysHintChecks"] = std::move(always);
+
+        // Per-check hint text (every static check, not just this settings' shuffled subset — the
+        // combo distributor decides which checks are hintable for its combined world).
+        nlohmann::json checks = nlohmann::json::array();
+        for (int i = 0; i < RC_MAX; ++i) {
+            Rando::Location* loc = Rando::StaticData::GetLocation(static_cast<RandomizerCheck>(i));
+            if (!loc || loc->GetName().empty())
+                continue;
+            checks.push_back({ { "name", loc->GetName() },
+                               { "area", RandomizerCheckObjects::GetRCAreaName(loc->GetArea()) },
+                               { "dungeon", loc->IsDungeon() },
+                               { "overworld", loc->IsOverworld() },
+                               { "song", loc->GetRCType() == RCTYPE_SONG_LOCATION },
+                               { "locationHint", Combo_HintTextToJson(*loc->GetHint()) } });
+        }
+        out["checks"] = std::move(checks);
+
+        // Per-item hint text (English item name as key, matching the items[] dump elsewhere).
+        nlohmann::json items = nlohmann::json::array();
+        for (int rg = 0; rg < RG_MAX; ++rg) {
+            Rando::Item& item = Rando::StaticData::RetrieveItem(static_cast<RandomizerGet>(rg));
+            const std::string& name = item.GetName().GetEnglish();
+            if (name.empty())
+                continue;
+            items.push_back({ { "name", name }, { "hint", Combo_HintTextToJson(item.GetHint()) } });
+        }
+        out["items"] = std::move(items);
+
+        // Hint-text-fragment table, keyed by RHT_* enum name. Trimmed to Combo_IsUsedHintTemplate's
+        // allowlist (the templates CrossHints.h's distributor + altar/end-clause composition can
+        // actually emit) instead of every RHT_MAX (~1646) entry — a missing key degrades to an empty
+        // {clear:{}} entry on the combo side (PickTemplate's fallbacks), never a crash.
+        nlohmann::json templates = nlohmann::json::object();
+        for (int k = 0; k < RHT_MAX; ++k) {
+            auto key = static_cast<RandomizerHintTextKey>(k);
+            auto name = EnumToString(key);
+            if (!name.has_value() || !Combo_IsUsedHintTemplate(std::string(*name)))
+                continue;
+            templates[std::string(*name)] = Combo_HintTextToJson(Rando::StaticData::hintTextTable[key]);
+        }
+        out["hintTextTable"] = std::move(templates);
+
+        // Resolved Ganon's Trials (FinalizeSettings already rolled RSK_GANONS_TRIALS' random-number
+        // case via Random() during SOH_PrepRandoContext, before this function runs) — the combo hint
+        // gen must hint the SAME trials the save actually requires.
+        nlohmann::json trials = nlohmann::json::array();
+        for (auto* t : ctx->GetTrials()->GetTrialList()) {
+            if (t->IsRequired())
+                trials.push_back(t->GetName().GetEnglish(MF_RAW));
+        }
+        out["requiredTrials"] = std::move(trials);
+        // dump() with a replace error handler so malformed UTF-8 in any authored text can never throw
+        // across the DLL boundary (nlohmann::json::type_error.316).
+        cached = out.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+        return cached.c_str();
+    } catch (const std::exception& e) { SPDLOG_WARN("[ComboShip] SOH_DumpRandoHintData: {}", e.what()); } catch (...) {
+        SPDLOG_WARN("[ComboShip] SOH_DumpRandoHintData: unknown exception");
+    }
+
+    cached = nlohmann::json::object().dump();
+    return cached.c_str();
+}
+
+#ifdef COMBO_BUILD
+// ComboShip: whether the seed being applied carries a cross-hint payload (see SOH_ApplyComboHints).
+// Set by the launcher just before SOH_ApplyRandoPlacements; back-compat default is "no" so an old
+// dropped seed file (generated before Phase 3) still gets the force-off vanilla-hint behavior.
+static bool sComboHintsPresent = false;
+#endif
+
+extern "C" __declspec(dllexport) void SOH_SetComboHintsPresent(int present) {
+#ifdef COMBO_BUILD
+    sComboHintsPresent = present != 0;
+#endif
+}
+
+// ComboShip: apply combo-generated hints (cross-hint Phase 3). Input: {"oot":[{checkName,messages:
+// [{en,de,fr},...]},...], ...} (see combo/rando/CrossHints.h for the generator). checkName is either a
+// gossip-stone check name (resolved via locationNameToEnum + gossipStoneCheckToHint) or the sentinel
+// "__GANONDORF__"/"__TRIAL__.../"__JUNK__..." handled below. Never throws across the ABI. Must run
+// AFTER SOH_ApplyRandoPlacements (placements need to exist for native CreateStaticHints/
+// CreateWarpSongTexts, called at the end, to fill in whatever combo didn't pre-populate).
+extern "C" __declspec(dllexport) void SOH_ApplyComboHints(const char* json) {
+    if (!json)
+        return;
+#ifdef COMBO_BUILD
+    try {
+        auto ctx = OTRGlobals::Instance->gRandoContext;
+        nlohmann::json hints = nlohmann::json::parse(json);
+        int applied = 0, skipped = 0;
+        for (auto& entry : hints.value("oot", nlohmann::json::array())) {
+            std::string checkName = entry.value("checkName", "");
+            std::vector<CustomMessage> messages;
+            for (auto& m : entry.value("messages", nlohmann::json::array()))
+                messages.emplace_back(m.value("en", ""), m.value("de", ""), m.value("fr", ""));
+            if (messages.empty()) {
+                ++skipped;
+                continue;
+            }
+
+            RandomizerHint rh = RH_NONE;
+            if (checkName == "__GANONDORF__") {
+                rh = RH_GANONDORF_HINT;
+            } else if (checkName == "__ALTAR_CHILD__") {
+                rh = RH_ALTAR_CHILD;
+            } else if (checkName == "__ALTAR_ADULT__") {
+                rh = RH_ALTAR_ADULT;
+            } else if (checkName.rfind("__", 0) == 0) {
+                // "__STONE__N"/"__TRIAL__.../"__JUNK__...": CrossHints.h assigns these to an abstract
+                // stone SLOT (count only, not a specific check — combo doesn't pick which physical
+                // stone gets which content). Claim the next still-empty gossip-stone check for it.
+                auto stones = Rando::StaticData::GetGossipStoneLocations();
+                RandomizerCheck freeStone = RC_UNKNOWN_CHECK;
+                for (RandomizerCheck rc : stones) {
+                    RandomizerHint candidate = Rando::StaticData::gossipStoneCheckToHint.count(rc)
+                                                   ? Rando::StaticData::gossipStoneCheckToHint[rc]
+                                                   : RH_NONE;
+                    if (candidate != RH_NONE && !ctx->GetHint(candidate)->IsEnabled()) {
+                        freeStone = rc;
+                        rh = candidate;
+                        break;
+                    }
+                }
+                if (freeStone == RC_UNKNOWN_CHECK) {
+                    ++skipped;
+                    continue;
+                }
+            } else {
+                auto rcIt = Rando::StaticData::locationNameToEnum.find(checkName);
+                if (rcIt == Rando::StaticData::locationNameToEnum.end() ||
+                    !Rando::StaticData::gossipStoneCheckToHint.count(rcIt->second)) {
+                    ++skipped;
+                    continue;
+                }
+                rh = Rando::StaticData::gossipStoneCheckToHint[rcIt->second];
+            }
+            if (rh == RH_NONE || ctx->GetHint(rh)->IsEnabled()) {
+                ++skipped;
+                continue;
+            }
+            ctx->AddHint(rh, Rando::Hint(rh, messages));
+            ++applied;
+        }
+
+        // Native fills whatever combo didn't pre-populate (altar/Biggoron/mask-shop/skulltula-count/
+        // ganondorf-joke/etc static hints; each self-skips an already-enabled key) + warp song texts.
+        CreateStaticHints();
+        CreateWarpSongTexts();
+        SPDLOG_INFO("[ComboShip] SOH_ApplyComboHints: applied={} skipped={}", applied, skipped);
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[ComboShip] SOH_ApplyComboHints: exception: {}", e.what());
+    } catch (...) { SPDLOG_ERROR("[ComboShip] SOH_ApplyComboHints: unknown exception"); }
+#endif
+}
+
 // ComboShip: apply a placement mapping produced by the combo generator.
 // Input JSON: {"<checkName>":"<itemName>", ...} (the "oot" object from the combined spoiler).
 // For each entry, look up the check and item enums and place it. Then SetSeedGenerated(true) so
@@ -3700,6 +4118,9 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
         // disguise pool. Rebuild it from the items we actually place below, else every ice trap falls
         // back to a bottle (empty-set draw).
         ctx->possibleIceTrapModels.clear();
+        // Combo also skips native Fill()'s HintReset() call — without it, a same-session regenerate
+        // would see the PREVIOUS seed's hints still marked enabled and skip re-populating them.
+        ctx->HintReset();
 #endif
 
         // ComboShip: ItemReset wipes shop prices + placements, so re-run SoH's shop/scrub/merchant
@@ -3712,9 +4133,14 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
         // Combo seeds carry no NPC hints (CreateAllHints never runs; the combo sphere-hint panel is
         // the hint system). Force the hint settings off so stones/Ganondorf/warp texts behave vanilla
         // instead of reading the empty hint table; the save inherits these from the context (GAP-3).
-        ctx->GetOption(RSK_GOSSIP_STONE_HINTS).Set(RO_GOSSIP_STONES_NONE);
-        ctx->GetOption(RSK_GANONDORF_HINT).Set(RO_GENERIC_OFF);
-        ctx->GetOption(RSK_WARP_SONG_HINTS).Set(RO_GENERIC_OFF);
+        // Cross-hint Phase 3: only force hint options off for a seed with no combo hints payload
+        // (old pre-hint-system seed files, back-compat). New seeds honor the player's own settings —
+        // SOH_ApplyComboHints (called right after this) supplies the actual hint content.
+        if (!sComboHintsPresent) {
+            ctx->GetOption(RSK_GOSSIP_STONE_HINTS).Set(RO_GOSSIP_STONES_NONE);
+            ctx->GetOption(RSK_GANONDORF_HINT).Set(RO_GENERIC_OFF);
+            ctx->GetOption(RSK_WARP_SONG_HINTS).Set(RO_GENERIC_OFF);
+        }
         Combo_SetupOOTShops();
         Combo_ApplyPriceOverrides(); // spoiler prices win over the re-roll on reload
 #endif
@@ -3757,6 +4183,21 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
         // pool came out empty so traps keep their default model rather than a null override.
         if (!ctx->possibleIceTrapModels.empty()) {
             ctx->CreateItemOverrides();
+        }
+        // Combo skips native Fill(), so ItemLocation areas are never assigned; the hint creators below
+        // (and SOH_ApplyComboHints' CreateStaticHints) read GetRandomArea/GetFirstArea and assert on an
+        // empty set. SetAreas() populates them from the region graph (RA_NONE for disconnected regions).
+        SetAreas();
+        // Combo never runs CreateStaticHints(), so the ToT altar hint table stays empty ("No Hint").
+        // These two are option-composed and self-skip when RSK_TOT_ALTAR_HINT is off; run them here
+        // (placements are all applied by now) instead of pulling in the rest of CreateStaticHints().
+        // Skipped when a cross-hint payload is coming: SOH_ApplyComboHints composes the altar hint
+        // itself (every reward resolved across BOTH games, native's FindItemsAndMarkHinted only sees
+        // OOT's own locations) and runs CreateStaticHints() at the end, which self-skips an
+        // already-enabled key — calling these here first would let native's version win instead.
+        if (!sComboHintsPresent) {
+            CreateChildAltarHint();
+            CreateAdultAltarHint();
         }
 #endif
 
@@ -4025,6 +4466,7 @@ extern "C" __declspec(dllexport) void SOH_SetAllTricks(void) {
 // from the cross pool. Returns { "Link's Pocket": {"item":"<name>"} } (dungeon-reward) or
 // {"category":"advancement"|"any"} (combo picks); {} for NOTHING. See docs/UPSTREAM_MERGES.md.
 extern "C" __declspec(dllexport) const char* SOH_GetForcedPlacements(uint32_t seed) {
+    (void)seed; // dungeon-reward pick now read from the placed context, not re-rolled from the seed
     static std::string buf;
     nlohmann::json out = nlohmann::json::object();
     try {
@@ -4032,27 +4474,12 @@ extern "C" __declspec(dllexport) const char* SOH_GetForcedPlacements(uint32_t se
         Rando::Settings::GetInstance()->SetAllToContext(); // ensure chosen CVar settings are live
         auto lp = ctx->GetOption(RSK_LINKS_POCKET);
         if (lp.Is(RO_LINKS_POCKET_DUNGEON_REWARD)) {
-            std::vector<RandomizerGet> rewards;
-            auto addRange = [&](int lo, int hi) {
-                for (int r = lo; r <= hi; ++r)
-                    rewards.push_back(static_cast<RandomizerGet>(r));
-            };
-            auto sub = ctx->GetOption(RSK_LINKS_POCKET_REWARD);
-            if (sub.Is(RO_LINKS_POCKET_ANY_STONE)) {
-                addRange(RG_KOKIRI_EMERALD, RG_ZORA_SAPPHIRE);
-            } else if (sub.Is(RO_LINKS_POCKET_LIGHT_MEDALLION)) {
-                rewards.push_back(RG_LIGHT_MEDALLION);
-            } else if (sub.Is(RO_LINKS_POCKET_ANY_MEDALLION)) {
-                addRange(RG_FOREST_MEDALLION, RG_LIGHT_MEDALLION);
-            } else { // RO_LINKS_POCKET_ANY_REWARD (default)
-                addRange(RG_KOKIRI_EMERALD, RG_ZORA_SAPPHIRE);
-                addRange(RG_FOREST_MEDALLION, RG_LIGHT_MEDALLION);
-            }
-            if (!rewards.empty()) {
-                uint64_t s = (seed ? seed : 0x9E3779B97F4A7C15ULL) * 6364136223846793005ULL + 1442695040888963407ULL;
-                RandomizerGet pick = rewards[static_cast<size_t>(s >> 33) % rewards.size()];
-                out["Link's Pocket"]["item"] = Rando::StaticData::RetrieveItem(pick).GetName().GetEnglish();
-            }
+            // ComboShip: RandomizeDungeonRewards (inside SOH_DumpRandoStaticData->ComboFillConfined, run
+            // just before this) already picked+placed Link's Pocket's reward and erased it from the pool.
+            // Return THAT exact item; re-rolling a separate LCG orphaned one reward and duplicated another.
+            RandomizerGet placed = ctx->GetItemLocation(RC_LINKS_POCKET)->GetPlacedRandomizerGet();
+            if (placed != RG_NONE)
+                out["Link's Pocket"]["item"] = Rando::StaticData::RetrieveItem(placed).GetName().GetEnglish();
         } else if (lp.Is(RO_LINKS_POCKET_ADVANCEMENT)) {
             out["Link's Pocket"]["category"] = "advancement";
         } else if (lp.Is(RO_LINKS_POCKET_ANYTHING)) {

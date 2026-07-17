@@ -32,7 +32,6 @@ class ComboMenu final : public Ship::GuiWindow {
     void DrawSharedPanel();                  // hub for the Settings + Randomizer tabs (by mScope)
     void DrawGamePanel(const char* gameKey); // renders from the C-ABI model (ComboMenuModel + RenderWidget)
     void DrawComboPanel();                   // cross-world Generate (seed + button + progress)
-    void DrawHintSection();                  // sphere "Get a hint" helper, when a seed save is active
     // Global menu search: scans BOTH games' CwMenu models for widgets whose name+tooltip match the
     // (normalized) query, rendering each match inline + editable (2-3 column grid) with a breadcrumb.
     // Drawn in the active scope's content area, so the left navigation panel stays visible.
@@ -41,11 +40,6 @@ class ComboMenu final : public Ship::GuiWindow {
     char mSearchBuf[256] = { 0 }; // raw global-search input; normalized into mSearchQuery each frame
     std::string mSearchQuery;     // normalized search text this frame ("" = not searching)
     char mSeedBuf[128] = { 0 };
-    // Sphere-hint state: the active seed's playthrough (game, checkName) in sphere order, cached by
-    // save slot; mHintsRevealed = how many of the not-yet-collected steps the player has revealed.
-    int mHintFileNum = -1;
-    int mHintsRevealed = 0;
-    std::vector<std::pair<std::string, std::string>> mHintSteps;
     ComboGenProgress mProgress; // worker (in the exe) writes; this polls. Pointer handed across DLL.
     std::string mStatusLine;
     bool mGeneratePending = false; // one-frame defer: show "Generating…" before blocking fill

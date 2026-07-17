@@ -10,6 +10,9 @@
 #include <soh/OTRGlobals.h>
 #include "soh/Enhancements/randomizer/randomizer.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
+#ifdef COMBO_BUILD
+#include "soh/Enhancements/randomizer/hook_handlers.h" // ComboShip: OOT_LookupForeign
+#endif
 
 extern "C" {
 extern PlayState* gPlayState;
@@ -149,7 +152,18 @@ void BuildSkulltulaPeopleMessage(uint16_t* textId, bool* loadFromMessageTable) {
                                       "et j'aurai quelque chose à te donner! [[color]]([[1]])%w");
     msg.InsertNumber(count);
     msg.Replace("[[color]]", item.GetColor());
-    msg.InsertNames({ item.GetHint().GetHintMessage() });
+    CustomMessage hintName = item.GetHint().GetHintMessage();
+#ifdef COMBO_BUILD
+    // ComboShip: this reward was cross-placed into MM; show the real item instead of the sentinel's.
+    if (RAND_GET_ITEM_LOC(rc)->GetPlacedRandomizerGet() == RG_COMBO_FOREIGN) {
+        const ComboRando::ForeignItem* fi =
+            OOT_LookupForeign(gSaveContext.fileNum, Rando::StaticData::GetLocation(rc)->GetName());
+        if (fi != nullptr && !fi->displayName.empty()) {
+            hintName = CustomMessage(fi->displayName);
+        }
+    }
+#endif
+    msg.InsertNames({ hintName });
     msg.AutoFormat();
     msg.LoadIntoFont();
     *loadFromMessageTable = false;
@@ -167,7 +181,18 @@ void Build100SkullsHintMessage(uint16_t* textId, bool* loadFromMessageTable) {
     Rando::Item& item =
         Rando::StaticData::RetrieveItem(RAND_GET_ITEM_LOC(RC_KAK_100_GOLD_SKULLTULA_REWARD)->GetPlacedRandomizerGet());
     msg.Replace("[[color]]", item.GetColor());
-    msg.InsertNames({ item.GetHint().GetHintMessage() });
+    CustomMessage hintName = item.GetHint().GetHintMessage();
+#ifdef COMBO_BUILD
+    // ComboShip: this reward was cross-placed into MM; show the real item instead of the sentinel's.
+    if (RAND_GET_ITEM_LOC(RC_KAK_100_GOLD_SKULLTULA_REWARD)->GetPlacedRandomizerGet() == RG_COMBO_FOREIGN) {
+        const ComboRando::ForeignItem* fi = OOT_LookupForeign(
+            gSaveContext.fileNum, Rando::StaticData::GetLocation(RC_KAK_100_GOLD_SKULLTULA_REWARD)->GetName());
+        if (fi != nullptr && !fi->displayName.empty()) {
+            hintName = CustomMessage(fi->displayName);
+        }
+    }
+#endif
+    msg.InsertNames({ hintName });
     msg.AutoFormat();
     msg.LoadIntoFont();
     *loadFromMessageTable = false;

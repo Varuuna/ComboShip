@@ -2711,8 +2711,9 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
         }
         spoiler["options"] = options;
         spoiler["startingItems"] = nlohmann::json::array();
-        // Required since the Saria's-Song-hint feature; empty = no hint priorities for combo seeds.
-        spoiler["sariaPriorityItems"] = nlohmann::json::array();
+        // ComboShip: mirror native OnFileCreate's use of the player's configured priority list.
+        auto sariaPriorityItems = Rando::GetSariaPriorityItemsFromConfig();
+        Rando::SetSariaPriorityItemsInSpoiler(spoiler, sariaPriorityItems);
         spoiler["checks"] = nlohmann::json::parse(placementJson); // { "RC_*": "<spoilerName>", ... }
 
         Rando::Spoiler::ApplyToSaveContext(spoiler);
@@ -2945,6 +2946,11 @@ static void Combo_MM_ApplyCheckPrices() {
         RANDO_SAVE_CHECKS[id].price = price;
 }
 
+// ComboShip: reuse EnGs.cpp's gossip-stone weight classification (same maps the runtime stone draw
+// uses) so the cross-game hint layer's "no world bias" weighting stays consistent with MM's own.
+extern std::unordered_map<RandoItemId, u32> riToWeight;
+extern std::unordered_map<RandoItemType, u32> itemTypeToWeight;
+
 extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     static std::string cached;
 
@@ -3098,15 +3104,40 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         if (item.name && item.name[0] != '\0') {
             entry["displayName"] = item.name;
         }
+        // ComboShip: hint-weight class (same cascade EnGs.cpp's gossip-stone draw uses, minus the
+        // per-check rcToWeight overrides, which need a check context). Cross-game hint gen uses this
+        // to weight MM items the same way MM's own stones would.
+        u32 weight = 1;
+        if (riToWeight.contains(id)) {
+            weight = riToWeight[id];
+        } else if (itemTypeToWeight.contains(item.randoItemType)) {
+            weight = itemTypeToWeight[item.randoItemType];
+        }
+        entry["weightClass"] = weight;
         items.push_back(std::move(entry));
     }
 
+    // ComboShip: per-check hint-safe location name (GetLocationNameForHint(rc,false)) — the combo
+    // hint layer's cross-game text composition needs the same "region" phrasing MM's own hints use.
+    nlohmann::json locationHints = nlohmann::json::object();
+    for (auto& [id, chk] : Rando::StaticData::Checks) {
+        if (!chk.name || chk.name[0] == '\0')
+            continue;
+        locationHints[chk.name] = Rando::StaticData::GetLocationNameForHint(id, false);
+    }
+
+    // ComboShip: the two hint options that decide whether the combo hint layer's cross gossip pool is
+    // even consumed (EnGs.cpp) — lets the pare-down gate skip requiredness work when both are off.
+    nlohmann::json options = {
+        { "RO_HINTS_GOSSIP_STONES", (uint32_t)saveInfo.randoSaveOptions[RO_HINTS_GOSSIP_STONES] },
+        { "RO_HINTS_PURCHASEABLE", (uint32_t)saveInfo.randoSaveOptions[RO_HINTS_PURCHASEABLE] }
+    };
+
     cached = nlohmann::json{
-        { "checks", std::move(checks) },
-        { "pool", std::move(pool) },
-        { "fixed", std::move(fixed) },
-        { "items", std::move(items) },
-        { "prices", std::move(prices) }
+        { "checks", std::move(checks) },  { "pool", std::move(pool) },
+        { "fixed", std::move(fixed) },    { "items", std::move(items) },
+        { "prices", std::move(prices) },  { "locationHints", std::move(locationHints) },
+        { "options", std::move(options) }
     }.dump();
     return cached.c_str();
 }
@@ -3645,8 +3676,8 @@ extern "C" __declspec(dllexport) void MM_MarkForeignObtained(const char* checkNa
 
 // ComboShip: routing seams — the launcher registers DeliverCrossItem / MarkForeignObtained here so
 // MM's foreign-check detection can hand an item to the OTHER game immediately (mirrors MM_SetAnchorSend).
-extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName) = nullptr;
-extern "C" __declspec(dllexport) void MM_SetCrossDeliver(void (*cb)(int, const char*)) {
+extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName) = nullptr;
+extern "C" __declspec(dllexport) void MM_SetCrossDeliver(void (*cb)(int, const char*, const char*)) {
     gMMComboCrossDeliver = cb;
 }
 extern "C" void (*gMMComboMarkForeignObtained)(int srcGame, const char* checkName) = nullptr;

@@ -17,6 +17,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <vector>
 #include <filesystem>
 #include <fstream>
 #include <cstdint>
@@ -109,7 +110,11 @@ inline void CleanSlotFiles(int slot) {
 
 // Tag a spoiler "foreign" array's displayNames with their home-game suffix for the consolidated file.
 // Every display surface (shops, hints, trackers, toasts) reads displayName, so tag once here.
-inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray) {
+// ootCheckAreas (checkName -> OOT area name, from SOH_DumpRandoHintData's "checks" list) is optional;
+// when given, oot-side entries get a "checkArea" field for the combo hint layer's foolish-area logic.
+// MM-side entries omit it — MM's own dump carries its per-check "locationHints" (region names) instead.
+inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray,
+                                        const std::unordered_map<std::string, std::string>& ootCheckAreas = {}) {
     nlohmann::json out = nlohmann::json::array();
     for (const auto& fm : foreignArray) {
         std::string checkGame = fm.value("checkGame", "");
@@ -121,12 +126,15 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray) {
         std::string displayName = fm.value("displayName", itemName);
         if (!displayName.empty() && (itemGame == "mm" || itemGame == "oot"))
             displayName += (itemGame == "mm") ? " (MM)" : " (OOT)";
-        out.push_back({ { "checkGame", checkGame },
-                        { "checkName", checkName },
-                        { "itemGame", itemGame },
-                        { "itemName", itemName },
-                        { "displayName", displayName },
-                        { "advancement", fm.value("advancement", false) } });
+        nlohmann::json entry = { { "checkGame", checkGame },     { "checkName", checkName },
+                                 { "itemGame", itemGame },       { "itemName", itemName },
+                                 { "displayName", displayName }, { "advancement", fm.value("advancement", false) } };
+        if (checkGame == "oot") {
+            auto it = ootCheckAreas.find(checkName);
+            if (it != ootCheckAreas.end())
+                entry["checkArea"] = it->second;
+        }
+        out.push_back(std::move(entry));
     }
     return out;
 }
@@ -159,6 +167,78 @@ inline std::unordered_map<std::string, ForeignItem> LoadForeignForGame(int slot,
     } catch (...) { /* corrupt -> treat as empty */
     }
     return map;
+}
+
+// A foreign check's location, keyed the other way round (by itemName) for a game that wants to know
+// where ITS OWN item ended up when placed at a check in the other game (family-B: MM item -> OOT check).
+struct ForeignPlacement {
+    GameId checkGame;
+    std::string checkName;
+    std::string displayName;
+    bool advancement = false;
+};
+
+// Load itemGame's cross-placed items, keyed by itemName (the item's own namespace). Used when a
+// display routine's local check scan fails and it needs to know which OTHER game's check holds it.
+inline std::unordered_map<std::string, ForeignPlacement> LoadForeignByItem(int slot, GameId itemGame) {
+    std::unordered_map<std::string, ForeignPlacement> map;
+    auto path = SlotReadPath(slot);
+    if (path.empty())
+        return map;
+    std::ifstream in(path);
+    if (!in.is_open())
+        return map;
+    try {
+        nlohmann::json j;
+        in >> j;
+        const std::string key = GameIdToKey(itemGame);
+        for (const auto& fm : j.value("foreign", nlohmann::json::array())) {
+            if (fm.value("itemGame", "") != key)
+                continue;
+            ForeignPlacement fp;
+            fp.checkGame = KeyToGameId(fm.value("checkGame", ""));
+            fp.checkName = fm.value("checkName", "");
+            fp.displayName = fm.value("displayName", fp.checkName);
+            fp.advancement = fm.value("advancement", false);
+            map.emplace(fm.value("itemName", ""), std::move(fp));
+        }
+    } catch (...) { /* corrupt -> treat as empty */
+    }
+    return map;
+}
+
+// Phase 4: MM's cross-game hint consumption. Mirrors the "hints.mm" object CrossHints.h::Generate
+// writes (gossipPool for gossip-stone draws, itemLocations for family-B GetItemLocationHintName).
+struct HintGossipEntry {
+    uint32_t weight = 1;
+    std::string text;
+};
+struct MmHints {
+    std::vector<HintGossipEntry> gossipPool;
+    std::unordered_map<std::string, std::string> itemLocations; // itemName -> "in <area> (OOT)"
+};
+
+// Load slot N's hints.mm object. Empty (never throws) on missing/corrupt file.
+inline MmHints LoadHintsMM(int slot) {
+    MmHints out;
+    auto path = SlotReadPath(slot);
+    if (path.empty())
+        return out;
+    std::ifstream in(path);
+    if (!in.is_open())
+        return out;
+    try {
+        nlohmann::json j;
+        in >> j;
+        auto mm = j.value("hints", nlohmann::json::object()).value("mm", nlohmann::json::object());
+        for (auto& g : mm.value("gossipPool", nlohmann::json::array()))
+            out.gossipPool.push_back({ g.value("weight", 1u), g.value("text", "") });
+        const auto itemLocs = mm.value("itemLocations", nlohmann::json::object());
+        for (auto& [k, v] : itemLocs.items())
+            out.itemLocations.emplace(k, v.get<std::string>());
+    } catch (...) { /* corrupt -> treat as empty */
+    }
+    return out;
 }
 
 } // namespace ComboRando

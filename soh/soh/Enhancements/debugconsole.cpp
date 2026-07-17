@@ -34,7 +34,7 @@ extern PlayState* gPlayState;
 #ifdef COMBO_BUILD
 #include "rando/CrossForeign.h" // ComboShip: GameId
 // ComboShip (issue #3): immediate cross-game delivery seam (defined in OTRGlobals.cpp).
-extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName);
+extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName);
 #endif
 
 #define CMD_REGISTER Ship::Context::GetRawInstance()->GetConsole()->AddCommand
@@ -1525,7 +1525,7 @@ static bool CrossSendHandler(std::shared_ptr<Ship::Console> Console, const std::
         ERROR_MESSAGE("[ComboShip] cross_send: delivery seam not registered.");
         return 1;
     }
-    gComboCrossDeliver(ComboRando::GAME_MM, itemName.c_str());
+    gComboCrossDeliver(ComboRando::GAME_MM, itemName.c_str(), "");
     INFO_MESSAGE("[ComboShip] Delivered '%s' to MM (slot %d).", itemName.c_str(), gSaveContext.fileNum);
     return 0;
 }

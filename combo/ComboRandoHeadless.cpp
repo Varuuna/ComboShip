@@ -246,11 +246,12 @@ int main(int argc, char** argv) {
                                       << owS << " wallet(s) at sphere " << sph.value("sphere", -1) << "\n";
                         }
                     } else if (game == "mm" && mmPrices.contains(chk) &&
-                               (chk.find("SHOP_ITEM") != std::string::npos ||
-                                chk.find("TINGLE_MAP") != std::string::npos ||
-                                chk.find("GORMAN_MILK") != std::string::npos ||
-                                chk.find("MILK_BAR") != std::string::npos ||
-                                chk.find("CURIOSITY") != std::string::npos)) {
+                               // ComboShip: friendly (prettified) forms of the MM purchase check names.
+                               (chk.find("Shop Item") != std::string::npos ||
+                                chk.find("Tingle Map") != std::string::npos ||
+                                chk.find("Gorman Milk") != std::string::npos ||
+                                chk.find("Milk Bar") != std::string::npos ||
+                                chk.find("Curiosity") != std::string::npos)) {
                         int p = mmPrices[chk].get<int>();
                         if (!(p < 100 || (p <= 200 && mwS >= 1) || mwS >= 2)) {
                             ++bad;
@@ -258,10 +259,17 @@ int main(int argc, char** argv) {
                                       << mwS << " wallet(s) at sphere " << sph.value("sphere", -1) << "\n";
                         }
                     }
-                    if (item == "Progressive Wallet")
-                        ++ow;
-                    if (item == "RI_PROGRESSIVE_WALLET")
-                        ++mw;
+                    // ComboShip: both games' wallet now normalizes to "Progressive Wallet"; attribute to
+                    // the item's HOME game (itemGame), derived from the check game + foreign flag, so a
+                    // cross-placed wallet still credits its owner's tier (matches the pre-rename semantics).
+                    if (item == "Progressive Wallet") {
+                        bool fgn = st.value("foreign", false);
+                        std::string homeGame = fgn ? (game == "oot" ? "mm" : "oot") : game;
+                        if (homeGame == "oot")
+                            ++ow;
+                        else
+                            ++mw;
+                    }
                 }
             }
             return bad;
@@ -400,14 +408,20 @@ int main(int argc, char** argv) {
                     consolidated["fileType"] = "ComboShipRandomizer";
                     consolidated["seed"] = seed;
                     consolidated["masterSeed"] = masterSeed;
+                    // ComboShip: suffix cross-game item-name collisions in the placements (parity with
+                    // RunComboFill's consolidated writer) so the headless spoiler shows "(OOT)"/"(MM)".
+                    nlohmann::json ootPl = fillSpoiler.value("oot", nlohmann::json::object());
+                    nlohmann::json mmPl = fillSpoiler.value("mm", nlohmann::json::object());
+                    ComboRando::SuffixCrossGameItems(ootPl, mmPl, fillSpoiler.value("foreign", nlohmann::json::array()),
+                                                     sohDump, mmDump);
                     consolidated["oot"] = { { "settings", nlohmann::json::parse(SOH_DumpSettings()) },
                                             { "enabledTricks", SOH_DumpEnabledTricks
                                                                    ? nlohmann::json::parse(SOH_DumpEnabledTricks())
                                                                    : nlohmann::json::array() },
-                                            { "placements", fillSpoiler.value("oot", nlohmann::json::object()) },
+                                            { "placements", ootPl },
                                             { "prices", pricesOf(sohDump) } };
                     consolidated["mm"] = { { "settings", nlohmann::json::parse(MM_DumpSettings()) },
-                                           { "placements", fillSpoiler.value("mm", nlohmann::json::object()) },
+                                           { "placements", mmPl },
                                            { "prices", pricesOf(mmDump) } };
                     // ComboShip: enrich the foreign array exactly like RunComboFill (displayName game
                     // suffix + oot checkArea) so the headless consolidated file matches the in-game one.

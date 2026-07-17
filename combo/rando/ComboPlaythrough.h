@@ -78,12 +78,22 @@ inline std::vector<CwPlacedItem> ParseSpoilerPlacements(const std::string& spoil
         auto it = majorByName[g].find(item);
         return it == majorByName[g].end() ? lookupAdv(g, item) : it->second;
     };
+    // ComboShip: the consolidated file suffixes cross-game item-name collisions "(OOT)"/"(MM)"; strip
+    // that here so oracle name resolution (bare friendly) works. No-op on the bare fill output.
+    auto stripSuffix = [](std::string s) {
+        for (const char* suf : { " (OOT)", " (MM)" }) {
+            size_t n = std::string(suf).size();
+            if (s.size() >= n && s.compare(s.size() - n, n, suf) == 0)
+                return s.substr(0, s.size() - n);
+        }
+        return s;
+    };
     try {
         auto j = nlohmann::json::parse(spoilerJson);
         for (auto& fm : j.value("foreign", nlohmann::json::array())) {
             std::string cg = fm.value("checkGame", ""), cn = fm.value("checkName", "");
             std::string ig = fm.value("itemGame", "");
-            foreign[cg + ":" + cn] = { (ig == "mm") ? GAME_MM : GAME_OOT, fm.value("itemName", ""),
+            foreign[cg + ":" + cn] = { (ig == "mm") ? GAME_MM : GAME_OOT, stripSuffix(fm.value("itemName", "")),
                                        fm.value("advancement", true) };
         }
         auto addGame = [&](const char* key, GameId cg) {
@@ -93,8 +103,8 @@ inline std::vector<CwPlacedItem> ParseSpoilerPlacements(const std::string& spoil
                 auto fit = foreign.find(std::string(key) + ":" + cn);
                 bool isForeign = fit != foreign.end();
                 GameId ig = isForeign ? fit->second.itemGame : cg;
-                std::string item =
-                    (isForeign && !fit->second.itemName.empty()) ? fit->second.itemName : iv.get<std::string>();
+                std::string item = (isForeign && !fit->second.itemName.empty()) ? fit->second.itemName
+                                                                                : stripSuffix(iv.get<std::string>());
                 bool adv = isForeign ? fit->second.advancement : lookupAdv(ig, item);
                 bool major = isForeign ? fit->second.advancement : lookupMajor(ig, item);
                 placements.push_back({ cg, cn, ig, item, adv, major });
@@ -158,7 +168,7 @@ inline bool DefaultGanonMajoraGoal(const std::unordered_set<std::string>& ootRea
                                    const std::vector<std::string>& ownedOot) {
     static const char* kOotTowerTop = "Ganon's Castle Tower Boss Key Chest";
     static const char* kOotBossKey = "Ganon's Castle Boss Key";
-    static const char* kMmWin = "RC_MOON_MAJORA_POT_01";
+    static const char* kMmWin = "Moon Majora Pot 01"; // ComboShip: friendly form of RC_MOON_MAJORA_POT_01
     bool canGanon =
         ootReach.count(kOotTowerTop) > 0 && std::find(ownedOot.begin(), ownedOot.end(), kOotBossKey) != ownedOot.end();
     bool canMajora = mmReach.count(kMmWin) > 0;
@@ -333,7 +343,7 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
                                         const std::string& mmDumpJson = "") {
     static const char* kOotTowerTop = "Ganon's Castle Tower Boss Key Chest";
     static const char* kOotBossKey = "Ganon's Castle Boss Key";
-    static const char* kMmWin = "RC_MOON_MAJORA_POT_01";
+    static const char* kMmWin = "Moon Majora Pot 01"; // ComboShip: friendly form of RC_MOON_MAJORA_POT_01
 
     PlaythroughResult result;
 

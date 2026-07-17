@@ -128,6 +128,9 @@ void AnchorMainMenu(WidgetInfo& info) {
     ImGui::SeparatorText("Current Room");
     ImGui::Text("%s Connected", ICON_FA_CHECK);
 
+#ifndef COMBO_BUILD
+    // ComboShip: replaced in combo builds by the shared "Resync team state" control in the combo
+    // menu's Anchor panel, which syncs BOTH games. Kept here for standalone SoH.
     UIWidgets::PushStyleButton(THEME_COLOR);
     if (ImGui::Button("Request Team State")) {
         anchor->SendPacket_RequestTeamState();
@@ -136,6 +139,7 @@ void AnchorMainMenu(WidgetInfo& info) {
     UIWidgets::PopStyleButton();
 
     ImGui::SameLine();
+#endif
 
     UIWidgets::WindowButton("Toggle Anchor Room Window", CVAR_WINDOW("AnchorRoom"), SohGui::mAnchorRoomWindow);
 

@@ -13026,10 +13026,17 @@ Vec3f D_8085D41C = { 0.0f, 0.0f, -30.0f };
 
 static bool sNoclipEnabled;
 
+#ifdef COMBO_BUILD
+// ComboShip: MM's own debug CVar so MM debug can't leak into OOT (shared CVar store, issue #67)
+#define CVAR_MM_DEBUG_MODE_NAME "gDeveloperTools.DebugEnabledMM"
+#else
+#define CVAR_MM_DEBUG_MODE_NAME "gDeveloperTools.DebugEnabled"
+#endif
+
 s32 Player_UpdateNoclip(Player* this, PlayState* play) {
     sPlayerControlInput = &play->state.input[0];
 
-    if (!CVarGetInteger("gDeveloperTools.DebugEnabled", 0)) {
+    if (!CVarGetInteger(CVAR_MM_DEBUG_MODE_NAME, 0)) {
         sNoclipEnabled = false;
         return true;
     }

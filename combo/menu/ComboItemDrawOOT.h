@@ -18,7 +18,10 @@
 #include "ComboItemDrawABI.h"
 
 // Portable slice of one sDrawItemTable row (defined COMBO_BUILD-guarded in soh/src/code/z_draw.c).
-extern "C" s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale);
+// outDrawKind = CwDrawKind (0 = simple OPA/XLU submission; else a non-portable func the consumer
+// replicates). outColors is 16 bytes: primXlu[4], envXlu[4], primOpa[4], envOpa[4] (JEWEL/MUSIC_NOTE).
+extern "C" s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale,
+                                         s32* outDrawKind, uint8_t* outColors);
 
 // Cross-game item draw info. MM resolves this via GetProcAddress to learn which OOT display lists
 // render a foreign item, then submits them through "__OTR__@oot:"-routed paths resolved against OOT's
@@ -44,7 +47,9 @@ extern "C" __declspec(dllexport) int32_t OOT_GetItemDrawInfo(const char* itemNam
     void* dls[CW_DRAW_MAX_DLISTS] = {};
     int32_t xluStart = -1;
     f32 scale = 0.0f;
-    int32_t n = GetItem_GetDrawTableEntry((s32)gi.gid, dls, CW_DRAW_MAX_DLISTS, &xluStart, &scale);
+    int32_t drawKind = CW_DRAW_KIND_SIMPLE;
+    uint8_t colors[16] = {};
+    int32_t n = GetItem_GetDrawTableEntry((s32)gi.gid, dls, CW_DRAW_MAX_DLISTS, &xluStart, &scale, &drawKind, colors);
     if (n <= 0) {
         return 0; // unsupported/non-portable draw func
     }
@@ -52,6 +57,13 @@ extern "C" __declspec(dllexport) int32_t OOT_GetItemDrawInfo(const char* itemNam
     out->xluStartIndex = xluStart;
     out->scale = scale;
     out->hasEnvColor = 0; // OOT's portable funcs bake color into their DLs (no separate env color)
+    out->drawKind = drawKind;
+    for (int32_t i = 0; i < 4; i++) {
+        out->primColorXlu[i] = colors[i];
+        out->envColorXlu[i] = colors[4 + i];
+        out->primColorOpa[i] = colors[8 + i];
+        out->envColorOpa[i] = colors[12 + i];
+    }
     for (int32_t i = 0; i < n; i++) {
         out->dlists[i] = (const char*)dls[i];
     }

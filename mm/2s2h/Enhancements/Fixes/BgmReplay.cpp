@@ -10,7 +10,12 @@ extern u8 sStartSeqDisabled;
 
 #define CVAR_NAME_FASTER_SCENE_TRANSITIONS "gEnhancements.Timesavers.FasterSceneTransitions"
 #define CVAR_NAME_PAUSE_SAVE "gEnhancements.Saving.PauseSave"
+#ifdef COMBO_BUILD
+// ComboShip: MM's own debug CVar so MM debug can't leak into OOT (shared CVar store, issue #67)
+#define CVAR_NAME_DEBUG_MODE "gDeveloperTools.DebugEnabledMM"
+#else
 #define CVAR_NAME_DEBUG_MODE "gDeveloperTools.DebugEnabled"
+#endif
 
 #define CVAR_FASTER_SCENE_TRANSITIONS CVarGetInteger(CVAR_NAME_FASTER_SCENE_TRANSITIONS, 0)
 #define CVAR_PAUSE_SAVE CVarGetInteger(CVAR_NAME_PAUSE_SAVE, 0)

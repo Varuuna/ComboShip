@@ -20,7 +20,12 @@ void Inventory_SetWorldMapCloudVisibility(s16 tingleIndex);
 extern u16 sPersistentCycleWeekEventRegs[ARRAY_COUNT(gSaveContext.save.saveInfo.weekEventReg)];
 }
 
+#ifdef COMBO_BUILD
+// ComboShip: MM gets its own debug CVar so MM debug mode can't leak into OOT (shared CVar store, issue #67)
+#define CVAR_DEBUG_MODE_NAME "gDeveloperTools.DebugEnabledMM"
+#else
 #define CVAR_DEBUG_MODE_NAME "gDeveloperTools.DebugEnabled"
+#endif
 #define CVAR_DEBUG_MODE CVarGetInteger(CVAR_DEBUG_MODE_NAME, 0)
 
 #define CVAR_SAVE_FILE_MODE_NAME "gDeveloperTools.DebugSaveFileMode"

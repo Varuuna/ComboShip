@@ -25,6 +25,13 @@
 #include "padutils.h"
 #include <libultraship/bridge/consolevariablebridge.h>
 
+#ifdef COMBO_BUILD
+// ComboShip: MM's own debug CVar so MM debug can't leak into OOT (shared CVar store, issue #67)
+#define CVAR_MM_DEBUG_MODE_NAME "gDeveloperTools.DebugEnabledMM"
+#else
+#define CVAR_MM_DEBUG_MODE_NAME "gDeveloperTools.DebugEnabled"
+#endif
+
 void FrameAdvance_Init(FrameAdvanceContext* frameAdvCtx) {
     frameAdvCtx->timer = 0;
     frameAdvCtx->enabled = false;
@@ -34,7 +41,7 @@ void FrameAdvance_Init(FrameAdvanceContext* frameAdvCtx) {
  * Returns true when frame advance is not active (game will run normally)
  */
 s32 FrameAdvance_Update(FrameAdvanceContext* frameAdvCtx, Input* input) {
-    if (CVarGetInteger("gDeveloperTools.DebugEnabled", 0)) {
+    if (CVarGetInteger(CVAR_MM_DEBUG_MODE_NAME, 0)) {
         if (CHECK_BTN_ALL(input->cur.button, BTN_R) && CHECK_BTN_ALL(input->press.button, BTN_DDOWN)) {
             frameAdvCtx->enabled = !frameAdvCtx->enabled;
         }

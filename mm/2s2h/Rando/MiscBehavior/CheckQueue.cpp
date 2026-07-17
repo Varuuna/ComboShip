@@ -45,7 +45,7 @@ const ComboRando::ForeignItem* Rando::MiscBehavior::MM_LookupForeign(RandoCheckI
         g_mmForeignMap = ComboRando::LoadForeignForGame(slot, ComboRando::GAME_MM);
         g_mmForeignSlot = slot;
     }
-    auto it = g_mmForeignMap.find(Rando::StaticData::Checks[rc].name);
+    auto it = g_mmForeignMap.find(Rando::StaticData::GetCheckDisplayName(rc)); // ComboShip: friendly key
     return it != g_mmForeignMap.end() ? &it->second : nullptr;
 }
 
@@ -57,10 +57,9 @@ void Rando::MiscBehavior::SendForeignCheck(RandoCheckId rc) {
         g_mmForeignMap = ComboRando::LoadForeignForGame(slot, ComboRando::GAME_MM);
         g_mmForeignSlot = slot;
     }
-    // ComboShip: key by StaticData::Checks[].name (the "RC_*" identifier) — the SAME name the MM
-    // dump emits and the fill writes into the foreign map. CheckNames[rc] is the human-readable
-    // display name ("Termina Field Grass 160") and never matches the map keys.
-    const std::string checkName = Rando::StaticData::Checks[rc].name;
+    // ComboShip: key by the friendly combo-spoiler name (GetCheckDisplayName) — the SAME name the MM
+    // dump emits and the fill/foreign array carry. Must match foreign[].checkName exactly.
+    const std::string checkName = Rando::StaticData::GetCheckDisplayName(rc);
     auto it = g_mmForeignMap.find(checkName);
     if (it != g_mmForeignMap.end()) {
         // Grant straight into the dormant target game's resident save (and persist it there), then
@@ -166,6 +165,9 @@ void Rando::MiscBehavior::CheckQueue() {
                                 Rando::MiscBehavior::SendForeignCheck(cid); // cross-deliver + toast + save
                             }
                             queued = false;
+                            // ComboShip (#66): keep the check id (the held-up foreign model resolves
+                            // by check id) before CUSTOM_ITEM_PARAM is repurposed as the item id.
+                            CUSTOM_ITEM_PARAM2 = cid;
                             CUSTOM_ITEM_PARAM = RI_COMBO_FOREIGN;
                             return;
                         }
@@ -241,6 +243,7 @@ void Rando::MiscBehavior::CheckQueue() {
                 .drawItem =
                     [](Actor* actor, PlayState* play) {
                         RandoItemId randoItemId;
+                        RandoCheckId randoCheckId = (RandoCheckId)CUSTOM_ITEM_PARAM;
 
                         // If the item has been given, the CUSTOM_ITEM_PARAM is set to the RI, prior to that it's the RC
                         if (CUSTOM_ITEM_FLAGS & CustomItem::CALLED_ACTION) {
@@ -249,14 +252,20 @@ void Rando::MiscBehavior::CheckQueue() {
                             } else {
                                 randoItemId = (RandoItemId)CUSTOM_ITEM_PARAM;
                             }
+#ifdef COMBO_BUILD
+                            // ComboShip (#66): post-pickup CUSTOM_ITEM_PARAM is the item id, but the
+                            // foreign model resolves by check id, stashed in CUSTOM_ITEM_PARAM2.
+                            if (randoItemId == RI_COMBO_FOREIGN) {
+                                randoCheckId = (RandoCheckId)CUSTOM_ITEM_PARAM2;
+                            }
+#endif
                         } else {
                             auto& randoSaveCheck = RANDO_SAVE_CHECKS[CUSTOM_ITEM_PARAM];
-                            randoItemId =
-                                Rando::ConvertItem(randoSaveCheck.randoItemId, (RandoCheckId)CUSTOM_ITEM_PARAM);
+                            randoItemId = Rando::ConvertItem(randoSaveCheck.randoItemId, randoCheckId);
                         }
 
                         Matrix_Scale(30.0f, 30.0f, 30.0f, MTXMODE_APPLY);
-                        Rando::DrawItem(randoItemId, (RandoCheckId)CUSTOM_ITEM_PARAM, actor);
+                        Rando::DrawItem(randoItemId, randoCheckId, actor);
                     } });
             return;
         }

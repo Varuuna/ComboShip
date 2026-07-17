@@ -4162,12 +4162,21 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
 
         nlohmann::json placements = nlohmann::json::parse(json);
         int placed = 0, skipped = 0;
-        for (auto& [name, itemVal] : placements.items()) {
+        // ComboShip: cross-game name collisions are suffixed "(OOT)" in the consolidated spoiler; strip
+        // our own suffix before resolving native OOT location/item names.
+        auto stripOOT = [](std::string s) {
+            static const std::string suf = " (OOT)";
+            if (s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0)
+                s.resize(s.size() - suf.size());
+            return s;
+        };
+        for (auto& [rawName, itemVal] : placements.items()) {
             if (!itemVal.is_string()) {
                 ++skipped;
                 continue;
             }
-            const std::string itemName = itemVal.get<std::string>();
+            const std::string name = stripOOT(rawName);
+            const std::string itemName = stripOOT(itemVal.get<std::string>());
 
             auto rcIt = Rando::StaticData::locationNameToEnum.find(name);
             if (rcIt == Rando::StaticData::locationNameToEnum.end()) {

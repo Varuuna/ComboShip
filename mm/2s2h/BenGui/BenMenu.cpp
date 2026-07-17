@@ -33,6 +33,13 @@
 #define COMBO_MM_WINDOW_SUFFIX ""
 #endif
 
+// ComboShip: MM's own debug CVar so MM debug mode can't leak into OOT (shared CVar store, issue #67)
+#ifdef COMBO_BUILD
+#define COMBO_MM_DEBUG_MODE_NAME "gDeveloperTools.DebugEnabledMM"
+#else
+#define COMBO_MM_DEBUG_MODE_NAME "gDeveloperTools.DebugEnabled"
+#endif
+
 #ifdef COMBO_BUILD
 bool Combo_MmIsForeground(void); // defined in BenPort.cpp
 
@@ -2057,7 +2064,7 @@ void BenMenu::AddDevTools() {
         .CVar("gSettings.Menu.Popout")
         .Options(CheckboxOptions().Tooltip("Changes the menu display from overlay to windowed."));
     AddWidget(path, "Debug Mode", WIDGET_CVAR_CHECKBOX)
-        .CVar("gDeveloperTools.DebugEnabled")
+        .CVar(COMBO_MM_DEBUG_MODE_NAME)
         .Options(CheckboxOptions().Tooltip("Enables Debug Mode, allowing the following:\n\n"
                                            "- Open debug warp menu with L + R + Z\n"
                                            "- Enable debug no-clip mode with L + D-Right\n"
@@ -2316,7 +2323,7 @@ void BenMenu::InitElement() {
         { DISABLE_FOR_NULL_PLAY_STATE,
           { [](disabledInfo& info) -> bool { return gPlayState == NULL; }, "Not in game" } },
         { DISABLE_FOR_DEBUG_MODE_OFF,
-          { [](disabledInfo& info) -> bool { return !CVarGetInteger("gDeveloperTools.DebugEnabled", 0); },
+          { [](disabledInfo& info) -> bool { return !CVarGetInteger(COMBO_MM_DEBUG_MODE_NAME, 0); },
             "Debug Mode is Disabled" } },
         { DISABLE_FOR_NO_VSYNC,
           { [](disabledInfo& info) -> bool {

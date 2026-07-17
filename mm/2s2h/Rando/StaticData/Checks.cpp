@@ -1,5 +1,9 @@
 #include "StaticData.h"
 #include "ShipUtils.h"
+#include <algorithm>
+#include <cctype>
+#include <sstream>
+#include <unordered_map>
 
 #include "2s2h/CustomMessage/CustomMessage.h"
 #include "2s2h/Rando/Logic/Logic.h"
@@ -2382,6 +2386,59 @@ RandoCheckId GetCheckIdFromName(const char* name) {
     }
     return RC_UNKNOWN;
 }
+
+#ifdef COMBO_BUILD
+// ComboShip: friendly form of an RC_ enum for the normalized combo spoiler. Reuse the same helper that
+// builds CheckNames[] (shown in MM's tracker/menu) so the spoiler/plando names match MM's own UI.
+static std::string ComboPrettifyCheck(const char* rcName) {
+    return convertEnumToReadableName(rcName ? rcName : "", "RC_");
+}
+
+// Friendly check name <-> id. Two RCs that prettify to the same string fall back to the RC_ enum name
+// for both (lookup stays 1:1); reversibility is verified via this map, not a string inverse.
+static const std::unordered_map<RandoCheckId, std::string>& ComboCheckEmitNames() {
+    static const std::unordered_map<RandoCheckId, std::string> map = [] {
+        std::unordered_map<std::string, int> cnt;
+        std::unordered_map<RandoCheckId, std::string> pretty;
+        for (auto& [id, chk] : Checks) {
+            if (!chk.name || chk.name[0] == '\0')
+                continue;
+            std::string p = ComboPrettifyCheck(chk.name);
+            pretty[id] = p;
+            cnt[p]++;
+        }
+        std::unordered_map<RandoCheckId, std::string> m;
+        for (auto& [id, chk] : Checks) {
+            if (!chk.name || chk.name[0] == '\0')
+                continue;
+            m[id] = (cnt[pretty[id]] > 1) ? std::string(chk.name) : pretty[id]; // collision -> keep RC_
+        }
+        return m;
+    }();
+    return map;
+}
+
+const std::string& GetCheckDisplayName(RandoCheckId id) {
+    static const std::string empty;
+    const auto& m = ComboCheckEmitNames();
+    auto it = m.find(id);
+    return it == m.end() ? empty : it->second;
+}
+
+RandoCheckId GetCheckIdFromDisplayName(const char* name) {
+    if (!name)
+        return RC_UNKNOWN;
+    static const std::unordered_map<std::string, RandoCheckId> inv = [] {
+        std::unordered_map<std::string, RandoCheckId> m;
+        for (auto& [id, emit] : ComboCheckEmitNames())
+            if (!emit.empty())
+                m.emplace(emit, id); // emit names are unique by construction
+        return m;
+    }();
+    auto it = inv.find(name);
+    return it == inv.end() ? RC_UNKNOWN : it->second;
+}
+#endif
 
 void PopulateCheckNames() {
     for (auto& [randoCheckId, randoStaticCheck] : Rando::StaticData::Checks) {

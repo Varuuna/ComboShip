@@ -8,13 +8,14 @@
 // gSaveContext.fileNum, so a save and its consolidated file share one slot number.
 //
 // "foreign" array element:
-//   { "checkGame":"oot|mm", "checkName":"<RC name>", "itemGame":"oot|mm",
-//     "itemName":"<item key in itemGame's namespace>", "displayName":"<human name + (MM)/(OOT)>" }
+//   { "checkGame":"oot|mm", "checkName":"<friendly check name>", "itemGame":"oot|mm",
+//     "itemName":"<friendly item name>", "displayName":"<human name + (MM)/(OOT)>" }
 //
-// Note: itemName is in the DESTINATION game's namespace (the item's home game), since that is the
-// game that ultimately grants it. OOT uses English item names; MM uses RI_* spoiler names.
+// Note: checkName/itemName are the friendly combo-spoiler names (bare, no suffix) — the home game
+// resolves itemName to grant it, so both must match that game's friendly name maps exactly.
 #pragma once
 
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -28,14 +29,14 @@ namespace ComboRando {
 // Game identity used across the cross-world rando layer (soh.dll, 2ship.dll, ComboShip.exe).
 enum GameId : uint8_t { GAME_OOT = 0, GAME_MM = 1 };
 
-// Sentinel item names written into each game's own placement table for a foreign check.
-// They differ because the two games use different item-name namespaces (see header note).
+// Sentinel item names written into each game's own APPLY payload (not the persisted spoiler) for a
+// foreign check; each game resolves its own sentinel to the RG_/RI_COMBO_FOREIGN item.
 inline constexpr const char* kForeignSentinelNameOOT = "Combo Foreign Item"; // OOT English name
-inline constexpr const char* kForeignSentinelNameMM = "RI_COMBO_FOREIGN";    // MM spoilerName
+inline constexpr const char* kForeignSentinelNameMM = "RI_COMBO_FOREIGN";    // MM RI_ spoilerName
 
 struct ForeignItem {
     GameId itemGame;          // the game the item belongs to / must be delivered to
-    std::string itemName;     // item key in itemGame's namespace (English for OOT, RI_* for MM)
+    std::string itemName;     // friendly item name in itemGame (bare; resolved by that game's map)
     std::string displayName;  // human string for the "sent"/"received" text
     bool advancement = false; // progression in its home game -> drives the held-up pickup animation
 };
@@ -137,6 +138,57 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray,
         out.push_back(std::move(entry));
     }
     return out;
+}
+
+// Suffix cross-game ITEM-name collisions in the consolidated placements so a name like "Mirror Shield"
+// (in both games) reads unambiguously in the file / plandomizer. Only NATIVE placements are suffixed
+// (item's game == check's game), with that game's "(OOT)"/"(MM)" tag; each game strips its own suffix
+// on apply. Foreign checks are skipped (their real cross-game item is carried by the foreign[] array,
+// whose displayName already carries the tag). Check names are never suffixed: they live in per-game
+// objects (oot/mm) and a game DLL can't reproduce a cross-game-aware suffix at runtime.
+inline void SuffixCrossGameItems(nlohmann::json& ootPlacements, nlohmann::json& mmPlacements,
+                                 const nlohmann::json& foreignArray, const std::string& sohDump,
+                                 const std::string& mmDump) {
+    auto itemNames = [](const std::string& dump) {
+        std::set<std::string> s;
+        try {
+            auto d = nlohmann::json::parse(dump);
+            for (auto& it : d.value("pool", nlohmann::json::array()))
+                if (auto n = it.value("name", std::string{}); !n.empty())
+                    s.insert(std::move(n));
+            for (auto& it : d.value("items", nlohmann::json::array()))
+                if (auto n = it.value("name", std::string{}); !n.empty())
+                    s.insert(std::move(n));
+            for (auto& f : d.value("fixed", nlohmann::json::array()))
+                if (auto n = f.value("item", std::string{}); !n.empty())
+                    s.insert(std::move(n));
+        } catch (...) {}
+        return s;
+    };
+    std::set<std::string> ootSet = itemNames(sohDump), mmSet = itemNames(mmDump), shared;
+    for (const auto& n : ootSet)
+        if (mmSet.count(n))
+            shared.insert(n);
+    if (shared.empty())
+        return;
+    std::set<std::string> ootForeign, mmForeign;
+    for (const auto& fm : foreignArray) {
+        std::string cg = fm.value("checkGame", ""), cn = fm.value("checkName", "");
+        if (cn.empty())
+            continue;
+        (cg == "oot" ? ootForeign : mmForeign).insert(cn);
+    }
+    auto process = [&](nlohmann::json& pl, const std::set<std::string>& foreign, const char* suf) {
+        for (auto it = pl.begin(); it != pl.end(); ++it) {
+            if (!it.value().is_string() || foreign.count(it.key()))
+                continue;
+            std::string v = it.value().get<std::string>();
+            if (shared.count(v))
+                it.value() = v + suf;
+        }
+    };
+    process(ootPlacements, ootForeign, " (OOT)");
+    process(mmPlacements, mmForeign, " (MM)");
 }
 
 // Load one game's foreign-check section from slot N's consolidated file, keyed by check name.

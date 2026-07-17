@@ -4,6 +4,9 @@ extern "C" {
 
 #define CUSTOM_ITEM_FLAGS (actor->home.rot.x)
 #define CUSTOM_ITEM_PARAM (actor->home.rot.z)
+// ComboShip (#66): spare field used to keep a foreign check id alive after CUSTOM_ITEM_PARAM is
+// overwritten with the item id on pickup, so the held-up foreign model still resolves.
+#define CUSTOM_ITEM_PARAM2 (actor->home.rot.y)
 
 namespace CustomItem {
 

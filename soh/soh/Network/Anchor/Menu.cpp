@@ -256,9 +256,13 @@ void RegisterAnchorMenu() {
         .HideInSearch(true);
 #endif
     path.column = SECTION_COLUMN_2;
+#ifndef COMBO_BUILD
+    // ComboShip: room-admin UI is combo-native (comboui Anchor panel, Phase 2) in combo builds; hide
+    // soh's AnchorAdminMenu so it's not duplicated. Instructions stay (Phase 3 replaces them).
     SohGui::mSohMenu->AddWidget(path, "AnchorAdminMenu", WIDGET_CUSTOM)
         .CustomFunction(AnchorAdminMenu)
         .HideInSearch(true);
+#endif
     SohGui::mSohMenu->AddWidget(path, "AnchorInstructionsMenu", WIDGET_CUSTOM)
         .CustomFunction(AnchorInstructionsMenu)
         .HideInSearch(true);

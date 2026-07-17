@@ -2844,6 +2844,55 @@ extern "C" __declspec(dllexport) int SOH_Anchor_GetConnectionState(void) {
     return (Anchor::Instance->isEnabled ? 1 : 0) | (Anchor::Instance->isConnected ? 2 : 0);
 }
 
+// ComboShip: owner-gating for the combo panel's room-admin section (Phase 2). bit0=isOwner,
+// bit1=isGlobalRoom. 0 if Anchor not connected. Mirrors AnchorAdminMenu's gate.
+extern "C" __declspec(dllexport) int SOH_Anchor_GetOwnerInfo(void) {
+    try {
+        auto anchor = Anchor::Instance;
+        if (!anchor || !anchor->isEnabled || !anchor->isConnected) {
+            return 0;
+        }
+        bool isOwner = anchor->roomState.ownerClientId == anchor->ownClientId;
+        bool isGlobalRoom = std::string("soh-global") == CVarGetString(CVAR_REMOTE_ANCHOR("RoomId"), "");
+        return (isOwner ? 1 : 0) | (isGlobalRoom ? 2 : 0);
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[SOH_Anchor_GetOwnerInfo] {}", e.what());
+        return 0;
+    } catch (...) {
+        SPDLOG_ERROR("[SOH_Anchor_GetOwnerInfo] unknown exception");
+        return 0;
+    }
+}
+
+// ComboShip: broadcast the RoomSettings.* CVar changes made in the combo admin panel to the room.
+extern "C" __declspec(dllexport) void SOH_Anchor_SendRoomState(void) {
+    try {
+        if (Anchor::Instance) {
+            Anchor::Instance->SendPacket_UpdateRoomState();
+        }
+    } catch (const std::exception& e) { SPDLOG_ERROR("[SOH_Anchor_SendRoomState] {}", e.what()); } catch (...) {
+        SPDLOG_ERROR("[SOH_Anchor_SendRoomState] unknown exception");
+    }
+}
+
+// ComboShip: clear team state for every team present in the room (mirrors AnchorAdminMenu's button).
+extern "C" __declspec(dllexport) void SOH_Anchor_ClearTeamState(void) {
+    try {
+        if (!Anchor::Instance) {
+            return;
+        }
+        std::set<std::string> teams;
+        for (auto& [clientId, client] : Anchor::Instance->clients) {
+            teams.insert(client.teamId);
+        }
+        for (auto& team : teams) {
+            Anchor::Instance->SendPacket_ClearTeamState(team);
+        }
+    } catch (const std::exception& e) { SPDLOG_ERROR("[SOH_Anchor_ClearTeamState] {}", e.what()); } catch (...) {
+        SPDLOG_ERROR("[SOH_Anchor_ClearTeamState] unknown exception");
+    }
+}
+
 // ComboShip: cross-game item delivery seam (issue #3). When the other game collects a check whose
 // item belongs to OOT, the launcher calls SOH_GrantCrossItem to grant it straight into OOT's
 // resident save — even when OOT is the dormant (frozen) game. We use Randomizer_Item_Give, which

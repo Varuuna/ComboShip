@@ -56,6 +56,13 @@ typedef void (*FnSetEnabled)(int);
 typedef int (*FnGetConnState)(void);
 FnSetEnabled sSohAnchorSetEnabled = nullptr;
 FnGetConnState sSohAnchorGetConnState = nullptr;
+// Phase 2 room-admin: owner-gating + room-state broadcast + clear-team-state, all in soh's Anchor object.
+typedef int (*FnGetOwnerInfo)(void);
+typedef void (*FnSendRoomState)(void);
+typedef void (*FnClearTeamState)(void);
+FnGetOwnerInfo sSohAnchorGetOwnerInfo = nullptr;
+FnSendRoomState sSohAnchorSendRoomState = nullptr;
+FnClearTeamState sSohAnchorClearTeamState = nullptr;
 void ResolveAnchorResyncSyms() {
 #ifdef _WIN32
     if (HMODULE h = GetModuleHandleA("soh.dll")) {
@@ -65,6 +72,12 @@ void ResolveAnchorResyncSyms() {
             sSohAnchorSetEnabled = (FnSetEnabled)GetProcAddress(h, "SOH_Anchor_SetEnabled");
         if (!sSohAnchorGetConnState)
             sSohAnchorGetConnState = (FnGetConnState)GetProcAddress(h, "SOH_Anchor_GetConnectionState");
+        if (!sSohAnchorGetOwnerInfo)
+            sSohAnchorGetOwnerInfo = (FnGetOwnerInfo)GetProcAddress(h, "SOH_Anchor_GetOwnerInfo");
+        if (!sSohAnchorSendRoomState)
+            sSohAnchorSendRoomState = (FnSendRoomState)GetProcAddress(h, "SOH_Anchor_SendRoomState");
+        if (!sSohAnchorClearTeamState)
+            sSohAnchorClearTeamState = (FnClearTeamState)GetProcAddress(h, "SOH_Anchor_ClearTeamState");
     }
     if (!sMmRequestResync) {
         if (HMODULE h = GetModuleHandleA("2ship.dll"))
@@ -83,6 +96,11 @@ constexpr const char* RoomId = "gRemote.Anchor.RoomId";
 constexpr const char* TeamId = "gRemote.Anchor.TeamId";
 constexpr const char* ColorValue = "gRemote.Anchor.Color.Value";
 constexpr const char* ShowOnMinimap = "gRemote.Anchor.ShowOtherPlayersOnMinimap";
+// Room-admin settings (Phase 2): shared store both games read; changes broadcast via SendRoomState.
+constexpr const char* PvpMode = "gRemote.Anchor.RoomSettings.PvpMode";
+constexpr const char* ShowLocationsMode = "gRemote.Anchor.RoomSettings.ShowLocationsMode";
+constexpr const char* TeleportMode = "gRemote.Anchor.RoomSettings.TeleportMode";
+constexpr const char* SyncItemsAndFlags = "gRemote.Anchor.RoomSettings.SyncItemsAndFlags";
 } // namespace AnchorCVar
 
 // Combo plandomizer exports: each game's static-data dump (friendly item names) + the reload trigger
@@ -780,8 +798,63 @@ void DrawNetworkSharedPanel() {
     }
     ComboRando::ComboMenu_PopCheckbox();
 
-    // Admin / Instructions still come from the soh Network>Anchor sidebar (AnchorMainMenu is hidden in
-    // combo, so only those render). Phases 2/3 replace them with combo-native panels.
+    // --- Room admin (Phase 2, owner-only, non-global) ---
+    // ownerInfo bit0=isOwner, bit1=isGlobalRoom; 0 unless connected. Mirrors soh's AnchorAdminMenu gate.
+    int ownerInfo = sSohAnchorGetOwnerInfo ? sSohAnchorGetOwnerInfo() : 0;
+    bool isOwner = (ownerInfo & 1) != 0;
+    bool isGlobalRoom = (ownerInfo & 2) != 0;
+    if (connected && isOwner && !isGlobalRoom) {
+        ImGui::SeparatorText("Room Settings (Admin Only)");
+
+        ComboRando::ComboMenu_PushButton(theme);
+        if (ImGui::Button("Clear All Team State", ImVec2(-1.0f, 0.0f))) {
+            if (sSohAnchorClearTeamState)
+                sSohAnchorClearTeamState();
+        }
+        ComboRando::ComboMenu_PopButton();
+
+        auto sendRoomState = [&]() {
+            if (sSohAnchorSendRoomState)
+                sSohAnchorSendRoomState();
+        };
+
+        const char* kPvpModes[] = { "Off", "On", "On + Friendly Fire" };
+        const char* kShowLocationsModes[] = { "None", "Team Only", "All" };
+        const char* kTeleportModes[] = { "None", "Team Only", "All" };
+
+        ComboRando::ComboMenu_PushCombobox(theme);
+        int pvp = CVarGetInteger(AnchorCVar::PvpMode, 1);
+        if (ImGui::Combo("PvP Mode", &pvp, kPvpModes, 3)) {
+            CVarSetInteger(AnchorCVar::PvpMode, pvp);
+            AnchorSaveCVars();
+            sendRoomState();
+        }
+        int showLoc = CVarGetInteger(AnchorCVar::ShowLocationsMode, 1);
+        if (ImGui::Combo("Show Locations For", &showLoc, kShowLocationsModes, 3)) {
+            CVarSetInteger(AnchorCVar::ShowLocationsMode, showLoc);
+            AnchorSaveCVars();
+            sendRoomState();
+        }
+        int teleport = CVarGetInteger(AnchorCVar::TeleportMode, 1);
+        if (ImGui::Combo("Allow Teleporting To", &teleport, kTeleportModes, 3)) {
+            CVarSetInteger(AnchorCVar::TeleportMode, teleport);
+            AnchorSaveCVars();
+            sendRoomState();
+        }
+        ComboRando::ComboMenu_PopCombobox();
+
+        bool syncItems = CVarGetInteger(AnchorCVar::SyncItemsAndFlags, 1) != 0;
+        ComboRando::ComboMenu_PushCheckbox(theme);
+        if (ImGui::Checkbox("Sync Items & Flags", &syncItems)) {
+            CVarSetInteger(AnchorCVar::SyncItemsAndFlags, syncItems ? 1 : 0);
+            AnchorSaveCVars();
+            sendRoomState();
+        }
+        ComboRando::ComboMenu_PopCheckbox();
+    }
+
+    // Instructions still come from the soh Network>Anchor sidebar (AnchorMainMenu/AnchorAdminMenu are
+    // hidden in combo, so only AnchorInstructions renders). Phase 3 replaces it with a combo-native panel.
     auto& model = ComboMenuModel::Get();
     model.EnsureLoaded();
     const ComboRando::GameMenu& oot = model.Oot();

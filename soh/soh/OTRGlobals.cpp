@@ -3619,9 +3619,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             const std::string& in = Rando::StaticData::RetrieveItem(rg).GetName().GetEnglish();
             if (in.empty())
                 continue;
-            pool.push_back({ { "name", in },
-                             { "advancement", comboIsAdv(rg) },
-                             { "major", isMajor(rg) } });
+            pool.push_back({ { "name", in }, { "advancement", comboIsAdv(rg) }, { "major", isMajor(rg) } });
         }
         // itemPool excludes shop slots (CountEmptyLocations(false)); shuffled shop checks are covered
         // by junk, exactly like native FastFill's GetJunkItem() padding — Buy items stay shop-only.
@@ -3664,9 +3662,8 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             const std::string& vigName = Rando::StaticData::RetrieveItem(vanillaRG).GetName().GetEnglish();
             if (vigName.empty())
                 continue;
-            checks.push_back({ { "name", name },
-                               { "vanillaItem", vigName },
-                               { "advancement", comboIsAdv(vanillaRG) } });
+            checks.push_back(
+                { { "name", name }, { "vanillaItem", vigName }, { "advancement", comboIsAdv(vanillaRG) } });
         }
         usedPool = true;
 #endif
@@ -3698,9 +3695,8 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
                 continue;
 
             // ComboShip: advancement flag — same as the pool path above.
-            checks.push_back({ { "name", name },
-                               { "vanillaItem", vigName },
-                               { "advancement", comboIsAdv(vanillaRG) } });
+            checks.push_back(
+                { { "name", name }, { "vanillaItem", vigName }, { "advancement", comboIsAdv(vanillaRG) } });
         }
     }
 
@@ -3713,17 +3709,14 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         // ComboShip: OOT item names are already human English; displayName == name keeps the
         // dump schema symmetric with MM's (which needs the distinction: RI_* vs human).
         // advancement drives whether a foreign item plays the held-up pickup animation.
-        items.push_back(
-            { { "name", name }, { "displayName", name }, { "advancement", comboIsAdv(static_cast<RandomizerGet>(rg)) } });
+        items.push_back({ { "name", name },
+                          { "displayName", name },
+                          { "advancement", comboIsAdv(static_cast<RandomizerGet>(rg)) } });
     }
 
     cached = nlohmann::json{
-        { "checks", std::move(checks) },
-        { "pool", std::move(pool) },
-        { "fixed", std::move(fixed) },
-        { "items", std::move(items) },
-        { "prices", std::move(prices) },
-        { "accessibility", std::move(accessibility) }
+        { "checks", std::move(checks) }, { "pool", std::move(pool) },     { "fixed", std::move(fixed) },
+        { "items", std::move(items) },   { "prices", std::move(prices) }, { "accessibility", std::move(accessibility) }
     }.dump();
     return cached.c_str();
 }

@@ -538,12 +538,11 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                    mmFinal.count(kMmWin) > 0;
         };
         bool goalOk = (ootAccess != OotAccess::BEATABLE_ONLY) || beatableGoal();
-        bool needRetry = mmAdvUnreachable > 0 ||
-                         (ootAccess == OotAccess::ALL_REACHABLE && ootAdvUnreachable > 0) ||
+        bool needRetry = mmAdvUnreachable > 0 || (ootAccess == OotAccess::ALL_REACHABLE && ootAdvUnreachable > 0) ||
                          (ootAccess == OotAccess::BEATABLE_ONLY && !goalOk);
         if (needRetry) {
-            std::cerr << "[ComboShip] CrossWorldCombinedFill: validation failed — mmAdvUnreachable="
-                      << mmAdvUnreachable << " ootAdvUnreachable=" << ootAdvUnreachable
+            std::cerr << "[ComboShip] CrossWorldCombinedFill: validation failed — mmAdvUnreachable=" << mmAdvUnreachable
+                      << " ootAdvUnreachable=" << ootAdvUnreachable
                       << (ootAccess == OotAccess::BEATABLE_ONLY ? (goalOk ? " goal=ok" : " goal=UNBEATABLE") : "")
                       << " (pass " << pass << ", " << passMs() << " ms) — retrying\n";
             continue;

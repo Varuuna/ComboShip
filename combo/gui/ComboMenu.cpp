@@ -787,26 +787,28 @@ void DrawNetworkSharedPanel() {
         }
     }
 
-    // --- Team sync (both games) + minimap toggle ---
-    ImGui::SeparatorText("Team Sync");
-    ImGui::TextWrapped("Pull the latest team progress from your Anchor teammates for BOTH games.");
-    ComboRando::ComboMenu_PushButton(theme);
-    if (ImGui::Button("Resync team state", ImVec2(-1.0f, 0.0f))) {
-        if (sSohRequestResync)
-            sSohRequestResync();
-        if (sMmRequestResync)
-            sMmRequestResync();
-    }
-    ComboRando::ComboMenu_PopButton();
-    ImGui::TextDisabled("Use this if you're missing items/flags a teammate has collected in either game.");
+    // --- Team sync + minimap (only once Anchor is enabled) ---
+    if (enabled) {
+        ImGui::SeparatorText("Team Sync");
+        ImGui::TextWrapped("Pull the latest team progress from your Anchor teammates for BOTH games.");
+        ComboRando::ComboMenu_PushButton(theme);
+        if (ImGui::Button("Resync team state", ImVec2(-1.0f, 0.0f))) {
+            if (sSohRequestResync)
+                sSohRequestResync();
+            if (sMmRequestResync)
+                sMmRequestResync();
+        }
+        ComboRando::ComboMenu_PopButton();
+        ImGui::TextDisabled("Use this if you're missing items/flags a teammate has collected in either game.");
 
-    bool showMinimap = CVarGetInteger(AnchorCVar::ShowOnMinimap, 1) != 0;
-    ComboRando::ComboMenu_PushCheckbox(theme);
-    if (ImGui::Checkbox("Show Other Players on Minimap", &showMinimap)) {
-        CVarSetInteger(AnchorCVar::ShowOnMinimap, showMinimap ? 1 : 0);
-        AnchorSaveCVars();
+        bool showMinimap = CVarGetInteger(AnchorCVar::ShowOnMinimap, 1) != 0;
+        ComboRando::ComboMenu_PushCheckbox(theme);
+        if (ImGui::Checkbox("Show Other Players on Minimap", &showMinimap)) {
+            CVarSetInteger(AnchorCVar::ShowOnMinimap, showMinimap ? 1 : 0);
+            AnchorSaveCVars();
+        }
+        ComboRando::ComboMenu_PopCheckbox();
     }
-    ComboRando::ComboMenu_PopCheckbox();
 
     // --- Room admin (owner-only, non-global) ---
     // ownerInfo bit0=isOwner, bit1=isGlobalRoom; 0 unless connected. Mirrors soh's AnchorAdminMenu gate.
@@ -863,25 +865,27 @@ void DrawNetworkSharedPanel() {
         ComboRando::ComboMenu_PopCheckbox();
     }
 
-    // --- Room window: toggle the combo-native floating roster window ---
-    ImGui::SeparatorText("Room");
-    bool roomOpen = CVarGetInteger("gCombo.Anchor.RoomWindow", 0) != 0;
-    ComboRando::ComboMenu_PushButton(theme);
-    if (ImGui::Button(roomOpen ? "Hide Room Window" : "Show Room Window", ImVec2(-1.0f, 0.0f))) {
-        roomOpen = !roomOpen;
-        CVarSetInteger("gCombo.Anchor.RoomWindow", roomOpen ? 1 : 0);
-        AnchorSaveCVars();
-        if (auto ctx = Ship::Context::GetInstance(); ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
-            if (auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Anchor Room")) {
-                if (roomOpen)
-                    win->Show();
-                else
-                    win->Hide();
+    // --- Room window: toggle the combo-native floating roster window (only once Anchor is enabled) ---
+    if (enabled) {
+        ImGui::SeparatorText("Room");
+        bool roomOpen = CVarGetInteger("gCombo.Anchor.RoomWindow", 0) != 0;
+        ComboRando::ComboMenu_PushButton(theme);
+        if (ImGui::Button(roomOpen ? "Hide Room Window" : "Show Room Window", ImVec2(-1.0f, 0.0f))) {
+            roomOpen = !roomOpen;
+            CVarSetInteger("gCombo.Anchor.RoomWindow", roomOpen ? 1 : 0);
+            AnchorSaveCVars();
+            if (auto ctx = Ship::Context::GetInstance(); ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
+                if (auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Anchor Room")) {
+                    if (roomOpen)
+                        win->Show();
+                    else
+                        win->Hide();
+                }
             }
         }
+        ComboRando::ComboMenu_PopButton();
+        ImGui::TextDisabled("Shows every teammate's game and area, with same-game teleport.");
     }
-    ComboRando::ComboMenu_PopButton();
-    ImGui::TextDisabled("Shows every teammate's game and area, with same-game teleport.");
 
     ImGui::EndTable();
 }

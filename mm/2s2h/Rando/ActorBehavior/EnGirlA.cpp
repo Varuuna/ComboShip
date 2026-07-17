@@ -100,7 +100,7 @@ void EnGirlA_RandoBuyFunc(PlayState* play, EnGirlA* enGirlA) {
     Rando::GiveItem(randoItemId);
 #ifdef COMBO_BUILD
     Rando::MiscBehavior::BroadcastCheckObtainedIfFirst((RandoCheckId)enGirlA->actor.world.rot.z,
-                                                         randoSaveCheck.randoItemId, wasObtained);
+                                                       randoSaveCheck.randoItemId, wasObtained);
 #endif
 }
 

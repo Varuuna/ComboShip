@@ -2810,9 +2810,7 @@ extern "C" __declspec(dllexport) void SOH_Anchor_RequestResync(void) {
         if (Anchor::Instance) {
             Anchor::Instance->RequestResyncDormantSafe();
         }
-    } catch (const std::exception& e) {
-        SPDLOG_ERROR("[SOH_Anchor_RequestResync] {}", e.what());
-    } catch (...) {
+    } catch (const std::exception& e) { SPDLOG_ERROR("[SOH_Anchor_RequestResync] {}", e.what()); } catch (...) {
         SPDLOG_ERROR("[SOH_Anchor_RequestResync] unknown exception");
     }
 }
@@ -3757,22 +3755,51 @@ static nlohmann::json Combo_HintTextToJson(const HintText& ht) {
 // (+ RHT_JUNK* below) is most of the Debug dump-size win: the full table is ~1646 entries.
 static bool Combo_IsUsedHintTemplate(const std::string& name) {
     static const std::unordered_set<std::string> kAllow = {
-        "RHT_WAY_OF_THE_HERO", "RHT_FOOLISH", "RHT_CAN_BE_FOUND_AT", "RHT_HOARDS",
+        "RHT_WAY_OF_THE_HERO",
+        "RHT_FOOLISH",
+        "RHT_CAN_BE_FOUND_AT",
+        "RHT_HOARDS",
         "RHT_GANONDORF_HINT_LA_ONLY",
         // Altar templates + option-driven end clauses (Fix 3: combo composes altar hints itself).
-        "RHT_CHILD_ALTAR_STONES", "RHT_CHILD_ALTAR_TEXT_END_DOTOPEN", "RHT_CHILD_ALTAR_TEXT_END_DOTSONGONLY",
-        "RHT_CHILD_ALTAR_TEXT_END_DOTCLOSED", "RHT_ADULT_ALTAR_MEDALLIONS", "RHT_ADULT_ALTAR_TEXT_END",
-        "RHT_BRIDGE_OPEN_HINT", "RHT_BRIDGE_VANILLA_HINT", "RHT_BRIDGE_STONES_HINT", "RHT_BRIDGE_MEDALLIONS_HINT",
-        "RHT_BRIDGE_REWARDS_HINT", "RHT_BRIDGE_DUNGEONS_HINT", "RHT_BRIDGE_TOKENS_HINT",
-        "RHT_BRIDGE_TRIFORCE_PIECES_HINT", "RHT_BRIDGE_GREG_HINT",
-        "RHT_GANON_BK_START_WITH_HINT", "RHT_GANON_BK_VANILLA_HINT", "RHT_GANON_BK_OWN_DUNGEON_HINT",
-        "RHT_GANON_BK_ANY_DUNGEON_HINT", "RHT_GANON_BK_OVERWORLD_HINT", "RHT_GANON_BK_ANYWHERE_HINT",
-        "RHT_GBK_STONES_HINT", "RHT_GBK_MEDALLIONS_HINT", "RHT_GBK_REWARDS_HINT", "RHT_GBK_DUNGEONS_HINT",
-        "RHT_GBK_TOKENS_HINT", "RHT_GBK_TRIFORCE_PIECES_HINT",
-        "RHT_GANONS_SOUL_STONES_HINT", "RHT_GANONS_SOUL_MEDALLIONS_HINT", "RHT_GANONS_SOUL_REWARDS_HINT",
-        "RHT_GANONS_SOUL_DUNGEONS_HINT", "RHT_GANONS_SOUL_TOKENS_HINT", "RHT_GANONS_SOUL_TRIFORCE_PIECES_HINT",
-        "RHT_WINCON_ANYWHERE_HINT", "RHT_WINCON_STONES_HINT", "RHT_WINCON_MEDALLIONS_HINT",
-        "RHT_WINCON_REWARDS_HINT", "RHT_WINCON_DUNGEONS_HINT", "RHT_WINCON_TOKENS_HINT",
+        "RHT_CHILD_ALTAR_STONES",
+        "RHT_CHILD_ALTAR_TEXT_END_DOTOPEN",
+        "RHT_CHILD_ALTAR_TEXT_END_DOTSONGONLY",
+        "RHT_CHILD_ALTAR_TEXT_END_DOTCLOSED",
+        "RHT_ADULT_ALTAR_MEDALLIONS",
+        "RHT_ADULT_ALTAR_TEXT_END",
+        "RHT_BRIDGE_OPEN_HINT",
+        "RHT_BRIDGE_VANILLA_HINT",
+        "RHT_BRIDGE_STONES_HINT",
+        "RHT_BRIDGE_MEDALLIONS_HINT",
+        "RHT_BRIDGE_REWARDS_HINT",
+        "RHT_BRIDGE_DUNGEONS_HINT",
+        "RHT_BRIDGE_TOKENS_HINT",
+        "RHT_BRIDGE_TRIFORCE_PIECES_HINT",
+        "RHT_BRIDGE_GREG_HINT",
+        "RHT_GANON_BK_START_WITH_HINT",
+        "RHT_GANON_BK_VANILLA_HINT",
+        "RHT_GANON_BK_OWN_DUNGEON_HINT",
+        "RHT_GANON_BK_ANY_DUNGEON_HINT",
+        "RHT_GANON_BK_OVERWORLD_HINT",
+        "RHT_GANON_BK_ANYWHERE_HINT",
+        "RHT_GBK_STONES_HINT",
+        "RHT_GBK_MEDALLIONS_HINT",
+        "RHT_GBK_REWARDS_HINT",
+        "RHT_GBK_DUNGEONS_HINT",
+        "RHT_GBK_TOKENS_HINT",
+        "RHT_GBK_TRIFORCE_PIECES_HINT",
+        "RHT_GANONS_SOUL_STONES_HINT",
+        "RHT_GANONS_SOUL_MEDALLIONS_HINT",
+        "RHT_GANONS_SOUL_REWARDS_HINT",
+        "RHT_GANONS_SOUL_DUNGEONS_HINT",
+        "RHT_GANONS_SOUL_TOKENS_HINT",
+        "RHT_GANONS_SOUL_TRIFORCE_PIECES_HINT",
+        "RHT_WINCON_ANYWHERE_HINT",
+        "RHT_WINCON_STONES_HINT",
+        "RHT_WINCON_MEDALLIONS_HINT",
+        "RHT_WINCON_REWARDS_HINT",
+        "RHT_WINCON_DUNGEONS_HINT",
+        "RHT_WINCON_TOKENS_HINT",
         "RHT_WINCON_TRIFORCE_PIECES_HINT",
     };
     return kAllow.count(name) != 0 || name.rfind("RHT_JUNK", 0) == 0;
@@ -3801,57 +3828,92 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
         // avoids the combo side having to guess RSK_* enum ordinals.
         auto bridge = [&]() -> std::pair<const char*, int> {
             auto& o = ctx->GetOption(RSK_RAINBOW_BRIDGE);
-            if (o.Is(RO_BRIDGE_ALWAYS_OPEN)) return { "RHT_BRIDGE_OPEN_HINT", 0 };
-            if (o.Is(RO_BRIDGE_VANILLA)) return { "RHT_BRIDGE_VANILLA_HINT", 0 };
-            if (o.Is(RO_BRIDGE_STONES)) return { "RHT_BRIDGE_STONES_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_STONE_COUNT).Get() };
-            if (o.Is(RO_BRIDGE_MEDALLIONS)) return { "RHT_BRIDGE_MEDALLIONS_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_MEDALLION_COUNT).Get() };
-            if (o.Is(RO_BRIDGE_DUNGEON_REWARDS)) return { "RHT_BRIDGE_REWARDS_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_REWARD_COUNT).Get() };
-            if (o.Is(RO_BRIDGE_DUNGEONS)) return { "RHT_BRIDGE_DUNGEONS_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_DUNGEON_COUNT).Get() };
-            if (o.Is(RO_BRIDGE_TOKENS)) return { "RHT_BRIDGE_TOKENS_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_TOKEN_COUNT).Get() };
-            if (o.Is(RO_BRIDGE_TRIFORCE_PIECES)) return { "RHT_BRIDGE_TRIFORCE_PIECES_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_TRIFORCE_COUNT).Get() };
-            if (o.Is(RO_BRIDGE_GREG)) return { "RHT_BRIDGE_GREG_HINT", 0 };
+            if (o.Is(RO_BRIDGE_ALWAYS_OPEN))
+                return { "RHT_BRIDGE_OPEN_HINT", 0 };
+            if (o.Is(RO_BRIDGE_VANILLA))
+                return { "RHT_BRIDGE_VANILLA_HINT", 0 };
+            if (o.Is(RO_BRIDGE_STONES))
+                return { "RHT_BRIDGE_STONES_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_STONE_COUNT).Get() };
+            if (o.Is(RO_BRIDGE_MEDALLIONS))
+                return { "RHT_BRIDGE_MEDALLIONS_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_MEDALLION_COUNT).Get() };
+            if (o.Is(RO_BRIDGE_DUNGEON_REWARDS))
+                return { "RHT_BRIDGE_REWARDS_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_REWARD_COUNT).Get() };
+            if (o.Is(RO_BRIDGE_DUNGEONS))
+                return { "RHT_BRIDGE_DUNGEONS_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_DUNGEON_COUNT).Get() };
+            if (o.Is(RO_BRIDGE_TOKENS))
+                return { "RHT_BRIDGE_TOKENS_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_TOKEN_COUNT).Get() };
+            if (o.Is(RO_BRIDGE_TRIFORCE_PIECES))
+                return { "RHT_BRIDGE_TRIFORCE_PIECES_HINT", ctx->GetOption(RSK_RAINBOW_BRIDGE_TRIFORCE_COUNT).Get() };
+            if (o.Is(RO_BRIDGE_GREG))
+                return { "RHT_BRIDGE_GREG_HINT", 0 };
             return { "", 0 };
         }();
         auto gbk = [&]() -> std::pair<const char*, int> {
             auto& o = ctx->GetOption(RSK_GANONS_BOSS_KEY);
-            if (o.Is(RO_GANON_BOSS_KEY_STARTWITH)) return { "RHT_GANON_BK_START_WITH_HINT", 0 };
-            if (o.Is(RO_GANON_BOSS_KEY_VANILLA)) return { "RHT_GANON_BK_VANILLA_HINT", 0 };
-            if (o.Is(RO_GANON_BOSS_KEY_OWN_DUNGEON)) return { "RHT_GANON_BK_OWN_DUNGEON_HINT", 0 };
-            if (o.Is(RO_GANON_BOSS_KEY_ANY_DUNGEON)) return { "RHT_GANON_BK_ANY_DUNGEON_HINT", 0 };
-            if (o.Is(RO_GANON_BOSS_KEY_OVERWORLD)) return { "RHT_GANON_BK_OVERWORLD_HINT", 0 };
-            if (o.Is(RO_GANON_BOSS_KEY_ANYWHERE)) return { "RHT_GANON_BK_ANYWHERE_HINT", 0 };
-            if (o.Is(RO_GANON_BOSS_KEY_STONES)) return { "RHT_GBK_STONES_HINT", ctx->GetOption(RSK_GBK_STONE_COUNT).Get() };
-            if (o.Is(RO_GANON_BOSS_KEY_MEDALLIONS)) return { "RHT_GBK_MEDALLIONS_HINT", ctx->GetOption(RSK_GBK_MEDALLION_COUNT).Get() };
-            if (o.Is(RO_GANON_BOSS_KEY_REWARDS)) return { "RHT_GBK_REWARDS_HINT", ctx->GetOption(RSK_GBK_REWARD_COUNT).Get() };
-            if (o.Is(RO_GANON_BOSS_KEY_DUNGEONS)) return { "RHT_GBK_DUNGEONS_HINT", ctx->GetOption(RSK_GBK_DUNGEON_COUNT).Get() };
-            if (o.Is(RO_GANON_BOSS_KEY_TOKENS)) return { "RHT_GBK_TOKENS_HINT", ctx->GetOption(RSK_GBK_TOKEN_COUNT).Get() };
-            if (o.Is(RO_GANON_BOSS_KEY_TRIFORCE_PIECES)) return { "RHT_GBK_TRIFORCE_PIECES_HINT", ctx->GetOption(RSK_GBK_TRIFORCE_COUNT).Get() };
+            if (o.Is(RO_GANON_BOSS_KEY_STARTWITH))
+                return { "RHT_GANON_BK_START_WITH_HINT", 0 };
+            if (o.Is(RO_GANON_BOSS_KEY_VANILLA))
+                return { "RHT_GANON_BK_VANILLA_HINT", 0 };
+            if (o.Is(RO_GANON_BOSS_KEY_OWN_DUNGEON))
+                return { "RHT_GANON_BK_OWN_DUNGEON_HINT", 0 };
+            if (o.Is(RO_GANON_BOSS_KEY_ANY_DUNGEON))
+                return { "RHT_GANON_BK_ANY_DUNGEON_HINT", 0 };
+            if (o.Is(RO_GANON_BOSS_KEY_OVERWORLD))
+                return { "RHT_GANON_BK_OVERWORLD_HINT", 0 };
+            if (o.Is(RO_GANON_BOSS_KEY_ANYWHERE))
+                return { "RHT_GANON_BK_ANYWHERE_HINT", 0 };
+            if (o.Is(RO_GANON_BOSS_KEY_STONES))
+                return { "RHT_GBK_STONES_HINT", ctx->GetOption(RSK_GBK_STONE_COUNT).Get() };
+            if (o.Is(RO_GANON_BOSS_KEY_MEDALLIONS))
+                return { "RHT_GBK_MEDALLIONS_HINT", ctx->GetOption(RSK_GBK_MEDALLION_COUNT).Get() };
+            if (o.Is(RO_GANON_BOSS_KEY_REWARDS))
+                return { "RHT_GBK_REWARDS_HINT", ctx->GetOption(RSK_GBK_REWARD_COUNT).Get() };
+            if (o.Is(RO_GANON_BOSS_KEY_DUNGEONS))
+                return { "RHT_GBK_DUNGEONS_HINT", ctx->GetOption(RSK_GBK_DUNGEON_COUNT).Get() };
+            if (o.Is(RO_GANON_BOSS_KEY_TOKENS))
+                return { "RHT_GBK_TOKENS_HINT", ctx->GetOption(RSK_GBK_TOKEN_COUNT).Get() };
+            if (o.Is(RO_GANON_BOSS_KEY_TRIFORCE_PIECES))
+                return { "RHT_GBK_TRIFORCE_PIECES_HINT", ctx->GetOption(RSK_GBK_TRIFORCE_COUNT).Get() };
             return { "", 0 };
         }();
         auto soul = [&]() -> std::pair<const char*, int> {
             auto& o = ctx->GetOption(RSK_GANONS_SOUL);
-            if (o.Is(RO_GANONS_SOUL_STONES)) return { "RHT_GANONS_SOUL_STONES_HINT", ctx->GetOption(RSK_GANONS_SOUL_STONE_COUNT).Get() };
-            if (o.Is(RO_GANONS_SOUL_MEDALLIONS)) return { "RHT_GANONS_SOUL_MEDALLIONS_HINT", ctx->GetOption(RSK_GANONS_SOUL_MEDALLION_COUNT).Get() };
-            if (o.Is(RO_GANONS_SOUL_REWARDS)) return { "RHT_GANONS_SOUL_REWARDS_HINT", ctx->GetOption(RSK_GANONS_SOUL_REWARD_COUNT).Get() };
-            if (o.Is(RO_GANONS_SOUL_DUNGEONS)) return { "RHT_GANONS_SOUL_DUNGEONS_HINT", ctx->GetOption(RSK_GANONS_SOUL_DUNGEON_COUNT).Get() };
-            if (o.Is(RO_GANONS_SOUL_TOKENS)) return { "RHT_GANONS_SOUL_TOKENS_HINT", ctx->GetOption(RSK_GANONS_SOUL_TOKEN_COUNT).Get() };
-            if (o.Is(RO_GANONS_SOUL_TRIFORCE_PIECES)) return { "RHT_GANONS_SOUL_TRIFORCE_PIECES_HINT", ctx->GetOption(RSK_GANONS_SOUL_TRIFORCE_COUNT).Get() };
+            if (o.Is(RO_GANONS_SOUL_STONES))
+                return { "RHT_GANONS_SOUL_STONES_HINT", ctx->GetOption(RSK_GANONS_SOUL_STONE_COUNT).Get() };
+            if (o.Is(RO_GANONS_SOUL_MEDALLIONS))
+                return { "RHT_GANONS_SOUL_MEDALLIONS_HINT", ctx->GetOption(RSK_GANONS_SOUL_MEDALLION_COUNT).Get() };
+            if (o.Is(RO_GANONS_SOUL_REWARDS))
+                return { "RHT_GANONS_SOUL_REWARDS_HINT", ctx->GetOption(RSK_GANONS_SOUL_REWARD_COUNT).Get() };
+            if (o.Is(RO_GANONS_SOUL_DUNGEONS))
+                return { "RHT_GANONS_SOUL_DUNGEONS_HINT", ctx->GetOption(RSK_GANONS_SOUL_DUNGEON_COUNT).Get() };
+            if (o.Is(RO_GANONS_SOUL_TOKENS))
+                return { "RHT_GANONS_SOUL_TOKENS_HINT", ctx->GetOption(RSK_GANONS_SOUL_TOKEN_COUNT).Get() };
+            if (o.Is(RO_GANONS_SOUL_TRIFORCE_PIECES))
+                return { "RHT_GANONS_SOUL_TRIFORCE_PIECES_HINT", ctx->GetOption(RSK_GANONS_SOUL_TRIFORCE_COUNT).Get() };
             return { "", 0 }; // RO_GANONS_SOUL_NONE: native emits nothing for this clause either
         }();
         auto wincon = [&]() -> std::pair<const char*, int> {
             auto& o = ctx->GetOption(RSK_WINCON);
-            if (o.Is(RO_WINCON_ANYWHERE)) return { "RHT_WINCON_ANYWHERE_HINT", 0 };
-            if (o.Is(RO_WINCON_STONES)) return { "RHT_WINCON_STONES_HINT", ctx->GetOption(RSK_WINCON_STONE_COUNT).Get() };
-            if (o.Is(RO_WINCON_MEDALLIONS)) return { "RHT_WINCON_MEDALLIONS_HINT", ctx->GetOption(RSK_WINCON_MEDALLION_COUNT).Get() };
-            if (o.Is(RO_WINCON_REWARDS)) return { "RHT_WINCON_REWARDS_HINT", ctx->GetOption(RSK_WINCON_REWARD_COUNT).Get() };
-            if (o.Is(RO_WINCON_DUNGEONS)) return { "RHT_WINCON_DUNGEONS_HINT", ctx->GetOption(RSK_WINCON_DUNGEON_COUNT).Get() };
-            if (o.Is(RO_WINCON_TOKENS)) return { "RHT_WINCON_TOKENS_HINT", ctx->GetOption(RSK_WINCON_TOKEN_COUNT).Get() };
-            if (o.Is(RO_WINCON_TRIFORCE_PIECES)) return { "RHT_WINCON_TRIFORCE_PIECES_HINT", ctx->GetOption(RSK_WINCON_TRIFORCE_COUNT).Get() };
+            if (o.Is(RO_WINCON_ANYWHERE))
+                return { "RHT_WINCON_ANYWHERE_HINT", 0 };
+            if (o.Is(RO_WINCON_STONES))
+                return { "RHT_WINCON_STONES_HINT", ctx->GetOption(RSK_WINCON_STONE_COUNT).Get() };
+            if (o.Is(RO_WINCON_MEDALLIONS))
+                return { "RHT_WINCON_MEDALLIONS_HINT", ctx->GetOption(RSK_WINCON_MEDALLION_COUNT).Get() };
+            if (o.Is(RO_WINCON_REWARDS))
+                return { "RHT_WINCON_REWARDS_HINT", ctx->GetOption(RSK_WINCON_REWARD_COUNT).Get() };
+            if (o.Is(RO_WINCON_DUNGEONS))
+                return { "RHT_WINCON_DUNGEONS_HINT", ctx->GetOption(RSK_WINCON_DUNGEON_COUNT).Get() };
+            if (o.Is(RO_WINCON_TOKENS))
+                return { "RHT_WINCON_TOKENS_HINT", ctx->GetOption(RSK_WINCON_TOKEN_COUNT).Get() };
+            if (o.Is(RO_WINCON_TRIFORCE_PIECES))
+                return { "RHT_WINCON_TRIFORCE_PIECES_HINT", ctx->GetOption(RSK_WINCON_TRIFORCE_COUNT).Get() };
             return { "", 0 };
         }();
-        const char* doorOfTimeKey = ctx->GetOption(RSK_DOOR_OF_TIME).Is(RO_DOOROFTIME_OPEN) ? "RHT_CHILD_ALTAR_TEXT_END_DOTOPEN"
-                                    : ctx->GetOption(RSK_DOOR_OF_TIME).Is(RO_DOOROFTIME_SONGONLY) ? "RHT_CHILD_ALTAR_TEXT_END_DOTSONGONLY"
-                                                                                                  : "RHT_CHILD_ALTAR_TEXT_END_DOTCLOSED";
+        const char* doorOfTimeKey =
+            ctx->GetOption(RSK_DOOR_OF_TIME).Is(RO_DOOROFTIME_OPEN)       ? "RHT_CHILD_ALTAR_TEXT_END_DOTOPEN"
+            : ctx->GetOption(RSK_DOOR_OF_TIME).Is(RO_DOOROFTIME_SONGONLY) ? "RHT_CHILD_ALTAR_TEXT_END_DOTSONGONLY"
+                                                                          : "RHT_CHILD_ALTAR_TEXT_END_DOTCLOSED";
 
         out["options"] = {
             { "gossipStoneHints", static_cast<int>(ctx->GetOption(RSK_GOSSIP_STONE_HINTS).Get()) },
@@ -3861,10 +3923,14 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
             { "warpSongHints", static_cast<int>(ctx->GetOption(RSK_WARP_SONG_HINTS).Get()) },
             { "totAltarHint", static_cast<int>(ctx->GetOption(RSK_TOT_ALTAR_HINT).Get()) },
             { "doorOfTimeTemplate", doorOfTimeKey },
-            { "bridgeTemplate", bridge.first }, { "bridgeCount", bridge.second },
-            { "gbkTemplate", gbk.first }, { "gbkCount", gbk.second },
-            { "soulTemplate", soul.first }, { "soulCount", soul.second },
-            { "winconTemplate", wincon.first }, { "winconCount", wincon.second },
+            { "bridgeTemplate", bridge.first },
+            { "bridgeCount", bridge.second },
+            { "gbkTemplate", gbk.first },
+            { "gbkCount", gbk.second },
+            { "soulTemplate", soul.first },
+            { "soulCount", soul.second },
+            { "winconTemplate", wincon.first },
+            { "winconCount", wincon.second },
         };
 
         // Area list: static per-check area (RCAREA_*) — Location::GetArea(), not the runtime

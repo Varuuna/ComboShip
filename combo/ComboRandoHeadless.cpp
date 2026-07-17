@@ -420,11 +420,12 @@ int main(int argc, char** argv) {
                                 ootCheckAreas.emplace(std::move(name), std::move(area));
                         }
                     } catch (...) {}
-                    consolidated["foreign"] =
-                        ComboRando::BuildForeignArray(fillSpoiler.value("foreign", nlohmann::json::array()), ootCheckAreas);
+                    consolidated["foreign"] = ComboRando::BuildForeignArray(
+                        fillSpoiler.value("foreign", nlohmann::json::array()), ootCheckAreas);
                     // Cross-hint generation (mirrors RunComboFill) — enables the headless determinism check.
-                    consolidated["hints"] = ComboRando::Generate(masterSeed, sohDump, sohHintDump, mmDump,
-                                                                 consolidated["foreign"], r.spoilerJson, pareDownResult);
+                    consolidated["hints"] =
+                        ComboRando::Generate(masterSeed, sohDump, sohHintDump, mmDump, consolidated["foreign"],
+                                             r.spoilerJson, pareDownResult);
                     std::error_code ec;
                     std::filesystem::create_directories("saves/combo", ec);
                     std::ofstream f("saves/combo/comborando.spoiler.json", std::ios::trunc);

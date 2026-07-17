@@ -126,12 +126,9 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray,
         std::string displayName = fm.value("displayName", itemName);
         if (!displayName.empty() && (itemGame == "mm" || itemGame == "oot"))
             displayName += (itemGame == "mm") ? " (MM)" : " (OOT)";
-        nlohmann::json entry = { { "checkGame", checkGame },
-                                 { "checkName", checkName },
-                                 { "itemGame", itemGame },
-                                 { "itemName", itemName },
-                                 { "displayName", displayName },
-                                 { "advancement", fm.value("advancement", false) } };
+        nlohmann::json entry = { { "checkGame", checkGame },     { "checkName", checkName },
+                                 { "itemGame", itemGame },       { "itemName", itemName },
+                                 { "displayName", displayName }, { "advancement", fm.value("advancement", false) } };
         if (checkGame == "oot") {
             auto it = ootCheckAreas.find(checkName);
             if (it != ootCheckAreas.end())

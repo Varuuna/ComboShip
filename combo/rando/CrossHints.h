@@ -121,7 +121,7 @@ struct HintCandidate {
     // OOT: real clear/ambiguous/obscure; MM: {clear:{en:region,de:region,fr:region}}
     nlohmann::json locationHint = nlohmann::json::object();
     GameId itemGame;
-    std::string itemKey;                                       // raw item key (RG english name / RI_* spoiler name)
+    std::string itemKey;                                // raw item key (RG english name / RI_* spoiler name)
     nlohmann::json itemHint = nlohmann::json::object(); // same shape as locationHint
     uint32_t weight = 1;
     bool required = false;
@@ -143,24 +143,34 @@ inline const std::array<Preset, 4>& HintPresets() {
     static const std::array<Preset, 4> kPresets{ {
         { 0, 0, 1, {} }, // Useless: no dedicated categories -> always junk
         { 1,
-         1,
-         6,
-         { { "WotH", 7 }, { "Foolish", 4 }, { "Song", 2 }, { "Overworld", 4 }, { "Dungeon", 3 }, { "NamedItem", 10 },
-           { "Random", 12 } } }, // Balanced
+          1,
+          6,
+          { { "WotH", 7 },
+            { "Foolish", 4 },
+            { "Song", 2 },
+            { "Overworld", 4 },
+            { "Dungeon", 3 },
+            { "NamedItem", 10 },
+            { "Random", 12 } } }, // Balanced
         { 2,
-         1,
-         0,
-         { { "WotH", 12 }, { "Foolish", 12 }, { "Song", 4 }, { "Overworld", 6 }, { "Dungeon", 6 }, { "NamedItem", 8 },
-           { "Random", 8 } } }, // Strong
+          1,
+          0,
+          { { "WotH", 12 },
+            { "Foolish", 12 },
+            { "Song", 4 },
+            { "Overworld", 6 },
+            { "Dungeon", 6 },
+            { "NamedItem", 8 },
+            { "Random", 8 } } }, // Strong
         { 2,
-         1,
-         0,
-         { { "WotH", 15 },
-           { "Foolish", 15 },
-           { "Song", 2 },
-           { "Overworld", 7 },
-           { "Dungeon", 7 },
-           { "NamedItem", 5 } } }, // Very Strong (no Random, matches native table)
+          1,
+          0,
+          { { "WotH", 15 },
+            { "Foolish", 15 },
+            { "Song", 2 },
+            { "Overworld", 7 },
+            { "Dungeon", 7 },
+            { "NamedItem", 5 } } }, // Very Strong (no Random, matches native table)
     } };
     return kPresets;
 }
@@ -176,10 +186,9 @@ inline constexpr const char* kGanondorfHintKey = "__GANONDORF__";
 // items/hintTextTable/requiredTrials). foreignArray: BuildForeignArray's output (used for the
 // hints.mm.itemLocations family-B upgrade). spoilerJson: the raw combined-fill spoiler (own-namespace
 // oot/mm placement maps + foreign[] — same shape RunPlaythrough/PareDownPlaythrough consume).
-inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJson,
-                               const std::string& sohHintDumpJson, const std::string& mmDumpJson,
-                               const nlohmann::json& foreignArray, const std::string& spoilerJson,
-                               const RequirednessResult& pareDown) {
+inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJson, const std::string& sohHintDumpJson,
+                               const std::string& mmDumpJson, const nlohmann::json& foreignArray,
+                               const std::string& spoilerJson, const RequirednessResult& pareDown) {
     nlohmann::json out;
     out["version"] = 1;
     nlohmann::json ootHints = nlohmann::json::array();
@@ -378,8 +387,9 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
 
     // Ganondorf hint: find the Light Arrows placement (always an OOT item) wherever it landed.
     if (ganondorfHintOn) {
-        auto it = std::find_if(candidates.begin(), candidates.end(),
-                               [](const HintCandidate& c) { return c.itemGame == GAME_OOT && c.itemKey == "Light Arrows"; });
+        auto it = std::find_if(candidates.begin(), candidates.end(), [](const HintCandidate& c) {
+            return c.itemGame == GAME_OOT && c.itemKey == "Light Arrows";
+        });
         if (it != candidates.end()) {
             Tri msg = PickTemplate(tmpl("RHT_GANONDORF_HINT_LA_ONLY"), hintClarity, rng);
             ReplacePlaceholder(msg, 1, areaText(it->areaKey));
@@ -399,13 +409,12 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
         // rewards are always progression, but a fixed/own-dungeon reward's advancement stamp in the
         // dump isn't guaranteed, and a missed reward here would wrongly read as "an unknown place".
         auto rewardArea = [&](const char* itemName) -> Tri {
-            auto it = std::find_if(placements.begin(), placements.end(), [&](const CwPlacedItem& p) {
-                return p.itemGame == GAME_OOT && p.item == itemName;
-            });
+            auto it = std::find_if(placements.begin(), placements.end(),
+                                   [&](const CwPlacedItem& p) { return p.itemGame == GAME_OOT && p.item == itemName; });
             if (it == placements.end())
                 return EnglishOnly("an unknown place"); // graceful: seen when a reward isn't in the
-                                                          // placement dump at all (pre-existing fill gap,
-                                                          // not an altar-composition bug — see UPSTREAM_MERGES.md)
+                                                        // placement dump at all (pre-existing fill gap,
+                                                        // not an altar-composition bug — see UPSTREAM_MERGES.md)
             if (it->checkGame == GAME_OOT) {
                 auto ck = ootChecks.find(it->check);
                 if (ck != ootChecks.end())
@@ -459,11 +468,12 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
         for (int i = 0; i < 3; ++i)
             ReplacePlaceholder(childMsg, i + 1, rewardArea(kChildRewards[i]));
         childMsg += endClause("doorOfTimeTemplate");
-        ootHints.push_back({ { "checkName", "__ALTAR_CHILD__" },
-                             { "type", "altarChild" },
-                             { "messages", { { { "en", childMsg.en }, { "de", childMsg.de }, { "fr", childMsg.fr } } } } });
+        ootHints.push_back(
+            { { "checkName", "__ALTAR_CHILD__" },
+              { "type", "altarChild" },
+              { "messages", { { { "en", childMsg.en }, { "de", childMsg.de }, { "fr", childMsg.fr } } } } });
 
-        static const char* kAdultRewards[6] = { "Light Medallion",  "Forest Medallion", "Fire Medallion",
+        static const char* kAdultRewards[6] = { "Light Medallion", "Forest Medallion", "Fire Medallion",
                                                 "Water Medallion", "Spirit Medallion", "Shadow Medallion" };
         Tri adultMsg = PickTemplate(tmpl("RHT_ADULT_ALTAR_MEDALLIONS"), hintClarity, rng);
         for (int i = 0; i < 6; ++i)
@@ -473,9 +483,10 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
         adultMsg += withCount("soulTemplate", "soulCount");
         adultMsg += withCount("winconTemplate", "winconCount");
         adultMsg += PickTemplate(tmpl("RHT_ADULT_ALTAR_TEXT_END"), hintClarity, rng);
-        ootHints.push_back({ { "checkName", "__ALTAR_ADULT__" },
-                             { "type", "altarAdult" },
-                             { "messages", { { { "en", adultMsg.en }, { "de", adultMsg.de }, { "fr", adultMsg.fr } } } } });
+        ootHints.push_back(
+            { { "checkName", "__ALTAR_ADULT__" },
+              { "type", "altarAdult" },
+              { "messages", { { { "en", adultMsg.en }, { "de", adultMsg.de }, { "fr", adultMsg.fr } } } } });
     }
 
     if (gossipStoneHints != 0) {
@@ -501,9 +512,10 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
                 ReplacePlaceholder(msg, 1, PickTemplate(itemHint, hintClarity, rng));
                 uint8_t copies = std::min<uint8_t>(preset.alwaysCopies, static_cast<uint8_t>(totalStones));
                 for (uint8_t copy = 0; copy < copies; ++copy) {
-                    ootHints.push_back({ { "checkName", "__ALWAYS__" + checkName + std::to_string(copy) },
-                                         { "type", "always" },
-                                         { "messages", { { { "en", msg.en }, { "de", msg.de }, { "fr", msg.fr } } } } });
+                    ootHints.push_back(
+                        { { "checkName", "__ALWAYS__" + checkName + std::to_string(copy) },
+                          { "type", "always" },
+                          { "messages", { { { "en", msg.en }, { "de", msg.de }, { "fr", msg.fr } } } } });
                     ++producedHints;
                 }
                 totalStones -= copies;
@@ -613,9 +625,9 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
             if (key.rfind("RHT_JUNK", 0) == 0)
                 junkTemplates.push_back(val);
         for (; totalStones > 0; --totalStones) {
-            Tri msg = junkTemplates.empty() ? EnglishOnly("They say that this and that are related.")
-                                            : PickTemplate(junkTemplates[rng.below(static_cast<uint32_t>(junkTemplates.size()))],
-                                                          2, rng);
+            Tri msg = junkTemplates.empty()
+                          ? EnglishOnly("They say that this and that are related.")
+                          : PickTemplate(junkTemplates[rng.below(static_cast<uint32_t>(junkTemplates.size()))], 2, rng);
             ootHints.push_back({ { "checkName", "__JUNK__" + std::to_string(producedJunk) },
                                  { "type", "junk" },
                                  { "messages", { { { "en", msg.en }, { "de", msg.de }, { "fr", msg.fr } } } } });

@@ -2815,6 +2815,35 @@ extern "C" __declspec(dllexport) void SOH_Anchor_RequestResync(void) {
     }
 }
 
+// ComboShip: combo-native Anchor connection panel drives Enable/Disable (soh's own menu is hidden in
+// combo). Mirrors Menu.cpp's Enable/Disable path incl. the Enabled CVar write.
+extern "C" __declspec(dllexport) void SOH_Anchor_SetEnabled(int enabled) {
+    try {
+        if (!Anchor::Instance) {
+            return;
+        }
+        if (enabled) {
+            CVarSetInteger(CVAR_REMOTE_ANCHOR("Enabled"), 1);
+            Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+            Anchor::Instance->Enable();
+        } else {
+            CVarClear(CVAR_REMOTE_ANCHOR("Enabled"));
+            Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+            Anchor::Instance->Disable();
+        }
+    } catch (const std::exception& e) { SPDLOG_ERROR("[SOH_Anchor_SetEnabled] {}", e.what()); } catch (...) {
+        SPDLOG_ERROR("[SOH_Anchor_SetEnabled] unknown exception");
+    }
+}
+
+// ComboShip: connection state for the combo panel status line/gating. bit0=isEnabled, bit1=isConnected.
+extern "C" __declspec(dllexport) int SOH_Anchor_GetConnectionState(void) {
+    if (!Anchor::Instance) {
+        return 0;
+    }
+    return (Anchor::Instance->isEnabled ? 1 : 0) | (Anchor::Instance->isConnected ? 2 : 0);
+}
+
 // ComboShip: cross-game item delivery seam (issue #3). When the other game collects a check whose
 // item belongs to OOT, the launcher calls SOH_GrantCrossItem to grant it straight into OOT's
 // resident save — even when OOT is the dormant (frozen) game. We use Randomizer_Item_Give, which

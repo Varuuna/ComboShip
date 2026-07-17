@@ -248,9 +248,13 @@ void AnchorInstructionsMenu(WidgetInfo& info) {
 
 void RegisterAnchorMenu() {
     WidgetPath path = { "Network", "Anchor", SECTION_COLUMN_1 };
+#ifndef COMBO_BUILD
+    // ComboShip: the connection UI is combo-native (comboui Anchor panel) in combo builds; hide soh's
+    // AnchorMainMenu so it's not duplicated. Admin/Instructions stay (Phases 2/3 replace them).
     SohGui::mSohMenu->AddWidget(path, "AnchorMainMenu", WIDGET_CUSTOM)
         .CustomFunction(AnchorMainMenu)
         .HideInSearch(true);
+#endif
     path.column = SECTION_COLUMN_2;
     SohGui::mSohMenu->AddWidget(path, "AnchorAdminMenu", WIDGET_CUSTOM)
         .CustomFunction(AnchorAdminMenu)

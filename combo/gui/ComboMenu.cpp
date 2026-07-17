@@ -9,6 +9,7 @@
 #include "ComboTrackerSwap.h"
 #include "rando/ComboPlaythrough.h" // plando: ParseSpoilerPlacements + Suffix/BuildForeignArray + slot paths
 #include <imgui.h>
+#include <libultraship/libultraship.h> // CVar bridge (CVarGet/Set* incl. color) + color.h (Color_RGBA8)
 #include <ship/window/gui/IconsFontAwesome4.h> // ICON_FA_* for the header action buttons
 #include <memory>
 #include <string>
@@ -49,11 +50,21 @@ void ResolveComboGenSyms() {
 typedef void (*FnRequestResync)(void);
 FnRequestResync sSohRequestResync = nullptr;
 FnRequestResync sMmRequestResync = nullptr;
+// Phase 1 Anchor connection panel: soh drives Enable/Disable + reports connection state (the socket
+// is launcher-owned, but enable/status stays in soh's Anchor object). Resolved from soh.dll.
+typedef void (*FnSetEnabled)(int);
+typedef int (*FnGetConnState)(void);
+FnSetEnabled sSohAnchorSetEnabled = nullptr;
+FnGetConnState sSohAnchorGetConnState = nullptr;
 void ResolveAnchorResyncSyms() {
 #ifdef _WIN32
-    if (!sSohRequestResync) {
-        if (HMODULE h = GetModuleHandleA("soh.dll"))
+    if (HMODULE h = GetModuleHandleA("soh.dll")) {
+        if (!sSohRequestResync)
             sSohRequestResync = (FnRequestResync)GetProcAddress(h, "SOH_Anchor_RequestResync");
+        if (!sSohAnchorSetEnabled)
+            sSohAnchorSetEnabled = (FnSetEnabled)GetProcAddress(h, "SOH_Anchor_SetEnabled");
+        if (!sSohAnchorGetConnState)
+            sSohAnchorGetConnState = (FnGetConnState)GetProcAddress(h, "SOH_Anchor_GetConnectionState");
     }
     if (!sMmRequestResync) {
         if (HMODULE h = GetModuleHandleA("2ship.dll"))
@@ -61,6 +72,18 @@ void ResolveAnchorResyncSyms() {
     }
 #endif
 }
+
+// Shared Anchor config CVar keys (process-global libultraship store; both game DLLs read these — see
+// MMAnchor.cpp). comboui has no access to soh's CVAR_REMOTE_ANCHOR macro, so the literals live here.
+namespace AnchorCVar {
+constexpr const char* Host = "gRemote.Anchor.Host";
+constexpr const char* Port = "gRemote.Anchor.Port";
+constexpr const char* Name = "gRemote.Anchor.Name";
+constexpr const char* RoomId = "gRemote.Anchor.RoomId";
+constexpr const char* TeamId = "gRemote.Anchor.TeamId";
+constexpr const char* ColorValue = "gRemote.Anchor.Color.Value";
+constexpr const char* ShowOnMinimap = "gRemote.Anchor.ShowOtherPlayersOnMinimap";
+} // namespace AnchorCVar
 
 // Combo plandomizer exports: each game's static-data dump (friendly item names) + the reload trigger
 // that plays an edited consolidated spoiler back verbatim. Resolved like the combo-gen syms above.
@@ -603,14 +626,140 @@ void DrawCheckTrackerSharedPanel() {
     }
 }
 
-// Shared > Network "Team Sync": launcher-orchestrated Anchor resync (bug 2). The Ship of Harkinian
-// Network settings (Sail, Crowd Control) sit beside this as their own entries in the Network group.
+// Helper: seed a fixed char buffer from a string CVar for ImGui::InputText.
+static void AnchorLoadStr(char* buf, size_t n, const char* cvar, const char* dflt) {
+    const char* cur = CVarGetString(cvar, dflt);
+    std::strncpy(buf, cur ? cur : "", n - 1);
+    buf[n - 1] = '\0';
+}
+
+// Persist CVar writes to disk next frame (mirrors soh's Anchor menu, which saves after every edit).
+static void AnchorSaveCVars() {
+    if (auto ctx = Ship::Context::GetInstance(); ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
+        ctx->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+    }
+}
+
+// Shared > Network "Anchor": combo-native connection panel (Phase 1). Replaces the proxied soh
+// AnchorMainMenu (hidden in combo). Writes the shared gRemote.Anchor.* CVars both games read, and
+// drives Enable/Disable + status via the SOH_Anchor_* exports. Admin/Instructions (Phases 2/3) are
+// still surfaced from the soh Network>Anchor sidebar below.
 void DrawNetworkSharedPanel() {
     const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
     ResolveAnchorResyncSyms();
 
-    // Team sync is an Anchor feature (covers both games) — keep it at the top of the Anchor panel so
-    // it's immediately visible, above the Ship of Harkinian Anchor connection settings.
+    int state = sSohAnchorGetConnState ? sSohAnchorGetConnState() : 0;
+    bool enabled = (state & 1) != 0;
+    bool connected = (state & 2) != 0;
+
+    // --- Connection settings (disabled while enabled, like soh) ---
+    ImGui::SeparatorText("Connection Settings");
+    ImGui::BeginDisabled(enabled);
+
+    char host[256], name[128], roomId[128], teamId[128];
+    AnchorLoadStr(host, sizeof(host), AnchorCVar::Host, "anchor.hm64.org");
+    AnchorLoadStr(name, sizeof(name), AnchorCVar::Name, "");
+    AnchorLoadStr(roomId, sizeof(roomId), AnchorCVar::RoomId, "");
+    AnchorLoadStr(teamId, sizeof(teamId), AnchorCVar::TeamId, "default");
+    int port = CVarGetInteger(AnchorCVar::Port, 43383);
+
+    ImGui::Text("Host");
+    ComboRando::ComboMenu_PushInput(theme);
+    if (ImGui::InputText("##AnchorHost", host, sizeof(host))) {
+        CVarSetString(AnchorCVar::Host, host);
+        AnchorSaveCVars();
+    }
+    ImGui::Text("Port");
+    if (ImGui::InputInt("##AnchorPort", &port)) {
+        if (port < 1025)
+            port = 1025;
+        if (port > 65534)
+            port = 65534;
+        CVarSetInteger(AnchorCVar::Port, port);
+        AnchorSaveCVars();
+    }
+    ImGui::Text("Name");
+    if (ImGui::InputText("##AnchorName", name, sizeof(name))) {
+        CVarSetString(AnchorCVar::Name, name);
+        AnchorSaveCVars();
+    }
+    ComboRando::ComboMenu_PopInput();
+
+    // Color: shared gRemote.Anchor.Color.Value (Color type; MM reads it as Color24). RGB only, matching
+    // soh's picker default {100,255,100}.
+    Color_RGBA8 col = CVarGetColor(AnchorCVar::ColorValue, Color_RGBA8{ 100, 255, 100, 255 });
+    float rgb[3] = { col.r / 255.0f, col.g / 255.0f, col.b / 255.0f };
+    ImGui::Text("Color");
+    ImGui::SameLine();
+    if (ImGui::ColorEdit3("##AnchorColor", rgb, ImGuiColorEditFlags_NoInputs)) {
+        col.r = (uint8_t)(rgb[0] * 255.0f + 0.5f);
+        col.g = (uint8_t)(rgb[1] * 255.0f + 0.5f);
+        col.b = (uint8_t)(rgb[2] * 255.0f + 0.5f);
+        col.a = 255;
+        CVarSetColor(AnchorCVar::ColorValue, col);
+        AnchorSaveCVars();
+    }
+
+    ComboRando::ComboMenu_PushInput(theme);
+    ImGui::Text("Room ID");
+    if (ImGui::InputText("##AnchorRoomId", roomId, sizeof(roomId))) {
+        CVarSetString(AnchorCVar::RoomId, roomId);
+        AnchorSaveCVars();
+    }
+    ImGui::Text("Team ID (Items & Flags Shared)");
+    if (ImGui::InputText("##AnchorTeamId", teamId, sizeof(teamId))) {
+        CVarSetString(AnchorCVar::TeamId, teamId);
+        AnchorSaveCVars();
+    }
+    ComboRando::ComboMenu_PopInput();
+
+    ImGui::Spacing();
+    ComboRando::ComboMenu_PushButton(theme);
+    if (ImGui::Button("Restore Defaults", ImVec2(ImGui::GetContentRegionAvail().x / 2, 0))) {
+        CVarSetString(AnchorCVar::Host, "anchor.hm64.org");
+        CVarSetInteger(AnchorCVar::Port, 43383);
+        CVarSetString(AnchorCVar::TeamId, "default");
+        CVarSetString(AnchorCVar::RoomId, "");
+        CVarSetString(AnchorCVar::Name, "");
+        AnchorSaveCVars();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Global Room", ImVec2(-1.0f, 0.0f))) {
+        CVarSetString(AnchorCVar::Host, "anchor.hm64.org");
+        CVarSetInteger(AnchorCVar::Port, 43383);
+        CVarSetString(AnchorCVar::TeamId, "default");
+        CVarSetString(AnchorCVar::RoomId, "soh-global");
+        AnchorSaveCVars();
+    }
+    ComboRando::ComboMenu_PopButton();
+    ImGui::SetItemTooltip("Always-online public room so you don't have to experience Hyrule alone. "
+                          "PVP and syncing are disabled.");
+    ImGui::EndDisabled();
+
+    // --- Enable/Disable (gated by form validity, mirroring soh's isFormValid) ---
+    ImGui::Spacing();
+    bool formValid = host[0] != '\0' && port > 1024 && port < 65535 && roomId[0] != '\0' && name[0] != '\0';
+    ImGui::BeginDisabled(!formValid || sSohAnchorSetEnabled == nullptr);
+    const ImVec4 red = { 0.66f, 0.13f, 0.13f, 1.0f };
+    const ImVec4 green = { 0.15f, 0.55f, 0.20f, 1.0f };
+    ComboRando::ComboMenu_PushButton(enabled ? red : green);
+    if (ImGui::Button(enabled ? "Disable" : "Enable", ImVec2(-1.0f, 0.0f))) {
+        if (sSohAnchorSetEnabled)
+            sSohAnchorSetEnabled(enabled ? 0 : 1);
+    }
+    ComboRando::ComboMenu_PopButton();
+    ImGui::EndDisabled();
+
+    // --- Status line ---
+    if (enabled) {
+        if (connected) {
+            ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f), "Connected");
+        } else {
+            ImGui::TextDisabled("Connecting...");
+        }
+    }
+
+    // --- Team sync (both games) + minimap toggle ---
     ImGui::SeparatorText("Team Sync");
     ImGui::TextWrapped("Pull the latest team progress from your Anchor teammates for BOTH games.");
     ComboRando::ComboMenu_PushButton(theme);
@@ -623,8 +772,16 @@ void DrawNetworkSharedPanel() {
     ComboRando::ComboMenu_PopButton();
     ImGui::TextDisabled("Use this if you're missing items/flags a teammate has collected in either game.");
 
-    // Below it, the Ship of Harkinian "Network > Anchor" settings (host/port/connect) rendered from the
-    // game model, so the full Anchor config lives here too.
+    bool showMinimap = CVarGetInteger(AnchorCVar::ShowOnMinimap, 1) != 0;
+    ComboRando::ComboMenu_PushCheckbox(theme);
+    if (ImGui::Checkbox("Show Other Players on Minimap", &showMinimap)) {
+        CVarSetInteger(AnchorCVar::ShowOnMinimap, showMinimap ? 1 : 0);
+        AnchorSaveCVars();
+    }
+    ComboRando::ComboMenu_PopCheckbox();
+
+    // Admin / Instructions still come from the soh Network>Anchor sidebar (AnchorMainMenu is hidden in
+    // combo, so only those render). Phases 2/3 replace them with combo-native panels.
     auto& model = ComboMenuModel::Get();
     model.EnsureLoaded();
     const ComboRando::GameMenu& oot = model.Oot();
@@ -635,7 +792,6 @@ void DrawNetworkSharedPanel() {
                 continue;
             for (int sb = 0; sb < sec.sidebarCount; ++sb) {
                 if (sec.sidebars[sb].sidebarName && strcmp(sec.sidebars[sb].sidebarName, "Anchor") == 0) {
-                    ImGui::SeparatorText("Anchor Connection");
                     RenderSidebarWidgets(sec.sidebars[sb], oot);
                 }
             }

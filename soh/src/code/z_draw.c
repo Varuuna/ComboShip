@@ -407,14 +407,24 @@ void GetItem_Draw(PlayState* play, s16 drawId) {
 // GetItem_GetDrawTableEntry. The other game (MM) asks soh.dll which display lists draw a foreign OOT
 // item and submits them through "__OTR__@oot:"-routed paths resolved against OOT's ResourceManager.
 //
-// Only "self-contained" draw funcs are exposed — those that merely submit dlists under plain
-// Gfx_SetupDL_25/26 Opa/Xlu state (plus an optional uniform scale). Funcs needing extra OOT runtime
-// state (texture scrolls, billboard rotation, grayscale, per-instance prim/env globals, special
-// matrices) are NOT portable to the other game's frame and return 0; the foreign game then falls
-// back to its sentinel. The 26Opa funcs are exposed as 25Opa — a close approximation. outDlists is
-// filled in SUBMISSION order; *outXluStart is the index of the first XLU-layer entry (-1 = all OPA).
+// Two tiers are exposed. SIMPLE funcs (drawKind 0) merely submit dlists under plain Gfx_SetupDL_25/26
+// Opa/Xlu state (plus an optional uniform scale); outDlists is filled in SUBMISSION order and
+// *outXluStart is the index of the first XLU-layer entry (-1 = all OPA). The remaining funcs need
+// extra OOT runtime state (segment-8/9 texture scrolls, billboard rotation, per-instance prim/env
+// color, grayscale) that can't be baked into a DL list: they set *outDrawKind to a CwDrawKind value
+// (see combo/menu/ComboItemDrawABI.h) and fill outColors for JEWEL/MUSIC_NOTE, and the foreign game's
+// per-kind handler re-binds the segment(s) + replays the matrices in its own frame. For those,
+// outDlists carries the raw table row (identity order). The 26Opa funcs are exposed as 25Opa (close
+// approximation). outColors is 16 bytes: primXlu[4], envXlu[4], primOpa[4], envOpa[4] (RGBA).
 // Returns the dlist count, or 0 if the row is unsupported/undrawable.
-s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale) {
+s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale,
+                              s32* outDrawKind, u8* outColors) {
+    // Mirror of CwDrawKind (ABI header is C++/POD; z_draw.c is C so keep local names in sync).
+    enum {
+        KIND_SIMPLE = 0, KIND_GORON_SWORD, KIND_DEKU_NUTS, KIND_RECOVERY_HEART, KIND_FISH, KIND_POTION,
+        KIND_MIRROR_SHIELD, KIND_BLUE_FIRE, KIND_POES, KIND_FAIRY, KIND_JEWEL, KIND_MAGIC_SPELL, KIND_SCALE,
+        KIND_SKULL_TOKEN, KIND_MUSIC_NOTE
+    };
     static const s8 sOrder0[] = { 0 };
     static const s8 sOrder01[] = { 0, 1 };
     static const s8 sOrder012[] = { 0, 1, 2 };
@@ -423,22 +433,109 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
     static const s8 sOrder1032[] = { 1, 0, 3, 2 };
     static const s8 sOrder10234[] = { 1, 0, 2, 3, 4 };
     static const s8 sOrderWallet[] = { 1, 0, 2, 3, 4, 5, 6, 7 };
+    static const s8 sIdent2[] = { 0, 1 };
+    static const s8 sIdent3[] = { 0, 1, 2 };
+    static const s8 sIdent4[] = { 0, 1, 2, 3 };
+    static const s8 sIdent6[] = { 0, 1, 2, 3, 4, 5 };
     void (*drawFunc)(PlayState*, s16);
     Gfx** res;
     const s8* order;
     s32 count;
     s32 xluStart;
+    s32 kind = KIND_SIMPLE;
     s32 i;
 
     if ((drawId < 0) || (drawId >= (s32)(sizeof(sDrawItemTable) / sizeof(sDrawItemTable[0]))) || (outDlists == NULL) ||
-        (outXluStart == NULL) || (outScale == NULL)) {
+        (outXluStart == NULL) || (outScale == NULL) || (outDrawKind == NULL)) {
         return 0;
     }
     *outScale = 0.0f; // 0 = no extra scale
+    *outDrawKind = KIND_SIMPLE;
     drawFunc = sDrawItemTable[drawId].drawFunc;
     res = sDrawItemTable[drawId].dlists;
 
-    if (drawFunc == GetItem_DrawOpa0) {
+    // -- Non-portable funcs: kind-tagged, carried in identity order for the consumer's 1:1 handler.
+    if (drawFunc == GetItem_DrawGoronSword) {
+        order = sOrder0; count = 1; xluStart = -1; kind = KIND_GORON_SWORD;
+    } else if (drawFunc == GetItem_DrawDekuNuts) {
+        order = sOrder0; count = 1; xluStart = -1; kind = KIND_DEKU_NUTS;
+    } else if (drawFunc == GetItem_DrawRecoveryHeart) {
+        order = sOrder0; count = 1; xluStart = 0; kind = KIND_RECOVERY_HEART;
+    } else if (drawFunc == GetItem_DrawFish) {
+        order = sOrder0; count = 1; xluStart = 0; kind = KIND_FISH;
+    } else if (drawFunc == GetItem_DrawPotion) {
+        order = sIdent6; count = 6; xluStart = 4; kind = KIND_POTION;
+    } else if (drawFunc == GetItem_DrawMirrorShield) {
+        order = sIdent2; count = 2; xluStart = 1; kind = KIND_MIRROR_SHIELD;
+    } else if (drawFunc == GetItem_DrawBlueFire) {
+        order = sIdent2; count = 2; xluStart = 1; kind = KIND_BLUE_FIRE;
+    } else if (drawFunc == GetItem_DrawPoes) {
+        order = sIdent4; count = 4; xluStart = 1; kind = KIND_POES;
+    } else if (drawFunc == GetItem_DrawFairy) {
+        order = sIdent3; count = 3; xluStart = 1; kind = KIND_FAIRY;
+    } else if ((drawFunc == GetItem_DrawJewelKokiri) || (drawFunc == GetItem_DrawJewelGoron) ||
+               (drawFunc == GetItem_DrawJewelZora)) {
+        order = sIdent2; count = 2; xluStart = 0; kind = KIND_JEWEL;
+        if (outColors != NULL) {
+            // Per-layer colors the jewel wrapper funcs set before GetItem_DrawJewel (primXlu, envXlu,
+            // primOpa, envOpa; alpha 255). The OPA setting layer is identical across all three stones.
+            static const u8 kOpaPrim[3] = { 255, 255, 170 };
+            static const u8 kOpaEnv[3] = { 150, 120, 0 };
+            const u8* xp;
+            const u8* xe;
+            static const u8 kKokiriXluPrim[3] = { 255, 255, 160 };
+            static const u8 kKokiriXluEnv[3] = { 0, 255, 0 };
+            static const u8 kGoronXluPrim[3] = { 255, 170, 255 };
+            static const u8 kGoronXluEnv[3] = { 255, 0, 100 };
+            static const u8 kZoraXluPrim[3] = { 50, 255, 255 };
+            static const u8 kZoraXluEnv[3] = { 50, 0, 150 };
+            if (drawFunc == GetItem_DrawJewelKokiri) {
+                xp = kKokiriXluPrim; xe = kKokiriXluEnv;
+            } else if (drawFunc == GetItem_DrawJewelGoron) {
+                xp = kGoronXluPrim; xe = kGoronXluEnv;
+            } else {
+                xp = kZoraXluPrim; xe = kZoraXluEnv;
+            }
+            for (i = 0; i < 3; i++) {
+                outColors[i] = xp[i];       // primXlu
+                outColors[4 + i] = xe[i];   // envXlu
+                outColors[8 + i] = kOpaPrim[i];
+                outColors[12 + i] = kOpaEnv[i];
+            }
+            outColors[3] = outColors[7] = outColors[11] = outColors[15] = 255; // alpha
+        }
+    } else if (drawFunc == GetItem_DrawMagicSpell) {
+        order = sIdent3; count = 3; xluStart = 0; kind = KIND_MAGIC_SPELL;
+    } else if (drawFunc == GetItem_DrawScale) {
+        order = sIdent4; count = 4; xluStart = 0; kind = KIND_SCALE;
+    } else if (drawFunc == GetItem_DrawGenericMusicNote) {
+        order = sOrder0; count = 1; xluStart = 0; kind = KIND_MUSIC_NOTE;
+        if (outColors != NULL) {
+            // Grayscale tint by note slot (drawId - 120), mirroring DrawGenericMusicNote's table.
+            static const u8 kNoteColors[7][3] = {
+                { 255, 255, 255 }, { 109, 73, 143 }, { 217, 110, 48 }, { 62, 109, 23 },
+                { 237, 231, 62 },  { 98, 177, 211 }, { 146, 146, 146 }
+            };
+            s32 slot = drawId - 120;
+            if (slot < 0 || slot > 6) {
+                slot = 0;
+            }
+            outColors[0] = kNoteColors[slot][0];
+            outColors[1] = kNoteColors[slot][1];
+            outColors[2] = kNoteColors[slot][2];
+            outColors[3] = 255;
+        }
+    } else if (drawFunc == GetItem_DrawTriforcePiece) {
+        // Plain scaled OPA — no segment/matrix state, so the simple consumer path draws it (index 0
+        // approximates the animating triforcePiece0/1/2 selection).
+        order = sOrder0; count = 1; xluStart = -1;
+        *outScale = 0.035f;
+    } else if (drawFunc == GetItem_DrawFishingPole) {
+        // Best-effort: rod only (dlists[0]) via the simple path; the lure/hook DLs aren't in the table
+        // row to carry across.
+        order = sOrder0; count = 1; xluStart = -1;
+        *outScale = 0.2f;
+    } else if (drawFunc == GetItem_DrawOpa0) {
         order = sOrder0;
         count = 1;
         xluStart = -1;
@@ -493,11 +590,12 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
         count = 8;
         xluStart = -1;
     } else if (drawFunc == GetItem_DrawSkullToken) {
-        // Static body only (OPA dlists[0]); the XLU flame needs an animated segment-8 texture scroll
-        // that isn't portable to the other game's frame, so it is dropped.
-        order = sOrder0;
-        count = 1;
-        xluStart = -1;
+        // Body (OPA dlists[0]) + flame (XLU dlists[1]); the flame's animated segment-8 texture scroll
+        // is replicated by the consumer's SKULL_TOKEN handler.
+        order = sIdent2;
+        count = 2;
+        xluStart = 1;
+        kind = KIND_SKULL_TOKEN;
     } else {
         return 0;
     }
@@ -512,6 +610,7 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
         outDlists[i] = (void*)res[order[i]];
     }
     *outXluStart = (xluStart > count) ? count : xluStart;
+    *outDrawKind = kind;
     return count;
 }
 #endif

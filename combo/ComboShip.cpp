@@ -843,8 +843,12 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         if (SOH_GetForcedPlacements)
             forcedOot = SOH_GetForcedPlacements(masterSeed);
 
+        // ComboShip: honor OOT's logic/ALR settings per-game (MM stays all-reachable). TODO: when the
+        // portal gets a real gate, set portalCheckName here and exempt the Mask Shop Key + its reach
+        // prerequisites from OOT relaxation (or hard-fail NO_LOGIC) — see CrossWorldRando.h guard.
+        ComboRando::OotAccess ootAccess = ComboRando::OotAccessFromDump(sohDump);
         auto result = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle, "", progress,
-                                                         forcedOot);
+                                                         forcedOot, ootAccess);
 
         if (result.success) {
             spoiler = result.spoilerJson;
@@ -863,9 +867,12 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             // the WriteComboPlaythrough call below (or the loop's own restore) does that once. Skipped
             // entirely when no enabled hint surface consumes requiredness (empty result = all non-required).
             if (ComboRando::NeedsRequirednessPareDown(sohHintDump, mmDump)) {
-                pareDownResult =
-                    ComboRando::PareDownPlaythrough(result.spoilerJson, ootOracle, mmOracle, nullptr, sohDump, mmDump,
-                                                    ootCheckAreasCache, buildMmCheckAreas(mmDump));
+                // NO_LOGIC: gate requiredness on MM only (OOT may be unbeatable by design).
+                pareDownResult = ComboRando::PareDownPlaythrough(
+                    result.spoilerJson, ootOracle, mmOracle, nullptr, sohDump, mmDump, ootCheckAreasCache,
+                    buildMmCheckAreas(mmDump),
+                    ootAccess == ComboRando::OotAccess::NO_LOGIC ? ComboRando::MmOnlyMajoraGoal
+                                                                 : ComboRando::DefaultGanonMajoraGoal);
             } else {
                 std::cout << "[ComboShip] RunComboFill: pare-down skipped (no enabled hint surface needs "
                              "requiredness)\n";

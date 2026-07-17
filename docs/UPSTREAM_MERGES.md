@@ -1928,3 +1928,54 @@ placements treat every advancement item as major (conservative — never over-ma
 no major item (`areaHasMajor`). Deliberately produces fewer barren regions than before (native parity).
 
 **If future upstream touches `Item::IsMajorItem`:** re-check the dump flag and the barren derivation.
+
+## OOT hearts as junk in the combo fill (2026-07-17)
+
+**Why:** MM already dumps hearts as non-advancement (`BenPort.cpp` `isAdvancement` skips
+`RITYPE_HEALTH`). OOT's `IsAdvancement()` marks Piece of Heart / Heart Container / Treasure-Game
+Heart as advancement, bloating the OOT advancement pool the cross-fill must place reachably. Hearts
+are never logic-required under glitchless, so treating them as junk shrinks dead-ends. Only caveat:
+high `RSK_DAMAGE_MULTIPLIER` (8x/16x) — conservative, matches MM, never a softlock.
+
+**`soh/soh/OTRGlobals.cpp` (`SOH_DumpRandoStaticData`):** a local `comboIsAdv(rg)` returns false for
+`RG_PIECE_OF_HEART`/`RG_HEART_CONTAINER`/`RG_TREASURE_GAME_HEART`, else `IsAdvancement()`. Used at
+every advancement emit site (pool, fixed, fallback, items). `item_list.cpp`/`IsAdvancement()` is NOT
+touched, so native single-game SoH is unchanged.
+
+## Honor OOT logic/accessibility settings in the combo fill (2026-07-17)
+
+**Why:** The cross-fill ignored OOT's `RSK_LOGIC_RULES` and `RSK_ALL_LOCATIONS_REACHABLE` — it always
+ran an all-reachable assumed fill. Native OOT relaxes: No Logic fast-fills everything; ALR-off places
+with logic only until beatable. The combo fill now honors these **per-game**: OOT relaxes, MM always
+stays all-reachable (portal is ungated at runtime, so MM reachability must never degrade).
+
+**`soh/soh/OTRGlobals.cpp` (`SOH_DumpRandoStaticData`):** the dump gains an `"accessibility"` block
+(`noLogic`, `allLocationsReachable`, `lockOverworldDoors`, `forceMaskShopKey`) read from the live
+Context. Defaults (ALL_REACHABLE) if the prep throws.
+
+**`combo/rando/CrossWorldRando.h`:** `enum class OotAccess { ALL_REACHABLE, BEATABLE_ONLY, NO_LOGIC }`
++ `OotAccessFromDump` (No Logic wins; else ALR-off => BEATABLE_ONLY). `CrossWorldCombinedFill` takes a
+defaulted `OotAccess` param. Per mode:
+- **ALL_REACHABLE:** unchanged; `toPlace = advItems` unreordered so a fixed seed is bit-identical.
+- **NO_LOGIC:** assumed-fill only MM advancement; OOT advancement rides the junk fast-fill.
+- **BEATABLE_ONLY:** assumed-fill the full set, but a single dead-ended OOT item is stranded to the
+  junk fast-fill (MM dead-ends still retry the pass).
+Validation classifies unreachable advancement by **item-game**: MM unreachable is always fatal/retry;
+OOT unreachable is fatal only under ALL_REACHABLE, tolerated (logged) under relaxed modes. BEATABLE_ONLY
+additionally requires the win still holds (`reachableFixpoint` now also returns the final `ootOwned`).
+
+**Portal-key guard:** with Overworld Keys ON + Force Mask Shop Key OFF under a relaxed mode and
+`portalCheckName=""`, the fill can't guarantee the Mask Shop Key's reach-path — it warns loudly. The
+intended combo config is Force ON (key locked at a sphere-0 KF check → exempt from relaxation) or
+Overworld Keys OFF. **Future portal:** when a real gate is wired (`portalCheckName` at
+`combo/ComboShip.cpp`), treat the Mask Shop Key + reach prerequisites as MM-advancement-equivalent
+(exempt from OOT relaxation) or hard-fail NO_LOGIC — TODO left at the call site.
+
+**`combo/rando/ComboPlaythrough.h`:** `MmOnlyMajoraGoal` — under NO_LOGIC the pare-down (WotH) gates
+requiredness on MM only, since OOT may be structurally unbeatable from empty. Wired at both
+`PareDownPlaythrough` call sites (`ComboShip.cpp`, `ComboRandoHeadless.cpp`).
+
+**`combo/ComboRandoHeadless.cpp` (`--playthrough` verdict):** a No Logic seed that is OOT/Ganon
+unbeatable but keeps MM fully reachable + Majora beatable is downgraded from FAIL to PASS (No Logic).
+
+**Hearts:** see the preceding "OOT hearts as junk" section — shrinks the OOT advancement pool.

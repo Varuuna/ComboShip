@@ -3535,6 +3535,20 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
     nlohmann::json fixed = nlohmann::json::array();
     nlohmann::json items = nlohmann::json::array();
     nlohmann::json prices = nlohmann::json::object();
+    // ComboShip: OOT accessibility settings the combo fill honors per-game. Defaults = ALL_REACHABLE
+    // (safe: unchanged fill behavior) if the prep throws before these are read.
+    nlohmann::json accessibility = { { "noLogic", false },
+                                     { "allLocationsReachable", true },
+                                     { "lockOverworldDoors", false },
+                                     { "forceMaskShopKey", false } };
+
+    // ComboShip: mirror MM (BenPort isAdvancement) — hearts are never logic-required under glitchless,
+    // so class PoH/HC/treasure-game heart as junk. Shrinks the OOT advancement pool (fewer dead-ends).
+    auto comboIsAdv = [](RandomizerGet rg) {
+        if (rg == RG_PIECE_OF_HEART || rg == RG_HEART_CONTAINER || rg == RG_TREASURE_GAME_HEART)
+            return false;
+        return Rando::StaticData::RetrieveItem(rg).IsAdvancement();
+    };
 
     bool usedPool = false;
     try {
@@ -3588,7 +3602,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
                 if (!in.empty())
                     fixed.push_back({ { "check", name },
                                       { "item", in },
-                                      { "advancement", Rando::StaticData::RetrieveItem(placed).IsAdvancement() },
+                                      { "advancement", comboIsAdv(placed) },
                                       { "major", isMajor(placed) } });
             } else {
                 // A real fillable check. GenerateLocationPool already decided what's shuffled and the
@@ -3605,16 +3619,14 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             const std::string& in = Rando::StaticData::RetrieveItem(rg).GetName().GetEnglish();
             if (in.empty())
                 continue;
-            pool.push_back({ { "name", in },
-                             { "advancement", Rando::StaticData::RetrieveItem(rg).IsAdvancement() },
-                             { "major", isMajor(rg) } });
+            pool.push_back({ { "name", in }, { "advancement", comboIsAdv(rg) }, { "major", isMajor(rg) } });
         }
         // itemPool excludes shop slots (CountEmptyLocations(false)); shuffled shop checks are covered
         // by junk, exactly like native FastFill's GetJunkItem() padding — Buy items stay shop-only.
         while (pool.size() < checks.size()) {
             RandomizerGet jg = GetJunkItem();
             pool.push_back({ { "name", Rando::StaticData::RetrieveItem(jg).GetName().GetEnglish() },
-                             { "advancement", Rando::StaticData::RetrieveItem(jg).IsAdvancement() },
+                             { "advancement", comboIsAdv(jg) },
                              { "major", isMajor(jg) } });
         }
         // Rolled prices (set by ComboFillConfined at Fill()'s native position) for every priced
@@ -3627,6 +3639,12 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             if (t == RCTYPE_SHOP || t == RCTYPE_SCRUB || t == RCTYPE_MERCHANT)
                 prices[loc->GetName()] = ctx->GetItemLocation(rc)->GetPrice();
         }
+
+        // ComboShip: accessibility settings the combo fill maps to an OotAccess mode (per-game relax).
+        accessibility["noLogic"] = ctx->GetOption(RSK_LOGIC_RULES).Is(RO_LOGIC_NO_LOGIC);
+        accessibility["allLocationsReachable"] = static_cast<bool>(ctx->GetOption(RSK_ALL_LOCATIONS_REACHABLE));
+        accessibility["lockOverworldDoors"] = static_cast<bool>(ctx->GetOption(RSK_LOCK_OVERWORLD_DOORS));
+        accessibility["forceMaskShopKey"] = static_cast<bool>(ctx->GetOption(RSK_COMBO_FORCE_MASK_SHOP_KEY));
 
         usedPool = true;
 #else
@@ -3644,9 +3662,8 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             const std::string& vigName = Rando::StaticData::RetrieveItem(vanillaRG).GetName().GetEnglish();
             if (vigName.empty())
                 continue;
-            checks.push_back({ { "name", name },
-                               { "vanillaItem", vigName },
-                               { "advancement", Rando::StaticData::RetrieveItem(vanillaRG).IsAdvancement() } });
+            checks.push_back(
+                { { "name", name }, { "vanillaItem", vigName }, { "advancement", comboIsAdv(vanillaRG) } });
         }
         usedPool = true;
 #endif
@@ -3678,9 +3695,8 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
                 continue;
 
             // ComboShip: advancement flag — same as the pool path above.
-            checks.push_back({ { "name", name },
-                               { "vanillaItem", vigName },
-                               { "advancement", Rando::StaticData::RetrieveItem(vanillaRG).IsAdvancement() } });
+            checks.push_back(
+                { { "name", name }, { "vanillaItem", vigName }, { "advancement", comboIsAdv(vanillaRG) } });
         }
     }
 
@@ -3693,15 +3709,14 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         // ComboShip: OOT item names are already human English; displayName == name keeps the
         // dump schema symmetric with MM's (which needs the distinction: RI_* vs human).
         // advancement drives whether a foreign item plays the held-up pickup animation.
-        items.push_back({ { "name", name }, { "displayName", name }, { "advancement", item.IsAdvancement() } });
+        items.push_back({ { "name", name },
+                          { "displayName", name },
+                          { "advancement", comboIsAdv(static_cast<RandomizerGet>(rg)) } });
     }
 
     cached = nlohmann::json{
-        { "checks", std::move(checks) },
-        { "pool", std::move(pool) },
-        { "fixed", std::move(fixed) },
-        { "items", std::move(items) },
-        { "prices", std::move(prices) }
+        { "checks", std::move(checks) }, { "pool", std::move(pool) },     { "fixed", std::move(fixed) },
+        { "items", std::move(items) },   { "prices", std::move(prices) }, { "accessibility", std::move(accessibility) }
     }.dump();
     return cached.c_str();
 }

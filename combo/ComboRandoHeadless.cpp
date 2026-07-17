@@ -308,9 +308,10 @@ int main(int argc, char** argv) {
             return 3;
         }
         // No Logic: tolerate OOT/Ganon unbeatability, but still hard-require Majora reachable (MM's win
-        // chain intact — MM adv is assumed-filled reachably by the generator). unreachableMm is not
-        // required 0: every seed has ~1 under-modeled MM junk check (oracle evaluates MM with zeroed
-        // save options), present even under ALL_REACHABLE.
+        // chain intact). MM-advancement reachability is guaranteed by the GENERATOR (the fill fails/retries
+        // on mmAdvUnreachable>0 in every mode); this verdict only re-confirms the Majora win-chain — it does
+        // NOT gate on unreachableMm==0, since every seed has ~1 under-modeled MM junk check (oracle
+        // evaluates MM with zeroed save options), present even under ALL_REACHABLE.
         if (ootNoLogic && r2.majoraReachable) {
             std::cout << "[playthrough] RESULT: PASS (No Logic) — Majora beatable (MM reachable); OOT/Ganon "
                          "unbeatability tolerated ("

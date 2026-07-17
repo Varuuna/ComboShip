@@ -3630,7 +3630,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         while (pool.size() < checks.size()) {
             RandomizerGet jg = GetJunkItem();
             pool.push_back({ { "name", Rando::StaticData::RetrieveItem(jg).GetName().GetEnglish() },
-                             { "advancement", Rando::StaticData::RetrieveItem(jg).IsAdvancement() },
+                             { "advancement", comboIsAdv(jg) },
                              { "major", isMajor(jg) } });
         }
         // Rolled prices (set by ComboFillConfined at Fill()'s native position) for every priced

@@ -7,9 +7,10 @@
 #include "ComboTrackerBridge.h"
 #include "ComboTrackerCommon.h" // kKinds (HideBackground CVars for the tracker panels)
 #include "ComboTrackerSwap.h"
+#include "ComboAnchorRoomWindow.h"  // combo-native floating Anchor room window
 #include "rando/ComboPlaythrough.h" // plando: ParseSpoilerPlacements + Suffix/BuildForeignArray + slot paths
 #include <imgui.h>
-#include <libultraship/libultraship.h> // CVar bridge (CVarGet/Set* incl. color) + color.h (Color_RGBA8)
+#include <libultraship/libultraship.h>         // CVar bridge (CVarGet/Set* incl. color) + color.h (Color_RGBA8)
 #include <ship/window/gui/IconsFontAwesome4.h> // ICON_FA_* for the header action buttons
 #include <memory>
 #include <string>
@@ -50,13 +51,13 @@ void ResolveComboGenSyms() {
 typedef void (*FnRequestResync)(void);
 FnRequestResync sSohRequestResync = nullptr;
 FnRequestResync sMmRequestResync = nullptr;
-// Phase 1 Anchor connection panel: soh drives Enable/Disable + reports connection state (the socket
+// Anchor connection panel: soh drives Enable/Disable + reports connection state (the socket
 // is launcher-owned, but enable/status stays in soh's Anchor object). Resolved from soh.dll.
 typedef void (*FnSetEnabled)(int);
 typedef int (*FnGetConnState)(void);
 FnSetEnabled sSohAnchorSetEnabled = nullptr;
 FnGetConnState sSohAnchorGetConnState = nullptr;
-// Phase 2 room-admin: owner-gating + room-state broadcast + clear-team-state, all in soh's Anchor object.
+// Room-admin: owner-gating + room-state broadcast + clear-team-state, all in soh's Anchor object.
 typedef int (*FnGetOwnerInfo)(void);
 typedef void (*FnSendRoomState)(void);
 typedef void (*FnClearTeamState)(void);
@@ -96,7 +97,7 @@ constexpr const char* RoomId = "gRemote.Anchor.RoomId";
 constexpr const char* TeamId = "gRemote.Anchor.TeamId";
 constexpr const char* ColorValue = "gRemote.Anchor.Color.Value";
 constexpr const char* ShowOnMinimap = "gRemote.Anchor.ShowOtherPlayersOnMinimap";
-// Room-admin settings (Phase 2): shared store both games read; changes broadcast via SendRoomState.
+// Room-admin settings: shared store both games read; changes broadcast via SendRoomState.
 constexpr const char* PvpMode = "gRemote.Anchor.RoomSettings.PvpMode";
 constexpr const char* ShowLocationsMode = "gRemote.Anchor.RoomSettings.ShowLocationsMode";
 constexpr const char* TeleportMode = "gRemote.Anchor.RoomSettings.TeleportMode";
@@ -658,10 +659,8 @@ static void AnchorSaveCVars() {
     }
 }
 
-// Shared > Network "Anchor": combo-native connection panel (Phase 1). Replaces the proxied soh
-// AnchorMainMenu (hidden in combo). Writes the shared gRemote.Anchor.* CVars both games read, and
-// drives Enable/Disable + status via the SOH_Anchor_* exports. Admin/Instructions (Phases 2/3) are
-// still surfaced from the soh Network>Anchor sidebar below.
+// Combo Anchor panel: connection settings, owner-only room admin, and a toggle for the room window.
+// Writes the shared gRemote.Anchor.* CVars and drives the games via the SOH_/MM_Anchor_* exports.
 void DrawNetworkSharedPanel() {
     const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
     ResolveAnchorResyncSyms();
@@ -798,7 +797,7 @@ void DrawNetworkSharedPanel() {
     }
     ComboRando::ComboMenu_PopCheckbox();
 
-    // --- Room admin (Phase 2, owner-only, non-global) ---
+    // --- Room admin (owner-only, non-global) ---
     // ownerInfo bit0=isOwner, bit1=isGlobalRoom; 0 unless connected. Mirrors soh's AnchorAdminMenu gate.
     int ownerInfo = sSohAnchorGetOwnerInfo ? sSohAnchorGetOwnerInfo() : 0;
     bool isOwner = (ownerInfo & 1) != 0;
@@ -853,24 +852,25 @@ void DrawNetworkSharedPanel() {
         ComboRando::ComboMenu_PopCheckbox();
     }
 
-    // Instructions still come from the soh Network>Anchor sidebar (AnchorMainMenu/AnchorAdminMenu are
-    // hidden in combo, so only AnchorInstructions renders). Phase 3 replaces it with a combo-native panel.
-    auto& model = ComboMenuModel::Get();
-    model.EnsureLoaded();
-    const ComboRando::GameMenu& oot = model.Oot();
-    if (oot.loaded && oot.menu) {
-        for (int s = 0; s < oot.menu->sectionCount; ++s) {
-            const CwSection& sec = oot.menu->sections[s];
-            if (!sec.sectionLabel || strcmp(sec.sectionLabel, "Network") != 0)
-                continue;
-            for (int sb = 0; sb < sec.sidebarCount; ++sb) {
-                if (sec.sidebars[sb].sidebarName && strcmp(sec.sidebars[sb].sidebarName, "Anchor") == 0) {
-                    RenderSidebarWidgets(sec.sidebars[sb], oot);
-                }
+    // --- Room window: toggle the combo-native floating roster window ---
+    ImGui::SeparatorText("Room");
+    bool roomOpen = CVarGetInteger("gCombo.Anchor.RoomWindow", 0) != 0;
+    ComboRando::ComboMenu_PushButton(theme);
+    if (ImGui::Button(roomOpen ? "Hide Room Window" : "Show Room Window", ImVec2(-1.0f, 0.0f))) {
+        roomOpen = !roomOpen;
+        CVarSetInteger("gCombo.Anchor.RoomWindow", roomOpen ? 1 : 0);
+        AnchorSaveCVars();
+        if (auto ctx = Ship::Context::GetInstance(); ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
+            if (auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Anchor Room")) {
+                if (roomOpen)
+                    win->Show();
+                else
+                    win->Hide();
             }
-            break;
         }
     }
+    ComboRando::ComboMenu_PopButton();
+    ImGui::TextDisabled("Shows every teammate's game and area, with same-game teleport.");
 }
 
 // Build the combined item picker list from both games' static-data dumps (items[] = full item table
@@ -1580,4 +1580,7 @@ extern "C" void ComboUI_Register(void)
     // Item Tracker: shared appearance + game-swap manager (see ComboTrackerSwap.h).
     ComboTracker::SyncAppearance();
     ComboTracker::RegisterSwap();
+
+    // Combo-native floating Anchor room window (toggled from the Anchor panel).
+    ComboRando::RegisterAnchorRoomWindow();
 }

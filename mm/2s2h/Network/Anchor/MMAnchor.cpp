@@ -8,6 +8,7 @@
 #include "2s2h/Rando/CheckTracker/CheckTracker.h" // Phase 2d: re-derive after team-state apply
 #include "2s2h/Rando/ActorBehavior/ActorBehavior.h"
 #include "2s2h/ShipInit.hpp"
+#include "2s2h/ShipUtils.h" // ComboShip: Ship_GetSceneName for the roster area-name supplement
 #include "2s2h/BenGui/Notification.h"
 #include "BenJsonConversions.hpp" // to_json/from_json for Vec3f/Vec3s/PosRot AND Save (Phase 2d)
 
@@ -26,6 +27,7 @@ static constexpr const char* kCvarName = "gRemote.Anchor.Name";
 static constexpr const char* kCvarColor = "gRemote.Anchor.Color.Value";
 static constexpr const char* kCvarTeamId = "gRemote.Anchor.TeamId";
 static constexpr const char* kCvarLastClientId = "gRemote.Anchor.LastClientId";
+static constexpr const char* kCvarTeleportMode = "gRemote.Anchor.RoomSettings.TeleportMode"; // teleport gate
 
 // Packet type strings — must match SoH's Anchor exactly for cross-client interop.
 static const std::string PKT_ALL_CLIENT_STATE = "ALL_CLIENT_STATE";
@@ -38,6 +40,9 @@ static const std::string PKT_REQUEST_TEAM_STATE = "REQUEST_TEAM_STATE";
 // Issue #3: cross-game item delivery. ComboShip-private packet type (the public server relays unknown
 // types peer-to-peer, so no server change is needed).
 static const std::string PKT_CROSS_ITEM = "COMBO_CROSS_ITEM";
+// Same-game teleport. Same wire strings as soh's Anchor; MM-origin so soh clients drop them.
+static const std::string PKT_REQUEST_TELEPORT = "REQUEST_TELEPORT";
+static const std::string PKT_TELEPORT_TO = "TELEPORT_TO";
 
 // Launcher-registered outbound transport (set via MM_SetAnchorSend). Null until the exe wires it.
 extern "C" {
@@ -218,6 +223,10 @@ void MMAnchor::ProcessIncomingPacketQueue() {
                 HandlePacket_UpdateTeamState(payload);
             } else if (type == PKT_REQUEST_TEAM_STATE) {
                 HandlePacket_RequestTeamState(payload);
+            } else if (type == PKT_REQUEST_TELEPORT) {
+                HandlePacket_RequestTeleport(payload);
+            } else if (type == PKT_TELEPORT_TO) {
+                HandlePacket_TeleportTo(payload);
             }
             // Flag sync intentionally deferred (mirrors canonical, which stubs it).
         } catch (const std::exception& e) {
@@ -880,6 +889,88 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     }
 }
 
+// MARK: - Same-game teleport (mirrors soh's REQUEST_TELEPORT -> TELEPORT_TO handshake)
+
+// Gate mirrors soh's CanTeleportTo minus OOT's problematic-scene list (MM has none). TeleportMode is
+// read from the shared CVar (owner-authored, process-global store both games read).
+bool MMAnchor::CanTeleportTo(uint32_t clientId) {
+    int teleportMode = CVarGetInteger(kCvarTeleportMode, 1);
+    if (teleportMode == 0 || !IsSaveLoaded()) {
+        return false;
+    }
+    auto it = clients.find(clientId);
+    if (it == clients.end()) {
+        return false;
+    }
+    MMAnchorClient& client = it->second;
+    if (client.self || !client.online || !client.isSaveLoaded) {
+        return false;
+    }
+    if (teleportMode == 1 && client.teamId != CVarGetString(kCvarTeamId, "default")) {
+        return false;
+    }
+    return true;
+}
+
+void MMAnchor::SendPacket_RequestTeleport(uint32_t clientId) {
+    if (!CanTeleportTo(clientId)) {
+        return;
+    }
+    nlohmann::json payload;
+    payload["type"] = PKT_REQUEST_TELEPORT;
+    payload["targetClientId"] = clientId;
+    SendJson(payload);
+}
+
+void MMAnchor::HandlePacket_RequestTeleport(const nlohmann::json& payload) {
+    if (!IsSaveLoaded() || payload.value("targetClientId", (uint32_t)0) != ownClientId) {
+        return; // only the requested target answers (server directs, but double-check)
+    }
+    uint32_t requester = payload.value("clientId", (uint32_t)0);
+    if (requester != 0) {
+        SendPacket_TeleportTo(requester);
+    }
+}
+
+void MMAnchor::SendPacket_TeleportTo(uint32_t clientId) {
+    if (!IsSaveLoaded()) {
+        return;
+    }
+    Player* player = GET_PLAYER(gPlayState);
+    nlohmann::json payload;
+    payload["type"] = PKT_TELEPORT_TO;
+    payload["targetClientId"] = clientId;
+    payload["entranceId"] = gSaveContext.save.entrance;
+    payload["roomNum"] = (int32_t)gPlayState->roomCtx.curRoom.num;
+    payload["pos"] = player->actor.world.pos; // Vec3f via BenJsonConversions
+    payload["rotY"] = (int32_t)player->actor.shape.rot.y;
+    SendJson(payload);
+}
+
+void MMAnchor::HandlePacket_TeleportTo(const nlohmann::json& payload) {
+    if (!IsSaveLoaded() || payload.value("targetClientId", (uint32_t)0) != ownClientId) {
+        return;
+    }
+    s32 entranceId = payload.value("entranceId", (s32)-1);
+    s8 roomNum = (s8)payload.value("roomNum", (int32_t)-1);
+    if (entranceId < 0 || roomNum < 0) {
+        return;
+    }
+    Vec3f pos = payload.contains("pos") ? payload["pos"].get<Vec3f>() : Vec3f{ 0, 0, 0 };
+    s16 rotY = (s16)payload.value("rotY", (int32_t)0);
+    // Warp mirrors DeveloperTools/WarpPoint.cpp Warp() (gPlayState != NULL branch).
+    gPlayState->nextEntrance = Entrance_Create(entranceId >> 9, 0, entranceId & 0xF);
+    gPlayState->transitionTrigger = TRANS_TRIGGER_START;
+    gPlayState->transitionType = TRANS_TYPE_INSTANT;
+    gSaveContext.respawn[RESPAWN_MODE_DOWN].entrance = Entrance_Create(entranceId >> 9, 0, entranceId & 0xF);
+    gSaveContext.respawn[RESPAWN_MODE_DOWN].roomIndex = roomNum;
+    gSaveContext.respawn[RESPAWN_MODE_DOWN].pos = pos;
+    gSaveContext.respawn[RESPAWN_MODE_DOWN].yaw = rotY;
+    gSaveContext.respawn[RESPAWN_MODE_DOWN].playerParams = PLAYER_PARAMS(0xFF, PLAYER_START_MODE_D);
+    gSaveContext.nextTransitionType = TRANS_TYPE_FADE_BLACK_FAST;
+    gSaveContext.respawnFlag = -8;
+}
+
 // MARK: - Launcher-facing C ABI (mirrors soh's SOH_Anchor_* exports)
 
 extern "C" __declspec(dllexport) void MM_SetAnchorSend(void (*cb)(const char*)) {
@@ -932,6 +1023,43 @@ extern "C" __declspec(dllexport) void MM_Anchor_Activate(void) {
 extern "C" __declspec(dllexport) void MM_Anchor_Deactivate(void) {
     if (MMAnchor::Instance) {
         MMAnchor::Instance->Deactivate();
+    }
+}
+
+// Supplemental roster for the combo room window. soh owns the authoritative full roster; MM
+// only fills in its OWN players' area names (keyed by clientId), resolved locally from the raw scene id.
+// comboui overlays these onto soh's mm-tagged entries. OOT clients also appear here but comboui ignores
+// them (it applies MM area names only to game=="mm" rows).
+extern "C" __declspec(dllexport) const char* MM_Anchor_GetRoster(void) {
+    static std::string cached;
+    try {
+        nlohmann::json arr = nlohmann::json::array();
+        if (MMAnchor::Instance) {
+            for (auto& [clientId, client] : MMAnchor::Instance->clients) {
+                s16 sceneId = (client.self && gPlayState != nullptr) ? gPlayState->sceneId : client.sceneId;
+                nlohmann::json e;
+                e["clientId"] = clientId;
+                e["areaName"] = Ship_GetSceneName(sceneId);
+                arr.push_back(e);
+            }
+        }
+        cached = arr.dump();
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[MM_Anchor_GetRoster] {}", e.what());
+        cached = "[]";
+    } catch (...) { cached = "[]"; }
+    return cached.c_str();
+}
+
+// Same-game teleport trigger for the combo room window (MM active + MM peer). Wraps
+// SendPacket_RequestTeleport, which re-validates via CanTeleportTo and no-ops if disallowed.
+extern "C" __declspec(dllexport) void MM_Anchor_RequestTeleport(uint32_t clientId) {
+    try {
+        if (MMAnchor::Instance) {
+            MMAnchor::Instance->SendPacket_RequestTeleport(clientId);
+        }
+    } catch (const std::exception& e) { SPDLOG_ERROR("[MM_Anchor_RequestTeleport] {}", e.what()); } catch (...) {
+        SPDLOG_ERROR("[MM_Anchor_RequestTeleport] unknown exception");
     }
 }
 

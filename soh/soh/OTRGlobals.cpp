@@ -104,6 +104,8 @@
 #include "soh/Network/CrowdControl/CrowdControl.h"
 #include "soh/Network/Sail/Sail.h"
 #include "soh/Network/Anchor/Anchor.h"
+#include "soh/util.h"                                // ComboShip: SohUtils::GetSceneName for the Anchor roster export
+#include "soh/Enhancements/randomizer/SeedContext.h" // ComboShip: Rando::Context::GetSeed for roster seed-mismatch
 #include "Enhancements/game-interactor/GameInteractor.h"
 #include "Enhancements/randomizer/draw.h"
 #include <libultraship/controller/controldeck/ControlDeck.h>
@@ -2844,7 +2846,7 @@ extern "C" __declspec(dllexport) int SOH_Anchor_GetConnectionState(void) {
     return (Anchor::Instance->isEnabled ? 1 : 0) | (Anchor::Instance->isConnected ? 2 : 0);
 }
 
-// ComboShip: owner-gating for the combo panel's room-admin section (Phase 2). bit0=isOwner,
+// ComboShip: owner-gating for the combo panel's room-admin section. bit0=isOwner,
 // bit1=isGlobalRoom. 0 if Anchor not connected. Mirrors AnchorAdminMenu's gate.
 extern "C" __declspec(dllexport) int SOH_Anchor_GetOwnerInfo(void) {
     try {
@@ -2890,6 +2892,80 @@ extern "C" __declspec(dllexport) void SOH_Anchor_ClearTeamState(void) {
         }
     } catch (const std::exception& e) { SPDLOG_ERROR("[SOH_Anchor_ClearTeamState] {}", e.what()); } catch (...) {
         SPDLOG_ERROR("[SOH_Anchor_ClearTeamState] unknown exception");
+    }
+}
+
+// ComboShip: authoritative roster snapshot for the combo-native room window. soh's Anchor
+// holds every client (both games) with rich fields; OOT resolves its OWN players' scene names here.
+// MM peers (namespaced sceneNum >= 1000) get game="mm" with an empty areaName that MM_Anchor_GetRoster
+// fills in by clientId. Cached std::string -> c_str() (single-call-safe, like the other dumps).
+extern "C" __declspec(dllexport) const char* SOH_Anchor_GetRoster(void) {
+    static std::string cached;
+    try {
+        nlohmann::json arr = nlohmann::json::array();
+        auto anchor = Anchor::Instance;
+        if (anchor) {
+            std::string ownTeamId = CVarGetString(CVAR_REMOTE_ANCHOR("TeamId"), "default");
+            uint32_t ownSeed = IS_RANDO ? Rando::Context::GetInstance()->GetSeed() : 0;
+            u8 showLoc = anchor->roomState.showLocationsMode;
+            bool ownSaveLoaded = anchor->IsSaveLoaded();
+            for (auto& [clientId, client] : anchor->clients) {
+                bool mm = client.sceneNum >= 1000; // MM namespaces its scene id so it can't collide with OOT
+                bool saveLoaded = client.self ? ownSaveLoaded : client.isSaveLoaded;
+                bool isOwnTeam = client.teamId == ownTeamId;
+                bool areaVisible = saveLoaded && (showLoc == 2 || (showLoc == 1 && isOwnTeam));
+
+                std::string areaName;
+                if (areaVisible && !mm) {
+                    s16 sceneNum = (client.self && gPlayState) ? gPlayState->sceneNum : client.sceneNum;
+                    if (sceneNum >= 0 && sceneNum < 1000) {
+                        areaName = SohUtils::GetSceneName(sceneNum);
+                    }
+                }
+
+                // Seed comparison is only meaningful within OOT; MM peers report an MM-side seed (cross-game
+                // seed verification is out of scope), so suppress it for them (mirrors AnchorRoomWindow).
+                bool seedMismatch = !mm && !client.self && client.online && client.isSaveLoaded && ownSaveLoaded &&
+                                    client.seed != ownSeed;
+
+                nlohmann::json e;
+                e["clientId"] = clientId;
+                e["name"] = client.self ? std::string(CVarGetString(CVAR_REMOTE_ANCHOR("Name"), "")) : client.name;
+                e["color"] = { { "r", client.color.r }, { "g", client.color.g }, { "b", client.color.b } };
+                e["teamId"] = client.teamId;
+                e["online"] = client.online;
+                e["self"] = client.self;
+                e["game"] = mm ? "mm" : "oot";
+                e["isOwner"] = client.clientId == anchor->roomState.ownerClientId;
+                e["isSaveLoaded"] = saveLoaded;
+                e["isGameComplete"] = client.isGameComplete;
+                e["areaVisible"] = areaVisible;
+                e["areaName"] = areaName;
+                e["versionMismatch"] = !client.self && client.clientVersion != Anchor::clientVersion;
+                e["seedMismatch"] = seedMismatch;
+                arr.push_back(e);
+            }
+        }
+        cached = arr.dump();
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[SOH_Anchor_GetRoster] {}", e.what());
+        cached = "[]";
+    } catch (...) {
+        SPDLOG_ERROR("[SOH_Anchor_GetRoster] unknown exception");
+        cached = "[]";
+    }
+    return cached.c_str();
+}
+
+// ComboShip: same-game teleport trigger for the combo room window (OOT active + OOT peer).
+// Wraps SendPacket_RequestTeleport, which re-validates via CanTeleportTo and no-ops if disallowed.
+extern "C" __declspec(dllexport) void SOH_Anchor_RequestTeleport(uint32_t clientId) {
+    try {
+        if (Anchor::Instance) {
+            Anchor::Instance->SendPacket_RequestTeleport(clientId);
+        }
+    } catch (const std::exception& e) { SPDLOG_ERROR("[SOH_Anchor_RequestTeleport] {}", e.what()); } catch (...) {
+        SPDLOG_ERROR("[SOH_Anchor_RequestTeleport] unknown exception");
     }
 }
 

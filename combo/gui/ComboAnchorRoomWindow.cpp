@@ -84,6 +84,12 @@ void ComboAnchorRoomWindow::Draw() {
     // comboui's per-module GImGui must point at the shared context (same pattern as ComboMenu/SwapWindow).
     ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
 
+    // Hide the overlay entirely when not connected, rather than showing an empty "Not connected" box.
+    ResolveSyms();
+    if (!sSohGetConnState || (sSohGetConnState() & 2) == 0) {
+        return;
+    }
+
     // Floating overlay: chrome-less, auto-sized to content, translucent — not a resizable window.
     ImGui::SetNextWindowPos(ImVec2(20.0f, 20.0f), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowBgAlpha(0.65f);
@@ -97,15 +103,7 @@ void ComboAnchorRoomWindow::Draw() {
 }
 
 void ComboAnchorRoomWindow::DrawElement() {
-    ResolveSyms();
-
-    int connState = sSohGetConnState ? sSohGetConnState() : 0;
-    bool connected = (connState & 2) != 0;
-    if (!connected) {
-        ImGui::TextDisabled("Not connected.");
-        return;
-    }
-
+    // Draw() already gated on connected (the overlay is hidden otherwise), so no not-connected branch here.
     PollSnapshot();
     static const nlohmann::json kEmptyArr = nlohmann::json::array();
     const nlohmann::json& clients = sSnapshot.contains("clients") ? sSnapshot["clients"] : kEmptyArr;

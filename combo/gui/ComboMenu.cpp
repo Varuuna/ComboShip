@@ -810,7 +810,30 @@ void DrawNetworkSharedPanel() {
         ComboRando::ComboMenu_PopCheckbox();
     }
 
-    // --- Room admin (owner-only, non-global) ---
+    // --- Room window: toggle the combo-native floating roster window (only once Anchor is enabled) ---
+    if (enabled) {
+        ImGui::SeparatorText("Room");
+        bool roomOpen = CVarGetInteger("gCombo.Anchor.RoomWindow", 0) != 0;
+        ComboRando::ComboMenu_PushButton(theme);
+        if (ImGui::Button(roomOpen ? "Hide Room Window" : "Show Room Window", ImVec2(-1.0f, 0.0f))) {
+            roomOpen = !roomOpen;
+            CVarSetInteger("gCombo.Anchor.RoomWindow", roomOpen ? 1 : 0);
+            AnchorSaveCVars();
+            if (auto ctx = Ship::Context::GetInstance(); ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
+                if (auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Anchor Room")) {
+                    if (roomOpen)
+                        win->Show();
+                    else
+                        win->Hide();
+                }
+            }
+        }
+        ComboRando::ComboMenu_PopButton();
+        ImGui::TextDisabled("Shows every teammate's game and area, with same-game teleport.");
+    }
+
+    // --- Room settings (owner-only, non-global) — second column ---
+    ImGui::TableSetColumnIndex(1);
     // ownerInfo bit0=isOwner, bit1=isGlobalRoom; 0 unless connected. Mirrors soh's AnchorAdminMenu gate.
     int ownerInfo = sSohAnchorGetOwnerInfo ? sSohAnchorGetOwnerInfo() : 0;
     bool isOwner = (ownerInfo & 1) != 0;
@@ -863,28 +886,6 @@ void DrawNetworkSharedPanel() {
             sendRoomState();
         }
         ComboRando::ComboMenu_PopCheckbox();
-    }
-
-    // --- Room window: toggle the combo-native floating roster window (only once Anchor is enabled) ---
-    if (enabled) {
-        ImGui::SeparatorText("Room");
-        bool roomOpen = CVarGetInteger("gCombo.Anchor.RoomWindow", 0) != 0;
-        ComboRando::ComboMenu_PushButton(theme);
-        if (ImGui::Button(roomOpen ? "Hide Room Window" : "Show Room Window", ImVec2(-1.0f, 0.0f))) {
-            roomOpen = !roomOpen;
-            CVarSetInteger("gCombo.Anchor.RoomWindow", roomOpen ? 1 : 0);
-            AnchorSaveCVars();
-            if (auto ctx = Ship::Context::GetInstance(); ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
-                if (auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Anchor Room")) {
-                    if (roomOpen)
-                        win->Show();
-                    else
-                        win->Hide();
-                }
-            }
-        }
-        ComboRando::ComboMenu_PopButton();
-        ImGui::TextDisabled("Shows every teammate's game and area, with same-game teleport.");
     }
 
     ImGui::EndTable();

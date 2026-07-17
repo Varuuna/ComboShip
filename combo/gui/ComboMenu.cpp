@@ -105,10 +105,37 @@ struct PlandoState {
     std::string sohDump, mmDump;
     std::vector<ComboRando::CwPlacedItem> rows;
     std::vector<PlandoPickItem> items;
+    std::vector<std::string> spoilerNames; // selectable spoilers in the Randomizer folder (display stems)
+    std::vector<std::string> spoilerPaths; // parallel full paths
+    int spoilerSel = -1;
     char filter[128] = { 0 };
     char pickerFilter[128] = { 0 };
 };
 static PlandoState sPlando;
+
+// List every *.json in the Randomizer folder (PendingPath's parent) as a loadable spoiler; default the
+// selection to Last-Generated when present.
+void PlandoRefreshSpoilerList() {
+    sPlando.spoilerNames.clear();
+    sPlando.spoilerPaths.clear();
+    std::error_code ec;
+    auto dir = ComboRando::PendingPath().parent_path();
+    if (std::filesystem::exists(dir, ec)) {
+        for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+            if (e.is_regular_file() && e.path().extension() == ".json") {
+                sPlando.spoilerPaths.push_back(e.path().string());
+                sPlando.spoilerNames.push_back(e.path().stem().string());
+            }
+        }
+    }
+    sPlando.spoilerSel = sPlando.spoilerPaths.empty() ? -1 : 0;
+    for (int i = 0; i < (int)sPlando.spoilerNames.size(); i++) {
+        if (sPlando.spoilerNames[i].find("Last-Generated") != std::string::npos) {
+            sPlando.spoilerSel = i;
+            break;
+        }
+    }
+}
 } // namespace
 
 namespace ComboRando {
@@ -576,8 +603,8 @@ void DrawCheckTrackerSharedPanel() {
     }
 }
 
-// Shared > Network: launcher-orchestrated Anchor resync (bug 2). Full "Ship of Harkinian ->
-// Network" settings migration is a separate follow-up; this is just the resync control.
+// Shared > Network "Team Sync": launcher-orchestrated Anchor resync (bug 2). The Ship of Harkinian
+// Network settings (Sail, Crowd Control) sit beside this as their own entries in the Network group.
 void DrawNetworkSharedPanel() {
     const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
     ResolveAnchorResyncSyms();
@@ -620,10 +647,16 @@ void PlandoLoad() {
     ResolvePlandoSyms();
     sPlando.loaded = false;
     sPlando.rows.clear();
-    int slot = sGetActiveFileNum ? sGetActiveFileNum() : -1;
-    std::filesystem::path path = (slot >= 0) ? ComboRando::SlotReadPath(slot) : std::filesystem::path{};
-    if (path.empty())
-        path = ComboRando::PendingPath();
+    // Load the spoiler picked in the dropdown; fall back to the active slot's newest / pending file.
+    std::filesystem::path path;
+    if (sPlando.spoilerSel >= 0 && sPlando.spoilerSel < (int)sPlando.spoilerPaths.size()) {
+        path = sPlando.spoilerPaths[sPlando.spoilerSel];
+    } else {
+        int slot = sGetActiveFileNum ? sGetActiveFileNum() : -1;
+        path = (slot >= 0) ? ComboRando::SlotReadPath(slot) : std::filesystem::path{};
+        if (path.empty())
+            path = ComboRando::PendingPath();
+    }
     std::ifstream in(path);
     if (!in.is_open()) {
         sPlando.status = "No generated seed found to load.";
@@ -738,11 +771,32 @@ void DrawComboPlandoPanel() {
     const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
     ResolvePlandoSyms();
     ResolveComboGenSyms(); // sIsOnFileSelect gates Save & Play (reload mutates save state)
-    ImGui::TextWrapped("Load a generated combo seed, edit item placements (assign any item to any check "
-                       "in either game, including cross-game), then Save & Play. Use on the file-select screen.");
+    ImGui::TextWrapped("Load a spoiler from the Randomizer folder, edit item placements (assign any item to "
+                       "any check in either game, including cross-game), then Save. Use on the file-select screen.");
     ImGui::Separator();
 
+    if (sPlando.spoilerPaths.empty())
+        PlandoRefreshSpoilerList(); // lazy first fill; the Refresh button re-scans on demand
+
+    // Spoiler picker: every *.json in the Randomizer folder is loadable, not just Last-Generated.
+    const char* preview = (sPlando.spoilerSel >= 0 && sPlando.spoilerSel < (int)sPlando.spoilerNames.size())
+                              ? sPlando.spoilerNames[sPlando.spoilerSel].c_str()
+                              : "(no spoilers found)";
+    ImGui::SetNextItemWidth(360.0f);
+    ComboRando::ComboMenu_PushCombobox(theme);
+    if (ImGui::BeginCombo("##plandospoiler", preview)) {
+        for (int i = 0; i < (int)sPlando.spoilerNames.size(); i++) {
+            if (ImGui::Selectable(sPlando.spoilerNames[i].c_str(), i == sPlando.spoilerSel))
+                sPlando.spoilerSel = i;
+        }
+        ImGui::EndCombo();
+    }
+    ComboRando::ComboMenu_PopCombobox();
+    ImGui::SameLine();
     ComboRando::ComboMenu_PushButton(theme);
+    if (ImGui::Button("Refresh"))
+        PlandoRefreshSpoilerList();
+    ImGui::SameLine();
     if (ImGui::Button("Load"))
         PlandoLoad();
     ComboRando::ComboMenu_PopButton();
@@ -872,14 +926,21 @@ void ComboMenu::DrawSharedPanel() {
         chk.group = "Settings";
         chk.kind = HubEntry::COMBO_CHECK_TRACKER;
         e.push_back(std::move(chk));
-        // Combo-owned Network panel: launcher-orchestrated Anchor resync (bug 2).
-        HubEntry net;
-        net.label = "Network";
-        net.group = "Settings";
-        net.kind = HubEntry::COMBO_NETWORK;
-        e.push_back(std::move(net));
         if (!e.empty())
             groups.push_back({ "Settings", std::move(e) });
+        // Network group: the Anchor team-sync control (covers BOTH games) plus the Ship of Harkinian
+        // Network settings (Sail, Crowd Control) surfaced from the OOT menu model — moved here from the
+        // OOT tab so all network settings live in one shared place.
+        {
+            std::vector<HubEntry> netE;
+            HubEntry sync;
+            sync.label = "Team Sync";
+            sync.group = "Network";
+            sync.kind = HubEntry::COMBO_NETWORK;
+            netE.push_back(std::move(sync));
+            AppendSectionEntries(netE, "Network", HubEntry::ENGINE, model.Oot(), "Network", {});
+            groups.push_back({ "Network", std::move(netE) });
+        }
     } else {
         {
             std::vector<HubEntry> e;
@@ -1025,6 +1086,11 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
     auto sidebarShown = [&](const char* section, const char* sidebar) -> bool {
         if (isOot && section && strcmp(section, "Settings") == 0) {
             return sidebar && (strcmp(sidebar, "Mod Menu") == 0 || strcmp(sidebar, "Presets") == 0);
+        }
+        // OOT Network (Sail, Crowd Control) is surfaced in the shared Network group next to the Anchor
+        // team-sync control, so hide it from the OOT per-game tab.
+        if (isOot && section && strcmp(section, "Network") == 0) {
+            return false;
         }
         // MM's Graphics/Audio/Controls/General are consolidated into the Shared tab — Graphics applies via
         // the single shared window, Controls via the shared gSettings.Controllers.* CVars, Audio via the

@@ -695,6 +695,9 @@ static void Disconnect() {
 static void Send(const char* json) {
     if (!json)
         return;
+    // Our own scene/room-state is broadcast OUTBOUND (never echoed inbound), so parse it here too or the
+    // self roster row would freeze at its join value.
+    UpdateRosterFromPacket(json);
     std::lock_guard<std::mutex> lk(sOutMutex);
     sOutQueue.push(json);
 }

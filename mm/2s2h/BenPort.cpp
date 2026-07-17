@@ -3098,7 +3098,8 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
             continue;
         }
         // ComboShip: friendly item name for the normalized combo spoiler.
-        pool.push_back({ { "name", Rando::StaticData::GetItemDisplayName(iid) }, { "advancement", isAdvancement(it->second) } });
+        pool.push_back(
+            { { "name", Rando::StaticData::GetItemDisplayName(iid) }, { "advancement", isAdvancement(it->second) } });
     }
 
     // ComboShip canary: written to a file because 2ship.dll's spdlog default logger is never

@@ -421,9 +421,21 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
                               s32* outDrawKind, u8* outColors) {
     // Mirror of CwDrawKind (ABI header is C++/POD; z_draw.c is C so keep local names in sync).
     enum {
-        KIND_SIMPLE = 0, KIND_GORON_SWORD, KIND_DEKU_NUTS, KIND_RECOVERY_HEART, KIND_FISH, KIND_POTION,
-        KIND_MIRROR_SHIELD, KIND_BLUE_FIRE, KIND_POES, KIND_FAIRY, KIND_JEWEL, KIND_MAGIC_SPELL, KIND_SCALE,
-        KIND_SKULL_TOKEN, KIND_MUSIC_NOTE
+        KIND_SIMPLE = 0,
+        KIND_GORON_SWORD,
+        KIND_DEKU_NUTS,
+        KIND_RECOVERY_HEART,
+        KIND_FISH,
+        KIND_POTION,
+        KIND_MIRROR_SHIELD,
+        KIND_BLUE_FIRE,
+        KIND_POES,
+        KIND_FAIRY,
+        KIND_JEWEL,
+        KIND_MAGIC_SPELL,
+        KIND_SCALE,
+        KIND_SKULL_TOKEN,
+        KIND_MUSIC_NOTE
     };
     static const s8 sOrder0[] = { 0 };
     static const s8 sOrder01[] = { 0, 1 };
@@ -456,26 +468,56 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
 
     // -- Non-portable funcs: kind-tagged, carried in identity order for the consumer's 1:1 handler.
     if (drawFunc == GetItem_DrawGoronSword) {
-        order = sOrder0; count = 1; xluStart = -1; kind = KIND_GORON_SWORD;
+        order = sOrder0;
+        count = 1;
+        xluStart = -1;
+        kind = KIND_GORON_SWORD;
     } else if (drawFunc == GetItem_DrawDekuNuts) {
-        order = sOrder0; count = 1; xluStart = -1; kind = KIND_DEKU_NUTS;
+        order = sOrder0;
+        count = 1;
+        xluStart = -1;
+        kind = KIND_DEKU_NUTS;
     } else if (drawFunc == GetItem_DrawRecoveryHeart) {
-        order = sOrder0; count = 1; xluStart = 0; kind = KIND_RECOVERY_HEART;
+        order = sOrder0;
+        count = 1;
+        xluStart = 0;
+        kind = KIND_RECOVERY_HEART;
     } else if (drawFunc == GetItem_DrawFish) {
-        order = sOrder0; count = 1; xluStart = 0; kind = KIND_FISH;
+        order = sOrder0;
+        count = 1;
+        xluStart = 0;
+        kind = KIND_FISH;
     } else if (drawFunc == GetItem_DrawPotion) {
-        order = sIdent6; count = 6; xluStart = 4; kind = KIND_POTION;
+        order = sIdent6;
+        count = 6;
+        xluStart = 4;
+        kind = KIND_POTION;
     } else if (drawFunc == GetItem_DrawMirrorShield) {
-        order = sIdent2; count = 2; xluStart = 1; kind = KIND_MIRROR_SHIELD;
+        order = sIdent2;
+        count = 2;
+        xluStart = 1;
+        kind = KIND_MIRROR_SHIELD;
     } else if (drawFunc == GetItem_DrawBlueFire) {
-        order = sIdent2; count = 2; xluStart = 1; kind = KIND_BLUE_FIRE;
+        order = sIdent2;
+        count = 2;
+        xluStart = 1;
+        kind = KIND_BLUE_FIRE;
     } else if (drawFunc == GetItem_DrawPoes) {
-        order = sIdent4; count = 4; xluStart = 1; kind = KIND_POES;
+        order = sIdent4;
+        count = 4;
+        xluStart = 1;
+        kind = KIND_POES;
     } else if (drawFunc == GetItem_DrawFairy) {
-        order = sIdent3; count = 3; xluStart = 1; kind = KIND_FAIRY;
+        order = sIdent3;
+        count = 3;
+        xluStart = 1;
+        kind = KIND_FAIRY;
     } else if ((drawFunc == GetItem_DrawJewelKokiri) || (drawFunc == GetItem_DrawJewelGoron) ||
                (drawFunc == GetItem_DrawJewelZora)) {
-        order = sIdent2; count = 2; xluStart = 0; kind = KIND_JEWEL;
+        order = sIdent2;
+        count = 2;
+        xluStart = 0;
+        kind = KIND_JEWEL;
         if (outColors != NULL) {
             // Per-layer colors the jewel wrapper funcs set before GetItem_DrawJewel (primXlu, envXlu,
             // primOpa, envOpa; alpha 255). The OPA setting layer is identical across all three stones.
@@ -490,32 +532,43 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
             static const u8 kZoraXluPrim[3] = { 50, 255, 255 };
             static const u8 kZoraXluEnv[3] = { 50, 0, 150 };
             if (drawFunc == GetItem_DrawJewelKokiri) {
-                xp = kKokiriXluPrim; xe = kKokiriXluEnv;
+                xp = kKokiriXluPrim;
+                xe = kKokiriXluEnv;
             } else if (drawFunc == GetItem_DrawJewelGoron) {
-                xp = kGoronXluPrim; xe = kGoronXluEnv;
+                xp = kGoronXluPrim;
+                xe = kGoronXluEnv;
             } else {
-                xp = kZoraXluPrim; xe = kZoraXluEnv;
+                xp = kZoraXluPrim;
+                xe = kZoraXluEnv;
             }
             for (i = 0; i < 3; i++) {
-                outColors[i] = xp[i];       // primXlu
-                outColors[4 + i] = xe[i];   // envXlu
+                outColors[i] = xp[i];     // primXlu
+                outColors[4 + i] = xe[i]; // envXlu
                 outColors[8 + i] = kOpaPrim[i];
                 outColors[12 + i] = kOpaEnv[i];
             }
             outColors[3] = outColors[7] = outColors[11] = outColors[15] = 255; // alpha
         }
     } else if (drawFunc == GetItem_DrawMagicSpell) {
-        order = sIdent3; count = 3; xluStart = 0; kind = KIND_MAGIC_SPELL;
+        order = sIdent3;
+        count = 3;
+        xluStart = 0;
+        kind = KIND_MAGIC_SPELL;
     } else if (drawFunc == GetItem_DrawScale) {
-        order = sIdent4; count = 4; xluStart = 0; kind = KIND_SCALE;
+        order = sIdent4;
+        count = 4;
+        xluStart = 0;
+        kind = KIND_SCALE;
     } else if (drawFunc == GetItem_DrawGenericMusicNote) {
-        order = sOrder0; count = 1; xluStart = 0; kind = KIND_MUSIC_NOTE;
+        order = sOrder0;
+        count = 1;
+        xluStart = 0;
+        kind = KIND_MUSIC_NOTE;
         if (outColors != NULL) {
             // Grayscale tint by note slot (drawId - 120), mirroring DrawGenericMusicNote's table.
-            static const u8 kNoteColors[7][3] = {
-                { 255, 255, 255 }, { 109, 73, 143 }, { 217, 110, 48 }, { 62, 109, 23 },
-                { 237, 231, 62 },  { 98, 177, 211 }, { 146, 146, 146 }
-            };
+            static const u8 kNoteColors[7][3] = { { 255, 255, 255 }, { 109, 73, 143 }, { 217, 110, 48 },
+                                                  { 62, 109, 23 },   { 237, 231, 62 }, { 98, 177, 211 },
+                                                  { 146, 146, 146 } };
             s32 slot = drawId - 120;
             if (slot < 0 || slot > 6) {
                 slot = 0;
@@ -528,12 +581,16 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
     } else if (drawFunc == GetItem_DrawTriforcePiece) {
         // Plain scaled OPA — no segment/matrix state, so the simple consumer path draws it (index 0
         // approximates the animating triforcePiece0/1/2 selection).
-        order = sOrder0; count = 1; xluStart = -1;
+        order = sOrder0;
+        count = 1;
+        xluStart = -1;
         *outScale = 0.035f;
     } else if (drawFunc == GetItem_DrawFishingPole) {
         // Best-effort: rod only (dlists[0]) via the simple path; the lure/hook DLs aren't in the table
         // row to carry across.
-        order = sOrder0; count = 1; xluStart = -1;
+        order = sOrder0;
+        count = 1;
+        xluStart = -1;
         *outScale = 0.2f;
     } else if (drawFunc == GetItem_DrawOpa0) {
         order = sOrder0;

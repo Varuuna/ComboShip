@@ -412,9 +412,8 @@ int main(int argc, char** argv) {
                     // RunComboFill's consolidated writer) so the headless spoiler shows "(OOT)"/"(MM)".
                     nlohmann::json ootPl = fillSpoiler.value("oot", nlohmann::json::object());
                     nlohmann::json mmPl = fillSpoiler.value("mm", nlohmann::json::object());
-                    ComboRando::SuffixCrossGameItems(ootPl, mmPl,
-                                                     fillSpoiler.value("foreign", nlohmann::json::array()), sohDump,
-                                                     mmDump);
+                    ComboRando::SuffixCrossGameItems(ootPl, mmPl, fillSpoiler.value("foreign", nlohmann::json::array()),
+                                                     sohDump, mmDump);
                     consolidated["oot"] = { { "settings", nlohmann::json::parse(SOH_DumpSettings()) },
                                             { "enabledTricks", SOH_DumpEnabledTricks
                                                                    ? nlohmann::json::parse(SOH_DumpEnabledTricks())

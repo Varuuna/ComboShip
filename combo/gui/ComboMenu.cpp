@@ -775,7 +775,8 @@ void DrawComboPlandoPanel() {
     ImGui::Separator();
     ImGui::SetNextItemWidth(320.0f);
     ComboRando::ComboMenu_PushInput(theme);
-    ImGui::InputTextWithHint("##plandofilter", "Filter by check or item name...", sPlando.filter, sizeof(sPlando.filter));
+    ImGui::InputTextWithHint("##plandofilter", "Filter by check or item name...", sPlando.filter,
+                             sizeof(sPlando.filter));
     ComboRando::ComboMenu_PopInput();
 
     const std::string q = NormalizeSearch(sPlando.filter);

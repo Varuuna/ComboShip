@@ -64,11 +64,11 @@ typedef struct {
      * The scroll/matrix params are constant per kind and embedded in the consumer handler (1:1 port of
      * the OOT func); only the JEWEL per-layer colors and the MUSIC_NOTE tint vary, so they are carried
      * here as data. Colors are RGBA (alpha always 255). */
-    int32_t drawKind;         /* CwDrawKind */
-    uint8_t primColorXlu[4];  /* JEWEL gem (XLU) prim; MUSIC_NOTE grayscale tint */
-    uint8_t envColorXlu[4];   /* JEWEL gem (XLU) env */
-    uint8_t primColorOpa[4];  /* JEWEL setting (OPA) prim */
-    uint8_t envColorOpa[4];   /* JEWEL setting (OPA) env */
+    int32_t drawKind;        /* CwDrawKind */
+    uint8_t primColorXlu[4]; /* JEWEL gem (XLU) prim; MUSIC_NOTE grayscale tint */
+    uint8_t envColorXlu[4];  /* JEWEL gem (XLU) env */
+    uint8_t primColorOpa[4]; /* JEWEL setting (OPA) prim */
+    uint8_t envColorOpa[4];  /* JEWEL setting (OPA) env */
 } CwItemDrawInfo;
 
 /* Returns 1 and fills out on success; 0 if the item is unknown/undrawable.

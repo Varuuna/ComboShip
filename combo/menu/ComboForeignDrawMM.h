@@ -48,11 +48,11 @@ struct ComboForeignDrawInfoOOT {
     float scale = 0.0f;    // extra uniform model scale; 0 = none (OOT rupees: 0.7)
     bool hasEnvColor = false;
     uint8_t envColor[4] = { 0, 0, 0, 0 };
-    int32_t drawKind = CW_DRAW_KIND_SIMPLE; // non-SIMPLE = replicate a specific OOT draw func
-    uint8_t primColorXlu[4] = { 0, 0, 0, 0 }; // JEWEL gem prim / MUSIC_NOTE tint
-    uint8_t envColorXlu[4] = { 0, 0, 0, 0 };  // JEWEL gem env
-    uint8_t primColorOpa[4] = { 0, 0, 0, 0 }; // JEWEL setting prim
-    uint8_t envColorOpa[4] = { 0, 0, 0, 0 };  // JEWEL setting env
+    int32_t drawKind = CW_DRAW_KIND_SIMPLE;            // non-SIMPLE = replicate a specific OOT draw func
+    uint8_t primColorXlu[4] = { 0, 0, 0, 0 };          // JEWEL gem prim / MUSIC_NOTE tint
+    uint8_t envColorXlu[4] = { 0, 0, 0, 0 };           // JEWEL gem env
+    uint8_t primColorOpa[4] = { 0, 0, 0, 0 };          // JEWEL setting prim
+    uint8_t envColorOpa[4] = { 0, 0, 0, 0 };           // JEWEL setting env
     const char* dls[CW_DRAW_MAX_DLISTS] = { nullptr }; // interned "__OTR__@oot:..." routed paths
 };
 
@@ -193,8 +193,9 @@ inline void MM_DrawForeignGoronSword(const ComboForeignDrawInfoOOT* info) {
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Opa(gfxCtx);
     gSPSegment(POLY_OPA_DISP++, 0x08,
-               (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 1, play->state.frames * 0, 32, 32, 1,
-                                  play->state.frames * 0, play->state.frames * 0, 32, 32, 1, 0, 0, 0));
+               (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 1, play->state.frames * 0,
+                                             32, 32, 1, play->state.frames * 0, play->state.frames * 0, 32, 32, 1, 0, 0,
+                                             0));
     MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
     gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[0]);
     CLOSE_DISPS(gfxCtx);
@@ -209,8 +210,9 @@ inline void MM_DrawForeignDekuNuts(const ComboForeignDrawInfoOOT* info) {
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Opa(gfxCtx);
     gSPSegment(POLY_OPA_DISP++, 0x08,
-               (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 6, play->state.frames * 6, 32, 32, 1,
-                                  play->state.frames * 6, play->state.frames * 6, 32, 32, 6, 6, 6, 6));
+               (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 6, play->state.frames * 6,
+                                             32, 32, 1, play->state.frames * 6, play->state.frames * 6, 32, 32, 6, 6, 6,
+                                             6));
     MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
     gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[0]);
     CLOSE_DISPS(gfxCtx);
@@ -225,8 +227,9 @@ inline void MM_DrawForeignRecoveryHeart(const ComboForeignDrawInfoOOT* info) {
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Xlu(gfxCtx);
     gSPSegment(POLY_XLU_DISP++, 0x08,
-               (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 0, -(play->state.frames * 3), 32, 32, 1,
-                                  play->state.frames * 0, -(play->state.frames * 2), 32, 32, 0, -3, 0, -2));
+               (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 0, -(play->state.frames * 3),
+                                             32, 32, 1, play->state.frames * 0, -(play->state.frames * 2), 32, 32, 0,
+                                             -3, 0, -2));
     MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
     gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[0]);
     CLOSE_DISPS(gfxCtx);
@@ -241,8 +244,9 @@ inline void MM_DrawForeignFish(const ComboForeignDrawInfoOOT* info) {
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Xlu(gfxCtx);
     gSPSegment(POLY_XLU_DISP++, 0x08,
-               (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 0, play->state.frames * 1, 32, 32, 1,
-                                  play->state.frames * 0, play->state.frames * 1, 32, 32, 0, 1, 0, 1));
+               (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 0, play->state.frames * 1,
+                                             32, 32, 1, play->state.frames * 0, play->state.frames * 1, 32, 32, 0, 1, 0,
+                                             1));
     MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
     gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[0]);
     CLOSE_DISPS(gfxCtx);
@@ -257,8 +261,8 @@ inline void MM_DrawForeignPotion(const ComboForeignDrawInfoOOT* info) {
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Opa(gfxCtx);
     gSPSegment(POLY_OPA_DISP++, 0x08,
-               (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, -play->state.frames, play->state.frames, 32, 32, 1,
-                                  -play->state.frames, play->state.frames, 32, 32, -1, 1, -1, 1));
+               (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, -play->state.frames, play->state.frames, 32, 32,
+                                             1, -play->state.frames, play->state.frames, 32, 32, -1, 1, -1, 1));
     MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
     gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[1]);
     gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[0]);
@@ -281,7 +285,7 @@ inline void MM_DrawForeignMirrorShield(const ComboForeignDrawInfoOOT* info) {
     Gfx_SetupDL25_Opa(gfxCtx);
     gSPSegment(POLY_OPA_DISP++, 0x08,
                (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, 0, play->state.frames * 2 % 256, 64, 64, 1, 0,
-                                  play->state.frames * 1 % 128, 32, 32, 0, 2, 0, 1));
+                                             play->state.frames * 1 % 128, 32, 32, 0, 2, 0, 1));
     MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
     gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[0]);
     Gfx_SetupDL25_Xlu(gfxCtx);
@@ -303,7 +307,7 @@ inline void MM_DrawForeignBlueFire(const ComboForeignDrawInfoOOT* info) {
     Gfx_SetupDL25_Xlu(gfxCtx);
     gSPSegment(POLY_XLU_DISP++, 0x08,
                (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, 0, 0, 16, 32, 1, play->state.frames * 1,
-                                  -(play->state.frames * 8), 16, 32, 0, 0, 1, -8));
+                                             -(play->state.frames * 8), 16, 32, 0, 0, 1, -8));
     Matrix_Push();
     Matrix_Translate(-8.0f, -2.0f, 0.0f, MTXMODE_APPLY);
     Matrix_ReplaceRotation(&play->billboardMtxF);
@@ -328,7 +332,7 @@ inline void MM_DrawForeignPoes(const ComboForeignDrawInfoOOT* info) {
     gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[1]);
     gSPSegment(POLY_XLU_DISP++, 0x08,
                (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, 0, 0, 16, 32, 1, play->state.frames * 1,
-                                  -(play->state.frames * 6), 16, 32, 0, 0, 1, -6));
+                                             -(play->state.frames * 6), 16, 32, 0, 0, 1, -6));
     Matrix_Push();
     Matrix_ReplaceRotation(&play->billboardMtxF);
     MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
@@ -353,7 +357,7 @@ inline void MM_DrawForeignFairy(const ComboForeignDrawInfoOOT* info) {
     gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[1]);
     gSPSegment(POLY_XLU_DISP++, 0x08,
                (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, 0, 0, 32, 32, 1, play->state.frames * 1,
-                                  -(play->state.frames * 6), 32, 32, 0, 0, 1, -6));
+                                             -(play->state.frames * 6), 32, 32, 0, 0, 1, -6));
     Matrix_Push();
     Matrix_ReplaceRotation(&play->billboardMtxF);
     MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
@@ -371,8 +375,8 @@ inline void MM_DrawForeignJewel(const ComboForeignDrawInfoOOT* info) {
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
     gSPSegment(POLY_XLU_DISP++, 9,
-               (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, 0, 0 % 256, (256 - (0 % 256)) - 1, 64, 64, 1, 0 % 256, (256 - (0 % 256)) - 1,
-                                  16, 16, 0, 0, 0, 0));
+               (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, 0, 0 % 256, (256 - (0 % 256)) - 1, 64, 64, 1, 0 % 256,
+                                             (256 - (0 % 256)) - 1, 16, 16, 0, 0, 0, 0));
     gSPSegment(POLY_OPA_DISP++, 8, (uintptr_t)Gfx_TexScrollEx(gfxCtx, 0, 0, 16, 16, 0, 0));
     Matrix_Push();
     Matrix_RotateZYX(0, -0x4000, 0x4000, MTXMODE_APPLY);
@@ -399,8 +403,9 @@ inline void MM_DrawForeignMagicSpell(const ComboForeignDrawInfoOOT* info) {
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Xlu(gfxCtx);
     gSPSegment(POLY_XLU_DISP++, 0x08,
-               (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 2, -(play->state.frames * 6), 32, 32, 1,
-                                  play->state.frames * 1, -(play->state.frames * 2), 32, 32, 2, -6, 1, -2));
+               (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 2, -(play->state.frames * 6),
+                                             32, 32, 1, play->state.frames * 1, -(play->state.frames * 2), 32, 32, 2,
+                                             -6, 1, -2));
     MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
     gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[0]);
     gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[1]);
@@ -417,8 +422,9 @@ inline void MM_DrawForeignScale(const ComboForeignDrawInfoOOT* info) {
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Xlu(gfxCtx);
     gSPSegment(POLY_XLU_DISP++, 0x08,
-               (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 2, -(play->state.frames * 2), 64, 64, 1,
-                                  play->state.frames * 4, -(play->state.frames * 4), 32, 32, 2, -2, 4, -4));
+               (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 2, -(play->state.frames * 2),
+                                             64, 64, 1, play->state.frames * 4, -(play->state.frames * 4), 32, 32, 2,
+                                             -2, 4, -4));
     MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
     gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[2]);
     gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[3]);
@@ -439,8 +445,9 @@ inline void MM_DrawForeignSkullToken(const ComboForeignDrawInfoOOT* info) {
     gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[0]);
     Gfx_SetupDL25_Xlu(gfxCtx);
     gSPSegment(POLY_XLU_DISP++, 0x08,
-               (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 0, -(play->state.frames * 5), 32, 32, 1,
-                                  play->state.frames * 0, play->state.frames * 0, 32, 64, 0, -5, 0, 0));
+               (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 0, -(play->state.frames * 5),
+                                             32, 32, 1, play->state.frames * 0, play->state.frames * 0, 32, 64, 0, -5,
+                                             0, 0));
     MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
     gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[1]);
     CLOSE_DISPS(gfxCtx);
@@ -473,22 +480,52 @@ inline void MM_DrawComboForeign(RandoCheckId randoCheckId) {
     }
 
     switch (info->drawKind) {
-        case CW_DRAW_KIND_GORON_SWORD:    MM_DrawForeignGoronSword(info); break;
-        case CW_DRAW_KIND_DEKU_NUTS:      MM_DrawForeignDekuNuts(info); break;
-        case CW_DRAW_KIND_RECOVERY_HEART: MM_DrawForeignRecoveryHeart(info); break;
-        case CW_DRAW_KIND_FISH:           MM_DrawForeignFish(info); break;
-        case CW_DRAW_KIND_POTION:         MM_DrawForeignPotion(info); break;
-        case CW_DRAW_KIND_MIRROR_SHIELD:  MM_DrawForeignMirrorShield(info); break;
-        case CW_DRAW_KIND_BLUE_FIRE:      MM_DrawForeignBlueFire(info); break;
-        case CW_DRAW_KIND_POES:           MM_DrawForeignPoes(info); break;
-        case CW_DRAW_KIND_FAIRY:          MM_DrawForeignFairy(info); break;
-        case CW_DRAW_KIND_JEWEL:          MM_DrawForeignJewel(info); break;
-        case CW_DRAW_KIND_MAGIC_SPELL:    MM_DrawForeignMagicSpell(info); break;
-        case CW_DRAW_KIND_SCALE:          MM_DrawForeignScale(info); break;
-        case CW_DRAW_KIND_SKULL_TOKEN:    MM_DrawForeignSkullToken(info); break;
-        case CW_DRAW_KIND_MUSIC_NOTE:     MM_DrawForeignMusicNote(info); break;
+        case CW_DRAW_KIND_GORON_SWORD:
+            MM_DrawForeignGoronSword(info);
+            break;
+        case CW_DRAW_KIND_DEKU_NUTS:
+            MM_DrawForeignDekuNuts(info);
+            break;
+        case CW_DRAW_KIND_RECOVERY_HEART:
+            MM_DrawForeignRecoveryHeart(info);
+            break;
+        case CW_DRAW_KIND_FISH:
+            MM_DrawForeignFish(info);
+            break;
+        case CW_DRAW_KIND_POTION:
+            MM_DrawForeignPotion(info);
+            break;
+        case CW_DRAW_KIND_MIRROR_SHIELD:
+            MM_DrawForeignMirrorShield(info);
+            break;
+        case CW_DRAW_KIND_BLUE_FIRE:
+            MM_DrawForeignBlueFire(info);
+            break;
+        case CW_DRAW_KIND_POES:
+            MM_DrawForeignPoes(info);
+            break;
+        case CW_DRAW_KIND_FAIRY:
+            MM_DrawForeignFairy(info);
+            break;
+        case CW_DRAW_KIND_JEWEL:
+            MM_DrawForeignJewel(info);
+            break;
+        case CW_DRAW_KIND_MAGIC_SPELL:
+            MM_DrawForeignMagicSpell(info);
+            break;
+        case CW_DRAW_KIND_SCALE:
+            MM_DrawForeignScale(info);
+            break;
+        case CW_DRAW_KIND_SKULL_TOKEN:
+            MM_DrawForeignSkullToken(info);
+            break;
+        case CW_DRAW_KIND_MUSIC_NOTE:
+            MM_DrawForeignMusicNote(info);
+            break;
         case CW_DRAW_KIND_SIMPLE:
-        default:                          MM_DrawForeignSimple(info); break;
+        default:
+            MM_DrawForeignSimple(info);
+            break;
     }
 }
 

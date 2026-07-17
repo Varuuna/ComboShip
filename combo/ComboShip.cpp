@@ -22,9 +22,11 @@
 #include <atomic>
 #include <chrono>
 #include <unordered_map>
+#include <map>
 #include <thread>
 #include <mutex>
 #include <queue>
+#include <nlohmann/json.hpp>
 
 // SDL_net.h pulls in SDL.h -> SDL_main.h, which #defines main -> SDL_main unless we opt out.
 // ComboShip provides its own main(), so suppress SDL's entry-point hijack.
@@ -243,6 +245,10 @@ typedef void (*FnComboUIForeground)(int);
 static FnComboUIForeground ComboUI_OnForegroundGame = nullptr;
 static FnComboUIRegister ComboUI_RestoreTrackerIntent = nullptr;
 
+// ComboShip: hand comboui the launcher-owned Anchor roster getter (the room window reads it).
+typedef void (*FnComboUISetRosterProvider)(const char* (*)());
+static FnComboUISetRosterProvider ComboUI_SetAnchorRosterProvider = nullptr;
+
 // ComboShip-owned unified ROM extraction (see ComboExtract.h). The split init lets us create the
 // shared window from soh.o2r before any ROM exists, run the extraction screen, then finish.
 static FnVoid SOH_InitWindowOnly = nullptr;
@@ -420,6 +426,142 @@ static std::atomic<int> sActiveGame{ 0 };
 // gPlayState/isDormantApply, which PumpDormant also mutates there). Set here, drained by PumpDormant.
 static std::atomic<bool> sResyncPending{ false };
 
+// Combo-owned Anchor roster/presence. A game's Anchor only drains packets while it's the foreground
+// game, so its per-game roster goes stale when dormant. The launcher sees every packet on this
+// never-dormant thread, so it keeps ONE always-live roster the room window reads (display-only; games
+// keep their own roster for puppets/save-apply).
+struct ClientInfo {
+    uint32_t clientId = 0;
+    std::string name = "???";
+    uint8_t r = 255, g = 255, b = 255;
+    std::string teamId = "default";
+    bool online = false;
+    uint32_t seed = 0;
+    std::string clientVersion;
+    bool isSaveLoaded = false;
+    bool isGameComplete = false;
+    int16_t rawScene = 0;
+    int game = 0; // 0 = OOT, 1 = MM
+};
+struct RoomState {
+    uint32_t ownerClientId = 0;
+    int pvpMode = 1;
+    int showLocationsMode = 1;
+    int teleportMode = 1;
+    int syncItemsAndFlags = 1;
+};
+static std::mutex sRosterMutex;
+static std::map<uint32_t, ClientInfo> sRoster;
+static RoomState sRoomState;
+static uint32_t sOwnClientId = 0;
+
+// Fill a ClientInfo from a client JSON object (schema mirrors soh PrepClientState / JsonConversions).
+// MM namespaces its sceneNum (>= 1000) and tags packets originGame=="mm"; either flags the MM side.
+static void ParseClient(const nlohmann::json& c, const std::string& originGame, ClientInfo& info) {
+    info.clientId = c.value("clientId", (uint32_t)0);
+    info.name = c.value("name", std::string("???"));
+    if (c.contains("color") && c["color"].is_object()) {
+        info.r = c["color"].value("r", 255);
+        info.g = c["color"].value("g", 255);
+        info.b = c["color"].value("b", 255);
+    }
+    info.clientVersion = c.value("clientVersion", std::string());
+    info.teamId = c.value("teamId", std::string("default"));
+    info.online = c.value("online", false);
+    info.seed = c.value("seed", (uint32_t)0);
+    info.isSaveLoaded = c.value("isSaveLoaded", false);
+    info.isGameComplete = c.value("isGameComplete", false);
+    int32_t sceneNum = c.value("sceneNum", 0);
+    bool mm = originGame == "mm" || sceneNum >= 1000;
+    info.game = mm ? 1 : 0;
+    info.rawScene = (int16_t)(mm ? sceneNum - 1000 : sceneNum);
+}
+
+// Parse the presence/room packets into the roster (called on the receive thread, before forwarding).
+static void UpdateRosterFromPacket(const std::string& packet) {
+    try {
+        auto pj = nlohmann::json::parse(packet);
+        std::string type = pj.value("type", std::string());
+        std::string origin = pj.value("originGame", std::string());
+        if (type == "ALL_CLIENT_STATE") {
+            std::lock_guard<std::mutex> lk(sRosterMutex);
+            sRoster.clear();
+            for (auto& c : pj.value("state", nlohmann::json::array())) {
+                ClientInfo info;
+                ParseClient(c, "", info); // array entries carry no originGame; sceneNum tags MM
+                if (c.value("self", false))
+                    sOwnClientId = info.clientId;
+                sRoster[info.clientId] = info;
+            }
+        } else if (type == "UPDATE_CLIENT_STATE") {
+            uint32_t cid = pj.value("clientId", (uint32_t)0);
+            if (cid != 0 && pj.contains("state")) {
+                std::lock_guard<std::mutex> lk(sRosterMutex);
+                ClientInfo info;
+                ParseClient(pj["state"], origin, info);
+                info.clientId = cid;
+                sRoster[cid] = info;
+            }
+        } else if (type == "UPDATE_ROOM_STATE" && pj.contains("state")) {
+            auto s = pj["state"];
+            std::lock_guard<std::mutex> lk(sRosterMutex);
+            sRoomState.ownerClientId = s.value("ownerClientId", (uint32_t)0);
+            sRoomState.pvpMode = s.value("pvpMode", 1);
+            sRoomState.showLocationsMode = s.value("showLocationsMode", 1);
+            sRoomState.teleportMode = s.value("teleportMode", 1);
+            sRoomState.syncItemsAndFlags = s.value("syncItemsAndFlags", 1);
+        }
+        // UPDATE_TEAM_STATE (save blob) + PLAYER_UPDATE (high-rate puppet coords) are display-irrelevant.
+    } catch (...) {}
+}
+
+// Roster snapshot for comboui's room window: { ownClientId, room{...}, clients[...] }. areaVisible +
+// isOwner + self are resolved here (the launcher owns room-state); comboui resolves scene NAMES and
+// version/seed mismatch itself. ownTeam comes from the self entry's teamId (== gRemote.Anchor.TeamId).
+static const char* Combo_Anchor_GetRoster() {
+    static std::string cached;
+    try {
+        std::lock_guard<std::mutex> lk(sRosterMutex);
+        std::string ownTeam = "default";
+        auto selfIt = sRoster.find(sOwnClientId);
+        if (selfIt != sRoster.end())
+            ownTeam = selfIt->second.teamId;
+        int showLoc = sRoomState.showLocationsMode;
+
+        nlohmann::json clients = nlohmann::json::array();
+        for (auto& [cid, c] : sRoster) {
+            bool isOwnTeam = c.teamId == ownTeam;
+            bool areaVisible = c.isSaveLoaded && (showLoc == 2 || (showLoc == 1 && isOwnTeam));
+            nlohmann::json e;
+            e["clientId"] = cid;
+            e["name"] = c.name;
+            e["color"] = { { "r", c.r }, { "g", c.g }, { "b", c.b } };
+            e["teamId"] = c.teamId;
+            e["online"] = c.online;
+            e["self"] = (cid == sOwnClientId);
+            e["game"] = c.game == 1 ? "mm" : "oot";
+            e["rawScene"] = c.rawScene;
+            e["isOwner"] = (cid == sRoomState.ownerClientId);
+            e["isSaveLoaded"] = c.isSaveLoaded;
+            e["isGameComplete"] = c.isGameComplete;
+            e["areaVisible"] = areaVisible;
+            e["clientVersion"] = c.clientVersion;
+            e["seed"] = c.seed;
+            clients.push_back(e);
+        }
+        nlohmann::json out;
+        out["ownClientId"] = sOwnClientId;
+        out["room"] = { { "ownerClientId", sRoomState.ownerClientId },
+                        { "pvpMode", sRoomState.pvpMode },
+                        { "showLocationsMode", showLoc },
+                        { "teleportMode", sRoomState.teleportMode },
+                        { "syncItemsAndFlags", sRoomState.syncItemsAndFlags } };
+        out["clients"] = clients;
+        cached = out.dump();
+    } catch (...) { cached = "{}"; }
+    return cached.c_str();
+}
+
 // Background loop: connect, then relay outbound packets and feed inbound packets to the active
 // game. Mirrors soh's original Network::ReceiveFromServer framing (NUL-delimited JSON), only the
 // socket now lives in the launcher so it persists across transitions.
@@ -497,6 +639,8 @@ static void ReceiveLoop() {
             while (pos != std::string::npos) {
                 std::string packet = received.substr(0, pos);
                 received.erase(0, pos + 1);
+                // Keep the always-live combo roster in sync before forwarding (fixes dormant staleness).
+                UpdateRosterFromPacket(packet);
                 // A6: feed every packet to BOTH games. Each RecvJson only enqueues (thread-safe). The
                 // active game drains+handles it on its tick; the dormant game applies its save-affecting
                 // subset via PumpDormant (driven by the active game's per-frame pump call), so a
@@ -1932,6 +2076,10 @@ int main(int argc, char** argv) {
         ComboUI_Register = (FnComboUIRegister)GetSym(comboUIModule, "ComboUI_Register");
         ComboUI_OnForegroundGame = (FnComboUIForeground)GetSym(comboUIModule, "ComboUI_OnForegroundGame");
         ComboUI_RestoreTrackerIntent = (FnComboUIRegister)GetSym(comboUIModule, "ComboUI_RestoreTrackerIntent");
+        ComboUI_SetAnchorRosterProvider =
+            (FnComboUISetRosterProvider)GetSym(comboUIModule, "ComboUI_SetAnchorRosterProvider");
+        if (ComboUI_SetAnchorRosterProvider)
+            ComboUI_SetAnchorRosterProvider(&ComboAnchor::Combo_Anchor_GetRoster);
         if (ComboUI_Register) {
             ComboUI_Register();
             std::cout << "[ComboShip] comboui registered (unified menu installed)." << std::endl;

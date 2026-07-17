@@ -1,9 +1,9 @@
 // combo/gui/ComboAnchorRoomWindow.h
 //
-// ComboShip: combo-native floating Anchor room window. Replaces soh's AnchorRoomWindow (hidden
-// in combo builds). Unions both games' roster snapshots (SOH_Anchor_GetRoster is authoritative; MM
-// supplements its own players' area names via MM_Anchor_GetRoster) so a client shows EVERY player once
-// with its real scene/area name — including other-game peers, which the soh window could not name.
+// ComboShip: combo-native floating Anchor room window. Replaces soh's AnchorRoomWindow (hidden in
+// combo builds). Reads the launcher-owned always-live roster (set via ComboUI_SetAnchorRosterProvider)
+// so every player shows once with a correct area name in BOTH games — even when a game is dormant.
+// Area names resolved via the stateless SOH_/MM_Anchor_ResolveScene exports.
 // Teleport is same-game only (button rendered only for players in the locally-active game).
 #pragma once
 

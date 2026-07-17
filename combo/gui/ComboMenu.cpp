@@ -669,6 +669,17 @@ void DrawNetworkSharedPanel() {
     bool enabled = (state & 1) != 0;
     bool connected = (state & 2) != 0;
 
+    ImGui::TextWrapped("Play OOT and MM online with teammates: items and flags are shared per team, with "
+                       "live presence and same-game teleport. Set a host, room, and name, then Enable.");
+
+    // Widgets in the first cell of a 2-col stretch table, so they're half-width like the other panels.
+    const ImGuiTableFlags anchorTableFlags = ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings;
+    if (!ImGui::BeginTable("##anchorcols", 2, anchorTableFlags)) {
+        return;
+    }
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+
     // --- Connection settings (disabled while enabled, like soh) ---
     ImGui::SeparatorText("Connection Settings");
     ImGui::BeginDisabled(enabled);
@@ -871,6 +882,8 @@ void DrawNetworkSharedPanel() {
     }
     ComboRando::ComboMenu_PopButton();
     ImGui::TextDisabled("Shows every teammate's game and area, with same-game teleport.");
+
+    ImGui::EndTable();
 }
 
 // Build the combined item picker list from both games' static-data dumps (items[] = full item table

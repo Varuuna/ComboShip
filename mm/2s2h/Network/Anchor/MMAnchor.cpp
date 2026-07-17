@@ -1026,28 +1026,11 @@ extern "C" __declspec(dllexport) void MM_Anchor_Deactivate(void) {
     }
 }
 
-// Supplemental roster for the combo room window. soh owns the authoritative full roster; MM
-// only fills in its OWN players' area names (keyed by clientId), resolved locally from the raw scene id.
-// comboui overlays these onto soh's mm-tagged entries. OOT clients also appear here but comboui ignores
-// them (it applies MM area names only to game=="mm" rows).
-extern "C" __declspec(dllexport) const char* MM_Anchor_GetRoster(void) {
+// ComboShip: stateless MM scene-name lookup for the combo room window. The launcher owns the roster
+// now; comboui resolves each MM peer's area name from its raw scene id via this (works while dormant).
+extern "C" __declspec(dllexport) const char* MM_Anchor_ResolveScene(int rawScene) {
     static std::string cached;
-    try {
-        nlohmann::json arr = nlohmann::json::array();
-        if (MMAnchor::Instance) {
-            for (auto& [clientId, client] : MMAnchor::Instance->clients) {
-                s16 sceneId = (client.self && gPlayState != nullptr) ? gPlayState->sceneId : client.sceneId;
-                nlohmann::json e;
-                e["clientId"] = clientId;
-                e["areaName"] = Ship_GetSceneName(sceneId);
-                arr.push_back(e);
-            }
-        }
-        cached = arr.dump();
-    } catch (const std::exception& e) {
-        SPDLOG_ERROR("[MM_Anchor_GetRoster] {}", e.what());
-        cached = "[]";
-    } catch (...) { cached = "[]"; }
+    cached = Ship_GetSceneName((s16)rawScene);
     return cached.c_str();
 }
 

@@ -2895,64 +2895,14 @@ extern "C" __declspec(dllexport) void SOH_Anchor_ClearTeamState(void) {
     }
 }
 
-// ComboShip: authoritative roster snapshot for the combo-native room window. soh's Anchor
-// holds every client (both games) with rich fields; OOT resolves its OWN players' scene names here.
-// MM peers (namespaced sceneNum >= 1000) get game="mm" with an empty areaName that MM_Anchor_GetRoster
-// fills in by clientId. Cached std::string -> c_str() (single-call-safe, like the other dumps).
-extern "C" __declspec(dllexport) const char* SOH_Anchor_GetRoster(void) {
+// ComboShip: stateless OOT scene-name lookup for the combo room window. The launcher owns the roster
+// now; comboui resolves each OOT peer's area name from its raw scene id via this (works while dormant).
+extern "C" __declspec(dllexport) const char* SOH_Anchor_ResolveScene(int sceneId) {
     static std::string cached;
-    try {
-        nlohmann::json arr = nlohmann::json::array();
-        auto anchor = Anchor::Instance;
-        if (anchor) {
-            std::string ownTeamId = CVarGetString(CVAR_REMOTE_ANCHOR("TeamId"), "default");
-            uint32_t ownSeed = IS_RANDO ? Rando::Context::GetInstance()->GetSeed() : 0;
-            u8 showLoc = anchor->roomState.showLocationsMode;
-            bool ownSaveLoaded = anchor->IsSaveLoaded();
-            for (auto& [clientId, client] : anchor->clients) {
-                bool mm = client.sceneNum >= 1000; // MM namespaces its scene id so it can't collide with OOT
-                bool saveLoaded = client.self ? ownSaveLoaded : client.isSaveLoaded;
-                bool isOwnTeam = client.teamId == ownTeamId;
-                bool areaVisible = saveLoaded && (showLoc == 2 || (showLoc == 1 && isOwnTeam));
-
-                std::string areaName;
-                if (areaVisible && !mm) {
-                    s16 sceneNum = (client.self && gPlayState) ? gPlayState->sceneNum : client.sceneNum;
-                    if (sceneNum >= 0 && sceneNum < 1000) {
-                        areaName = SohUtils::GetSceneName(sceneNum);
-                    }
-                }
-
-                // Seed comparison is only meaningful within OOT; MM peers report an MM-side seed (cross-game
-                // seed verification is out of scope), so suppress it for them (mirrors AnchorRoomWindow).
-                bool seedMismatch = !mm && !client.self && client.online && client.isSaveLoaded && ownSaveLoaded &&
-                                    client.seed != ownSeed;
-
-                nlohmann::json e;
-                e["clientId"] = clientId;
-                e["name"] = client.self ? std::string(CVarGetString(CVAR_REMOTE_ANCHOR("Name"), "")) : client.name;
-                e["color"] = { { "r", client.color.r }, { "g", client.color.g }, { "b", client.color.b } };
-                e["teamId"] = client.teamId;
-                e["online"] = client.online;
-                e["self"] = client.self;
-                e["game"] = mm ? "mm" : "oot";
-                e["isOwner"] = client.clientId == anchor->roomState.ownerClientId;
-                e["isSaveLoaded"] = saveLoaded;
-                e["isGameComplete"] = client.isGameComplete;
-                e["areaVisible"] = areaVisible;
-                e["areaName"] = areaName;
-                e["versionMismatch"] = !client.self && client.clientVersion != Anchor::clientVersion;
-                e["seedMismatch"] = seedMismatch;
-                arr.push_back(e);
-            }
-        }
-        cached = arr.dump();
-    } catch (const std::exception& e) {
-        SPDLOG_ERROR("[SOH_Anchor_GetRoster] {}", e.what());
-        cached = "[]";
-    } catch (...) {
-        SPDLOG_ERROR("[SOH_Anchor_GetRoster] unknown exception");
-        cached = "[]";
+    if (sceneId >= 0 && sceneId < 1000) {
+        cached = SohUtils::GetSceneName(sceneId);
+    } else {
+        cached = "";
     }
     return cached.c_str();
 }

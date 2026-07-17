@@ -8,7 +8,6 @@
 #include <nlohmann/json.hpp>
 #include <string>
 #include <set>
-#include <map>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -20,15 +19,18 @@ namespace {
 // soh's CVAR_REMOTE_ANCHOR macro, so the literals are re-declared here (as in ComboMenu.cpp).
 constexpr const char* kCvarTeamId = "gRemote.Anchor.TeamId";
 constexpr const char* kCvarRoomId = "gRemote.Anchor.RoomId";
-constexpr const char* kCvarTeleportMode = "gRemote.Anchor.RoomSettings.TeleportMode";
 constexpr const char* kVisibilityCvar = "gCombo.Anchor.RoomWindow";
 
-// Roster + teleport exports, resolved from the already-loaded game DLLs (same idiom as ComboMenu).
-typedef const char* (*FnGetRoster)(void);
+// Launcher-owned roster: the exe registers this getter via ComboUI_SetAnchorRosterProvider. It parses
+// every packet on a never-dormant thread, so the roster is always live (no per-game staleness).
+const char* (*sRosterProvider)() = nullptr;
+
+// Stateless scene-name resolvers + teleport exports, resolved from the game DLLs (dormant-safe).
+typedef const char* (*FnResolveScene)(int);
 typedef void (*FnRequestTeleport)(uint32_t);
 typedef int (*FnGetConnState)(void);
-FnGetRoster sSohGetRoster = nullptr;
-FnGetRoster sMmGetRoster = nullptr;
+FnResolveScene sSohResolveScene = nullptr;
+FnResolveScene sMmResolveScene = nullptr;
 FnRequestTeleport sSohRequestTeleport = nullptr;
 FnRequestTeleport sMmRequestTeleport = nullptr;
 FnGetConnState sSohGetConnState = nullptr;
@@ -36,45 +38,36 @@ FnGetConnState sSohGetConnState = nullptr;
 void ResolveSyms() {
 #ifdef _WIN32
     if (HMODULE h = GetModuleHandleA("soh.dll")) {
-        if (!sSohGetRoster)
-            sSohGetRoster = (FnGetRoster)GetProcAddress(h, "SOH_Anchor_GetRoster");
+        if (!sSohResolveScene)
+            sSohResolveScene = (FnResolveScene)GetProcAddress(h, "SOH_Anchor_ResolveScene");
         if (!sSohRequestTeleport)
             sSohRequestTeleport = (FnRequestTeleport)GetProcAddress(h, "SOH_Anchor_RequestTeleport");
         if (!sSohGetConnState)
             sSohGetConnState = (FnGetConnState)GetProcAddress(h, "SOH_Anchor_GetConnectionState");
     }
     if (HMODULE h = GetModuleHandleA("2ship.dll")) {
-        if (!sMmGetRoster)
-            sMmGetRoster = (FnGetRoster)GetProcAddress(h, "MM_Anchor_GetRoster");
+        if (!sMmResolveScene)
+            sMmResolveScene = (FnResolveScene)GetProcAddress(h, "MM_Anchor_ResolveScene");
         if (!sMmRequestTeleport)
             sMmRequestTeleport = (FnRequestTeleport)GetProcAddress(h, "MM_Anchor_RequestTeleport");
     }
 #endif
 }
 
-// Low-frequency roster cache: area names only change on a scene transition, so polling the exports a
+// Low-frequency snapshot: scene/roster state only changes on transitions, so polling the launcher a
 // couple of times a second is plenty (no per-frame FFI/JSON cost).
 double sLastPoll = -1.0;
-nlohmann::json sRoster = nlohmann::json::array(); // soh authoritative full roster
-std::map<uint32_t, std::string> sMmAreaNames;     // clientId -> MM-resolved area name
+nlohmann::json sSnapshot = nlohmann::json::object(); // { ownClientId, room{...}, clients[...] }
 
-void PollRoster() {
+void PollSnapshot() {
     double now = ImGui::GetTime();
     if (sLastPoll >= 0.0 && (now - sLastPoll) < 0.5) {
         return;
     }
     sLastPoll = now;
     try {
-        sRoster = sSohGetRoster ? nlohmann::json::parse(sSohGetRoster()) : nlohmann::json::array();
-    } catch (...) { sRoster = nlohmann::json::array(); }
-    sMmAreaNames.clear();
-    try {
-        if (sMmGetRoster) {
-            for (auto& e : nlohmann::json::parse(sMmGetRoster())) {
-                sMmAreaNames[e.value("clientId", (uint32_t)0)] = e.value("areaName", std::string());
-            }
-        }
-    } catch (...) {}
+        sSnapshot = sRosterProvider ? nlohmann::json::parse(sRosterProvider()) : nlohmann::json::object();
+    } catch (...) { sSnapshot = nlohmann::json::object(); }
 }
 
 std::shared_ptr<ComboAnchorRoomWindow> sWindow;
@@ -91,8 +84,12 @@ void ComboAnchorRoomWindow::Draw() {
     // comboui's per-module GImGui must point at the shared context (same pattern as ComboMenu/SwapWindow).
     ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
 
-    ImGui::SetNextWindowSize(ImVec2(320.0f, 380.0f), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Anchor Room", &mIsVisible, ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav)) {
+    // Floating overlay: chrome-less, auto-sized to content, translucent — not a resizable window.
+    ImGui::SetNextWindowPos(ImVec2(20.0f, 20.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowBgAlpha(0.65f);
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                             ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+    if (ImGui::Begin("Anchor Room", nullptr, flags)) {
         DrawElement();
     }
     ImGui::End();
@@ -109,12 +106,15 @@ void ComboAnchorRoomWindow::DrawElement() {
         return;
     }
 
-    PollRoster();
+    PollSnapshot();
+    static const nlohmann::json kEmptyArr = nlohmann::json::array();
+    const nlohmann::json& clients = sSnapshot.contains("clients") ? sSnapshot["clients"] : kEmptyArr;
+    const nlohmann::json room = sSnapshot.value("room", nlohmann::json::object());
 
     // Global room: only a player count is meaningful (mirrors soh's AnchorRoomWindow).
     if (std::string("soh-global") == CVarGetString(kCvarRoomId, "")) {
         int online = 0;
-        for (auto& c : sRoster) {
+        for (auto& c : clients) {
             if (c.value("online", false)) {
                 online++;
             }
@@ -123,13 +123,29 @@ void ComboAnchorRoomWindow::DrawElement() {
         return;
     }
 
-    const int activeGame = ComboUI::GetForegroundGame(); // 0 = OOT, 1 = MM
-    const std::string ownTeam = CVarGetString(kCvarTeamId, "default");
-    const int teleportMode = CVarGetInteger(kCvarTeleportMode, 1);
+    const int activeGame = ComboUI::GetForegroundGame();    // 0 = OOT, 1 = MM
+    const int teleportMode = room.value("teleportMode", 1); // launcher-owned room state (not the local CVar)
+
+    // Own team: prefer the self entry's teamId (== gRemote.Anchor.TeamId), fall back to the CVar.
+    std::string ownTeam = CVarGetString(kCvarTeamId, "default");
+    std::string selfVersion;
+    uint32_t selfSeed = 0;
+    int selfGame = 0;
+    bool haveSelf = false;
+    for (auto& c : clients) {
+        if (c.value("self", false)) {
+            ownTeam = c.value("teamId", ownTeam);
+            selfVersion = c.value("clientVersion", std::string());
+            selfSeed = c.value("seed", (uint32_t)0);
+            selfGame = (c.value("game", std::string("oot")) == "mm") ? 1 : 0;
+            haveSelf = true;
+            break;
+        }
+    }
 
     // Group by team, each player shown once.
     std::set<std::string> teams;
-    for (auto& c : sRoster) {
+    for (auto& c : clients) {
         teams.insert(c.value("teamId", std::string("default")));
     }
 
@@ -138,7 +154,7 @@ void ComboAnchorRoomWindow::DrawElement() {
             ImGui::SeparatorText(team.c_str());
         }
         bool isOwnTeam = team == ownTeam;
-        for (auto& c : sRoster) {
+        for (auto& c : clients) {
             if (c.value("teamId", std::string("default")) != team) {
                 continue;
             }
@@ -147,6 +163,7 @@ void ComboAnchorRoomWindow::DrawElement() {
             bool online = c.value("online", false);
             std::string name = c.value("name", std::string("???"));
             std::string game = c.value("game", std::string("oot"));
+            int peerGame = (game == "mm") ? 1 : 0;
 
             ImGui::PushID((int)clientId);
 
@@ -168,15 +185,17 @@ void ComboAnchorRoomWindow::DrawElement() {
                 ImGui::TextColored(nameColor, "%s", name.c_str());
             }
 
-            // Area name: soh gates visibility (ShowLocationsMode) and resolves OOT names; MM area names
-            // are supplied by clientId in MM_Anchor_GetRoster and overlaid here for mm-tagged players.
+            // Area name: the launcher gates visibility (areaVisible); comboui resolves the display name
+            // from the raw scene id via the owning game's stateless resolver (works even while dormant).
             if (c.value("areaVisible", false)) {
-                std::string area = c.value("areaName", std::string());
-                if (game == "mm") {
-                    auto it = sMmAreaNames.find(clientId);
-                    if (it != sMmAreaNames.end() && !it->second.empty()) {
-                        area = it->second;
-                    }
+                int rawScene = c.value("rawScene", 0);
+                std::string area;
+                if (peerGame == 1) {
+                    if (sMmResolveScene)
+                        area = sMmResolveScene(rawScene);
+                } else {
+                    if (sSohResolveScene)
+                        area = sSohResolveScene(rawScene);
                 }
                 if (!area.empty()) {
                     ImGui::SameLine();
@@ -186,7 +205,7 @@ void ComboAnchorRoomWindow::DrawElement() {
 
             // Teleport: same-game only. Never rendered for a player in the other game (cross-game
             // teleport is impossible). The game's export re-validates and no-ops if disallowed.
-            bool sameGame = (game == "mm") == (activeGame == 1);
+            bool sameGame = (peerGame == activeGame);
             bool teleportGate = !self && online && c.value("isSaveLoaded", false) && teleportMode != 0 &&
                                 (teleportMode == 2 || isOwnTeam);
             if (sameGame && teleportGate) {
@@ -204,12 +223,18 @@ void ComboAnchorRoomWindow::DrawElement() {
                 ImGui::PopStyleVar();
             }
 
-            if (c.value("versionMismatch", false)) {
+            // Version/seed mismatch vs the self entry. Seed compare only within the same game (cross-game
+            // seed verification is out of scope; MM/OOT report their own seeds).
+            bool versionMismatch =
+                haveSelf && !self && !selfVersion.empty() && c.value("clientVersion", std::string()) != selfVersion;
+            bool seedMismatch = haveSelf && !self && peerGame == selfGame && online && c.value("isSaveLoaded", false) &&
+                                c.value("seed", (uint32_t)0) != selfSeed;
+            if (versionMismatch) {
                 ImGui::SameLine();
                 ImGui::TextColored(ImVec4(1, 0, 0, 1), "%s", ICON_FA_EXCLAMATION_TRIANGLE);
                 ImGui::SetItemTooltip("Incompatible version! Will not work together!");
             }
-            if (c.value("seedMismatch", false)) {
+            if (seedMismatch) {
                 ImGui::SameLine();
                 ImGui::TextColored(ImVec4(1, 0, 0, 1), "%s", ICON_FA_EXCLAMATION_TRIANGLE);
                 ImGui::SetItemTooltip("Seed mismatch! Continuing will break things!");
@@ -232,3 +257,14 @@ void RegisterAnchorRoomWindow() {
 }
 
 } // namespace ComboRando
+
+// ComboShip: the launcher hands comboui its always-live Anchor roster getter here (called at startup,
+// right after ComboUI_Register). The room window reads it via sRosterProvider.
+#ifdef _WIN32
+extern "C" __declspec(dllexport) void ComboUI_SetAnchorRosterProvider(const char* (*getter)())
+#else
+extern "C" void ComboUI_SetAnchorRosterProvider(const char* (*getter)())
+#endif
+{
+    ComboRando::sRosterProvider = getter;
+}

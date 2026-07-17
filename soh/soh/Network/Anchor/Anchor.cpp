@@ -106,9 +106,13 @@ void Anchor::OnConnected() {
     SendPacket_Handshake();
     RegisterHooks();
 
+#ifndef COMBO_BUILD
     if (IsSaveLoaded()) {
         SendPacket_RequestTeamState();
     }
+#endif
+    // ComboShip: the launcher's on-connect resync (sResyncPending -> RequestResyncDormantSafe) is the
+    // sole on-connect resync source; this call would duplicate it (see docs/UPSTREAM_MERGES.md).
 }
 
 void Anchor::OnDisconnected() {

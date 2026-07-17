@@ -1842,6 +1842,28 @@ Fixes, all `COMBO_BUILD`:
   as a false duplicate. `ResetCrossItemDedupForSeed` runs on the generation worker thread while
   `DeliverCrossItem` runs on the game thread, so both now take `sAppliedCrossChecksMutex`.
 
+## Anchor co-op sync: toast-burst + name-tag color (2026-07-17)
+
+**Why:** the "Save updated from team" toast fired 2-3x on every connect and on every manual resync
+button press, even solo. Root cause: `Anchor::OnConnected` (soh) sent its own
+`REQUEST_TEAM_STATE` in addition to the launcher's on-connect resync (`SOH_Anchor_RequestResync` +
+`MM_Anchor_RequestResync`), so a solo/no-teammate reply (server answers directly when no teammates
+are online) lands once per send, and `ReceiveLoop` forwards every reply to BOTH game DLLs
+unconditionally — the foreground game applies+toasts on each one it receives (the dormant game's
+`PumpDormant` already silently drops `UPDATE_TEAM_STATE`, so it never double-toasts).
+
+Fixes, all `COMBO_BUILD`:
+- `soh/soh/Network/Anchor/Anchor.cpp` (`OnConnected`): removed the redundant direct
+  `SendPacket_RequestTeamState()` call — the launcher's resync is the sole on-connect source now.
+- `soh/soh/Network/Anchor/Packets/UpdateTeamState.cpp` + `mm/2s2h/Network/Anchor/MMAnchor.cpp`
+  (`HandlePacket_UpdateTeamState`): debounce the toast (2s, `steady_clock`) — the state merge still
+  runs every time (idempotent), only the notification is deduped. Sender-count-agnostic, so it also
+  covers the manual "Resync team state" button (which legitimately sends both an OOT and an MM
+  request) and any other multi-reply burst.
+- `soh/soh/Network/Anchor/DummyPlayer.cpp` + `mm/2s2h/Network/Anchor/DummyPlayer.cpp`: remote puppet
+  name tags now use the client's Anchor color (`client.color`) instead of the dark default
+  (`NameTagOptions.textColor` alpha 0).
+
 ## Cross-hint playtest fixes: color, dump size, altar (2026-07-16)
 
 **Why:** playtest of the cross-hints feature found 3 issues: hint text displayed with no color,

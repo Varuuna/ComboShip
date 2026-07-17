@@ -2,6 +2,7 @@
 #ifdef COMBO_BUILD
 
 #include <spdlog/spdlog.h>
+#include "rando/ComboAnchorToast.h" // shared cross-game resync-toast debounce
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include "2s2h/NameTag/NameTag.h"
 #include "2s2h/Rando/Rando.h" // Rando::GiveItem / ConvertItem / CurrentJunkItem / RANDO_SAVE_CHECKS / IS_RANDO
@@ -869,9 +870,12 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
         gSaveContext.save.saveInfo.playerData.healthCapacity = localHealthCapacity;
     }
 
-    Notification::Emit({
-        .message = "Save updated from team",
-    });
+    // ComboShip: collapse the OOT+MM resync burst to one toast across BOTH games (shared-CVar debounce).
+    if (ComboAnchor_ShouldToastResync()) {
+        Notification::Emit({
+            .message = "Save updated from team",
+        });
+    }
     Rando::CheckTracker::OnFileLoad();
     Rando::ActorBehavior::OnFileLoad();
     ShipInit::Init("IS_RANDO");

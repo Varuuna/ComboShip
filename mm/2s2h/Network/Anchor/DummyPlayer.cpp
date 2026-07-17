@@ -100,7 +100,10 @@ void DummyPlayer_Init(Actor* actor, PlayState* play) {
 
     bool isGlobalRoom = (std::string("soh-global") == CVarGetString("gRemote.Anchor.RoomId", ""));
     if (!isGlobalRoom) {
-        NameTag_RegisterForActorWithOptions(actor, client.name.c_str(), { .yOffset = 30 });
+        // ComboShip: use the client's Anchor color instead of the dark default (mirrors soh's puppet).
+        NameTag_RegisterForActorWithOptions(
+            actor, client.name.c_str(),
+            { .yOffset = 30, .textColor = { client.color.r, client.color.g, client.color.b, 255 } });
     }
 }
 

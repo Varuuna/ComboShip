@@ -4,6 +4,9 @@
 #include "soh/OTRGlobals.h"
 #include "soh/Notification/Notification.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
+#ifdef COMBO_BUILD
+#include "rando/ComboAnchorToast.h" // shared cross-game resync-toast debounce
+#endif
 
 extern "C" {
 #include "variables.h"
@@ -318,9 +321,17 @@ void Anchor::HandlePacket_UpdateTeamState(nlohmann::json payload) {
             // }
         }
 
+#ifdef COMBO_BUILD
+        // ComboShip: OOT and MM each request a resync (connect/manual), and the server answers each, so
+        // collapse the burst to ONE toast across BOTH games via a shared-CVar timestamp (per-DLL statics
+        // can't dedup a cross-game OOT+MM pair).
+        if (ComboAnchor_ShouldToastResync())
+            Notification::Emit({ .message = "Save updated from team" });
+#else
         Notification::Emit({
             .message = "Save updated from team",
         });
+#endif
     }
 
     if (payload.contains("queue")) {

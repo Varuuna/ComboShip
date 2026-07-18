@@ -524,22 +524,24 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         // BEATABLE_ONLY additionally requires the win still holds (mirrors DefaultGanonMajoraGoal;
         // duplicated here to keep this header free of ComboPlaythrough.h). NO_LOGIC accepts an
         // OOT-unbeatable seed; MM stays reachable+beatable regardless.
-        auto beatableGoal = [&]() {
-            static const char* kOotTowerTop = "Ganon's Castle Tower Boss Key Chest";
-            static const char* kOotBossKey = "Ganon's Castle Boss Key";
-            static const char* kMmWin = "RC_MOON_MAJORA_POT_01";
-            return ootFinal.count(kOotTowerTop) > 0 &&
-                   std::find(vf.ootOwned.begin(), vf.ootOwned.end(), kOotBossKey) != vf.ootOwned.end() &&
-                   mmFinal.count(kMmWin) > 0;
-        };
-        bool goalOk = (ootAccess != OotAccess::BEATABLE_ONLY) || beatableGoal();
+        // RC_GANON reachable = OOT beatable: its region logic gates on bridge + boss key (placed OR
+        // force-granted), correct for every GBK/bridge mode — unlike the old tower-chest proxy (held a
+        // random item, could be unreachable). Names are the friendly forms the OOT/MM oracles return.
+        const bool ootWin = ootFinal.count("Ganon") > 0;
+        const bool mmWin = mmFinal.count("Moon Majora Pot 01") > 0;
+        bool goalOk = (ootAccess != OotAccess::BEATABLE_ONLY) || (ootWin && mmWin);
         bool needRetry = mmAdvUnreachable > 0 || (ootAccess == OotAccess::ALL_REACHABLE && ootAdvUnreachable > 0) ||
                          (ootAccess == OotAccess::BEATABLE_ONLY && !goalOk);
         if (needRetry) {
+            // On UNBEATABLE, name which side blocked (ganon/majora) so a future win-marker rename or
+            // logic regression is self-diagnosing instead of a silent all-passes-fail.
+            std::string goalStr = ootAccess != OotAccess::BEATABLE_ONLY ? ""
+                                  : goalOk                              ? " goal=ok"
+                                         : " goal=UNBEATABLE(ganon=" + std::to_string(ootWin) + " majora=" +
+                                               std::to_string(mmWin) + ")";
             std::cerr << "[ComboShip] CrossWorldCombinedFill: validation failed — mmAdvUnreachable=" << mmAdvUnreachable
-                      << " ootAdvUnreachable=" << ootAdvUnreachable
-                      << (ootAccess == OotAccess::BEATABLE_ONLY ? (goalOk ? " goal=ok" : " goal=UNBEATABLE") : "")
-                      << " (pass " << pass << ", " << passMs() << " ms) — retrying\n";
+                      << " ootAdvUnreachable=" << ootAdvUnreachable << goalStr << " (pass " << pass << ", " << passMs()
+                      << " ms) — retrying\n";
             continue;
         }
         if (ootAdvUnreachable > 0)

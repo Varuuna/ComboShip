@@ -1,28 +1,11 @@
 // combo/gui/ComboTrackerVisibility.cpp
-//
-// ComboShip-owned: makes the per-game SETTINGS popouts and the toast/notification window "follow"
-// the active game. The MAIN tracker windows no longer follow — they are derived every frame from
-// the both-games master model in ComboTrackerSwap (master enable + HideBackground), so this module
-// only snapshots/restores the settings-window intents on transitions.
-//
-// Trackers and notifications use DIFFERENT levers:
-//   - Trackers honor GuiWindow visibility, so toggling Show()/Hide() (+ the CVar) gates their Draw().
-//   - Notification::Window OVERRIDES Draw() and ignores IsVisible(), and GuiElement::Update() runs
-//     UpdateElement() unconditionally. So Hide() does NOT stop a notification window. The only reliable
-//     lever is map presence: a RemoveGuiWindow'd window is skipped by the draw loop entirely (both
-//     Update and Draw). We re-add the SAME already-initialized object on the way back (never a fresh
-//     one), which avoids the 0xCD re-registration crash the resident-window model guards against
-//     (see soh/soh/OTRGlobals.cpp:1753 / :2741). We hold it as a weak_ptr so the window stays owned
-//     solely by its own DLL (its mNotificationWindow member) — no cross-DLL shared_ptr, no shutdown
-//     dtor-order hazard.
-//
-// Lives in comboui.dll because it links libultraship (CVar API + the shared Gui) and stays mapped
-// for the whole process. The launcher (combo/ComboShip.cpp) calls the exports at each game
-// transition; comboui never draws these itself, so there is no ImGui-context concern here.
-//
-// OOT (soh) trackers use the "gOpenWindows.*" CVars and plain window names; MM (2ship) trackers
-// use "gWindows.*" and the "##MM"-suffixed names from BenGui.cpp (see Part A — the suffix avoids
-// the duplicate-name rejection in Gui::AddGuiWindow while keeping the visible title identical).
+// ComboShip-owned: makes the per-game SETTINGS popouts and the toast/notification window follow the
+// active game across transitions. The MAIN tracker windows are derived every frame from the
+// both-games master model (ComboTrackerSwap); this module only snapshots/restores the settings-window
+// intents. Notifications need a different lever than trackers (map presence via RemoveGuiWindow, not
+// Hide()) — rationale + the 0xCD re-registration hazard: see docs/deviations/tracker.md.
+// Lives in comboui.dll (links libultraship, stays mapped); the launcher calls the exports per transition.
+// OOT trackers use gOpenWindows.* + plain names; MM uses gWindows.* + "##MM"-suffixed names.
 
 #include <libultraship/libultraship.h> // Ship::Context / Gui + CVarGet/SetInteger
 #include <memory>                      // std::weak_ptr (notification-window handle)

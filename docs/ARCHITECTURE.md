@@ -6,10 +6,12 @@ ComboShip runs **Ocarina of Time** (Ship of Harkinian) and **Majora's Mask** (2 
 as a single program that can hand off back and forth between the two games at runtime, while keeping
 each game's source close enough to upstream that updates can still be merged in.
 
-> **Status note:** This document describes what is *actually built*. The deep cross-game features
-> (shared inventory, progression sync, a combined save format) are **not implemented** — see
-> [Future Direction](#future-direction). Earlier revisions of this file described an adapter/observer
-> class architecture that was never built; it has been removed.
+> **Status note:** This document describes what is *actually built* and stays high-level; the
+> per-feature deviation records live in [`deviations/`](deviations/). The headline cross-game
+> features — a shared **cross-world randomizer**, immediate **cross-game item delivery**, **Anchor**
+> online co-op, and **cross-game hints** — are implemented (see [Cross-Game Features](#cross-game-features)).
+> A single unified/merged save format is **not** built: the two saves are linked by slot. Earlier
+> revisions described an adapter/observer class architecture that was never built; it has been removed.
 
 ## Design Goals
 
@@ -58,7 +60,9 @@ layout and enables the transition hooks in both games.
 
 The launcher talks to each game purely through exported C functions resolved with `GetProcAddress`
 (see `combo/ComboShip.cpp`). Missing optional exports are tolerated (null-checked); only the core
-ones are required.
+ones are required. The tables below are the **core transition surface** — a representative subset.
+The full surface (Anchor transport, randomizer oracle exports, cross-game item delivery, save
+callbacks) is larger and lives in `combo/ComboShip.cpp`; see [`deviations/`](deviations/) per feature.
 
 | OOT export (`soh.dll`)         | Purpose                                                      |
 |--------------------------------|--------------------------------------------------------------|
@@ -116,7 +120,30 @@ ones are required.
 When a new OOT save is created, the launcher's `Combo_OnOOTSaveInit` calls `MM_InitSaveFile` to
 create the matching MM save (**OOT slot N → MM file N+1**). On the OOT→MM handoff, MM's
 `title_setup` loads that file and spawns the player in South Clock Town. This is save *linkage by
-slot*, not a unified/merged save format.
+slot*, not a unified/merged save format. Cross-game item grants are written directly into the linked
+save of whichever game is dormant (see [Cross-Game Features](#cross-game-features)).
+
+## Cross-Game Features
+
+These are what ComboShip adds on top of the two ports. Each is summarized here; the load-bearing
+details and merge-survival notes live in [`deviations/`](deviations/).
+
+- **Cross-world randomizer** — one seed shuffles items across *both* games; an OOT check can hold an
+  MM item and vice-versa. The launcher runs the combined fill (`RunComboFill`), driving each game's
+  oracle exports (`*_Rando_Reset` / `SetOwnedItems` / `GetReachableChecks` / `PlaceItem`) so the fill
+  reasons over both games' reachability at once, honoring the OOT→MM portal gate. See
+  [`deviations/rando.md`](deviations/rando.md).
+- **Cross-game item delivery** — collecting a foreign check grants the item immediately into the
+  *other* game's resident save via a save-only export (the target is usually the dormant game, so its
+  save isn't ticking underneath us), and shares it over Anchor. Replaced the old JSON mailbox
+  (issue #3). See [`deviations/rando.md`](deviations/rando.md).
+- **Anchor online co-op** — the persistent TCP socket + receive thread live in the launcher so the
+  connection survives OOT↔MM transitions. Each game redirects its Anchor transport through
+  launcher-registered callbacks. Supports presence, remote-player puppets, shared-progression item
+  sync, and late-join resync, cross-game. See [`deviations/anchor.md`](deviations/anchor.md).
+- **Cross-game hints & shared trackers** — hints can point across games; check/item trackers show
+  both games. See [`deviations/rando.md`](deviations/rando.md) and
+  [`deviations/tracker.md`](deviations/tracker.md).
 
 ## Game-Code Integration
 
@@ -169,14 +196,14 @@ void SomeUpstreamFunction(void) {
 
 ## Future Direction
 
-These were goals in the original design and are **not yet implemented**. They are recorded here as
-intent, not as existing architecture:
+Still **not implemented**, recorded as intent:
 
-- **Shared inventory** — items obtained in one game appearing in the other.
-- **Progression sync** — flags/progress shared across games.
 - **Combined save format** — a single save containing both games' data plus shared state (today the
-  two saves are merely linked by slot number).
+  two saves are linked by slot number, with cross-game items written into each game's own save).
 - **Seamless transition polish** — masking load time, transition effects.
 
-If/when these are built, they should follow the same principles: logic in the launcher and port
-layers, with only minimal `#ifdef COMBO_BUILD` hooks in game source.
+(Shared inventory and progression sync, once listed here as future work, now exist for randomizer
+items via cross-game delivery and for co-op via Anchor.)
+
+If/when the remaining items are built, they should follow the same principles: logic in the launcher
+and port layers, with only minimal `#ifdef COMBO_BUILD` hooks in game source.

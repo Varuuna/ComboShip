@@ -196,13 +196,10 @@ struct RequirednessResult {
 };
 
 // Requiredness pare-down over the COMBINED world: for each placed advancement item, tentatively
-// remove it (its check still exists, but never credits the item to the owned set) and re-run the
-// sphere-collect fixpoint from empty; if the goal is still reachable without it, the item is NOT
-// required (foolish candidate); otherwise it IS required (WotH). ootCheckAreas/mmCheckAreas (checkName
-// -> area/region string) let the caller roll this up into per-area foolish/WotH classification.
-// mmRestore resets the MM oracle's snapshot guard afterward (same contract as RunPlaythrough).
-// Each candidate is tested individually (native IsBeatableWithout) so no monotonicity is assumed;
-// candidates are restricted to the winning playthrough's checks, which is sound unconditionally.
+// remove it (check stays, item not credited) and re-run the sphere-collect from empty; still-reachable
+// goal => NOT required (foolish), else required (WotH). Tested individually (no monotonicity assumed),
+// restricted to the winning playthrough's checks. mmRestore resets the MM oracle snapshot afterward.
+// ootCheckAreas/mmCheckAreas (checkName -> area) roll results up into per-area classification.
 inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, const OracleFns& ootOracle,
                                               const OracleFns& mmOracle, void (*mmRestore)(),
                                               const std::string& sohDumpJson = "", const std::string& mmDumpJson = "",
@@ -356,7 +353,7 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
     std::unordered_set<std::string> collected; // "<cg>:<cn>"
     std::ostringstream log;
     log << "Cross-world playthrough - seed '" << seedLabel << "'\n"
-        << "Beatable when: Ganondorf reachable (OOT: all trials cleared + Boss Key owned)"
+        << "Beatable when: Ganondorf reachable (OOT: tower top reachable + Boss Key owned)"
         << " AND Majora's Lair reachable (MM).\n\n";
 
     int beatableSphere = -1;

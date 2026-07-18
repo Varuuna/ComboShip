@@ -1,22 +1,9 @@
 // combo/rando/CrossHints.h
-// ComboShip: cross-game hint generation (Phase 3). Runs once per successful fill, after the
-// requiredness pare-down, and composes the FINAL pre-rendered hint text for both games — the games
-// only display it, never look anything up themselves. Mirrors OOT's own hintSettingTable/
-// DistributeAndPlaceHints weighted-distribution shape, but draws candidates from BOTH games' dumps
-// with no world bias (grill resolution #3): items are weighted by importance only (OOT: required/
-// advancement; MM: weightClass), never by which game they happen to live in.
-//
-// All randomness here goes through ONE seeded RNG (CwRng(masterSeed ^ 0x48494E54)) for determinism.
-//
-// Design note (documented simplification vs native OOT hints, Phase 3 scope):
-//  - Native "Always"-hint checks (Big Poes, Mask Shop, frogs, Malon, skulltula counts, etc) ARE
-//    mirrored here: SOH_DumpRandoHintData's pre-filtered alwaysHintChecks list is placed with
-//    alwaysCopies stone copies each (per-preset, matching native hintSettingTable), before the
-//    weighted distribution loop, using the same location+item composition as the Song/Overworld/
-//    Dungeon categories below.
-//  - Trial hints are English-only (the dump only exports the English trial name).
-//  - Ganondorf's combined "Light Arrows + Master Sword" phrasing variant is not mirrored; combo
-//    always uses the Light-Arrows-only template (still correct, just less detailed in that one case).
+// ComboShip: cross-game hint generation (Phase 3). Runs once per successful fill; composes the FINAL
+// pre-rendered hint text for both games — the games only display it. Mirrors OOT's hintSettingTable/
+// DistributeAndPlaceHints weighting, but draws candidates from BOTH games' dumps by importance only,
+// with no world bias. All randomness via one seeded RNG (CwRng(masterSeed ^ 0x48494E54)) for
+// determinism. Documented v1 simplifications vs native OOT hints: see docs/deviations/rando.md.
 #pragma once
 
 #include <algorithm>

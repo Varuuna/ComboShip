@@ -384,6 +384,7 @@ void ComboMenu::DrawSearchResults(const std::string& query) {
                         // Extra per-game ID scope: RenderWidget PushID(w.index) internally, and the two
                         // games can emit the same index — without this, their interaction state collides.
                         ImGui::PushID(src.label);
+                        // 90px total widget-width budget split across the result columns.
                         RenderWidget(wd, game, 90 / cols);
                         ImGui::TextColored(kBreadcrumbColor, "[%s] %s -> %s", src.label,
                                            (sec.sectionLabel && sec.sectionLabel[0]) ? sec.sectionLabel : "Section",

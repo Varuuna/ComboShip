@@ -66,12 +66,9 @@ static void ComboTerminateHandler() {
 #endif
 
 #ifdef _WIN32
-// Last-chance crash capture for LATE crashes (post-Context teardown, FreeLibrary, CRT exit /
-// static destructors). libultraship's CrashHandler can't cover this window: its seh_filter
-// dereferences Context::GetInstance(), which is already an expired weak_ptr by then, and the
-// handler itself is destroyed with the Context. Installed after the deinit calls in main;
-// ComboShip.exe stays loaded through process exit so the filter survives DLL unloads.
-// Writes module+symbol frames to combo_late_crash.txt (PDBs sit next to the DLLs in Debug).
+// Last-chance crash capture for the post-teardown window (FreeLibrary / CRT exit / static dtors),
+// which libultraship's Context-dependent CrashHandler can't cover. Installed after deinit; writes
+// module+symbol frames to combo_late_crash.txt. See docs/deviations/boot-shutdown.md.
 static LONG WINAPI ComboLateCrashFilter(PEXCEPTION_POINTERS ex) {
     FILE* f = nullptr;
     fopen_s(&f, "combo_late_crash.txt", "w");
@@ -283,10 +280,9 @@ static FnOracleGetChecks Combo_MM_Rando_GetReachableChecks = nullptr;
 static FnOraclePlaceItem Combo_MM_Rando_PlaceItem = nullptr;
 static FnOracleVoid Combo_MM_Rando_Restore = nullptr;
 
-// ComboShip (issue #1): cross-game erase seam. A save slot is one combined OOT+MM playthrough, so
-// erasing it from either game's file-select wipes both saves. Each game fires its Set*-registered
-// callback with the 0-based slot when the user erases; the launcher routes it to the OTHER game's
-// save-only delete export. The exports never re-enter a menu erase path, so there is no loop.
+// ComboShip (issue #1): erasing a slot from either game's file-select wipes BOTH saves — each game
+// fires its Set*-registered callback with the slot, the launcher routes it to the other game's
+// save-only delete export (never re-entering a menu erase path). See docs/deviations/boot-shutdown.md.
 typedef void (*FnSetDeleteForeignSave)(void (*)(int));
 typedef void (*FnDeleteSaveFile)(int);
 static FnSetDeleteForeignSave SOH_SetDeleteForeignSave = nullptr;
@@ -349,11 +345,9 @@ static std::string g_ConsolidatedJson;
 static std::string g_ConsolidatedHashStr;
 
 // ---------- ComboShip-owned Anchor connection (Phase 1) ----------
-// The persistent TCP socket + receive thread live HERE, in the launcher, so the online connection
-// survives OOT<->MM portal transitions instead of being torn down with each game. soh's in-place
-// Anchor keeps all its packet/handler/menu logic but redirects its transport through the callbacks
-// we register below (SOH_SetAnchorSend/Connect/Disconnect) and receives inbound packets via the
-// SOH_Anchor_RecvJson export. See docs/UPSTREAM_MERGES.md.
+// The persistent socket + receive thread live HERE (launcher) so the connection survives OOT<->MM
+// transitions. soh's Anchor keeps its packet/handler/menu logic but redirects transport through the
+// callbacks registered below and receives inbound via SOH_Anchor_RecvJson. See docs/deviations/anchor.md.
 typedef void (*FnSetAnchorSend)(void (*)(const char*));
 typedef void (*FnSetAnchorConnect)(void (*)(const char*, uint16_t));
 typedef void (*FnSetAnchorDisconnect)(void (*)(void));
@@ -724,21 +718,13 @@ static void SetActiveGame(int game /* 0 = OOT, 1 = MM */) {
 }
 } // namespace ComboAnchor
 
-// Cross-game delivery dispatcher (issue #3). Registered into BOTH game DLLs; invoked by the
-// collector game's foreign-check detection (local) and by the active game's Anchor receive handler
-// (network). Grants the item into the TARGET game's resident save via its save-only export — the
-// target is normally the dormant game, which isn't ticking, so its save struct isn't being mutated
-// underneath us. The grant export persists the target save immediately.
-// ComboShip (bug 3): the SAME wire COMBO_CROSS_ITEM packet reaches both DLLs' incoming queues (the
-// originGame filter has an explicit exception for it), so whichever game is active when a packet
-// arrives AND whichever game later becomes active can each independently drain their own copy and
-// call this — double-delivering the item. Dedup here, the one launcher-owned spot both directions
-// share, keyed on srcCheckName (empty for the manual debug-console senders, which don't dedup).
-static std::set<std::string> sAppliedCrossChecks;
-// ComboShip (finding 2): dedup is scoped to a seed via this — see ResetCrossItemDedupForSeed.
-static uint32_t sCrossItemDedupSeed = 0;
-// ResetCrossItemDedupForSeed runs on the generation worker thread; DeliverCrossItem runs on the
-// game thread (via PumpDormant/packet handling) — both mutate sAppliedCrossChecks.
+// Cross-game delivery dispatcher (issue #3). Registered into BOTH DLLs; invoked by the collector
+// game's foreign-check detection (local) and the active game's Anchor receive handler (network).
+// Grants into the TARGET game's resident save via its save-only export (target is usually the
+// dormant game, so its save isn't mutating underneath us). See docs/deviations/rando.md.
+static std::set<std::string> sAppliedCrossChecks; // dedup: the same wire packet can reach both DLLs
+static uint32_t sCrossItemDedupSeed = 0;           // scoped per-seed (ResetCrossItemDedupForSeed)
+// Reset runs on the generation worker; deliver runs on the game thread — both mutate the set.
 static std::mutex sAppliedCrossChecksMutex;
 
 // Clears the dedup set whenever the active seed changes (regen/new-file), so a check name reused
@@ -878,10 +864,9 @@ static int g_PendingMMFileNum = -1;
 // later Combo_OnOOTSaveInit callback can hand it to MM_InitRandoSaveFile.
 static std::string g_PendingMMPlacements;
 
-// ComboShip: reload settings-persistence (see docs/UPSTREAM_MERGES.md). A silent auto-reload must
-// never let the pending seed's settings overwrite the user's configured gRando.* CVars on disk.
-// MM only reads its gRando.* CVars at slot-bind (MM_InitRandoSaveFile), so its restore is deferred
-// there instead of running inline in Combo_OnReloadRequest like OOT's.
+// ComboShip: a silent auto-reload must not let the pending seed's settings overwrite the user's
+// gRando.* CVars on disk. MM reads gRando.* only at slot-bind, so its restore is deferred there
+// (not inline in Combo_OnReloadRequest like OOT's). See docs/deviations/rando.md.
 static std::string g_PendingMMSettingsJson;     // seed's MM settings, applied right before slot-bind
 static std::string g_UserMMSettingsSnapshot;    // user's MM settings, restored right after slot-bind
 static bool g_ComboReloadRestoreUserMM = false; // false for an explicit drop (seed settings stick)
@@ -960,6 +945,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     // master seed, so dumps, confined placement, and prices re-roll deterministically per attempt.
     const int kFillAttempts = 5;
     for (int attempt = 0; attempt < kFillAttempts && !usedCombinedFill; ++attempt) {
+        // Space each retry's seed far apart (golden-ratio step) so attempts don't correlate.
         masterSeed = baseSeed + attempt * 0x9E3779B9u;
         ResetCrossItemDedupForSeed(masterSeed);
 
@@ -1233,14 +1219,10 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     g_GenerateBusy.store(false);
 }
 
-// ComboShip: headless cross-world generation TEST. Runs the combined assumed fill over a range of
-// seeds and asserts each succeeds. A seed "succeeds" via CrossWorldCombinedFill's completability
-// check: after placing every item it sphere-collects from an empty start, across both games and
-// honoring the OOT->MM portal gate, and fails unless every advancement check in either game is
-// reachable — i.e. a passing seed is provably 100%-completable from scratch. Uses the same oracles
-// as the real generator under the current CVar options, so changing shuffle options in the menu and
-// re-running exercises those configs too. Returns the FAILED seed count (0 == all good).
-// Env-gated via COMBO_GENTEST=<count>.
+// ComboShip: headless cross-world generation TEST (COMBO_GENTEST=<count>). Runs the combined fill
+// over a seed range; a seed "succeeds" only if every advancement check in both games is reachable
+// from an empty start (honoring the OOT->MM portal gate) — i.e. provably 100%-completable. Uses the
+// same oracles as the real generator under the current CVars. Returns the FAILED seed count.
 static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
     if (!(Combo_SOH_Rando_Reset && Combo_SOH_Rando_SetOwnedItems && Combo_SOH_Rando_GetReachableChecks &&
           Combo_SOH_Rando_PlaceItem && Combo_MM_Rando_Reset && Combo_MM_Rando_SetOwnedItems &&
@@ -1290,18 +1272,11 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
     return failures;
 }
 
-// ComboShip: headless cross-world PLAYTHROUGH log. Generates one seed, then replays it sphere by
-// sphere (a sphere = everything newly reachable given what you have so far), listing each item in
-// the order it becomes obtainable across both games (OOT->MM portal honored), until the seed is
-// BEATABLE: can kill Ganon AND can kill Majora.
-//   - "can kill Ganon": the "Ganon" goal location is reachable (SOH's win check).
-//   - "can kill Majora": Majora's Lair is reachable (gated on RemainsCount/MoonMaskCount in
-//     Logic.cpp); surfaced via its in-region check RC_MOON_MAJORA_POT_01.
-// Full sphere log goes to saves/combo/slot0.playthrough.txt; a summary prints to stdout.
-// Env-gated via COMBO_PLAYTHROUGH=<seed>.
-// Writes the sphere-by-sphere log from an ALREADY-GENERATED spoiler, driving the oracles to
-// sphere-collect. Ends by restoring the MM oracle's pre-generation snapshot (it drives MM here).
-// Called both from the env-gated entry below and from RunComboFill on every in-game generation.
+// ComboShip: headless cross-world PLAYTHROUGH log (COMBO_PLAYTHROUGH=<seed>). Replays an
+// already-generated spoiler sphere by sphere, listing each item in obtainable order across both
+// games (OOT->MM portal honored) until BEATABLE (Ganon goal + Majora's Lair both reachable). Full
+// log to saves/combo/slot0.playthrough.txt. Restores the MM oracle snapshot at the end (drives MM
+// here). Called from the env-gated entry and from RunComboFill. See docs/deviations/rando.md.
 static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRando::OracleFns& ootOracle,
                                   const ComboRando::OracleFns& mmOracle, const std::string& seedLabel,
                                   nlohmann::json* playthroughOut, const std::string& sohDump,
@@ -1342,9 +1317,8 @@ static void RunComboPlaythrough(const std::string& inputSeed) {
     WriteComboPlaythrough(fill.spoilerJson, ootOracle, mmOracle, seedStr, nullptr, sohDump, mmDump);
 }
 
-// ComboShip: generate-request handler — called by SOH_TriggerComboGenerate from the UI. Runs
-// synchronously on the calling (game) thread; a background thread raced the games' single-threaded
-// rando logic and crashed. A reentrancy guard prevents double-invocation.
+// ComboShip: synchronous generate — used only by the headless COMBO_AUTOGEN_SEED path. The UI
+// registers Combo_OnGenerateThreaded instead. Reentrancy-guarded via g_GenerateBusy.
 static void Combo_OnGenerateRequest(const char* inputSeed, ComboRando::ComboGenProgress* progress) {
     if (g_GenerateBusy.exchange(true)) {
         // Already running — ignore the duplicate request.
@@ -1599,7 +1573,7 @@ static void Combo_OnOOTSaveInit(int fileNum) {
     }
     // The new-save callback runs on OOT's thread with the entered file name current — carry it into
     // the matching MM save so both files show the player's name.
-    unsigned char playerName[8] = { 0x3E, 0x3E, 0x3E, 0x3E, 0x3E, 0x3E, 0x3E, 0x3E };
+    unsigned char playerName[8] = { 0x3E, 0x3E, 0x3E, 0x3E, 0x3E, 0x3E, 0x3E, 0x3E }; // 0x3E = N64 blank glyph
     if (SOH_GetCurrentPlayerName)
         SOH_GetCurrentPlayerName(playerName);
     if (MM_InitRandoSaveFile && !g_PendingMMPlacements.empty()) {
@@ -2291,14 +2265,10 @@ int main(int argc, char** argv) {
         }
     }
 
-    // Teardown order matters: MM first (it holds a shared_ptr to the SHARED Context and BenGui::Destroy
-    // needs the Context alive), then SOH — its DeinitOTR releases the LAST Context reference, so
-    // ~Context runs here on the main thread: saves window geometry + config, destroys the window, and
-    // shuts down logging. Everything thread-owning (audio threads, ResourceManager thread pools) must
-    // be joined/destroyed before the FreeDll calls below — joining a thread during DLL unload runs
-    // under the loader lock and deadlocks.
-    // std::cerr (unbuffered) progress markers: spdlog is shut down by ~Context partway through this
-    // sequence, and a late crash otherwise leaves no trace of how far teardown got.
+    // Teardown order is load-bearing: MM before SOH (MM holds a shared_ptr to the SHARED Context;
+    // SOH's DeinitOTR releases the last ref, running ~Context here — saves geometry/config, destroys
+    // the window). All thread-owners must be joined before the FreeDll calls (joining under the loader
+    // lock deadlocks). std::cerr markers: spdlog dies mid-teardown. See docs/deviations/boot-shutdown.md.
 
     // Join the generate worker before unloading any game DLL it calls into — a still-joinable
     // std::thread would std::terminate() at static destruction, and the worker must not run past
@@ -2335,8 +2305,6 @@ int main(int argc, char** argv) {
 #endif
 
     // --- 7. Cleanup ---
-
-    // Generate is now synchronous — no background thread to join before freeing DLLs.
 
     if (comboUIModule)
         FreeDll(comboUIModule);

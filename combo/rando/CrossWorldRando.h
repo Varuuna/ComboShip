@@ -176,7 +176,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     }
 
     // Portal-key guard: Overworld Keys ON + Force Mask Shop Key OFF under a relaxed mode may strand the
-    // Mask Shop Key (portalCheckName="" can't detect it) → MM unreachable. Warn. See docs/UPSTREAM_MERGES.
+    // Mask Shop Key (portalCheckName="" can't detect it) → MM unreachable. Warn. See docs/deviations/rando.md.
     if (ootAccess != OotAccess::ALL_REACHABLE && portalCheckName.empty()) {
         try {
             auto a = nlohmann::json::parse(sohDumpJson).value("accessibility", nlohmann::json::object());
@@ -391,13 +391,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         for (const auto& it : toPlace)
             (it.game == GAME_OOT ? ootRemaining : mmRemaining).push_back(it.name);
 
-        // Batch placement: remove K items from the assumed set and place all K into distinct
-        // reachable checks off ONE fixpoint. Still a valid (strictly conservative) assumed fill —
-        // every item lands on a check reachable without itself AND the rest of its batch — and it
-        // divides the dominant cost (fixpoint sphere searches) by K. K shrinks as the pool drains
-        // (conservatism bites hardest when few items remain); a failed batch halves a sticky cap
-        // (it never grows back within a pass — late fill only gets tighter) and only a failed
-        // K=1 abandons the pass.
+        // Batch placement: pull K items and place all K into distinct reachable checks off ONE
+        // fixpoint — still a strictly-conservative assumed fill (each lands on a check reachable
+        // without itself and the rest of its batch), but divides the fixpoint cost by K. The cap
+        // halves on a failed batch (never grows back within a pass); only a failed K=1 ends the pass.
         size_t batchCap = 16;
         auto removeOne = [](std::vector<std::string>& v, const std::string& name) {
             for (size_t i = 0; i < v.size(); ++i) {
@@ -497,12 +494,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                       << " junk items left over\n";
         }
 
-        // Validation: with NOTHING assumed, sphere-collecting only placed items must reach every
-        // ADVANCEMENT-holding check — the assumed-fill guarantee (all progression collectible).
-        // Junk-holding checks may legitimately be oracle-unreachable: both oracles under-model
-        // (e.g. MM logic evaluated with zeroed save options), so some checks never appear
-        // reachable even with full inventory — the fill can only ever put junk there. Count and
-        // log those, don't fail on them.
+        // Validation: with nothing assumed, sphere-collecting placed items must reach every
+        // ADVANCEMENT check (the assumed-fill guarantee). Junk-holding checks may legitimately be
+        // oracle-unreachable (oracles under-model, e.g. MM with zeroed save options) — count and log
+        // those, don't fail.
         auto vf = reachableFixpoint({}, {});
         auto& ootFinal = vf.ootReachable;
         auto& mmFinal = vf.mmReachable;

@@ -105,6 +105,12 @@ class MMAnchor {
     void SendTeamStateFromSave(const std::string& targetTeamId); // no isActive gate: dormant answers too
     void SendPacket_RequestTeamState();
 
+    // ComboShip: same-game teleport (mirrors soh's two-step REQUEST_TELEPORT -> TELEPORT_TO).
+    // The launcher only routes this for an MM-active/MM-peer pair (teleport is same-game only).
+    void SendPacket_RequestTeleport(uint32_t clientId);
+    void SendPacket_TeleportTo(uint32_t clientId);
+    bool CanTeleportTo(uint32_t clientId);
+
     bool isActive = false;
     uint32_t ownClientId = 0;
     std::map<uint32_t, MMAnchorClient> clients;
@@ -114,6 +120,8 @@ class MMAnchor {
 
     bool IsSaveLoaded();
     void PumpDormant(); // A6: drain+apply save-affecting co-op packets while MM is the dormant game
+    // True while PumpDormant applies a packet (MM backgrounded, no gPlayState); mirrors soh's Anchor.
+    bool isDormantApply = false;
     // Bug 2: request a fresh team-state from teammates regardless of active/dormant (bypasses
     // SendPacket_RequestTeamState's isActive gate — a resync must go out from the dormant sibling too).
     void RequestResyncDormantSafe();
@@ -133,6 +141,8 @@ class MMAnchor {
     void ApplyDormantGiveItem(const nlohmann::json& payload);   // A6: dormant-safe co-op item apply
     void HandlePacket_UpdateTeamState(nlohmann::json& payload); // mutates payload (rando check unpack)
     void HandlePacket_RequestTeamState(const nlohmann::json& payload);
+    void HandlePacket_RequestTeleport(const nlohmann::json& payload); // answer with our location
+    void HandlePacket_TeleportTo(const nlohmann::json& payload);      // warp to peer's location
 
     bool hooksRegistered = false;
     bool shouldRefreshActors = false;

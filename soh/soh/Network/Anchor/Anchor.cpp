@@ -106,9 +106,13 @@ void Anchor::OnConnected() {
     SendPacket_Handshake();
     RegisterHooks();
 
+#ifndef COMBO_BUILD
     if (IsSaveLoaded()) {
         SendPacket_RequestTeamState();
     }
+#endif
+    // ComboShip: the launcher's on-connect resync (sResyncPending -> RequestResyncDormantSafe) is the
+    // sole on-connect resync source; this call would duplicate it (see docs/UPSTREAM_MERGES.md).
 }
 
 void Anchor::OnDisconnected() {
@@ -307,8 +311,7 @@ void Anchor::PumpDormant() {
         }
         if (type == REQUEST_TEAM_STATE) {
             // Answering is read-only over the frozen save, so it's dormant-safe; without it a
-            // teammate's resync gets nothing whenever this client is in the other game. Applying a
-            // received UPDATE_TEAM_STATE stays foreground-only (dropped below).
+            // teammate's resync gets nothing whenever this client is in the other game.
             // Bug 2: this branch was missing the isDormantApply wrap the GIVE_ITEM branch below has,
             // so IsSaveLoaded() (gated on gPlayState) always failed here while dormant — dormant OOT
             // never actually answered.
@@ -319,8 +322,19 @@ void Anchor::PumpDormant() {
             isDormantApply = false;
             continue;
         }
+        if (type == UPDATE_TEAM_STATE) {
+            // Bug: previously dropped here entirely ("re-requested on activation"), but the launcher's
+            // on-connect resync targets exactly this dormant window. Apply straight to the resident
+            // save; HandlePacket_UpdateTeamState sets dormantDidApply under isDormantApply.
+            isDormantApply = true;
+            try {
+                HandlePacket_UpdateTeamState(payload);
+            } catch (const std::exception& e) { SPDLOG_ERROR("[Anchor] dormant team-state apply: {}", e.what()); }
+            isDormantApply = false;
+            continue;
+        }
         if (type != GIVE_ITEM) {
-            continue; // drop presence/puppet/team-state while dormant (re-requested on activation)
+            continue; // drop presence/puppet packets while dormant
         }
         if (!payload.contains("modId")) {
             continue; // MM-shaped GIVE_ITEM; the dormant MM pump handles it

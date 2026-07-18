@@ -4,6 +4,9 @@
 #include "soh/OTRGlobals.h"
 #include "soh/Notification/Notification.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
+#ifdef COMBO_BUILD
+#include "rando/ComboAnchorToast.h" // shared cross-game resync-toast debounce
+#endif
 
 extern "C" {
 #include "variables.h"
@@ -177,7 +180,8 @@ void Anchor::HandlePacket_UpdateTeamState(nlohmann::json payload) {
             }
 
             gSaveContext.sceneFlags[i] = loadedData.sceneFlags[i];
-            if (IsSaveLoaded() && gPlayState->sceneNum == i) {
+            // ComboShip: dormant apply's IsSaveLoaded() is true from fileNum alone; gPlayState is null.
+            if (IsSaveLoaded() && gPlayState != NULL && gPlayState->sceneNum == i) {
                 gPlayState->actorCtx.flags.chest = loadedData.sceneFlags[i].chest;
                 gPlayState->actorCtx.flags.swch = loadedData.sceneFlags[i].swch;
                 gPlayState->actorCtx.flags.clear = loadedData.sceneFlags[i].clear;
@@ -318,9 +322,20 @@ void Anchor::HandlePacket_UpdateTeamState(nlohmann::json payload) {
             // }
         }
 
+#ifdef COMBO_BUILD
+        // ComboShip: OOT and MM each request a resync (connect/manual), and the server answers each, so
+        // collapse the burst to ONE toast across BOTH games via a shared-CVar timestamp (per-DLL statics
+        // can't dedup a cross-game OOT+MM pair).
+        if (isDormantApply) {
+            dormantDidApply = true; // let PumpDormant persist; no toast for a backgrounded apply
+        } else if (ComboAnchor_ShouldToastResync()) {
+            Notification::Emit({ .message = "Save updated from team" });
+        }
+#else
         Notification::Emit({
             .message = "Save updated from team",
         });
+#endif
     }
 
     if (payload.contains("queue")) {

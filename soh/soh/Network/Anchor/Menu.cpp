@@ -248,16 +248,28 @@ void AnchorInstructionsMenu(WidgetInfo& info) {
 
 void RegisterAnchorMenu() {
     WidgetPath path = { "Network", "Anchor", SECTION_COLUMN_1 };
+#ifndef COMBO_BUILD
+    // ComboShip: the connection UI is combo-native (comboui Anchor panel) in combo builds; hide soh's
+    // AnchorMainMenu so it's not duplicated. Admin/Instructions stay (combo replaces them).
     SohGui::mSohMenu->AddWidget(path, "AnchorMainMenu", WIDGET_CUSTOM)
         .CustomFunction(AnchorMainMenu)
         .HideInSearch(true);
+#endif
     path.column = SECTION_COLUMN_2;
+#ifndef COMBO_BUILD
+    // ComboShip: room-admin UI is combo-native (comboui Anchor panel) in combo builds; hide
+    // soh's AnchorAdminMenu so it's not duplicated. Instructions stay (combo replaces them).
     SohGui::mSohMenu->AddWidget(path, "AnchorAdminMenu", WIDGET_CUSTOM)
         .CustomFunction(AnchorAdminMenu)
         .HideInSearch(true);
+#endif
+#ifndef COMBO_BUILD
+    // ComboShip: the entire Anchor UI is combo-native (comboui panel + room window) in combo builds;
+    // hide soh's Instructions too so the combo panels are the sole Anchor UI.
     SohGui::mSohMenu->AddWidget(path, "AnchorInstructionsMenu", WIDGET_CUSTOM)
         .CustomFunction(AnchorInstructionsMenu)
         .HideInSearch(true);
+#endif
 }
 
 static RegisterMenuInitFunc menuInitFunc(RegisterAnchorMenu);

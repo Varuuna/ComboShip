@@ -104,6 +104,8 @@
 #include "soh/Network/CrowdControl/CrowdControl.h"
 #include "soh/Network/Sail/Sail.h"
 #include "soh/Network/Anchor/Anchor.h"
+#include "soh/util.h"                                // ComboShip: SohUtils::GetSceneName for the Anchor roster export
+#include "soh/Enhancements/randomizer/SeedContext.h" // ComboShip: Rando::Context::GetSeed for roster seed-mismatch
 #include "Enhancements/game-interactor/GameInteractor.h"
 #include "Enhancements/randomizer/draw.h"
 #include <libultraship/controller/controldeck/ControlDeck.h>
@@ -2812,6 +2814,108 @@ extern "C" __declspec(dllexport) void SOH_Anchor_RequestResync(void) {
         }
     } catch (const std::exception& e) { SPDLOG_ERROR("[SOH_Anchor_RequestResync] {}", e.what()); } catch (...) {
         SPDLOG_ERROR("[SOH_Anchor_RequestResync] unknown exception");
+    }
+}
+
+// ComboShip: combo-native Anchor connection panel drives Enable/Disable (soh's own menu is hidden in
+// combo). Mirrors Menu.cpp's Enable/Disable path incl. the Enabled CVar write.
+extern "C" __declspec(dllexport) void SOH_Anchor_SetEnabled(int enabled) {
+    try {
+        if (!Anchor::Instance) {
+            return;
+        }
+        if (enabled) {
+            CVarSetInteger(CVAR_REMOTE_ANCHOR("Enabled"), 1);
+            Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+            Anchor::Instance->Enable();
+        } else {
+            CVarClear(CVAR_REMOTE_ANCHOR("Enabled"));
+            Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+            Anchor::Instance->Disable();
+        }
+    } catch (const std::exception& e) { SPDLOG_ERROR("[SOH_Anchor_SetEnabled] {}", e.what()); } catch (...) {
+        SPDLOG_ERROR("[SOH_Anchor_SetEnabled] unknown exception");
+    }
+}
+
+// ComboShip: connection state for the combo panel status line/gating. bit0=isEnabled, bit1=isConnected.
+extern "C" __declspec(dllexport) int SOH_Anchor_GetConnectionState(void) {
+    if (!Anchor::Instance) {
+        return 0;
+    }
+    return (Anchor::Instance->isEnabled ? 1 : 0) | (Anchor::Instance->isConnected ? 2 : 0);
+}
+
+// ComboShip: owner-gating for the combo panel's room-admin section. bit0=isOwner,
+// bit1=isGlobalRoom. 0 if Anchor not connected. Mirrors AnchorAdminMenu's gate.
+extern "C" __declspec(dllexport) int SOH_Anchor_GetOwnerInfo(void) {
+    try {
+        auto anchor = Anchor::Instance;
+        if (!anchor || !anchor->isEnabled || !anchor->isConnected) {
+            return 0;
+        }
+        bool isOwner = anchor->roomState.ownerClientId == anchor->ownClientId;
+        bool isGlobalRoom = std::string("soh-global") == CVarGetString(CVAR_REMOTE_ANCHOR("RoomId"), "");
+        return (isOwner ? 1 : 0) | (isGlobalRoom ? 2 : 0);
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[SOH_Anchor_GetOwnerInfo] {}", e.what());
+        return 0;
+    } catch (...) {
+        SPDLOG_ERROR("[SOH_Anchor_GetOwnerInfo] unknown exception");
+        return 0;
+    }
+}
+
+// ComboShip: broadcast the RoomSettings.* CVar changes made in the combo admin panel to the room.
+extern "C" __declspec(dllexport) void SOH_Anchor_SendRoomState(void) {
+    try {
+        if (Anchor::Instance) {
+            Anchor::Instance->SendPacket_UpdateRoomState();
+        }
+    } catch (const std::exception& e) { SPDLOG_ERROR("[SOH_Anchor_SendRoomState] {}", e.what()); } catch (...) {
+        SPDLOG_ERROR("[SOH_Anchor_SendRoomState] unknown exception");
+    }
+}
+
+// ComboShip: clear team state for every team present in the room (mirrors AnchorAdminMenu's button).
+extern "C" __declspec(dllexport) void SOH_Anchor_ClearTeamState(void) {
+    try {
+        if (!Anchor::Instance) {
+            return;
+        }
+        std::set<std::string> teams;
+        for (auto& [clientId, client] : Anchor::Instance->clients) {
+            teams.insert(client.teamId);
+        }
+        for (auto& team : teams) {
+            Anchor::Instance->SendPacket_ClearTeamState(team);
+        }
+    } catch (const std::exception& e) { SPDLOG_ERROR("[SOH_Anchor_ClearTeamState] {}", e.what()); } catch (...) {
+        SPDLOG_ERROR("[SOH_Anchor_ClearTeamState] unknown exception");
+    }
+}
+
+// ComboShip: stateless OOT scene-name lookup for the combo room window. The launcher owns the roster
+// now; comboui resolves each OOT peer's area name from its raw scene id via this (works while dormant).
+extern "C" __declspec(dllexport) const char* SOH_Anchor_ResolveScene(int sceneId) {
+    static std::string cached;
+    if (sceneId >= 0 && sceneId < 1000) {
+        cached = SohUtils::GetSceneName(sceneId);
+    } else {
+        cached = "";
+    }
+    return cached.c_str();
+}
+
+// ComboShip: same-game teleport trigger for the combo room window (OOT active + OOT peer).
+// Wraps SendPacket_RequestTeleport, which re-validates via CanTeleportTo and no-ops if disallowed.
+extern "C" __declspec(dllexport) void SOH_Anchor_RequestTeleport(uint32_t clientId) {
+    try {
+        if (Anchor::Instance) {
+            Anchor::Instance->SendPacket_RequestTeleport(clientId);
+        }
+    } catch (const std::exception& e) { SPDLOG_ERROR("[SOH_Anchor_RequestTeleport] {}", e.what()); } catch (...) {
+        SPDLOG_ERROR("[SOH_Anchor_RequestTeleport] unknown exception");
     }
 }
 

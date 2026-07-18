@@ -89,7 +89,14 @@ void DummyPlayer_Init(Actor* actor, PlayState* play) {
     bool isGlobalRoom = (std::string("soh-global") == CVarGetString(CVAR_REMOTE_ANCHOR("RoomId"), ""));
 
     if (!isGlobalRoom) {
+#ifdef COMBO_BUILD
+        // ComboShip: use the client's Anchor color instead of the dark default so remote name tags
+        // are readable and match the roster.
+        NameTag_RegisterForActorWithOptions(actor, client.name.c_str(),
+                                            { .textColor = { client.color.r, client.color.g, client.color.b, 255 } });
+#else
         NameTag_RegisterForActorWithOptions(actor, client.name.c_str(), {});
+#endif
     }
 }
 

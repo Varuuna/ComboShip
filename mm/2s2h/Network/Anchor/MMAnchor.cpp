@@ -11,7 +11,8 @@
 #include "2s2h/ShipInit.hpp"
 #include "2s2h/ShipUtils.h" // ComboShip: Ship_GetSceneName for the roster area-name supplement
 #include "2s2h/BenGui/Notification.h"
-#include "BenJsonConversions.hpp" // to_json/from_json for Vec3f/Vec3s/PosRot AND Save (Phase 2d)
+#include "2s2h/SaveManager/SaveManager.h" // dormant team-state persist (SaveManager_SaveCurrentForCombo)
+#include "BenJsonConversions.hpp"         // to_json/from_json for Vec3f/Vec3s/PosRot AND Save (Phase 2d)
 
 extern "C" {
 #include "macros.h"
@@ -237,9 +238,8 @@ void MMAnchor::ProcessIncomingPacketQueue() {
 }
 
 // A6: called on the ACTIVE sibling's game thread while MM is dormant. Drain the queue and apply only
-// save-data-only, dormant-safe packets (co-op GIVE_ITEM). Presence/puppet/team-state are dropped —
-// team-state re-runs OnFileLoad/ShipInit, which isn't safe while dormant, and is re-requested on MM
-// activation anyway. gSaveContext here is MM's frozen save; MM isn't ticking, so no concurrent writer.
+// save-data-only, dormant-safe packets (co-op GIVE_ITEM, team-state resync). Presence/puppet packets
+// are dropped. gSaveContext here is MM's frozen save; MM isn't ticking, so no concurrent writer.
 void MMAnchor::PumpDormant() {
     std::queue<nlohmann::json> toProcess;
     {
@@ -259,6 +259,20 @@ void MMAnchor::PumpDormant() {
                 // nothing whenever this client is in the other game.
                 SPDLOG_INFO("[MMAnchor] dormant REQUEST_TEAM_STATE: answering from frozen save");
                 SendTeamStateFromSave(payload.value("targetTeamId", std::string("default")));
+            } else if (payload.value("type", std::string()) == PKT_UPDATE_TEAM_STATE) {
+                // Bug: previously dropped entirely while dormant. The merge itself only touches
+                // gSaveContext.save, so it's dormant-safe once the scene-bound post-steps are skipped
+                // (guarded by isDormantApply inside the handler).
+                bool willApply = roomState.syncItemsAndFlags && payload.contains("state") &&
+                                 payload["state"].contains("shipSaveInfo");
+                SPDLOG_INFO("[MMAnchor] dormant UPDATE_TEAM_STATE applying={}", willApply);
+                isDormantApply = true;
+                HandlePacket_UpdateTeamState(payload);
+                isDormantApply = false;
+                if (willApply && gSaveContext.fileNum != 0xFF) {
+                    SaveManager_SaveCurrentForCombo();
+                    SPDLOG_INFO("[MMAnchor] dormant MM save persisted after team-state apply");
+                }
             }
         } catch (const std::exception& e) { SPDLOG_ERROR("[MMAnchor] dormant apply exception: {}", e.what()); }
     }
@@ -870,15 +884,19 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
         gSaveContext.save.saveInfo.playerData.healthCapacity = localHealthCapacity;
     }
 
-    // ComboShip: collapse the OOT+MM resync burst to one toast across BOTH games (shared-CVar debounce).
-    if (ComboAnchor_ShouldToastResync()) {
-        Notification::Emit({
-            .message = "Save updated from team",
-        });
+    // ComboShip: dormant apply has no gPlayState/scene — CheckTracker/ActorBehavior/ShipInit re-derive
+    // scene-bound state and aren't dormant-safe, and a backgrounded apply shouldn't toast. MM's own
+    // OnSaveLoad re-requests a resync on activation, which re-runs this block in the foreground.
+    if (!isDormantApply) {
+        if (ComboAnchor_ShouldToastResync()) {
+            Notification::Emit({
+                .message = "Save updated from team",
+            });
+        }
+        Rando::CheckTracker::OnFileLoad();
+        Rando::ActorBehavior::OnFileLoad();
+        ShipInit::Init("IS_RANDO");
     }
-    Rando::CheckTracker::OnFileLoad();
-    Rando::ActorBehavior::OnFileLoad();
-    ShipInit::Init("IS_RANDO");
 
     // Replay any packets queued on the server while we were away, through the normal incoming path.
     if (payload.contains("queue") && payload["queue"].is_array()) {

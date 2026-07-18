@@ -120,6 +120,8 @@ class MMAnchor {
 
     bool IsSaveLoaded();
     void PumpDormant(); // A6: drain+apply save-affecting co-op packets while MM is the dormant game
+    // True while PumpDormant applies a packet (MM backgrounded, no gPlayState); mirrors soh's Anchor.
+    bool isDormantApply = false;
     // Bug 2: request a fresh team-state from teammates regardless of active/dormant (bypasses
     // SendPacket_RequestTeamState's isActive gate — a resync must go out from the dormant sibling too).
     void RequestResyncDormantSafe();

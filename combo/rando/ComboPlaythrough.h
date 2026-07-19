@@ -335,7 +335,7 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
                                         const OracleFns& mmOracle, const std::string& seedLabel, void (*mmRestore)(),
                                         nlohmann::json* playthroughOut = nullptr, const std::string& sohDumpJson = "",
                                         const std::string& mmDumpJson = "") {
-    static const char* kOotGanon = "Ganon"; // RC_GANON reachable = OOT beatable (see CrossWorldRando.h)
+    static const char* kOotGanon = "Ganon";           // RC_GANON reachable = OOT beatable (see CrossWorldRando.h)
     static const char* kMmWin = "Moon Majora Pot 01"; // ComboShip: friendly form of RC_MOON_MAJORA_POT_01
 
     PlaythroughResult result;

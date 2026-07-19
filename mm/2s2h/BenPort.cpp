@@ -883,14 +883,22 @@ ImFont* OTRGlobals::CreateDefaultFontWithSize(float size) {
 }
 
 uint32_t OTRGlobals::GetInterpolationFPS() {
-    if (CVarGetInteger("gMatchRefreshRate", 0)) {
+#ifdef COMBO_BUILD
+    // ComboShip: the shared Graphics tab is OOT-rendered and writes the gSettings.* names.
+    const char* matchRefreshCvar = "gSettings.MatchRefreshRate";
+    const char* interpFpsCvar = "gSettings.InterpolationFPS";
+#else
+    const char* matchRefreshCvar = "gMatchRefreshRate";
+    const char* interpFpsCvar = "gInterpolationFPS";
+#endif
+    if (CVarGetInteger(matchRefreshCvar, 0)) {
         return Ship::Context::GetInstance()->GetWindow()->GetCurrentRefreshRate();
     } else if (CVarGetInteger(CVAR_VSYNC_ENABLED, 1) ||
                !Ship::Context::GetInstance()->GetWindow()->CanDisableVerticalSync()) {
         return std::min<uint32_t>(Ship::Context::GetInstance()->GetWindow()->GetCurrentRefreshRate(),
-                                  CVarGetInteger("gInterpolationFPS", 20));
+                                  CVarGetInteger(interpFpsCvar, 20));
     }
-    return CVarGetInteger("gInterpolationFPS", 20);
+    return CVarGetInteger(interpFpsCvar, 20);
 }
 
 extern "C" void OTRMessage_Init();
@@ -1305,7 +1313,12 @@ extern "C" void Graph_StartFrame() {
 #if defined(_WIN32) || defined(__APPLE__)
         case KbScancode::LUS_KB_F9: {
             // Toggle TTS
+#ifdef COMBO_BUILD
+            // ComboShip: shared gSettings.* name (OOT-rendered settings widget writes it).
+            CVarSetInteger("gSettings.A11yTTS", !CVarGetInteger("gSettings.A11yTTS", 0));
+#else
             CVarSetInteger("gA11yTTS", !CVarGetInteger("gA11yTTS", 0));
+#endif
             break;
         }
 #endif

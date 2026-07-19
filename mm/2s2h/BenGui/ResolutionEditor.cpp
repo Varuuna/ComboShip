@@ -560,7 +560,11 @@ void UpdateResolutionVars() {
 bool IsDroppingFrames() {
     // a rather imprecise way of checking for frame drops.
     // but it's mostly there to inform the player of large drops.
+#ifdef COMBO_BUILD
+    const short targetFPS = CVarGetInteger("gSettings.InterpolationFPS", 20); // ComboShip: shared gSettings.* name
+#else
     const short targetFPS = CVarGetInteger("gInterpolationFPS", 20);
+#endif
     const float threshold = targetFPS / 20.0f + 4.1f;
     return ImGui::GetIO().Framerate < targetFPS - threshold;
 }

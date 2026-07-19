@@ -723,7 +723,7 @@ static void SetActiveGame(int game /* 0 = OOT, 1 = MM */) {
 // Grants into the TARGET game's resident save via its save-only export (target is usually the
 // dormant game, so its save isn't mutating underneath us). See docs/deviations/rando.md.
 static std::set<std::string> sAppliedCrossChecks; // dedup: the same wire packet can reach both DLLs
-static uint32_t sCrossItemDedupSeed = 0;           // scoped per-seed (ResetCrossItemDedupForSeed)
+static uint32_t sCrossItemDedupSeed = 0;          // scoped per-seed (ResetCrossItemDedupForSeed)
 // Reset runs on the generation worker; deliver runs on the game thread — both mutate the set.
 static std::mutex sAppliedCrossChecksMutex;
 

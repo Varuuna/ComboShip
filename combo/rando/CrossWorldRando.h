@@ -536,7 +536,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
             // On UNBEATABLE, name which side blocked (ganon/majora) so a future win-marker rename or
             // logic regression is self-diagnosing instead of a silent all-passes-fail.
             std::string goalStr = ootAccess != OotAccess::BEATABLE_ONLY ? ""
-                                  : goalOk ? " goal=ok"
+                                  : goalOk                              ? " goal=ok"
                                            : " goal=UNBEATABLE(ganon=" + std::to_string(ootWin) +
                                                  " majora=" + std::to_string(mmWin) + ")";
             std::cerr << "[ComboShip] CrossWorldCombinedFill: validation failed — mmAdvUnreachable=" << mmAdvUnreachable

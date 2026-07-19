@@ -157,7 +157,7 @@ inline ReachSet QueryReachableMemo(const OracleFns& o, const std::vector<std::st
     return reach;
 }
 
-// Default win condition: OOT tower-top + Boss Key owned (Ganon) AND MM's in-lair check (Majora).
+// Default win condition: RC_GANON reachable (OOT) AND MM's in-lair check (Majora).
 // A pluggable goal so a future goal (e.g. Triforce hunt) can be swapped in without touching the
 // traversal machinery below.
 using GoalPredicate =
@@ -165,14 +165,11 @@ using GoalPredicate =
                        const std::vector<std::string>& ownedOot)>;
 inline bool DefaultGanonMajoraGoal(const std::unordered_set<std::string>& ootReach,
                                    const std::unordered_set<std::string>& mmReach,
-                                   const std::vector<std::string>& ownedOot) {
-    static const char* kOotTowerTop = "Ganon's Castle Tower Boss Key Chest";
-    static const char* kOotBossKey = "Ganon's Castle Boss Key";
+                                   const std::vector<std::string>& /*ownedOot*/) {
+    // RC_GANON reachable = OOT beatable (bridge + boss key, placed or force-granted); see CrossWorldRando.h.
+    static const char* kOotGanon = "Ganon";
     static const char* kMmWin = "Moon Majora Pot 01"; // ComboShip: friendly form of RC_MOON_MAJORA_POT_01
-    bool canGanon =
-        ootReach.count(kOotTowerTop) > 0 && std::find(ownedOot.begin(), ownedOot.end(), kOotBossKey) != ownedOot.end();
-    bool canMajora = mmReach.count(kMmWin) > 0;
-    return canGanon && canMajora;
+    return ootReach.count(kOotGanon) > 0 && mmReach.count(kMmWin) > 0;
 }
 
 // NO_LOGIC goal: OOT may be structurally unbeatable from empty (the combined goal would degenerate and
@@ -181,7 +178,7 @@ inline bool DefaultGanonMajoraGoal(const std::unordered_set<std::string>& ootRea
 inline bool MmOnlyMajoraGoal(const std::unordered_set<std::string>& /*ootReach*/,
                              const std::unordered_set<std::string>& mmReach,
                              const std::vector<std::string>& /*ownedOot*/) {
-    static const char* kMmWin = "RC_MOON_MAJORA_POT_01";
+    static const char* kMmWin = "Moon Majora Pot 01"; // friendly name the MM oracle returns (not raw RC_)
     return mmReach.count(kMmWin) > 0;
 }
 
@@ -338,8 +335,7 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
                                         const OracleFns& mmOracle, const std::string& seedLabel, void (*mmRestore)(),
                                         nlohmann::json* playthroughOut = nullptr, const std::string& sohDumpJson = "",
                                         const std::string& mmDumpJson = "") {
-    static const char* kOotTowerTop = "Ganon's Castle Tower Boss Key Chest";
-    static const char* kOotBossKey = "Ganon's Castle Boss Key";
+    static const char* kOotGanon = "Ganon";           // RC_GANON reachable = OOT beatable (see CrossWorldRando.h)
     static const char* kMmWin = "Moon Majora Pot 01"; // ComboShip: friendly form of RC_MOON_MAJORA_POT_01
 
     PlaythroughResult result;
@@ -353,7 +349,7 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
     std::unordered_set<std::string> collected; // "<cg>:<cn>"
     std::ostringstream log;
     log << "Cross-world playthrough - seed '" << seedLabel << "'\n"
-        << "Beatable when: Ganondorf reachable (OOT: tower top reachable + Boss Key owned)"
+        << "Beatable when: Ganon reachable (OOT: RC_GANON, i.e. bridge + boss key)"
         << " AND Majora's Lair reachable (MM).\n\n";
 
     int beatableSphere = -1;
@@ -361,8 +357,7 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
     for (int sphere = 0; sphere < kMaxSpheres; ++sphere) {
         auto ootReach = queryReachable(ootOracle, ownedOot);
         auto mmReach = queryReachable(mmOracle, ownedMm);
-        bool canGanon = ootReach.count(kOotTowerTop) > 0 &&
-                        std::find(ownedOot.begin(), ownedOot.end(), kOotBossKey) != ownedOot.end();
+        bool canGanon = ootReach.count(kOotGanon) > 0;
         bool canMajora = mmReach.count(kMmWin) > 0;
         if (canGanon && canMajora) {
             beatableSphere = sphere;
@@ -414,8 +409,7 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
         (p.itemGame == GAME_OOT ? allOot : allMm).push_back(p.item);
     auto everReachOot = queryReachable(ootOracle, allOot);
     auto everReachMm = queryReachable(mmOracle, allMm);
-    result.ganonReachable =
-        everReachOot.count(kOotTowerTop) > 0 && std::find(allOot.begin(), allOot.end(), kOotBossKey) != allOot.end();
+    result.ganonReachable = everReachOot.count(kOotGanon) > 0;
     result.majoraReachable = everReachMm.count(kMmWin) > 0;
 
     if (mmRestore)

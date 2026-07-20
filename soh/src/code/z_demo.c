@@ -427,7 +427,7 @@ void func_80064824(PlayState* play, CutsceneContext* csCtx, CsCmdBase* cmd) {
             }
             break;
         case 35:
-            func_800EE824();
+            AudioOcarina_PlayLongScarecrowSong();
             csCtx->frames = cmd->startFrame - 1;
             break;
     }
@@ -912,7 +912,7 @@ void Cutscene_Command_Terminator(PlayState* play, CutsceneContext* csCtx, CsCmdB
                 break;
             case 54:
                 gSaveContext.gameMode = GAMEMODE_END_CREDITS;
-                Audio_SetSoundBanksMute(0x6F);
+                Audio_SetSfxBanksMute(0x6F);
                 play->linkAgeOnLoad = 1;
                 play->nextEntranceIndex = ENTR_GERUDO_VALLEY_EAST_EXIT;
                 gSaveContext.cutsceneIndex = 0xFFF2;
@@ -1309,7 +1309,7 @@ void Cutscene_Command_Terminator(PlayState* play, CutsceneContext* csCtx, CsCmdB
                 break;
             case 117:
                 gSaveContext.gameMode = GAMEMODE_END_CREDITS;
-                Audio_SetSoundBanksMute(0x6F);
+                Audio_SetSfxBanksMute(0x6F);
                 play->linkAgeOnLoad = 0;
                 play->nextEntranceIndex = ENTR_HYRULE_FIELD_PAST_BRIDGE_SPAWN;
                 gSaveContext.cutsceneIndex = 0xFFF7;

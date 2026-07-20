@@ -302,11 +302,11 @@ void RandomizerOnFlagSetHandler(int16_t flagType, int16_t flag) {
     }
 
     if (flagType == FLAG_EVENT_CHECK_INF && flag == EVENTCHKINF_TALON_WOKEN_IN_CASTLE) {
-        // remove chicken as this is the only use for it
         Flags_UnsetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_CHICKEN);
     }
 
-    if (flagType == FLAG_EVENT_CHECK_INF && flag == EVENTCHKINF_OBTAINED_ZELDAS_LETTER) {
+    if (flagType == FLAG_EVENT_CHECK_INF && flag == EVENTCHKINF_OBTAINED_ZELDAS_LETTER &&
+        !RAND_GET_OPTION(RSK_SHUFFLE_ZELDAS_LETTER)) {
         Flags_SetRandomizerInf(RAND_INF_ZELDAS_LETTER);
     }
 
@@ -1342,6 +1342,17 @@ void RandomizerOnVanillaBehaviorHandler(GIVanillaBehavior id, bool* should, va_l
         }
         case VB_KING_ZORA_TUNIC_CHECK: {
             if (!Flags_GetRandomizerInf(RAND_INF_KING_ZORA_THAWED)) {
+                *should = false;
+            }
+            break;
+        }
+        case VB_JABU_PREVENT_RUTO_REENTER_BIGOCTO: {
+            // Don't let player carry Ruto through doors 21 and 3 to Bigocto room if Ruto abducted flag set
+            Player* player = va_arg(args, Player*);
+            Actor* doorActor = va_arg(args, Actor*);
+            if (gPlayState->sceneNum == SCENE_JABU_JABU && GET_INFTABLE(INFTABLE_146) &&
+                (GET_TRANSITION_ACTOR_INDEX(doorActor) == 21 || GET_TRANSITION_ACTOR_INDEX(doorActor) == 3) &&
+                player->heldActor != NULL && player->heldActor->id == ACTOR_EN_RU1) {
                 *should = false;
             }
             break;
@@ -2889,7 +2900,8 @@ f32 triforcePieceScale;
 
 void RandomizerOnPlayerUpdateHandler() {
     if ((GET_PLAYER(gPlayState)->stateFlags1 & PLAYER_STATE1_IN_WATER) && !Flags_GetRandomizerInf(RAND_INF_CAN_SWIM) &&
-        CUR_EQUIP_VALUE(EQUIP_TYPE_BOOTS) != EQUIP_VALUE_BOOTS_IRON) {
+        CUR_EQUIP_VALUE(EQUIP_TYPE_BOOTS) != EQUIP_VALUE_BOOTS_IRON &&
+        gPlayState->transitionTrigger == TRANS_TRIGGER_OFF) {
         // if you void out in water temple without swim you get instantly kicked out to prevent softlocks
         if (gPlayState->sceneNum == SCENE_WATER_TEMPLE) {
             GameInteractor::RawAction::TeleportPlayer(
@@ -2915,6 +2927,7 @@ void RandomizerOnPlayerUpdateHandler() {
                 gSaveContext.respawnFlag = 0;
             } else {
                 Play_TriggerVoidOut(gPlayState);
+                Grotto_ForceGrottoReturnOnSpecialEntrance();
             }
         }
     }

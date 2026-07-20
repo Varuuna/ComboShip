@@ -567,7 +567,7 @@ void RegionTable_Init_DodongosCavern() {
         ENTRANCE(RR_DODONGOS_CAVERN_MQ_MAD_SCRUB_ROOM,    AnyAgeTime([]{return logic->CanDetonateBombFlowers() || logic->HasItem(RG_GORONS_BRACELET);})),
     });
 
-    areaTable[RR_DODONGOS_CAVERN_MQ_MAD_SCRUB_ROOM] = Region("Dodongos Cavern Mad Scrub Room", SCENE_DODONGOS_CAVERN, {}, {
+    areaTable[RR_DODONGOS_CAVERN_MQ_MAD_SCRUB_ROOM] = Region("Dodongos Cavern MQ Mad Scrub Room", SCENE_DODONGOS_CAVERN, {}, {
         //Locations
         LOCATION(RC_DODONGOS_CAVERN_MQ_GS_SCRUB_ROOM, (logic->CanGetEnemyDrop(RE_GOLD_SKULLTULA, ED_BOOMERANG, true))), //Implies you can avoid/kill the enemies with what you use on the skull, if this assumption is broken, add
                                                                                                     //&& (AnyAgeTime([]{return logic->CanKillEnemy(RE_FIRE_KEESE) && logic->CanKillEnemy(RE_MAD_SCRUB);}) || (logic->CanAvoidEnemy(RE_FIRE_KEESE) && logic->CanAvoidEnemy(RE_MAD_SCRUB)))

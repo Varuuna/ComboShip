@@ -165,8 +165,14 @@ RandoItemId Rando::CurrentJunkItem(RandoCheckId randoCheckId) {
         return RI_RUPEE_GREEN;
     }
     if (CVarGetInteger("gRando.JunkItems", 0) == 0) {
+#ifdef COMBO_BUILD
+        // ComboShip: dormant grant has no play state; deterministic seed when gPlayState is null.
+        uint32_t frames = (gPlayState != nullptr) ? (gPlayState->gameplayFrames / 30) : 0;
+        Ship_Random_Seed(gSaveContext.save.shipSaveInfo.rando.finalSeed + randoCheckId + frames);
+#else
         Ship_Random_Seed(gSaveContext.save.shipSaveInfo.rando.finalSeed + randoCheckId +
                          (gPlayState->gameplayFrames / 30));
+#endif
         return obtainableJunkItems[Ship_Random(0, obtainableJunkItems.size())];
     } else {
         Ship_Random_Seed(gSaveContext.save.shipSaveInfo.rando.finalSeed + randoCheckId);

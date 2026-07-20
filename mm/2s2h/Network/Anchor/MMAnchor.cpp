@@ -59,7 +59,7 @@ extern "C" void (*gMMComboMarkForeignObtained)(int srcGame, const char* checkNam
 // ComboShip A6: launcher pump fn (set via MM_SetPumpDormant). The ACTIVE game calls it each frame so
 // the launcher can drive the DORMANT sibling's save-affecting packet apply on this (game) thread.
 extern "C" void (*gMMComboPumpDormant)() = nullptr;
-// Dormant-safe give of a resolved MM rando item (BenPort.cpp): trap-defer or GiveItemForOracle + persist.
+// Dormant-safe give of a resolved MM rando item into the resident save + persist (BenPort.cpp).
 void Combo_MM_GiveDormantResolved(RandoItemId rid);
 
 MMAnchor* MMAnchor::Instance = nullptr;
@@ -278,9 +278,8 @@ void MMAnchor::PumpDormant() {
     }
 }
 
-// A6: dormant-safe variant of HandlePacket_GiveItem — marks the check obtained and grants the item
-// through the save-only path (no gPlayState). Junk is left unresolved (GiveItemForOracle no-ops it;
-// CurrentJunkItem reads gPlayState and isn't dormant-safe), but its check is still registered.
+// A6: dormant-safe variant of HandlePacket_GiveItem — marks the check obtained and grants via
+// Combo_MM_GiveDormantResolved -> Rando::GiveItem (gPlayState==NULL). Junk resolves normally.
 void MMAnchor::ApplyDormantGiveItem(const nlohmann::json& payload) {
     if (!payload.contains("randoCheckId")) {
         return; // reject soh's GIVE_ITEM (modId shape, different item-id space)
@@ -306,6 +305,10 @@ void MMAnchor::ApplyDormantGiveItem(const nlohmann::json& payload) {
         return; // idempotent: already collected locally
     }
     RandoItemId rid = Rando::ConvertItem((RandoItemId)payload.value("getItemId", (int)RI_JUNK), rc);
+    if (rid == RI_JUNK) {
+        // Co-op MM pickup: resolve real rotating junk (CurrentJunkItem is dormant-safe).
+        rid = Rando::CurrentJunkItem(rc);
+    }
     RANDO_SAVE_CHECKS[rc].obtained = true;
     RANDO_SAVE_CHECKS[rc].cycleObtained = true;
     RANDO_SAVE_CHECKS[rc].eligible = false;

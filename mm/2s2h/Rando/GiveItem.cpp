@@ -8,6 +8,10 @@ extern "C" {
 #include "functions.h"
 }
 
+#ifdef COMBO_BUILD
+bool Rando::gComboDormantGive = false;
+#endif
+
 void Rando::GiveItem(RandoItemId randoItemId) {
     switch (randoItemId) {
         case RI_CLOCK_TOWN_STRAY_FAIRY:
@@ -128,6 +132,12 @@ void Rando::GiveItem(RandoItemId randoItemId) {
         case RI_TRIFORCE_PIECE:
         case RI_TRIFORCE_PIECE_PREVIOUS:
             gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces++;
+#ifdef COMBO_BUILD
+            // ComboShip: dormant grant can't warp; count only, re-evaluated on MM activation.
+            if (Rando::gComboDormantGive) {
+                break;
+            }
+#endif
             if (gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces ==
                 RANDO_SAVE_OPTIONS[RO_TRIFORCE_PIECES_REQUIRED]) {
                 // Blocks the ability to beat the game through killing Majora until all Triforce Pieces are found.
@@ -384,6 +394,13 @@ void Rando::GiveItem(RandoItemId randoItemId) {
             Flags_SetRandoInf(RANDO_INF_OBTAINED_SWIM);
             break;
         case RI_TRAP:
+#ifdef COMBO_BUILD
+            // ComboShip: traps need a live play state; dormant defers to Traps.cpp drain.
+            if (Rando::gComboDormantGive) {
+                gSaveContext.save.shipSaveInfo.rando.pendingTrapCount++;
+                break;
+            }
+#endif
             Rando::MiscBehavior::OfferTrapItem();
             break;
         case RI_OCARINA_BUTTON_A:

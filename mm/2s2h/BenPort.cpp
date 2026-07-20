@@ -3699,18 +3699,32 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_SetOwnedItems(const char* i
 
 // ComboShip: cross-game item delivery seam (issue #3). When the other game collects a check whose
 // item belongs to MM, the launcher calls MM_GrantCrossItem to grant it straight into MM's resident
-// save — even when MM is the dormant (frozen) game. We use GiveItemForOracle, the save-only grant
-// that never touches gPlayState, so it is safe against a frozen play state. The save is persisted
-// immediately so the item survives quitting before ever switching into MM. See docs/UPSTREAM_MERGES.md.
-// ComboShip: dormant-safe give of an already-resolved MM rando item into the resident save,
-// persisted immediately. Traps are deferred (drained in Traps.cpp when MM is active). Non-static
-// so MMAnchor's dormant co-op receive path can reuse it. RC is marked obtained by the caller.
+// save — even while MM is dormant. Delivers through the real give path (Rando::GiveItem), not the
+// oracle, so capacity/ammo/multi-slot state is written faithfully; gComboDormantGive defers the
+// play-dependent branches. Callers pass a concrete item (junk pre-resolved).
 void Combo_MM_GiveDormantResolved(RandoItemId rid) {
-    if (rid == RI_TRAP) {
-        // Trap effects need an active PlayState/GameInteractor; defer and fire on next MM activation.
-        gSaveContext.save.shipSaveInfo.rando.pendingTrapCount++;
-    } else {
-        GiveItemForOracle(rid); // save-only, dormant-safe
+    {
+        // Scope-guard clears the flag even if GiveItem throws.
+        struct FlagGuard {
+            ~FlagGuard() {
+                Rando::gComboDormantGive = false;
+            }
+        } flagGuard;
+        Rando::gComboDormantGive = true;
+        Rando::GiveItem(rid);
+    }
+    // ComboShip: rupees/magic land in transient accumulators (not in gSaveContext.save, applied on
+    // the interface tick); flush them into the save so a dormant grant survives quitting before MM.
+    if (gSaveContext.rupeeAccumulator != 0) {
+        s16 total = gSaveContext.save.saveInfo.playerData.rupees + gSaveContext.rupeeAccumulator;
+        gSaveContext.save.saveInfo.playerData.rupees = CLAMP(total, 0, (s16)CUR_CAPACITY(UPG_WALLET));
+        gSaveContext.rupeeAccumulator = 0;
+    }
+    if (gSaveContext.magicToAdd != 0) {
+        s16 total = gSaveContext.save.saveInfo.playerData.magic + gSaveContext.magicToAdd;
+        gSaveContext.save.saveInfo.playerData.magic = CLAMP(total, 0, (s16)gSaveContext.magicCapacity);
+        gSaveContext.magicToAdd = 0;
+        gSaveContext.isMagicRequested = false;
     }
     if (gSaveContext.fileNum != 0xFF) {
         SaveManager_SaveCurrentForCombo(); // persist NOW
@@ -3726,7 +3740,12 @@ extern "C" __declspec(dllexport) void MM_GrantCrossItem(const char* itemName) {
         SPDLOG_WARN("[ComboShip] MM_GrantCrossItem: unknown MM item '{}'", itemName);
         return;
     }
-    Combo_MM_GiveDormantResolved(it->second);
+    RandoItemId rid = it->second;
+    // ComboShip: MM junk can't rotate when collected in OOT; deliver a fixed Red Rupee.
+    if (rid == RI_JUNK) {
+        rid = RI_RUPEE_RED;
+    }
+    Combo_MM_GiveDormantResolved(rid);
     SPDLOG_INFO("[ComboShip] MM_GrantCrossItem: granted '{}' into MM save", itemName);
 }
 

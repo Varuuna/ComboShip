@@ -36,6 +36,7 @@ typedef enum {
     CW_DRAW_KIND_SCALE,          /* silver/gold scale: XLU seg8 scroll, dl2,3,1,0 */
     CW_DRAW_KIND_SKULL_TOKEN,    /* body OPA dl0 + XLU seg8 flame dl1 (full, flame included) */
     CW_DRAW_KIND_MUSIC_NOTE,     /* generic rando song note: grayscale tint (primColorXlu), dl0 */
+    CW_DRAW_KIND_BOSS_SOUL,      /* OOT boss soul: seg8 flame scroll (grayscale primColorXlu) dl0 + skull dl1 (envColorXlu) */
     /* Triforce Piece / Fishing Pole are plain scaled-OPA draws with no extra GPU state, so they ride
      * the SIMPLE path (dlists[0] + scale) rather than a dedicated kind. */
 } CwDrawKind;

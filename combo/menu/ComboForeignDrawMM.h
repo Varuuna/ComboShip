@@ -468,6 +468,34 @@ inline void MM_DrawForeignMusicNote(const ComboForeignDrawInfoOOT* info) {
     CLOSE_DISPS(gfxCtx);
 }
 
+// OOT boss soul: seg8 flame scroll + billboard, grayscale-colored flame dl0, then generic skull dl1
+// with env color (Randomizer_DrawBossSoul, SimplerBossSoulModels path — no boss skeleton cross-game).
+inline void MM_DrawForeignBossSoul(const ComboForeignDrawInfoOOT* info) {
+    PlayState* play = gPlayState;
+    GraphicsContext* gfxCtx = play->state.gfxCtx;
+    OPEN_DISPS(gfxCtx);
+    Gfx_SetupDL25_Xlu(gfxCtx);
+    gSPSegment(POLY_XLU_DISP++, 0x08,
+               (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, 0, 0, 16, 32, 1, play->state.frames * 1,
+                                             -(play->state.frames * 8), 16, 32, 0, 0, 1, -8));
+    Matrix_Push();
+    Matrix_Translate(0.0f, -70.0f, 0.0f, MTXMODE_APPLY);
+    Matrix_Scale(5.0f, 5.0f, 5.0f, MTXMODE_APPLY);
+    Matrix_ReplaceRotation(&play->billboardMtxF);
+    MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
+    gDPSetGrayscaleColor(POLY_XLU_DISP++, info->primColorXlu[0], info->primColorXlu[1], info->primColorXlu[2], 255);
+    gSPGrayscale(POLY_XLU_DISP++, true);
+    gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[0]); // flame
+    gSPGrayscale(POLY_XLU_DISP++, false);
+    Matrix_Pop();
+    MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
+    gDPSetEnvColor(POLY_XLU_DISP++, info->envColorXlu[0], info->envColorXlu[1], info->envColorXlu[2], 255);
+    gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[1]); // generic soul skull
+    CLOSE_DISPS(gfxCtx);
+    int32_t segs[] = { 0x08 };
+    MM_RestoreForeignSegs(segs, 1);
+}
+
 // Draw a foreign (OOT-bound) item's real OOT model at the current model matrix. Any resolution
 // failure falls back to the sentinel blue rupee (the RI_COMBO_FOREIGN item's GID_RUPEE_BLUE), so we
 // never draw blank. Mirrors Randomizer_DrawComboForeign (soh/.../draw.cpp).
@@ -521,6 +549,9 @@ inline void MM_DrawComboForeign(RandoCheckId randoCheckId) {
             break;
         case CW_DRAW_KIND_MUSIC_NOTE:
             MM_DrawForeignMusicNote(info);
+            break;
+        case CW_DRAW_KIND_BOSS_SOUL:
+            MM_DrawForeignBossSoul(info);
             break;
         case CW_DRAW_KIND_SIMPLE:
         default:

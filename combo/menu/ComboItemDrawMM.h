@@ -132,6 +132,47 @@ static int32_t MM_FillOwlDrawInfo(RandoItemId id, CwItemDrawInfo* out) {
     return 1;
 }
 
+// Boss souls (GID_NONE, bespoke non-portable drawFunc) -> matching boss-remains model. Delegates to
+// the remains table row so output matches a real remains foreign item exactly. Majora has no remains
+// -> Twinmold stand-in. Else 0.
+static int32_t MM_FillSoulDrawInfo(RandoItemId id, CwItemDrawInfo* out) {
+    s32 gid;
+    switch (id) {
+        case RI_SOUL_BOSS_GOHT:
+            gid = GID_REMAINS_GOHT;
+            break;
+        case RI_SOUL_BOSS_GYORG:
+            gid = GID_REMAINS_GYORG;
+            break;
+        case RI_SOUL_BOSS_ODOLWA:
+            gid = GID_REMAINS_ODOLWA;
+            break;
+        case RI_SOUL_BOSS_TWINMOLD:
+        case RI_SOUL_BOSS_MAJORA: // no Majora remains model; Twinmold's stands in
+            gid = GID_REMAINS_TWINMOLD;
+            break;
+        default:
+            return 0;
+    }
+    void* dls[CW_DRAW_MAX_DLISTS] = {};
+    int32_t xluStart = -1;
+    f32 scale = 0.0f;
+    s32 xluSeg8TexScroll = 0;
+    int32_t n = GetItem_GetDrawTableEntry(gid, dls, CW_DRAW_MAX_DLISTS, &xluStart, &scale, &xluSeg8TexScroll);
+    if (n <= 0) {
+        return 0;
+    }
+    out->dlistCount = n;
+    out->xluStartIndex = xluStart;
+    out->scale = scale;
+    out->xluSeg8TexScroll = xluSeg8TexScroll;
+    out->hasEnvColor = 0;
+    for (int32_t k = 0; k < n; k++) {
+        out->dlists[k] = (const char*)dls[k];
+    }
+    return 1;
+}
+
 // Cross-game item draw info. OOT resolves this via GetProcAddress to learn which MM display lists
 // render a foreign item, then submits them through "__OTR__@mm:"-routed paths resolved against
 // MM's ResourceManager (CrossRMRegistry). itemName is the friendly combo-spoiler name the foreign
@@ -159,6 +200,9 @@ extern "C" __declspec(dllexport) int32_t MM_GetItemDrawInfo(const char* itemName
     }
     if (MM_FillOwlDrawInfo(id, out)) {
         return 1; // owl statues: opened-owl model, no table row
+    }
+    if (MM_FillSoulDrawInfo(id, out)) {
+        return 1; // boss souls: remains model, no table row
     }
     void* dls[CW_DRAW_MAX_DLISTS] = {};
     int32_t xluStart = -1;

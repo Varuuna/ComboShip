@@ -2939,6 +2939,15 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoSettings(void) {
     // Excluded-checks CSV is a string CVar outside the options walk; GeneratePools parses it, so a
     // replayed spoiler must carry it or local exclusions leak in (GAP-7 mirror).
     j["gRando.ExcludedChecks"] = CVarGetString("gRando.ExcludedChecks", "");
+    // Starting items are a JSON-array config block (not a flat CVar); carry them so a joiner's save
+    // uses the author's kit instead of local defaults.
+    nlohmann::json si = nlohmann::json::array();
+    for (RandoItemId rid : Rando::GetStartingItemsFromConfig()) {
+        const char* name = Rando::StaticData::Items[rid].spoilerName;
+        if (name && name[0])
+            si.push_back(name);
+    }
+    j["gRando.StartingItems"] = si;
     cached = j.dump();
     return cached.c_str();
 }
@@ -2953,7 +2962,19 @@ extern "C" __declspec(dllexport) void MM_RestoreRandoSettings(const char* json) 
         auto j = nlohmann::json::parse(json);
         // Snapshot is authoritative: pre-clear so pre-GAP-7 spoilers don't inherit local exclusions.
         CVarSetString("gRando.ExcludedChecks", "");
+        // Starting items: authoritative array from the seed (handled here, skipped in the loop).
+        if (j.contains("gRando.StartingItems") && j["gRando.StartingItems"].is_array()) {
+            std::vector<RandoItemId> items;
+            for (auto& n : j["gRando.StartingItems"]) {
+                auto rid = Rando::StaticData::GetItemIdFromName(n.get<std::string>().c_str());
+                if (rid > RI_UNKNOWN && rid < RI_MAX)
+                    items.push_back(rid);
+            }
+            Rando::SetStartingItemsInConfig(items);
+        }
         for (auto it = j.begin(); it != j.end(); ++it) {
+            if (it.key() == "gRando.StartingItems")
+                continue;
             if (it.value().is_string())
                 CVarSetString(it.key().c_str(), it.value().get<std::string>().c_str());
             else

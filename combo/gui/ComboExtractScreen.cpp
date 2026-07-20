@@ -36,6 +36,7 @@ struct RomSlot {
     const char* label = "";
     bool needed = false; // archive missing -> must extract
     ComboFnValidateRom validate = nullptr;
+    ComboFnValidateRom classify = nullptr; // header-only version check for the auto-scan
     ComboFnStartExtraction start = nullptr;
     ComboFnGetProgress progress = nullptr;
     std::string path;
@@ -115,11 +116,13 @@ extern "C" __declspec(dllexport) int ComboUI_RunExtraction(const ComboExtractCal
     slots[0].label = "Ocarina of Time";
     slots[0].needed = cb->sohNeeded != 0;
     slots[0].validate = cb->sohValidate;
+    slots[0].classify = cb->sohClassify;
     slots[0].start = cb->sohStart;
     slots[0].progress = cb->sohProgress;
     slots[1].label = "Majora's Mask";
     slots[1].needed = cb->mmNeeded != 0;
     slots[1].validate = cb->mmValidate;
+    slots[1].classify = cb->mmClassify;
     slots[1].start = cb->mmStart;
     slots[1].progress = cb->mmProgress;
 
@@ -129,10 +132,12 @@ extern "C" __declspec(dllexport) int ComboUI_RunExtraction(const ComboExtractCal
         ScanForRoms(std::filesystem::current_path(), candidates);
         for (const auto& c : candidates) {
             for (auto& s : slots) {
-                if (!s.needed || s.valid || !s.validate) {
+                if (!s.needed || s.valid) {
                     continue;
                 }
-                if (s.validate(c.c_str())) {
+                // Route by the header-only classify (fast); fall back to full validate if unavailable.
+                ComboFnValidateRom check = s.classify ? s.classify : s.validate;
+                if (check && check(c.c_str())) {
                     s.path = c;
                     s.valid = true;
                     break;

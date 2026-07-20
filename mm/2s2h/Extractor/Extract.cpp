@@ -413,6 +413,34 @@ bool Extractor::ManuallySearchForRomMatchingType(RomSearchMode searchMode) {
     return true;
 }
 
+// ComboShip: classify a ROM by its header version CRC only (no full-ROM read/CRC). The folder
+// auto-scan calls this per candidate x slot; full-ROM CRC stays in RunFileStandalone, once per match.
+bool Extractor::ClassifyRom(std::string rom) {
+    if (std::filesystem::is_directory(rom)) {
+        return false;
+    }
+    auto file = std::filesystem::path(rom);
+    if ((file.extension() != ".n64") && (file.extension() != ".z64") && (file.extension() != ".v64")) {
+        return false;
+    }
+    SetRomInfo(rom);
+    if (!ValidateRomSize()) {
+        return false;
+    }
+    std::ifstream inFile(rom, std::ios::in | std::ios::binary);
+    if (!inFile.is_open()) {
+        return false;
+    }
+    constexpr size_t kHeaderBytes = 0x1000; // enough for the magic + version CRC at 0x10
+    inFile.read((char*)mRomData.get(), kHeaderBytes);
+    inFile.close();
+    BitConverter::RomToBigEndian(mRomData.get(), kHeaderBytes);
+    if (!ValidateNotCompressed()) {
+        return false;
+    }
+    return verMap.contains(GetRomVerCrc());
+}
+
 bool Extractor::RunFileStandalone(std::string rom) {
     if (std::filesystem::is_directory(rom)) {
         return false;
@@ -586,16 +614,22 @@ bool Extractor::CallZapd(std::string installPath, std::string exportdir, std::at
     std::string tempdir = Mkdtemp();
     std::string curdir = std::filesystem::current_path().string();
 #ifdef _WIN32
-    // Use overwrite_existing (not update_existing) — MSVC's update_existing combined with
-    // recursive can throw filesystem_error when comparing timestamps on a fresh destination.
+    // ComboShip: prefer a cheap directory symlink over copying the whole ~26MB assets tree on every
+    // extraction (a major startup stall). Falls back to the copy if the link can't be made (no privilege).
     try {
-        std::filesystem::copy(installPath + "/assets", tempdir + "/assets",
-                              std::filesystem::copy_options::recursive |
-                                  std::filesystem::copy_options::overwrite_existing);
-    } catch (const std::filesystem::filesystem_error& e) {
-        fprintf(stderr, "MM Extractor: failed to copy assets to temp dir: %s\n", e.what());
-        std::filesystem::remove_all(tempdir);
-        return false;
+        std::filesystem::create_directory_symlink(installPath + "/assets", tempdir + "/assets");
+    } catch (const std::exception&) {
+        // Use overwrite_existing (not update_existing) — MSVC's update_existing combined with
+        // recursive can throw filesystem_error when comparing timestamps on a fresh destination.
+        try {
+            std::filesystem::copy(installPath + "/assets", tempdir + "/assets",
+                                  std::filesystem::copy_options::recursive |
+                                      std::filesystem::copy_options::overwrite_existing);
+        } catch (const std::filesystem::filesystem_error& e) {
+            fprintf(stderr, "MM Extractor: failed to copy assets to temp dir: %s\n", e.what());
+            std::filesystem::remove_all(tempdir);
+            return false;
+        }
     }
 #else
     std::filesystem::create_symlink(installPath + "/assets", tempdir + "/assets");

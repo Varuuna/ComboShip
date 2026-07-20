@@ -251,9 +251,11 @@ static FnComboUISetRosterProvider ComboUI_SetAnchorRosterProvider = nullptr;
 static FnVoid SOH_InitWindowOnly = nullptr;
 static FnVoid SOH_FinishInit = nullptr;
 static ComboFnValidateRom SOH_ValidateRom = nullptr;
+static ComboFnValidateRom SOH_ClassifyRom = nullptr;
 static ComboFnStartExtraction SOH_StartExtraction = nullptr;
 static ComboFnGetProgress SOH_GetExtractionProgress = nullptr;
 static ComboFnValidateRom MM_ValidateRom = nullptr;
+static ComboFnValidateRom MM_ClassifyRom = nullptr;
 static ComboFnStartExtraction MM_StartExtraction = nullptr;
 static ComboFnGetProgress MM_GetExtractionProgress = nullptr;
 static ComboFnRunExtraction ComboUI_RunExtraction = nullptr;
@@ -1806,9 +1808,11 @@ int main(int argc, char** argv) {
     SOH_InitWindowOnly = (FnVoid)GetSym(sohModule, "SOH_InitWindowOnly");
     SOH_FinishInit = (FnVoid)GetSym(sohModule, "SOH_FinishInit");
     SOH_ValidateRom = (ComboFnValidateRom)GetSym(sohModule, "SOH_ValidateRom");
+    SOH_ClassifyRom = (ComboFnValidateRom)GetSym(sohModule, "SOH_ClassifyRom");
     SOH_StartExtraction = (ComboFnStartExtraction)GetSym(sohModule, "SOH_StartExtraction");
     SOH_GetExtractionProgress = (ComboFnGetProgress)GetSym(sohModule, "SOH_GetExtractionProgress");
     MM_ValidateRom = (ComboFnValidateRom)GetSym(mmModule, "MM_ValidateRom");
+    MM_ClassifyRom = (ComboFnValidateRom)GetSym(mmModule, "MM_ClassifyRom");
     MM_StartExtraction = (ComboFnStartExtraction)GetSym(mmModule, "MM_StartExtraction");
     MM_GetExtractionProgress = (ComboFnGetProgress)GetSym(mmModule, "MM_GetExtractionProgress");
     SOH_ApplyImportedConfig = (ComboFnApplyImportedConfig)GetSym(sohModule, "SOH_ApplyImportedConfig");
@@ -1911,10 +1915,12 @@ int main(int argc, char** argv) {
 
         ComboExtractCallbacks cb = {};
         cb.sohValidate = SOH_ValidateRom;
+        cb.sohClassify = SOH_ClassifyRom;
         cb.sohStart = SOH_StartExtraction;
         cb.sohProgress = SOH_GetExtractionProgress;
         cb.sohNeeded = needOot ? 1 : 0;
         cb.mmValidate = MM_ValidateRom;
+        cb.mmClassify = MM_ClassifyRom;
         cb.mmStart = MM_StartExtraction;
         cb.mmProgress = MM_GetExtractionProgress;
         cb.mmNeeded = needMm ? 1 : 0;

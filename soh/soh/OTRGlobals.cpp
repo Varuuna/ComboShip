@@ -3293,6 +3293,15 @@ extern "C" __declspec(dllexport) int SOH_ValidateRom(const char* romPath) {
     return extract.RunFileStandalone(romPath) ? 1 : 0;
 }
 
+// ComboShip: header-only version check for the folder auto-scan (no full-ROM read/CRC).
+extern "C" __declspec(dllexport) int SOH_ClassifyRom(const char* romPath) {
+    if (!romPath) {
+        return 0;
+    }
+    Extractor extract;
+    return extract.ClassifyRom(romPath) ? 1 : 0;
+}
+
 // Kicks ZAPD extraction of romPath on a background task. Non-blocking; returns 0 if a job is already
 // running or the arg is null. Poll SOH_GetExtractionProgress for completion.
 extern "C" __declspec(dllexport) int SOH_StartExtraction(const char* romPath) {

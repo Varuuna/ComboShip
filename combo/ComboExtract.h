@@ -25,11 +25,14 @@ typedef struct ComboExtractCallbacks {
     ComboFnStartExtraction sohStart;
     ComboFnGetProgress sohProgress;
     int sohNeeded; // 1 if the OoT ROM archive is missing and must be extracted
+    // Header-only version check for the folder auto-scan (no full-ROM read/CRC); may be null.
+    ComboFnValidateRom sohClassify;
 
     ComboFnValidateRom mmValidate;
     ComboFnStartExtraction mmStart;
     ComboFnGetProgress mmProgress;
     int mmNeeded; // 1 if the MM ROM archive is missing and must be extracted
+    ComboFnValidateRom mmClassify;
 } ComboExtractCallbacks;
 
 // Implemented in comboui.dll (ComboExtractScreen.cpp). Blocks until every needed ROM is extracted

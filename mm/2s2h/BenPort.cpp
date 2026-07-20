@@ -2874,6 +2874,15 @@ extern "C" __declspec(dllexport) int MM_ValidateRom(const char* romPath) {
     return extract.RunFileStandalone(romPath) ? 1 : 0;
 }
 
+// ComboShip: header-only version check for the folder auto-scan (no full-ROM read/CRC).
+extern "C" __declspec(dllexport) int MM_ClassifyRom(const char* romPath) {
+    if (!romPath) {
+        return 0;
+    }
+    Extractor extract;
+    return extract.ClassifyRom(romPath) ? 1 : 0;
+}
+
 extern "C" __declspec(dllexport) int MM_StartExtraction(const char* romPath) {
     if (!romPath) {
         return 0;

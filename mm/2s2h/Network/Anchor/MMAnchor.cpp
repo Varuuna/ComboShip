@@ -8,6 +8,7 @@
 #include "2s2h/Rando/Rando.h" // Rando::GiveItem / ConvertItem / CurrentJunkItem / RANDO_SAVE_CHECKS / IS_RANDO
 #include "2s2h/Rando/CheckTracker/CheckTracker.h" // Phase 2d: re-derive after team-state apply
 #include "2s2h/Rando/ActorBehavior/ActorBehavior.h"
+#include "2s2h/Rando/MiscBehavior/MiscBehavior.h" // MM_LookupForeign (foreign backfill)
 #include "2s2h/ShipInit.hpp"
 #include "2s2h/ShipUtils.h" // ComboShip: Ship_GetSceneName for the roster area-name supplement
 #include "2s2h/BenGui/Notification.h"
@@ -818,6 +819,12 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     u32 localQuestItems = gSaveContext.save.saveInfo.inventory.questItems;
     u32 localUpgrades = gSaveContext.save.saveInfo.inventory.upgrades;
     s16 localHealthCapacity = gSaveContext.save.saveInfo.playerData.healthCapacity;
+    // Bug 4/5: rupees/magic regress on the wholesale saveInfo replace — snapshot to re-max after.
+    s16 localRupees = gSaveContext.save.saveInfo.playerData.rupees;
+    s8 localMagic = gSaveContext.save.saveInfo.playerData.magic;
+    // Bug 5: saveInfo replace clobbers permanentSceneFlags[120] — snapshot to OR back after the assign.
+    PermanentSceneFlags localPermSceneFlags[120];
+    memcpy(localPermSceneFlags, gSaveContext.save.saveInfo.permanentSceneFlags, sizeof(localPermSceneFlags));
 
     // Restore bottle contents (unless Deku Princess).
     for (int i = 0; i < 6; i++) {
@@ -885,6 +892,51 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     }
     if (localHealthCapacity > gSaveContext.save.saveInfo.playerData.healthCapacity) {
         gSaveContext.save.saveInfo.playerData.healthCapacity = localHealthCapacity;
+    }
+    // Bug 4/5: take the higher rupees/magic (magic only once a meter exists; don't set it barefoot).
+    if (localRupees > gSaveContext.save.saveInfo.playerData.rupees) {
+        gSaveContext.save.saveInfo.playerData.rupees = localRupees;
+    }
+    if (gSaveContext.save.saveInfo.playerData.magicLevel > 0 &&
+        localMagic > gSaveContext.save.saveInfo.playerData.magic) {
+        gSaveContext.save.saveInfo.playerData.magic = localMagic;
+    }
+    // Bug 5: OR permanent scene flags back — resync can only ADD explored/cleared state, never clear it.
+    for (int i = 0; i < 120; i++) {
+        PermanentSceneFlags& cur = gSaveContext.save.saveInfo.permanentSceneFlags[i];
+        cur.chest |= localPermSceneFlags[i].chest;
+        cur.switch0 |= localPermSceneFlags[i].switch0;
+        cur.switch1 |= localPermSceneFlags[i].switch1;
+        cur.clearedRoom |= localPermSceneFlags[i].clearedRoom;
+        cur.collectible |= localPermSceneFlags[i].collectible;
+        cur.unk_14 |= localPermSceneFlags[i].unk_14; // dungeon floors visited
+        cur.rooms |= localPermSceneFlags[i].rooms;
+    }
+    // top-level cycleSceneFlags (Save, not saveInfo) is intentionally NOT touched — it must keep
+    // resetting on Song of Time.
+
+    // ComboShip (bug 4): backfill checks the team obtained but we missed. Runs AFTER the flag/inventory
+    // unions so item side-effects land on the merged base. localObtained[] was snapshotted pre-assign.
+    for (int i = 0; i < RC_MAX; i++) {
+        if (!loadedData.shipSaveInfo.rando.randoSaveChecks[i].obtained || localObtained[i]) {
+            continue;
+        }
+        RandoCheckId rc = (RandoCheckId)i;
+        // Native same-game items are recovered by the saveInfo union above; only foreign checks (item
+        // belongs to OOT, absent from this snapshot) need cross-game delivery. Granting native here too
+        // would double-credit additive items. Dedup-guarded; no broadcast.
+        if (loadedData.shipSaveInfo.rando.randoSaveChecks[i].randoItemId != RI_COMBO_FOREIGN) {
+            continue;
+        }
+        const ComboRando::ForeignItem* fi = Rando::MiscBehavior::MM_LookupForeign(rc);
+        if (fi && gMMComboCrossDeliver) {
+            std::string checkName = Rando::StaticData::GetCheckDisplayName(rc);
+            gMMComboCrossDeliver((int)fi->itemGame, fi->itemName.c_str(), checkName.c_str());
+        }
+        // Mark obtained so the local player can't re-collect + double-deliver (idempotent next resync).
+        RANDO_SAVE_CHECKS[rc].obtained = true;
+        RANDO_SAVE_CHECKS[rc].cycleObtained = true;
+        RANDO_SAVE_CHECKS[rc].eligible = false;
     }
 
     // ComboShip: dormant apply has no gPlayState/scene — CheckTracker/ActorBehavior/ShipInit re-derive

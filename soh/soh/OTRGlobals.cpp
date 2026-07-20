@@ -2965,17 +2965,11 @@ void Combo_ApplyItemReceiveSideEffects(const GetItemEntry& gie) {
     }
 }
 
-extern "C" __declspec(dllexport) void SOH_GrantCrossItem(const char* itemName) {
-    if (!itemName)
-        return;
-    auto it = Rando::StaticData::itemNameToEnum.find(itemName);
-    if (it == Rando::StaticData::itemNameToEnum.end()) {
-        SPDLOG_WARN("[ComboShip] SOH_GrantCrossItem: unknown OOT item '{}'", itemName);
-        return;
-    }
-    GetItemEntry gie = Rando::StaticData::RetrieveItem(it->second).GetGIEntry_Copy();
-    // ComboShip: a resolved OOT item can be a vanilla (MOD_NONE) entry, which Randomizer_Item_Give
-    // asserts against. Dispatch by mod index exactly like Anchor's HandlePacket_GiveItem.
+// ComboShip: save-direct grant of a resolved OOT item. Shared by SOH_GrantCrossItem and Anchor's
+// team-state backfill so both apply identical dispatch + side effects + persist.
+void Combo_GrantResolvedOOT(const GetItemEntry& gie) {
+    // A resolved OOT item can be a vanilla (MOD_NONE) entry, which Randomizer_Item_Give asserts
+    // against. Dispatch by mod index exactly like Anchor's HandlePacket_GiveItem.
     if (gie.modIndex == MOD_NONE) {
         if (gie.getItemId == GI_SWORD_BGS) {
             gSaveContext.bgsFlag = true;
@@ -3003,6 +2997,18 @@ extern "C" __declspec(dllexport) void SOH_GrantCrossItem(const char* itemName) {
     if (SaveManager::Instance && gSaveContext.fileNum != 0xFF) {
         SaveManager::Instance->SaveFile(gSaveContext.fileNum); // persist NOW
     }
+}
+
+extern "C" __declspec(dllexport) void SOH_GrantCrossItem(const char* itemName) {
+    if (!itemName)
+        return;
+    auto it = Rando::StaticData::itemNameToEnum.find(itemName);
+    if (it == Rando::StaticData::itemNameToEnum.end()) {
+        SPDLOG_WARN("[ComboShip] SOH_GrantCrossItem: unknown OOT item '{}'", itemName);
+        return;
+    }
+    GetItemEntry gie = Rando::StaticData::RetrieveItem(it->second).GetGIEntry_Copy();
+    Combo_GrantResolvedOOT(gie);
     SPDLOG_INFO("[ComboShip] SOH_GrantCrossItem: granted '{}' into OOT save", itemName);
 }
 

@@ -3,7 +3,8 @@
 #include "2s2h/ShipUtils.h"
 #include "2s2h/CustomMessage/CustomMessage.h"
 #ifdef COMBO_BUILD
-#include "rando/CrossForeign.h" // ComboShip: cross-game gossip-stone pool
+#include "rando/CrossForeign.h"              // ComboShip: cross-game gossip-stone pool
+#include "Rando/MiscBehavior/MiscBehavior.h" // ComboShip: ComboRandoGen cache invalidation
 #endif
 
 #include <algorithm>
@@ -134,11 +135,11 @@ RandoCheckId GetRandomCheck(bool repeatableOnlyObtained = false, std::string* ou
 #ifdef COMBO_BUILD
     if (!repeatableOnlyObtained) {
         int slot = gSaveContext.fileNum;
-        static int s_hintsSlot = -1;
+        static uint64_t s_hintsGen = (uint64_t)-1;
         static ComboRando::MmHints s_hints;
-        if (slot != s_hintsSlot) {
+        if (s_hintsGen != Rando::MiscBehavior::ComboRandoGen()) {
             s_hints = ComboRando::LoadHintsMM(slot);
-            s_hintsSlot = slot;
+            s_hintsGen = Rando::MiscBehavior::ComboRandoGen();
         }
         for (auto& g : s_hints.gossipPool) {
             u32 w = std::max<uint32_t>(1, g.weight);

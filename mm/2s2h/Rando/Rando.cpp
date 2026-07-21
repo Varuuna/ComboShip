@@ -68,22 +68,22 @@ std::string Rando::GetItemLocationHintName(RandoItemId randoItemId, bool exact) 
         // ComboShip: the consolidated file keys foreign items by the friendly combo-spoiler name.
         const std::string& friendlyName = Rando::StaticData::GetItemDisplayName(randoItemId);
         if (!friendlyName.empty()) {
-            static int s_hintsSlot = -1;
+            static uint64_t s_hintsGen = (uint64_t)-1;
             static ComboRando::MmHints s_hints;
-            if (slot != s_hintsSlot) {
+            if (s_hintsGen != Rando::MiscBehavior::ComboRandoGen()) {
                 s_hints = ComboRando::LoadHintsMM(slot);
-                s_hintsSlot = slot;
+                s_hintsGen = Rando::MiscBehavior::ComboRandoGen();
             }
             auto hintIt = s_hints.itemLocations.find(friendlyName);
             if (hintIt != s_hints.itemLocations.end()) {
                 return hintIt->second;
             }
 
-            static int s_slot = -1;
+            static uint64_t s_mapGen = (uint64_t)-1;
             static std::unordered_map<std::string, ComboRando::ForeignPlacement> s_map;
-            if (slot != s_slot || s_map.empty()) {
+            if (s_mapGen != Rando::MiscBehavior::ComboRandoGen()) {
                 s_map = ComboRando::LoadForeignByItem(slot, ComboRando::GAME_MM);
-                s_slot = slot;
+                s_mapGen = Rando::MiscBehavior::ComboRandoGen();
             }
             auto it = s_map.find(friendlyName);
             if (it != s_map.end()) {

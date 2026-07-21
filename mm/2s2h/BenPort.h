@@ -198,6 +198,11 @@ __declspec(dllexport)
 #ifdef _WIN32
 __declspec(dllexport)
 #endif
+    // Ctrl+R reset while MM is foreground: bounce back to OOT (saves if autosave on) + go dormant.
+    void MM_RequestComboReturn(void);
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
     void MM_PrepareForTransition(void);
 #ifdef _WIN32
 __declspec(dllexport)

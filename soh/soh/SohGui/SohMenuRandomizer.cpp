@@ -677,6 +677,7 @@ void SohMenu::AddMenuRandomizer() {
               "Be sure to explore the Presets and Enhancements Menus for various Speedups and Quality of life changes!",
               WIDGET_TEXT)
         .Options(TextOptions().Color(UIWidgets::Colors::Gray));
+#ifndef COMBO_BUILD // ComboShip: combo drives generation, so hide the per-game Seed Entry section.
     AddWidget(path, "Seed Entry", WIDGET_SEPARATOR_TEXT);
     AddWidget(path, "Manual seed entry", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_RANDOMIZER_SETTING("ManualSeedEntry"))
@@ -743,6 +744,7 @@ void SohMenu::AddMenuRandomizer() {
             ImGui::Text("Spoiler File: %s", spoilerfilepath.c_str());
         }
     });
+#endif
 
     // Enhancements
     AddWidget(path, "Enhancements", WIDGET_SEPARATOR_TEXT);

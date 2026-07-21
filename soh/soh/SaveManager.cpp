@@ -28,6 +28,16 @@
 extern "C" SaveContext gSaveContext;
 using namespace std::string_literals;
 
+#ifdef COMBO_BUILD
+#include "rando/CrossForeign.h" // ComboShip: merged-save IO callback typedefs (FnComboReadSave/Write)
+// ComboShip: launcher-provided merged .combosav IO. When set, per-slot OOT read/write routes through
+// the container instead of file{N}.sav; null => vendored file path. Set via SOH_SetComboSaveIO.
+static ComboRando::FnComboReadSave gComboReadGameSave = nullptr;
+static ComboRando::FnComboWriteSave gComboWriteGameSave = nullptr;
+// ComboShip: whole-slot copy (both games + rando) for file-select "copy file"; launcher owns it.
+static void (*gComboCopyContainer)(int from, int to) = nullptr;
+#endif
+
 void SaveManager::WriteSaveFile(const std::filesystem::path& savePath, const uintptr_t addr, void* dramAddr,
                                 const size_t size) {
     std::ofstream saveFile = std::ofstream(savePath, std::fstream::in | std::fstream::out | std::fstream::binary);
@@ -491,6 +501,15 @@ void SaveManager::Init() {
 
     // Load files to initialize metadata
     for (int fileNum = 0; fileNum < MaxFiles; fileNum++) {
+#ifdef COMBO_BUILD
+        // ComboShip: a slot exists when the container has a non-empty OOT section.
+        if (gComboReadGameSave) {
+            if (gComboReadGameSave(ComboRando::GAME_OOT, fileNum)[0] != '\0') {
+                StartupCheckAndInitMeta(fileNum);
+            }
+            continue;
+        }
+#endif
         if (std::filesystem::exists(GetFileName(fileNum))) {
             StartupCheckAndInitMeta(fileNum);
         }
@@ -503,16 +522,33 @@ void SaveManager::StartupCheckAndInitMeta(int fileNum) {
     saveMtx.lock();
     SPDLOG_INFO("Init Meta - fileNum: {}", fileNum);
     std::filesystem::path fileName = GetFileName(fileNum);
+#ifdef COMBO_BUILD
+    // ComboShip: metadata comes from the container's OOT section, not file{N}.sav.
+    const bool comboSrc = (gComboReadGameSave != nullptr);
+    std::string comboMeta = comboSrc ? gComboReadGameSave(ComboRando::GAME_OOT, fileNum) : std::string();
+#endif
 
     std::ifstream input(fileName);
 
     bool deleteRando = false;
     nlohmann::json metaSaveBlock = nlohmann::json::object();
-    input >> metaSaveBlock;
+#ifdef COMBO_BUILD
+    if (comboSrc) {
+        try {
+            metaSaveBlock = nlohmann::json::parse(comboMeta);
+        } catch (...) {}
+    } else
+#endif
+        input >> metaSaveBlock;
     input.close();
     saveMtx.unlock();
     if (!metaSaveBlock.contains("version")) {
         SPDLOG_ERROR("Save at " + fileName.string() + " contains no version");
+#ifdef COMBO_BUILD
+        // ComboShip: a corrupt container section skips the slot; never abort boot on it.
+        if (comboSrc)
+            return;
+#endif
         assert(false);
         return;
     }
@@ -528,17 +564,28 @@ void SaveManager::StartupCheckAndInitMeta(int fileNum) {
                     "If this was a randomizer file, the file will not work, and should be deleted.");
             metaSaveBlock["sections"].erase(metaSaveBlock["sections"].find("randomizer"));
             metaSaveBlock["fileType"] = FILE_TYPE_SAVE_VANILLA;
-            saveMtx.lock();
-            std::ofstream output(GetFileName(fileNum));
-            output << metaSaveBlock.dump(1);
-            output.close();
-            saveMtx.unlock();
+#ifdef COMBO_BUILD
+            // ComboShip: legacy old-format rewrite is dead on the container path (no file{N}.sav).
+            if (!comboSrc)
+#endif
+            {
+                saveMtx.lock();
+                std::ofstream output(GetFileName(fileNum));
+                output << metaSaveBlock.dump(1);
+                output.close();
+                saveMtx.unlock();
+            }
         }
         s16 major = metaSaveBlock["sections"]["sohStats"]["data"]["buildVersionMajor"];
         s16 minor = metaSaveBlock["sections"]["sohStats"]["data"]["buildVersionMinor"];
         s16 patch = metaSaveBlock["sections"]["sohStats"]["data"]["buildVersionPatch"];
         // block loading outdated rando save
-        if (!(major == gBuildVersionMajor && minor == gBuildVersionMinor && patch == gBuildVersionPatch)) {
+        if (!(major == gBuildVersionMajor && minor == gBuildVersionMinor && patch == gBuildVersionPatch)
+#ifdef COMBO_BUILD
+            // ComboShip: no .bak eviction on the container path; broken cross-version saves are expected.
+            && !comboSrc
+#endif
+        ) {
             std::string newFileName =
                 Ship::Context::GetPathRelativeToAppDirectory("Save") +
                 ("/file" + std::to_string(fileNum + 1) + "-" + std::to_string(GetUnixTimestamp()) + ".bak");
@@ -1215,35 +1262,43 @@ void SaveManager::SaveFileThreaded(int fileNum, SaveContext* saveContext, int se
         svi.func(saveContext, sectionID, false);
     }
 
-    std::filesystem::path fileName = GetFileName(fileNum);
-    std::filesystem::path tempFile = GetFileTempName(fileNum);
+#ifdef COMBO_BUILD
+    if (gComboWriteGameSave) {
+        // ComboShip: route this slot's OOT block into the merged .combosav container (launcher RMW).
+        gComboWriteGameSave(ComboRando::GAME_OOT, fileNum, saveBlock.dump().c_str());
+    } else
+#endif
+    {
+        std::filesystem::path fileName = GetFileName(fileNum);
+        std::filesystem::path tempFile = GetFileTempName(fileNum);
 
-    if (std::filesystem::exists(tempFile)) {
-        std::filesystem::remove(tempFile);
-    }
+        if (std::filesystem::exists(tempFile)) {
+            std::filesystem::remove(tempFile);
+        }
 
 #if defined(__SWITCH__) || defined(__WIIU__)
-    FILE* w = fopen(tempFile.c_str(), "w");
-    std::string json_string = saveBlock.dump(1);
-    fwrite(json_string.c_str(), sizeof(char), json_string.length(), w);
-    fclose(w);
+        FILE* w = fopen(tempFile.c_str(), "w");
+        std::string json_string = saveBlock.dump(1);
+        fwrite(json_string.c_str(), sizeof(char), json_string.length(), w);
+        fclose(w);
 #else
-    std::ofstream output(tempFile);
-    output << std::setw(1) << saveBlock << std::endl;
-    output.close();
+        std::ofstream output(tempFile);
+        output << std::setw(1) << saveBlock << std::endl;
+        output.close();
 #endif
 
 #if defined(__SWITCH__) || defined(__WIIU__)
-    if (std::filesystem::exists(fileName)) {
-        std::filesystem::remove(fileName);
-    }
-    copy_file(tempFile.c_str(), fileName.c_str());
-    if (std::filesystem::exists(tempFile)) {
-        std::filesystem::remove(tempFile);
-    }
+        if (std::filesystem::exists(fileName)) {
+            std::filesystem::remove(fileName);
+        }
+        copy_file(tempFile.c_str(), fileName.c_str());
+        if (std::filesystem::exists(tempFile)) {
+            std::filesystem::remove(tempFile);
+        }
 #else
-    std::filesystem::rename(tempFile, fileName);
+        std::filesystem::rename(tempFile, fileName);
 #endif
+    }
 
     delete saveContext;
     InitMeta(fileNum);
@@ -1295,14 +1350,30 @@ void SaveManager::LoadFile(int fileNum) {
     saveMtx.lock();
     SPDLOG_INFO("Load File - fileNum: {}", fileNum);
     std::filesystem::path fileName = GetFileName(fileNum);
-    assert(std::filesystem::exists(fileName));
+#ifdef COMBO_BUILD
+    // ComboShip: source the OOT block from the merged container; empty => no save present.
+    std::string comboJson;
+    if (gComboReadGameSave) {
+        comboJson = gComboReadGameSave(ComboRando::GAME_OOT, fileNum);
+        if (comboJson.empty()) {
+            saveMtx.unlock();
+            return;
+        }
+    } else
+#endif
+        assert(std::filesystem::exists(fileName));
     InitFile(false);
 
     std::ifstream input(fileName);
 
     try {
         saveBlock = nlohmann::json::object();
-        input >> saveBlock;
+#ifdef COMBO_BUILD
+        if (gComboReadGameSave) {
+            saveBlock = nlohmann::json::parse(comboJson);
+        } else
+#endif
+            input >> saveBlock;
         input.close();
         if (!saveBlock.contains("version")) {
             SPDLOG_ERROR("Save at " + fileName.string() + " contains no version");
@@ -1357,12 +1428,15 @@ void SaveManager::LoadFile(int fileNum) {
         std::string newFileName =
             Ship::Context::GetPathRelativeToAppDirectory("Save") +
             ("/file" + std::to_string(fileNum + 1) + "-" + std::to_string(GetUnixTimestamp()) + ".bak");
+        // ComboShip: on the container path there is no file{N}.sav to evict; skip the rename.
+        if (std::filesystem::exists(fileName)) {
 #if defined(__SWITCH__) || defined(__WIIU__)
-        copy_file(fileName.c_str(), newFileName.c_str());
-        std::filesystem::remove(fileName);
+            copy_file(fileName.c_str(), newFileName.c_str());
+            std::filesystem::remove(fileName);
 #else
-        std::filesystem::rename(fileName, newFileName);
+            std::filesystem::rename(fileName, newFileName);
 #endif
+        }
         SohGui::RegisterPopup("Error loading save file", "A problem occurred loading the save in slot " +
                                                              std::to_string(fileNum + 1) +
                                                              ".\nSave file corruption is suspected.\n" +
@@ -2442,6 +2516,14 @@ void SaveManager::LoadStruct(const std::string& name, LoadStructFunc func) {
 }
 
 void SaveManager::CopyZeldaFile(int from, int to) {
+#ifdef COMBO_BUILD
+    // ComboShip: a slot is one .combosav (both games + rando); the launcher copies the whole container.
+    if (gComboCopyContainer) {
+        gComboCopyContainer(from, to);
+        fileMetaInfo[to] = fileMetaInfo[from];
+        return;
+    }
+#endif
     assert(std::filesystem::exists(GetFileName(from)));
     DeleteZeldaFile(to);
 #if defined(__WIIU__) || defined(__SWITCH__)
@@ -2875,6 +2957,19 @@ extern "C" __declspec(dllexport) void SOH_DeleteSaveFile(int fileNum) {
     if (SaveManager::Instance) {
         SaveManager::Instance->DeleteZeldaFile(fileNum);
     }
+}
+
+// ComboShip: launcher pushes its merged-save IO callbacks at boot. When set, OOT per-slot save
+// read/write routes through the .combosav container (see SaveFileThreaded/LoadFile).
+extern "C" __declspec(dllexport) void SOH_SetComboSaveIO(ComboRando::FnComboReadSave r,
+                                                         ComboRando::FnComboWriteSave w) {
+    gComboReadGameSave = r;
+    gComboWriteGameSave = w;
+}
+
+// ComboShip: launcher registers its whole-container copy for file-select "copy file".
+extern "C" __declspec(dllexport) void SOH_SetCopyContainer(void (*cb)(int, int)) {
+    gComboCopyContainer = cb;
 }
 #endif
 

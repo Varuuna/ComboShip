@@ -59,7 +59,8 @@ CrowdControl* CrowdControl::Instance;
 #include <BenGui/BenGui.hpp>
 #include <BenGui/BenMenu.h>
 #ifdef COMBO_BUILD
-#include "ComboMenuSharedContext.h" // ComboShip: shared per-DLL ImGui context helper (combo-owned)
+#include "ComboMenuSharedContext.h"          // ComboShip: shared per-DLL ImGui context helper (combo-owned)
+#include "2s2h/Rando/MiscBehavior/MiscBehavior.h" // ComboShip: MM_LoadComboRando cache invalidation + ComboRando types
 #endif
 
 #include "2s2h/GameInteractor/GameInteractor.h"
@@ -148,6 +149,12 @@ extern "C" __declspec(dllexport) void MM_SetOnComboReturnCallback(void (*cb)(voi
     gComboReturnCallback = cb;
 }
 static bool sComboReturnPending = false;
+// ComboShip: Ctrl+R reset while MM is foreground. Like the portal return, but only persists MM if
+// autosave is enabled (an authentic reset otherwise discards unsaved progress). Set via the export.
+static bool sComboResetReturnPending = false;
+extern "C" __declspec(dllexport) void MM_RequestComboReturn(void) {
+    sComboResetReturnPending = true;
+}
 // MM's own ResourceManager, created at first boot and kept alive for the whole process. A combo
 // transition swaps the Context's active RM between MM's and OOT's, so each game keeps its archives +
 // resource cache resident and nothing is ever unloaded (no dangling cached pointers). See MM_ResumeGame.
@@ -1102,10 +1109,14 @@ extern "C" void InitOTR(int argc, char* argv[]) {
         }
     });
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameStateMainStart>([]() {
-        if (!sComboReturnPending)
+        if (!sComboReturnPending && !sComboResetReturnPending)
             return;
+        const bool isReset = sComboResetReturnPending;
         sComboReturnPending = false;
-        SaveManager_SaveCurrentForCombo();
+        sComboResetReturnPending = false;
+        // Portal return always persists MM; a reset persists only when autosave is enabled.
+        if (!isReset || CVarGetInteger("gEnhancements.Saving.Autosave", 0))
+            SaveManager_SaveCurrentForCombo();
         if (gComboReturnCallback)
             gComboReturnCallback();
         if (auto fast3d = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow())) {
@@ -2819,6 +2830,19 @@ extern "C" __declspec(dllexport) void MM_SetDeleteForeignSave(void (*cb)(int)) {
     gMMComboDeleteForeignSave = cb;
 }
 
+// ComboShip: push the launcher's .combosav IO callbacks into SaveManager (routes file{N}.json into
+// the merged container). Both primitives funnel through them; null-callbacks fall back to disk IO.
+extern "C" __declspec(dllexport) void MM_SetComboSaveIO(ComboRando::FnComboReadSave r, ComboRando::FnComboWriteSave w) {
+    SaveManager_SetComboSaveIO(r, w);
+}
+
+// ComboShip: receive the consolidated combo spoiler (foreign map + cross-hints), pushed once per
+// save-load; store the blob and invalidate MM's lookup caches so they rebuild from it. Idempotent.
+extern "C" __declspec(dllexport) void MM_LoadComboRando(const char* json) {
+    ComboRando::Combo_SetForeignJson(json);
+    Rando::MiscBehavior::InvalidateComboForeignCache();
+}
+
 // Returns the number of archives open in the MM-private ArchiveManager.
 // 0 means MM_InitArchives was not called or found no files.
 extern "C" __declspec(dllexport) int MM_ArchiveCount() {
@@ -3114,65 +3138,26 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         }
     }
 
-    // ComboShip canary: count every reason a pool item fails to emit (see debug-mmdump.json below).
-    // An empty/near-empty pool silently kills cross-game placement, so keep this cheap diagnostic.
-    int skippedNoStatic = 0, skippedNoName = 0, poolNoName = 0;
-
     // Fillable checks -> checks[] (name only; pool[] feeds the items).
     for (RandoCheckId id : checkPool) {
         auto chkIt = Rando::StaticData::Checks.find(id);
-        if (chkIt == Rando::StaticData::Checks.end()) {
-            skippedNoStatic++;
+        if (chkIt == Rando::StaticData::Checks.end())
             continue;
-        }
         const std::string& cn = Rando::StaticData::GetCheckDisplayName(id); // ComboShip: friendly name
-        if (cn.empty()) {
-            skippedNoName++;
+        if (cn.empty())
             continue;
-        }
         checks.push_back({ { "name", cn } });
     }
 
     // Pool = the real free item pool (every settings-added item; confined items already removed).
     for (RandoItemId iid : itemPool) {
         auto it = Rando::StaticData::Items.find(iid);
-        if (it == Rando::StaticData::Items.end() || !it->second.spoilerName || it->second.spoilerName[0] == '\0') {
-            poolNoName++;
+        if (it == Rando::StaticData::Items.end() || !it->second.spoilerName || it->second.spoilerName[0] == '\0')
             continue;
-        }
         // ComboShip: friendly item name for the normalized combo spoiler.
         pool.push_back(
             { { "name", Rando::StaticData::GetItemDisplayName(iid) }, { "advancement", isAdvancement(it->second) } });
     }
-
-    // ComboShip canary: written to a file because 2ship.dll's spdlog default logger is never
-    // configured in combo (soh's module owns the shared logging), so SPDLOG_* here goes nowhere.
-    // regions==0 means MM's eager boot / ShipInit::InitAll didn't run. Debug-build only.
-#ifndef NDEBUG
-    try {
-        std::error_code ec;
-        std::filesystem::create_directories("saves/combo", ec);
-        nlohmann::json diag = {
-            { "regions", Rando::Logic::Regions.size() },
-            { "staticChecks", Rando::StaticData::Checks.size() },
-            { "options", Rando::StaticData::Options.size() },
-            { "logicOpt", (uint32_t)saveInfo.randoSaveOptions[RO_LOGIC] },
-            { "checkPool", checkPool.size() },
-            { "itemPool", itemPool.size() },
-            { "emitted", checks.size() },
-            { "fixed", fixed.size() },
-            { "pool", pool.size() },
-            { "skippedNoStatic", skippedNoStatic },
-            { "skippedNoName", skippedNoName },
-            { "poolNoName", poolNoName },
-        };
-        std::ofstream("saves/combo/debug-mmdump.json", std::ios::trunc) << diag.dump(2);
-    } catch (...) {}
-#else
-    (void)skippedNoStatic;
-    (void)skippedNoName;
-    (void)poolNoName;
-#endif
 
     for (auto& [id, item] : Rando::StaticData::Items) {
         if (!item.spoilerName || item.spoilerName[0] == '\0')

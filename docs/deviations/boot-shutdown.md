@@ -73,12 +73,10 @@ graceful fallbacks everywhere else (boot-on-first-portal-transition, place-anywh
 Fixed by using the canonical `extern "C" __declspec(dllexport)` form. Verified: eager boot
 completes, 315 regions, MM dump 876 checks, spoiler mmCount=876 with populated foreign array.
 
-**`mm/2s2h/BenPort.cpp` (`MM_DumpRandoStaticData`):** a debug-build-only file-based canary
-(`saves/combo/debug-mmdump.json`: pool sizes + per-reason emit-drop counters), gated `#ifndef NDEBUG`
-so it never ships in a Release build (the drop counters are still computed; only the file write is
-gated). File-based because
-2ship.dll's spdlog default logger is never configured in combo (the shared Context owns logging in
-soh's module) — SPDLOG_* calls from 2ship.dll go nowhere; remember this when adding MM-side logs.
+Note when adding MM-side logs: 2ship.dll's spdlog default logger is never configured in combo (the
+shared Context owns logging in soh's module), so SPDLOG_* calls from 2ship.dll go nowhere. (A former
+debug-build canary here wrote pool sizes to `saves/combo/debug-mmdump.json` for exactly this reason;
+it and the startup `oot_dump.json`/`mm_dump.json` dumps were removed 2026-07-21 as no longer needed.)
 
 ## Sturdy shutdown: clean deinit of both games (2026-06-11)
 
@@ -176,6 +174,44 @@ path. On future merges, keep this guarded block in the erase-confirm branch.
 **combo (`combo/ComboShip.cpp`):** resolves the four new symbols, defines `DeleteForeignSaveFromOOT` /
 `DeleteForeignSaveFromMM` (route 0-based slot to the other game), and registers them via
 `SOH_SetDeleteForeignSave` / `MM_SetDeleteForeignSave` alongside the other startup callbacks.
+
+## Merged per-slot save container `Save/file{N+1}.combosav` (2026-07-21)
+
+**Why:** a slot's state was spread across three files in two folders (OOT `Save/file{N}.sav`, MM
+`saves/file{N}.json`, plus the `Randomizer/save{N}-*` sidecars), so a slot wasn't a single portable
+artifact. Now one JSON container per slot holds both games' saves verbatim plus combo metadata:
+`{comboVersion, slot, oot:<saveBlock>, mm:<2S2H json>, combo:{completion, rando}}`. The launcher owns
+the file; each game keeps its own JSON schema/versioning, just nested. No migration of old split saves
+(broken cross-version saves are expected — see [save-compat rule]).
+
+**Launcher-mediated IO (the invariant):** every per-slot read/write in both games routes through two
+launcher callbacks pushed in at boot — `Combo_ReadGameSave(game, fileNum)` / `Combo_WriteGameSave(game,
+fileNum, json)` (`game` 0=OOT/1=MM, `fileNum` 0-based; MM maps `mmFileNum-1`). Registered via new
+`SOH_SetComboSaveIO` / `MM_SetComboSaveIO` exports. A single launcher mutex + per-slot in-memory cache
+makes the container process-authoritative; write = full-container read-modify-write of only the caller's
+section (so an Anchor MM-item write during OOT play can't clobber the OOT section) then temp+atomic
+`rename`. An existing-but-unparseable container is renamed aside (`.corrupt-<ts>`), never silently
+overwritten. `Combo_CopyContainer` / `SOH_SetCopyContainer` back OOT file-select "copy file" (whole
+container, since there's no per-game `.sav` to copy).
+
+**OOT (`soh/soh/SaveManager.cpp`):** `SaveFileThreaded` write, `LoadFile` read, and the
+`StartupCheckAndInitMeta`/`Init` metadata scan route through the callbacks (fall back to `file{N}.sav`
+when unset); a corrupt container section skips the slot instead of `assert`-aborting. `global.sav` and
+the legacy raw-SRAM path are untouched (not per-slot).
+
+**MM (`mm/2s2h/SaveManager/SaveManager.cpp`):** interposed at the two IO primitives
+`SaveManager_WriteSaveFile` / `SaveManager_ReadSaveFile` (classified by filename: main `file{N}.json` →
+container `mm` section; `global.json` → disk; `file{N}backup.json` → dropped, the container's atomic
+write makes MM's per-slot backup redundant). One seam catches the native flashrom owl/cycle path,
+combo-persist, Saria-hint, and drag-drop. `SaveManager_DeleteSaveFile` clears the section by writing
+`null`.
+
+**Baked combo rando (self-contained, no runtime file read):** the consolidated spoiler (foreign
+cross-game item map + cross-hints) is stored in `combo.rando` at save creation (`Combo_OnOOTSaveInit`)
+and pushed once per save-load into both DLLs via `SOH_LoadComboRando` / `MM_LoadComboRando` →
+`ComboRando::Combo_SetForeignJson`. The three `CrossForeign.h` loaders read that in-memory blob, not a
+file; the per-slot `save{N}-Randomizer-<hash>.json` sidecar is retired. `Last-Generated-Randomizer.json`
+survives only as the pre-save generation output + `ComboShipRandomizer` drop-import vehicle.
 
 ## ComboShip-owned unified ROM extraction (OoT + MM) (2026-06-21)
 

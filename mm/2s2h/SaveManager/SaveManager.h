@@ -6,6 +6,11 @@
 #include <string>
 #include <filesystem>
 #include <nlohmann/json.hpp>
+#ifdef COMBO_BUILD
+#include "rando/CrossForeign.h" // ComboShip: merged-save IO callback typedefs
+// ComboShip: register the launcher's .combosav IO callbacks (routes file{N}.json IO into the container).
+void SaveManager_SetComboSaveIO(ComboRando::FnComboReadSave r, ComboRando::FnComboWriteSave w);
+#endif
 std::string SaveManager_GetFileName(int fileNum, bool isBackup = false);
 bool SaveManager_HandleFileDropped(char* filePath);
 bool BinarySaveConverter_HandleFileDropped(char* filePath);

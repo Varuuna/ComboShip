@@ -3172,7 +3172,42 @@ bool Combo_OotIsForeground(void) {
     }
     return sFn ? (sFn() == 0) : true;
 }
+
+// ComboShip: Ctrl+R reset. Set when a reset should return the whole session to first-boot; read by
+// SOH_ResumeGame so OOT boots to the title sequence instead of resuming the dormant save.
+static bool sComboResetPending = false;
+
+// Handle a reset request. If MM is foreground, bounce back to OOT (MM saves if autosave is on, then
+// goes dormant) and flag OOT to boot to the title sequence on resume. Returns true if it took over the
+// reset; false lets the caller run OOT's normal reset (which already lands on the boot sequence).
+bool Combo_HandleReset(void) {
+    if (Combo_OotIsForeground())
+        return false;
+    sComboResetPending = true;
+    static void (*sFn)(void) = nullptr;
+    static bool sTried = false;
+    if (!sTried) {
+        sTried = true;
+        if (HMODULE h = GetModuleHandleA("2ship.dll"))
+            sFn = (void (*)(void))GetProcAddress(h, "MM_RequestComboReturn");
+    }
+    if (sFn)
+        sFn();
+    return true;
+}
 #endif
+
+// ComboShip: open the combo menu on the Randomizer tab (file-select "Open Randomizer Settings").
+// The menu lives in comboui.dll; its visibility is object-state, not the CVar, so route through
+// the export rather than setting gOpenWindows.Menu.
+extern "C" void SOH_OpenComboRandoSettings(void) {
+#ifdef COMBO_BUILD
+    if (HMODULE h = GetModuleHandleA("comboui.dll")) {
+        if (auto fn = (void (*)(void))GetProcAddress(h, "ComboUI_OpenRandomizerSettings"))
+            fn();
+    }
+#endif
+}
 
 extern "C" __declspec(dllexport) int32_t SOH_MenuEvalDisabled(int32_t i, const char** outReason) {
     ComboMenuContext::UseSharedImGuiContext();
@@ -3238,7 +3273,10 @@ extern "C" __declspec(dllexport) void SOH_ResumeGame(void) {
     // 4. Hand off to OOT's boot path: capture the save slot, reset the frame state machine, and let
     //    TitleSetup jump straight to Play at the Mido's-House door (mirrors FileChoose + MM title_setup).
     //    The save itself is loaded by TitleSetup via Sram_OpenSave, exactly like normal file select.
-    gComboReturnFileNum = (s32)gSaveContext.fileNum;
+    // ComboShip: on a reset return, leave gComboReturnFileNum < 0 so TitleSetup boots to the title
+    // sequence (first-boot) instead of jumping straight back into Play on the saved slot.
+    gComboReturnFileNum = sComboResetPending ? -1 : (s32)gSaveContext.fileNum;
+    sComboResetPending = false;
     SOH_ResetFrameLoopForResume();
     SPDLOG_INFO("[ComboShip] SOH_ResumeGame: entering OOT loop (gComboReturnFileNum={}, WindowIsRunning={})",
                 gComboReturnFileNum, WindowIsRunning());

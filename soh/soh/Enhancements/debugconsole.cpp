@@ -215,7 +215,17 @@ static bool SetPosHandler(std::shared_ptr<Ship::Console> Console, const std::vec
     return 0;
 }
 
+#ifdef COMBO_BUILD
+bool Combo_HandleReset(void); // OTRGlobals.cpp: takes over the reset when MM is the foreground game.
+#endif
+
 static bool ResetHandler(std::shared_ptr<Ship::Console> Console, std::vector<std::string> args, std::string* output) {
+#ifdef COMBO_BUILD
+    // Combo: if MM is foreground, reset bounces back to OOT + boots to title on resume (handled there).
+    if (Combo_HandleReset()) {
+        return 0;
+    }
+#endif
     if (gGameState == nullptr) {
         ERROR_MESSAGE("gGameState == nullptr");
         return 1;

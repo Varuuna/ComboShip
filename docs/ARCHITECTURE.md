@@ -105,6 +105,10 @@ callbacks) is larger and lives in `combo/ComboShip.cpp`; see [`deviations/`](dev
      `SOH_NotifyComboReturn`, and switches back to OOT.
    - The one-time per-process init (heaps/threads) runs only on the **first** entry into each game;
      subsequent entries resume on the shared context/window.
+   - **Ctrl+R reset:** `ResetHandler` calls `Combo_HandleReset`. OOT foreground → normal reset (lands on
+     the boot sequence). MM foreground → `MM_RequestComboReturn` reuses the return path (MM saves only if
+     autosave is on) and flags `SOH_ResumeGame` to leave `gComboReturnFileNum = -1`, so `title_setup.c`
+     boots to `Title_Init` (first-boot) instead of resuming the save.
 7. On loop exit, `SOH_Deinit()` tears down the OOT context that was kept alive across transitions.
 
 ### Shared Window, Context, and Resources

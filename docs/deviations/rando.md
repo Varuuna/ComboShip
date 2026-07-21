@@ -394,7 +394,9 @@ single `ComboGenProgress` and shares a read-only pointer with soh.
   since `::init` is cleared after init). The generate-request callback type changed to
   `void(*)(const char*)`.
 - `z_file_choose.c` (`COMBO_BUILD`-guarded): `RSM_GENERATE_RANDOMIZER` → `SOH_TriggerComboGenerate`;
-  `RSM_OPEN_RANDOMIZER_SETTINGS` → open the comboui menu (`gOpenWindows.Menu`); the
+  `RSM_OPEN_RANDOMIZER_SETTINGS` → `SOH_OpenComboRandoSettings()` → comboui export
+  `ComboUI_OpenRandomizerSettings()` (opens the combo menu on its Randomizer tab; the menu's
+  visibility is object-state, so setting `gOpenWindows.Menu` no longer works); the
   `FileChoose_UpdateRandomizer` "generating" branch polls `SOH_PollComboFinalize` and clears
   `RandoGenerating` when done; a "Generating… XX%" line is drawn from `SOH_GetComboGenPercent`.
 

@@ -64,8 +64,8 @@ extern "C" __declspec(dllexport) int32_t OOT_GetItemDrawInfo(const char* itemNam
         out->xluStartIndex = 0; // both layers XLU
         out->scale = 0.0f;
         out->hasEnvColor = 0;
-        out->dlists[0] = gGiBlueFireFlameDL; // flame (grayscale-tinted)
-        out->dlists[1] = gBossSoulSkullDL;   // generic soul skull
+        out->dlists[0] = gGiBlueFireFlameDL;      // flame (grayscale-tinted)
+        out->dlists[1] = gBossSoulSkullDL;        // generic soul skull
         uint8_t skullEnv = (slot == 8) ? 0 : 255; // Ganon skull env black, else white
         for (int c = 0; c < 3; c++) {
             out->primColorXlu[c] = flameColors[slot][c];

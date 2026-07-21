@@ -330,8 +330,10 @@ static nlohmann::json& LoadOrCreateContainer(int fileNum) {
         std::filesystem::rename(path, path.string() + ".corrupt-" + std::to_string(std::time(nullptr)), ec);
     }
     if (!parsed)
-        j = nlohmann::json{ { "comboVersion", 1 }, { "slot", fileNum },
-                            { "oot", nullptr },     { "mm", nullptr },
+        j = nlohmann::json{ { "comboVersion", 1 },
+                            { "slot", fileNum },
+                            { "oot", nullptr },
+                            { "mm", nullptr },
                             { "combo", nlohmann::json::object() } };
     return g_containerCache.emplace(fileNum, std::move(j)).first->second;
 }

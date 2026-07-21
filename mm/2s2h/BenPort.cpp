@@ -59,7 +59,7 @@ CrowdControl* CrowdControl::Instance;
 #include <BenGui/BenGui.hpp>
 #include <BenGui/BenMenu.h>
 #ifdef COMBO_BUILD
-#include "ComboMenuSharedContext.h"          // ComboShip: shared per-DLL ImGui context helper (combo-owned)
+#include "ComboMenuSharedContext.h"               // ComboShip: shared per-DLL ImGui context helper (combo-owned)
 #include "2s2h/Rando/MiscBehavior/MiscBehavior.h" // ComboShip: MM_LoadComboRando cache invalidation + ComboRando types
 #endif
 

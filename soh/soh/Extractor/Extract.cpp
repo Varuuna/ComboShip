@@ -690,7 +690,8 @@ bool Extractor::CallZapd(std::string installPath, std::string exportdir, std::at
         std::filesystem::create_directory_symlink(installPath + "/assets", tempdir + "/assets");
     } catch (const std::exception&) {
         std::filesystem::copy(installPath + "/assets", tempdir + "/assets",
-                              std::filesystem::copy_options::recursive | std::filesystem::copy_options::update_existing);
+                              std::filesystem::copy_options::recursive |
+                                  std::filesystem::copy_options::update_existing);
     }
 #else
     std::filesystem::create_symlink(installPath + "/assets", tempdir + "/assets");

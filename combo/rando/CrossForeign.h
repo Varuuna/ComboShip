@@ -1,11 +1,10 @@
 // combo/rando/CrossForeign.h
 // ComboShip: cross-world foreign-item lookup — shared by soh.dll, 2ship.dll, ComboShip.exe.
-// The consolidated per-slot spoiler file (saves/combo/save{N}-Randomizer-<hash>.json, written at
-// save creation) records, in its "foreign" array, which checks (in each game) hold an item that
-// belongs to the OTHER game. At pickup, the check's own game places a sentinel item; the pickup
-// code consults this array to learn the real foreign item + its destination game, then delivers it
-// immediately into that game's resident save (see issue #3). Both games resolve the file by
-// gSaveContext.fileNum, so a save and its consolidated file share one slot number.
+// The consolidated combo spoiler's "foreign" array records which checks (in each game) hold an item
+// belonging to the OTHER game. At pickup the check's own game places a sentinel; the pickup code
+// consults this array for the real foreign item + destination game, then delivers it immediately.
+// The spoiler is pushed once per save-load into an in-memory blob (Combo_SetForeignJson, driven by
+// SOH_/MM_LoadComboRando) — no runtime file read; it lives baked in the slot's .combosav container.
 //
 // "foreign" array element:
 //   { "checkGame":"oot|mm", "checkName":"<friendly check name>", "itemGame":"oot|mm",
@@ -28,6 +27,12 @@ namespace ComboRando {
 
 // Game identity used across the cross-world rando layer (soh.dll, 2ship.dll, ComboShip.exe).
 enum GameId : uint8_t { GAME_OOT = 0, GAME_MM = 1 };
+
+// ComboShip merged-save IO callbacks: launcher-provided, pushed into each DLL at boot via
+// SOH_SetComboSaveIO / MM_SetComboSaveIO. game: 0=OOT,1=MM (GameId); fileNum 0-based (MM maps its
+// 1-based mmFileNum via fileNum = mmFileNum - 1). Read returns the section JSON ("" if absent).
+typedef const char* (*FnComboReadSave)(int game, int fileNum);
+typedef void (*FnComboWriteSave)(int game, int fileNum, const char* json);
 
 // Sentinel item names written into each game's own APPLY payload (not the persisted spoiler) for a
 // foreign check; each game resolves its own sentinel to the RG_/RI_COMBO_FOREIGN item.
@@ -57,56 +62,13 @@ inline std::filesystem::path PendingPath() {
     return ConsolidatedDir() / "Last-Generated-Randomizer.json";
 }
 
-// Per-slot consolidated file written when a save is created in slot N. Both the runtime foreign
-// source (read by either game via gSaveContext.fileNum) and the shareable artifact.
-inline std::filesystem::path SlotWritePath(int slot, const std::string& hashStr) {
-    return ConsolidatedDir() / ("save" + std::to_string(slot) + "-Randomizer-" + hashStr + ".json");
-}
+// The consolidated combo spoiler, pushed once per save-load by SOH_/MM_LoadComboRando. The three
+// loaders below parse it in place of the retired per-slot file. C++17 inline var: one per DLL.
+inline std::string g_comboForeignJson;
 
-inline bool HasSlotPrefix(const std::string& name, const std::string& prefix) {
-    return name.size() > 5 && name.compare(0, prefix.size(), prefix) == 0 &&
-           name.compare(name.size() - 5, 5, ".json") == 0;
-}
-
-// Resolve slot N's consolidated file by prefix (newest match). Empty if none.
-inline std::filesystem::path SlotReadPath(int slot) {
-    std::error_code ec;
-    auto dir = ConsolidatedDir();
-    const std::string prefix = "save" + std::to_string(slot) + "-Randomizer-";
-    std::filesystem::path best;
-    std::filesystem::file_time_type bestTime{};
-    if (std::filesystem::exists(dir, ec)) {
-        for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
-            std::error_code ec2;
-            if (!e.is_regular_file(ec2))
-                continue;
-            const std::string name = e.path().filename().string();
-            if (HasSlotPrefix(name, prefix)) {
-                auto t = e.last_write_time(ec2);
-                if (best.empty() || t > bestTime) {
-                    best = e.path();
-                    bestTime = t;
-                }
-            }
-        }
-    }
-    return best;
-}
-
-// Remove any existing consolidated file(s) for slot N (stale seed from a prior generate in that slot).
-inline void CleanSlotFiles(int slot) {
-    std::error_code ec;
-    auto dir = ConsolidatedDir();
-    const std::string prefix = "save" + std::to_string(slot) + "-Randomizer-";
-    if (!std::filesystem::exists(dir, ec))
-        return;
-    for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
-        std::error_code ec2;
-        if (!e.is_regular_file(ec2))
-            continue;
-        if (HasSlotPrefix(e.path().filename().string(), prefix))
-            std::filesystem::remove(e.path(), ec2);
-    }
+// Store the pushed spoiler blob (called by each DLL's LoadComboRando export). Null clears it.
+inline void Combo_SetForeignJson(const char* json) {
+    g_comboForeignJson = json ? json : "";
 }
 
 // Tag a spoiler "foreign" array's displayNames with their home-game suffix for the consolidated file.
@@ -191,20 +153,16 @@ inline void SuffixCrossGameItems(nlohmann::json& ootPlacements, nlohmann::json& 
     process(mmPlacements, mmForeign, " (MM)");
 }
 
-// Load one game's foreign-check section from slot N's consolidated file, keyed by check name.
-// Returns empty on missing/corrupt file (never throws across the channel). Per-slot file is
-// authoritative (written at save creation by fileNum) — no cross-slot fallback.
+// Load one game's foreign-check section from the pushed spoiler blob, keyed by check name.
+// Returns empty on missing/corrupt data (never throws across the channel). slot is unused now that
+// the source is the in-memory blob (kept for call-site compatibility).
 inline std::unordered_map<std::string, ForeignItem> LoadForeignForGame(int slot, GameId checkGame) {
+    (void)slot;
     std::unordered_map<std::string, ForeignItem> map;
-    auto path = SlotReadPath(slot);
-    if (path.empty())
-        return map;
-    std::ifstream in(path);
-    if (!in.is_open())
+    if (g_comboForeignJson.empty())
         return map;
     try {
-        nlohmann::json j;
-        in >> j;
+        nlohmann::json j = nlohmann::json::parse(g_comboForeignJson);
         const std::string key = GameIdToKey(checkGame);
         for (const auto& fm : j.value("foreign", nlohmann::json::array())) {
             if (fm.value("checkGame", "") != key)
@@ -233,16 +191,12 @@ struct ForeignPlacement {
 // Load itemGame's cross-placed items, keyed by itemName (the item's own namespace). Used when a
 // display routine's local check scan fails and it needs to know which OTHER game's check holds it.
 inline std::unordered_map<std::string, ForeignPlacement> LoadForeignByItem(int slot, GameId itemGame) {
+    (void)slot;
     std::unordered_map<std::string, ForeignPlacement> map;
-    auto path = SlotReadPath(slot);
-    if (path.empty())
-        return map;
-    std::ifstream in(path);
-    if (!in.is_open())
+    if (g_comboForeignJson.empty())
         return map;
     try {
-        nlohmann::json j;
-        in >> j;
+        nlohmann::json j = nlohmann::json::parse(g_comboForeignJson);
         const std::string key = GameIdToKey(itemGame);
         for (const auto& fm : j.value("foreign", nlohmann::json::array())) {
             if (fm.value("itemGame", "") != key)
@@ -270,18 +224,15 @@ struct MmHints {
     std::unordered_map<std::string, std::string> itemLocations; // itemName -> "in <area> (OOT)"
 };
 
-// Load slot N's hints.mm object. Empty (never throws) on missing/corrupt file.
+// Load the hints.mm object from the pushed spoiler blob. Empty (never throws) on missing/corrupt
+// data. slot unused (source is the in-memory blob; kept for call-site compatibility).
 inline MmHints LoadHintsMM(int slot) {
+    (void)slot;
     MmHints out;
-    auto path = SlotReadPath(slot);
-    if (path.empty())
-        return out;
-    std::ifstream in(path);
-    if (!in.is_open())
+    if (g_comboForeignJson.empty())
         return out;
     try {
-        nlohmann::json j;
-        in >> j;
+        nlohmann::json j = nlohmann::json::parse(g_comboForeignJson);
         auto mm = j.value("hints", nlohmann::json::object()).value("mm", nlohmann::json::object());
         for (auto& g : mm.value("gossipPool", nlohmann::json::array()))
             out.gossipPool.push_back({ g.value("weight", 1u), g.value("text", "") });

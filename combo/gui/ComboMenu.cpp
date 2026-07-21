@@ -202,6 +202,11 @@ void ComboMenu::Draw() {
     SyncVisibilityConsoleVariable();
 }
 
+void ComboMenu::OpenAtRandomizer() {
+    mScope = "randomizer";
+    Show();
+}
+
 void ComboMenu::DrawElement() {
     // ImGui's GImGui (current-context) is a per-module global; comboui.dll has its own,
     // separate from libultraship.dll where the context actually lives. Point it at the shared
@@ -320,6 +325,24 @@ void ComboMenu::DrawElement() {
             DrawGamePanel("mm");
         } else {
             DrawSharedPanel();
+        }
+
+        // Clear the search box when the player navigates to a different tab/sidebar so a stale query
+        // doesn't stay stuck. Signature = scope + active section (per-game nav or shared hub entry).
+        std::string navSig = mScope;
+        if (mScope == "oot" || mScope == "mm") {
+            auto it = mGameNav.find(mScope);
+            if (it != mGameNav.end())
+                navSig += '|' + it->second.first + '/' + it->second.second;
+        } else {
+            navSig += '|' + mHubActive;
+        }
+        if (navSig != mLastNavSig) {
+            if (!mLastNavSig.empty()) {
+                mSearchBuf[0] = '\0';
+                mSearchQuery.clear();
+            }
+            mLastNavSig = navSig;
         }
         ImGui::EndChild();
     }
@@ -919,25 +942,44 @@ void PlandoLoad() {
     ResolvePlandoSyms();
     sPlando.loaded = false;
     sPlando.rows.clear();
-    // Load the spoiler picked in the dropdown; fall back to the active slot's newest / pending file.
-    std::filesystem::path path;
+    // Load the spoiler picked in the dropdown; else the active slot's baked rando (combo.rando in its
+    // .combosav container), else the pending generated seed.
+    sPlando.loadedJson.clear();
+    std::string srcLabel;
+    auto readFile = [](const std::filesystem::path& p) -> std::string {
+        std::ifstream in(p);
+        if (!in.is_open())
+            return {};
+        std::stringstream ss;
+        ss << in.rdbuf();
+        return ss.str();
+    };
     if (sPlando.spoilerSel >= 0 && sPlando.spoilerSel < (int)sPlando.spoilerPaths.size()) {
-        path = sPlando.spoilerPaths[sPlando.spoilerSel];
+        sPlando.loadedJson = readFile(sPlando.spoilerPaths[sPlando.spoilerSel]);
+        srcLabel = std::filesystem::path(sPlando.spoilerPaths[sPlando.spoilerSel]).filename().string();
     } else {
         int slot = sGetActiveFileNum ? sGetActiveFileNum() : -1;
-        path = (slot >= 0) ? ComboRando::SlotReadPath(slot) : std::filesystem::path{};
-        if (path.empty())
-            path = ComboRando::PendingPath();
+        if (slot >= 0) {
+            try {
+                auto cj = nlohmann::json::parse(
+                    readFile(std::filesystem::path("Save") / ("file" + std::to_string(slot + 1) + ".combosav")));
+                auto r = cj.value("combo", nlohmann::json::object()).value("rando", nlohmann::json());
+                if (!r.is_null()) {
+                    sPlando.loadedJson = r.dump();
+                    srcLabel = "file" + std::to_string(slot + 1) + ".combosav";
+                }
+            } catch (...) {}
+        }
+        if (sPlando.loadedJson.empty()) {
+            sPlando.loadedJson = readFile(ComboRando::PendingPath());
+            srcLabel = ComboRando::PendingPath().filename().string();
+        }
     }
-    std::ifstream in(path);
-    if (!in.is_open()) {
+    if (sPlando.loadedJson.empty()) {
         sPlando.status = "No generated seed found to load.";
         sPlando.statusError = true;
         return;
     }
-    std::stringstream ss;
-    ss << in.rdbuf();
-    sPlando.loadedJson = ss.str();
     nlohmann::json j;
     try {
         j = nlohmann::json::parse(sPlando.loadedJson);
@@ -967,7 +1009,7 @@ void PlandoLoad() {
     });
     sPlando.loaded = true;
     sPlando.statusError = false;
-    sPlando.status = "Loaded " + std::to_string(sPlando.rows.size()) + " placements from " + path.filename().string();
+    sPlando.status = "Loaded " + std::to_string(sPlando.rows.size()) + " placements from " + srcLabel;
 }
 
 // Serialize the edited model back to the consolidated schema and play it verbatim. Preserves the
@@ -1580,6 +1622,12 @@ void ComboMenu::DrawComboPanel() {
 }
 
 } // namespace ComboRando
+
+// ComboShip: open the combo menu on the Randomizer tab (file-select "Open Randomizer Settings").
+extern "C" __declspec(dllexport) void ComboUI_OpenRandomizerSettings(void) {
+    if (ComboRando::sComboMenu)
+        ComboRando::sComboMenu->OpenAtRandomizer();
+}
 
 #ifdef _WIN32
 extern "C" __declspec(dllexport) void ComboUI_Register(void)

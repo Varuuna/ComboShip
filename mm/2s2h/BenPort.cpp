@@ -59,7 +59,8 @@ CrowdControl* CrowdControl::Instance;
 #include <BenGui/BenGui.hpp>
 #include <BenGui/BenMenu.h>
 #ifdef COMBO_BUILD
-#include "ComboMenuSharedContext.h" // ComboShip: shared per-DLL ImGui context helper (combo-owned)
+#include "ComboMenuSharedContext.h"               // ComboShip: shared per-DLL ImGui context helper (combo-owned)
+#include "2s2h/Rando/MiscBehavior/MiscBehavior.h" // ComboShip: MM_LoadComboRando cache invalidation + ComboRando types
 #endif
 
 #include "2s2h/GameInteractor/GameInteractor.h"
@@ -148,6 +149,12 @@ extern "C" __declspec(dllexport) void MM_SetOnComboReturnCallback(void (*cb)(voi
     gComboReturnCallback = cb;
 }
 static bool sComboReturnPending = false;
+// ComboShip: Ctrl+R reset while MM is foreground. Like the portal return, but only persists MM if
+// autosave is enabled (an authentic reset otherwise discards unsaved progress). Set via the export.
+static bool sComboResetReturnPending = false;
+extern "C" __declspec(dllexport) void MM_RequestComboReturn(void) {
+    sComboResetReturnPending = true;
+}
 // MM's own ResourceManager, created at first boot and kept alive for the whole process. A combo
 // transition swaps the Context's active RM between MM's and OOT's, so each game keeps its archives +
 // resource cache resident and nothing is ever unloaded (no dangling cached pointers). See MM_ResumeGame.
@@ -1102,10 +1109,14 @@ extern "C" void InitOTR(int argc, char* argv[]) {
         }
     });
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameStateMainStart>([]() {
-        if (!sComboReturnPending)
+        if (!sComboReturnPending && !sComboResetReturnPending)
             return;
+        const bool isReset = sComboResetReturnPending;
         sComboReturnPending = false;
-        SaveManager_SaveCurrentForCombo();
+        sComboResetReturnPending = false;
+        // Portal return always persists MM; a reset persists only when autosave is enabled.
+        if (!isReset || CVarGetInteger("gEnhancements.Saving.Autosave", 0))
+            SaveManager_SaveCurrentForCombo();
         if (gComboReturnCallback)
             gComboReturnCallback();
         if (auto fast3d = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow())) {
@@ -2819,6 +2830,19 @@ extern "C" __declspec(dllexport) void MM_SetDeleteForeignSave(void (*cb)(int)) {
     gMMComboDeleteForeignSave = cb;
 }
 
+// ComboShip: push the launcher's .combosav IO callbacks into SaveManager (routes file{N}.json into
+// the merged container). Both primitives funnel through them; null-callbacks fall back to disk IO.
+extern "C" __declspec(dllexport) void MM_SetComboSaveIO(ComboRando::FnComboReadSave r, ComboRando::FnComboWriteSave w) {
+    SaveManager_SetComboSaveIO(r, w);
+}
+
+// ComboShip: receive the consolidated combo spoiler (foreign map + cross-hints), pushed once per
+// save-load; store the blob and invalidate MM's lookup caches so they rebuild from it. Idempotent.
+extern "C" __declspec(dllexport) void MM_LoadComboRando(const char* json) {
+    ComboRando::Combo_SetForeignJson(json);
+    Rando::MiscBehavior::InvalidateComboForeignCache();
+}
+
 // Returns the number of archives open in the MM-private ArchiveManager.
 // 0 means MM_InitArchives was not called or found no files.
 extern "C" __declspec(dllexport) int MM_ArchiveCount() {
@@ -2872,6 +2896,15 @@ extern "C" __declspec(dllexport) int MM_ValidateRom(const char* romPath) {
     }
     Extractor extract;
     return extract.RunFileStandalone(romPath) ? 1 : 0;
+}
+
+// ComboShip: header-only version check for the folder auto-scan (no full-ROM read/CRC).
+extern "C" __declspec(dllexport) int MM_ClassifyRom(const char* romPath) {
+    if (!romPath) {
+        return 0;
+    }
+    Extractor extract;
+    return extract.ClassifyRom(romPath) ? 1 : 0;
 }
 
 extern "C" __declspec(dllexport) int MM_StartExtraction(const char* romPath) {
@@ -2939,6 +2972,15 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoSettings(void) {
     // Excluded-checks CSV is a string CVar outside the options walk; GeneratePools parses it, so a
     // replayed spoiler must carry it or local exclusions leak in (GAP-7 mirror).
     j["gRando.ExcludedChecks"] = CVarGetString("gRando.ExcludedChecks", "");
+    // Starting items are a JSON-array config block (not a flat CVar); carry them so a joiner's save
+    // uses the author's kit instead of local defaults.
+    nlohmann::json si = nlohmann::json::array();
+    for (RandoItemId rid : Rando::GetStartingItemsFromConfig()) {
+        const char* name = Rando::StaticData::Items[rid].spoilerName;
+        if (name && name[0])
+            si.push_back(name);
+    }
+    j["gRando.StartingItems"] = si;
     cached = j.dump();
     return cached.c_str();
 }
@@ -2953,7 +2995,19 @@ extern "C" __declspec(dllexport) void MM_RestoreRandoSettings(const char* json) 
         auto j = nlohmann::json::parse(json);
         // Snapshot is authoritative: pre-clear so pre-GAP-7 spoilers don't inherit local exclusions.
         CVarSetString("gRando.ExcludedChecks", "");
+        // Starting items: authoritative array from the seed (handled here, skipped in the loop).
+        if (j.contains("gRando.StartingItems") && j["gRando.StartingItems"].is_array()) {
+            std::vector<RandoItemId> items;
+            for (auto& n : j["gRando.StartingItems"]) {
+                auto rid = Rando::StaticData::GetItemIdFromName(n.get<std::string>().c_str());
+                if (rid > RI_UNKNOWN && rid < RI_MAX)
+                    items.push_back(rid);
+            }
+            Rando::SetStartingItemsInConfig(items);
+        }
         for (auto it = j.begin(); it != j.end(); ++it) {
+            if (it.key() == "gRando.StartingItems")
+                continue;
             if (it.value().is_string())
                 CVarSetString(it.key().c_str(), it.value().get<std::string>().c_str());
             else
@@ -3084,65 +3138,26 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         }
     }
 
-    // ComboShip canary: count every reason a pool item fails to emit (see debug-mmdump.json below).
-    // An empty/near-empty pool silently kills cross-game placement, so keep this cheap diagnostic.
-    int skippedNoStatic = 0, skippedNoName = 0, poolNoName = 0;
-
     // Fillable checks -> checks[] (name only; pool[] feeds the items).
     for (RandoCheckId id : checkPool) {
         auto chkIt = Rando::StaticData::Checks.find(id);
-        if (chkIt == Rando::StaticData::Checks.end()) {
-            skippedNoStatic++;
+        if (chkIt == Rando::StaticData::Checks.end())
             continue;
-        }
         const std::string& cn = Rando::StaticData::GetCheckDisplayName(id); // ComboShip: friendly name
-        if (cn.empty()) {
-            skippedNoName++;
+        if (cn.empty())
             continue;
-        }
         checks.push_back({ { "name", cn } });
     }
 
     // Pool = the real free item pool (every settings-added item; confined items already removed).
     for (RandoItemId iid : itemPool) {
         auto it = Rando::StaticData::Items.find(iid);
-        if (it == Rando::StaticData::Items.end() || !it->second.spoilerName || it->second.spoilerName[0] == '\0') {
-            poolNoName++;
+        if (it == Rando::StaticData::Items.end() || !it->second.spoilerName || it->second.spoilerName[0] == '\0')
             continue;
-        }
         // ComboShip: friendly item name for the normalized combo spoiler.
         pool.push_back(
             { { "name", Rando::StaticData::GetItemDisplayName(iid) }, { "advancement", isAdvancement(it->second) } });
     }
-
-    // ComboShip canary: written to a file because 2ship.dll's spdlog default logger is never
-    // configured in combo (soh's module owns the shared logging), so SPDLOG_* here goes nowhere.
-    // regions==0 means MM's eager boot / ShipInit::InitAll didn't run. Debug-build only.
-#ifndef NDEBUG
-    try {
-        std::error_code ec;
-        std::filesystem::create_directories("saves/combo", ec);
-        nlohmann::json diag = {
-            { "regions", Rando::Logic::Regions.size() },
-            { "staticChecks", Rando::StaticData::Checks.size() },
-            { "options", Rando::StaticData::Options.size() },
-            { "logicOpt", (uint32_t)saveInfo.randoSaveOptions[RO_LOGIC] },
-            { "checkPool", checkPool.size() },
-            { "itemPool", itemPool.size() },
-            { "emitted", checks.size() },
-            { "fixed", fixed.size() },
-            { "pool", pool.size() },
-            { "skippedNoStatic", skippedNoStatic },
-            { "skippedNoName", skippedNoName },
-            { "poolNoName", poolNoName },
-        };
-        std::ofstream("saves/combo/debug-mmdump.json", std::ios::trunc) << diag.dump(2);
-    } catch (...) {}
-#else
-    (void)skippedNoStatic;
-    (void)skippedNoName;
-    (void)poolNoName;
-#endif
 
     for (auto& [id, item] : Rando::StaticData::Items) {
         if (!item.spoilerName || item.spoilerName[0] == '\0')
@@ -3699,18 +3714,32 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_SetOwnedItems(const char* i
 
 // ComboShip: cross-game item delivery seam (issue #3). When the other game collects a check whose
 // item belongs to MM, the launcher calls MM_GrantCrossItem to grant it straight into MM's resident
-// save — even when MM is the dormant (frozen) game. We use GiveItemForOracle, the save-only grant
-// that never touches gPlayState, so it is safe against a frozen play state. The save is persisted
-// immediately so the item survives quitting before ever switching into MM. See docs/UPSTREAM_MERGES.md.
-// ComboShip: dormant-safe give of an already-resolved MM rando item into the resident save,
-// persisted immediately. Traps are deferred (drained in Traps.cpp when MM is active). Non-static
-// so MMAnchor's dormant co-op receive path can reuse it. RC is marked obtained by the caller.
+// save — even while MM is dormant. Delivers through the real give path (Rando::GiveItem), not the
+// oracle, so capacity/ammo/multi-slot state is written faithfully; gComboDormantGive defers the
+// play-dependent branches. Callers pass a concrete item (junk pre-resolved).
 void Combo_MM_GiveDormantResolved(RandoItemId rid) {
-    if (rid == RI_TRAP) {
-        // Trap effects need an active PlayState/GameInteractor; defer and fire on next MM activation.
-        gSaveContext.save.shipSaveInfo.rando.pendingTrapCount++;
-    } else {
-        GiveItemForOracle(rid); // save-only, dormant-safe
+    {
+        // Scope-guard clears the flag even if GiveItem throws.
+        struct FlagGuard {
+            ~FlagGuard() {
+                Rando::gComboDormantGive = false;
+            }
+        } flagGuard;
+        Rando::gComboDormantGive = true;
+        Rando::GiveItem(rid);
+    }
+    // ComboShip: rupees/magic land in transient accumulators (not in gSaveContext.save, applied on
+    // the interface tick); flush them into the save so a dormant grant survives quitting before MM.
+    if (gSaveContext.rupeeAccumulator != 0) {
+        s16 total = gSaveContext.save.saveInfo.playerData.rupees + gSaveContext.rupeeAccumulator;
+        gSaveContext.save.saveInfo.playerData.rupees = CLAMP(total, 0, (s16)CUR_CAPACITY(UPG_WALLET));
+        gSaveContext.rupeeAccumulator = 0;
+    }
+    if (gSaveContext.magicToAdd != 0) {
+        s16 total = gSaveContext.save.saveInfo.playerData.magic + gSaveContext.magicToAdd;
+        gSaveContext.save.saveInfo.playerData.magic = CLAMP(total, 0, (s16)gSaveContext.magicCapacity);
+        gSaveContext.magicToAdd = 0;
+        gSaveContext.isMagicRequested = false;
     }
     if (gSaveContext.fileNum != 0xFF) {
         SaveManager_SaveCurrentForCombo(); // persist NOW
@@ -3726,7 +3755,12 @@ extern "C" __declspec(dllexport) void MM_GrantCrossItem(const char* itemName) {
         SPDLOG_WARN("[ComboShip] MM_GrantCrossItem: unknown MM item '{}'", itemName);
         return;
     }
-    Combo_MM_GiveDormantResolved(it->second);
+    RandoItemId rid = it->second;
+    // ComboShip: MM junk can't rotate when collected in OOT; deliver a fixed Red Rupee.
+    if (rid == RI_JUNK) {
+        rid = RI_RUPEE_RED;
+    }
+    Combo_MM_GiveDormantResolved(rid);
     SPDLOG_INFO("[ComboShip] MM_GrantCrossItem: granted '{}' into MM save", itemName);
 }
 

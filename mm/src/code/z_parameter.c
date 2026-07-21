@@ -4026,6 +4026,12 @@ void Interface_InitMinigame(PlayState* play) {
 }
 
 void Interface_Dpad_LoadItemIconImpl(PlayState* play, u8 btn) {
+#ifdef COMBO_BUILD
+    // ComboShip: dormant grant path has no play state; icon load is transient, safe to skip.
+    if (play == NULL) {
+        return;
+    }
+#endif
     InterfaceContext* interfaceCtx = &play->interfaceCtx;
 
     if (!GameInteractor_Should(VB_INTERFACE_LOAD_DPAD_ITEM_ICON, true, btn)) {
@@ -4067,6 +4073,12 @@ void Interface_DrawAutosaveIcon(PlayState* play, uint16_t opacity) {
 }
 
 void Interface_LoadItemIconImpl(PlayState* play, u8 btn) {
+#ifdef COMBO_BUILD
+    // ComboShip: dormant grant path has no play state; icon load is transient, safe to skip.
+    if (play == NULL) {
+        return;
+    }
+#endif
     InterfaceContext* interfaceCtx = &play->interfaceCtx;
 
     if (!GameInteractor_Should(VB_INTERFACE_LOAD_ITEM_ICON, true, btn)) {

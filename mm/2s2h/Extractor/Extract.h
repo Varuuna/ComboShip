@@ -62,6 +62,8 @@ class Extractor {
     void SetSearchPath(const std::string& path);
     void GetRoms(std::vector<std::string>& roms);
     bool RunFileStandalone(std::string file);
+    // ComboShip: header-only version check for the folder auto-scan (no full-ROM read/CRC).
+    bool ClassifyRom(std::string file);
     bool Run(std::string searchPath, RomSearchMode searchMode = RomSearchMode::Both);
     bool CallZapd(std::string installPath, std::string exportdir, std::atomic<size_t>* extractCount,
                   std::atomic<size_t>* totalExtract);

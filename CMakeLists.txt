@@ -346,7 +346,7 @@ if ("${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
 endif()
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows|NintendoSwitch|CafeOS")
-    install(FILES ${CMAKE_SOURCE_DIR}/README.md DESTINATION . COMPONENT combo RENAME readme.txt )
+    # ComboShip: the README is not shipped in the package (it's repo docs, not a runtime file).
     install(CODE "file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/mods\")" COMPONENT combo)
     install(CODE "file(TOUCH \"\${CMAKE_INSTALL_PREFIX}/mods/custom_mod_files_go_here.txt\")" COMPONENT combo)
 endif()

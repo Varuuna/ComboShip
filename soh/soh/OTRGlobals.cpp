@@ -2965,17 +2965,11 @@ void Combo_ApplyItemReceiveSideEffects(const GetItemEntry& gie) {
     }
 }
 
-extern "C" __declspec(dllexport) void SOH_GrantCrossItem(const char* itemName) {
-    if (!itemName)
-        return;
-    auto it = Rando::StaticData::itemNameToEnum.find(itemName);
-    if (it == Rando::StaticData::itemNameToEnum.end()) {
-        SPDLOG_WARN("[ComboShip] SOH_GrantCrossItem: unknown OOT item '{}'", itemName);
-        return;
-    }
-    GetItemEntry gie = Rando::StaticData::RetrieveItem(it->second).GetGIEntry_Copy();
-    // ComboShip: a resolved OOT item can be a vanilla (MOD_NONE) entry, which Randomizer_Item_Give
-    // asserts against. Dispatch by mod index exactly like Anchor's HandlePacket_GiveItem.
+// ComboShip: save-direct grant of a resolved OOT item. Shared by SOH_GrantCrossItem and Anchor's
+// team-state backfill so both apply identical dispatch + side effects + persist.
+void Combo_GrantResolvedOOT(const GetItemEntry& gie) {
+    // A resolved OOT item can be a vanilla (MOD_NONE) entry, which Randomizer_Item_Give asserts
+    // against. Dispatch by mod index exactly like Anchor's HandlePacket_GiveItem.
     if (gie.modIndex == MOD_NONE) {
         if (gie.getItemId == GI_SWORD_BGS) {
             gSaveContext.bgsFlag = true;
@@ -3003,6 +2997,18 @@ extern "C" __declspec(dllexport) void SOH_GrantCrossItem(const char* itemName) {
     if (SaveManager::Instance && gSaveContext.fileNum != 0xFF) {
         SaveManager::Instance->SaveFile(gSaveContext.fileNum); // persist NOW
     }
+}
+
+extern "C" __declspec(dllexport) void SOH_GrantCrossItem(const char* itemName) {
+    if (!itemName)
+        return;
+    auto it = Rando::StaticData::itemNameToEnum.find(itemName);
+    if (it == Rando::StaticData::itemNameToEnum.end()) {
+        SPDLOG_WARN("[ComboShip] SOH_GrantCrossItem: unknown OOT item '{}'", itemName);
+        return;
+    }
+    GetItemEntry gie = Rando::StaticData::RetrieveItem(it->second).GetGIEntry_Copy();
+    Combo_GrantResolvedOOT(gie);
     SPDLOG_INFO("[ComboShip] SOH_GrantCrossItem: granted '{}' into OOT save", itemName);
 }
 
@@ -3166,7 +3172,42 @@ bool Combo_OotIsForeground(void) {
     }
     return sFn ? (sFn() == 0) : true;
 }
+
+// ComboShip: Ctrl+R reset. Set when a reset should return the whole session to first-boot; read by
+// SOH_ResumeGame so OOT boots to the title sequence instead of resuming the dormant save.
+static bool sComboResetPending = false;
+
+// Handle a reset request. If MM is foreground, bounce back to OOT (MM saves if autosave is on, then
+// goes dormant) and flag OOT to boot to the title sequence on resume. Returns true if it took over the
+// reset; false lets the caller run OOT's normal reset (which already lands on the boot sequence).
+bool Combo_HandleReset(void) {
+    if (Combo_OotIsForeground())
+        return false;
+    sComboResetPending = true;
+    static void (*sFn)(void) = nullptr;
+    static bool sTried = false;
+    if (!sTried) {
+        sTried = true;
+        if (HMODULE h = GetModuleHandleA("2ship.dll"))
+            sFn = (void (*)(void))GetProcAddress(h, "MM_RequestComboReturn");
+    }
+    if (sFn)
+        sFn();
+    return true;
+}
 #endif
+
+// ComboShip: open the combo menu on the Randomizer tab (file-select "Open Randomizer Settings").
+// The menu lives in comboui.dll; its visibility is object-state, not the CVar, so route through
+// the export rather than setting gOpenWindows.Menu.
+extern "C" void SOH_OpenComboRandoSettings(void) {
+#ifdef COMBO_BUILD
+    if (HMODULE h = GetModuleHandleA("comboui.dll")) {
+        if (auto fn = (void (*)(void))GetProcAddress(h, "ComboUI_OpenRandomizerSettings"))
+            fn();
+    }
+#endif
+}
 
 extern "C" __declspec(dllexport) int32_t SOH_MenuEvalDisabled(int32_t i, const char** outReason) {
     ComboMenuContext::UseSharedImGuiContext();
@@ -3232,7 +3273,10 @@ extern "C" __declspec(dllexport) void SOH_ResumeGame(void) {
     // 4. Hand off to OOT's boot path: capture the save slot, reset the frame state machine, and let
     //    TitleSetup jump straight to Play at the Mido's-House door (mirrors FileChoose + MM title_setup).
     //    The save itself is loaded by TitleSetup via Sram_OpenSave, exactly like normal file select.
-    gComboReturnFileNum = (s32)gSaveContext.fileNum;
+    // ComboShip: on a reset return, leave gComboReturnFileNum < 0 so TitleSetup boots to the title
+    // sequence (first-boot) instead of jumping straight back into Play on the saved slot.
+    gComboReturnFileNum = sComboResetPending ? -1 : (s32)gSaveContext.fileNum;
+    sComboResetPending = false;
     SOH_ResetFrameLoopForResume();
     SPDLOG_INFO("[ComboShip] SOH_ResumeGame: entering OOT loop (gComboReturnFileNum={}, WindowIsRunning={})",
                 gComboReturnFileNum, WindowIsRunning());
@@ -3285,6 +3329,15 @@ extern "C" __declspec(dllexport) int SOH_ValidateRom(const char* romPath) {
     }
     Extractor extract;
     return extract.RunFileStandalone(romPath) ? 1 : 0;
+}
+
+// ComboShip: header-only version check for the folder auto-scan (no full-ROM read/CRC).
+extern "C" __declspec(dllexport) int SOH_ClassifyRom(const char* romPath) {
+    if (!romPath) {
+        return 0;
+    }
+    Extractor extract;
+    return extract.ClassifyRom(romPath) ? 1 : 0;
 }
 
 // Kicks ZAPD extraction of romPath on a background task. Non-blocking; returns 0 if a job is already

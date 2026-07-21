@@ -270,6 +270,12 @@ static RandomizerCheck randomizerQueuedCheck = RC_UNKNOWN_CHECK;
 static GetItemEntry randomizerQueuedItemEntry = GET_ITEM_NONE;
 
 void CheckTriggers() {
+#ifdef COMBO_BUILD
+    // No loaded save (e.g. the title/boot screen after a Ctrl+R reset) means nothing can receive a
+    // check — don't queue one, or the give handler retries + log-spams every frame. See IsSaveLoaded.
+    if (!GameInteractor::IsSaveLoaded())
+        return;
+#endif
     if (!(gSaveContext.inventory.dungeonItems[SCENE_GANONS_TOWER] & 1) && MeetsGBKRequirements()) {
         SPDLOG_INFO("Queuing RC: RC_GANONS_BOSS_KEY");
         randomizerQueuedChecks.push(RC_GANONS_BOSS_KEY);
@@ -302,11 +308,11 @@ void RandomizerOnFlagSetHandler(int16_t flagType, int16_t flag) {
     }
 
     if (flagType == FLAG_EVENT_CHECK_INF && flag == EVENTCHKINF_TALON_WOKEN_IN_CASTLE) {
-        // remove chicken as this is the only use for it
         Flags_UnsetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_CHICKEN);
     }
 
-    if (flagType == FLAG_EVENT_CHECK_INF && flag == EVENTCHKINF_OBTAINED_ZELDAS_LETTER) {
+    if (flagType == FLAG_EVENT_CHECK_INF && flag == EVENTCHKINF_OBTAINED_ZELDAS_LETTER &&
+        !RAND_GET_OPTION(RSK_SHUFFLE_ZELDAS_LETTER)) {
         Flags_SetRandomizerInf(RAND_INF_ZELDAS_LETTER);
     }
 
@@ -407,19 +413,16 @@ void RandomizerOnSceneFlagSetHandler(int16_t sceneNum, int16_t flagType, int16_t
 static Vec3f spawnPos = { 0.0f, -999.0f, 0.0f };
 
 #ifdef COMBO_BUILD
-// ComboShip: per-slot cache of OOT checks that hold a foreign (MM-bound) item. Reloaded when the
-// active slot changes. Avoids re-reading the foreign file on every check pickup.
-static int g_ootForeignSlot = -1;
+// ComboShip: cache of OOT checks that hold a foreign (MM-bound) item, built from the pushed spoiler
+// blob by SOH_LoadComboRando. No per-slot file reload — data now arrives in memory.
 static std::unordered_map<std::string, ComboRando::ForeignItem> g_ootForeignMap;
 
 // ComboShip: also used by MerchantMessages/check tracker to show the real foreign item name.
 const ComboRando::ForeignItem* OOT_LookupForeign(int slot, const std::string& checkName) {
-    // Retry while empty: in-session generation queries names for this slot after CleanSlotFiles but
-    // before save creation writes the new consolidated file — don't cache that window forever.
-    if (slot != g_ootForeignSlot || g_ootForeignMap.empty()) {
-        g_ootForeignMap = ComboRando::LoadForeignForGame(slot, ComboRando::GAME_OOT);
-        g_ootForeignSlot = slot;
-    }
+    (void)slot;
+    // Lazily build from the in-memory blob if a lookup races the load-time push.
+    if (g_ootForeignMap.empty())
+        g_ootForeignMap = ComboRando::LoadForeignForGame(0, ComboRando::GAME_OOT);
     auto it = g_ootForeignMap.find(checkName);
     return it == g_ootForeignMap.end() ? nullptr : &it->second;
 }
@@ -458,6 +461,13 @@ void OOT_DeliverForeign(RandomizerCheck rc) {
     } else {
         SPDLOG_WARN("[ComboShip] OOT foreign sentinel at '{}' but no foreign-map entry; dropping", checkName);
     }
+}
+
+// ComboShip: launcher pushes the baked combo rando (foreign map + cross-hints) once per save-load.
+// Store the blob and rebuild the OOT foreign cache from it. Idempotent (pushed at bind and load).
+extern "C" __declspec(dllexport) void SOH_LoadComboRando(const char* json) {
+    ComboRando::Combo_SetForeignJson(json);
+    g_ootForeignMap = ComboRando::LoadForeignForGame(0, ComboRando::GAME_OOT);
 }
 #endif
 
@@ -528,9 +538,28 @@ void RandomizerOnPlayerUpdateForRCQueueHandler() {
     randomizerQueuedChecks.pop();
 }
 
+#ifdef COMBO_BUILD
+// ComboShip: drop any pending rando item-give (used when no save is loaded, e.g. the title/boot
+// screen after a reset, so the give handler doesn't retry + log-spam every frame).
+static void Randomizer_ClearItemGiveQueue() {
+    randomizerQueuedChecks = std::queue<RandomizerCheck>();
+    randomizerQueuedCheck = RC_UNKNOWN_CHECK;
+    randomizerQueuedItemEntry = GET_ITEM_NONE;
+}
+#endif
+
 void RandomizerOnPlayerUpdateForItemQueueHandler() {
     if (randomizerQueuedCheck == RC_UNKNOWN_CHECK)
         return;
+
+#ifdef COMBO_BUILD
+    // No loaded save to receive the item (title/boot after a reset) — drop the pending give instead of
+    // retrying + log-spamming every frame.
+    if (!GameInteractor::IsSaveLoaded()) {
+        Randomizer_ClearItemGiveQueue();
+        return;
+    }
+#endif
 
     Player* player = GET_PLAYER(gPlayState);
     if (player == NULL || Player_InBlockingCsMode(gPlayState, player) ||
@@ -1342,6 +1371,17 @@ void RandomizerOnVanillaBehaviorHandler(GIVanillaBehavior id, bool* should, va_l
         }
         case VB_KING_ZORA_TUNIC_CHECK: {
             if (!Flags_GetRandomizerInf(RAND_INF_KING_ZORA_THAWED)) {
+                *should = false;
+            }
+            break;
+        }
+        case VB_JABU_PREVENT_RUTO_REENTER_BIGOCTO: {
+            // Don't let player carry Ruto through doors 21 and 3 to Bigocto room if Ruto abducted flag set
+            Player* player = va_arg(args, Player*);
+            Actor* doorActor = va_arg(args, Actor*);
+            if (gPlayState->sceneNum == SCENE_JABU_JABU && GET_INFTABLE(INFTABLE_146) &&
+                (GET_TRANSITION_ACTOR_INDEX(doorActor) == 21 || GET_TRANSITION_ACTOR_INDEX(doorActor) == 3) &&
+                player->heldActor != NULL && player->heldActor->id == ACTOR_EN_RU1) {
                 *should = false;
             }
             break;
@@ -2889,7 +2929,8 @@ f32 triforcePieceScale;
 
 void RandomizerOnPlayerUpdateHandler() {
     if ((GET_PLAYER(gPlayState)->stateFlags1 & PLAYER_STATE1_IN_WATER) && !Flags_GetRandomizerInf(RAND_INF_CAN_SWIM) &&
-        CUR_EQUIP_VALUE(EQUIP_TYPE_BOOTS) != EQUIP_VALUE_BOOTS_IRON) {
+        CUR_EQUIP_VALUE(EQUIP_TYPE_BOOTS) != EQUIP_VALUE_BOOTS_IRON &&
+        gPlayState->transitionTrigger == TRANS_TRIGGER_OFF) {
         // if you void out in water temple without swim you get instantly kicked out to prevent softlocks
         if (gPlayState->sceneNum == SCENE_WATER_TEMPLE) {
             GameInteractor::RawAction::TeleportPlayer(
@@ -2915,6 +2956,7 @@ void RandomizerOnPlayerUpdateHandler() {
                 gSaveContext.respawnFlag = 0;
             } else {
                 Play_TriggerVoidOut(gPlayState);
+                Grotto_ForceGrottoReturnOnSpecialEntrance();
             }
         }
     }

@@ -34,6 +34,44 @@ extern SaveContext gSaveContext;
 
 const std::filesystem::path savesFolderPath(Ship::Context::GetPathRelativeToAppDirectory("saves", appShortName));
 
+#ifdef COMBO_BUILD
+#include "rando/CrossForeign.h" // ComboShip: merged-save IO callback typedefs + GameId
+
+// ComboShip: launcher-provided .combosav IO. When set, a main per-slot file{N}.json read/write routes
+// into the container's "mm" section; unset -> the vendored disk IO below. Both primitives funnel here.
+static ComboRando::FnComboReadSave gComboReadGameSave = nullptr;
+static ComboRando::FnComboWriteSave gComboWriteGameSave = nullptr;
+void SaveManager_SetComboSaveIO(ComboRando::FnComboReadSave r, ComboRando::FnComboWriteSave w) {
+    gComboReadGameSave = r;
+    gComboWriteGameSave = w;
+}
+
+// ComboShip: classify a save filename. Returns the 1-based slot N for a "file{N}.json" (main or
+// backup), 0 otherwise; isBackup/isGlobal flag the non-main forms that stay on disk.
+static int SaveManager_ClassifySaveFile(const std::filesystem::path& fileName, bool& isBackup, bool& isGlobal) {
+    isBackup = isGlobal = false;
+    std::string name = fileName.filename().string();
+    if (name == "global.json") {
+        isGlobal = true;
+        return 0;
+    }
+    if (name.rfind("file", 0) != 0)
+        return 0;
+    size_t p = 4;
+    int n = 0;
+    while (p < name.size() && name[p] >= '0' && name[p] <= '9')
+        n = n * 10 + (name[p++] - '0');
+    if (p == 4)
+        return 0; // no digits
+    std::string rest = name.substr(p);
+    if (rest == "backup.json") {
+        isBackup = true;
+        return n;
+    }
+    return rest == ".json" ? n : 0;
+}
+#endif
+
 // Migrations
 // The idea here is that we can read in any version of the save as generic JSON, then apply migrations
 // to the JSON to ensure it's in the correct shape for the current to_json/from_json helpers to convert
@@ -109,6 +147,20 @@ int SaveManager_MigrateSave(nlohmann::json& j) {
 }
 
 void SaveManager_WriteSaveFile(const std::filesystem::path& fileName, nlohmann::json j) {
+#ifdef COMBO_BUILD
+    // ComboShip: route the main per-slot file into the .combosav container; drop the redundant backup.
+    if (gComboWriteGameSave) {
+        bool isBackup, isGlobal;
+        int n = SaveManager_ClassifySaveFile(fileName, isBackup, isGlobal);
+        if (isBackup)
+            return; // container's atomic write makes MM's per-slot backup redundant
+        if (n > 0 && !isGlobal) {
+            gComboWriteGameSave(ComboRando::GAME_MM, n - 1, j.dump().c_str());
+            return;
+        }
+        // global.json falls through to disk (per-game globals stay separate).
+    }
+#endif
     const std::filesystem::path filePath = savesFolderPath / fileName;
 
     // create_directories (plural) makes any missing parent dirs too; create_directory (single) fails
@@ -188,9 +240,14 @@ void SaveManager_LoadSaveFile(int mmFileNum) {
     std::string fileName = SaveManager_GetFileName(mmFileNum);
     nlohmann::json j;
     int result = SaveManager_ReadSaveFile(fileName, j);
+#ifdef COMBO_BUILD
+    // ComboShip: the read routes through the launcher into the .combosav container, not saves/file{N}.json.
+    SPDLOG_INFO("[ComboShip] LoadSaveFile slot {} <- .combosav container (read result={})", mmFileNum, result);
+#else
     SPDLOG_INFO("[ComboShip] LoadSaveFile slot {} -> {} (read result={}, savesFolder={})", mmFileNum,
                 std::filesystem::absolute(savesFolderPath / fileName).string(), result,
                 std::filesystem::absolute(savesFolderPath).string());
+#endif
     if (result != 0) {
         // No MM save yet for this slot (e.g. the OOT->MM new-save callback never fired because the
         // player loaded an existing OOT save rather than creating one). Create and persist a fresh
@@ -221,6 +278,20 @@ void SaveManager_LoadSaveFile(int mmFileNum) {
 }
 
 void SaveManager_DeleteSaveFile(const std::filesystem::path& fileName) {
+#ifdef COMBO_BUILD
+    // ComboShip: clear the container's mm section (write null) instead of removing a nonexistent
+    // saves/file{N}.json. Reached e.g. when the flashrom path invalidates a new-cycle save.
+    if (gComboWriteGameSave) {
+        bool isBackup, isGlobal;
+        int n = SaveManager_ClassifySaveFile(fileName, isBackup, isGlobal);
+        if (n > 0 && !isBackup && !isGlobal) {
+            gComboWriteGameSave(ComboRando::GAME_MM, n - 1, "null");
+            return;
+        }
+        if (isBackup)
+            return; // backups are never written
+    }
+#endif
     const std::filesystem::path filePath = savesFolderPath / fileName;
 
     try {
@@ -231,6 +302,26 @@ void SaveManager_DeleteSaveFile(const std::filesystem::path& fileName) {
 }
 
 int SaveManager_ReadSaveFile(const std::filesystem::path& fileName, nlohmann::json& j) {
+#ifdef COMBO_BUILD
+    // ComboShip: read the main per-slot section from the .combosav container; "" -> same code as the
+    // file-missing path below (feeds LoadSaveFile's "missing -> init fresh" fallback).
+    if (gComboReadGameSave) {
+        bool isBackup, isGlobal;
+        int n = SaveManager_ClassifySaveFile(fileName, isBackup, isGlobal);
+        if (n > 0 && !isBackup && !isGlobal) {
+            const char* section = gComboReadGameSave(ComboRando::GAME_MM, n - 1);
+            if (!section || section[0] == '\0')
+                return -1;
+            try {
+                j = nlohmann::json::parse(section);
+                return 0;
+            } catch (...) {
+                SPDLOG_ERROR("[ComboShip] Failed to parse MM container section for slot {}", n);
+                return -2;
+            }
+        }
+    }
+#endif
     const std::filesystem::path filePath = savesFolderPath / fileName;
 
     if (!std::filesystem::exists(filePath)) {
@@ -291,6 +382,8 @@ void SaveManager_MoveInvalidSaveFile(const std::filesystem::path& fileName, cons
     } catch (...) { SPDLOG_ERROR("Failed to move invalid save file"); }
 }
 
+// ComboShip: only the drag-drop MM-save import uses this; not a combo flow (combo MM saves are
+// created from OOT, never imported), so the on-disk probe below is vestigial under COMBO_BUILD.
 int SaveManager_GetOpenFileSlot() {
     std::string fileName = "file1.json";
     if (!std::filesystem::exists(savesFolderPath / fileName)) {

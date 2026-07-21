@@ -46,6 +46,15 @@ struct CustomCosmeticEntry {
     std::vector<CustomCosmeticBinding> bindings;
 };
 
+struct ManifestEntry {
+    std::string materialPath;
+    std::string cosmeticEntry;
+    std::string key;
+    std::string cosmeticCategory;
+    bool hasCosmeticCategory = false;
+    bool isPrimColor = false;
+};
+
 static std::vector<CustomCosmeticEntry> customCosmeticEntries;
 static bool customHumanModelActive = false;
 static bool customDekuModelActive = false;
@@ -416,14 +425,72 @@ void ScanDynamicCosmetics() {
     auto resourceManager = Ship::Context::GetInstance()->GetResourceManager();
     auto archiveManager = resourceManager->GetArchiveManager();
     RefreshCustomModelActiveFlags(archiveManager.get());
-    auto materialPaths = archiveManager->ListFiles("*");
+    auto archives = archiveManager->GetArchives();
+    std::vector<ManifestEntry> manifestEntries;
     std::unordered_map<std::string, size_t> entryIndicesByKey;
 
-    for (const auto& materialPath : *materialPaths) {
-        if (!IsCustomArchive(archiveManager->GetArchiveFromFile(materialPath))) {
+    for (const auto& archive : *archives) {
+        if (!IsCustomArchive(archive)) {
             continue;
         }
 
+        auto manifestFile = archive->LoadFile("CosmeticEntries");
+        if (manifestFile == nullptr || !manifestFile->IsLoaded || manifestFile->Buffer == nullptr) {
+            continue;
+        }
+
+        tinyxml2::XMLDocument manifestDocument;
+        manifestDocument.Parse(manifestFile->Buffer->data(), manifestFile->Buffer->size());
+        if (manifestDocument.Error()) {
+            continue;
+        }
+
+        tinyxml2::XMLElement* manifestRoot = manifestDocument.FirstChildElement();
+        if (manifestRoot == nullptr) {
+            continue;
+        }
+
+        for (auto* manifestEntry = manifestRoot->FirstChildElement(); manifestEntry != nullptr;
+             manifestEntry = manifestEntry->NextSiblingElement()) {
+            const char* cosmeticEntry = manifestEntry->Attribute("CosmeticEntry");
+            const char* materialPath = manifestEntry->Attribute("MaterialPath");
+            std::string resolvedMaterialPath;
+            if (materialPath != nullptr && materialPath[0] != '\0') {
+                resolvedMaterialPath = materialPath;
+                if (!archiveManager->HasFile(resolvedMaterialPath)) {
+                    if (!resolvedMaterialPath.starts_with("alt/") &&
+                        archiveManager->HasFile("alt/" + resolvedMaterialPath)) {
+                        resolvedMaterialPath = "alt/" + resolvedMaterialPath;
+                    } else {
+                        resolvedMaterialPath.clear();
+                    }
+                }
+            }
+
+            const char* cosmeticType = manifestEntry->Attribute("CosmeticType");
+            const bool isPrimColor = cosmeticType != nullptr && std::string(cosmeticType) == "Prim";
+            const bool isEnvColor = cosmeticType != nullptr && std::string(cosmeticType) == "Env";
+
+            if (cosmeticEntry == nullptr || cosmeticEntry[0] == '\0' || resolvedMaterialPath.empty() ||
+                (!isPrimColor && !isEnvColor)) {
+                continue;
+            }
+
+            std::string key = cosmeticEntry;
+            SanitizeCustomKey(key);
+            if (key.empty()) {
+                continue;
+            }
+
+            const char* cosmeticCategory = manifestEntry->Attribute("CosmeticCategory");
+            manifestEntries.push_back({ resolvedMaterialPath, cosmeticEntry, std::move(key),
+                                        cosmeticCategory != nullptr ? cosmeticCategory : "",
+                                        cosmeticCategory != nullptr, isPrimColor });
+        }
+    }
+
+    for (const auto& manifestEntry : manifestEntries) {
+        const auto& materialPath = manifestEntry.materialPath;
         tinyxml2::XMLDocument document;
         std::shared_ptr<Fast::DisplayList> material;
         tinyxml2::XMLElement* root = nullptr;
@@ -436,21 +503,18 @@ void ScanDynamicCosmetics() {
         for (auto* child = root->FirstChildElement(); child != nullptr; child = child->NextSiblingElement()) {
             std::string childName = child->Name();
             bool isPrimColor = childName == "SetPrimColor";
-            if (!isPrimColor && childName != "SetEnvColor") {
+            if ((!isPrimColor && childName != "SetEnvColor") || isPrimColor != manifestEntry.isPrimColor) {
                 continue;
             }
 
             const char* cosmeticEntry = child->Attribute("CosmeticEntry");
-            const char* cosmeticCategory = child->Attribute("CosmeticCategory");
-            if (cosmeticEntry == nullptr || cosmeticEntry[0] == '\0') {
+            if (cosmeticEntry == nullptr || cosmeticEntry != manifestEntry.cosmeticEntry) {
                 continue;
             }
+            const char* cosmeticCategory = manifestEntry.hasCosmeticCategory ? manifestEntry.cosmeticCategory.c_str()
+                                                                             : child->Attribute("CosmeticCategory");
 
-            std::string key = cosmeticEntry;
-            SanitizeCustomKey(key);
-            if (key.empty()) {
-                continue;
-            }
+            const auto& key = manifestEntry.key;
 
             Gfx expectedInstruction;
             if (isPrimColor) {
@@ -511,8 +575,8 @@ void ScanDynamicCosmetics() {
     std::stable_sort(
         customCosmeticEntries.begin(), customCosmeticEntries.end(),
         [](const CustomCosmeticEntry& lhs, const CustomCosmeticEntry& rhs) {
-            int lhsOrder = 2;
-            int rhsOrder = 2;
+            int lhsOrder = GetDynamicMaterialFormSortOrder(DynamicCosmeticForm::Other);
+            int rhsOrder = GetDynamicMaterialFormSortOrder(DynamicCosmeticForm::Other);
 
             for (const auto& binding : lhs.bindings) {
                 lhsOrder =

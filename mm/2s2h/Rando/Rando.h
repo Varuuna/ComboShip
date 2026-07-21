@@ -15,6 +15,10 @@ namespace Rando {
 void Init();
 void DrawItem(RandoItemId randoItemId, RandoCheckId randoCheckId = RC_UNKNOWN, Actor* actor = nullptr);
 void GiveItem(RandoItemId randoItemId);
+#ifdef COMBO_BUILD
+// ComboShip: set while GiveItem delivers into a dormant MM save (gPlayState==NULL).
+extern bool gComboDormantGive;
+#endif
 void RemoveItem(RandoItemId randoItemId);
 RandoItemId CurrentJunkItem(RandoCheckId randoCheckId = RC_UNKNOWN);
 RandoItemId CurrentTrapItem(RandoCheckId randoCheckId = RC_UNKNOWN);

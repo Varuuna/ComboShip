@@ -28,6 +28,10 @@ bool ShouldShowForeignCutscene(RandoCheckId rc);
 // shop buys). Broadcasts iff wasObtained is false — cycleObtained wipes every Song of Time, so a
 // caller must capture the check's `obtained` flag BEFORE setting it and pass it in here.
 void BroadcastCheckObtainedIfFirst(RandoCheckId rc, RandoItemId rawItemId, bool wasObtained);
+// ComboShip: consolidated-spoiler cache generation. MM_LoadComboRando bumps it; the foreign/hint
+// lookup caches rebuild from the pushed blob when their stored gen is stale.
+uint64_t ComboRandoGen();
+void InvalidateComboForeignCache();
 #endif
 void InitFileSelect();
 void InitKaleidoItemPage();

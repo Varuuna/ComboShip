@@ -223,6 +223,17 @@ static FnTakeStr SOH_SetCheckPrices = nullptr;
 static FnTakeStr MM_SetCheckPrices = nullptr;
 static FnSetReloadCb SOH_SetOnComboReloadCallback = nullptr;
 
+// ComboShip merged per-slot save container: setters that push the launcher's save-IO callbacks into
+// each DLL, plus the once-per-load push of the baked combo rando (foreign map + cross-hints).
+typedef void (*FnSetComboSaveIO)(ComboRando::FnComboReadSave, ComboRando::FnComboWriteSave);
+static FnSetComboSaveIO SOH_SetComboSaveIO = nullptr;
+static FnSetComboSaveIO MM_SetComboSaveIO = nullptr;
+static FnTakeStr SOH_LoadComboRando = nullptr;
+static FnTakeStr MM_LoadComboRando = nullptr;
+// OOT file-select "copy file": whole-container copy (both games + rando) through the launcher.
+typedef void (*FnSetCopyContainer)(void (*)(int, int));
+static FnSetCopyContainer SOH_SetCopyContainer = nullptr;
+
 // ComboShip: OOT forced placements (Link's Pocket etc.) the static dump can't carry — see
 // SOH_GetForcedPlacements. Seed-parameterized so the pick is deterministic per generated seed.
 typedef const char* (*FnGetForced)(uint32_t);
@@ -251,9 +262,11 @@ static FnComboUISetRosterProvider ComboUI_SetAnchorRosterProvider = nullptr;
 static FnVoid SOH_InitWindowOnly = nullptr;
 static FnVoid SOH_FinishInit = nullptr;
 static ComboFnValidateRom SOH_ValidateRom = nullptr;
+static ComboFnValidateRom SOH_ClassifyRom = nullptr;
 static ComboFnStartExtraction SOH_StartExtraction = nullptr;
 static ComboFnGetProgress SOH_GetExtractionProgress = nullptr;
 static ComboFnValidateRom MM_ValidateRom = nullptr;
+static ComboFnValidateRom MM_ClassifyRom = nullptr;
 static ComboFnStartExtraction MM_StartExtraction = nullptr;
 static ComboFnGetProgress MM_GetExtractionProgress = nullptr;
 static ComboFnRunExtraction ComboUI_RunExtraction = nullptr;
@@ -280,6 +293,117 @@ static FnOracleGetChecks Combo_MM_Rando_GetReachableChecks = nullptr;
 static FnOraclePlaceItem Combo_MM_Rando_PlaceItem = nullptr;
 static FnOracleVoid Combo_MM_Rando_Restore = nullptr;
 
+// ---------- ComboShip merged per-slot save container (Save/file{N+1}.combosav) ----------
+// One JSON file per slot holds both games' saves verbatim + combo metadata (completion + baked rando).
+// The launcher mediates every per-slot read/write through Combo_ReadGameSave/Combo_WriteGameSave
+// (pushed into each DLL at boot), so the in-process cache stays authoritative. Single mutex serializes
+// OOT's thread-pool writes, MM's synchronous writes, and Anchor cross-writes. Write = temp+rename,
+// never torn on crash. See docs/deviations/boot-shutdown.md.
+static std::mutex g_containerMutex;
+static std::map<int, nlohmann::json> g_containerCache;
+
+static std::filesystem::path ComboContainerPath(int fileNum) {
+    return std::filesystem::path("Save") / ("file" + std::to_string(fileNum + 1) + ".combosav");
+}
+
+// Hold g_containerMutex. Returns a ref into the cache; loads from disk or creates a fresh container.
+static nlohmann::json& LoadOrCreateContainer(int fileNum) {
+    auto it = g_containerCache.find(fileNum);
+    if (it != g_containerCache.end())
+        return it->second;
+    nlohmann::json j;
+    auto path = ComboContainerPath(fileNum);
+    std::error_code ec;
+    bool existed = std::filesystem::exists(path, ec);
+    std::ifstream in(path);
+    bool parsed = false;
+    if (in.is_open()) {
+        try {
+            in >> j;
+            parsed = j.is_object();
+        } catch (...) { parsed = false; }
+    }
+    in.close();
+    // Never silently overwrite an existing-but-unreadable container: a fresh cache entry would drop
+    // the other game's section on the next write. Preserve the file aside, then start fresh.
+    if (existed && !parsed) {
+        std::filesystem::rename(path, path.string() + ".corrupt-" + std::to_string(std::time(nullptr)), ec);
+    }
+    if (!parsed)
+        j = nlohmann::json{ { "comboVersion", 1 },
+                            { "slot", fileNum },
+                            { "oot", nullptr },
+                            { "mm", nullptr },
+                            { "combo", nlohmann::json::object() } };
+    return g_containerCache.emplace(fileNum, std::move(j)).first->second;
+}
+
+// Hold g_containerMutex. Serialize the cached container to a temp file, then atomic rename over it.
+static void FlushContainer(int fileNum) {
+    auto it = g_containerCache.find(fileNum);
+    if (it == g_containerCache.end())
+        return;
+    std::error_code ec;
+    auto path = ComboContainerPath(fileNum);
+    std::filesystem::create_directories(path.parent_path(), ec);
+    auto tmp = path;
+    tmp += ".temp";
+    {
+        std::ofstream out(tmp, std::ios::trunc | std::ios::binary);
+        if (!out.is_open())
+            return;
+        out << it->second.dump();
+    }
+    std::filesystem::rename(tmp, path, ec);
+    if (ec) { // some filesystems won't replace-on-rename — remove then retry
+        std::filesystem::remove(path, ec);
+        std::filesystem::rename(tmp, path, ec);
+    }
+}
+
+static void EraseComboContainer(int slot) {
+    std::lock_guard<std::mutex> lk(g_containerMutex);
+    g_containerCache.erase(slot);
+    std::error_code ec;
+    std::filesystem::remove(ComboContainerPath(slot), ec);
+}
+
+// Copy a whole slot (both games + baked rando) — OOT file-select "copy file". Registered into OOT
+// via SOH_SetCopyContainer; the .combosav has no per-game file to copy, so the launcher owns it.
+static void Combo_CopyContainer(int from, int to) {
+    std::lock_guard<std::mutex> lk(g_containerMutex);
+    nlohmann::json copy = LoadOrCreateContainer(from); // deep copy of the source container
+    copy["slot"] = to;
+    g_containerCache[to] = std::move(copy);
+    FlushContainer(to);
+}
+
+// Launcher-provided save IO, pushed into each DLL. game: 0=OOT,1=MM (GameId); fileNum 0-based.
+// Returns the section JSON in a thread_local buffer (OOT may read off the main thread), "" if absent.
+static const char* Combo_ReadGameSave(int game, int fileNum) {
+    thread_local std::string buf;
+    std::lock_guard<std::mutex> lk(g_containerMutex);
+    auto& c = LoadOrCreateContainer(fileNum);
+    const char* key = (game == ComboRando::GAME_OOT) ? "oot" : "mm";
+    auto it = c.find(key);
+    buf = (it == c.end() || it->is_null()) ? std::string() : it->dump();
+    return buf.c_str();
+}
+
+// Read-modify-write the FULL container (never re-derived) so the other game's section stays intact
+// when e.g. an Anchor MM write lands during OOT play. Malformed inbound leaves the section untouched.
+static void Combo_WriteGameSave(int game, int fileNum, const char* json) {
+    if (!json)
+        return;
+    std::lock_guard<std::mutex> lk(g_containerMutex);
+    auto& c = LoadOrCreateContainer(fileNum);
+    const char* key = (game == ComboRando::GAME_OOT) ? "oot" : "mm";
+    try {
+        c[key] = nlohmann::json::parse(json);
+    } catch (...) { return; }
+    FlushContainer(fileNum);
+}
+
 // ComboShip (issue #1): erasing a slot from either game's file-select wipes BOTH saves — each game
 // fires its Set*-registered callback with the slot, the launcher routes it to the other game's
 // save-only delete export (never re-entering a menu erase path). See docs/deviations/boot-shutdown.md.
@@ -291,17 +415,17 @@ static FnDeleteSaveFile SOH_DeleteSaveFile = nullptr;
 static FnDeleteSaveFile MM_DeleteSaveFile = nullptr;
 
 // Registered into each game; invoked when that game erases a slot. Routes the (0-based) slot to the
-// OTHER game's delete export. The launcher does no index math — MM's 1-based JSON naming is handled
-// inside MM_DeleteSaveFile.
+// OTHER game's delete export, then removes the merged container. The launcher does no index math —
+// MM's 1-based JSON naming is handled inside MM_DeleteSaveFile.
 static void DeleteForeignSaveFromOOT(int slot) {
     if (MM_DeleteSaveFile)
         MM_DeleteSaveFile(slot);
-    ComboRando::CleanSlotFiles(slot); // also remove the slot's consolidated seed file
+    EraseComboContainer(slot); // remove the slot's merged container (baked rando + both saves)
 }
 static void DeleteForeignSaveFromMM(int slot) {
     if (SOH_DeleteSaveFile)
         SOH_DeleteSaveFile(slot);
-    ComboRando::CleanSlotFiles(slot);
+    EraseComboContainer(slot);
 }
 
 // ComboShip: placement injection exports
@@ -339,10 +463,9 @@ static std::atomic<bool> g_ComboPendingFinalize{ false }; // worker succeeded, m
 // Main-thread finalize inputs stashed by the worker (consumed by Combo_FinalizeGenerate).
 static std::string g_FinalizeOotApply;
 static uint32_t g_FinalizeDisplaySeed = 0;
-// Consolidated spoiler JSON for the just-generated seed + its hash string (NN-NN-NN-NN-NN). The
-// worker writes the pending file from it; Combo_OnOOTSaveInit writes the per-slot file at Start.
+// Consolidated spoiler JSON for the just-generated seed. The worker writes the pending file from it;
+// Combo_OnOOTSaveInit bakes it into the slot's container and pushes it into both DLLs at Start.
 static std::string g_ConsolidatedJson;
-static std::string g_ConsolidatedHashStr;
 
 // ---------- ComboShip-owned Anchor connection (Phase 1) ----------
 // The persistent socket + receive thread live HERE (launcher) so the connection survives OOT<->MM
@@ -785,36 +908,24 @@ static void MarkForeignObtained(int srcGame, const char* checkName) {
     }
 }
 
-// Per-slot completion sidecar (Randomizer/save{N}-ComboCompletion.json). Small, combo-owned, works in
-// non-rando play. Read on save-load, rewritten on each final-boss kill.
-static std::filesystem::path ComboCompletionPath(int slot) {
-    return ComboRando::ConsolidatedDir() / ("save" + std::to_string(slot) + "-ComboCompletion.json");
-}
-
+// Per-slot completion lives in the merged container's combo.completion object. Works in non-rando
+// play too. Read on save-load, rewritten on each final-boss kill.
 static void LoadComboCompletion(int slot) {
     g_comboCompletion[0] = g_comboCompletion[1] = false;
     g_comboCompletionSlot = slot;
-    std::ifstream in(ComboCompletionPath(slot));
-    if (!in.is_open())
-        return;
-    try {
-        nlohmann::json j;
-        in >> j;
-        g_comboCompletion[0] = j.value("oot", false);
-        g_comboCompletion[1] = j.value("mm", false);
-    } catch (...) { /* corrupt -> treat as none */
-    }
+    std::lock_guard<std::mutex> lk(g_containerMutex);
+    auto& c = LoadOrCreateContainer(slot);
+    auto comp = c.value("combo", nlohmann::json::object()).value("completion", nlohmann::json::object());
+    g_comboCompletion[0] = comp.value("oot", false);
+    g_comboCompletion[1] = comp.value("mm", false);
 }
 
 static void SaveComboCompletion(int slot) {
-    std::error_code ec;
-    std::filesystem::create_directories(ComboRando::ConsolidatedDir(), ec);
-    nlohmann::json j;
-    j["oot"] = g_comboCompletion[0];
-    j["mm"] = g_comboCompletion[1];
-    std::ofstream out(ComboCompletionPath(slot));
-    if (out.is_open())
-        out << j.dump(2);
+    std::lock_guard<std::mutex> lk(g_containerMutex);
+    auto& c = LoadOrCreateContainer(slot);
+    c["combo"]["completion"]["oot"] = g_comboCompletion[0];
+    c["combo"]["completion"]["mm"] = g_comboCompletion[1];
+    FlushContainer(slot);
 }
 
 // Registered into both games: record THIS game's final-boss kill for its slot and return 1 iff BOTH
@@ -1118,22 +1229,13 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         g_PendingMMPlacements = mmApply.dump();
 
         // ComboShip: file_hash = the 5 icon indexes the file-select shows, derived from displaySeed
-        // exactly as OOT's GenerateHash (decimal padded to 10, five 2-digit pairs). Doubles as the
-        // per-slot filename suffix (NN-NN-NN-NN-NN).
+        // exactly as OOT's GenerateHash (decimal padded to 10, five 2-digit pairs).
         std::string seedDigits = std::to_string(displaySeed);
         while (seedDigits.size() < 10)
             seedDigits = "0" + seedDigits;
         nlohmann::json fileHashArr = nlohmann::json::array();
-        g_ConsolidatedHashStr.clear();
-        for (int i = 0; i < 5; ++i) {
-            int v = std::stoi(seedDigits.substr(i * 2, 2));
-            fileHashArr.push_back(v);
-            char b[4];
-            std::snprintf(b, sizeof(b), "%02d", v);
-            if (i)
-                g_ConsolidatedHashStr += "-";
-            g_ConsolidatedHashStr += b;
-        }
+        for (int i = 0; i < 5; ++i)
+            fileHashArr.push_back(std::stoi(seedDigits.substr(i * 2, 2)));
 
         // ComboShip: assemble the single consolidated spoiler — the shareable artifact + the runtime
         // foreign source + remember/drop/hint data. Settings are CVar snapshots so a dropped seed
@@ -1525,17 +1627,6 @@ static int Combo_OnReloadRequest(const char* path) {
             if (pf.is_open())
                 pf << g_ConsolidatedJson;
         }
-        std::string d = std::to_string(displaySeed);
-        while (d.size() < 10)
-            d = "0" + d;
-        g_ConsolidatedHashStr.clear();
-        for (int i = 0; i < 5; ++i) {
-            char b[4];
-            std::snprintf(b, sizeof(b), "%02d", std::stoi(d.substr(i * 2, 2)));
-            if (i)
-                g_ConsolidatedHashStr += "-";
-            g_ConsolidatedHashStr += b;
-        }
         // Populate the shared progress so the comboui Generate panel shows the remembered seed
         // (seed string, per-game check counts, cross-game count) just like a fresh generation.
         g_ComboProgress.Reset();
@@ -1559,17 +1650,22 @@ static int Combo_OnReloadRequest(const char* path) {
 }
 
 static void Combo_OnOOTSaveInit(int fileNum) {
-    // ComboShip: bind the pending consolidated seed to this slot — the runtime foreign source +
-    // shareable per-slot file (save{fileNum}-Randomizer-<hash>.json). Clean any stale file for the
-    // slot first (a prior seed generated into this slot).
+    // ComboShip: bind the pending consolidated seed to this slot — bake it into the container's
+    // combo.rando (self-contained), then push it into both DLLs so foreign data is live immediately.
     if (!g_ConsolidatedJson.empty()) {
-        std::error_code ec;
-        std::filesystem::create_directories(ComboRando::ConsolidatedDir(), ec);
-        ComboRando::CleanSlotFiles(fileNum);
-        std::ofstream sf(ComboRando::SlotWritePath(fileNum, g_ConsolidatedHashStr), std::ios::trunc);
-        if (sf.is_open())
-            sf << g_ConsolidatedJson;
-        std::cout << "[ComboShip] wrote consolidated seed file for slot " << fileNum << std::endl;
+        {
+            std::lock_guard<std::mutex> lk(g_containerMutex);
+            auto& c = LoadOrCreateContainer(fileNum);
+            try {
+                c["combo"]["rando"] = nlohmann::json::parse(g_ConsolidatedJson);
+            } catch (...) {}
+            FlushContainer(fileNum);
+        }
+        if (SOH_LoadComboRando)
+            SOH_LoadComboRando(g_ConsolidatedJson.c_str());
+        if (MM_LoadComboRando)
+            MM_LoadComboRando(g_ConsolidatedJson.c_str());
+        std::cout << "[ComboShip] baked consolidated seed into container for slot " << fileNum << std::endl;
     }
     // The new-save callback runs on OOT's thread with the entered file name current — carry it into
     // the matching MM save so both files show the player's name.
@@ -1614,6 +1710,23 @@ static void Combo_OnOOTSaveInit(int fileNum) {
 // slot's MM save is already live in memory — reloading from disk would clobber newer progress.
 static void Combo_OnOOTSaveLoad(int fileNum) {
     LoadComboCompletion(fileNum); // refresh both-bosses-beaten flags for this slot
+    // Push the slot's baked combo rando (foreign map + cross-hints) into both DLLs, once per load.
+    {
+        std::string rando;
+        {
+            std::lock_guard<std::mutex> lk(g_containerMutex);
+            auto& c = LoadOrCreateContainer(fileNum);
+            auto r = c.value("combo", nlohmann::json::object()).value("rando", nlohmann::json());
+            if (!r.is_null())
+                rando = r.dump();
+        }
+        if (!rando.empty()) {
+            if (SOH_LoadComboRando)
+                SOH_LoadComboRando(rando.c_str());
+            if (MM_LoadComboRando)
+                MM_LoadComboRando(rando.c_str());
+        }
+    }
     if (!MM_LoadSaveForCombo || g_MmSaveInMemorySlot == fileNum) {
         return;
     }
@@ -1806,9 +1919,11 @@ int main(int argc, char** argv) {
     SOH_InitWindowOnly = (FnVoid)GetSym(sohModule, "SOH_InitWindowOnly");
     SOH_FinishInit = (FnVoid)GetSym(sohModule, "SOH_FinishInit");
     SOH_ValidateRom = (ComboFnValidateRom)GetSym(sohModule, "SOH_ValidateRom");
+    SOH_ClassifyRom = (ComboFnValidateRom)GetSym(sohModule, "SOH_ClassifyRom");
     SOH_StartExtraction = (ComboFnStartExtraction)GetSym(sohModule, "SOH_StartExtraction");
     SOH_GetExtractionProgress = (ComboFnGetProgress)GetSym(sohModule, "SOH_GetExtractionProgress");
     MM_ValidateRom = (ComboFnValidateRom)GetSym(mmModule, "MM_ValidateRom");
+    MM_ClassifyRom = (ComboFnValidateRom)GetSym(mmModule, "MM_ClassifyRom");
     MM_StartExtraction = (ComboFnStartExtraction)GetSym(mmModule, "MM_StartExtraction");
     MM_GetExtractionProgress = (ComboFnGetProgress)GetSym(mmModule, "MM_GetExtractionProgress");
     SOH_ApplyImportedConfig = (ComboFnApplyImportedConfig)GetSym(sohModule, "SOH_ApplyImportedConfig");
@@ -1855,6 +1970,11 @@ int main(int argc, char** argv) {
     Combo_MM_Rando_Restore = (FnOracleVoid)GetSym(mmModule, "Combo_MM_Rando_Restore");
 
     // Cross-game erase seam (issue #1)
+    SOH_SetComboSaveIO = (FnSetComboSaveIO)GetSym(sohModule, "SOH_SetComboSaveIO");
+    MM_SetComboSaveIO = (FnSetComboSaveIO)GetSym(mmModule, "MM_SetComboSaveIO");
+    SOH_LoadComboRando = (FnTakeStr)GetSym(sohModule, "SOH_LoadComboRando");
+    MM_LoadComboRando = (FnTakeStr)GetSym(mmModule, "MM_LoadComboRando");
+    SOH_SetCopyContainer = (FnSetCopyContainer)GetSym(sohModule, "SOH_SetCopyContainer");
     SOH_SetDeleteForeignSave = (FnSetDeleteForeignSave)GetSym(sohModule, "SOH_SetDeleteForeignSave");
     MM_SetDeleteForeignSave = (FnSetDeleteForeignSave)GetSym(mmModule, "MM_SetDeleteForeignSave");
     SOH_DeleteSaveFile = (FnDeleteSaveFile)GetSym(sohModule, "SOH_DeleteSaveFile");
@@ -1911,10 +2031,12 @@ int main(int argc, char** argv) {
 
         ComboExtractCallbacks cb = {};
         cb.sohValidate = SOH_ValidateRom;
+        cb.sohClassify = SOH_ClassifyRom;
         cb.sohStart = SOH_StartExtraction;
         cb.sohProgress = SOH_GetExtractionProgress;
         cb.sohNeeded = needOot ? 1 : 0;
         cb.mmValidate = MM_ValidateRom;
+        cb.mmClassify = MM_ClassifyRom;
         cb.mmStart = MM_StartExtraction;
         cb.mmProgress = MM_GetExtractionProgress;
         cb.mmNeeded = needMm ? 1 : 0;
@@ -2090,37 +2212,6 @@ int main(int argc, char** argv) {
     if (ComboUI_OnForegroundGame)
         ComboUI_OnForegroundGame(0);
 
-        // ComboShip: dump OOT/MM static rando data (headless, safe AFTER SOH_Init) to
-        // saves/combo/{oot,mm}_dump.json so the check set is verifiable and an empty MM dump (eager-boot
-        // regression) is caught at startup. Pure diagnostic — generation re-dumps independently. Debug only.
-#ifndef NDEBUG
-    {
-        std::error_code ec;
-        std::filesystem::create_directories("saves/combo", ec);
-
-        if (SOH_DumpRandoStaticData) {
-            std::string sohDump = SOH_DumpRandoStaticData();
-            {
-                std::ofstream f("saves/combo/oot_dump.json", std::ios::trunc);
-                f << sohDump;
-            }
-            auto j = nlohmann::json::parse(sohDump);
-            std::cout << "[ComboShip] OOT coherent dump: " << j["checks"].size() << " checks, " << j["items"].size()
-                      << " items -> saves/combo/oot_dump.json\n";
-        }
-        if (MM_DumpRandoStaticData) {
-            std::string mmDump = MM_DumpRandoStaticData();
-            {
-                std::ofstream f("saves/combo/mm_dump.json", std::ios::trunc);
-                f << mmDump;
-            }
-            auto j = nlohmann::json::parse(mmDump);
-            std::cout << "[ComboShip] MM static dump: " << j["checks"].size() << " checks, " << j["items"].size()
-                      << " items -> saves/combo/mm_dump.json\n";
-        }
-    }
-#endif
-
     // --- 5. Register OOT callbacks ---
     // Note: MM_InitArchives (dormant archive pre-load) is skipped — Ship::ArchiveManager::Init
     // requires a live context which doesn't exist until MM_RunMain runs InitOTR().
@@ -2191,6 +2282,14 @@ int main(int argc, char** argv) {
         SOH_SetOnSceneSwitchCallback(Combo_OnOOTSceneSwitch);
         std::cout << "[ComboShip] OOT scene-switch callback registered." << std::endl;
     }
+
+    // Merged per-slot save container: mediate each game's per-slot save IO through the launcher.
+    if (SOH_SetComboSaveIO)
+        SOH_SetComboSaveIO(&Combo_ReadGameSave, &Combo_WriteGameSave);
+    if (MM_SetComboSaveIO)
+        MM_SetComboSaveIO(&Combo_ReadGameSave, &Combo_WriteGameSave);
+    if (SOH_SetCopyContainer)
+        SOH_SetCopyContainer(&Combo_CopyContainer);
 
     // Cross-game erase seam (issue #1): erasing a save slot in either game wipes both saves.
     if (SOH_SetDeleteForeignSave)

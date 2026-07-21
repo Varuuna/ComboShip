@@ -862,9 +862,9 @@ void FileChoose_UpdateRandomizerMenu(GameState* thisx) {
             Audio_PlaySoundGeneral(NA_SE_SY_FSEL_DECIDE_L, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
                                    &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
 #ifdef COMBO_BUILD
-            // ComboShip: open the shared comboui settings menu (combo settings live there, not in
-            // OOT's stock rando ImGui menu).
-            CVarSetInteger("gOpenWindows.Menu", 1);
+            // ComboShip: open the shared comboui menu on its Randomizer tab (combo settings live
+            // there). The menu's visibility is object-state, not a CVar, so route through the export.
+            SOH_OpenComboRandoSettings();
 #else
             Randomizer_ShowRandomizerMenu();
 #endif

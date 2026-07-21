@@ -21,6 +21,9 @@ class ComboMenu final : public Ship::GuiWindow {
     // instead of a normal floating window. DrawElement opens its own window.
     void Draw() override;
 
+    // Open the menu with the Randomizer tab active (file-select "Open Randomizer Settings").
+    void OpenAtRandomizer();
+
   protected:
     void InitElement() override {
     }
@@ -45,6 +48,7 @@ class ComboMenu final : public Ship::GuiWindow {
     bool mGeneratePending = false; // one-frame defer: show "Generating…" before blocking fill
     std::string mHubActive;        // active hub entry key ("group/label"); persists across frames
     std::string mScope;            // active top-level tab: "settings" | "randomizer" | "oot" | "mm"
+    std::string mLastNavSig;       // last frame's nav location; a change clears the search box
     // Per-game two-level nav selection (SOH-style top header + left sidebar): gameKey -> (header,
     // sidebar). Combo-local — deliberately NOT the games' own gSettings.Menu.*SidebarSection CVars
     // (writing those would perturb the games' native menus). Persists across frames.

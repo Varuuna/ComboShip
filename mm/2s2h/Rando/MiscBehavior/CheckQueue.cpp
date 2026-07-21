@@ -28,10 +28,18 @@ extern s16 D_801CFF94[250];
 
 #ifdef COMBO_BUILD
 
-// ComboShip: per-slot cache of MM checks that hold a foreign (OOT-bound) item. Reloaded when the
-// active slot changes.
-static int g_mmForeignSlot = -1;
+// ComboShip: cache of MM checks that hold a foreign (OOT-bound) item, built from the pushed
+// consolidated spoiler blob. Rebuilt when MM_LoadComboRando bumps the generation counter.
+static uint64_t g_comboRandoGen = 0;
+static uint64_t g_mmForeignGen = (uint64_t)-1;
 static std::unordered_map<std::string, ComboRando::ForeignItem> g_mmForeignMap;
+
+uint64_t Rando::MiscBehavior::ComboRandoGen() {
+    return g_comboRandoGen;
+}
+void Rando::MiscBehavior::InvalidateComboForeignCache() {
+    ++g_comboRandoGen; // all foreign/hint caches observe this and rebuild lazily
+}
 
 // ComboShip: lookup for UI surfaces (tracker/shops) that want the real OOT item name behind
 // RI_COMBO_FOREIGN. Returns nullptr when the check isn't foreign. Keyed by Checks[].name (RC_*).
@@ -39,11 +47,9 @@ const ComboRando::ForeignItem* Rando::MiscBehavior::MM_LookupForeign(RandoCheckI
     int slot = gSaveContext.fileNum;
     if (slot == 0xFF)
         return nullptr; // no real save loaded (title screen sentinel)
-    // Retry while empty: a lookup can land between CleanSlotFiles and the new consolidated file
-    // being written (in-session generation) — don't cache that window forever.
-    if (slot != g_mmForeignSlot || g_mmForeignMap.empty()) {
+    if (g_mmForeignGen != g_comboRandoGen) {
         g_mmForeignMap = ComboRando::LoadForeignForGame(slot, ComboRando::GAME_MM);
-        g_mmForeignSlot = slot;
+        g_mmForeignGen = g_comboRandoGen;
     }
     auto it = g_mmForeignMap.find(Rando::StaticData::GetCheckDisplayName(rc)); // ComboShip: friendly key
     return it != g_mmForeignMap.end() ? &it->second : nullptr;
@@ -53,9 +59,9 @@ const ComboRando::ForeignItem* Rando::MiscBehavior::MM_LookupForeign(RandoCheckI
 // save (caller sets the obtained flags). Exposed so the shop buy path can reuse it.
 void Rando::MiscBehavior::SendForeignCheck(RandoCheckId rc) {
     int slot = gSaveContext.fileNum;
-    if (slot != g_mmForeignSlot || g_mmForeignMap.empty()) {
+    if (g_mmForeignGen != g_comboRandoGen) {
         g_mmForeignMap = ComboRando::LoadForeignForGame(slot, ComboRando::GAME_MM);
-        g_mmForeignSlot = slot;
+        g_mmForeignGen = g_comboRandoGen;
     }
     // ComboShip: key by the friendly combo-spoiler name (GetCheckDisplayName) — the SAME name the MM
     // dump emits and the fill/foreign array carry. Must match foreign[].checkName exactly.

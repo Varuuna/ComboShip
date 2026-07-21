@@ -16,6 +16,7 @@
 #define COMBO_ITEM_DRAW_OOT_H
 
 #include "ComboItemDrawABI.h"
+#include "objects/object_gi_fire/object_gi_fire.h" // gGiBlueFireFlameDL (boss-soul flame)
 
 // Portable slice of one sDrawItemTable row (defined COMBO_BUILD-guarded in soh/src/code/z_draw.c).
 // outDrawKind = CwDrawKind (0 = simple OPA/XLU submission; else a non-portable func the consumer
@@ -42,6 +43,37 @@ extern "C" __declspec(dllexport) int32_t OOT_GetItemDrawInfo(const char* itemNam
     RandomizerGet rg = it->second;
     if (rg == RG_NONE || rg == RG_COMBO_FOREIGN) {
         return 0; // sentinel / no item: nothing to draw
+    }
+    // Boss souls draw via a bespoke func the gid-keyed table can't express (vestigial skull-token gid).
+    // Emit the portable recipe: grayscale-colored flame dl0 + generic skull dl1 (Randomizer_DrawBossSoul).
+    if (rg >= RG_GOHMA_SOUL && rg <= RG_GANON_SOUL) {
+        static const uint8_t flameColors[9][3] = {
+            { 0, 255, 0 },     // Gohma
+            { 255, 0, 100 },   // King Dodongo
+            { 50, 255, 255 },  // Barinade
+            { 4, 195, 46 },    // Phantom Ganon
+            { 237, 95, 95 },   // Volvagia
+            { 85, 180, 223 },  // Morpha
+            { 126, 16, 177 },  // Bongo Bongo
+            { 222, 158, 47 },  // Twinrova
+            { 150, 150, 150 }, // Ganon
+        };
+        int slot = (int)rg - (int)RG_GOHMA_SOUL;
+        out->dlistCount = 2;
+        out->drawKind = CW_DRAW_KIND_BOSS_SOUL;
+        out->xluStartIndex = 0; // both layers XLU
+        out->scale = 0.0f;
+        out->hasEnvColor = 0;
+        out->dlists[0] = gGiBlueFireFlameDL;      // flame (grayscale-tinted)
+        out->dlists[1] = gBossSoulSkullDL;        // generic soul skull
+        uint8_t skullEnv = (slot == 8) ? 0 : 255; // Ganon skull env black, else white
+        for (int c = 0; c < 3; c++) {
+            out->primColorXlu[c] = flameColors[slot][c];
+            out->envColorXlu[c] = skullEnv;
+        }
+        out->primColorXlu[3] = 255;
+        out->envColorXlu[3] = 255;
+        return 1;
     }
     GetItemEntry gi = Rando::StaticData::RetrieveItem(rg).GetGIEntry_Copy();
     void* dls[CW_DRAW_MAX_DLISTS] = {};

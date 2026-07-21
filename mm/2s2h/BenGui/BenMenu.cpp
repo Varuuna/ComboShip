@@ -1758,6 +1758,10 @@ void BenMenu::AddEnhancements() {
     AddWidget(path, "JP Deku Palace Grottos", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Restorations.JPGrottos")
         .Options(CheckboxOptions().Tooltip("Restores the Deku Palace Grottos to their original Japanese layout."));
+    AddWidget(path, "Day Transition Duration", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.Restorations.DayTelopDuration")
+        .Options(CheckboxOptions().Tooltip("Restores the day transition title card duration, which was longer on "
+                                           "original hardware due to disguising load times."));
     AddWidget(path, "Bonk Collision", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Restorations.BonkCollision")
         .Options(

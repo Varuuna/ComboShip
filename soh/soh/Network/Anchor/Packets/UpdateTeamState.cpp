@@ -5,7 +5,10 @@
 #include "soh/Notification/Notification.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
 #ifdef COMBO_BUILD
-#include "rando/ComboAnchorToast.h" // shared cross-game resync-toast debounce
+#include "rando/ComboAnchorToast.h"                    // shared cross-game resync-toast debounce
+#include "soh/Enhancements/randomizer/hook_handlers.h" // OOT_LookupForeign (foreign backfill)
+// Launcher cross-deliver seam for foreign-check backfill.
+extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName);
 #endif
 
 extern "C" {
@@ -158,34 +161,35 @@ void Anchor::HandlePacket_UpdateTeamState(nlohmann::json payload) {
         gSaveContext.ship.quest = loadedData.ship.quest;
 
         for (int i = 0; i < 124; i++) {
+            // ComboShip (bug 5): union scene flags — a stale peer must never clear a flag we've set.
+            u32 chest = gSaveContext.sceneFlags[i].chest | loadedData.sceneFlags[i].chest;
+            u32 clear = gSaveContext.sceneFlags[i].clear | loadedData.sceneFlags[i].clear;
+            u32 collect = gSaveContext.sceneFlags[i].collect | loadedData.sceneFlags[i].collect;
+            u32 swch = gSaveContext.sceneFlags[i].swch | loadedData.sceneFlags[i].swch;
+
+            // These swch bits are level/timer state (can legitimately go down) — keep LOCAL, don't union.
+            u32 keepMask = 0;
             if (i == SCENE_WATER_TEMPLE) {
-                // Keep water temple water level flags
-                u32 mask = (1 << 0x1C) | (1 << 0x1D) | (1 << 0x1E);
-                loadedData.sceneFlags[i].swch =
-                    (loadedData.sceneFlags[i].swch & ~mask) | (gSaveContext.sceneFlags[i].swch & mask);
+                keepMask = (1 << 0x1C) | (1 << 0x1D) | (1 << 0x1E); // water level
+            } else if (i == SCENE_FOREST_TEMPLE) {
+                keepMask = (1 << 0x1B); // elevator
+            } else if (i == SCENE_GANONS_TOWER_COLLAPSE_EXTERIOR) {
+                keepMask = (1 << 0x17); // collapse timer
+            }
+            if (keepMask) {
+                swch = (swch & ~keepMask) | (gSaveContext.sceneFlags[i].swch & keepMask);
             }
 
-            if (i == SCENE_FOREST_TEMPLE) {
-                // Keep forest temple elevator flag
-                u32 mask = (1 << 0x1B);
-                loadedData.sceneFlags[i].swch =
-                    (loadedData.sceneFlags[i].swch & ~mask) | (gSaveContext.sceneFlags[i].swch & mask);
-            }
-
-            if (i == SCENE_GANONS_TOWER_COLLAPSE_EXTERIOR) {
-                // Keep collapse timer flag
-                u32 mask = (1 << 0x17);
-                loadedData.sceneFlags[i].swch =
-                    (loadedData.sceneFlags[i].swch & ~mask) | (gSaveContext.sceneFlags[i].swch & mask);
-            }
-
-            gSaveContext.sceneFlags[i] = loadedData.sceneFlags[i];
+            gSaveContext.sceneFlags[i].chest = chest;
+            gSaveContext.sceneFlags[i].swch = swch;
+            gSaveContext.sceneFlags[i].clear = clear;
+            gSaveContext.sceneFlags[i].collect = collect;
             // ComboShip: dormant apply's IsSaveLoaded() is true from fileNum alone; gPlayState is null.
             if (IsSaveLoaded() && gPlayState != NULL && gPlayState->sceneNum == i) {
-                gPlayState->actorCtx.flags.chest = loadedData.sceneFlags[i].chest;
-                gPlayState->actorCtx.flags.swch = loadedData.sceneFlags[i].swch;
-                gPlayState->actorCtx.flags.clear = loadedData.sceneFlags[i].clear;
-                gPlayState->actorCtx.flags.collect = loadedData.sceneFlags[i].collect;
+                gPlayState->actorCtx.flags.chest = chest;
+                gPlayState->actorCtx.flags.swch = swch;
+                gPlayState->actorCtx.flags.clear = clear;
+                gPlayState->actorCtx.flags.collect = collect;
             }
         }
 
@@ -235,11 +239,43 @@ void Anchor::HandlePacket_UpdateTeamState(nlohmann::json payload) {
             }
         }
 
-        // Restore ammo if it's non-zero, unless it's beans
+        // Take the higher ammo count (union), unless it's beans (planting is authoritative).
         for (int i = 0; i < ARRAY_COUNT(gSaveContext.inventory.ammo); i++) {
-            if (gSaveContext.inventory.ammo[i] != 0 && i != SLOT(ITEM_BEAN) && i != SLOT(ITEM_BEAN + 1)) {
+            if (i != SLOT(ITEM_BEAN) && i != SLOT(ITEM_BEAN + 1) &&
+                gSaveContext.inventory.ammo[i] > loadedData.inventory.ammo[i]) {
                 loadedData.inventory.ammo[i] = gSaveContext.inventory.ammo[i];
             }
+        }
+
+        // ComboShip (bug 4/5): union the inventory — a resync must never regress owned progress.
+        loadedData.inventory.questItems |= gSaveContext.inventory.questItems;
+        loadedData.inventory.equipment |= gSaveContext.inventory.equipment; // owned-piece bits
+        for (int i = 0; i < 8; i++) {
+            u32 mask = gUpgradeMasks[i];
+            u8 shift = gUpgradeShifts[i];
+            u32 localVal = (gSaveContext.inventory.upgrades & mask) >> shift;
+            u32 inVal = (loadedData.inventory.upgrades & mask) >> shift;
+            if (localVal > inVal) {
+                loadedData.inventory.upgrades = (loadedData.inventory.upgrades & ~mask) | (localVal << shift);
+            }
+        }
+        // Keep a locally-owned item slot (bottles already resolved above with their Ruto-letter nuance).
+        for (int i = 0; i < ARRAY_COUNT(gSaveContext.inventory.items); i++) {
+            if (i >= SLOT_BOTTLE_1 && i < SLOT_BOTTLE_1 + 4) {
+                continue;
+            }
+            if (gSaveContext.inventory.items[i] != ITEM_NONE) {
+                loadedData.inventory.items[i] = gSaveContext.inventory.items[i];
+            }
+        }
+        // Small-key counts (max) and dungeon items (map/compass/boss-key bits) aren't covered above.
+        for (int i = 0; i < ARRAY_COUNT(gSaveContext.inventory.dungeonKeys); i++) {
+            if (gSaveContext.inventory.dungeonKeys[i] > loadedData.inventory.dungeonKeys[i]) {
+                loadedData.inventory.dungeonKeys[i] = gSaveContext.inventory.dungeonKeys[i];
+            }
+        }
+        for (int i = 0; i < ARRAY_COUNT(gSaveContext.inventory.dungeonItems); i++) {
+            loadedData.inventory.dungeonItems[i] |= gSaveContext.inventory.dungeonItems[i];
         }
 
         gSaveContext.inventory = loadedData.inventory;
@@ -258,7 +294,23 @@ void Anchor::HandlePacket_UpdateTeamState(nlohmann::json payload) {
                 // < collected < saved), so only advance status; a stale/incomplete peer must not
                 // un-collect a check we already have.
                 RandomizerCheckStatus incoming = itemLocation.at(0).get<RandomizerCheckStatus>();
-                if (incoming > loc->GetCheckStatus()) {
+                RandomizerCheckStatus localStatus = loc->GetCheckStatus();
+#ifdef COMBO_BUILD
+                // ComboShip (bug 4): backfill a check the team obtained but we missed. Capture LOCAL
+                // before the advance below; obtained/granted are one and the same on the live path.
+                // Foreign checks hold the OTHER game's item, absent from this inventory snapshot, so
+                // deliver them cross-game (dedup-guarded). Native items are already recovered by the
+                // inventory union above — granting here too would double-credit additive items.
+                if (incoming >= RCSHOW_COLLECTED && localStatus < RCSHOW_COLLECTED &&
+                    loc->GetPlacedRandomizerGet() == RG_COMBO_FOREIGN) {
+                    const std::string checkName = Rando::StaticData::GetLocation((RandomizerCheck)i)->GetName();
+                    const ComboRando::ForeignItem* fi = OOT_LookupForeign(gSaveContext.fileNum, checkName);
+                    if (fi && gComboCrossDeliver) {
+                        gComboCrossDeliver((int)fi->itemGame, fi->itemName.c_str(), checkName.c_str());
+                    }
+                }
+#endif
+                if (incoming > localStatus) {
                     loc->SetCheckStatus(incoming);
                 }
                 // ComboShip (finding 5): only advance skip, a stale peer must not un-skip.

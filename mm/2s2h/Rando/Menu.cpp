@@ -303,6 +303,7 @@ static void DrawGeneralTab() {
         "Explore the menus for various enhancements and time savers; most are not enabled by default in Rando.");
     ImGui::PopStyleColor();
 
+#ifndef COMBO_BUILD // ComboShip: combo drives generation, so hide the per-game Seed Generation section.
     ImGui::SeparatorText("Seed Generation");
     UIWidgets::CVarCheckbox("Enable Rando (Randomizes new files upon creation)", "gRando.Enabled");
 
@@ -334,6 +335,7 @@ static void DrawGeneralTab() {
         UIWidgets::CVarCheckbox("Generate Spoiler File", "gRando.GenerateSpoiler",
                                 CheckboxOptions().DefaultValue(true));
     }
+#endif
 
     float mainWidth = 300.0f; // Arbitrary width for progress bars
     float itemProgress = mainWidth * (static_cast<float>(itemsInPool) / static_cast<float>(checksInPool));

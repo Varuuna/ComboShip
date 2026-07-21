@@ -121,11 +121,20 @@ jobs:
         working-directory: build/x64
         run: cpack -G ZIP -C Release
 
+      # Extract the cpack archive before upload. GitHub always zips artifact contents on download, so
+      # uploading the .zip directly yields a zip-inside-a-zip; uploading the extracted tree makes the
+      # downloaded ComboShip-windows.zip hold the runtime files directly.
+      - name: Stage package contents
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem _packages/*.zip | Select-Object -First 1
+          Expand-Archive -Path $zip.FullName -DestinationPath _packages/stage -Force
+
       - name: Upload ComboShip artifact
         uses: actions/upload-artifact@v4
         with:
           name: ComboShip-windows
-          path: _packages/*.zip
+          path: _packages/stage
           if-no-files-found: error
 
       # comborando.exe + its deployed runtime DLLs (no o2r — the reachability oracle needs none).

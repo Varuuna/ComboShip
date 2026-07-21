@@ -15,14 +15,18 @@
 // MM's RM is not registered the push logs once and the MM cluster simply doesn't render.
 
 // --- layout knobs -------------------------------------------------------------------------------
-#define CTL_SCALE 0.78f // applied to both logo clusters
-#define CTL_OOT_CX 82   // screen-space center X of the OOT cluster (320x240 space)
-#define CTL_MM_CX 229   // screen-space center X of the MM cluster
-#define CTL_CY 100      // shared center Y (both clusters' native anchor Y)
+#define CTL_OOT_SCALE 0.78f // OOT logo cluster
+#define CTL_MM_SCALE 0.74f  // MM cluster — smaller so its ZELDA wordmark matches OOT's baked-in one
+#define CTL_OOT_CX 82       // screen-space center X of the OOT cluster (320x240 space)
+#define CTL_MM_CX 229       // screen-space center X of the MM cluster
+#define CTL_CY 100          // shared center Y (both clusters' native anchor Y)
 // ------------------------------------------------------------------------------------------------
 
-#define CTL_DIM(d) ((s16)((d)*CTL_SCALE + 0.5f))
-#define CTL_DXDY ((u16)(1024.0f / CTL_SCALE + 0.5f))
+// Active cluster scale — set to CTL_OOT_SCALE / CTL_MM_SCALE around each cluster's draw block.
+static f32 sCtlScale = CTL_OOT_SCALE;
+
+#define CTL_DIM(d) ((s16)((d)*sCtlScale + 0.5f))
+#define CTL_DXDY ((u16)(1024.0f / sCtlScale + 0.5f))
 
 // MM's En_Mag native layout anchor (cluster center the elements below are positioned around).
 #define CTL_MM_ANCHOR_X 154.0f
@@ -60,10 +64,10 @@ CTL_MM_FLAME(3);
 
 // Map a native-layout coordinate (relative to its cluster anchor) into screen space.
 static s16 ComboTitle_TX(f32 x, f32 anchorX, s16 destCX) {
-    return (s16)(destCX + (x - anchorX) * CTL_SCALE + 0.5f);
+    return (s16)(destCX + (x - anchorX) * sCtlScale + 0.5f);
 }
 static s16 ComboTitle_TY(f32 y, f32 anchorY) {
-    return (s16)(CTL_CY + (y - anchorY) * CTL_SCALE + 0.5f);
+    return (s16)(CTL_CY + (y - anchorY) * sCtlScale + 0.5f);
 }
 
 // EnMag_DrawImageRGBA32 with a scaled destination rect (the original is fixed 1:1).
@@ -124,6 +128,7 @@ static s32 ComboTitle_DrawLogos(Gfx** gfxP, EnMag* mag, s32 isMQ) {
     f32 ox = 160 + LOGO_X_SHIFT; // OOT native cluster anchor X
     s16 mainAlpha = (s16)mag->mainAlpha;
     s16 i, j, k;
+    sCtlScale = CTL_OOT_SCALE; // OOT blocks use this; MM blocks flip it below and restore
 
     // --- flame effects (behind both logos; same combiner state, OOT's fade timing) ---
     gDPSetCycleType(gfx++, G_CYC_2CYCLE);
@@ -166,6 +171,7 @@ static s32 ComboTitle_DrawLogos(Gfx** gfxP, EnMag* mag, s32 isMQ) {
         // MM grid: native 2x3, 64px pitch, origin (57, 38); per-cell flame texture (flag 0 so each
         // cell loads its own), MM colors with OOT's lodfrac/alpha so both sides fade in sync.
         gSPComboRMPush(gfx++, "mm");
+        sCtlScale = CTL_MM_SCALE;
 
         gDPSetPrimColor(gfx++, 0, (s16)mag->effectPrimLodFrac, sCtlMmPrim[0], sCtlMmPrim[1], sCtlMmPrim[2],
                         (s16)mag->effectAlpha);
@@ -181,6 +187,7 @@ static s32 ComboTitle_DrawLogos(Gfx** gfxP, EnMag* mag, s32 isMQ) {
         }
 
         gSPComboRMPop(gfx++);
+        sCtlScale = CTL_OOT_SCALE;
     }
 
     // --- OOT cluster (left) ---
@@ -260,6 +267,7 @@ static s32 ComboTitle_DrawLogos(Gfx** gfxP, EnMag* mag, s32 isMQ) {
     // with mainAlpha.
     if (mainAlpha != 0) {
         gSPComboRMPush(gfx++, "mm");
+        sCtlScale = CTL_MM_SCALE;
 
         gDPPipeSync(gfx++);
         gDPSetPrimColor(gfx++, 0, 0, 255, 255, 255, mainAlpha);
@@ -299,6 +307,7 @@ static s32 ComboTitle_DrawLogos(Gfx** gfxP, EnMag* mag, s32 isMQ) {
                             ComboTitle_TY(71, CTL_MM_ANCHOR_Y), CTL_DIM(72), CTL_DIM(8), CTL_DXDY, CTL_DXDY);
 
         gSPComboRMPop(gfx++);
+        sCtlScale = CTL_OOT_SCALE;
     }
 
     *gfxP = gfx;

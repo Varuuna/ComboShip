@@ -284,6 +284,11 @@ static ImGuiTextFilter checkSearch;
 static bool recalculateAvailable = false;
 static RandomizerRegion availableChecksStartingRegion = RR_ROOT;
 static RandoAgeTime availableChecksStartingAgeTime = RAT_NONE;
+#ifdef COMBO_BUILD
+// ComboShip: while set, SetAreaSpoiled skips its per-area save; CheckTrackerLoadGame spoils ~18 areas in
+// a bulk loop and each save is a full .combosav container rewrite. Flushed once at the end instead.
+static bool sSuppressSpoilSave = false;
+#endif
 static int16_t previousEntrance = 0;
 std::array<bool, RCAREA_INVALID> filterAreasHidden = { 0 };
 std::array<bool, RC_MAX> filterChecksHidden = { 0 };
@@ -532,6 +537,9 @@ void CheckTrackerLoadGame(int32_t fileNum) {
     if (IS_BOSS_RUSH) {
         return;
     }
+#ifdef COMBO_BUILD
+    sSuppressSpoilSave = true; // batch the bulk-load area spoils into one save (see below)
+#endif
     LoadSettings();
     TrySetAreas();
     for (auto& entry : Rando::StaticData::GetLocationTable()) {
@@ -623,6 +631,10 @@ void CheckTrackerLoadGame(int32_t fileNum) {
     Rando::Context::GetInstance()->GetEntranceShuffler()->ApplyEntranceOverrides();
 
     recalculateAvailable = true;
+#ifdef COMBO_BUILD
+    sSuppressSpoilSave = false; // flush the batched area spoils in a single container write
+    SaveManager::Instance->SaveSection(gSaveContext.fileNum, sectionId, true);
+#endif
 }
 
 void CheckTrackerShopSlotChange(uint8_t cursorSlot, int16_t basePrice) {
@@ -986,6 +998,11 @@ bool IsAreaSpoiled(RandomizerCheckArea rcArea) {
 
 void SetAreaSpoiled(RandomizerCheckArea rcArea) {
     areasSpoiled |= (1 << rcArea);
+#ifdef COMBO_BUILD
+    if (sSuppressSpoilSave) {
+        return;
+    }
+#endif
     SaveManager::Instance->SaveSection(gSaveContext.fileNum, sectionId, true);
 }
 

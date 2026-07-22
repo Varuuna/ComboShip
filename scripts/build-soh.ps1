@@ -24,6 +24,9 @@ if (-not (Test-Path $buildDir)) {
 }
 $buildDir = (Resolve-Path $buildDir).Path
 
-Write-Host "==> cmake --build `"$buildDir`" --target $target --config $config" -ForegroundColor Cyan
-cmake --build $buildDir --target $target --config $config
+# Cap concurrent cl.exe; full /MP (16) lets heavy TUs (UIWidgets/rando) exhaust memory (C1060/C1076).
+$jobs = 8
+
+Write-Host "==> cmake --build `"$buildDir`" --target $target --config $config (max $jobs parallel cl)" -ForegroundColor Cyan
+cmake --build $buildDir --target $target --config $config -- /m:1 /p:CL_MPCount=$jobs
 exit $LASTEXITCODE

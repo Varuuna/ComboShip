@@ -2,7 +2,7 @@
 
 **ComboShip is a cross-game randomizer for [Ship of Harkinian](https://github.com/HarbourMasters/Shipwright) (Ocarina of Time) and [2 Ship 2 Harkinian](https://github.com/HarbourMasters/2ship2harkinian) (Majora's Mask).**
 
-**THIS IS AN UNOFFICIAL PROJECT AND IS NOT CREATED OR HANDLED BY THE HARBOUR MASTERS TEAM. BRING ANY IDEAS, QUESTIONS, OR CONCERNS TO ME DIRECTLY!**
+**DISCLAIMER: THIS IS AN UNOFFICIAL PROJECT AND HAS BEEN ASSIST BY AI. IT IS NOT CREATED OR HANDLED BY THE HARBOUR MASTERS TEAM. BRING ANY IDEAS, QUESTIONS, OR CONCERNS TO ME DIRECTLY!**
 
 ## What it is
 
@@ -21,12 +21,6 @@ Like [OOTMM](https://ootmm.com/), ComboShip shuffles items across *both* games a
 ## Any bugs?
 
 Probably many! Create an issue if you find any.
-
-## The elephant in the room
-
-"Is this vibecoded?"
-
-It depends on your view. **Yes**, this project uses a lot of assistance from AI/LLMs in order quickly generate code, write commits, or create PRs. I am defining the rules, structure, and decisions on how it gets implemented, so I call it "AI-assisted". If you don't like it, I won't try to change your mind, it's up to you. My code principle for this project is combine the original SoH/2Ship instruction of "we try not to touch the source code" with a new "we try not to touch the port code". Any changes in SoH or 2Ship are modified with guardrails for ComboShip so the original port code remains intact. This is also key in order to keep pulling in new changes from upstream relatively painlessly. I have a whole workflow for this alone.
 
 ## Building
 

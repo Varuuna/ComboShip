@@ -315,15 +315,20 @@ int main(int argc, char** argv) {
                       << r2.beatableSphere << "). With the seed's tricks, Pass 1 got stuck: " << blocked(r1) << ".\n";
             return 3;
         }
-        // No Logic: tolerate OOT/Ganon unbeatability, but still hard-require Majora reachable (MM's win
-        // chain intact). MM-advancement reachability is guaranteed by the GENERATOR (the fill fails/retries
-        // on mmAdvUnreachable>0 in every mode); this verdict only re-confirms the Majora win-chain — it does
-        // NOT gate on unreachableMm==0, since every seed has ~1 under-modeled MM junk check (oracle
-        // evaluates MM with zeroed save options), present even under ALL_REACHABLE.
+        // No Logic: the forward-walk sphere ORDER is meaningless (in-game No Logic disables the very gates
+        // the walk enforces), so beatability is judged on FULL-inventory reachability. Both win conditions
+        // reachable with everything placed => genuinely beatable. Majora-only => tolerate OOT/Ganon (still a
+        // valid No-Logic seed, MM win chain intact; MM-advancement reachability is guaranteed by the fill,
+        // which retries on mmAdvUnreachable>0 — not gated on unreachableMm==0, ~1 MM junk check is always
+        // under-modeled since the oracle evaluates MM with zeroed save options).
+        if (ootNoLogic && r2.ganonReachable && r2.majoraReachable) {
+            std::cout << "[playthrough] RESULT: PASS (No Logic) — beatable: Ganon AND Majora both reachable "
+                         "with full inventory (forward-walk order N/A under No Logic).\n";
+            return 0;
+        }
         if (ootNoLogic && r2.majoraReachable) {
-            std::cout << "[playthrough] RESULT: PASS (No Logic) — Majora beatable (MM reachable); OOT/Ganon "
-                         "unbeatability tolerated ("
-                      << blocked(r2) << ").\n";
+            std::cout << "[playthrough] RESULT: PASS (No Logic) — Majora beatable (MM reachable); Ganon (OOT) "
+                         "unreachable even at full inventory, tolerated.\n";
             return 0;
         }
         std::cout << "[playthrough] RESULT: FAIL — not beatable even with all tricks; stuck: " << blocked(r2)

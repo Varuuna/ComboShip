@@ -347,8 +347,10 @@ endif()
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows|NintendoSwitch|CafeOS")
     # ComboShip: the README is not shipped in the package (it's repo docs, not a runtime file).
-    install(CODE "file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/mods\")" COMPONENT combo)
-    install(CODE "file(TOUCH \"\${CMAKE_INSTALL_PREFIX}/mods/custom_mod_files_go_here.txt\")" COMPONENT combo)
+    install(CODE "file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/mods/soh\")" COMPONENT combo)
+    install(CODE "file(TOUCH \"\${CMAKE_INSTALL_PREFIX}/mods/soh/custom_mod_files_go_here.txt\")" COMPONENT combo)
+    install(CODE "file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/mods/2ship\")" COMPONENT combo)
+    install(CODE "file(TOUCH \"\${CMAKE_INSTALL_PREFIX}/mods/2ship/custom_mod_files_go_here.txt\")" COMPONENT combo)
 endif()
 
 if(CMAKE_SYSTEM_NAME MATCHES "Linux")

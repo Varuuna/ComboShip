@@ -34,7 +34,7 @@ ComboShip currently builds on **Windows** only. macOS and Linux support will ret
 
 ### Configure and build
 
-From the `Combo/` directory, configure once to generate the Visual Studio solution:
+From the repository root (the clone folder, which contains this README), configure once to generate the Visual Studio solution:
 
 ```powershell
 cmake -B build/x64 -A x64

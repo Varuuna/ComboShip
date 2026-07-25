@@ -5,7 +5,7 @@
 #include "Globals.h"
 #include "Utils/BitConverter.h"
 #include <Utils/DiskFile.h>
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 #include "WarningHandler.h"
 #include "ZFile.h"
 

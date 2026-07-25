@@ -7,7 +7,7 @@
 #include "Utils/Directory.h"
 #include <Utils/DiskFile.h>
 #include "Utils/Path.h"
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 #include "WarningHandler.h"
 
 using namespace ELFIO;

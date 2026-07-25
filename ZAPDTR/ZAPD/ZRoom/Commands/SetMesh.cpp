@@ -3,7 +3,7 @@
 #include "Globals.h"
 #include "Utils/BitConverter.h"
 #include "Utils/Path.h"
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 #include "WarningHandler.h"
 #include "ZBackground.h"
 #include "ZFile.h"

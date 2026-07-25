@@ -1,7 +1,7 @@
 #include "ZString.h"
 
 #include <Utils/DiskFile.h>
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 #include "ZFile.h"
 
 REGISTER_ZFILENODE(String, ZString);

@@ -1,6 +1,6 @@
 #include "SetWorldMapVisited.h"
 
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 #include "Globals.h"
 
 SetWorldMapVisited::SetWorldMapVisited(ZFile* nParent) : ZRoomCommand(nParent)

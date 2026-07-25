@@ -2,7 +2,7 @@
 
 #include "Globals.h"
 #include "Utils/BitConverter.h"
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 #include "ZFile.h"
 #include "ZRoom/ZNames.h"
 #include "ZRoom/ZRoom.h"

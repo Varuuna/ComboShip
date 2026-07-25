@@ -1,6 +1,6 @@
 #include "ZSymbol.h"
 
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 #include "WarningHandler.h"
 #include "ZFile.h"
 

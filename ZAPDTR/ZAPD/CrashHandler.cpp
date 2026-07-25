@@ -1,5 +1,5 @@
 #include "CrashHandler.h"
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 
 #if __has_include(<unistd.h>)
 #define HAS_POSIX 1

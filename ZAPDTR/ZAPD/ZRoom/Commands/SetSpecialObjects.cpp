@@ -1,7 +1,7 @@
 #include "SetSpecialObjects.h"
 
 #include "Utils/BitConverter.h"
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 #include "ZRoom/ZNames.h"
 
 SetSpecialObjects::SetSpecialObjects(ZFile* nParent) : ZRoomCommand(nParent)

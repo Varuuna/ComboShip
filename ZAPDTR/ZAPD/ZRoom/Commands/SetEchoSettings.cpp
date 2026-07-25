@@ -1,5 +1,5 @@
 #include "SetEchoSettings.h"
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 
 SetEchoSettings::SetEchoSettings(ZFile* nParent) : ZRoomCommand(nParent)
 {

@@ -23,8 +23,11 @@ class Checksums(Enum):
 
     MM_US_10 = "5354631C"
     MM_US_10_UNCOMPRESSED = "DA6983E7"
+    MM_PAL_10 = "E97955C6"
+    MM_PAL_11 = "0A5D8F83"
     MM_US_GC = "B443EB08"
     MM_JP_GC = "8473D0C1"
+    MM_PAL_GC = "6AECEC4F"
 
     UNKNOWN = "FFFFFFFF"
 
@@ -63,8 +66,11 @@ ROM_INFO_TABLE[Checksums.OOT_NTSC_12] = RomVersion("assets/extractor/filelists/n
 
 ROM_INFO_TABLE[Checksums.MM_US_10] = RomVersion("assets/extractor/filelists/mm.txt", 0x1A500, "N64_US", is_mm=True)
 ROM_INFO_TABLE[Checksums.MM_US_10_UNCOMPRESSED] = RomVersion("assets/extractor/filelists/mm.txt", 0x1A500, "N64_US", is_mm=True)
+ROM_INFO_TABLE[Checksums.MM_PAL_10] = RomVersion("assets/extractor/filelists/mm_pal.txt", 0x1A650, "MM_PAL_10", is_mm=True)
+ROM_INFO_TABLE[Checksums.MM_PAL_11] = RomVersion("assets/extractor/filelists/mm_pal.txt", 0x1A8D0, "MM_PAL_11", is_mm=True)
 ROM_INFO_TABLE[Checksums.MM_US_GC] = RomVersion("assets/extractor/filelists/mm_gc.txt", 0x1AE90, "GC_US", is_mm=True)
 ROM_INFO_TABLE[Checksums.MM_JP_GC] = RomVersion("assets/extractor/filelists/mm_gc_jp.txt", 0x1AE90, "GC_JP", is_mm=True)
+ROM_INFO_TABLE[Checksums.MM_PAL_GC] = RomVersion("assets/extractor/filelists/mm_gc_pal.txt", 0x1AE90, "GC_PAL", is_mm=True)
 
 class RomDmaEntry:
     def __init__(self, rom, i):

@@ -1,6 +1,6 @@
 #ifdef INCLUDE_MPQ_SUPPORT
 #include "ExporterArchiveOTR.h"
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 #include <ship/utils/StrHash64.h>
 #include <filesystem>
 

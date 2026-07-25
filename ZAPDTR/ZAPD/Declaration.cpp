@@ -2,7 +2,7 @@
 
 #include "Globals.h"
 #include "ZVtx.h"
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 
 Declaration::Declaration(offset_t nAddress, DeclarationAlignment nAlignment, size_t nSize,
                          const std::string& nBody)

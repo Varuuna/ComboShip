@@ -225,6 +225,19 @@ and pushed once per save-load into both DLLs via `SOH_LoadComboRando` / `MM_Load
 file; the per-slot `save{N}-Randomizer-<hash>.json` sidecar is retired. `Last-Generated-Randomizer.json`
 survives only as the pre-save generation output + `ComboShipRandomizer` drop-import vehicle.
 
+**Fallout — MM pictograph photos (issue #91, 2026-07-25).** Because per-slot writes now return before
+`create_directories(savesFolderPath)`, MM's `saves/` dir is never created in a combo build (only
+`global.json` still falls through, and combo never writes it). `SavePictoPng` in
+`mm/2s2h/Enhancements/Items/ColorPictograph.cpp` then got a NULL `fopen` and its
+`throw std::runtime_error` unwound out of `2ship.dll` into `std::terminate` (`0xe06d7363`) — a crash on
+taking any picture on a fresh install. Photos now live in `Save/` next to the container (via
+`PictoDir()`/`PictoPath()`, `COMBO_BUILD`-guarded) with `create_directories` before the write. The
+`fopen`/libpng failure paths in both `SavePictoPng` and `LoadPictoPNG` were also converted from `throw`
+to cleanup-and-return, since a cosmetic photo must never terminate the process; that part is
+unguarded and will conflict if upstream reworks these functions. Note the hook is
+`COND_VB_SHOULD(VB_PICTO_TAKE, true, ...)` — a literal `true`, so the ColorPictograph CVar does not
+gate it.
+
 ## ComboShip-owned unified ROM extraction (OoT + MM) (2026-06-21)
 
 **Why:** ComboShip needs BOTH an OoT and an MM ROM. The old launcher extracted them headlessly

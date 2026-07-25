@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 #include "Path.h"
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 #include "Utils/Directory.h"
 
 

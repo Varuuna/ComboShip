@@ -4,14 +4,15 @@
 #include "Utils/BitConverter.h"
 #include <Utils/DiskFile.h>
 #include "Utils/Path.h"
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 #include "ZFile.h"
 
 REGISTER_ZFILENODE(TextMM, ZTextMM);
 
 ZTextMM::ZTextMM(ZFile* nParent) : ZResource(nParent)
 {
-	RegisterRequiredAttribute("CodeOffset");
+	RegisterOptionalAttribute("CodeOffset");
+	RegisterOptionalAttribute("SegmentName");
 	RegisterOptionalAttribute("LangOffset", "0");
 }
 
@@ -25,7 +26,19 @@ void ZTextMM::ParseRawData()
 void ZTextMM::ParseMM()
 {
 	const auto& rawData = parent->GetRawData();
-	uint32_t currentPtr = StringHelper::StrToL(registeredAttributes.at("CodeOffset").value, 16);
+	uint32_t currentPtr; 
+	bool messageTableInOwnSegment = false;
+	
+	if (StringHelper::StrToL(registeredAttributes.at("CodeOffset").value, 16) != 0)
+	{
+		currentPtr = StringHelper::StrToL(registeredAttributes.at("CodeOffset").value, 16);
+		messageTableInOwnSegment = false;
+	}
+	else
+	{
+		currentPtr = 0;
+		messageTableInOwnSegment = true;
+	}
 	uint32_t langPtr = currentPtr;
 	bool isPalLang = false;
 
@@ -40,10 +53,35 @@ void ZTextMM::ParseMM()
 	std::vector<uint8_t> codeData;
 
 	if (Globals::Instance->fileMode == ZFileMode::ExtractDirectory)
-		codeData = Globals::Instance->GetBaseromFile("code");
+		if (messageTableInOwnSegment)
+		{
+			if (registeredAttributes.at("SegmentName").value == "")
+			{
+				throw std::runtime_error(
+					StringHelper::Sprintf("ZTextMM: Missing one of required attributes: CodeOffset or SegmentName"));
+			}
+
+			codeData = Globals::Instance->GetBaseromFile(registeredAttributes.at("SegmentName").value);
+		}
+		else {
+			codeData = Globals::Instance->GetBaseromFile("code");
+		}
 	else
-		codeData =
-			Globals::Instance->GetBaseromFile(Globals::Instance->baseRomPath.string() + "code");
+		if (messageTableInOwnSegment)
+		{
+			if (registeredAttributes.at("SegmentName").value == "")
+			{
+				throw std::runtime_error(
+					StringHelper::Sprintf("ZTextMM: Missing one of required attributes: CodeOffset or SegmentName"));
+			}
+			codeData = Globals::Instance->GetBaseromFile(Globals::Instance->baseRomPath.string()
+						+ registeredAttributes.at("SegmentName").value);
+		}
+		else
+		{
+			codeData =
+				Globals::Instance->GetBaseromFile(Globals::Instance->baseRomPath.string() + "code");
+		}
 
 	while (true)
 	{

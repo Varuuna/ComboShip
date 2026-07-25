@@ -2,6 +2,7 @@
 
 #ifdef COMBO_BUILD
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include "soh/Enhancements/randomizer/randomizer_entrance.h" // Entrance_OverrideNextIndex
 // Set by SOH_ResumeGame (OTRGlobals.cpp) on a combo MM->OOT return. >= 0 means: skip the title /
 // file-select screens, load this save slot, and spawn straight into Play in the Market outside the
 // Happy Mask Shop (the fixed arrival point for the cross-game portal return).
@@ -21,7 +22,6 @@ void TitleSetup_InitImpl(GameState* gameState) {
         gSaveContext.fileNum = gComboReturnFileNum;
         gSaveContext.gameMode = GAMEMODE_NORMAL;
         Sram_OpenSave();
-        gSaveContext.entranceIndex = ENTR_MARKET_DAY_OUTSIDE_HAPPY_MASK_SHOP;
         // Mirror FileChoose_LoadGame's magic staging so Play_Init refills the meter normally.
         gSaveContext.magicFillTarget = gSaveContext.magic;
         gSaveContext.magic = 0;
@@ -30,6 +30,9 @@ void TitleSetup_InitImpl(GameState* gameState) {
         // recreated gRandoContext, and consumers like the check tracker must tear down + re-init.
         GameInteractor_ExecuteOnExitGame(gSaveContext.fileNum);
         GameInteractor_ExecuteOnLoadGame(gSaveContext.fileNum);
+        // Must follow OnLoadGame: the rando handler's Entrance_SetSavewarpEntrance() recomputes from
+        // savedSceneNum (never set by the portal handoff) and would clobber this with Link's House.
+        gSaveContext.entranceIndex = Entrance_OverrideNextIndex(ENTR_MARKET_DAY_OUTSIDE_HAPPY_MASK_SHOP);
         gComboReturnFileNum = -1;
         gameState->running = false;
         SET_NEXT_GAMESTATE(gameState, Play_Init, PlayState);

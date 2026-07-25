@@ -238,6 +238,94 @@ unguarded and will conflict if upstream reworks these functions. Note the hook i
 `COND_VB_SHOULD(VB_PICTO_TAKE, true, ...)` — a literal `true`, so the ColorPictograph CVar does not
 gate it.
 
+## Resume the game the slot was last played in (issues #89/#87/#83, 2026-07-25)
+
+A slot always resumed OOT even when the player's last session was MM, and leaving MM landed them at
+Link's House instead of the Mask Shop.
+
+**`combo.lastGame` (`combo/ComboShip.cpp`).** New container field (GameId: `0`=OOT, `1`=MM); absent
+means OOT, so older saves behave as before. Written by `Combo_SetLastGame` at the **two transitions
+only** — MM when the portal hands off, OOT on a portal return.
+
+It is deliberately **not** derived from save writes. Two separate write classes make that unworkable:
+background writes into the *dormant* game's section (cross-game grants, Anchor packets,
+`SOH_MarkForeignObtained`), and — the one that actually broke it — OOT's own **load-time** writes.
+Loading an OOT save persists sections from the rando and check-tracker `OnLoadGame` handlers, which run
+*before* the launcher's `Combo_OnOOTSaveLoad`, so a foreground-filtered write-stamp set `lastGame` to OOT
+microseconds before the resume decision read it, and the slot never resumed MM.
+
+Transition stamps alone are sufficient: entering MM stamps MM (so an owl-save quit, which fires no
+transition, still resumes MM), a portal return stamps OOT (so quitting from OOT resumes OOT), and an
+absent field defaults to OOT for a first-ever session. A reset or owl-save quit deliberately leaves the
+field alone — see the return-kind note below.
+
+**The intercept.** `Combo_OnOOTSaveLoad` already fires at the ideal moment: `FileChoose_LoadGame` runs
+`GameInteractor_ExecuteOnLoadGame` at its tail (`soh/src/overlays/gamestates/ovl_file_choose/z_file_choose.c`),
+i.e. after `Sram_OpenSave` rebuilt `gRandoContext` and after the launcher loaded the dormant MM save,
+but before OOT executes a single Play frame. `Combo_ResumeMMIfLastSavedThere` decides there, so no
+vendored file-select edit is needed. It is gated on `SOH_IsOnFileSelect()` because `OnLoadGame` also
+fires from `TitleSetup` on the MM→OOT return and from in-game reloads (`Warping`, `BetterSaveMenu`) —
+ungated, walking out of MM after an owl save would bounce the player straight back into MM forever. It
+also ignores `fileNum` outside 0..2, since debug-select (`0xFF`) and Boss Rush (`0xFE`) share
+`FileChoose_LoadGame`.
+
+**Leaving OOT's loop (`SOH_ParkForComboMMResume`, `soh/soh/OTRGlobals.cpp`).** Sets
+`gGameState->init = nullptr` **and** `running = false`. `RunFrame`'s outer loop is
+`while (runFrameContext.nextOvl)` and only falls through to `WindowClose()` when
+`Graph_GetNextGameState` returns NULL. The Mask-Shop switch gets away with `running = false` alone
+because `GameState_Init` already nulled `init`, but `FileChoose_LoadGame` has *queued* `Play_Init` — so
+without clearing it OOT would build Play and keep running, and the handoff would never happen. It
+deliberately does **not** save the file (that would stamp `lastGame` back to OOT, making the resume work
+exactly once) and does **not** fire `OnExitGame` (the dormant tracker peek needs the rando context that
+`OnLoadGame` just built). On the return, `SOH_ResumeGame` → `SOH_ResetFrameLoopForResume` re-seeds
+`RunFrame` from overlay[0] (`TitleSetup`), which then takes the normal `gComboReturnFileNum` path.
+
+**MM spawn point.** South Clock Town is the arrival for both portal entry and a boot resume; the
+resume only differs when Remember Save Location is on, in which case it uses
+`gSaveContext.save.shipSaveInfo.pauseSaveEntrance` (where that enhancement stores the spot — *not*
+`save.entrance`, and combo never runs `Sram_OpenSave`, which is what normally applies it).
+`gComboEntryIsResume` (`MM_SetComboEntryIsResume`) tells MM which kind of entry it is. Deliberately
+**not** MM's authentic owl-statue resume: Clock Town is the intended combo default.
+
+**Owl save (`mm/src/code/z_play.c`).** MM's owl save sets `GAMEMODE_OWL_SAVE` (`z_message.c`) and
+`z_play.c` then does `SET_NEXT_GAMESTATE(TitleSetup_Init)` — "save and quit to MM's file select". In
+combo that re-ran MM's whole boot (the combo entry block is skipped because `gComboStartFileNum` is back
+to `-1`), so the attract path's `Sram_InitNewSave` wiped the save and MM's file select then wrote the
+wipe into the container: **the slot's MM section was corrupted by an ordinary owl save.** A
+`COMBO_BUILD` seam calls `Combo_RequestOwlSaveQuit()` instead, which routes through the existing return
+hook and `SOH_SetComboBootToTitle` so the session lands on **OOT's title/file select**. No extra persist
+is needed — the owl save's own flashrom write already went through the container seam. `lastGame` stays
+MM, so reselecting the slot resumes MM.
+
+**#87 entrance clobber (`soh/src/code/title_setup.c`).** The Mask-Shop arrival entrance is now assigned
+*after* `GameInteractor_ExecuteOnLoadGame`, because the rando handler's `Entrance_SetSavewarpEntrance()`
+recomputes from `savedSceneNum` (never set by the portal handoff) and overwrote it with
+`ENTR_LINKS_HOUSE_CHILD_SPAWN`. Wrapped in `Entrance_OverrideNextIndex()` so it stays correct once
+entrance shuffle is generated for combo seeds. (Safe only because every combo save forces
+`QUEST_RANDOMIZER`, so `Entrance_Init` always ran.)
+
+**#89(b) attract-demo guard (`mm/2s2h/BenPort.cpp`).** MM's title path runs `Sram_InitNewSave()` and
+then a live `Play` for the attract demo, which scene-hops through the Clock Tower interior — tripping
+the MM→OOT return trigger and persisting the *wiped* save over the slot. Both the trigger and the
+return's persist call now require `gSaveContext.gameMode == GAMEMODE_NORMAL`. The guard sits at the
+return call site, **not** inside `SaveManager_SaveCurrentForCombo`: that function has six callers, and
+four of them (new-rando-save creation, dormant cross-game grants, `MM_MarkForeignObtained`, Anchor
+dormant persist) legitimately run while MM is dormant with a stale `gameMode`.
+
+**#83 shared settings.** MM keeps targeting/audio/language in `global.json`, which combo never writes
+(its file select is never reached), so `SaveContext_Init`'s defaults applied — notably Switch targeting.
+`Combo_AdoptOOTGlobalOptions` (`mm/2s2h/BenPort.cpp`) pulls OOT's values via the new
+`SOH_GetGlobalOptions` export after `Sram_LoadGlobalOptions`. **Language is excluded on purpose:** the
+enums disagree (OOT `ENG=0`, MM `JPN=0`), and MM's runtime reads `options.language`, not the
+`options.languageSetting` field that gets serialized.
+
+**Dormant check-tracker recalc (part of #81).** `InternalRecalculateAvailableChecks`
+(`randomizer_check_tracker.cpp`) no longer early-returns when `gPlayState == nullptr`; it starts the
+traversal from `gSaveContext.entranceIndex` instead. Required by the intercept, which leaves OOT with no
+play state at all, and it also fixes the pre-existing frozen-tracker complaint while MM is foreground.
+It now returns `bool` so the caller only clears `recalculateAvailable` when the recalc really ran,
+instead of consuming and dropping the request.
+
 ## ComboShip-owned unified ROM extraction (OoT + MM) (2026-06-21)
 
 **Why:** ComboShip needs BOTH an OoT and an MM ROM. The old launcher extracted them headlessly

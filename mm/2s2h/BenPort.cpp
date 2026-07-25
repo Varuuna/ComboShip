@@ -144,8 +144,10 @@ extern "C"
     sComboTransitionActive = true;
 }
 
-extern "C" void (*gComboReturnCallback)(void) = nullptr;
-extern "C" __declspec(dllexport) void MM_SetOnComboReturnCallback(void (*cb)(void)) {
+// kind: 0 = portal (walked out the Clock Tower), 1 = Ctrl+R reset, 2 = owl-save quit. Only a portal
+// return continues the session in OOT; the other two end it and boot OOT to its title.
+extern "C" void (*gComboReturnCallback)(int kind) = nullptr;
+extern "C" __declspec(dllexport) void MM_SetOnComboReturnCallback(void (*cb)(int kind)) {
     gComboReturnCallback = cb;
 }
 static bool sComboReturnPending = false;
@@ -154,6 +156,21 @@ static bool sComboReturnPending = false;
 static bool sComboResetReturnPending = false;
 extern "C" __declspec(dllexport) void MM_RequestComboReturn(void) {
     sComboResetReturnPending = true;
+}
+// ComboShip (#89): owl save. MM would SET_NEXT_GAMESTATE(TitleSetup_Init) here (z_play.c) and quit to
+// its own file select, which combo can't enter — it re-runs MM's boot, wipes the save and lets MM's
+// file select write the wipe into the container. Quit to OOT's title instead; the owl save's own
+// flashrom write has already persisted the MM section.
+static bool sComboOwlSaveQuitPending = false;
+extern "C" void Combo_RequestOwlSaveQuit(void) {
+    sComboOwlSaveQuitPending = true;
+}
+// Drop any unconsumed return request. Called as MM is entered: one left over from the previous session
+// would immediately quit the new one.
+static void Combo_ClearReturnRequests(void) {
+    sComboReturnPending = false;
+    sComboResetReturnPending = false;
+    sComboOwlSaveQuitPending = false;
 }
 // MM's own ResourceManager, created at first boot and kept alive for the whole process. A combo
 // transition swaps the Context's active RM between MM's and OOT's, so each game keeps its archives +
@@ -1104,21 +1121,41 @@ extern "C" void InitOTR(int argc, char* argv[]) {
     // Reverse MM->OOT trigger: the Clock Tower interior's South-Clock-Town door (spawn 1 only —
     // cycle resets respawn in this scene at spawns 0/2/3/6 and must stay in MM).
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnSceneInit>([](s8 sceneId, s8 spawnNum) {
-        if (sceneId == SCENE_INSIDETOWER && spawnNum == 1) {
+        // GAMEMODE_NORMAL only: MM's attract demo (GAMEMODE_TITLE_SCREEN, after Sram_InitNewSave wiped
+        // the save) scene-hops through here, and would both teleport the player to OOT and persist the
+        // wiped save over the slot.
+        if (sceneId == SCENE_INSIDETOWER && spawnNum == 1 && gSaveContext.gameMode == GAMEMODE_NORMAL) {
             sComboReturnPending = true;
         }
     });
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameStateMainStart>([]() {
-        if (!sComboReturnPending && !sComboResetReturnPending)
+        if (!sComboReturnPending && !sComboResetReturnPending && !sComboOwlSaveQuitPending)
             return;
         const bool isReset = sComboResetReturnPending;
+        const bool isOwlSaveQuit = sComboOwlSaveQuitPending;
         sComboReturnPending = false;
         sComboResetReturnPending = false;
-        // Portal return always persists MM; a reset persists only when autosave is enabled.
-        if (!isReset || CVarGetInteger("gEnhancements.Saving.Autosave", 0))
+        sComboOwlSaveQuitPending = false;
+        // An owl save quit lands on OOT's title, like Ctrl+R, rather than resuming OOT gameplay.
+        if (isOwlSaveQuit) {
+            static void (*sFn)(void) = nullptr;
+            static bool sTried = false;
+            if (!sTried) {
+                sTried = true;
+                if (HMODULE h = GetModuleHandleA("soh.dll"))
+                    sFn = (void (*)(void))GetProcAddress(h, "SOH_SetComboBootToTitle");
+            }
+            if (sFn)
+                sFn();
+        }
+        // Portal return always persists MM; a reset persists only when autosave is enabled. Never
+        // persist outside gameplay: the title/attract path wipes save first (Sram_InitNewSave). An owl
+        // save has already written itself through the flashrom seam.
+        if (!isOwlSaveQuit && (!isReset || CVarGetInteger("gEnhancements.Saving.Autosave", 0)) &&
+            gSaveContext.gameMode == GAMEMODE_NORMAL)
             SaveManager_SaveCurrentForCombo();
         if (gComboReturnCallback)
-            gComboReturnCallback();
+            gComboReturnCallback(isOwlSaveQuit ? 2 : (isReset ? 1 : 0));
         if (auto fast3d = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow())) {
             fast3d->SetIsRunning(false);
         }
@@ -2536,6 +2573,35 @@ extern "C" __declspec(dllexport) void MM_InitArchives() {
 // ComboShip: -1 = normal MM boot; >= 0 = game-switch: skip title/file-select and load this slot.
 // extern "C" so title_setup.c (a C file) can link to it without name mangling.
 extern "C" int gComboStartFileNum = -1;
+
+// ComboShip (#89): how MM is being entered. 0 = through the Happy Mask Shop portal, which always
+// arrives in South Clock Town (the fixed portal exit). 1 = resuming a slot that was last saved in MM,
+// which is a real save load and so honors Remember Save Location. Set by the launcher before each
+// MM_RunGame/MM_ResumeGame; read by title_setup.c.
+extern "C" int gComboEntryIsResume = 0;
+extern "C" __declspec(dllexport) void MM_SetComboEntryIsResume(int isResume) {
+    gComboEntryIsResume = isResume ? 1 : 0;
+    Combo_ClearReturnRequests(); // a stale request would quit the session we're about to start
+}
+
+// ComboShip (#83): adopt OOT's targeting/audio. MM normally reads these from global.json, which combo
+// never writes (its file select is never reached), leaving SaveContext_Init's defaults — so
+// Z-targeting silently reverted to Switch. Queries soh.dll; no-op if the export is missing.
+extern "C" void Combo_AdoptOOTGlobalOptions(void) {
+    static void (*sFn)(int*, int*) = nullptr;
+    static bool sTried = false;
+    if (!sTried) {
+        sTried = true;
+        if (HMODULE h = GetModuleHandleA("soh.dll"))
+            sFn = (void (*)(int*, int*))GetProcAddress(h, "SOH_GetGlobalOptions");
+    }
+    if (!sFn)
+        return;
+    int zTarget = 0, audio = 0;
+    sFn(&zTarget, &audio);
+    gSaveContext.options.zTargetSetting = (u8)zTarget;
+    gSaveContext.options.audioSetting = (u8)audio;
+}
 
 // C-callable wrapper used by title_setup.c (which is a C file) to load a MM save from disk.
 extern "C" void Combo_LoadMMSaveFile(int mmFileNum) {

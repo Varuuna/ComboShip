@@ -178,6 +178,13 @@ typedef void (*FnGetPlayerName)(unsigned char*);
 static FnMMInitSaveNamed MM_InitSaveFile = nullptr;
 static FnGetPlayerName SOH_GetCurrentPlayerName = nullptr;
 static FnMMInitSave MM_LoadSaveForCombo = nullptr;
+// #89 resume-into-MM: drop out of OOT's loop before it runs a Play frame / tell MM how it was entered.
+// SOH_IsOnFileSelect distinguishes a real file-select load from the OnLoadGame that TitleSetup fires
+// on the MM->OOT return (which must not bounce the player straight back into MM).
+typedef unsigned char (*FnIsOnFileSelect)();
+static FnVoid SOH_ParkForComboMMResume = nullptr;
+static FnMMInitSave MM_SetComboEntryIsResume = nullptr;
+static FnIsOnFileSelect SOH_IsOnFileSelect = nullptr;
 // OOT slot whose MM save is live in MM's dormant memory (-1 = none). Guards Combo_OnOOTSaveLoad
 // against reloading stale disk state over MM's in-memory progress after round trips.
 static int g_MmSaveInMemorySlot = -1;
@@ -187,7 +194,7 @@ static FnSOHDeinit SOH_Deinit = nullptr;
 static FnSOHPrepare SOH_PrepareForTransition = nullptr;
 static FnMMNotify MM_NotifyComboTransition = nullptr;
 
-typedef void (*FnMMSetReturnCb)(void (*)(void));
+typedef void (*FnMMSetReturnCb)(void (*)(int));
 static FnMMSetReturnCb MM_SetOnComboReturnCallback = nullptr;
 static bool g_pendingOOTReturn = false;
 
@@ -310,6 +317,12 @@ static std::map<int, nlohmann::json> g_containerCache;
 // OOT drains it on the main thread (Combo_TakeEvictionNotice) to surface a popup.
 static std::vector<int> g_evictedSlots;
 
+// Single place the foreground game changes, so every transition point notifies comboui consistently.
+static void Combo_SetForegroundGame(int game) {
+    if (ComboUI_OnForegroundGame)
+        ComboUI_OnForegroundGame(game);
+}
+
 static std::filesystem::path ComboContainerPath(int fileNum) {
     return std::filesystem::path("Save") / ("file" + std::to_string(fileNum + 1) + ".combosav");
 }
@@ -392,6 +405,10 @@ static int Combo_TakeEvictionNotice() {
 static void EraseComboContainer(int slot) {
     std::lock_guard<std::mutex> lk(g_containerMutex);
     g_containerCache.erase(slot);
+    // MM's dormant save is now stale: leave it marked resident and the next load skips re-reading it,
+    // and any dormant MM write would put the erased save back into the slot.
+    if (g_MmSaveInMemorySlot == slot)
+        g_MmSaveInMemorySlot = -1;
     std::error_code ec;
     std::filesystem::remove(ComboContainerPath(slot), ec);
 }
@@ -403,6 +420,8 @@ static void Combo_CopyContainer(int from, int to) {
     nlohmann::json copy = LoadOrCreateContainer(from); // deep copy of the source container
     copy["slot"] = to;
     g_containerCache[to] = std::move(copy);
+    if (g_MmSaveInMemorySlot == to)
+        g_MmSaveInMemorySlot = -1; // the destination's MM save just changed under us
     FlushContainer(to);
 }
 
@@ -430,6 +449,27 @@ static void Combo_WriteGameSave(int game, int fileNum, const char* json) {
         c[key] = nlohmann::json::parse(json);
     } catch (...) { return; }
     FlushContainer(fileNum);
+}
+
+// Record which game the player is now in, so a quit-and-reload resumes there. Set at the two
+// transitions only — NOT from save writes: loading an OOT save itself writes sections (rando and
+// check-tracker OnLoadGame handlers), which would stamp OOT over the MM the player actually left in.
+static void Combo_SetLastGame(int fileNum, int game) {
+    std::lock_guard<std::mutex> lk(g_containerMutex);
+    auto& c = LoadOrCreateContainer(fileNum);
+    if (c.value("combo", nlohmann::json::object()).value("lastGame", -1) == game)
+        return; // already correct — don't rewrite the container for nothing
+    std::cout << "[ComboShip] lastGame <- " << game << " (slot " << fileNum << ")" << std::endl;
+    c["combo"]["lastGame"] = game;
+    FlushContainer(fileNum);
+}
+
+// Which game a slot was last saved in (GameId). Absent => OOT, so pre-lastGame saves resume as before.
+static int Combo_GetLastGame(int fileNum) {
+    std::lock_guard<std::mutex> lk(g_containerMutex);
+    auto& c = LoadOrCreateContainer(fileNum);
+    int g = c.value("combo", nlohmann::json::object()).value("lastGame", (int)ComboRando::GAME_OOT);
+    return (g == ComboRando::GAME_MM) ? ComboRando::GAME_MM : ComboRando::GAME_OOT;
 }
 
 // ComboShip (issue #1): erasing a slot from either game's file-select wipes BOTH saves — each game
@@ -1678,6 +1718,9 @@ static int Combo_OnReloadRequest(const char* path) {
 }
 
 static void Combo_OnOOTSaveInit(int fileNum) {
+    // A new file starts in OOT. Explicit because not every delete path clears the container
+    // (DeleteFileOnDeath calls DeleteZeldaFile directly), so a stale MM could otherwise survive here.
+    Combo_SetLastGame(fileNum, ComboRando::GAME_OOT);
     // ComboShip: bind the pending consolidated seed to this slot — bake it into the container's
     // combo.rando (self-contained), then push it into both DLLs so foreign data is live immediately.
     if (!g_ConsolidatedJson.empty()) {
@@ -1733,6 +1776,8 @@ static void Combo_OnOOTSaveInit(int fileNum) {
     g_MmSaveInMemorySlot = fileNum;
 }
 
+static void Combo_ResumeMMIfLastSavedThere(int fileNum);
+
 // ComboShip: OOT loaded a save (file select / warp). Bring the matching MM save into MM's dormant
 // memory so the combo tracker peek shows real MM items before MM is visited. Skipped when that
 // slot's MM save is already live in memory — reloading from disk would clobber newer progress.
@@ -1756,21 +1801,49 @@ static void Combo_OnOOTSaveLoad(int fileNum) {
         }
     }
     if (!MM_LoadSaveForCombo || g_MmSaveInMemorySlot == fileNum) {
+        Combo_ResumeMMIfLastSavedThere(fileNum);
         return;
     }
     std::cout << "[ComboShip] Loading MM save for OOT slot " << fileNum << " (tracker peek)" << std::endl;
     MM_LoadSaveForCombo(fileNum);
     g_MmSaveInMemorySlot = fileNum;
+    Combo_ResumeMMIfLastSavedThere(fileNum);
+}
+
+// ComboShip (#89): resume MM instead of starting OOT when the slot was last played in MM. The
+// file-select gate is load-bearing — OnLoadGame also fires on the MM->OOT return and from in-game
+// reloads, where this would bounce the player back into MM forever.
+static void Combo_ResumeMMIfLastSavedThere(int fileNum) {
+    if (!SOH_ParkForComboMMResume || !MM_RunGame || !SOH_IsOnFileSelect || !SOH_IsOnFileSelect()) {
+        return;
+    }
+    if (fileNum < 0 || fileNum > 2) {
+        return; // debug select (0xFF) / Boss Rush (0xFE) share FileChoose_LoadGame
+    }
+    if (Combo_GetLastGame(fileNum) != ComboRando::GAME_MM) {
+        return;
+    }
+    std::cout << "[ComboShip] Slot " << fileNum << " was last saved in MM — resuming MM" << std::endl;
+    if (MM_SetComboEntryIsResume)
+        MM_SetComboEntryIsResume(1); // a real save load: honors MM's Remember Save Location
+    g_PendingMMFileNum = fileNum;
+    SOH_ParkForComboMMResume(); // drops out of OOT's game loop; the launcher then enters MM
 }
 
 static void Combo_OnOOTSceneSwitch(int fileNum) {
     std::cout << "[ComboShip] Mask Shop entered — switching to MM, slot " << fileNum << std::endl;
+    if (MM_SetComboEntryIsResume)
+        MM_SetComboEntryIsResume(0); // portal entry: always arrives in South Clock Town
     g_PendingMMFileNum = fileNum;
     // OOT game loop is already exiting (gGameState->running = false set by the hook).
 }
 
-static void Combo_OnMMReturn(void) {
-    std::cout << "[ComboShip] MM Clock Tower entered -- returning to OOT" << std::endl;
+// Why MM handed control back: 0 = portal, 1 = Ctrl+R reset, 2 = owl-save quit (see BenPort.cpp).
+static int g_mmReturnKind = 0;
+
+static void Combo_OnMMReturn(int kind) {
+    g_mmReturnKind = kind;
+    std::cout << "[ComboShip] MM returning to OOT (kind=" << kind << ")" << std::endl;
     g_pendingOOTReturn = true;
 }
 
@@ -1904,6 +1977,9 @@ int main(int argc, char** argv) {
     MM_InitSaveFile = (FnMMInitSaveNamed)GetSym(mmModule, "MM_InitSaveFile");
     SOH_GetCurrentPlayerName = (FnGetPlayerName)GetSym(sohModule, "SOH_GetCurrentPlayerName");
     MM_LoadSaveForCombo = (FnMMInitSave)GetSym(mmModule, "MM_LoadSaveForCombo");
+    SOH_ParkForComboMMResume = (FnVoid)GetSym(sohModule, "SOH_ParkForComboMMResume");
+    MM_SetComboEntryIsResume = (FnMMInitSave)GetSym(mmModule, "MM_SetComboEntryIsResume");
+    SOH_IsOnFileSelect = (FnIsOnFileSelect)GetSym(sohModule, "SOH_IsOnFileSelect");
     SOH_SetOnSceneSwitchCallback = (FnSetSceneSwitchCallback)GetSym(sohModule, "SOH_SetOnSceneSwitchCallback");
     MM_RunGame = (FnMMRunGame)GetSym(mmModule, "MM_RunGame");
     SOH_Deinit = (FnSOHDeinit)GetSym(sohModule, "SOH_Deinit");
@@ -2238,8 +2314,7 @@ int main(int argc, char** argv) {
 
     // ComboShip: OOT owns the foreground at startup — hide MM's (now-registered) tracker windows so
     // only OOT's Check/Item trackers can show. See combo/gui/ComboTrackerVisibility.cpp.
-    if (ComboUI_OnForegroundGame)
-        ComboUI_OnForegroundGame(0);
+    Combo_SetForegroundGame(ComboRando::GAME_OOT);
 
     // --- 5. Register OOT callbacks ---
     // Note: MM_InitArchives (dormant archive pre-load) is skipped — Ship::ArchiveManager::Init
@@ -2361,9 +2436,10 @@ int main(int argc, char** argv) {
                     MM_NotifyComboTransition();
                 if (MM_SetOnComboReturnCallback)
                     MM_SetOnComboReturnCallback(Combo_OnMMReturn);
-                ComboAnchor::SetActiveGame(1); // route Anchor to MM, activate MM's adapter
-                if (ComboUI_OnForegroundGame)  // hide OOT trackers, show MM's
-                    ComboUI_OnForegroundGame(1);
+                ComboAnchor::SetActiveGame(1);                // route Anchor to MM, activate MM's adapter
+                Combo_SetForegroundGame(ComboRando::GAME_MM); // hide OOT trackers, show MM's
+                if (g_PendingMMFileNum >= 0)
+                    Combo_SetLastGame(g_PendingMMFileNum, ComboRando::GAME_MM);
                 current = GAME_MM;
             } else {
                 break;
@@ -2386,9 +2462,19 @@ int main(int argc, char** argv) {
                     MM_PrepareForTransition();
                 if (SOH_NotifyComboReturn)
                     SOH_NotifyComboReturn();
-                ComboAnchor::SetActiveGame(0); // route Anchor back to OOT, deactivate MM's adapter
-                if (ComboUI_OnForegroundGame)  // hide MM trackers, restore OOT's
-                    ComboUI_OnForegroundGame(0);
+                ComboAnchor::SetActiveGame(0);                 // route Anchor back to OOT, deactivate MM's adapter
+                Combo_SetForegroundGame(ComboRando::GAME_OOT); // hide MM trackers, restore OOT's
+                if (g_PendingMMFileNum >= 0) {
+                    if (g_mmReturnKind == 0) {
+                        // Portal return: the player is continuing in OOT, so that's where a reload goes.
+                        // A reset or owl-save quit ends the session in MM — leave lastGame alone.
+                        Combo_SetLastGame(g_PendingMMFileNum, ComboRando::GAME_OOT);
+                    } else {
+                        // Session over: MM's dormant gSaveContext is post-quit state, so force the next
+                        // save-load to re-read it from the container (else the tracker peek shows junk).
+                        g_MmSaveInMemorySlot = -1;
+                    }
+                }
                 current = GAME_OOT;
             } else {
                 break;

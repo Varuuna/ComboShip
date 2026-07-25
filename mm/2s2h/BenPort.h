@@ -180,6 +180,12 @@ bool Ship_HandleConsoleCrashAsReset();
 
 // ComboShip: file slot to load on MM boot (-1 = normal boot).
 extern int gComboStartFileNum;
+// ComboShip (#89): 0 = entered through the Mask Shop portal, 1 = resuming a slot last saved in MM.
+extern int gComboEntryIsResume;
+// ComboShip (#83): copy OOT's targeting/audio into gSaveContext.options.
+void Combo_AdoptOOTGlobalOptions(void);
+// ComboShip (#89): owl save quits to OOT's title instead of MM's own file select.
+void Combo_RequestOwlSaveQuit(void);
 // Load an existing MM save from disk into gSaveContext (C-callable wrapper).
 void Combo_LoadMMSaveFile(int mmFileNum);
 
@@ -194,7 +200,7 @@ uint64_t GetUnixTimestamp();
 #ifdef _WIN32
 __declspec(dllexport)
 #endif
-    void MM_SetOnComboReturnCallback(void (*cb)(void));
+    void MM_SetOnComboReturnCallback(void (*cb)(int kind));
 #ifdef _WIN32
 __declspec(dllexport)
 #endif

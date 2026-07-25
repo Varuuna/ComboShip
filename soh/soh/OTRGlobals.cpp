@@ -2756,6 +2756,17 @@ extern "C" __declspec(dllexport) void SOH_GetCurrentPlayerName(unsigned char out
     }
 }
 
+// ComboShip (#83): OOT persists these per-save; MM keeps its equivalents in global.json, which combo
+// never writes (MM's file select is never reached), so MM falls back to SaveContext_Init's hardcoded
+// defaults — notably Switch targeting. MM adopts OOT's values on entry instead. Language is
+// deliberately excluded: the two games' enums disagree (OOT ENG=0, MM JPN=0).
+extern "C" __declspec(dllexport) void SOH_GetGlobalOptions(int* zTarget, int* audio) {
+    if (zTarget)
+        *zTarget = gSaveContext.zTargetSetting;
+    if (audio)
+        *audio = gSaveContext.audioSetting;
+}
+
 extern "C" void (*gComboSceneSwitchCallback)(int fileNum) = nullptr;
 
 extern "C" __declspec(dllexport) void SOH_SetOnSceneSwitchCallback(void (*cb)(int fileNum)) {
@@ -3196,6 +3207,12 @@ bool Combo_OotIsForeground(void) {
 // ComboShip: Ctrl+R reset. Set when a reset should return the whole session to first-boot; read by
 // SOH_ResumeGame so OOT boots to the title sequence instead of resuming the dormant save.
 static bool sComboResetPending = false;
+
+// ComboShip (#89): MM-initiated equivalent of the reset flag — an owl save quits to OOT's title
+// rather than MM's own file select, which combo has no path to.
+extern "C" __declspec(dllexport) void SOH_SetComboBootToTitle(void) {
+    sComboResetPending = true;
+}
 
 // Handle a reset request. If MM is foreground, bounce back to OOT (MM saves if autosave is on, then
 // goes dormant) and flag OOT to boot to the title sequence on resume. Returns true if it took over the
@@ -4531,6 +4548,16 @@ extern "C" __declspec(dllexport) void SOH_TriggerComboGenerate(void) {
 extern "C" void FileChoose_Main(GameState* thisx);
 extern "C" __declspec(dllexport) uint8_t SOH_IsOnFileSelect(void) {
     return (gPlayState == NULL && gGameState != NULL && gGameState->main == (GameStateFunc)FileChoose_Main) ? 1 : 0;
+}
+
+// ComboShip (#89): leave OOT's game loop before its first Play frame so the launcher can enter MM.
+// Clearing init is what ends RunFrame's `while (nextOvl)` (FileChoose queued Play_Init); no save and no
+// OnExitGame here — both would break the resume. See docs/deviations/boot-shutdown.md.
+extern "C" __declspec(dllexport) void SOH_ParkForComboMMResume(void) {
+    if (!gGameState)
+        return;
+    gGameState->init = nullptr;
+    gGameState->running = false;
 }
 
 extern "C" __declspec(dllexport) void SOH_SetSeedGenerated(uint8_t g) {

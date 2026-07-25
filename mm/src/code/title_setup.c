@@ -61,12 +61,19 @@ void Setup_InitImpl(SetupState* this) {
 
 #ifdef COMBO_BUILD
     if (gComboStartFileNum >= 0) {
+        // Sram_LoadGlobalOptions above found no global.json in combo, so take OOT's settings.
+        Combo_AdoptOOTGlobalOptions();
         // Set flashSaveAvailable so Sram_Alloc allocates saveBuf (normally set by the title screen).
         gSaveContext.flashSaveAvailable = true;
         // Load the MM save that matches the OOT slot (OOT slot N → MM file N+1).
         Combo_LoadMMSaveFile(gComboStartFileNum + 1);
-        // Always spawn in South Clock Town regardless of save state.
-        gSaveContext.save.entrance = ENTRANCE(SOUTH_CLOCK_TOWN, 0);
+        // Portal entry always arrives at the fixed portal exit; a boot resume spawns where the save
+        // says (pause save if Remember Save Location was on, else the owl statue).
+        if (gComboEntryIsResume) {
+            Combo_SetMMResumeEntrance();
+        } else {
+            gSaveContext.save.entrance = ENTRANCE(SOUTH_CLOCK_TOWN, 0);
+        }
         gSaveContext.save.cutsceneIndex = 0;
         // Reset magicLevel like Sram_OpenSave does — re-arms the magic meter grow animation
         // (Interface_Update only steps magicCapacity when magicLevel == 0).

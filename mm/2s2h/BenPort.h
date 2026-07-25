@@ -180,6 +180,12 @@ bool Ship_HandleConsoleCrashAsReset();
 
 // ComboShip: file slot to load on MM boot (-1 = normal boot).
 extern int gComboStartFileNum;
+// ComboShip (#89): 0 = entered through the Mask Shop portal, 1 = resuming a slot last saved in MM.
+extern int gComboEntryIsResume;
+// ComboShip (#83): copy OOT's targeting/audio into gSaveContext.options.
+void Combo_AdoptOOTGlobalOptions(void);
+// ComboShip (#89): set save.entrance for a boot resume (defined in z_sram_NES.c).
+void Combo_SetMMResumeEntrance(void);
 // Load an existing MM save from disk into gSaveContext (C-callable wrapper).
 void Combo_LoadMMSaveFile(int mmFileNum);
 

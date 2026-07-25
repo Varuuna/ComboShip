@@ -1104,7 +1104,10 @@ extern "C" void InitOTR(int argc, char* argv[]) {
     // Reverse MM->OOT trigger: the Clock Tower interior's South-Clock-Town door (spawn 1 only —
     // cycle resets respawn in this scene at spawns 0/2/3/6 and must stay in MM).
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnSceneInit>([](s8 sceneId, s8 spawnNum) {
-        if (sceneId == SCENE_INSIDETOWER && spawnNum == 1) {
+        // GAMEMODE_NORMAL only: MM's attract demo (GAMEMODE_TITLE_SCREEN, after Sram_InitNewSave wiped
+        // the save) scene-hops through here, and would both teleport the player to OOT and persist the
+        // wiped save over the slot.
+        if (sceneId == SCENE_INSIDETOWER && spawnNum == 1 && gSaveContext.gameMode == GAMEMODE_NORMAL) {
             sComboReturnPending = true;
         }
     });
@@ -1114,8 +1117,10 @@ extern "C" void InitOTR(int argc, char* argv[]) {
         const bool isReset = sComboResetReturnPending;
         sComboReturnPending = false;
         sComboResetReturnPending = false;
-        // Portal return always persists MM; a reset persists only when autosave is enabled.
-        if (!isReset || CVarGetInteger("gEnhancements.Saving.Autosave", 0))
+        // Portal return always persists MM; a reset persists only when autosave is enabled. Never
+        // persist outside gameplay: the title/attract path wipes save first (Sram_InitNewSave).
+        if ((!isReset || CVarGetInteger("gEnhancements.Saving.Autosave", 0)) &&
+            gSaveContext.gameMode == GAMEMODE_NORMAL)
             SaveManager_SaveCurrentForCombo();
         if (gComboReturnCallback)
             gComboReturnCallback();
@@ -2536,6 +2541,34 @@ extern "C" __declspec(dllexport) void MM_InitArchives() {
 // ComboShip: -1 = normal MM boot; >= 0 = game-switch: skip title/file-select and load this slot.
 // extern "C" so title_setup.c (a C file) can link to it without name mangling.
 extern "C" int gComboStartFileNum = -1;
+
+// ComboShip (#89): how MM is being entered. 0 = through the Happy Mask Shop portal, which always
+// arrives in South Clock Town (the fixed portal exit). 1 = resuming a slot that was last saved in MM,
+// which is a real save load and so honors Remember Save Location. Set by the launcher before each
+// MM_RunGame/MM_ResumeGame; read by title_setup.c.
+extern "C" int gComboEntryIsResume = 0;
+extern "C" __declspec(dllexport) void MM_SetComboEntryIsResume(int isResume) {
+    gComboEntryIsResume = isResume ? 1 : 0;
+}
+
+// ComboShip (#83): adopt OOT's targeting/audio. MM normally reads these from global.json, which combo
+// never writes (its file select is never reached), leaving SaveContext_Init's defaults — so
+// Z-targeting silently reverted to Switch. Queries soh.dll; no-op if the export is missing.
+extern "C" void Combo_AdoptOOTGlobalOptions(void) {
+    static void (*sFn)(int*, int*) = nullptr;
+    static bool sTried = false;
+    if (!sTried) {
+        sTried = true;
+        if (HMODULE h = GetModuleHandleA("soh.dll"))
+            sFn = (void (*)(int*, int*))GetProcAddress(h, "SOH_GetGlobalOptions");
+    }
+    if (!sFn)
+        return;
+    int zTarget = 0, audio = 0;
+    sFn(&zTarget, &audio);
+    gSaveContext.options.zTargetSetting = (u8)zTarget;
+    gSaveContext.options.audioSetting = (u8)audio;
+}
 
 // C-callable wrapper used by title_setup.c (which is a C file) to load a MM save from disk.
 extern "C" void Combo_LoadMMSaveFile(int mmFileNum) {

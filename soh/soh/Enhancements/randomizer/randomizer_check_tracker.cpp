@@ -1006,7 +1006,7 @@ void SetAreaSpoiled(RandomizerCheckArea rcArea) {
     SaveManager::Instance->SaveSection(gSaveContext.fileNum, sectionId, true);
 }
 
-void InternalRecalculateAvailableChecks(RandomizerRegion startingRegion, RandoAgeTime startingAgeTime);
+bool InternalRecalculateAvailableChecks(RandomizerRegion startingRegion, RandoAgeTime startingAgeTime);
 
 void CheckTrackerWindow::DrawElement() {
     Color_Background = CVarGetColor(CVAR_TRACKER_CHECK("BgColor.Value"), Color_Bg_Default);
@@ -1092,9 +1092,11 @@ comboSkipDisplayGates:;
             return;
         }
 
-        if (recalculateAvailable) {
+        // Only consume the request if the recalc actually ran, otherwise it is silently lost and the
+        // counts/logic glyphs freeze until something else happens to request another one.
+        if (recalculateAvailable &&
+            InternalRecalculateAvailableChecks(availableChecksStartingRegion, availableChecksStartingAgeTime)) {
             recalculateAvailable = false;
-            InternalRecalculateAvailableChecks(availableChecksStartingRegion, availableChecksStartingAgeTime);
             availableChecksStartingRegion = RR_ROOT;
             availableChecksStartingAgeTime = RAT_NONE;
         }
@@ -2252,24 +2254,21 @@ void ImGuiDrawTwoColorPickerSection(const char* text, const char* cvarMainName, 
     UIWidgets::PopStyleCombobox();
 }
 
-void InternalRecalculateAvailableChecks(RandomizerRegion startingRegion, RandoAgeTime startingAgeTime) {
+// Returns false when it bailed without recomputing, so the caller can keep the request pending.
+bool InternalRecalculateAvailableChecks(RandomizerRegion startingRegion, RandoAgeTime startingAgeTime) {
     if (!enableAvailableChecks || !GameInteractor::IsSaveLoaded()) {
-        return;
+        return false;
     }
-#ifdef COMBO_BUILD
-    // ComboShip: drawn as a dormant peek from the other game's thread; no play state to walk from.
-    if (gPlayState == nullptr) {
-        return;
-    }
-#endif
-
     ResetPerformanceTimer(PT_RECALCULATE_AVAILABLE_CHECKS);
     StartPerformanceTimer(PT_RECALCULATE_AVAILABLE_CHECKS);
 
     const auto& ctx = Rando::Context::GetInstance();
     logic = ctx->GetLogic();
 
-    int16_t entranceIndex = gPlayState->nextEntranceIndex;
+    // ComboShip: on a dormant peek (drawn while the other game is foreground) there is no play state,
+    // so start from the saved entrance instead. Everything else here reads gSaveContext already.
+    int16_t entranceIndex =
+        (gPlayState != nullptr) ? gPlayState->nextEntranceIndex : (int16_t)gSaveContext.entranceIndex;
     if (startingRegion == RR_ROOT && entranceIndex >= 0 && entranceIndex < ENTR_MAX) {
         // Try to find a mapped entrance
         // e.g. ENTR_DEKU_TREE_0_1 (index 1) is not mapped, but ENTR_DEKU_TREE_ENTRANCE (index 0) is mapped
@@ -2328,6 +2327,7 @@ void InternalRecalculateAvailableChecks(RandomizerRegion startingRegion, RandoAg
     StopPerformanceTimer(PT_RECALCULATE_AVAILABLE_CHECKS);
     SPDLOG_INFO("Recalculate Available Checks Time: {}ms",
                 GetPerformanceTimer(PT_RECALCULATE_AVAILABLE_CHECKS).count());
+    return true;
 }
 
 void RecalculateAvailableChecks(RandomizerRegion startingRegion /* = RR_ROOT */,

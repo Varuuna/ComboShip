@@ -1321,6 +1321,27 @@ static u16 sOwlWarpEntrances[OWL_WARP_MAX - 1] = {
     ENTRANCE(STONE_TOWER, 3),              // OWL_WARP_STONE_TOWER
 };
 
+#ifdef COMBO_BUILD
+// ComboShip (#89): entrance for a boot resume into MM. Mirrors the pause-save/owl-warp selection in
+// Sram_OpenSave below, which combo's MM entry path never runs (sOwlWarpEntrances is file-static here).
+void Combo_SetMMResumeEntrance(void) {
+    if (gSaveContext.save.shipSaveInfo.pauseSaveEntrance != -1) {
+        gSaveContext.save.entrance = gSaveContext.save.shipSaveInfo.pauseSaveEntrance;
+    } else if (gSaveContext.save.owlWarpId > OWL_WARP_MAX) {
+        gSaveContext.save.entrance = 0;
+    } else {
+        gSaveContext.save.entrance = sOwlWarpEntrances[(void)0, gSaveContext.save.owlWarpId];
+    }
+    if ((gSaveContext.save.entrance == ENTRANCE(SOUTHERN_SWAMP_POISONED, 10)) &&
+        CHECK_WEEKEVENTREG(WEEKEVENTREG_CLEARED_WOODFALL_TEMPLE)) {
+        gSaveContext.save.entrance = ENTRANCE(SOUTHERN_SWAMP_CLEARED, 10);
+    } else if ((gSaveContext.save.entrance == ENTRANCE(MOUNTAIN_VILLAGE_WINTER, 8)) &&
+               CHECK_WEEKEVENTREG(WEEKEVENTREG_CLEARED_SNOWHEAD_TEMPLE)) {
+        gSaveContext.save.entrance = ENTRANCE(MOUNTAIN_VILLAGE_SPRING, 8);
+    }
+}
+#endif
+
 void Sram_OpenSave(FileSelectState* fileSelect, SramContext* sramCtx) {
     s32 i;
     s32 pad;

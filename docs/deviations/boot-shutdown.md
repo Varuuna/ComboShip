@@ -194,6 +194,18 @@ section (so an Anchor MM-item write during OOT play can't clobber the OOT sectio
 overwritten. `Combo_CopyContainer` / `SOH_SetCopyContainer` back OOT file-select "copy file" (whole
 container, since there's no per-game `.sav` to copy).
 
+**Release-version save gate:** `COMBO_RELEASE_VERSION` (root `CMakeLists.txt`, manual — e.g. `0.1.1`)
+is the sole authority for combosave compatibility, enforced at the launcher container level, not in
+either game. It is compiled into the `ComboShip` target only. Every container write stamps
+`comboRelease`; on load, a container missing it or carrying a different string is renamed aside to a
+timestamped `.bak`, its slot recorded, and a fresh container created. OOT drains the recorded slots on
+its main thread (`SOH_SetOutdatedSaveNotice` → `Combo_TakeEvictionNotice`) and shows an "Outdated
+ComboShip Save" popup — the launcher never touches ImGui (`Combo_ReadGameSave` may run off-thread). The
+old pin-derived `major.minor.patch` triple + MM git commit hash remain for the in-game banner/diagnostics
+only (the MM rando `commitHash` strcmp throw is now `#ifndef COMBO_BUILD`). **Why:** the release identity
+is a deliberate human decision, and one launcher-level gate is simpler and more correct than two
+independent per-game version checks over a merged file.
+
 **OOT (`soh/soh/SaveManager.cpp`):** `SaveFileThreaded` write, `LoadFile` read, and the
 `StartupCheckAndInitMeta`/`Init` metadata scan route through the callbacks (fall back to `file{N}.sav`
 when unset); a corrupt container section skips the slot instead of `assert`-aborting. `global.sav` and

@@ -317,14 +317,8 @@ static std::map<int, nlohmann::json> g_containerCache;
 // OOT drains it on the main thread (Combo_TakeEvictionNotice) to surface a popup.
 static std::vector<int> g_evictedSlots;
 
-// Foreground game (GameId: 0=OOT, 1=MM), mirrored from every ComboUI_OnForegroundGame notification.
-// Read by Combo_WriteGameSave off OOT's thread pool, hence atomic.
-static std::atomic<int> g_foregroundGame{ ComboRando::GAME_OOT };
-
-// Single place the foreground game changes: keeps comboui's tracker visibility and our own mirror in
-// step. Every transition point must go through this rather than calling ComboUI_OnForegroundGame.
+// Single place the foreground game changes, so every transition point notifies comboui consistently.
 static void Combo_SetForegroundGame(int game) {
-    g_foregroundGame.store(game);
     if (ComboUI_OnForegroundGame)
         ComboUI_OnForegroundGame(game);
 }
@@ -448,16 +442,12 @@ static void Combo_WriteGameSave(int game, int fileNum, const char* json) {
     try {
         c[key] = nlohmann::json::parse(json);
     } catch (...) { return; }
-    // combo.lastGame = where the player last SAVED, used to pick which game to resume on next load.
-    // Only the foreground game's own write counts: background writes (a cross-game grant or Anchor
-    // packet landing in the dormant game's save) must not claim the player was there.
-    if (game == g_foregroundGame.load())
-        c["combo"]["lastGame"] = game;
     FlushContainer(fileNum);
 }
 
-// Record which game the player is now in. Needed on the MM->OOT return: leaving MM persists MM (so
-// lastGame=MM) but the OOT side writes nothing, which would resume into MM after walking back to OOT.
+// Record which game the player is now in, so a quit-and-reload resumes there. Set at the two
+// transitions only — NOT from save writes: loading an OOT save itself writes sections (rando and
+// check-tracker OnLoadGame handlers), which would stamp OOT over the MM the player actually left in.
 static void Combo_SetLastGame(int fileNum, int game) {
     std::lock_guard<std::mutex> lk(g_containerMutex);
     auto& c = LoadOrCreateContainer(fileNum);

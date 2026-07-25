@@ -243,13 +243,20 @@ A slot always resumed OOT even when the player's last session was MM, and leavin
 Link's House instead of the Mask Shop.
 
 **`combo.lastGame` (`combo/ComboShip.cpp`).** New container field (GameId: `0`=OOT, `1`=MM); absent
-means OOT, so older saves behave as before. Stamped in `Combo_WriteGameSave` **only when the writing
-game is the foreground game** (`g_foregroundGame`, mirrored by `Combo_SetForegroundGame` at the three
-transition points). That filter is load-bearing: cross-game grants, Anchor packets and
-`SOH_MarkForeignObtained` all write into the *dormant* game's section, and must not claim the player was
-there. `Combo_SetLastGame` additionally stamps it at both transitions — MM on portal entry, OOT on the
-return — so it tracks where the player actually is even when neither game writes a save (leaving MM
-persists MM, but nothing on the OOT side writes one, which would otherwise keep resuming into MM).
+means OOT, so older saves behave as before. Written by `Combo_SetLastGame` at the **two transitions
+only** — MM when the portal hands off, OOT on a portal return.
+
+It is deliberately **not** derived from save writes. Two separate write classes make that unworkable:
+background writes into the *dormant* game's section (cross-game grants, Anchor packets,
+`SOH_MarkForeignObtained`), and — the one that actually broke it — OOT's own **load-time** writes.
+Loading an OOT save persists sections from the rando and check-tracker `OnLoadGame` handlers, which run
+*before* the launcher's `Combo_OnOOTSaveLoad`, so a foreground-filtered write-stamp set `lastGame` to OOT
+microseconds before the resume decision read it, and the slot never resumed MM.
+
+Transition stamps alone are sufficient: entering MM stamps MM (so an owl-save quit, which fires no
+transition, still resumes MM), a portal return stamps OOT (so quitting from OOT resumes OOT), and an
+absent field defaults to OOT for a first-ever session. A reset or owl-save quit deliberately leaves the
+field alone — see the return-kind note below.
 
 **The intercept.** `Combo_OnOOTSaveLoad` already fires at the ideal moment: `FileChoose_LoadGame` runs
 `GameInteractor_ExecuteOnLoadGame` at its tail (`soh/src/overlays/gamestates/ovl_file_choose/z_file_choose.c`),

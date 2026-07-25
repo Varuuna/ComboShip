@@ -3783,7 +3783,31 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_SetOwnedItems(const char* i
 // save — even while MM is dormant. Delivers through the real give path (Rando::GiveItem), not the
 // oracle, so capacity/ammo/multi-slot state is written faithfully; gComboDormantGive defers the
 // play-dependent branches. Callers pass a concrete item (junk pre-resolved).
+// True for the bottle-CONTENTS items, which are only obtainable with a free bottle.
+static bool Combo_IsBottleRefill(RandoItemId rid) {
+    switch (rid) {
+        case RI_GOLD_DUST_REFILL:
+        case RI_MILK_REFILL:
+        case RI_CHATEAU_ROMANI_REFILL:
+        case RI_FAIRY_REFILL:
+        case RI_RED_POTION_REFILL:
+        case RI_BLUE_POTION_REFILL:
+        case RI_GREEN_POTION_REFILL:
+            return true;
+        default:
+            return false;
+    }
+}
+
 void Combo_MM_GiveDormantResolved(RandoItemId rid) {
+    // ComboShip (#84): drop a bottle refill when no bottle is free. This path bypasses
+    // Rando::ConvertItem, whose !Inventory_HasEmptyBottle() check normally blocks it, and Item_Give's
+    // bottle-contents branch falls through to `INV_CONTENT(item) = item` — which maps every content to
+    // SLOT_BOTTLE_1 and so overwrites bottle #1. Keep this even if that branch is ever fixed upstream.
+    if (Combo_IsBottleRefill(rid) && !Inventory_HasEmptyBottle()) {
+        SPDLOG_INFO("[ComboShip] MM cross-grant: no empty bottle, dropping refill");
+        return;
+    }
     {
         // Scope-guard clears the flag even if GiveItem throws.
         struct FlagGuard {

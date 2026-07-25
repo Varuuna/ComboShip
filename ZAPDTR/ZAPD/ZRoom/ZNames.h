@@ -3,7 +3,7 @@
 #include <string>
 
 #include "Globals.h"
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 
 class ZNames
 {

@@ -44,7 +44,10 @@ namespace fs = std::filesystem;
 
 #define MM_OFF_US_10 0x1A500
 #define MM_OFF_US_GC 0x1AE90
+#define MM_OFF_PAL_10 0x1A650
+#define MM_OFF_PAL_11 0x1A8D0
 #define MM_OFF_JP_GC 0x1AE90
+#define MM_OFF_PAL_GC 0x1AE90
 #define MM_OFF_JP_10 0x1C110
 #define MM_OFF_JP_11 0x1C050
 #define MM_OFF_DBG 0x24F60
@@ -70,7 +73,10 @@ namespace fs = std::filesystem;
 
 #define MM_NTSC_10 0x5354631C
 #define MM_NTSC_10_UNCOMPRESSED 0xDA6983E7
+#define MM_PAL_10 0xE97955C6
+#define MM_PAL_11 0x0A5D8F83
 #define MM_NTSC_GC 0xB443EB08
+#define MM_PAL_GC 0x6AECEC4F
 #define MM_NTSC_JP_GC 0x8473D0C1
 
 bool ZRom::IsMQ() {
@@ -92,7 +98,10 @@ bool ZRom::IsMQ() {
         // MM - Always not MQ
         case MM_NTSC_10:
         case MM_NTSC_10_UNCOMPRESSED:
+		case MM_PAL_10:
+		case MM_PAL_11:
 		case MM_NTSC_GC:
+		case MM_PAL_GC:
 		case MM_NTSC_JP_GC:
         default:
             return false;
@@ -220,6 +229,21 @@ ZRom::ZRom(std::string romPath)
 		version.listPath = "mm_gc_jp.txt";
 		version.offset = MM_OFF_JP_GC;
 		break;
+	case MM_PAL_10:
+		version.version = "MM PAL 1.0";
+		version.listPath = "mm_pal.txt";
+		version.offset = MM_OFF_PAL_10;
+		break;
+	case MM_PAL_11:
+		version.version = "MM PAL 1.1";
+		version.listPath = "mm_pal.txt";
+		version.offset = MM_OFF_PAL_11;
+		break;
+	case MM_PAL_GC:
+		version.version = "MM PAL GC";
+		version.listPath = "mm_gc_pal.txt";
+		version.offset = MM_OFF_PAL_GC;
+		break;
 	}
 
 	auto path = StringHelper::Sprintf("%s/%s", Globals::Instance->fileListPath.string().c_str(), version.listPath.c_str());
@@ -228,9 +252,10 @@ ZRom::ZRom(std::string romPath)
 
     std::vector<uint8_t> decompressedData(1);
 
-	// Detect MM ROM by CRC at runtime so this code works regardless of GAME_MM compile define.
+	// ComboShip: one shared ZAPD serves both games, so detect MM by ROM CRC, not #ifdef GAME_MM.
+	const bool isMMPalRom = (version.crc == MM_PAL_10 || version.crc == MM_PAL_11 || version.crc == MM_PAL_GC);
 	const bool isMMRom = (version.crc == MM_NTSC_10 || version.crc == MM_NTSC_10_UNCOMPRESSED ||
-	                      version.crc == MM_NTSC_GC  || version.crc == MM_NTSC_JP_GC);
+	                      version.crc == MM_NTSC_GC  || version.crc == MM_NTSC_JP_GC || isMMPalRom);
 
 	for (unsigned int i = 0; i < lines.size(); i++)
 	{
@@ -256,9 +281,9 @@ ZRom::ZRom(std::string romPath)
 		auto outData = std::vector<uint8_t>();
 		outData.resize(size);
 		memcpy(outData.data(), romData.data() + physStart, size);
-		// Use the CRC-based isMMRom flag (set before this loop) rather than a compile-time
-		// GAME_MM define, so this works for both games in the combo build.
-		if (isMMRom && ((i >= 15 && i <= 20) || i == 22))
+		// ComboShip: gate on the CRC-derived flags, not #ifdef GAME_MM. PAL filelists put the yar
+		// files at different indices than NTSC.
+		if (isMMRom && (isMMPalRom ? ((i >= 17 && i <= 28) || i == 30) : ((i >= 15 && i <= 20) || i == 22)))
 		{
 			yarCompressed = true;
 		}

@@ -1,6 +1,6 @@
 #include "SetSkyboxSettings.h"
 #include "Globals.h"
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 
 SetSkyboxSettings::SetSkyboxSettings(ZFile* nParent) : ZRoomCommand(nParent)
 {

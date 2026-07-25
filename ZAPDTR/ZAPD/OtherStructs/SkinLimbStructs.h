@@ -101,10 +101,10 @@ public:
 	size_t GetRawDataSize() const override;
 
 public:
-	uint16_t totalVtxCount;
+	uint16_t totalVtxCount = 0;
 	uint16_t limbModifCount;     // Length of limbModifications
 	segptr_t limbModifications;  // SkinLimbModif*
-	segptr_t dlist;              // Gfx*
+	segptr_t dlist = SEGMENTED_NULL;  // Gfx*
 
 	std::vector<SkinLimbModif> limbModifications_arr;
 	// ZDisplayList* unk_8_dlist = nullptr;

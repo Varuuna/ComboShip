@@ -12,7 +12,7 @@
 #include "Utils/BitConverter.h"
 #include <Utils/DiskFile.h>
 #include "Utils/Path.h"
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 #include "WarningHandler.h"
 #include "gfxd.h"
 

@@ -1,6 +1,6 @@
 #include "ZRoomCommandUnk.h"
 #include "Utils/BitConverter.h"
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 #include "ZRoom/ZRoom.h"
 
 ZRoomCommandUnk::ZRoomCommandUnk(ZFile* nParent) : ZRoomCommand(nParent)

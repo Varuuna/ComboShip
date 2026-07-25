@@ -6,7 +6,7 @@
 #include <png.h>
 #include <stdexcept>
 
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 #include "WarningHandler.h"
 
 /* ImageBackend */

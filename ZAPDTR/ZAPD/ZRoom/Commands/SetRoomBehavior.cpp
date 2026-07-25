@@ -2,7 +2,7 @@
 
 #include "Globals.h"
 #include "Utils/BitConverter.h"
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 
 SetRoomBehavior::SetRoomBehavior(ZFile* nParent) : ZRoomCommand(nParent)
 {

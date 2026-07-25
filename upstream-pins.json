@@ -24,6 +24,26 @@
       "subtree": "mm",
       "mergedSha": "ed47d2ec9",
       "mergedDate": "2026-07-20"
+    },
+    "ZAPDTR": {
+      "manual": true,
+      "_note": "Bumped by hand: neither scripts/upstream-merge.ps1 nor upstream-merge.yml steps 2a-2c handle these (both use a hardcoded libultraship/soh/mm list). manual:true keeps the workflow's detect step from reporting them. Shared by both games; soh and mm both still pin the older ee3397a36.",
+      "remote": "https://github.com/HarbourMasters/ZAPDTR.git",
+      "branch": "develop",
+      "prefix": "ZAPDTR",
+      "subtree": "",
+      "mergedSha": "be1c68a79",
+      "mergedDate": "2026-07-25"
+    },
+    "OTRExporter": {
+      "manual": true,
+      "_note": "Bumped by hand — see the ZAPDTR entry. Shared by both games; soh and mm both still pin the older 32e088e28.",
+      "remote": "https://github.com/HarbourMasters/OTRExporter.git",
+      "branch": "develop",
+      "prefix": "OTRExporter",
+      "subtree": "",
+      "mergedSha": "c5465ba0b",
+      "mergedDate": "2026-07-25"
     }
   }
 }

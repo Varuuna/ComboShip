@@ -1,5 +1,5 @@
 #include "Unused1D.h"
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 
 Unused1D::Unused1D(ZFile* nParent) : ZRoomCommand(nParent)
 {

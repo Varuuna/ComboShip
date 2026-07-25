@@ -1,7 +1,7 @@
 #include "SetCameraSettings.h"
 
 #include "Utils/BitConverter.h"
-#include "Utils/StringHelper.h"
+#include <ship/utils/StringHelper.h>
 #include "Globals.h"
 
 SetCameraSettings::SetCameraSettings(ZFile* nParent) : ZRoomCommand(nParent)

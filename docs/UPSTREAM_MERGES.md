@@ -159,6 +159,9 @@ Each merge pass gets its **own dated file** under [`merges/`](merges/) — one p
 file we had to touch after the mechanical 3-way merge and why. This keeps the per-merge required
 changes easy to track (and to diff against the recurring-deviation list below). Newest first:
 
+- [2026-07-25](merges/2026-07-25-extractors.md) — extractors only: ZAPDTR `ee3397a36` → `be1c68a79` /
+  OTRExporter `32e088e28` → `c5465ba0b` (libultraship, soh, mm unchanged). ZAPD now uses LUS's
+  StringHelper; re-merged our runtime MM-ROM detection over upstream's `#ifdef GAME_MM` PAL branch.
 - [2026-07-13](merges/2026-07-13.md) — soh `8602c6d15` → `ff7eb482d` / mm `cfd1116a4` → `b3cc36628`
   (libultraship unchanged). Added the Saria's-Song-hint feature (drove the MM `sariaPriorityItems` save-init fix).
 - [2026-07-06](merges/2026-07-06.md) — soh `aedddc21e` → `8602c6d15` / mm `c74ad0e38` → `cfd1116a4`

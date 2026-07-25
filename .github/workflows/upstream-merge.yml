@@ -43,7 +43,9 @@ jobs:
           ANY_NEW=0
 
           # key|remote-url|branch|prefix|subtree|mergedSha   (subtree empty => repo root maps to prefix)
-          jq -r '.upstreams | to_entries[] | "\(.key)|\(.value.remote)|\(.value.branch)|\(.value.prefix)|\(.value.subtree)|\(.value.mergedSha)"' upstream-pins.json |
+          # manual:true entries (the shared extractors) are bumped by hand — steps 2a-2c only handle
+          # libultraship/soh/mm, so reporting them here would raise any_new forever and open a bogus PR.
+          jq -r '.upstreams | to_entries[] | select(.value.manual != true) | "\(.key)|\(.value.remote)|\(.value.branch)|\(.value.prefix)|\(.value.subtree)|\(.value.mergedSha)"' upstream-pins.json |
           while IFS='|' read -r key url branch prefix subtree merged; do
             echo "::group::$key"
             git remote add "up-$key" "$url" 2>/dev/null || true

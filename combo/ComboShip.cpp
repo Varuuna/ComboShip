@@ -194,7 +194,7 @@ static FnSOHDeinit SOH_Deinit = nullptr;
 static FnSOHPrepare SOH_PrepareForTransition = nullptr;
 static FnMMNotify MM_NotifyComboTransition = nullptr;
 
-typedef void (*FnMMSetReturnCb)(void (*)(void));
+typedef void (*FnMMSetReturnCb)(void (*)(int));
 static FnMMSetReturnCb MM_SetOnComboReturnCallback = nullptr;
 static bool g_pendingOOTReturn = false;
 
@@ -1838,8 +1838,12 @@ static void Combo_OnOOTSceneSwitch(int fileNum) {
     // OOT game loop is already exiting (gGameState->running = false set by the hook).
 }
 
-static void Combo_OnMMReturn(void) {
-    std::cout << "[ComboShip] MM Clock Tower entered -- returning to OOT" << std::endl;
+// Why MM handed control back: 0 = portal, 1 = Ctrl+R reset, 2 = owl-save quit (see BenPort.cpp).
+static int g_mmReturnKind = 0;
+
+static void Combo_OnMMReturn(int kind) {
+    g_mmReturnKind = kind;
+    std::cout << "[ComboShip] MM returning to OOT (kind=" << kind << ")" << std::endl;
     g_pendingOOTReturn = true;
 }
 
@@ -2460,8 +2464,17 @@ int main(int argc, char** argv) {
                     SOH_NotifyComboReturn();
                 ComboAnchor::SetActiveGame(0);                 // route Anchor back to OOT, deactivate MM's adapter
                 Combo_SetForegroundGame(ComboRando::GAME_OOT); // hide MM trackers, restore OOT's
-                if (g_PendingMMFileNum >= 0)
-                    Combo_SetLastGame(g_PendingMMFileNum, ComboRando::GAME_OOT);
+                if (g_PendingMMFileNum >= 0) {
+                    if (g_mmReturnKind == 0) {
+                        // Portal return: the player is continuing in OOT, so that's where a reload goes.
+                        // A reset or owl-save quit ends the session in MM — leave lastGame alone.
+                        Combo_SetLastGame(g_PendingMMFileNum, ComboRando::GAME_OOT);
+                    } else {
+                        // Session over: MM's dormant gSaveContext is post-quit state, so force the next
+                        // save-load to re-read it from the container (else the tracker peek shows junk).
+                        g_MmSaveInMemorySlot = -1;
+                    }
+                }
                 current = GAME_OOT;
             } else {
                 break;

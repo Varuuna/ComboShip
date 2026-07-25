@@ -144,8 +144,10 @@ extern "C"
     sComboTransitionActive = true;
 }
 
-extern "C" void (*gComboReturnCallback)(void) = nullptr;
-extern "C" __declspec(dllexport) void MM_SetOnComboReturnCallback(void (*cb)(void)) {
+// kind: 0 = portal (walked out the Clock Tower), 1 = Ctrl+R reset, 2 = owl-save quit. Only a portal
+// return continues the session in OOT; the other two end it and boot OOT to its title.
+extern "C" void (*gComboReturnCallback)(int kind) = nullptr;
+extern "C" __declspec(dllexport) void MM_SetOnComboReturnCallback(void (*cb)(int kind)) {
     gComboReturnCallback = cb;
 }
 static bool sComboReturnPending = false;
@@ -1146,7 +1148,7 @@ extern "C" void InitOTR(int argc, char* argv[]) {
             gSaveContext.gameMode == GAMEMODE_NORMAL)
             SaveManager_SaveCurrentForCombo();
         if (gComboReturnCallback)
-            gComboReturnCallback();
+            gComboReturnCallback(isOwlSaveQuit ? 2 : (isReset ? 1 : 0));
         if (auto fast3d = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow())) {
             fast3d->SetIsRunning(false);
         }

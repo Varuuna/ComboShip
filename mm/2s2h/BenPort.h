@@ -200,7 +200,7 @@ uint64_t GetUnixTimestamp();
 #ifdef _WIN32
 __declspec(dllexport)
 #endif
-    void MM_SetOnComboReturnCallback(void (*cb)(void));
+    void MM_SetOnComboReturnCallback(void (*cb)(int kind));
 #ifdef _WIN32
 __declspec(dllexport)
 #endif

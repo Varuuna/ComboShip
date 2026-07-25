@@ -1,0 +1,143 @@
+name: Build (reusable)
+
+# Reusable build pipeline: the fast gate (conflict markers + clang-format) followed by the full
+# Windows Release build + cpack ZIP. Called by build-artifacts.yml (PR / develop nightly) and
+# release.yml (v* tags), so the release ZIP is built identically to what nightly tested.
+# See docs/UPSTREAM_MERGES.md and CMake/CPackProjectConfig.cmake (the combo/ship/2s2h ZIP components).
+
+on:
+  workflow_call:
+
+jobs:
+  # Fast gate so the ~40-min Windows build doesn't run on a PR that already has committed conflict
+  # markers or formatting errors. Mirrors conflict-check.yml + clang-format.yml (which remain the
+  # branch-protection required checks); this copy exists only to give the build a `needs:` dependency,
+  # since GitHub can't make this workflow depend on a job in another file. If the gate fails the build
+  # is skipped (reported as success — a skipped job never blocks); the standalone required checks still
+  # go red and block the merge. See docs/UPSTREAM_MERGES.md.
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+      - name: Scan for conflict markers
+        shell: bash
+        run: |
+          set -uo pipefail
+          hits=$(git grep -nE '^(<{7}|>{7}|\|{7})( |$)' -- . \
+                 ':(exclude).github/workflows/build.yml' \
+                 ':(exclude).github/workflows/build-artifacts.yml' \
+                 ':(exclude).github/workflows/conflict-check.yml' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Unresolved conflict markers — skipping the build until resolved:"
+            printf '%s\n' "$hits"
+            exit 1
+          fi
+          echo "No conflict markers."
+      - name: clang-format (clang-format-14)
+        run: |
+          sudo apt-get update && sudo apt-get install -y clang-format-14
+          ./run-clang-format.sh
+          git diff --exit-code
+
+  build-artifacts:
+    needs: gate
+    # Pin to VS 2022 image — matches the "Visual Studio 17 2022" generator below (see build-windows.yml).
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # The GenerateSohOtr / Generate2ShipOtr targets run OTRExporter/extract_assets.py via Python3.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Shared with the compile gate: caches the expensive vcpkg build + CMake tree.
+      - name: Cache build dir (vcpkg + CMake)
+        uses: actions/cache@v5
+        with:
+          path: build/x64
+          key: build-x64-${{ hashFiles('CMakeLists.txt', 'CMake/**', 'libultraship/cmake/**') }}
+          restore-keys: build-x64-
+
+      - name: Configure
+        # See build-windows.yml: vcvars points VCPKG_ROOT at the (non-git) VS-bundled vcpkg, which
+        # breaks automate-vcpkg.cmake's git pull. Point it at the build-dir vcpkg it clones+caches.
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/build/x64/vcpkg
+        run: cmake -B build/x64 -S . -G "Visual Studio 17 2022" -A x64
+
+      # Order matters: libultraship -> soh -> 2ship (soh before 2ship; they share OTRExporter/ZAPD).
+      # comboui + ComboShip pull the rest of the runtime in as dependencies.
+      - name: Build libultraship
+        run: cmake --build build/x64 --target libultraship --config Release
+      - name: Build soh
+        run: cmake --build build/x64 --target soh --config Release
+      - name: Build 2ship
+        run: cmake --build build/x64 --target 2ship --config Release
+      # Headless seed validator (pulls libultraship/soh/2ship as deps, already built above). Uploaded
+      # below so validate-seed.yml can download it from develop instead of doing its own build.
+      - name: Build comborando
+        run: cmake --build build/x64 --target comborando --config Release
+      - name: Build comboui
+        run: cmake --build build/x64 --target comboui --config Release
+      - name: Build ComboShip
+        run: cmake --build build/x64 --target ComboShip --config Release
+
+      # Port asset archives (--norom). GenerateSohOtr/Generate2ShipOtr DEPEND on ZAPD, which these
+      # steps build on demand. They must run before cpack — the ship/2s2h ZIP components install
+      # ${CMAKE_BINARY_DIR}/soh/soh.o2r and .../mm/2ship.o2r.
+      - name: Generate soh.o2r
+        run: cmake --build build/x64 --target GenerateSohOtr --config Release
+      - name: Generate 2ship.o2r
+        run: cmake --build build/x64 --target Generate2ShipOtr --config Release
+
+      # cpack -G ZIP merges the combo/ship/2s2h components into one archive under _packages/.
+      # Call cpack directly with -C Release so the multi-config generator can't package Debug by
+      # mistake (the build-tree CPackConfig.cmake carries CPACK_PROJECT_CONFIG_FILE from configure).
+      - name: Package (cpack ZIP)
+        working-directory: build/x64
+        run: cpack -G ZIP -C Release
+
+      # Extract the cpack archive before upload. GitHub always zips artifact contents on download, so
+      # uploading the .zip directly yields a zip-inside-a-zip; uploading the extracted tree makes the
+      # downloaded ComboShip-windows.zip hold the runtime files directly.
+      - name: Stage package contents
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem _packages/*.zip | Select-Object -First 1
+          Expand-Archive -Path $zip.FullName -DestinationPath _packages/stage -Force
+
+      - name: Upload ComboShip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ComboShip-windows
+          path: _packages/stage
+          if-no-files-found: error
+
+      # The raw cpack .zip (not the staged tree) for release.yml to attach directly as a Release asset.
+      # Nightly/PR runs ignore it; only release.yml downloads this artifact.
+      - name: Upload package zip (release asset)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ComboShip-package-zip
+          path: _packages/*.zip
+          if-no-files-found: error
+
+      # comborando.exe + its deployed runtime DLLs (no o2r — the reachability oracle needs none).
+      # validate-seed.yml downloads this from the latest successful develop run instead of rebuilding.
+      - name: Upload comborando validator
+        uses: actions/upload-artifact@v4
+        with:
+          name: comborando-windows
+          path: |
+            x64/Release/comborando.exe
+            x64/Release/*.dll
+          if-no-files-found: error

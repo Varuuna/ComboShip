@@ -1029,17 +1029,30 @@ void PlandoSavePlay() {
     nlohmann::json ootPl = nlohmann::json::object();
     nlohmann::json mmPl = nlohmann::json::object();
     nlohmann::json foreignRaw = nlohmann::json::array();
+    // Trap disguises can't be recomputed here; carry them over for rows whose item is unchanged.
+    std::unordered_map<std::string, nlohmann::json> priorForeign;
+    for (const auto& fm : j.value("foreign", nlohmann::json::array())) {
+        priorForeign[fm.value("checkGame", "") + "|" + fm.value("checkName", "")] = fm;
+    }
     for (const auto& r : sPlando.rows) {
         // The check's own game stores the REAL foreign item's bare name; the sentinel is injected at
         // apply time by Combo_OnReloadRequest, never written here.
         (r.checkGame == ComboRando::GAME_OOT ? ootPl : mmPl)[r.check] = r.item;
         if (r.checkGame != r.itemGame) {
-            foreignRaw.push_back({ { "checkGame", r.checkGame == ComboRando::GAME_OOT ? "oot" : "mm" },
-                                   { "checkName", r.check },
-                                   { "itemGame", r.itemGame == ComboRando::GAME_OOT ? "oot" : "mm" },
-                                   { "itemName", r.item },
-                                   { "displayName", r.item }, // BuildForeignArray appends the game suffix
-                                   { "advancement", r.advancement } });
+            const std::string cg = r.checkGame == ComboRando::GAME_OOT ? "oot" : "mm";
+            nlohmann::json marker = { { "checkGame", cg },
+                                      { "checkName", r.check },
+                                      { "itemGame", r.itemGame == ComboRando::GAME_OOT ? "oot" : "mm" },
+                                      { "itemName", r.item },
+                                      { "displayName", r.item }, // BuildForeignArray appends the game suffix
+                                      { "advancement", r.advancement } };
+            auto pf = priorForeign.find(cg + "|" + r.check);
+            if (pf != priorForeign.end() && pf->second.value("itemName", "") == r.item) {
+                for (const char* k : { "fakeItemName", "fakeDisplayName", "fakeTrickName" })
+                    if (pf->second.contains(k))
+                        marker[k] = pf->second[k];
+            }
+            foreignRaw.push_back(std::move(marker));
         }
     }
     // Native cross-game name collisions get their own-game suffix; foreign checks are skipped (their

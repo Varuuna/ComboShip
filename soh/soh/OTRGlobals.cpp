@@ -3912,9 +3912,11 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         // ComboShip: OOT item names are already human English; displayName == name keeps the
         // dump schema symmetric with MM's (which needs the distinction: RI_* vs human).
         // advancement drives whether a foreign item plays the held-up pickup animation.
+        // ComboShip: "trap" lets the cross-world layer disguise a foreign trap in the other game.
         items.push_back({ { "name", name },
                           { "displayName", name },
-                          { "advancement", comboIsAdv(static_cast<RandomizerGet>(rg)) } });
+                          { "advancement", comboIsAdv(static_cast<RandomizerGet>(rg)) },
+                          { "trap", rg == RG_ICE_TRAP } });
     }
 
     cached = nlohmann::json{

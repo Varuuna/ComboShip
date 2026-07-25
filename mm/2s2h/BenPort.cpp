@@ -3231,8 +3231,10 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         // ComboShip: "name" is the friendly combo-spoiler key the grant/apply paths resolve.
         // "displayName" is the human string for toasts/shops in the OTHER game (suffixed there).
         // advancement drives whether a foreign item plays the held-up pickup animation.
+        // ComboShip: "trap" lets the cross-world layer disguise a foreign trap in the other game.
         nlohmann::json entry = { { "name", Rando::StaticData::GetItemDisplayName(id) },
-                                 { "advancement", isAdvancement(item) } };
+                                 { "advancement", isAdvancement(item) },
+                                 { "trap", id == RI_TRAP } };
         if (item.name && item.name[0] != '\0') {
             entry["displayName"] = item.name;
         }

@@ -158,7 +158,10 @@ void BuildSkulltulaPeopleMessage(uint16_t* textId, bool* loadFromMessageTable) {
     if (RAND_GET_ITEM_LOC(rc)->GetPlacedRandomizerGet() == RG_COMBO_FOREIGN) {
         const ComboRando::ForeignItem* fi =
             OOT_LookupForeign(gSaveContext.fileNum, Rando::StaticData::GetLocation(rc)->GetName());
-        if (fi != nullptr && !fi->displayName.empty()) {
+        // A foreign trap is hinted under its typo'd disguise name, like OOT's own ice traps.
+        if (fi != nullptr && !fi->fakeTrickName.empty()) {
+            hintName = CustomMessage(fi->fakeTrickName);
+        } else if (fi != nullptr && !fi->displayName.empty()) {
             hintName = CustomMessage(fi->displayName);
         }
     }
@@ -187,7 +190,10 @@ void Build100SkullsHintMessage(uint16_t* textId, bool* loadFromMessageTable) {
     if (RAND_GET_ITEM_LOC(RC_KAK_100_GOLD_SKULLTULA_REWARD)->GetPlacedRandomizerGet() == RG_COMBO_FOREIGN) {
         const ComboRando::ForeignItem* fi = OOT_LookupForeign(
             gSaveContext.fileNum, Rando::StaticData::GetLocation(RC_KAK_100_GOLD_SKULLTULA_REWARD)->GetName());
-        if (fi != nullptr && !fi->displayName.empty()) {
+        // A foreign trap is hinted under its typo'd disguise name, like OOT's own ice traps.
+        if (fi != nullptr && !fi->fakeTrickName.empty()) {
+            hintName = CustomMessage(fi->fakeTrickName);
+        } else if (fi != nullptr && !fi->displayName.empty()) {
             hintName = CustomMessage(fi->displayName);
         }
     }

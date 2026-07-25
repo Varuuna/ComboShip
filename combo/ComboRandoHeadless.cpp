@@ -439,8 +439,11 @@ int main(int argc, char** argv) {
                                 ootCheckAreas.emplace(std::move(name), std::move(area));
                         }
                     } catch (...) {}
-                    consolidated["foreign"] = ComboRando::BuildForeignArray(
-                        fillSpoiler.value("foreign", nlohmann::json::array()), ootCheckAreas);
+                    auto foreignArr = fillSpoiler.value("foreign", nlohmann::json::array());
+                    ComboRando::AssignTrapDisguises(foreignArr, fillSpoiler.value("oot", nlohmann::json::object()),
+                                                    fillSpoiler.value("mm", nlohmann::json::object()), sohDump, mmDump,
+                                                    masterSeed);
+                    consolidated["foreign"] = ComboRando::BuildForeignArray(foreignArr, ootCheckAreas);
                     // Cross-hint generation (mirrors RunComboFill) — enables the headless determinism check.
                     consolidated["hints"] =
                         ComboRando::Generate(masterSeed, sohDump, sohHintDump, mmDump, consolidated["foreign"],

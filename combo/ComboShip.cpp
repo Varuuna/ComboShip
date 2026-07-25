@@ -1262,6 +1262,10 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             }
         }
 
+        // ComboShip: disguise cross-placed traps as a plausible progression item of their own game.
+        ComboRando::AssignTrapDisguises(foreignArr, j.value("oot", nlohmann::json::object()),
+                                        j.value("mm", nlohmann::json::object()), sohDump, mmDump, masterSeed);
+
         // The apply payloads (fed to each game's placement injection) hold the SENTINEL for foreign
         // checks — the check's own game places the sentinel and diverts the real item cross-game. The
         // consolidated spoiler placements (below) instead show the real item name for readability (#1).

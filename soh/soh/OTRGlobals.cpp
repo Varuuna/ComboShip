@@ -462,10 +462,10 @@ bool PathTestCleanup(FILE* tfile) {
 
 void CheckAndCreateModFolder() {
     try {
-        std::string modsPath = Ship::Context::LocateFileAcrossAppDirs("mods", appShortName);
+        std::string modsPath = Ship::Context::LocateFileAcrossAppDirs("mods/" + appShortName, appShortName);
         if (!std::filesystem::exists(modsPath)) {
             // Create mods folder relative to app dir
-            modsPath = Ship::Context::GetPathRelativeToAppDirectory("mods", appShortName);
+            modsPath = Ship::Context::GetPathRelativeToAppDirectory("mods/" + appShortName, appShortName);
             std::string filePath = modsPath + "/custom_mod_files_go_here.txt";
             if (std::filesystem::create_directories(modsPath)) {
                 std::ofstream(filePath).close();

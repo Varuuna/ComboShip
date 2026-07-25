@@ -12,7 +12,7 @@ endif()
 
 # ComboShip: the upstream default packs only the "2s2h" component (just 2ship.dll) — a leftover
 # from the vendored 2Ship project. The Windows ZIP must bundle the FULL combo runtime:
-#   combo = ComboShip.exe + libultraship.dll + comboui.dll + assets/ + readme.txt + mods/
+#   combo = ComboShip.exe + libultraship.dll + comboui.dll + assets/ + readme.txt + mods/soh + mods/2ship
 #   ship  = soh.dll  + soh.o2r  + gamecontrollerdb.txt
 #   2s2h  = 2ship.dll + 2ship.o2r
 # (oot.o2r / mm.o2r are ROM-derived and intentionally NOT packaged — testers extract their own.)

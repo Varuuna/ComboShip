@@ -523,6 +523,10 @@ inline void MM_DrawForeignColorLayers(const ComboForeignDrawInfoOOT* info) {
     if (xs > 0) {
         Gfx_SetupDL25_Opa(gfxCtx);
         MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
+        // Pin both color channels first: a layer the recipe doesn't tint would otherwise inherit
+        // whatever the host frame last set (MM's animated scene materials => colors that drift).
+        gDPSetPrimColor(POLY_OPA_DISP++, 0, 0, 255, 255, 255, 255);
+        gDPSetEnvColor(POLY_OPA_DISP++, 255, 255, 255, 255);
         for (int32_t i = 0; i < xs; i++) {
             if (info->layerPrimMask & (1 << i)) {
                 gDPSetPrimColor(POLY_OPA_DISP++, 0, 0, info->layerPrimColor[i][0], info->layerPrimColor[i][1],
@@ -538,6 +542,8 @@ inline void MM_DrawForeignColorLayers(const ComboForeignDrawInfoOOT* info) {
     if (xs < n) {
         Gfx_SetupDL25_Xlu(gfxCtx);
         MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
+        gDPSetPrimColor(POLY_XLU_DISP++, 0, 0, 255, 255, 255, 255);
+        gDPSetEnvColor(POLY_XLU_DISP++, 255, 255, 255, 255);
         for (int32_t i = xs; i < n; i++) {
             if (info->layerPrimMask & (1 << i)) {
                 gDPSetPrimColor(POLY_XLU_DISP++, 0, 0, info->layerPrimColor[i][0], info->layerPrimColor[i][1],

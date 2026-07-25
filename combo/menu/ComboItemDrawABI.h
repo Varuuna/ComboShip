@@ -48,7 +48,48 @@ typedef enum {
     CW_DRAW_KIND_DOUBLE_DEFENSE, /* XLU: grayscale-white heart border dl0, then plain container dl1 */
     CW_DRAW_KIND_MASTER_SWORD,   /* seg8 OPA scroll + scale 0.05 + rotate Z 2.1, dl0 */
     CW_DRAW_KIND_BRONZE_SCALE,   /* XLU seg8 scroll + constant prim/env pairs around scale dl0 / water dl1 */
+
+    /* ComboShip: MM->OOT additions. The kinds above are OOT funcs replicated by MM; these are MM
+     * funcs replicated by OOT. Where an MM func is byte-for-byte the same as its OOT twin
+     * (DekuNuts/RecoveryHeart/Fish/Potion/Poes/GoronSword) the kind above is reused instead. */
+    CW_DRAW_KIND_MM_FAIRY_BOTTLE, /* OPA dl0; XLU dl1; seg8 scroll (32x320 layer 2); billboard dl2 */
+    CW_DRAW_KIND_MM_SOUL_FLAME,   /* MM enemy soul: billboard seg8 flame (primColorXlu), dl0 */
+    CW_DRAW_KIND_OPS,             /* ops[] bytecode below (transforms/colors/DLs); see CwDrawOpCode */
 } CwDrawKind;
+
+#define CW_DRAW_MAX_OPS 20
+
+/* ComboShip: a tiny draw bytecode for funcs whose structure is per-DL transforms and colors rather
+ * than one flat OPA/XLU submission (MM's DrawClock, DrawOwlStatue, DrawTycoonWallet, ...). The
+ * producer emits the ops with its own live values folded in; the consumer replays them against its
+ * own matrix stack and gbi. Anything needing GPU state beyond this (texture scrolls, skeletons)
+ * gets a dedicated CwDrawKind instead. */
+typedef enum {
+    CW_OP_END = 0,
+    CW_OP_SETUP_OPA,   /* Gfx_SetupDL_25Opa; later ops target the OPA stream */
+    CW_OP_SETUP_XLU,   /* Gfx_SetupDL_25Xlu; later ops target the XLU stream */
+    CW_OP_LOAD_MATRIX, /* load the current model matrix into the active stream */
+    CW_OP_PUSH,        /* Matrix_Push */
+    CW_OP_POP,         /* Matrix_Pop */
+    CW_OP_TRANSLATE,   /* a,b,c = x,y,z (MTXMODE_APPLY) */
+    CW_OP_SCALE,       /* a,b,c = x,y,z (MTXMODE_APPLY) */
+    CW_OP_ROTATE_X,    /* a = s16 binang */
+    CW_OP_ROTATE_Y,
+    CW_OP_ROTATE_Z,
+    CW_OP_BILLBOARD,       /* Matrix_ReplaceRotation(billboardMtxF) */
+    CW_OP_PRIM_COLOR,      /* rgba; a = lodFrac */
+    CW_OP_ENV_COLOR,       /* rgba */
+    CW_OP_GRAYSCALE_COLOR, /* rgba */
+    CW_OP_GRAYSCALE_ON,
+    CW_OP_GRAYSCALE_OFF,
+    CW_OP_DLIST, /* a = index into dlists[] */
+} CwDrawOpCode;
+
+typedef struct {
+    int32_t op; /* CwDrawOpCode */
+    float a, b, c;
+    uint8_t rgba[4];
+} CwDrawOp;
 
 typedef struct {
     const char* dlists[CW_DRAW_MAX_DLISTS]; /* OTR path strings, in SUBMISSION order */
@@ -93,6 +134,10 @@ typedef struct {
     uint8_t layerEnvColor[CW_DRAW_MAX_DLISTS][4];
     int32_t layerPrimMask;
     int32_t layerEnvMask;
+
+    /* ComboShip: CW_DRAW_KIND_OPS payload. */
+    int32_t opCount;
+    CwDrawOp ops[CW_DRAW_MAX_OPS];
 } CwItemDrawInfo;
 
 /* Returns 1 and fills out on success; 0 if the item is unknown/undrawable.

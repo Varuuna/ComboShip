@@ -405,6 +405,10 @@ static int Combo_TakeEvictionNotice() {
 static void EraseComboContainer(int slot) {
     std::lock_guard<std::mutex> lk(g_containerMutex);
     g_containerCache.erase(slot);
+    // MM's dormant save is now stale: leave it marked resident and the next load skips re-reading it,
+    // and any dormant MM write would put the erased save back into the slot.
+    if (g_MmSaveInMemorySlot == slot)
+        g_MmSaveInMemorySlot = -1;
     std::error_code ec;
     std::filesystem::remove(ComboContainerPath(slot), ec);
 }
@@ -416,6 +420,8 @@ static void Combo_CopyContainer(int from, int to) {
     nlohmann::json copy = LoadOrCreateContainer(from); // deep copy of the source container
     copy["slot"] = to;
     g_containerCache[to] = std::move(copy);
+    if (g_MmSaveInMemorySlot == to)
+        g_MmSaveInMemorySlot = -1; // the destination's MM save just changed under us
     FlushContainer(to);
 }
 
@@ -1712,6 +1718,9 @@ static int Combo_OnReloadRequest(const char* path) {
 }
 
 static void Combo_OnOOTSaveInit(int fileNum) {
+    // A new file starts in OOT. Explicit because not every delete path clears the container
+    // (DeleteFileOnDeath calls DeleteZeldaFile directly), so a stale MM could otherwise survive here.
+    Combo_SetLastGame(fileNum, ComboRando::GAME_OOT);
     // ComboShip: bind the pending consolidated seed to this slot — bake it into the container's
     // combo.rando (self-contained), then push it into both DLLs so foreign data is live immediately.
     if (!g_ConsolidatedJson.empty()) {

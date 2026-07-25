@@ -108,8 +108,11 @@ inline const ComboForeignDrawInfo* ComboResolveForeignDrawInfo(RandomizerCheck r
         sCache.erase(rc); // 2ship.dll may simply not be resident yet — don't negative-cache, retry later
         return nullptr;
     }
+    // A disguised trap must draw the item it pretends to be. Same namespace, so the itemGame dispatch
+    // above is unaffected. Not state-dependent: like OOT, the disguise holds until the get-item cutscene.
+    const char* drawName = fi->HasDisguise() ? fi->fakeItemName.c_str() : fi->itemName.c_str();
     CwItemDrawInfo raw{};
-    if (sGetItemDrawInfo(fi->itemName.c_str(), &raw) == 0 || raw.dlistCount <= 0) {
+    if (sGetItemDrawInfo(drawName, &raw) == 0 || raw.dlistCount <= 0) {
         // ComboShip: no static DL row — try the animated ABI (MM stray fairies). MM only describes
         // the item; ComboForeignAnim_Draw (combo/menu/ComboForeignAnim.h) loads + draws it.
         static Fn_GetItemAnimDrawInfo sGetItemAnimDrawInfo = nullptr;
@@ -117,7 +120,7 @@ inline const ComboForeignDrawInfo* ComboResolveForeignDrawInfo(RandomizerCheck r
             HMODULE h = GetModuleHandleA("2ship.dll");
             sGetItemAnimDrawInfo = h ? (Fn_GetItemAnimDrawInfo)GetProcAddress(h, "MM_GetItemAnimDrawInfo") : nullptr;
         }
-        if (sGetItemAnimDrawInfo != nullptr && sGetItemAnimDrawInfo(fi->itemName.c_str(), &info.anim) != 0) {
+        if (sGetItemAnimDrawInfo != nullptr && sGetItemAnimDrawInfo(drawName, &info.anim) != 0) {
             info.animOk = true;
             info.ok = true;
             return &info;

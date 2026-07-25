@@ -105,8 +105,11 @@ inline const ComboForeignDrawInfoOOT* ComboResolveForeignDrawInfoOOT(RandoCheckI
         sCache.erase(rc); // soh.dll may simply not be resident yet — don't negative-cache, retry later
         return nullptr;
     }
+    // A disguised trap must draw the item it pretends to be. Same namespace, so the itemGame dispatch
+    // above is unaffected. Not state-dependent: like OOT, the disguise holds until the get-item cutscene.
+    const char* drawName = fi->HasDisguise() ? fi->fakeItemName.c_str() : fi->itemName.c_str();
     CwItemDrawInfo raw{};
-    if (sGetItemDrawInfo(fi->itemName.c_str(), &raw) == 0 || raw.dlistCount <= 0) {
+    if (sGetItemDrawInfo(drawName, &raw) == 0 || raw.dlistCount <= 0) {
         return nullptr; // unknown item or non-portable draw func: cached negative -> sentinel forever
     }
 

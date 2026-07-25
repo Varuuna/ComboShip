@@ -233,6 +233,9 @@ static FnTakeStr MM_LoadComboRando = nullptr;
 // OOT file-select "copy file": whole-container copy (both games + rando) through the launcher.
 typedef void (*FnSetCopyContainer)(void (*)(int, int));
 static FnSetCopyContainer SOH_SetCopyContainer = nullptr;
+// OOT polls this each frame (main thread) for slots whose container was backed up for a release mismatch.
+typedef void (*FnSetOutdatedSaveNotice)(int (*)());
+static FnSetOutdatedSaveNotice SOH_SetOutdatedSaveNotice = nullptr;
 
 // ComboShip: OOT forced placements (Link's Pocket etc.) the static dump can't carry — see
 // SOH_GetForcedPlacements. Seed-parameterized so the pick is deterministic per generated seed.
@@ -298,9 +301,14 @@ static FnOracleVoid Combo_MM_Rando_Restore = nullptr;
 // The launcher mediates every per-slot read/write through Combo_ReadGameSave/Combo_WriteGameSave
 // (pushed into each DLL at boot), so the in-process cache stays authoritative. Single mutex serializes
 // OOT's thread-pool writes, MM's synchronous writes, and Anchor cross-writes. Write = temp+rename,
-// never torn on crash. See docs/deviations/boot-shutdown.md.
+// never torn on crash. Each container carries "comboRelease" (COMBO_RELEASE_VERSION); a container from a
+// different release is backed up to .bak and recreated — the launcher is the sole save-compat gate.
+// See docs/deviations/boot-shutdown.md.
 static std::mutex g_containerMutex;
 static std::map<int, nlohmann::json> g_containerCache;
+// Slots whose container was backed up for a COMBO_RELEASE_VERSION mismatch; guarded by g_containerMutex.
+// OOT drains it on the main thread (Combo_TakeEvictionNotice) to surface a popup.
+static std::vector<int> g_evictedSlots;
 
 static std::filesystem::path ComboContainerPath(int fileNum) {
     return std::filesystem::path("Save") / ("file" + std::to_string(fileNum + 1) + ".combosav");
@@ -329,8 +337,19 @@ static nlohmann::json& LoadOrCreateContainer(int fileNum) {
     if (existed && !parsed) {
         std::filesystem::rename(path, path.string() + ".corrupt-" + std::to_string(std::time(nullptr)), ec);
     }
+    // COMBO_RELEASE_VERSION gate: a container from a different ComboShip release is outdated. Back it
+    // up aside and start fresh; record the slot so OOT can surface a popup on its main thread.
+    if (parsed) {
+        auto rel = j.find("comboRelease");
+        if (rel == j.end() || !rel->is_string() || rel->get<std::string>() != COMBO_RELEASE_VERSION) {
+            std::filesystem::rename(path, path.string() + "-" + std::to_string(std::time(nullptr)) + ".bak", ec);
+            g_evictedSlots.push_back(fileNum); // caller holds g_containerMutex
+            parsed = false;
+        }
+    }
     if (!parsed)
         j = nlohmann::json{ { "comboVersion", 1 },
+                            { "comboRelease", COMBO_RELEASE_VERSION },
                             { "slot", fileNum },
                             { "oot", nullptr },
                             { "mm", nullptr },
@@ -352,6 +371,7 @@ static void FlushContainer(int fileNum) {
         std::ofstream out(tmp, std::ios::trunc | std::ios::binary);
         if (!out.is_open())
             return;
+        it->second["comboRelease"] = COMBO_RELEASE_VERSION; // every write carries the current release
         out << it->second.dump();
     }
     std::filesystem::rename(tmp, path, ec);
@@ -359,6 +379,17 @@ static void FlushContainer(int fileNum) {
         std::filesystem::remove(path, ec);
         std::filesystem::rename(tmp, path, ec);
     }
+}
+
+// OOT (main thread) polls this each frame via SOH_SetOutdatedSaveNotice: pops the next slot whose
+// container was backed up for a release mismatch, or -1 if none. Mirrors the SOH_SetCopyContainer wiring.
+static int Combo_TakeEvictionNotice() {
+    std::lock_guard<std::mutex> lk(g_containerMutex);
+    if (g_evictedSlots.empty())
+        return -1;
+    int slot = g_evictedSlots.front();
+    g_evictedSlots.erase(g_evictedSlots.begin());
+    return slot;
 }
 
 static void EraseComboContainer(int slot) {
@@ -1975,6 +2006,7 @@ int main(int argc, char** argv) {
     SOH_LoadComboRando = (FnTakeStr)GetSym(sohModule, "SOH_LoadComboRando");
     MM_LoadComboRando = (FnTakeStr)GetSym(mmModule, "MM_LoadComboRando");
     SOH_SetCopyContainer = (FnSetCopyContainer)GetSym(sohModule, "SOH_SetCopyContainer");
+    SOH_SetOutdatedSaveNotice = (FnSetOutdatedSaveNotice)GetSym(sohModule, "SOH_SetOutdatedSaveNotice");
     SOH_SetDeleteForeignSave = (FnSetDeleteForeignSave)GetSym(sohModule, "SOH_SetDeleteForeignSave");
     MM_SetDeleteForeignSave = (FnSetDeleteForeignSave)GetSym(mmModule, "MM_SetDeleteForeignSave");
     SOH_DeleteSaveFile = (FnDeleteSaveFile)GetSym(sohModule, "SOH_DeleteSaveFile");
@@ -2290,6 +2322,9 @@ int main(int argc, char** argv) {
         MM_SetComboSaveIO(&Combo_ReadGameSave, &Combo_WriteGameSave);
     if (SOH_SetCopyContainer)
         SOH_SetCopyContainer(&Combo_CopyContainer);
+    // OOT owns the shared file-select; it polls for release-evicted slots and shows the outdated-save popup.
+    if (SOH_SetOutdatedSaveNotice)
+        SOH_SetOutdatedSaveNotice(&Combo_TakeEvictionNotice);
 
     // Cross-game erase seam (issue #1): erasing a save slot in either game wipes both saves.
     if (SOH_SetDeleteForeignSave)

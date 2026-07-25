@@ -153,10 +153,13 @@ inline void from_json(const json& j, ShipSaveInfo& shipSaveInfo) {
     j.at("commitHash").get_to(shipSaveInfo.commitHash);
 
     if (shipSaveInfo.saveType == SAVETYPE_RANDO) {
+#ifndef COMBO_BUILD
+        // ComboShip: tolerate cross-build rando saves on the combosave path (mirrors SoH's !comboSrc exemption).
         if (strcmp(shipSaveInfo.commitHash, gGitCommitHash) != 0) {
             SPDLOG_ERROR("Randomizer saves cannot be loaded from a different version.");
             throw new std::runtime_error("Randomizer saves cannot be loaded from a different version.");
         }
+#endif
 
         j.at("rando").get_to(shipSaveInfo.rando);
     }

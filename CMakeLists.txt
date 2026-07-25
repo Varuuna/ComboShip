@@ -25,6 +25,12 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum OS X deployment ve
 # via gBuildVersion) and the package filename. See docs/UPSTREAM_MERGES.md.
 set(COMBO_EPOCH 1)  # ← bump by hand for ComboShip-owned breaks / o2r-forcing releases
 
+# COMBO_RELEASE_VERSION: manual release identity; SOLE authority for combosave compatibility (gated
+# at the launcher container level, see combo/ComboShip.cpp). The pin-derived triple below is
+# diagnostics/banner only. Bump rule: patch = combo-side changes; minor = one game's upstream release
+# (counter); major = both games synced to upstream (resets minor).
+set(COMBO_RELEASE_VERSION "0.1.1" CACHE STRING "ComboShip release version (manual; gates combosave compat)" FORCE)
+
 set(COMBO_PINS "${CMAKE_CURRENT_SOURCE_DIR}/upstream-pins.json")
 # Reconfigure whenever the pins change so the derived version stays in sync.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${COMBO_PINS}")
@@ -55,7 +61,7 @@ include(CMake/lus-cvars.cmake)
 # gBuildVersion (shown in-game) = "<PROJECT_BUILD_NAME> (<major>.<minor>.<patch>)".
 # Embed the readable upstream identity so the otherwise-opaque numeric triple is
 # legible, e.g. "Combo Build e1 soh-74e1d4c mm-3545e62 (1.29921.13637)".
-set(PROJECT_BUILD_NAME "Combo Build e${COMBO_EPOCH} soh-${COMBO_SOH_SHORT} mm-${COMBO_MM_SHORT}" CACHE STRING "" FORCE)
+set(PROJECT_BUILD_NAME "ComboShip v${COMBO_RELEASE_VERSION} | Combo Build e${COMBO_EPOCH} soh-${COMBO_SOH_SHORT} mm-${COMBO_MM_SHORT}" CACHE STRING "" FORCE)
 set(PROJECT_TEAM "github.com/harbourmasters" CACHE STRING "" FORCE)
 
 # Git information

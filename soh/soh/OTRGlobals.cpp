@@ -1617,8 +1617,10 @@ bool VerifyArchiveVersion(OTRVersion version) {
     return version.major != INT16_MAX && version.major != gBuildVersionMajor;
 }
 
-// ComboShip: forward declaration — defined further down with the combo exports.
+// ComboShip: forward declarations — defined further down with the combo exports.
 extern "C" void (*gComboSceneSwitchCallback)(int fileNum);
+// Launcher poll: returns the next save slot backed up for a release mismatch, or -1 if none.
+extern "C" int (*gComboOutdatedSaveNotice)();
 
 // ComboShip: InitOTR is split so the launcher can create the shared window (which needs only the
 // bundled soh.o2r, not a ROM) BEFORE the ROM archives exist, run its own unified extraction screen,
@@ -1800,6 +1802,18 @@ static void Combo_FinishInit() {
         }
         if (gGameState) {
             gGameState->running = false;
+        }
+    });
+
+    // ComboShip release gate: drain slots the launcher backed up for a version mismatch and show a
+    // popup on this (main) thread — the launcher only records slots, never touches ImGui.
+    GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameFrameUpdate>([]() {
+        if (!gComboOutdatedSaveNotice)
+            return;
+        for (int slot; (slot = gComboOutdatedSaveNotice()) >= 0;) {
+            SohGui::RegisterPopup("Outdated ComboShip Save",
+                                  "The save in slot " + std::to_string(slot + 1) +
+                                      " was made by a different ComboShip version and has been backed up.");
         }
     });
 #endif
@@ -2767,6 +2781,12 @@ extern "C" __declspec(dllexport) void SOH_SetOnLoadSaveCallback(void (*cb)(int f
 }
 
 #ifdef COMBO_BUILD
+// ComboShip: launcher registers its release-eviction poll; OOT drains it each frame (main thread).
+extern "C" int (*gComboOutdatedSaveNotice)() = nullptr;
+extern "C" __declspec(dllexport) void SOH_SetOutdatedSaveNotice(int (*fn)()) {
+    gComboOutdatedSaveNotice = fn;
+}
+
 // ComboShip: Anchor transport seam. The persistent socket lives in ComboShip.exe; these exports
 // wire the launcher's connection to soh's in-place Anchor (declspec must follow extern "C" or the
 // symbol isn't exported). See docs/UPSTREAM_MERGES.md.

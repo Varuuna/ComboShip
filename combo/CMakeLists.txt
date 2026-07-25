@@ -76,6 +76,9 @@ target_include_directories(ComboShip PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 find_package(nlohmann_json REQUIRED)
 target_link_libraries(ComboShip PRIVATE nlohmann_json::nlohmann_json)
 
+# COMBO_RELEASE_VERSION: launcher-only gate for combosave compat (the games don't gate, so no macro there).
+target_compile_definitions(ComboShip PRIVATE COMBO_RELEASE_VERSION="${COMBO_RELEASE_VERSION}")
+
 # ComboShip owns the persistent Anchor network connection (Phase 1), so it links SDL_net directly.
 # Mirrors soh's linkage (SDL2_net::SDL2_net-static on the static-md triplet, plain otherwise). We do
 # NOT link SDL2main here — ComboShip provides its own main().

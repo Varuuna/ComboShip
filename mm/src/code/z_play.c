@@ -756,8 +756,13 @@ void Play_UpdateTransition(PlayState* this) {
                     }
 
                     if (gSaveContext.gameMode == GAMEMODE_OWL_SAVE) {
+#ifdef COMBO_BUILD
+                        // ComboShip: quit to OOT's title; MM's own file select is unreachable here.
+                        Combo_RequestOwlSaveQuit();
+#else
                         STOP_GAMESTATE(&this->state);
                         SET_NEXT_GAMESTATE(&this->state, TitleSetup_Init, sizeof(TitleSetupState));
+#endif
                     } else if (gSaveContext.gameMode != GAMEMODE_FILE_SELECT) {
                         STOP_GAMESTATE(&this->state);
                         SET_NEXT_GAMESTATE(&this->state, Play_Init, sizeof(PlayState));

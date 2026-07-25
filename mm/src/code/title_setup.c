@@ -67,10 +67,11 @@ void Setup_InitImpl(SetupState* this) {
         gSaveContext.flashSaveAvailable = true;
         // Load the MM save that matches the OOT slot (OOT slot N → MM file N+1).
         Combo_LoadMMSaveFile(gComboStartFileNum + 1);
-        // Portal entry always arrives at the fixed portal exit; a boot resume spawns where the save
-        // says (pause save if Remember Save Location was on, else the owl statue).
-        if (gComboEntryIsResume) {
-            Combo_SetMMResumeEntrance();
+        // South Clock Town is the default arrival for both portal entry and a resume. Only a resume
+        // with Remember Save Location on returns to the stored spot (set by SavingEnhancements).
+        if (gComboEntryIsResume && CVarGetInteger("gEnhancements.Saving.RememberSaveLocation", 0) &&
+            gSaveContext.save.shipSaveInfo.pauseSaveEntrance != -1) {
+            gSaveContext.save.entrance = gSaveContext.save.shipSaveInfo.pauseSaveEntrance;
         } else {
             gSaveContext.save.entrance = ENTRANCE(SOUTH_CLOCK_TOWN, 0);
         }

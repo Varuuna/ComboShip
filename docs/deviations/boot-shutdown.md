@@ -247,8 +247,9 @@ means OOT, so older saves behave as before. Stamped in `Combo_WriteGameSave` **o
 game is the foreground game** (`g_foregroundGame`, mirrored by `Combo_SetForegroundGame` at the three
 transition points). That filter is load-bearing: cross-game grants, Anchor packets and
 `SOH_MarkForeignObtained` all write into the *dormant* game's section, and must not claim the player was
-there. Also stamped to OOT on the MM→OOT return (`Combo_SetLastGame`) — leaving MM persists MM's save,
-but nothing on the OOT side writes one, so the slot would otherwise still resume into MM.
+there. `Combo_SetLastGame` additionally stamps it at both transitions — MM on portal entry, OOT on the
+return — so it tracks where the player actually is even when neither game writes a save (leaving MM
+persists MM, but nothing on the OOT side writes one, which would otherwise keep resuming into MM).
 
 **The intercept.** `Combo_OnOOTSaveLoad` already fires at the ideal moment: `FileChoose_LoadGame` runs
 `GameInteractor_ExecuteOnLoadGame` at its tail (`soh/src/overlays/gamestates/ovl_file_choose/z_file_choose.c`),
@@ -271,14 +272,22 @@ exactly once) and does **not** fire `OnExitGame` (the dormant tracker peek needs
 `OnLoadGame` just built). On the return, `SOH_ResumeGame` → `SOH_ResetFrameLoopForResume` re-seeds
 `RunFrame` from overlay[0] (`TitleSetup`), which then takes the normal `gComboReturnFileNum` path.
 
-**MM spawn point.** `gComboEntryIsResume` (`MM_SetComboEntryIsResume`) separates the two ways MM is
-entered, which want opposite entrances. Portal entry keeps the fixed `ENTRANCE(SOUTH_CLOCK_TOWN, 0)`
-arrival; a boot resume calls `Combo_SetMMResumeEntrance` (`mm/src/code/z_sram_NES.c`), which mirrors
-`Sram_OpenSave`'s selection — `shipSaveInfo.pauseSaveEntrance` when Remember Save Location stored one,
-else `sOwlWarpEntrances[owlWarpId]`, plus the swamp/mountain-village variant fixups. That logic is
-duplicated rather than called because combo's MM entry never runs `Sram_OpenSave` and the table is
-file-static. **Note:** with Remember Save Location off, MM's authentic resume is the *owl statue*, not
-Clock Town — forcing Clock Town there was wrong.
+**MM spawn point.** South Clock Town is the arrival for both portal entry and a boot resume; the
+resume only differs when Remember Save Location is on, in which case it uses
+`gSaveContext.save.shipSaveInfo.pauseSaveEntrance` (where that enhancement stores the spot — *not*
+`save.entrance`, and combo never runs `Sram_OpenSave`, which is what normally applies it).
+`gComboEntryIsResume` (`MM_SetComboEntryIsResume`) tells MM which kind of entry it is. Deliberately
+**not** MM's authentic owl-statue resume: Clock Town is the intended combo default.
+
+**Owl save (`mm/src/code/z_play.c`).** MM's owl save sets `GAMEMODE_OWL_SAVE` (`z_message.c`) and
+`z_play.c` then does `SET_NEXT_GAMESTATE(TitleSetup_Init)` — "save and quit to MM's file select". In
+combo that re-ran MM's whole boot (the combo entry block is skipped because `gComboStartFileNum` is back
+to `-1`), so the attract path's `Sram_InitNewSave` wiped the save and MM's file select then wrote the
+wipe into the container: **the slot's MM section was corrupted by an ordinary owl save.** A
+`COMBO_BUILD` seam calls `Combo_RequestOwlSaveQuit()` instead, which routes through the existing return
+hook and `SOH_SetComboBootToTitle` so the session lands on **OOT's title/file select**. No extra persist
+is needed — the owl save's own flashrom write already went through the container seam. `lastGame` stays
+MM, so reselecting the slot resumes MM.
 
 **#87 entrance clobber (`soh/src/code/title_setup.c`).** The Mask-Shop arrival entrance is now assigned
 *after* `GameInteractor_ExecuteOnLoadGame`, because the rando handler's `Entrance_SetSavewarpEntrance()`

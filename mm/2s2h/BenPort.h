@@ -184,8 +184,8 @@ extern int gComboStartFileNum;
 extern int gComboEntryIsResume;
 // ComboShip (#83): copy OOT's targeting/audio into gSaveContext.options.
 void Combo_AdoptOOTGlobalOptions(void);
-// ComboShip (#89): set save.entrance for a boot resume (defined in z_sram_NES.c).
-void Combo_SetMMResumeEntrance(void);
+// ComboShip (#89): owl save quits to OOT's title instead of MM's own file select.
+void Combo_RequestOwlSaveQuit(void);
 // Load an existing MM save from disk into gSaveContext (C-callable wrapper).
 void Combo_LoadMMSaveFile(int mmFileNum);
 

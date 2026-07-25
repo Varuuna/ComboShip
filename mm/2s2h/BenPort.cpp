@@ -155,6 +155,14 @@ static bool sComboResetReturnPending = false;
 extern "C" __declspec(dllexport) void MM_RequestComboReturn(void) {
     sComboResetReturnPending = true;
 }
+// ComboShip (#89): owl save. MM would SET_NEXT_GAMESTATE(TitleSetup_Init) here (z_play.c) and quit to
+// its own file select, which combo can't enter — it re-runs MM's boot, wipes the save and lets MM's
+// file select write the wipe into the container. Quit to OOT's title instead; the owl save's own
+// flashrom write has already persisted the MM section.
+static bool sComboOwlSaveQuitPending = false;
+extern "C" void Combo_RequestOwlSaveQuit(void) {
+    sComboOwlSaveQuitPending = true;
+}
 // MM's own ResourceManager, created at first boot and kept alive for the whole process. A combo
 // transition swaps the Context's active RM between MM's and OOT's, so each game keeps its archives +
 // resource cache resident and nothing is ever unloaded (no dangling cached pointers). See MM_ResumeGame.
@@ -1112,14 +1120,29 @@ extern "C" void InitOTR(int argc, char* argv[]) {
         }
     });
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameStateMainStart>([]() {
-        if (!sComboReturnPending && !sComboResetReturnPending)
+        if (!sComboReturnPending && !sComboResetReturnPending && !sComboOwlSaveQuitPending)
             return;
         const bool isReset = sComboResetReturnPending;
+        const bool isOwlSaveQuit = sComboOwlSaveQuitPending;
         sComboReturnPending = false;
         sComboResetReturnPending = false;
+        sComboOwlSaveQuitPending = false;
+        // An owl save quit lands on OOT's title, like Ctrl+R, rather than resuming OOT gameplay.
+        if (isOwlSaveQuit) {
+            static void (*sFn)(void) = nullptr;
+            static bool sTried = false;
+            if (!sTried) {
+                sTried = true;
+                if (HMODULE h = GetModuleHandleA("soh.dll"))
+                    sFn = (void (*)(void))GetProcAddress(h, "SOH_SetComboBootToTitle");
+            }
+            if (sFn)
+                sFn();
+        }
         // Portal return always persists MM; a reset persists only when autosave is enabled. Never
-        // persist outside gameplay: the title/attract path wipes save first (Sram_InitNewSave).
-        if ((!isReset || CVarGetInteger("gEnhancements.Saving.Autosave", 0)) &&
+        // persist outside gameplay: the title/attract path wipes save first (Sram_InitNewSave). An owl
+        // save has already written itself through the flashrom seam.
+        if (!isOwlSaveQuit && (!isReset || CVarGetInteger("gEnhancements.Saving.Autosave", 0)) &&
             gSaveContext.gameMode == GAMEMODE_NORMAL)
             SaveManager_SaveCurrentForCombo();
         if (gComboReturnCallback)

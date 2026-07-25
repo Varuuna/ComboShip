@@ -3208,6 +3208,12 @@ bool Combo_OotIsForeground(void) {
 // SOH_ResumeGame so OOT boots to the title sequence instead of resuming the dormant save.
 static bool sComboResetPending = false;
 
+// ComboShip (#89): MM-initiated equivalent of the reset flag — an owl save quits to OOT's title
+// rather than MM's own file select, which combo has no path to.
+extern "C" __declspec(dllexport) void SOH_SetComboBootToTitle(void) {
+    sComboResetPending = true;
+}
+
 // Handle a reset request. If MM is foreground, bounce back to OOT (MM saves if autosave is on, then
 // goes dormant) and flag OOT to boot to the title sequence on resume. Returns true if it took over the
 // reset; false lets the caller run OOT's normal reset (which already lands on the boot sequence).

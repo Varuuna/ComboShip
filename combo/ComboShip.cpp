@@ -2434,6 +2434,8 @@ int main(int argc, char** argv) {
                     MM_SetOnComboReturnCallback(Combo_OnMMReturn);
                 ComboAnchor::SetActiveGame(1);                // route Anchor to MM, activate MM's adapter
                 Combo_SetForegroundGame(ComboRando::GAME_MM); // hide OOT trackers, show MM's
+                if (g_PendingMMFileNum >= 0)
+                    Combo_SetLastGame(g_PendingMMFileNum, ComboRando::GAME_MM);
                 current = GAME_MM;
             } else {
                 break;

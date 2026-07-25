@@ -180,6 +180,22 @@ static int32_t MM_FillSoulDrawInfo(RandoItemId id, CwItemDrawInfo* out) {
 // sentinel / any raw id). The returned dlists point at MM's static OTR asset-path string literals,
 // valid for process lifetime. Returns 0 for unknown items / non-portable draw funcs; the caller
 // falls back to its sentinel.
+// Items whose concrete model depends on how far the player has progressed.
+static bool MM_IsProgressiveItem(RandoItemId id) {
+    switch (id) {
+        case RI_PROGRESSIVE_SWORD:
+        case RI_PROGRESSIVE_BOW:
+        case RI_PROGRESSIVE_BOMB_BAG:
+        case RI_PROGRESSIVE_WALLET:
+        case RI_PROGRESSIVE_MAGIC:
+        case RI_PROGRESSIVE_LULLABY:
+        case RI_TIME_PROGRESSIVE:
+            return true;
+        default:
+            return false;
+    }
+}
+
 extern "C" __declspec(dllexport) int32_t MM_GetItemDrawInfo(const char* itemName, CwItemDrawInfo* out) {
     if (itemName == nullptr || out == nullptr) {
         return 0;
@@ -190,6 +206,18 @@ extern "C" __declspec(dllexport) int32_t MM_GetItemDrawInfo(const char* itemName
     }
     if (id == RI_UNKNOWN) {
         return 0;
+    }
+    // ComboShip (#88): a progressive item's model is the tier the player is owed, not the static base
+    // drawId (which is always tier 1 — every Progressive Sword drew a Kokiri Sword). Resolve it the way
+    // MM's own drawer does, and mark the recipe state-dependent so the consumer re-resolves each frame
+    // instead of freezing the first tier it saw. Runs before the helpers so Progressive Lullaby, which
+    // resolves to a song, still reaches MM_FillSongDrawInfo.
+    if (MM_IsProgressiveItem(id)) {
+        RandoItemId resolved = Rando::ConvertItem(id);
+        if (resolved != RI_UNKNOWN && resolved != id) {
+            id = resolved;
+        }
+        out->stateDependent = 1;
     }
     auto it = Rando::StaticData::Items.find(id);
     if (it == Rando::StaticData::Items.end()) {

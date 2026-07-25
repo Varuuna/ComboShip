@@ -129,6 +129,12 @@ top-level project) changes on every merge, and the rando-save gate fires on its 
 `PROJECT_BUILD_NAME` label (shown in-game) and the package filename
 (`ComboShip-e<epoch>-soh<sha>-mm<sha>`).
 
+**`COMBO_RELEASE_VERSION` (manual, e.g. `0.1.1`)** is separate from the pin-derived triple and is the
+**sole authority for combosave compatibility** (gated at the launcher container level — see
+`docs/deviations/boot-shutdown.md`). Bump rule: `patch` = combo-side changes; `minor` = a counter of the
+currently-ahead game's upstream releases; `major` = ticks when the trailing game catches up (both synced),
+resetting `minor`. Any bump retires existing combosaves once; not bumping it keeps saves across rebuilds.
+
 **The two o2r version checks are NOT the same granularity** (this bit me once — get it right):
 
 | Archive | Check | Granularity | Effect of a routine merge (minor/patch change) |

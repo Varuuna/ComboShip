@@ -40,6 +40,14 @@ typedef enum {
                              */
     /* Triforce Piece / Fishing Pole are plain scaled-OPA draws with no extra GPU state, so they ride
      * the SIMPLE path (dlists[0] + scale) rather than a dedicated kind. */
+
+    /* ComboShip: the bespoke Randomizer_Draw* funcs (Item::SetCustomDrawFunc), which the gid-keyed
+     * sDrawItemTable is blind to. Appended so the values above keep their ABI numbers. */
+    CW_DRAW_KIND_COLOR_LAYERS,   /* per-DL prim/env color then dlists[i]; xluStartIndex splits OPA/XLU */
+    CW_DRAW_KIND_GRAYSCALE_XLU,  /* XLU: grayscale tint (primColorXlu) around dl0 */
+    CW_DRAW_KIND_DOUBLE_DEFENSE, /* XLU: grayscale-white heart border dl0, then plain container dl1 */
+    CW_DRAW_KIND_MASTER_SWORD,   /* seg8 OPA scroll + scale 0.05 + rotate Z 2.1, dl0 */
+    CW_DRAW_KIND_BRONZE_SCALE,   /* XLU seg8 scroll + constant prim/env pairs around scale dl0 / water dl1 */
 } CwDrawKind;
 
 typedef struct {
@@ -78,6 +86,13 @@ typedef struct {
      * (collected % 3, and the completed model), and junk/trap indirection. Consumers cache recipes per
      * check per save slot, so without this the first model drawn is frozen for the whole slot. */
     int32_t stateDependent;
+
+    /* ComboShip: CW_DRAW_KIND_COLOR_LAYERS payload — the per-DL prim/env colors the rando key/map/
+     * compass/jabber-nut funcs set before each display list. Bit i of each mask = dlists[i] sets it. */
+    uint8_t layerPrimColor[CW_DRAW_MAX_DLISTS][4];
+    uint8_t layerEnvColor[CW_DRAW_MAX_DLISTS][4];
+    int32_t layerPrimMask;
+    int32_t layerEnvMask;
 } CwItemDrawInfo;
 
 /* Returns 1 and fills out on success; 0 if the item is unknown/undrawable.

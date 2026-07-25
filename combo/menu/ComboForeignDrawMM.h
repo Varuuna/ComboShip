@@ -48,11 +48,16 @@ struct ComboForeignDrawInfoOOT {
     float scale = 0.0f;    // extra uniform model scale; 0 = none (OOT rupees: 0.7)
     bool hasEnvColor = false;
     uint8_t envColor[4] = { 0, 0, 0, 0 };
-    int32_t drawKind = CW_DRAW_KIND_SIMPLE;            // non-SIMPLE = replicate a specific OOT draw func
-    uint8_t primColorXlu[4] = { 0, 0, 0, 0 };          // JEWEL gem prim / MUSIC_NOTE tint
-    uint8_t envColorXlu[4] = { 0, 0, 0, 0 };           // JEWEL gem env
-    uint8_t primColorOpa[4] = { 0, 0, 0, 0 };          // JEWEL setting prim
-    uint8_t envColorOpa[4] = { 0, 0, 0, 0 };           // JEWEL setting env
+    int32_t drawKind = CW_DRAW_KIND_SIMPLE;   // non-SIMPLE = replicate a specific OOT draw func
+    uint8_t primColorXlu[4] = { 0, 0, 0, 0 }; // JEWEL gem prim / MUSIC_NOTE tint
+    uint8_t envColorXlu[4] = { 0, 0, 0, 0 };  // JEWEL gem env
+    uint8_t primColorOpa[4] = { 0, 0, 0, 0 }; // JEWEL setting prim
+    uint8_t envColorOpa[4] = { 0, 0, 0, 0 };  // JEWEL setting env
+    // CW_DRAW_KIND_COLOR_LAYERS: per-DL prim/env colors; bit i of each mask = dls[i] sets it.
+    uint8_t layerPrimColor[CW_DRAW_MAX_DLISTS][4] = {};
+    uint8_t layerEnvColor[CW_DRAW_MAX_DLISTS][4] = {};
+    int32_t layerPrimMask = 0;
+    int32_t layerEnvMask = 0;
     const char* dls[CW_DRAW_MAX_DLISTS] = { nullptr }; // interned "__OTR__@oot:..." routed paths
     // Recipe chosen from live save state (progressive tier, Triforce shard, junk/trap) — re-resolve
     // every frame instead of caching, or the first model drawn sticks for the whole save slot.
@@ -120,6 +125,10 @@ inline const ComboForeignDrawInfoOOT* ComboResolveForeignDrawInfoOOT(RandoCheckI
     info.hasEnvColor = raw.hasEnvColor != 0;
     info.drawKind = raw.drawKind;
     info.stateDependent = raw.stateDependent != 0;
+    info.layerPrimMask = raw.layerPrimMask;
+    info.layerEnvMask = raw.layerEnvMask;
+    memcpy(info.layerPrimColor, raw.layerPrimColor, sizeof(info.layerPrimColor));
+    memcpy(info.layerEnvColor, raw.layerEnvColor, sizeof(info.layerEnvColor));
     for (int32_t i = 0; i < 4; i++) {
         info.envColor[i] = raw.envColor[i];
         info.primColorXlu[i] = raw.primColorXlu[i];
@@ -503,6 +512,116 @@ inline void MM_DrawForeignBossSoul(const ComboForeignDrawInfoOOT* info) {
     MM_RestoreForeignSegs(segs, 1);
 }
 
+// Per-DL prim/env colored layers: the rando map/compass/small-key/boss-key/key-ring/jabber-nut/
+// bombchu-bag/overworld-key funcs, which only differ in which DLs they tint and with what. OOT's
+// 26Opa funcs are approximated as 25Opa (same convention as GetItem_GetDrawTableEntry).
+inline void MM_DrawForeignColorLayers(const ComboForeignDrawInfoOOT* info) {
+    int32_t n = info->count;
+    int32_t xs = (info->xluStart < 0 || info->xluStart > n) ? n : info->xluStart;
+    GraphicsContext* gfxCtx = gPlayState->state.gfxCtx;
+    OPEN_DISPS(gfxCtx);
+    if (xs > 0) {
+        Gfx_SetupDL25_Opa(gfxCtx);
+        MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
+        for (int32_t i = 0; i < xs; i++) {
+            if (info->layerPrimMask & (1 << i)) {
+                gDPSetPrimColor(POLY_OPA_DISP++, 0, 0, info->layerPrimColor[i][0], info->layerPrimColor[i][1],
+                                info->layerPrimColor[i][2], info->layerPrimColor[i][3]);
+            }
+            if (info->layerEnvMask & (1 << i)) {
+                gDPSetEnvColor(POLY_OPA_DISP++, info->layerEnvColor[i][0], info->layerEnvColor[i][1],
+                               info->layerEnvColor[i][2], info->layerEnvColor[i][3]);
+            }
+            gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[i]);
+        }
+    }
+    if (xs < n) {
+        Gfx_SetupDL25_Xlu(gfxCtx);
+        MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
+        for (int32_t i = xs; i < n; i++) {
+            if (info->layerPrimMask & (1 << i)) {
+                gDPSetPrimColor(POLY_XLU_DISP++, 0, 0, info->layerPrimColor[i][0], info->layerPrimColor[i][1],
+                                info->layerPrimColor[i][2], info->layerPrimColor[i][3]);
+            }
+            if (info->layerEnvMask & (1 << i)) {
+                gDPSetEnvColor(POLY_XLU_DISP++, info->layerEnvColor[i][0], info->layerEnvColor[i][1],
+                               info->layerEnvColor[i][2], info->layerEnvColor[i][3]);
+            }
+            gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[i]);
+        }
+    }
+    CLOSE_DISPS(gfxCtx);
+}
+
+// Grayscale-tinted XLU glyph: ocarina buttons (Randomizer_DrawOcarinaButton). No segments.
+inline void MM_DrawForeignGrayscaleXlu(const ComboForeignDrawInfoOOT* info) {
+    GraphicsContext* gfxCtx = gPlayState->state.gfxCtx;
+    OPEN_DISPS(gfxCtx);
+    Gfx_SetupDL25_Xlu(gfxCtx);
+    MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
+    gDPSetGrayscaleColor(POLY_XLU_DISP++, info->primColorXlu[0], info->primColorXlu[1], info->primColorXlu[2], 255);
+    gSPGrayscale(POLY_XLU_DISP++, true);
+    gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[0]);
+    gSPGrayscale(POLY_XLU_DISP++, false);
+    CLOSE_DISPS(gfxCtx);
+}
+
+// Double Defense: grayscale-white heart border dl0, then the plain container dl1 (both XLU).
+inline void MM_DrawForeignDoubleDefense(const ComboForeignDrawInfoOOT* info) {
+    GraphicsContext* gfxCtx = gPlayState->state.gfxCtx;
+    OPEN_DISPS(gfxCtx);
+    Gfx_SetupDL25_Xlu(gfxCtx);
+    MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
+    gDPSetGrayscaleColor(POLY_XLU_DISP++, 255, 255, 255, 255);
+    gSPGrayscale(POLY_XLU_DISP++, true);
+    gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[0]);
+    gSPGrayscale(POLY_XLU_DISP++, false);
+    gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[1]);
+    CLOSE_DISPS(gfxCtx);
+}
+
+// Master Sword: seg8 OPA scroll + fixed scale/rotation (Randomizer_DrawMasterSword).
+inline void MM_DrawForeignMasterSword(const ComboForeignDrawInfoOOT* info) {
+    PlayState* play = gPlayState;
+    GraphicsContext* gfxCtx = play->state.gfxCtx;
+    OPEN_DISPS(gfxCtx);
+    Gfx_SetupDL25_Opa(gfxCtx);
+    gSPSegment(
+        POLY_OPA_DISP++, 0x08,
+        (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, 0, play->state.frames * 1, 0, 32, 32, 1, 0, 0, 32, 32, 1, 0, 0, 0));
+    Matrix_Scale(0.05f, 0.05f, 0.05f, MTXMODE_APPLY);
+    Matrix_RotateZF(2.1f, MTXMODE_APPLY);
+    MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
+    gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[0]);
+    CLOSE_DISPS(gfxCtx);
+    int32_t segs[] = { 0x08 };
+    MM_RestoreForeignSegs(segs, 1);
+}
+
+// Bronze Scale: the scale model on the SCALE seg8 scroll, recolored bronze. The OOT func's two color
+// DLs are inline Gfx arrays (no OTR resource), so the prim/env pairs are emitted here verbatim.
+inline void MM_DrawForeignBronzeScale(const ComboForeignDrawInfoOOT* info) {
+    PlayState* play = gPlayState;
+    GraphicsContext* gfxCtx = play->state.gfxCtx;
+    OPEN_DISPS(gfxCtx);
+    Gfx_SetupDL25_Xlu(gfxCtx);
+    gSPSegment(POLY_XLU_DISP++, 0x08,
+               (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, 0, play->state.frames * 2, -(play->state.frames * 2), 64, 64, 1,
+                                             play->state.frames * 4, -(play->state.frames * 4), 32, 32, 2, -2, 4, -4));
+    MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
+    gDPPipeSync(POLY_XLU_DISP++);
+    gDPSetPrimColor(POLY_XLU_DISP++, 0, 0x80, 255, 255, 255, 255);
+    gDPSetEnvColor(POLY_XLU_DISP++, 91, 51, 18, 255);
+    gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[0]);
+    gDPPipeSync(POLY_XLU_DISP++);
+    gDPSetPrimColor(POLY_XLU_DISP++, 0, 0x60, 255, 255, 255, 255);
+    gDPSetEnvColor(POLY_XLU_DISP++, 255, 123, 0, 255);
+    gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[1]);
+    CLOSE_DISPS(gfxCtx);
+    int32_t segs[] = { 0x08 };
+    MM_RestoreForeignSegs(segs, 1);
+}
+
 // Draw a foreign (OOT-bound) item's real OOT model at the current model matrix. Any resolution
 // failure falls back to the sentinel blue rupee (the RI_COMBO_FOREIGN item's GID_RUPEE_BLUE), so we
 // never draw blank. Mirrors Randomizer_DrawComboForeign (soh/.../draw.cpp).
@@ -559,6 +678,21 @@ inline void MM_DrawComboForeign(RandoCheckId randoCheckId) {
             break;
         case CW_DRAW_KIND_BOSS_SOUL:
             MM_DrawForeignBossSoul(info);
+            break;
+        case CW_DRAW_KIND_COLOR_LAYERS:
+            MM_DrawForeignColorLayers(info);
+            break;
+        case CW_DRAW_KIND_GRAYSCALE_XLU:
+            MM_DrawForeignGrayscaleXlu(info);
+            break;
+        case CW_DRAW_KIND_DOUBLE_DEFENSE:
+            MM_DrawForeignDoubleDefense(info);
+            break;
+        case CW_DRAW_KIND_MASTER_SWORD:
+            MM_DrawForeignMasterSword(info);
+            break;
+        case CW_DRAW_KIND_BRONZE_SCALE:
+            MM_DrawForeignBronzeScale(info);
             break;
         case CW_DRAW_KIND_SIMPLE:
         default:

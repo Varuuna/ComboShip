@@ -237,6 +237,7 @@ to cleanup-and-return, since a cosmetic photo must never terminate the process; 
 unguarded and will conflict if upstream reworks these functions. Note the hook is
 `COND_VB_SHOULD(VB_PICTO_TAKE, true, ...)` — a literal `true`, so the ColorPictograph CVar does not
 gate it.
+
 ## Resume the game the slot was last played in (issues #89/#87/#83, 2026-07-25)
 
 A slot always resumed OOT even when the player's last session was MM, and leaving MM landed them at

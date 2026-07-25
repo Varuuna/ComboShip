@@ -165,6 +165,13 @@ static bool sComboOwlSaveQuitPending = false;
 extern "C" void Combo_RequestOwlSaveQuit(void) {
     sComboOwlSaveQuitPending = true;
 }
+// Drop any unconsumed return request. Called as MM is entered: one left over from the previous session
+// would immediately quit the new one.
+static void Combo_ClearReturnRequests(void) {
+    sComboReturnPending = false;
+    sComboResetReturnPending = false;
+    sComboOwlSaveQuitPending = false;
+}
 // MM's own ResourceManager, created at first boot and kept alive for the whole process. A combo
 // transition swaps the Context's active RM between MM's and OOT's, so each game keeps its archives +
 // resource cache resident and nothing is ever unloaded (no dangling cached pointers). See MM_ResumeGame.
@@ -2574,6 +2581,7 @@ extern "C" int gComboStartFileNum = -1;
 extern "C" int gComboEntryIsResume = 0;
 extern "C" __declspec(dllexport) void MM_SetComboEntryIsResume(int isResume) {
     gComboEntryIsResume = isResume ? 1 : 0;
+    Combo_ClearReturnRequests(); // a stale request would quit the session we're about to start
 }
 
 // ComboShip (#83): adopt OOT's targeting/audio. MM normally reads these from global.json, which combo

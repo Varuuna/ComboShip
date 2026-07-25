@@ -2,6 +2,7 @@
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include "2s2h/ShipInit.hpp"
 #include "2s2h/Enhancements/FrameInterpolation/FrameInterpolation.h"
+#include "2s2h/BenPort.h" // appShortName
 #include <fstream>
 #include <filesystem>
 #include <cstring>
@@ -19,27 +20,52 @@ extern "C" {
 static s16 fileNumber = 1;
 static u16 pictoPhotoRGBABuffer[PICTO_PHOTO_SIZE];
 
+static std::filesystem::path PictoDir() {
+#ifdef COMBO_BUILD
+    // ComboShip: photos live beside the merged save. Combo never creates the vendored "saves/" dir,
+    // because per-slot writes divert into the .combosav container before create_directories runs.
+    return Ship::Context::GetPathRelativeToAppDirectory("Save", appShortName);
+#else
+    return Ship::Context::GetPathRelativeToAppDirectory("saves", appShortName);
+#endif
+}
+
+static std::string PictoPath() {
+    return (PictoDir() / ("picto" + std::to_string(fileNumber) + ".png")).string();
+}
+
 void SavePictoPng() {
     const int width = PICTO_PHOTO_WIDTH;
     const int height = PICTO_PHOTO_HEIGHT;
 
-    std::string path =
-        Ship::Context::GetPathRelativeToAppDirectory("saves/picto" + std::to_string(fileNumber) + ".png");
+    std::error_code ec;
+    std::filesystem::create_directories(PictoDir(), ec);
+
+    std::string path = PictoPath();
 
     FILE* fp = fopen(path.c_str(), "wb");
+    // A photo is cosmetic; throwing here unwinds out of the DLL into std::terminate.
     if (!fp)
-        throw std::runtime_error("Failed to open PNG file for write");
+        return;
 
     png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
-    if (!png)
-        throw std::runtime_error("png_create_write_struct failed");
+    if (!png) {
+        fclose(fp);
+        return;
+    }
 
     png_infop info = png_create_info_struct(png);
-    if (!info)
-        throw std::runtime_error("png_create_info_struct failed");
+    if (!info) {
+        png_destroy_write_struct(&png, nullptr);
+        fclose(fp);
+        return;
+    }
 
-    if (setjmp(png_jmpbuf(png)))
-        throw std::runtime_error("libpng write error");
+    if (setjmp(png_jmpbuf(png))) {
+        png_destroy_write_struct(&png, &info);
+        fclose(fp);
+        return;
+    }
 
     png_init_io(png, fp);
 
@@ -72,8 +98,7 @@ void SavePictoPng() {
 }
 
 void LoadPictoPNG() {
-    std::string path =
-        Ship::Context::GetPathRelativeToAppDirectory("saves/picto" + std::to_string(fileNumber) + ".png");
+    std::string path = PictoPath();
 
     FILE* fp = fopen(path.c_str(), "rb");
     if (!fp) {
@@ -82,10 +107,25 @@ void LoadPictoPNG() {
     }
 
     png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
-    png_infop info = png_create_info_struct(png);
+    png_infop info = png ? png_create_info_struct(png) : nullptr;
 
-    if (setjmp(png_jmpbuf(png)))
-        throw std::runtime_error("libpng read error");
+    // A corrupt or wrong-size photo must not throw: it would unwind out of the DLL into std::terminate.
+    auto bail = [&]() {
+        if (png)
+            png_destroy_read_struct(&png, info ? &info : nullptr, nullptr);
+        fclose(fp);
+        std::memset(pictoPhotoRGBABuffer, 0, sizeof(pictoPhotoRGBABuffer));
+    };
+
+    if (!png || !info) {
+        bail();
+        return;
+    }
+
+    if (setjmp(png_jmpbuf(png))) {
+        bail();
+        return;
+    }
 
     png_init_io(png, fp);
     png_read_info(png, info);
@@ -94,8 +134,10 @@ void LoadPictoPNG() {
     int depth, color;
     png_get_IHDR(png, info, &width, &height, &depth, &color, nullptr, nullptr, nullptr);
 
-    if (width != PICTO_PHOTO_WIDTH || height != PICTO_PHOTO_HEIGHT)
-        throw std::runtime_error("PNG dimensions mismatch");
+    if (width != PICTO_PHOTO_WIDTH || height != PICTO_PHOTO_HEIGHT) {
+        bail();
+        return;
+    }
 
     png_set_expand(png);
     png_set_strip_16(png);

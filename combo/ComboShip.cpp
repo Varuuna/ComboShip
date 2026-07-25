@@ -348,12 +348,9 @@ static nlohmann::json& LoadOrCreateContainer(int fileNum) {
         }
     }
     if (!parsed)
-        j = nlohmann::json{ { "comboVersion", 1 },
-                            { "comboRelease", COMBO_RELEASE_VERSION },
-                            { "slot", fileNum },
-                            { "oot", nullptr },
-                            { "mm", nullptr },
-                            { "combo", nlohmann::json::object() } };
+        j = nlohmann::json{ { "comboVersion", 1 }, { "comboRelease", COMBO_RELEASE_VERSION },
+                            { "slot", fileNum },   { "oot", nullptr },
+                            { "mm", nullptr },     { "combo", nlohmann::json::object() } };
     return g_containerCache.emplace(fileNum, std::move(j)).first->second;
 }
 

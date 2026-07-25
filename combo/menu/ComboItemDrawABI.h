@@ -71,6 +71,13 @@ typedef struct {
     uint8_t envColorXlu[4];  /* JEWEL gem (XLU) env */
     uint8_t primColorOpa[4]; /* JEWEL setting (OPA) prim */
     uint8_t envColorOpa[4];  /* JEWEL setting (OPA) env */
+
+    /* ComboShip: 1 = this recipe depends on live save state and must NOT be cached — the consumer
+     * re-queries it every frame. Set by producers for items whose model is CHOSEN at draw time rather
+     * than fixed: progressive tiers (which sword/quiver you're owed), Triforce shards
+     * (collected % 3, and the completed model), and junk/trap indirection. Consumers cache recipes per
+     * check per save slot, so without this the first model drawn is frozen for the whole slot. */
+    int32_t stateDependent;
 } CwItemDrawInfo;
 
 /* Returns 1 and fills out on success; 0 if the item is unknown/undrawable.

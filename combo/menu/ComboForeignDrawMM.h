@@ -54,6 +54,9 @@ struct ComboForeignDrawInfoOOT {
     uint8_t primColorOpa[4] = { 0, 0, 0, 0 };          // JEWEL setting prim
     uint8_t envColorOpa[4] = { 0, 0, 0, 0 };           // JEWEL setting env
     const char* dls[CW_DRAW_MAX_DLISTS] = { nullptr }; // interned "__OTR__@oot:..." routed paths
+    // Recipe chosen from live save state (progressive tier, Triforce shard, junk/trap) — re-resolve
+    // every frame instead of caching, or the first model drawn sticks for the whole save slot.
+    bool stateDependent = false;
 };
 
 // Routed path strings must outlive the frame (the GBI wrapper emits the raw pointer into the display
@@ -74,10 +77,13 @@ inline const ComboForeignDrawInfoOOT* ComboResolveForeignDrawInfoOOT(RandoCheckI
         sCacheSlot = slot;
     }
     auto cached = sCache.find(rc);
-    if (cached != sCache.end()) {
+    if (cached != sCache.end() && !cached->second.stateDependent) {
         return cached->second.ok ? &cached->second : nullptr;
     }
+    // A state-dependent recipe (progressive tier, Triforce shard, junk/trap) is re-resolved every
+    // frame; caching it would freeze whichever model happened to be correct on the first draw.
     ComboForeignDrawInfoOOT& info = sCache[rc]; // default ok=false caches negative results too
+    info = ComboForeignDrawInfoOOT{};
 
     const ComboRando::ForeignItem* fi = Rando::MiscBehavior::MM_LookupForeign(rc);
     if (fi == nullptr || fi->itemGame != ComboRando::GAME_OOT) {
@@ -113,6 +119,7 @@ inline const ComboForeignDrawInfoOOT* ComboResolveForeignDrawInfoOOT(RandoCheckI
     info.scale = raw.scale;
     info.hasEnvColor = raw.hasEnvColor != 0;
     info.drawKind = raw.drawKind;
+    info.stateDependent = raw.stateDependent != 0;
     for (int32_t i = 0; i < 4; i++) {
         info.envColor[i] = raw.envColor[i];
         info.primColorXlu[i] = raw.primColorXlu[i];

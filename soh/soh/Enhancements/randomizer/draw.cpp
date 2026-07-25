@@ -556,6 +556,9 @@ struct ComboForeignDrawInfo {
     // the item and ComboForeignAnim_Draw renders it; path strings point at 2ship.dll statics.
     bool animOk = false;
     CwItemAnimDrawInfo anim{};
+    // Recipe chosen from live save state (progressive tier, Triforce shard, junk/trap) — re-resolve
+    // every frame instead of caching, or the first model drawn sticks for the whole save slot.
+    bool stateDependent = false;
 };
 
 // Routed path strings must outlive the frame (the GBI wrapper emits the raw pointer into the
@@ -576,10 +579,13 @@ const ComboForeignDrawInfo* ComboResolveForeignDrawInfo(RandomizerCheck rc) {
         sCacheSlot = slot;
     }
     auto cached = sCache.find(rc);
-    if (cached != sCache.end()) {
+    if (cached != sCache.end() && !cached->second.stateDependent) {
         return cached->second.ok ? &cached->second : nullptr;
     }
+    // A state-dependent recipe (progressive tier, Triforce shard, junk/trap) is re-resolved every
+    // frame; caching it would freeze whichever model happened to be correct on the first draw.
     ComboForeignDrawInfo& info = sCache[rc]; // default ok=false caches negative results too
+    info = ComboForeignDrawInfo{};
 
     const std::string checkName = Rando::StaticData::GetLocation(rc)->GetName();
     const ComboRando::ForeignItem* fi = OOT_LookupForeign(slot, checkName);
@@ -631,6 +637,7 @@ const ComboForeignDrawInfo* ComboResolveForeignDrawInfo(RandomizerCheck rc) {
     info.matAnimPath = raw.matAnimPath; // 2ship static literal (process-lifetime); loaded, not emitted
     info.matAnimBindOpa = raw.matAnimBindOpa != 0;
     info.matAnimBillboard = raw.matAnimBillboard != 0;
+    info.stateDependent = raw.stateDependent != 0;
     for (int32_t i = 0; i < 4; i++) {
         info.envColor[i] = raw.envColor[i];
     }

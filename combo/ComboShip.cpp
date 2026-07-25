@@ -453,7 +453,7 @@ static void Combo_SetLastGame(int fileNum, int game) {
     auto& c = LoadOrCreateContainer(fileNum);
     if (c.value("combo", nlohmann::json::object()).value("lastGame", -1) == game)
         return; // already correct — don't rewrite the container for nothing
-    std::cout << "[ComboShip] lastGame <- " << game << " (slot " << fileNum << ", transition)" << std::endl;
+    std::cout << "[ComboShip] lastGame <- " << game << " (slot " << fileNum << ")" << std::endl;
     c["combo"]["lastGame"] = game;
     FlushContainer(fileNum);
 }
@@ -1805,18 +1805,13 @@ static void Combo_OnOOTSaveLoad(int fileNum) {
 // file-select gate is load-bearing — OnLoadGame also fires on the MM->OOT return and from in-game
 // reloads, where this would bounce the player back into MM forever.
 static void Combo_ResumeMMIfLastSavedThere(int fileNum) {
-    const int onFileSelect = SOH_IsOnFileSelect ? (int)SOH_IsOnFileSelect() : -1;
-    const int lastGame = (fileNum >= 0 && fileNum <= 2) ? Combo_GetLastGame(fileNum) : -1;
-    std::cout << "[ComboShip] resume check: slot=" << fileNum << " lastGame=" << lastGame
-              << " onFileSelect=" << onFileSelect << " park=" << (SOH_ParkForComboMMResume ? 1 : 0)
-              << " mmRun=" << (MM_RunGame ? 1 : 0) << std::endl;
-    if (!SOH_ParkForComboMMResume || !MM_RunGame || onFileSelect != 1) {
+    if (!SOH_ParkForComboMMResume || !MM_RunGame || !SOH_IsOnFileSelect || !SOH_IsOnFileSelect()) {
         return;
     }
     if (fileNum < 0 || fileNum > 2) {
         return; // debug select (0xFF) / Boss Rush (0xFE) share FileChoose_LoadGame
     }
-    if (lastGame != ComboRando::GAME_MM) {
+    if (Combo_GetLastGame(fileNum) != ComboRando::GAME_MM) {
         return;
     }
     std::cout << "[ComboShip] Slot " << fileNum << " was last saved in MM — resuming MM" << std::endl;

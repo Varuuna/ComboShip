@@ -503,7 +503,10 @@ void RandomizerOnPlayerUpdateForRCQueueHandler() {
     if (loc->GetPlacedRandomizerGet() == RG_COMBO_FOREIGN) {
         const ComboRando::ForeignItem* fi =
             OOT_LookupForeign(gSaveContext.fileNum, Rando::StaticData::GetLocation(rc)->GetName());
-        getItemCategory = (fi != nullptr && fi->advancement) ? ITEM_CATEGORY_MAJOR : ITEM_CATEGORY_JUNK;
+        // A disguised trap must be classified as the progression it pretends to be, or skipping junk
+        // animations would identify every trap on sight.
+        const bool major = fi != nullptr && (fi->advancement || fi->HasDisguise());
+        getItemCategory = major ? ITEM_CATEGORY_MAJOR : ITEM_CATEGORY_JUNK;
     }
 #endif
 

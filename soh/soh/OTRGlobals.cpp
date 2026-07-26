@@ -2999,12 +2999,12 @@ void Combo_ApplyItemReceiveSideEffects(const GetItemEntry& gie) {
 // ComboShip: save-direct grant of a resolved OOT item. Shared by SOH_GrantCrossItem and Anchor's
 // team-state backfill so both apply identical dispatch + side effects + persist.
 void Combo_GrantResolvedOOT(const GetItemEntry& gie) {
-    // ComboShip (#84): drop bottle contents when no empty bottle is free. Mirrors the MM-side gate; the
-    // range is Item_Give's bottle-contents branch. Item_Give only avoids corrupting here because
-    // IS_RANDO makes it bail, which every combo save happens to satisfy — don't rely on that.
+    // ComboShip (#84): drop bottle CONTENTS when no bottle is free. Milk Bottle and Ruto's Letter are
+    // excluded exactly as Item_Give excludes them — they create a new bottle, so gating them here
+    // would permanently lose Ruto's Letter and softlock the seed.
     if (gie.modIndex == MOD_NONE &&
         (((gie.itemId >= ITEM_POTION_RED) && (gie.itemId <= ITEM_POE)) || (gie.itemId == ITEM_MILK)) &&
-        !Inventory_HasEmptyBottle()) {
+        gie.itemId != ITEM_MILK_BOTTLE && gie.itemId != ITEM_LETTER_RUTO && !Inventory_HasEmptyBottle()) {
         SPDLOG_INFO("[ComboShip] OOT cross-grant: no empty bottle, dropping bottle contents");
         return;
     }

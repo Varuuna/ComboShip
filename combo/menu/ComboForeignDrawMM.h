@@ -16,9 +16,10 @@
  * standalone. Lives in
  * combo/menu/ because that directory is already on 2ship's include path (zero CMake churn).
  *
- * The animated cross-game class (combo/menu/ComboForeignAnim.h) is intentionally NOT wired here: OOT
- * exposes no skeletal-animated foreign items (OOT_GetItemAnimDrawInfo always returns 0), so there is
- * nothing for MM to draw via SkelAnime today. Add it symmetrically if that ever changes.
+ * The animated cross-game class (combo/menu/ComboForeignAnim.h) is wired here symmetrically with
+ * ComboForeignDrawOOT.h: when the static export has no DL row, OOT_GetItemAnimDrawInfo describes a
+ * skeletal recipe (the boss souls' real boss skeletons, issue #86) and that header drives MM's own
+ * SkelAnime on OOT's resources.
  */
 #ifndef COMBO_FOREIGN_DRAW_MM_H
 #define COMBO_FOREIGN_DRAW_MM_H
@@ -36,6 +37,9 @@
 #endif
 
 #include "ComboItemDrawABI.h"
+// ComboShip: the animated class, with 2ship.dll as the host (see the shim in ComboForeignAnim.h).
+#define COMBO_FOREIGN_ANIM_HOST_MM 1
+#include "ComboForeignAnim.h"
 #include "2s2h/Rando/MiscBehavior/MiscBehavior.h" // Rando::MiscBehavior::MM_LookupForeign
 #include "rando/CrossForeign.h"                   // ComboRando::ForeignItem / GAME_OOT
 
@@ -59,6 +63,10 @@ struct ComboForeignDrawInfoOOT {
     int32_t layerPrimMask = 0;
     int32_t layerEnvMask = 0;
     const char* dls[CW_DRAW_MAX_DLISTS] = { nullptr }; // interned "__OTR__@oot:..." routed paths
+    // ComboShip: animated class (no static DL row — OOT boss souls' real skeletons). When animOk,
+    // anim describes the item and ComboForeignAnim_Draw renders it; paths point at soh.dll statics.
+    bool animOk = false;
+    CwItemAnimDrawInfo anim{};
     // Recipe chosen from live save state (progressive tier, Triforce shard, junk/trap) — re-resolve
     // every frame instead of caching, or the first model drawn sticks for the whole save slot.
     bool stateDependent = false;
@@ -110,6 +118,19 @@ inline const ComboForeignDrawInfoOOT* ComboResolveForeignDrawInfoOOT(RandoCheckI
     const char* drawName = fi->HasDisguise() ? fi->fakeItemName.c_str() : fi->itemName.c_str();
     CwItemDrawInfo raw{};
     if (sGetItemDrawInfo(drawName, &raw) == 0 || raw.dlistCount <= 0) {
+        // ComboShip: no static DL row — try the animated ABI (OOT boss souls' real skeletons). OOT
+        // only describes the item; ComboForeignAnim_Draw loads + draws it (mirror of the OOT side).
+        static Fn_GetItemAnimDrawInfo sGetItemAnimDrawInfo = nullptr;
+        if (sGetItemAnimDrawInfo == nullptr) {
+            HMODULE h = GetModuleHandleA("soh.dll");
+            sGetItemAnimDrawInfo = h ? (Fn_GetItemAnimDrawInfo)GetProcAddress(h, "OOT_GetItemAnimDrawInfo") : nullptr;
+        }
+        if (sGetItemAnimDrawInfo != nullptr && sGetItemAnimDrawInfo(drawName, &info.anim) != 0) {
+            info.animOk = true;
+            info.stateDependent = info.anim.stateDependent != 0;
+            info.ok = true;
+            return &info;
+        }
         return nullptr; // unknown item or non-portable draw func: cached negative -> sentinel forever
     }
 
@@ -639,6 +660,14 @@ inline void MM_DrawComboForeign(RandoCheckId randoCheckId) {
         (randoCheckId != RC_UNKNOWN) ? ComboResolveForeignDrawInfoOOT(randoCheckId) : nullptr;
     if (info == nullptr) {
         GetItem_Draw(gPlayState, GID_RUPEE_BLUE);
+        return;
+    }
+
+    // ComboShip: animated class — combo-owned skeletal draw (any failure -> sentinel, never blank).
+    if (info->animOk) {
+        if (!ComboForeignAnim_Draw(&info->anim, "oot", gPlayState)) {
+            GetItem_Draw(gPlayState, GID_RUPEE_BLUE);
+        }
         return;
     }
 

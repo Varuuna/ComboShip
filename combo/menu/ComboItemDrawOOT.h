@@ -34,6 +34,15 @@
 #include "objects/object_gi_bomb_2/object_gi_bomb_2.h"       // gGiBombchuDL
 #include "objects/object_mamenoki/object_mamenoki.h"         // gMagicBeanSeedlingDL
 #include "objects/object_toki_objects/object_toki_objects.h" // Master Sword model
+// Boss-soul skeletons/animations/textures for the animated cross-game class (issue #86).
+#include "objects/object_goma/object_goma.h"
+#include "objects/object_kingdodongo/object_kingdodongo.h"
+#include "objects/object_gnd/object_gnd.h"
+#include "objects/object_fd/object_fd.h"
+#include "objects/object_sst/object_sst.h"
+#include "objects/object_tw/object_tw.h"
+#include "objects/object_ganon2/object_ganon2.h"
+#include "overlays/actors/ovl_Boss_Goma/z_boss_goma.h" // BOSSGOMA_LIMB_EYE / BOSSGOMA_LIMB_IRIS
 
 // Cosmetic tables owned by soh/.../draw.cpp; reused so the recipes can't drift from the real funcs.
 extern "C" SaveContext gSaveContext; // Triforce shard count (live save state)
@@ -444,6 +453,8 @@ static int32_t OOT_FillItemDrawInfo(RandomizerGet rg, CwItemDrawInfo* out) {
 // keyed on it, see soh/.../item_list.cpp). The returned dlists point at OOT's static OTR asset-path
 // string literals, valid for process lifetime. Returns 0 for unknown items / non-portable draw funcs;
 // the caller falls back to its sentinel.
+static bool OOT_BossSoulUsesSkeleton(RandomizerGet rg); // defined with the animated ABI below
+
 extern "C" __declspec(dllexport) int32_t OOT_GetItemDrawInfo(const char* itemName, CwItemDrawInfo* out) {
     if (itemName == nullptr || out == nullptr) {
         return 0;
@@ -457,6 +468,10 @@ extern "C" __declspec(dllexport) int32_t OOT_GetItemDrawInfo(const char* itemNam
     // Sold Out / Hint have no model of their own: Item::GetGIEntry falls back to RG_NONE, whose gid 0
     // is GID_BOTTLE, so the gid path would draw a misleading bottle. Sentinel instead.
     if (rg == RG_NONE || rg == RG_COMBO_FOREIGN || rg == RG_SOLD_OUT || rg == RG_HINT) {
+        return 0;
+    }
+    // Boss souls drawing their real skeleton have no static DL row — served by the animated ABI.
+    if (OOT_BossSoulUsesSkeleton(rg)) {
         return 0;
     }
     // We run on MM's graph thread while OOT is dormant, and Item::GetGIEntry dereferences gRandomizer
@@ -476,14 +491,206 @@ extern "C" __declspec(dllexport) int32_t OOT_GetItemDrawInfo(const char* itemNam
     return 1;
 }
 
-// Animated variant. OOT has no skeletal-animated foreign class: its only animated get-item draws
-// (fairy, blue fire, poes, skull token) rely on non-portable segment-8 texture scrolls + billboard
-// rotation rather than a SkelAnime skeleton, so there is nothing to describe. Always returns 0; the
-// MM consumer then falls back to its sentinel. Exported for ABI symmetry with MM_GetItemAnimDrawInfo.
+// Boss-soul flame colors, shared by the simplified recipe above and the skeletal one below.
+static const uint8_t kBossSoulFlameColors[9][3] = {
+    { 0, 255, 0 },     // Gohma
+    { 255, 0, 100 },   // King Dodongo
+    { 50, 255, 255 },  // Barinade
+    { 4, 195, 46 },    // Phantom Ganon
+    { 237, 95, 95 },   // Volvagia
+    { 85, 180, 223 },  // Morpha
+    { 126, 16, 177 },  // Bongo Bongo
+    { 222, 158, 47 },  // Twinrova
+    { 150, 150, 150 }, // Ganon
+};
+
+// Randomizer_DrawBossSoul's blue-fire flame: grayscale-tinted, billboarded, on a segment-8 scroll.
+static void OOT_AnimBossSoulFlame(CwItemAnimDrawInfo* out, int slot) {
+    out->flameDlPath = gGiBlueFireFlameDL;
+    out->flameGrayscale = 1;
+    out->flameTranslate[1] = -70.0f;
+    out->flameScale[0] = out->flameScale[1] = out->flameScale[2] = 5.0f;
+    out->flameColor[0] = kBossSoulFlameColors[slot][0];
+    out->flameColor[1] = kBossSoulFlameColors[slot][1];
+    out->flameColor[2] = kBossSoulFlameColors[slot][2];
+    out->flameColor[3] = 255;
+    out->flameHasSeg = 1;
+    out->flameSeg.kind = CW_ANIM_SEG_TEXSCROLL;
+    out->flameSeg.segment = 8;
+    out->flameSeg.onXlu = 1;
+    out->flameSeg.width1 = out->flameSeg.width2 = 16;
+    out->flameSeg.height1 = out->flameSeg.height2 = 32;
+    out->flameSeg.xStep2 = 1;
+    out->flameSeg.yStep2 = -8;
+}
+
+// Overflow writes to the last slot but still bumps the count, so the consumer's validation rejects
+// the whole recipe (sentinel) instead of us writing out of range or silently dropping a bind.
+static CwAnimSegBind* OOT_AnimSeg(CwItemAnimDrawInfo* out, int32_t kind, int32_t segment) {
+    int32_t i = out->segCount++;
+    CwAnimSegBind* s = &out->segs[i < CW_ANIM_MAX_SEGS ? i : CW_ANIM_MAX_SEGS - 1];
+    s->kind = kind;
+    s->segment = segment;
+    s->onOpa = 1;
+    return s;
+}
+
+static void OOT_AnimLimbEnv(CwItemAnimDrawInfo* out, int32_t from, int32_t to, uint8_t r, uint8_t g, uint8_t b,
+                            uint8_t a) {
+    int32_t i = out->limbColorCount++;
+    CwAnimLimbColor* c = &out->limbColors[i < CW_ANIM_MAX_LIMB_COLORS ? i : CW_ANIM_MAX_LIMB_COLORS - 1];
+    c->limbFrom = from;
+    c->limbTo = to;
+    c->env[0] = r;
+    c->env[1] = g;
+    c->env[2] = b;
+    c->env[3] = a;
+}
+
+// ComboShip (issue #86): the boss souls' REAL boss skeletons, described for MM to render through
+// combo/menu/ComboForeignAnim.h. 1:1 with DrawGohma/DrawKingDodongo/... in soh/.../randomizer/
+// draw.cpp. Barinade (per-limb rotation/scale surgery + an XLU post-limb pass) and Morpha (no
+// skeleton at all) are not expressible, so they keep the simplified flame+skull recipe.
+static bool OOT_BossSoulUsesSkeleton(RandomizerGet rg) {
+    if (rg < RG_GOHMA_SOUL || rg > RG_GANON_SOUL ||
+        CVarGetInteger(CVAR_RANDOMIZER_ENHANCEMENT("SimplerBossSoulModels"), 0)) {
+        return false;
+    }
+    int slot = (int)rg - (int)RG_GOHMA_SOUL;
+    return slot != 2 && slot != 5; // Barinade / Morpha
+}
+
+static int32_t OOT_FillBossSoulAnim(int slot, CwItemAnimDrawInfo* out) {
+    out->opa = 1;
+    out->stateDependent = 1; // SimplerBossSoulModels can be toggled mid-session
+    out->hiddenLimb = -1;
+    OOT_AnimBossSoulFlame(out, slot);
+    switch (slot) {
+        case 0: // Gohma
+            out->skelPath = gGohmaSkel;
+            out->animPath = gGohmaIdleCrouchedAnim;
+            out->limbCount = 86;
+            out->nonFlexSkeleton = 1;
+            out->translatePre[1] = -20.0f;
+            out->scale = 0.005f;
+            OOT_AnimSeg(out, CW_ANIM_SEG_EMPTY_DL, 8);
+            OOT_AnimLimbEnv(out, 0, 255, 0, 255, 170, 255); // OverrideLimbDrawGohma's default
+            OOT_AnimLimbEnv(out, BOSSGOMA_LIMB_EYE, BOSSGOMA_LIMB_EYE, 255, 255, 255, 63);
+            OOT_AnimLimbEnv(out, BOSSGOMA_LIMB_IRIS, BOSSGOMA_LIMB_IRIS, 255, 255, 255, 255);
+            return 1;
+        case 1: // King Dodongo
+            out->skelPath = object_kingdodongo_Skel_01B310;
+            out->animPath = object_kingdodongo_Anim_00F0D8;
+            out->limbCount = 49;
+            out->nonFlexSkeleton = 1;
+            out->translatePre[1] = -20.0f;
+            out->scale = 0.003f;
+            return 1;
+        case 3: // Phantom Ganon
+            out->skelPath = gPhantomGanonSkel;
+            out->animPath = gPhantomGanonNeutralAnim;
+            out->limbCount = 26;
+            out->nonFlexSkeleton = 1;
+            out->translatePre[1] = 10.0f;
+            out->scale = 0.007f;
+            out->hasModelEnvColor = 1;
+            out->modelEnvColor[0] = out->modelEnvColor[1] = out->modelEnvColor[2] = out->modelEnvColor[3] = 255;
+            OOT_AnimSeg(out, CW_ANIM_SEG_EMPTY_DL, 8);
+            return 1;
+        case 4: { // Volvagia
+            out->skelPath = gVolvagiaHeadSkel;
+            out->animPath = gVolvagiaHeadEmergeAnim;
+            out->limbCount = 7;
+            out->nonFlexSkeleton = 1;
+            out->scale = 0.007f;
+            OOT_AnimSeg(out, CW_ANIM_SEG_PATH, 9)->path = gVolvagiaEyeOpenTex;
+            CwAnimSegBind* s = OOT_AnimSeg(out, CW_ANIM_SEG_TEXSCROLL, 8);
+            s->yBase1 = 120;
+            s->xStep1 = 4;
+            s->width1 = s->height1 = s->width2 = s->height2 = 32;
+            s->xStep2 = 3;
+            s->yStep2 = -2;
+            out->hasPrimColor = 1;
+            out->primColor[0] = out->primColor[1] = out->primColor[2] = out->primColor[3] = 255;
+            out->hasModelEnvColor = 1;
+            out->modelEnvColor[0] = out->modelEnvColor[1] = out->modelEnvColor[2] = out->modelEnvColor[3] = 255;
+            return 1;
+        }
+        case 6: // Bongo Bongo
+            out->skelPath = gBongoLeftHandSkel;
+            out->animPath = gBongoLeftHandIdleAnim;
+            out->limbCount = 27;
+            out->translatePre[1] = -25.0f;
+            out->scale = 0.006f;
+            OOT_AnimSeg(out, CW_ANIM_SEG_EMPTY_DL, 8);
+            out->hasPrimColor = 1;
+            out->primLodFrac = 0x80;
+            out->primColor[0] = out->primColor[1] = out->primColor[2] = out->primColor[3] = 255;
+            return 1;
+        case 7: { // Twinrova (Kotake)
+            out->skelPath = gTwinrovaKotakeSkel;
+            out->animPath = gTwinrovaKotakeKoumeFlyAnim;
+            out->limbCount = 27;
+            out->translatePre[1] = -10.0f;
+            out->scale = 0.01f;
+            OOT_AnimSeg(out, CW_ANIM_SEG_PATH, 10)->path = gTwinrovaKotakeKoumeEyeOpenTex;
+            out->segs[out->segCount - 1].onXlu = 1;
+            CwAnimSegBind* s8 = OOT_AnimSeg(out, CW_ANIM_SEG_TEXSCROLL, 8);
+            s8->onOpa = 0;
+            s8->onXlu = 1;
+            s8->width1 = s8->height1 = s8->width2 = 32;
+            s8->height2 = 64;
+            s8->xStep2 = 1;
+            s8->xMask2 = 0x7F;
+            s8->yStep2 = -7;
+            s8->yMask2 = 0xFF;
+            CwAnimSegBind* s9 = OOT_AnimSeg(out, CW_ANIM_SEG_TEXSCROLL, 9);
+            s9->onOpa = 0;
+            s9->onXlu = 1;
+            s9->singleLayer = 1;
+            s9->width1 = 32;
+            s9->height1 = 64;
+            s9->yStep1 = 1;
+            s9->yMask1 = 0xFF;
+            CwAnimLimbDL* l = &out->limbDLs[out->limbDLCount++]; // head swap + XLU ice hair (slot 0)
+            l->limbIndex = 21;
+            l->dlPath = gTwinrovaKotakeHeadDL;
+            l->postDlPath = gTwinrovaKotakeIceHairDL;
+            l->postXlu = 1;
+            return 1;
+        }
+        case 8: // Ganon
+            out->skelPath = gGanonSkel;
+            out->animPath = gGanonGuardIdleAnim;
+            out->limbCount = 47;
+            out->translatePre[1] = -33.0f;
+            out->scale = 0.005f;
+            OOT_AnimSeg(out, CW_ANIM_SEG_PATH, 8)->path = gGanonEyeOpenTex;
+            OOT_AnimLimbEnv(out, 42, 255, 255, 255, 255, 255); // OverrideLimbDrawGanon brightens the tail
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+// Animated variant: the skeletal cross-game class. Only OOT's boss souls qualify today — every other
+// animated get-item draw (fairy, blue fire, poes, skull token) is a segment-8 texture scroll rather
+// than a SkelAnime skeleton and rides the static ABI. Returns 0 otherwise; MM falls back to its
+// sentinel. Mirror of MM_GetItemAnimDrawInfo.
 extern "C" __declspec(dllexport) int32_t OOT_GetItemAnimDrawInfo(const char* itemName, CwItemAnimDrawInfo* out) {
-    (void)itemName;
-    (void)out;
-    return 0;
+    if (itemName == nullptr || out == nullptr) {
+        return 0;
+    }
+    auto& nameMap = Rando::StaticData::itemNameToEnum;
+    auto it = nameMap.find(itemName);
+    if (it == nameMap.end() || !OOT_BossSoulUsesSkeleton(it->second)) {
+        return 0;
+    }
+    *out = CwItemAnimDrawInfo{};
+    // Never let an exception unwind across the C ABI into 2ship.dll.
+    try {
+        return OOT_FillBossSoulAnim((int)it->second - (int)RG_GOHMA_SOUL, out);
+    } catch (...) { return 0; }
 }
 
 #endif // COMBO_ITEM_DRAW_OOT_H

@@ -20,6 +20,48 @@
 #include "objects/object_gi_hearts/object_gi_hearts.h"       // Double Defense heart border/container
 #include "objects/object_gi_purse/object_gi_purse.h"         // Tycoon Wallet layers
 #include "objects/object_obj_tokeidai/object_obj_tokeidai.h" // clock tower DLs
+// Enemy-soul + minifrog skeletons for the animated cross-game class (mirrors the include block in
+// mm/2s2h/Rando/DrawFuncs.cpp; only the models we can express cross-game are pulled in).
+#include "assets/objects/object_uch/object_uch.h"                 // Alien
+#include "assets/objects/object_am/object_am.h"                   // Armos
+#include "assets/objects/object_vm/object_vm.h"                   // Beamos
+#include "assets/objects/object_bb/object_bb.h"                   // Bubble
+#include "assets/objects/object_bsb/object_bsb.h"                 // Captain Keeta
+#include "assets/objects/object_famos/object_famos.h"             // Death Armos
+#include "assets/objects/object_utubo/object_utubo.h"             // Deep Python
+#include "assets/objects/object_dekubaba/object_dekubaba.h"       // Deku Baba
+#include "assets/objects/object_dinofos/object_dinofos.h"         // Dinolfos
+#include "assets/objects/object_dodongo/object_dodongo.h"         // Dodongo
+#include "assets/objects/object_grasshopper/object_grasshopper.h" // Dragonfly
+#include "assets/objects/object_snowman/object_snowman.h"         // Eeno
+#include "assets/objects/object_eg/object_eg.h"                   // Eyegore
+#include "assets/objects/object_jso/object_jso.h"                 // Garo
+#include "overlays/actors/ovl_En_Pametfrog/z_en_pametfrog.h"      // Gekko
+#include "assets/objects/object_bee/object_bee.h"                 // Giant Bee
+#include "assets/objects/object_crow/object_crow.h"               // Guay
+#include "assets/objects/object_pp/object_pp.h"                   // Hiploop
+#include "assets/objects/object_knight/object_knight.h"           // Igos du Ikana
+#include "assets/objects/object_firefly/object_firefly.h"         // Keese
+#include "assets/objects/object_rb/object_rb.h"                   // Leever
+#include "assets/objects/object_dekunuts/object_dekunuts.h"       // Mad Scrub
+#include "assets/objects/object_gmo/object_gmo.h"                 // Nejiron
+#include "assets/objects/object_okuta/object_okuta.h"             // Octorok
+#include "assets/objects/object_ph/object_ph.h"                   // Peahat
+#include "assets/objects/object_kz/object_kz.h"                   // Pirate
+#include "assets/objects/object_po/object_po.h"                   // Poe
+#include "assets/objects/object_rd/object_rd.h"                   // Redead
+#include "assets/objects/object_sb/object_sb.h"                   // Shellblade
+#include "assets/objects/object_pr/object_pr.h"                   // Skullfish
+#include "assets/objects/object_st/object_st.h"                   // Skulltula
+#include "assets/objects/object_tl/object_tl.h"                   // Snapper
+#include "assets/objects/object_skb/object_skb.h"                 // Stalchild
+#include "assets/objects/object_thiefbird/object_thiefbird.h"     // Takkuri
+#include "assets/objects/object_tite/object_tite.h"               // Tektite
+#include "assets/objects/object_wallmaster/object_wallmaster.h"   // Wallmaster
+#include "assets/objects/object_boss04/object_boss04.h"           // Wart
+#include "assets/objects/object_wiz/object_wiz.h"                 // Wizrobe
+#include "assets/objects/object_wf/object_wf.h"                   // Wolfos
+#include "objects/object_fr/object_fr.h"                          // Minifrog
 
 // Portable slice of one sDrawItemTable row (defined in mm/src/code/z_draw.c). outDrawKind is a
 // CwDrawKind: 0 = plain OPA/XLU submission, else a non-portable func the consumer replicates.
@@ -455,6 +497,301 @@ static int32_t MM_FillGidAliasDrawInfo(RandoItemId id, CwItemDrawInfo* out) {
     return 1;
 }
 
+// ---- ComboShip: the animated (skeletal) cross-game class. MM's enemy souls and minifrogs are drawn
+// by bespoke SkelAnime funcs (Rando/DrawFuncs.cpp); described here, OOT renders the REAL model via
+// combo/menu/ComboForeignAnim.h instead of the flame-only / Don-Gero-mask stand-ins above.
+
+// One enemy soul's common shape. The per-soul extras (segment binds, colours, texanims) live in the
+// switch in MM_FillEnemySoulAnim; everything here is 1:1 with that enemy's Draw* in DrawFuncs.cpp.
+struct MmSoulModel {
+    int32_t id;
+    const char* skel;
+    const char* anim;
+    int32_t limbCount;
+    int32_t nonFlex;
+    float scale;
+    float transPostY; // Matrix_Translate AFTER the scale, as the real funcs do (model units)
+    uint8_t flame[3];
+    float flameSize;
+};
+
+// clang-format off
+static const MmSoulModel kMmSoulModels[] = {
+    { RI_SOUL_ENEMY_ALIEN,         gAlienSkel,                  gAlienFloatAnim,                ALIEN_LIMB_MAX,          0, 0.007f,     0.0f, {  10, 138,  46 }, 30.0f },
+    { RI_SOUL_ENEMY_ARMOS,         object_am_Skel_005948,       gArmosHopAnim,                  OBJECT_AM_LIMB_MAX,      1, 0.01f,  -3100.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_BEAMOS,        gBeamosSkel,                 gBeamosAnim,                    BEAMOS_LIMB_MAX,         1, 0.01f,  -3200.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_BUBBLE,        gBubbleSkel,                 gBubbleFlyingAnim,              BUBBLE_LIMB_MAX,         1, 0.02f,      0.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_CAPTAIN_KEETA, object_bsb_Skel_00C3E0,      object_bsb_Anim_004894,         OBJECT_BSB_LIMB_MAX,     1, 0.01f,  -3500.0f, { 255, 192,   0 },  5.0f },
+    { RI_SOUL_ENEMY_DEATH_ARMOS,   gFamosSkel,                  gFamosIdleAnim,                 FAMOS_LIMB_MAX,          1, 0.008f, -4100.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_DEEP_PYTHON,   gDeepPythonSkel,             gDeepPythonUnusedSideSwayAnim,  DEEP_PYTHON_LIMB_MAX,    0, 0.02f,      0.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_DEKU_BABA,     gDekuBabaSkel,               gDekuBabaFastChompAnim,         DEKUBABA_LIMB_MAX,       1, 0.02f,      0.0f, { 155, 155, 155 },  6.0f },
+    { RI_SOUL_ENEMY_DINOLFOS,      gDinolfosSkel,               gDinolfosIdleAnim,              DINOLFOS_LIMB_MAX,       0, 0.014f, -2200.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_DODONGO,       object_dodongo_Skel_008318,  object_dodongo_Anim_004C20,     OBJECT_DODONGO_LIMB_MAX, 1, 0.015f, -1500.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_DRAGONFLY,     gDragonflySkel,              gDragonflyFlyAnim,              DRAGONFLY_LIMB_MAX,      1, 0.01f,   -700.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_EENO,          gEenoSkel,                   gEenoIdleAnim,                  EENO_LIMB_MAX,           0, 0.01f,  -3000.0f, { 155, 155,  35 }, 10.0f },
+    { RI_SOUL_ENEMY_EYEGORE,       gEyegoreSkel,                gEyegoreUnusedWalkAnim,         EYEGORE_LIMB_MAX,        0, 0.006f, -4000.0f, { 192, 192,  64 }, 20.0f },
+    { RI_SOUL_ENEMY_GARO,          gGaroSkel,                   gGaroIdleAnim,                  GARO_LIMB_MAX,           0, 0.03f,      0.0f, { 150, 255, 150 },  8.0f },
+    { RI_SOUL_ENEMY_GEKKO,         gGekkoSkel,                  gGekkoBoxingStanceAnim,         GEKKO_LIMB_MAX,          0, 0.006f, -4100.0f, { 150, 100, 255 }, 20.0f },
+    { RI_SOUL_ENEMY_GIANT_BEE,     gBeeSkel,                    gBeeFlyingAnim,                 OBJECT_BEE_LIMB_MAX,     1, 0.01f,      0.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_GUAY,          gGuaySkel,                   gGuayFlyAnim,                   OBJECT_CROW_LIMB_MAX,    0, 0.02f,      0.0f, { 155, 155, 155 },  6.0f },
+    { RI_SOUL_ENEMY_HIPLOOP,       gHiploopSkel,                gHiploopChargeAnim,             HIPLOOP_LIMB_MAX,        0, 0.02f,  -1400.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_IGOS_DU_IKANA, gIgosSkel,                   gKnightIdleAnim,                IGOS_LIMB_MAX,           0, 0.01f,  -2000.0f, {   0,   0,   0 }, 10.0f },
+    { RI_SOUL_ENEMY_KEESE,         gFireKeeseSkel,              gFireKeeseFlyAnim,              FIRE_KEESE_LIMB_MAX,     1, 0.01f,   -700.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_LEEVER,        gLeeverSkel,                 gLeeverSpinAnim,                LEEVER_LIMB_MAX,         1, 0.05f,   -700.0f, { 155, 155, 155 },  3.0f },
+    { RI_SOUL_ENEMY_MAD_SCRUB,     gDekuScrubSkel,              gDekuScrubLookAroundAnim,       DEKU_SCRUB_LIMB_MAX,     1, 0.01f,  -2300.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_NEJIRON,       gNejironSkel,                gNejironIdleAnim,               NEJIRON_LIMB_MAX,        1, 0.015f,     0.0f, { 155, 155, 155 }, 13.0f },
+    { RI_SOUL_ENEMY_OCTOROK,       gOctorokSkel,                gOctorokFloatAnim,              OCTOROK_LIMB_MAX,        1, 0.007f,  -700.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_PEAHAT,        object_ph_Skel_001C80,       object_ph_Anim_0009C4,          OBJECT_PH_LIMB_MAX,      1, 0.01f,      0.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_PIRATE,        gFighterPirateSkel,          gFighterPirateFightingIdleAnim, KAIZOKU_LIMB_MAX,        0, 0.01f,  -2000.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_POE,           gPoeSkel,                    gPoeFloatAnim,                  POE_LIMB_MAX,            1, 0.0075f,-5000.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_REDEAD,        gRedeadSkel,                 gGibdoRedeadPirouetteAnim,      REDEAD_LIMB_MAX,         0, 0.01f,  -2900.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_SHELLBLADE,    object_sb_Skel_002BF0,       object_sb_Anim_000194,          OBJECT_SB_LIMB_MAX,      0, 0.007f, -3500.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_SKULLFISH,     object_pr_Skel_004188,       object_pr_Anim_004340,          OBJECT_PR_2_LIMB_MAX,    0, 0.02f,      0.0f, { 155, 155, 155 },  5.0f },
+    { RI_SOUL_ENEMY_SKULLTULA,     object_st_Skel_005298,       object_st_Anim_000304,          OBJECT_ST_LIMB_MAX,      1, 0.03f,      0.0f, { 155, 155, 155 },  5.0f },
+    { RI_SOUL_ENEMY_SNAPPER,       gSnapperSkel,                gSnapperIdleAnim,               SNAPPER_LIMB_MAX,        0, 0.01f,  -3100.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_STALCHILD,     gStalchildSkel,              gStalchildIdleAnim,             STALCHILD_LIMB_MAX,      1, 0.01f,  -3200.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_TAKKURI,       gTakkuriSkel,                gTakkuriFlyAnim,                TAKKURI_LIMB_MAX,        0, 0.01f,      0.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_TEKTITE,       object_tite_Skel_003A20,     object_tite_Anim_0012E4,        OBJECT_TITE_LIMB_MAX,    1, 0.01f,  -2900.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_WALLMASTER,    gWallmasterSkel,             gWallmasterIdleAnim,            WALLMASTER_LIMB_MAX,     0, 0.01f,  -3500.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_WART,          gWartSkel,                   gWartIdleAnim,                  WART_LIMB_MAX,           0, 0.02f,      0.0f, { 155, 155, 155 }, 10.0f },
+    { RI_SOUL_ENEMY_WIZROBE,       gWizrobeSkel,                gWizrobeIdleAnim,               WIZROBE_LIMB_MAX,        0, 0.006f,     0.0f, { 155, 155, 155 }, 15.0f },
+    { RI_SOUL_ENEMY_WOLFOS,        gWolfosNormalSkel,           gWolfosWaitAnim,                WOLFOS_NORMAL_LIMB_MAX,  0, 0.01f,  -3000.0f, { 155, 155, 155 }, 10.0f },
+};
+// clang-format on
+
+static const MmSoulModel* MM_FindSoulModel(RandoItemId id) {
+    for (const MmSoulModel& m : kMmSoulModels) {
+        if (m.id == (int32_t)id) {
+            return &m;
+        }
+    }
+    return nullptr;
+}
+
+// Overflow writes to the last slot but still bumps the count, so the consumer's validation rejects
+// the whole recipe (sentinel) instead of us writing out of range or silently dropping a bind.
+static CwAnimSegBind* MM_AnimSeg(CwItemAnimDrawInfo* out, int32_t kind, int32_t segment) {
+    int32_t i = out->segCount++;
+    CwAnimSegBind* s = &out->segs[i < CW_ANIM_MAX_SEGS ? i : CW_ANIM_MAX_SEGS - 1];
+    s->kind = kind;
+    s->segment = segment;
+    s->onOpa = 1;
+    return s;
+}
+static void MM_AnimTexSeg(CwItemAnimDrawInfo* out, int32_t segment, const char* path) {
+    MM_AnimSeg(out, CW_ANIM_SEG_PATH, segment)->path = path;
+}
+static void MM_AnimEnv(CwItemAnimDrawInfo* out, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    out->hasModelEnvColor = 1;
+    out->modelEnvColor[0] = r;
+    out->modelEnvColor[1] = g;
+    out->modelEnvColor[2] = b;
+    out->modelEnvColor[3] = a;
+}
+static void MM_AnimPrim(CwItemAnimDrawInfo* out, int32_t lodFrac, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    out->hasPrimColor = 1;
+    out->primLodFrac = lodFrac;
+    out->primColor[0] = r;
+    out->primColor[1] = g;
+    out->primColor[2] = b;
+    out->primColor[3] = a;
+}
+
+// DrawEnLight: the billboarded soul flame, drawn AFTER the model so it inherits its scale/translate.
+static void MM_AnimSoulFlame(CwItemAnimDrawInfo* out, const uint8_t rgb[3], float sx, float sy, float sz) {
+    out->flameDlPath = gameplay_keep_DL_01ACF0;
+    out->flameAfter = 1;
+    out->flameBillboardFirst = 1;
+    out->flameColor[0] = rgb[0];
+    out->flameColor[1] = rgb[1];
+    out->flameColor[2] = rgb[2];
+    out->flameColor[3] = 255;
+    out->flameScale[0] = sx;
+    out->flameScale[1] = sy;
+    out->flameScale[2] = sz;
+    out->flameHasSeg = 1;
+    out->flameSeg.kind = CW_ANIM_SEG_TEXSCROLL;
+    out->flameSeg.segment = 8;
+    out->flameSeg.onXlu = 1;
+    out->flameSeg.width1 = out->flameSeg.width2 = 0x10;
+    out->flameSeg.height1 = out->flameSeg.height2 = 0x20;
+    out->flameSeg.xStep2 = 2;
+    out->flameSeg.xMask2 = 0x3F;
+    out->flameSeg.yStep2 = -6;
+    out->flameSeg.yMask2 = 0x7F;
+}
+
+// The 8 enemy souls with no entry in the table above keep the flame-only stand-in: Bad Bat (9 wing
+// frame DLs, no skeleton), Boe / Chuchu / Freezard / Like Like (non-skeletal or matrix-array driven),
+// Dexihand (hand-built arm segment chain), Gomess (two texanims, one stepped) and Iron Knuckle
+// (segments bound to material DLs). Each needs GPU state this ABI deliberately cannot express.
+static int32_t MM_FillEnemySoulAnim(RandoItemId id, CwItemAnimDrawInfo* out) {
+    const MmSoulModel* m = MM_FindSoulModel(id);
+    if (m == nullptr) {
+        return 0;
+    }
+    out->opa = 1;
+    out->hiddenLimb = -1;
+    out->skelPath = m->skel;
+    out->animPath = m->anim;
+    out->limbCount = m->limbCount;
+    out->nonFlexSkeleton = m->nonFlex;
+    out->scale = m->scale;
+    out->translatePost[1] = m->transPostY;
+    MM_AnimSoulFlame(out, m->flame, m->flameSize, m->flameSize, m->flameSize);
+
+    switch (id) {
+        case RI_SOUL_ENEMY_ALIEN:
+            MM_AnimTexSeg(out, 8, gAlienEyeTex);
+            MM_AnimSeg(out, CW_ANIM_SEG_EMPTY_DL, 0x0C); // Scene_SetRenderModeXlu(play, 0, 1)
+            MM_AnimEnv(out, 255, 255, 255, 255);
+            out->texAnimPath = gAlienEmptyTexAnim;
+            break;
+        case RI_SOUL_ENEMY_ARMOS:
+            MM_AnimEnv(out, 0, 0, 0, 255);
+            break;
+        case RI_SOUL_ENEMY_CAPTAIN_KEETA:
+            MM_AnimSeg(out, CW_ANIM_SEG_EMPTY_DL, 0x0C);
+            MM_AnimEnv(out, 0, 0, 0, 255);
+            out->flameScale[1] = 10.0f; // DrawEnLight({5, 10, 5}) — the one non-uniform flame
+            break;
+        case RI_SOUL_ENEMY_DEATH_ARMOS:
+            out->texAnimPath = gFamosNormalGlowingEmblemTexAnim;
+            break;
+        case RI_SOUL_ENEMY_DINOLFOS:
+            MM_AnimTexSeg(out, 8, gDinolfosEyeOpenTex);
+            MM_AnimSeg(out, CW_ANIM_SEG_EMPTY_DL, 0x0C);
+            MM_AnimEnv(out, 20, 40, 40, 255);
+            break;
+        case RI_SOUL_ENEMY_EYEGORE:
+            MM_AnimPrim(out, 0xFF, 175, 255, 255, 255);
+            MM_AnimEnv(out, 255, 115, 155, 255);
+            out->texAnimPath = gEyegoreEyeLaserTexAnim;
+            break;
+        case RI_SOUL_ENEMY_GARO:
+            MM_AnimSeg(out, CW_ANIM_SEG_EMPTY_DL, 0x0C);
+            break;
+        case RI_SOUL_ENEMY_HIPLOOP:
+            MM_AnimSeg(out, CW_ANIM_SEG_EMPTY_DL, 0x0C);
+            break;
+        case RI_SOUL_ENEMY_IGOS_DU_IKANA:
+            MM_AnimSeg(out, CW_ANIM_SEG_EMPTY_DL, 0x0A)->onXlu = 1;
+            MM_AnimSeg(out, CW_ANIM_SEG_EMPTY_DL, 0x09);
+            break;
+        case RI_SOUL_ENEMY_KEESE:
+            MM_AnimEnv(out, 0, 0, 0, 0);
+            break;
+        case RI_SOUL_ENEMY_LEEVER:
+            out->playSpeed = -1.0f; // the spin already matches the get-item rotation; reverse it
+            MM_AnimPrim(out, 0x01, 255, 255, 255, 255);
+            break;
+        case RI_SOUL_ENEMY_NEJIRON:
+            MM_AnimTexSeg(out, 8, gNejironEyeOpenTex);
+            break;
+        case RI_SOUL_ENEMY_OCTOROK:
+            MM_AnimSeg(out, CW_ANIM_SEG_EMPTY_DL, 8);
+            break;
+        case RI_SOUL_ENEMY_PIRATE:
+            MM_AnimTexSeg(out, 8, gFighterPirateEyeOpenTex);
+            break;
+        case RI_SOUL_ENEMY_POE:
+            MM_AnimSeg(out, CW_ANIM_SEG_EMPTY_DL, 8);
+            MM_AnimEnv(out, 255, 255, 255, 255);
+            break;
+        case RI_SOUL_ENEMY_REDEAD:
+            MM_AnimSeg(out, CW_ANIM_SEG_EMPTY_DL, 8);
+            break;
+        case RI_SOUL_ENEMY_SKULLFISH:
+            MM_AnimSeg(out, CW_ANIM_SEG_EMPTY_DL, 0x0C);
+            MM_AnimPrim(out, 0, 255, 255, 255, 255);
+            MM_AnimEnv(out, 0, 0, 0, 255);
+            break;
+        case RI_SOUL_ENEMY_SNAPPER:
+            MM_AnimTexSeg(out, 8, gSnapperEyeOpenTex);
+            break;
+        case RI_SOUL_ENEMY_TEKTITE:
+            MM_AnimTexSeg(out, 8, object_tite_Tex_001300);
+            MM_AnimTexSeg(out, 9, object_tite_Tex_001700);
+            MM_AnimTexSeg(out, 0x0A, object_tite_Tex_001900);
+            break;
+        case RI_SOUL_ENEMY_WIZROBE:
+            out->translatePre[1] = -20.0f; // Wizrobe translates in world units, before the scale
+            MM_AnimTexSeg(out, 8, gWizrobeEyeTex);
+            MM_AnimSeg(out, CW_ANIM_SEG_EMPTY_DL, 0x0C);
+            MM_AnimEnv(out, 255, 255, 255, 255);
+            break;
+        case RI_SOUL_ENEMY_WOLFOS:
+            MM_AnimTexSeg(out, 8, gWolfosNormalEyeOpenTex);
+            break;
+        default:
+            break;
+    }
+    return 1;
+}
+
+// DrawMinifrog: per-frog env colour, iris textures on segments 8/9, and the eye limbs suppressed
+// then re-submitted billboarded in the post-limb pass (EnMinifrog_OverrideLimbDraw + PostLimbDraw).
+static int32_t MM_FillMinifrogAnim(RandoItemId id, CwItemAnimDrawInfo* out) {
+    uint8_t env[4] = { 200, 170, 0, 255 }; // FROG_YELLOW
+    switch (id) {
+        case RI_FROG_BLUE:
+            env[0] = 120;
+            env[1] = 130;
+            env[2] = 230;
+            break;
+        case RI_FROG_CYAN:
+            env[0] = 0;
+            env[1] = 170;
+            env[2] = 200;
+            break;
+        case RI_FROG_PINK:
+            env[0] = 210;
+            env[1] = 120;
+            env[2] = 100;
+            break;
+        case RI_FROG_WHITE:
+            env[0] = env[1] = env[2] = 190;
+            break;
+        default:
+            return 0;
+    }
+    out->opa = 1;
+    out->hiddenLimb = -1;
+    out->skelPath = gFrogSkel;
+    out->animPath = gFrogIdleAnim;
+    out->limbCount = FROG_LIMB_MAX;
+    out->translatePre[1] = -20.0f;
+    out->scale = 0.03f;
+    MM_AnimEnv(out, env[0], env[1], env[2], env[3]);
+    MM_AnimTexSeg(out, 8, gFrogIrisOpenTex);
+    MM_AnimTexSeg(out, 9, gFrogIrisOpenTex);
+
+    CwAnimLimbDL* body = &out->limbDLs[out->limbDLCount++]; // 3 of CW_ANIM_MAX_LIMB_DLS
+    body->limbIndex = FROG_LIMB_LOWER_BODY;
+    body->posDz = -500.0f;
+    for (int32_t limb : { (int32_t)FROG_LIMB_RIGHT_EYE, (int32_t)FROG_LIMB_LEFT_EYE }) {
+        CwAnimLimbDL* eye = &out->limbDLs[out->limbDLCount++];
+        eye->limbIndex = limb;
+        eye->hide = 1;
+        eye->postSelf = 1;
+        eye->postBillboard = 1;
+    }
+    return 1;
+}
+
+static int32_t MM_FillAnimDrawInfo(RandoItemId id, CwItemAnimDrawInfo* out) {
+    if (MM_FillEnemySoulAnim(id, out) || MM_FillMinifrogAnim(id, out)) {
+        return 1;
+    }
+    return 0;
+}
+
+// True for items served by the animated ABI, so the static export bails and OOT falls through to it.
+static bool MM_HasAnimDraw(RandoItemId id) {
+    CwItemAnimDrawInfo probe{};
+    return MM_FillAnimDrawInfo(id, &probe) != 0;
+}
+
 // Cross-game item draw info. OOT resolves this via GetProcAddress to learn which MM display lists
 // render a foreign item, then submits them through "__OTR__@mm:"-routed paths resolved against
 // MM's ResourceManager (CrossRMRegistry). itemName is the friendly combo-spoiler name the foreign
@@ -573,8 +910,8 @@ extern "C" __declspec(dllexport) int32_t MM_GetItemDrawInfo(const char* itemName
     if (id == RI_UNKNOWN) {
         id = Rando::StaticData::GetItemIdFromName(itemName); // sentinel / raw RI_
     }
-    if (id == RI_UNKNOWN) {
-        return 0;
+    if (id == RI_UNKNOWN || MM_HasAnimDraw(id)) {
+        return 0; // the animated ABI serves the skeletal class (enemy souls, minifrogs)
     }
     *out = CwItemDrawInfo{};
     // We run on OOT's graph thread while MM is dormant; never let an exception unwind across the C
@@ -603,6 +940,13 @@ extern "C" __declspec(dllexport) int32_t MM_GetItemAnimDrawInfo(const char* item
     if (animId == RI_UNKNOWN) {
         animId = Rando::StaticData::GetItemIdFromName(itemName);
     }
+    *out = CwItemAnimDrawInfo{};
+    // The OPA/skeletal class (enemy souls, minifrogs); never let an exception cross the C ABI.
+    try {
+        if (MM_FillAnimDrawInfo(animId, out)) {
+            return 1;
+        }
+    } catch (...) { return 0; }
     switch (animId) {
         case RI_WOODFALL_STRAY_FAIRY:
             texAnim = gStrayFairyWoodfallTexAnim;

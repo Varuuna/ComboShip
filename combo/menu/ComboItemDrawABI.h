@@ -144,10 +144,57 @@ typedef struct {
  * itemName is in the owning game's item namespace (MM: RI_* spoilerName; OOT: English name). */
 typedef int32_t (*Fn_GetItemDrawInfo)(const char* itemName, CwItemDrawInfo* out);
 
+/* ComboShip: one segment bind a foreign animated draw needs in the host frame. Every bind is
+ * restored to an empty DL after the draw (segment hygiene); a bind we cannot express means the
+ * whole recipe is rejected rather than submitting a DL against an unbound segment. */
+typedef enum {
+    CW_ANIM_SEG_EMPTY_DL = 0,      /* host-allocated gsSPEndDisplayList (MM D_801AEFA0 / OOT GetEmptyDlist) */
+    CW_ANIM_SEG_PATH,              /* the owning game's own "__OTR__..." texture path (resolved under the RM bracket) */
+    CW_ANIM_SEG_TEXSCROLL,         /* Gfx_TwoTexScrollEx / Gfx_TexScrollEx built from the params below */
+    CW_ANIM_SEG_XLU_RENDERMODE_1CY /* MM Scene_SetRenderModeXlu index 1 (single-cycle XLU render mode DL) */
+} CwAnimSegKind;
+
+typedef struct {
+    int32_t kind;     /* CwAnimSegKind */
+    int32_t segment;  /* 8..13 */
+    int32_t onOpa;    /* bind on the OPA stream */
+    int32_t onXlu;    /* bind on the XLU stream */
+    const char* path; /* CW_ANIM_SEG_PATH only */
+    /* CW_ANIM_SEG_TEXSCROLL: each layer's offset is (base + step * frames) & mask (mask 0 = none). */
+    int32_t singleLayer; /* 1 = Gfx_TexScrollEx (layer 1 only) */
+    int32_t xBase1, yBase1, xStep1, yStep1, xMask1, yMask1, width1, height1;
+    int32_t xBase2, yBase2, xStep2, yStep2, xMask2, yMask2, width2, height2;
+} CwAnimSegBind;
+
+/* Per-limb env colour override (OverrideLimbDraw* in the real funcs). Ranges are inclusive and
+ * applied in order, so a broad default can be followed by narrower overrides (OOT's Gohma). */
+typedef struct {
+    int32_t limbFrom, limbTo;
+    uint8_t env[4];
+} CwAnimLimbColor;
+
+/* Per-limb display-list surgery: hide a limb, swap its DL, nudge its position, and/or submit an
+ * extra DL in the post-limb pass (OOT Twinrova's ice hair, MM minifrog's billboarded eyes). */
+typedef struct {
+    int32_t limbIndex;
+    int32_t hide;       /* 1 = *dList = NULL */
+    const char* dlPath; /* replace this limb's DL with the owning game's path, or NULL */
+    float posDx, posDy, posDz;
+    int32_t postSelf;       /* 1 = re-submit the limb's ORIGINAL DL in the post-limb pass */
+    const char* postDlPath; /* extra DL in the post-limb pass, or NULL */
+    int32_t postBillboard;  /* 1 = Matrix_ReplaceRotation before the post-limb submission */
+    int32_t postXlu;        /* 1 = post-limb submission goes on the XLU stream (else OPA) */
+} CwAnimLimbDL;
+
+#define CW_ANIM_MAX_SEGS 6
+#define CW_ANIM_MAX_LIMB_COLORS 6
+#define CW_ANIM_MAX_LIMB_DLS 4
+
 /* ComboShip: animated variant — the owning game describes a skeletal/animated item (skeleton,
  * animation, texture-animation paths); the host's combo-owned code (combo/menu/ComboForeignAnim.h)
  * loads the resources via the owning game's ResourceManager (CrossRMRegistry) and drives the host's
- * own SkelAnime engine. First served: MM stray fairies. Paths are static literals (process lifetime). */
+ * own SkelAnime engine. First served: MM stray fairies. Paths are static literals (process lifetime).
+ * APPEND-ONLY: this is a POD C ABI shared by soh.dll and 2ship.dll — never reorder/resize members. */
 typedef struct {
     const char* skelPath;    /* FlexSkeleton resource (OTR path) */
     const char* animPath;    /* Animation resource */
@@ -157,6 +204,38 @@ typedef struct {
     int32_t xlu;             /* 1 = draw on XLU layer with 25Xlu setup */
     int32_t limbCount;       /* skeleton limb count (jointTable sizing) */
     int32_t hiddenLimb;      /* limb index to null out (stray fairy: right-facing head), -1 none */
+
+    /* --- ComboShip appended: the OPA/skeletal class (OOT boss souls, MM enemy souls + minifrogs).
+     * The fields above alone could only express an XLU flex-skeleton item with one hidden limb. */
+    int32_t opa;             /* 1 = 25Opa setup + SkelAnime_Draw*Opa (mutually exclusive with xlu) */
+    int32_t nonFlexSkeleton; /* 1 = SkeletonHeader + SkelAnime_Init (0 = FlexSkeletonHeader/InitFlex) */
+    float playSpeed;         /* animation speed; 0 = leave at the engine default (MM Leever: -1) */
+    float translatePre[3];   /* Matrix_Translate BEFORE the scale (OOT boss souls: world units) */
+    float translatePost[3];  /* Matrix_Translate AFTER the scale (MM enemy souls: model units) */
+    int32_t hasPrimColor;
+    uint8_t primColor[4];
+    int32_t primLodFrac;
+    int32_t hasModelEnvColor; /* env colour emitted once before the skeleton */
+    uint8_t modelEnvColor[4];
+    int32_t segCount;
+    CwAnimSegBind segs[CW_ANIM_MAX_SEGS];
+    int32_t limbColorCount;
+    CwAnimLimbColor limbColors[CW_ANIM_MAX_LIMB_COLORS];
+    int32_t limbDLCount;
+    CwAnimLimbDL limbDLs[CW_ANIM_MAX_LIMB_DLS];
+    /* Secondary composite pass: the soul flame around the model (OOT Randomizer_DrawBossSoul's
+     * grayscale-tinted blue fire, MM DrawEnLight's prim/env-coloured flame). NULL = no flame. */
+    const char* flameDlPath;
+    int32_t flameAfter;          /* 1 = after the model, inheriting its transform (MM); 0 = before (OOT) */
+    int32_t flameGrayscale;      /* 1 = gDPSetGrayscaleColor + gSPGrayscale (OOT); 0 = prim+env (MM) */
+    int32_t flameBillboardFirst; /* 1 = billboard before translate/scale (MM DrawEnLight) */
+    uint8_t flameColor[4];
+    float flameTranslate[3];
+    float flameScale[3];
+    int32_t flameHasSeg;
+    CwAnimSegBind flameSeg;
+    /* 1 = recipe depends on live state (e.g. OOT's SimplerBossSoulModels CVar) — do not cache. */
+    int32_t stateDependent;
 } CwItemAnimDrawInfo;
 typedef int32_t (*Fn_GetItemAnimDrawInfo)(const char* itemName, CwItemAnimDrawInfo* out);
 

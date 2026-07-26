@@ -4,8 +4,10 @@
  * loads those resources through the OWNING game's resident ResourceManager (CrossRMRegistry) and
  * drives the HOST game's own SkelAnime engine on them. Feasible because the games' skeleton and
  * animation structs are byte-identical (SkelAnime 0x44, StandardLimb, FlexSkeletonHeader,
- * AnimationHeader). First class served: MM stray fairies in OOT
- * (reference implementation mirrored: mm/2s2h/Rando/DrawItem.cpp DrawStrayFairy).
+ * AnimationHeader). Bidirectional: the host is whichever game includes this header (see the
+ * COMBO_FOREIGN_ANIM_HOST_MM shim below) and `game` names the OWNING game, so limb DLs route to
+ * "__OTR__@<game>:" in either direction. Classes served: MM stray fairies + enemy souls + minifrogs
+ * in OOT, and OOT boss souls in MM.
  *
  * Also ports the minimal AnimatedMaterial subset the stray-fairy texanims need. OOT has no
  * AnimatedMat system; MM's lives in mm/src/code/z_scene_proc.c. All five gStrayFairy*TexAnim
@@ -26,6 +28,24 @@
 
 #ifndef OPEN_DISPS
 #error "ComboForeignAnim.h is TU-glue: include the host engine headers (z64.h/macros.h/functions.h) before it"
+#endif
+
+// ---- Host adaptation. The two engines expose the same primitives under different spellings, so the
+// including TU declares which one it is: define COMBO_FOREIGN_ANIM_HOST_MM before the include when
+// 2ship.dll is the host (soh.dll is the default). Everything else in this header is host-agnostic.
+#ifdef COMBO_FOREIGN_ANIM_HOST_MM
+#define CFA_SETUP_OPA(gfxCtx) Gfx_SetupDL25_Opa(gfxCtx)
+#define CFA_SETUP_XLU(gfxCtx) Gfx_SetupDL25_Xlu(gfxCtx)
+#define CFA_ALLOC(gfxCtx, size) GRAPH_ALLOC(gfxCtx, size)
+#define CFA_LOAD_MTX(pkt, gfxCtx) MATRIX_FINALIZE_AND_LOAD(pkt, gfxCtx)
+#define CFA_LIMB_ARG Actor*
+#else
+#define CFA_SETUP_OPA(gfxCtx) Gfx_SetupDL_25Opa(gfxCtx)
+#define CFA_SETUP_XLU(gfxCtx) Gfx_SetupDL_25Xlu(gfxCtx)
+#define CFA_ALLOC(gfxCtx, size) Graph_Alloc(gfxCtx, size)
+#define CFA_LOAD_MTX(pkt, gfxCtx) \
+    gSPMatrix(pkt, Matrix_NewMtx(gfxCtx, (char*)__FILE__, __LINE__), G_MTX_MODELVIEW | G_MTX_LOAD)
+#define CFA_LIMB_ARG void*
 #endif
 
 #include <ship/Context.h>
@@ -117,12 +137,17 @@ inline uint8_t CfaLagrangeInterpColor(int32_t n, const float x[], const float fx
 
 // AnimatedMat_SetColor, XLU only: build the 3-command prim/env color DL in host frame memory and
 // point the segment at it. Raw host pointer — no RM bracket needed for this one.
-inline void CfaSetColorSegment(PlayState* play, int32_t segment, const CfaPrimColor* prim, const CfaEnvColor* env) {
-    Gfx* gfx = (Gfx*)Graph_Alloc(play->state.gfxCtx, 3 * sizeof(Gfx));
+inline void CfaSetColorSegment(PlayState* play, int32_t segment, const CfaPrimColor* prim, const CfaEnvColor* env,
+                               bool colorOpa = false) {
+    Gfx* gfx = (Gfx*)CFA_ALLOC(play->state.gfxCtx, 3 * sizeof(Gfx));
     Gfx* head = gfx;
 
     OPEN_DISPS(play->state.gfxCtx);
-    gSPSegment(POLY_XLU_DISP++, segment, (uintptr_t)head); // host GbiWrap fn: target is uintptr_t
+    if (colorOpa) { // OPA/skeletal class: the model samples the animated colour on the OPA stream
+        gSPSegment(POLY_OPA_DISP++, segment, (uintptr_t)head);
+    } else {
+        gSPSegment(POLY_XLU_DISP++, segment, (uintptr_t)head); // host GbiWrap fn: target is uintptr_t
+    }
     CLOSE_DISPS(play->state.gfxCtx);
 
     gDPSetPrimColor(gfx++, 0, prim->lodFrac, prim->r, prim->g, prim->b, prim->a);
@@ -134,7 +159,8 @@ inline void CfaSetColorSegment(PlayState* play, int32_t segment, const CfaPrimCo
 
 // AnimatedMat_DrawColorNonLinearInterp. The loaded resource's primColors/envColors/keyFrames are
 // real host pointers (factory-built), so MM's Lib_SegmentedToVirtual calls are identity — dropped.
-inline void CfaDrawColorLagrange(PlayState* play, int32_t segment, const CfaColorParams* p, uint32_t step) {
+inline void CfaDrawColorLagrange(PlayState* play, int32_t segment, const CfaColorParams* p, uint32_t step,
+                                 bool colorOpa = false) {
     float curFrame = (float)(step % p->keyFrameLength);
     float x[kMaxKeyFrames];
     float fxPrim[5][kMaxKeyFrames]; // r g b a lodFrac
@@ -170,7 +196,7 @@ inline void CfaDrawColorLagrange(PlayState* play, int32_t segment, const CfaColo
         env.b = CfaLagrangeInterpColor(n, x, fxEnv[2], curFrame);
         env.a = CfaLagrangeInterpColor(n, x, fxEnv[3], curFrame);
     }
-    CfaSetColorSegment(play, segment, &prim, (p->envColors != NULL) ? &env : NULL);
+    CfaSetColorSegment(play, segment, &prim, (p->envColors != NULL) ? &env : NULL, colorOpa);
 }
 
 // AnimatedMat_DrawTwoTexScroll (type 1): build the two-layer scroll DL and point `segment` at it on
@@ -194,7 +220,7 @@ inline void CfaDrawTwoTexScroll(PlayState* play, int32_t segment, const CfaTexSc
 // the caller can restore them. step = play->gameplayFrames (MM's AnimatedMat_Draw uses the same).
 // bindOpa: also bind on the OPA stream (scroll types only; color types stay XLU-only by design).
 inline void CfaDrawTexAnim(PlayState* play, const CfaMatEntry* mat, uint32_t step, int32_t* outSegs,
-                           int32_t* outSegCount, bool bindOpa) {
+                           int32_t* outSegCount, bool bindOpa, bool colorOpa = false) {
     int32_t seg;
     int32_t guard = 0;
     do {
@@ -203,7 +229,7 @@ inline void CfaDrawTexAnim(PlayState* play, const CfaMatEntry* mat, uint32_t ste
         if (mat->type == kMatTypeTwoTexScroll) { // type pre-validated
             CfaDrawTwoTexScroll(play, segAbs, (const CfaTexScrollEntry*)mat->params, step, bindOpa);
         } else {
-            CfaDrawColorLagrange(play, segAbs, (const CfaColorParams*)mat->params, step);
+            CfaDrawColorLagrange(play, segAbs, (const CfaColorParams*)mat->params, step, colorOpa);
         }
         if (*outSegCount < kMaxMatEntries) {
             outSegs[(*outSegCount)++] = segAbs;
@@ -249,7 +275,8 @@ struct CfaSkelEntry {
     std::shared_ptr<Ship::IResource> skelRes;
     std::shared_ptr<Ship::IResource> animRes;
     SkelAnime skelAnime{};
-    std::vector<Vec3s> jointTable; // doubles as morphTable, mirroring MM's DrawStrayFairy
+    std::vector<Vec3s> jointTable; // doubles as morphTable on the XLU path, mirroring DrawStrayFairy
+    std::vector<Vec3s> morphTable; // OPA path only (the real funcs keep the two tables separate)
     uint32_t lastUpdate = 0;       // frame guard: one SkelAnime_Update per frame per skeleton
 };
 
@@ -274,6 +301,9 @@ inline Gfx* CfaRouteLimbDList(Gfx* dList) {
     if (s == nullptr || strncmp(s, "__OTR__", 7) != 0) {
         return dList; // raw pointer (or null) — covered by the RM bracket instead
     }
+    if (sCfaCurrentGame == nullptr) {
+        return NULL; // no direction set: drop the limb rather than submit an unrouted foreign DL
+    }
     static std::unordered_map<const void*, std::string> sRouted; // node-based: values pointer-stable
     auto it = sRouted.find(s);
     if (it == sRouted.end()) {
@@ -284,7 +314,7 @@ inline Gfx* CfaRouteLimbDList(Gfx* dList) {
 
 // OverrideLimbDraw for the host's SkelAnime_DrawFlex: null the described hidden limb (stray fairy:
 // right-facing head, mirroring MM's StrayFairyOverrideLimbDraw) and route every other limb DL.
-inline s32 CfaOverrideLimbDraw(PlayState* play, s32 limbIndex, Gfx** dList, Vec3f* pos, Vec3s* rot, void* arg,
+inline s32 CfaOverrideLimbDraw(PlayState* play, s32 limbIndex, Gfx** dList, Vec3f* pos, Vec3s* rot, CFA_LIMB_ARG arg,
                                Gfx** gfx) {
     if (limbIndex == (s32)(intptr_t)arg) {
         *dList = NULL;
@@ -294,23 +324,302 @@ inline s32 CfaOverrideLimbDraw(PlayState* play, s32 limbIndex, Gfx** dList, Vec3
     return false;
 }
 
+// ---- OPA/skeletal class (OOT boss souls, MM enemy souls + minifrogs). Unlike the XLU stray-fairy
+// path above, this drives the host's SkelAnime_Draw*Opa entry points, whose limb callbacks write
+// straight to POLY_OPA_DISP/POLY_XLU_DISP, and replays the recipe's segment binds, per-limb colours
+// and limb-DL surgery. The in-flight recipe rides a file static because the *Opa callback signature
+// has no user argument we can key on (single-threaded draw, same as sCfaCurrentGame).
+inline const CwItemAnimDrawInfo* sCfaInfo = nullptr;
+
+inline const CwAnimLimbDL* CfaFindLimbDL(s32 limbIndex) {
+    if (sCfaInfo == nullptr) {
+        return nullptr;
+    }
+    for (int32_t i = 0; i < sCfaInfo->limbDLCount; i++) {
+        if (sCfaInfo->limbDLs[i].limbIndex == (int32_t)limbIndex) {
+            return &sCfaInfo->limbDLs[i];
+        }
+    }
+    return nullptr;
+}
+
+inline Gfx* CfaEmptyDL(PlayState* play) {
+    Gfx* dl = (Gfx*)CFA_ALLOC(play->state.gfxCtx, sizeof(Gfx));
+    Gfx* p = dl;
+    gSPEndDisplayList(p++);
+    return dl;
+}
+
+// MM's Scene_SetRenderModeXlu index 1 (single-cycle XLU render mode), rebuilt in host frame memory.
+inline Gfx* CfaXluRenderModeDL(PlayState* play) {
+    Gfx* dl = (Gfx*)CFA_ALLOC(play->state.gfxCtx, 2 * sizeof(Gfx));
+    Gfx* p = dl;
+    gDPSetRenderMode(p++,
+                     AA_EN | Z_CMP | IM_RD | CLR_ON_CVG | CVG_DST_WRAP | ZMODE_XLU | FORCE_BL |
+                         GBL_c1(G_BL_CLR_IN, G_BL_0, G_BL_CLR_IN, G_BL_1),
+                     G_RM_AA_ZB_XLU_SURF2);
+    gSPEndDisplayList(p++);
+    return dl;
+}
+
+inline Gfx* CfaBuildScroll(PlayState* play, const CwAnimSegBind* b) {
+    int32_t t = (int32_t)play->state.frames;
+    int32_t x1 = b->xBase1 + b->xStep1 * t;
+    int32_t y1 = b->yBase1 + b->yStep1 * t;
+    int32_t x2 = b->xBase2 + b->xStep2 * t;
+    int32_t y2 = b->yBase2 + b->yStep2 * t;
+    if (b->xMask1) {
+        x1 &= b->xMask1;
+    }
+    if (b->yMask1) {
+        y1 &= b->yMask1;
+    }
+    if (b->xMask2) {
+        x2 &= b->xMask2;
+    }
+    if (b->yMask2) {
+        y2 &= b->yMask2;
+    }
+    if (b->singleLayer) {
+        return Gfx_TexScrollEx(play->state.gfxCtx, x1, y1, b->width1, b->height1, b->xStep1, b->yStep1);
+    }
+    return Gfx_TwoTexScrollEx(play->state.gfxCtx, 0, x1, y1, b->width1, b->height1, 1, x2, y2, b->width2, b->height2,
+                              b->xStep1, b->yStep1, b->xStep2, b->yStep2);
+}
+
+// Bind one described segment in the host frame and record it so the caller can restore it.
+inline void CfaBindSeg(PlayState* play, const CwAnimSegBind* b, int32_t* segs, int32_t* segCount) {
+    uintptr_t target = 0;
+    switch (b->kind) {
+        case CW_ANIM_SEG_EMPTY_DL:
+            target = (uintptr_t)CfaEmptyDL(play);
+            break;
+        case CW_ANIM_SEG_PATH:
+            target = (uintptr_t)b->path; // resolved against the owning RM by the bracket around the draw
+            break;
+        case CW_ANIM_SEG_TEXSCROLL:
+            target = (uintptr_t)CfaBuildScroll(play, b);
+            break;
+        case CW_ANIM_SEG_XLU_RENDERMODE_1CY:
+            target = (uintptr_t)CfaXluRenderModeDL(play);
+            break;
+        default:
+            return; // pre-validated; never submit a DL against a segment we could not bind
+    }
+    OPEN_DISPS(play->state.gfxCtx);
+    if (b->onOpa) {
+        gSPSegment(POLY_OPA_DISP++, b->segment, target);
+    }
+    if (b->onXlu) {
+        gSPSegment(POLY_XLU_DISP++, b->segment, target);
+    }
+    CLOSE_DISPS(play->state.gfxCtx);
+    if (*segCount < CW_ANIM_MAX_SEGS + 1) {
+        segs[(*segCount)++] = b->segment;
+    }
+}
+
+// Restore every segment the recipe bound to a benign empty DL, on BOTH streams (harmless where a
+// segment was only bound on one) — same hygiene as MM_RestoreForeignSegs / OOT_RestoreForeignSegs.
+inline void CfaRestoreSegs(PlayState* play, const int32_t* segs, int32_t count) {
+    if (count <= 0) {
+        return;
+    }
+    Gfx* empty = CfaEmptyDL(play);
+    OPEN_DISPS(play->state.gfxCtx);
+    for (int32_t i = 0; i < count; i++) {
+        gSPSegment(POLY_OPA_DISP++, segs[i], (uintptr_t)empty);
+        gSPSegment(POLY_XLU_DISP++, segs[i], (uintptr_t)empty);
+    }
+    CLOSE_DISPS(play->state.gfxCtx);
+}
+
+inline s32 CfaOverrideLimbDrawOpa(PlayState* play, s32 limbIndex, Gfx** dList, Vec3f* pos, Vec3s* rot,
+                                  CFA_LIMB_ARG arg) {
+    const CwItemAnimDrawInfo* info = sCfaInfo;
+    if (info == nullptr || dList == NULL) {
+        return false;
+    }
+    bool synced = false;
+    OPEN_DISPS(play->state.gfxCtx);
+    for (int32_t i = 0; i < info->limbColorCount; i++) { // later ranges win, mirroring the real funcs
+        const CwAnimLimbColor* c = &info->limbColors[i];
+        if ((int32_t)limbIndex >= c->limbFrom && (int32_t)limbIndex <= c->limbTo) {
+            if (!synced) {
+                gDPPipeSync(POLY_OPA_DISP++);
+                synced = true;
+            }
+            gDPSetEnvColor(POLY_OPA_DISP++, c->env[0], c->env[1], c->env[2], c->env[3]);
+        }
+    }
+    CLOSE_DISPS(play->state.gfxCtx);
+
+    const CwAnimLimbDL* l = CfaFindLimbDL(limbIndex);
+    if (l != nullptr) {
+        if (pos != NULL) {
+            pos->x += l->posDx;
+            pos->y += l->posDy;
+            pos->z += l->posDz;
+        }
+        if (l->hide) {
+            *dList = NULL;
+            return false;
+        }
+        if (l->dlPath != NULL) {
+            *dList = CfaRouteLimbDList((Gfx*)l->dlPath);
+            return false;
+        }
+    }
+    if (info->hiddenLimb > 0 && (int32_t)limbIndex == info->hiddenLimb) {
+        *dList = NULL;
+        return false;
+    }
+    *dList = CfaRouteLimbDList(*dList);
+    return false;
+}
+
+inline void CfaPostLimbDrawOpa(PlayState* play, s32 limbIndex, Gfx** dList, Vec3s* rot, CFA_LIMB_ARG arg) {
+    const CwAnimLimbDL* l = CfaFindLimbDL(limbIndex);
+    if (l == nullptr || (l->postSelf == 0 && l->postDlPath == NULL)) {
+        return;
+    }
+    Gfx* dl = (l->postDlPath != NULL) ? CfaRouteLimbDList((Gfx*)l->postDlPath)
+                                      : ((dList != NULL) ? CfaRouteLimbDList(*dList) : NULL);
+    if (dl == NULL) {
+        return;
+    }
+    OPEN_DISPS(play->state.gfxCtx);
+    if (l->postBillboard) {
+        Matrix_ReplaceRotation(&play->billboardMtxF);
+    }
+    if (l->postXlu) {
+        CFA_LOAD_MTX(POLY_XLU_DISP++, play->state.gfxCtx);
+        gSPDisplayList(POLY_XLU_DISP++, dl);
+    } else {
+        CFA_LOAD_MTX(POLY_OPA_DISP++, play->state.gfxCtx);
+        gSPDisplayList(POLY_OPA_DISP++, dl);
+    }
+    CLOSE_DISPS(play->state.gfxCtx);
+}
+
+// The secondary composite pass: the soul flame (OOT Randomizer_DrawBossSoul's grayscale-tinted blue
+// fire, MM DrawEnLight's prim/env-coloured one). Always inside a Matrix_Push/Pop so it can never
+// perturb the model transform.
+inline void CfaDrawFlame(PlayState* play, const CwItemAnimDrawInfo* info, const char* game, int32_t* segs,
+                         int32_t* segCount) {
+    Gfx* dl = CfaRouteLimbDList((Gfx*)info->flameDlPath);
+    if (dl == NULL) {
+        return;
+    }
+    OPEN_DISPS(play->state.gfxCtx);
+    CFA_SETUP_XLU(play->state.gfxCtx);
+    CLOSE_DISPS(play->state.gfxCtx);
+    if (info->flameHasSeg) {
+        CfaBindSeg(play, &info->flameSeg, segs, segCount);
+    }
+
+    Matrix_Push();
+    if (info->flameBillboardFirst) {
+        Matrix_ReplaceRotation(&play->billboardMtxF);
+    }
+    Matrix_Translate(info->flameTranslate[0], info->flameTranslate[1], info->flameTranslate[2], MTXMODE_APPLY);
+    Matrix_Scale(info->flameScale[0], info->flameScale[1], info->flameScale[2], MTXMODE_APPLY);
+    if (!info->flameBillboardFirst) {
+        Matrix_ReplaceRotation(&play->billboardMtxF);
+    }
+
+    OPEN_DISPS(play->state.gfxCtx);
+    CFA_LOAD_MTX(POLY_XLU_DISP++, play->state.gfxCtx);
+    if (info->flameGrayscale) {
+        gDPSetGrayscaleColor(POLY_XLU_DISP++, info->flameColor[0], info->flameColor[1], info->flameColor[2], 255);
+        gSPGrayscale(POLY_XLU_DISP++, true);
+    } else {
+        gDPSetPrimColor(POLY_XLU_DISP++, 0xC0, 0xC0, info->flameColor[0], info->flameColor[1], info->flameColor[2], 0);
+        gDPSetEnvColor(POLY_XLU_DISP++, info->flameColor[0], info->flameColor[1], info->flameColor[2], 0);
+    }
+    gSPComboRMPush(POLY_XLU_DISP++, game);
+    gSPDisplayList(POLY_XLU_DISP++, dl);
+    gSPComboRMPop(POLY_XLU_DISP++);
+    if (info->flameGrayscale) {
+        gSPGrayscale(POLY_XLU_DISP++, false);
+    }
+    CLOSE_DISPS(play->state.gfxCtx);
+    Matrix_Pop();
+}
+
+// Reject anything the OPA path cannot express BEFORE a single command is submitted: an out-of-range
+// count, an unroutable path or an unbindable segment must fall back to the caller's sentinel rather
+// than leave a DL sampling a segment we never bound (the documented foreign-draw garbage-DL crash).
+inline bool CfaIsOtrPath(const char* p) {
+    return p != nullptr && strncmp(p, "__OTR__", 7) == 0;
+}
+
+inline bool CfaValidateSegBind(const CwAnimSegBind* b) {
+    if (b->segment < 8 || b->segment > 13 || (b->onOpa == 0 && b->onXlu == 0)) {
+        return false;
+    }
+    switch (b->kind) {
+        case CW_ANIM_SEG_EMPTY_DL:
+        case CW_ANIM_SEG_TEXSCROLL:
+        case CW_ANIM_SEG_XLU_RENDERMODE_1CY:
+            return true;
+        case CW_ANIM_SEG_PATH:
+            return CfaIsOtrPath(b->path);
+        default:
+            return false;
+    }
+}
+
+inline bool CfaValidateOpaInfo(const CwItemAnimDrawInfo* info) {
+    if (info->segCount < 0 || info->segCount > CW_ANIM_MAX_SEGS || info->limbColorCount < 0 ||
+        info->limbColorCount > CW_ANIM_MAX_LIMB_COLORS || info->limbDLCount < 0 ||
+        info->limbDLCount > CW_ANIM_MAX_LIMB_DLS) {
+        return false;
+    }
+    for (int32_t i = 0; i < info->segCount; i++) {
+        if (!CfaValidateSegBind(&info->segs[i])) {
+            return false;
+        }
+    }
+    for (int32_t i = 0; i < info->limbDLCount; i++) {
+        const CwAnimLimbDL* l = &info->limbDLs[i];
+        if ((l->dlPath != nullptr && !CfaIsOtrPath(l->dlPath)) ||
+            (l->postDlPath != nullptr && !CfaIsOtrPath(l->postDlPath))) {
+            return false;
+        }
+    }
+    if (info->flameDlPath != nullptr) {
+        if (!CfaIsOtrPath(info->flameDlPath)) {
+            return false;
+        }
+        if (info->flameHasSeg && !CfaValidateSegBind(&info->flameSeg)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /* Draw one foreign animated item described by `info` (owning game `game`, e.g. "mm") at the
  * current model matrix. Returns 1 on success; 0 on ANY load/validation failure so the caller can
  * fall back to its sentinel. Mirrors mm/2s2h/Rando/DrawItem.cpp DrawStrayFairy structure. */
 inline int32_t ComboForeignAnim_Draw(const CwItemAnimDrawInfo* info, const char* game, PlayState* play) {
     if (info == NULL || game == NULL || play == NULL || info->skelPath == NULL || info->animPath == NULL ||
-        info->xlu == 0 /* only the XLU path is implemented (whole animated class is XLU today) */) {
+        (info->xlu == 0 && info->opa == 0) /* one layer must be chosen */) {
         return 0;
+    }
+    if (info->opa && !CfaValidateOpaInfo(info)) {
+        return 0; // unexpressible recipe — sentinel beats an unbound-segment draw
     }
 
     static std::unordered_map<std::string, CfaSkelEntry> sSkelCache;
     static std::unordered_map<std::string, CfaTexAnimEntry> sTexAnimCache;
 
-    // -- skeleton + animation (keyed by skelPath; all area variants share one skeleton instance,
+    // -- skeleton + animation (keyed by skel+anim; all variants sharing a pair share one instance,
     //    so like MM's single-instance approach all on-screen copies animate in unison) --
-    auto skelIt = sSkelCache.find(info->skelPath);
+    std::string skelKey = std::string(info->skelPath) + "|" + info->animPath;
+    auto skelIt = sSkelCache.find(skelKey);
     if (skelIt == sSkelCache.end()) {
-        skelIt = sSkelCache.emplace(info->skelPath, CfaSkelEntry{}).first;
+        skelIt = sSkelCache.emplace(skelKey, CfaSkelEntry{}).first;
         CfaSkelEntry& e = skelIt->second;
         if (auto rm = Ship::CrossRMRegistry::Get(game)) {
             // The foreign game's Skeleton/Animation factories nested-load their limbs/tables via
@@ -326,11 +635,25 @@ inline int32_t ComboForeignAnim_Draw(const CwItemAnimDrawInfo* info, const char*
 
             FlexSkeletonHeader* skel = e.skelRes ? (FlexSkeletonHeader*)e.skelRes->GetRawPointer() : NULL;
             AnimationHeader* anim = e.animRes ? (AnimationHeader*)e.animRes->GetRawPointer() : NULL;
-            // soh's SkelAnime_InitFlex asserts limbCount == sh.limbCount + 1 — pre-validate instead.
+            // soh's SkelAnime_Init/InitFlex assert limbCount == sh.limbCount + 1 — pre-validate instead.
             if (skel != NULL && anim != NULL && info->limbCount > 0 && (s32)skel->sh.limbCount + 1 == info->limbCount) {
                 e.jointTable.resize(info->limbCount);
-                SkelAnime_InitFlex(play, &e.skelAnime, skel, anim, e.jointTable.data(), e.jointTable.data(),
-                                   info->limbCount);
+                if (info->opa) {
+                    e.morphTable.resize(info->limbCount);
+                    if (info->nonFlexSkeleton) {
+                        SkelAnime_Init(play, &e.skelAnime, (SkeletonHeader*)skel, anim, e.jointTable.data(),
+                                       e.morphTable.data(), info->limbCount);
+                    } else {
+                        SkelAnime_InitFlex(play, &e.skelAnime, skel, anim, e.jointTable.data(), e.morphTable.data(),
+                                           info->limbCount);
+                    }
+                    if (info->playSpeed != 0.0f) {
+                        e.skelAnime.playSpeed = info->playSpeed;
+                    }
+                } else {
+                    SkelAnime_InitFlex(play, &e.skelAnime, skel, anim, e.jointTable.data(), e.jointTable.data(),
+                                       info->limbCount);
+                }
                 e.ok = true;
             }
         }
@@ -361,10 +684,87 @@ inline int32_t ComboForeignAnim_Draw(const CwItemAnimDrawInfo* info, const char*
         }
     }
 
+    // -- OPA/skeletal path (boss souls, enemy souls, minifrogs) --
+    if (info->opa) {
+        sCfaCurrentGame = game;
+        sCfaInfo = info;
+        int32_t segs[CW_ANIM_MAX_SEGS + 1];
+        int32_t segCount = 0;
+
+        OPEN_DISPS(play->state.gfxCtx);
+        CFA_SETUP_OPA(play->state.gfxCtx);
+        CLOSE_DISPS(play->state.gfxCtx);
+
+        if (info->flameDlPath != NULL && !info->flameAfter) {
+            CfaDrawFlame(play, info, game, segs, &segCount); // OOT: flame first, model transform after
+        }
+
+        Matrix_Translate(info->translatePre[0], info->translatePre[1], info->translatePre[2], MTXMODE_APPLY);
+        if (info->scale != 0.0f) {
+            Matrix_Scale(info->scale, info->scale, info->scale, MTXMODE_APPLY);
+        }
+        Matrix_Translate(info->translatePost[0], info->translatePost[1], info->translatePost[2], MTXMODE_APPLY);
+        if (info->billboard) {
+            Matrix_ReplaceRotation(&play->billboardMtxF);
+        }
+
+        for (int32_t i = 0; i < info->segCount; i++) {
+            CfaBindSeg(play, &info->segs[i], segs, &segCount);
+        }
+        // MM's AnimatedMat_Draw inside the enemy-soul funcs: bind the animated material on the OPA
+        // stream (the skeleton samples it there), restored with the rest below.
+        int32_t matSegs[kMaxMatEntries];
+        int32_t matSegCount = 0;
+        if (texAnim != nullptr) {
+            CfaDrawTexAnim(play, texAnim->mat, play->gameplayFrames, matSegs, &matSegCount, /*bindOpa*/ true,
+                           /*colorOpa*/ true);
+        }
+        if (skelEntry.lastUpdate != play->state.frames) {
+            skelEntry.lastUpdate = play->state.frames;
+            SkelAnime_Update(&skelEntry.skelAnime);
+        }
+
+        OPEN_DISPS(play->state.gfxCtx);
+        if (info->hasPrimColor) {
+            gDPSetPrimColor(POLY_OPA_DISP++, 0, (u8)info->primLodFrac, info->primColor[0], info->primColor[1],
+                            info->primColor[2], info->primColor[3]);
+        }
+        if (info->hasModelEnvColor) {
+            gDPSetEnvColor(POLY_OPA_DISP++, info->modelEnvColor[0], info->modelEnvColor[1], info->modelEnvColor[2],
+                           info->modelEnvColor[3]);
+        }
+        // RM bracket on BOTH streams: the post-limb pass can submit on XLU, and any raw-pointer span
+        // the skeleton drags in resolves its inner refs against the owning game's RM.
+        gSPComboRMPush(POLY_OPA_DISP++, game);
+        gSPComboRMPush(POLY_XLU_DISP++, game);
+        CLOSE_DISPS(play->state.gfxCtx);
+
+        if (info->nonFlexSkeleton) {
+            SkelAnime_DrawOpa(play, skelEntry.skelAnime.skeleton, skelEntry.skelAnime.jointTable,
+                              CfaOverrideLimbDrawOpa, CfaPostLimbDrawOpa, NULL);
+        } else {
+            SkelAnime_DrawFlexOpa(play, skelEntry.skelAnime.skeleton, skelEntry.skelAnime.jointTable,
+                                  skelEntry.skelAnime.dListCount, CfaOverrideLimbDrawOpa, CfaPostLimbDrawOpa, NULL);
+        }
+
+        OPEN_DISPS(play->state.gfxCtx);
+        gSPComboRMPop(POLY_OPA_DISP++);
+        gSPComboRMPop(POLY_XLU_DISP++);
+        CLOSE_DISPS(play->state.gfxCtx);
+
+        if (info->flameDlPath != NULL && info->flameAfter) {
+            CfaDrawFlame(play, info, game, segs, &segCount); // MM: flame inherits the model transform
+        }
+        CfaRestoreSegs(play, segs, segCount);
+        CfaRestoreSegs(play, matSegs, matSegCount);
+        sCfaInfo = nullptr;
+        return 1;
+    }
+
     // -- draw (mirrors DrawStrayFairy) --
     OPEN_DISPS(play->state.gfxCtx);
 
-    Gfx_SetupDL_25Xlu(play->state.gfxCtx);
+    CFA_SETUP_XLU(play->state.gfxCtx);
 
     int32_t writtenSegs[kMaxMatEntries];
     int32_t writtenSegCount = 0;
@@ -392,7 +792,7 @@ inline int32_t ComboForeignAnim_Draw(const CwItemAnimDrawInfo* info, const char*
     gSPComboRMPush(POLY_XLU_DISP++, game);
     POLY_XLU_DISP = SkelAnime_DrawFlex(play, skelEntry.skelAnime.skeleton, skelEntry.skelAnime.jointTable,
                                        skelEntry.skelAnime.dListCount, CfaOverrideLimbDraw, NULL,
-                                       (void*)(intptr_t)info->hiddenLimb, POLY_XLU_DISP);
+                                       (CFA_LIMB_ARG)(intptr_t)info->hiddenLimb, POLY_XLU_DISP);
     gSPComboRMPop(POLY_XLU_DISP++);
 
     // Segment hygiene: re-point the segments the texanim wrote at a benign empty DL. OOT's own
@@ -401,7 +801,7 @@ inline int32_t ComboForeignAnim_Draw(const CwItemAnimDrawInfo* info, const char*
     // commands AFTER this draw in the current XLU stream; the empty DL makes those see a no-op
     // instead of our prim/env-color DL. (The OPA stream was never touched — see CfaSetColorSegment.)
     if (writtenSegCount > 0) {
-        Gfx* empty = (Gfx*)Graph_Alloc(play->state.gfxCtx, sizeof(Gfx));
+        Gfx* empty = (Gfx*)CFA_ALLOC(play->state.gfxCtx, sizeof(Gfx));
         Gfx* e = empty;
         gSPEndDisplayList(e++);
         for (int32_t i = 0; i < writtenSegCount; i++) {
@@ -420,7 +820,7 @@ inline void ComboForeignTexAnim_Restore(PlayState* play, const int32_t* segs, in
     if (play == NULL || count <= 0) {
         return;
     }
-    Gfx* empty = (Gfx*)Graph_Alloc(play->state.gfxCtx, sizeof(Gfx));
+    Gfx* empty = (Gfx*)CFA_ALLOC(play->state.gfxCtx, sizeof(Gfx));
     Gfx* e = empty;
     gSPEndDisplayList(e++);
     OPEN_DISPS(play->state.gfxCtx);

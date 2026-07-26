@@ -331,10 +331,12 @@ struct PlaythroughResult {
 // tower-top + Boss Key owned; MM uses the in-lair check which already encodes the remains/masks gate).
 // sohDumpJson/mmDumpJson (optional): static-data dumps whose pool[]/fixed[] advancement flags let the
 // text log show only progression items; unknown names default to advancement so nothing is hidden.
+// progressionOnly also drops junk from playthroughOut — for the spoiler. Leave it false for validation:
+// the affordability check needs every step, including junk sitting in a priced shop slot.
 inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const OracleFns& ootOracle,
                                         const OracleFns& mmOracle, const std::string& seedLabel, void (*mmRestore)(),
                                         nlohmann::json* playthroughOut = nullptr, const std::string& sohDumpJson = "",
-                                        const std::string& mmDumpJson = "") {
+                                        const std::string& mmDumpJson = "", bool progressionOnly = false) {
     static const char* kOotGanon = "Ganon";           // RC_GANON reachable = OOT beatable (see CrossWorldRando.h)
     static const char* kMmWin = "Moon Majora Pot 01"; // ComboShip: friendly form of RC_MOON_MAJORA_POT_01
 
@@ -387,12 +389,16 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
             std::string key = (p.checkGame == GAME_OOT ? "oot:" : "mm:") + p.check;
             collected.insert(key);
             (p.itemGame == GAME_OOT ? ownedOot : ownedMm).push_back(p.item);
-            if (playthroughOut)
-                sphereSteps.push_back({ { "game", p.checkGame == GAME_OOT ? "oot" : "mm" },
+            if (playthroughOut && (p.advancement || !progressionOnly)) {
+                nlohmann::json step = { { "game", p.checkGame == GAME_OOT ? "oot" : "mm" },
                                         { "check", p.check },
                                         { "item", p.item },
-                                        { "foreign", p.checkGame != p.itemGame } });
-            // Junk is still collected (and kept in playthroughOut for hints) but not printed.
+                                        { "foreign", p.checkGame != p.itemGame } };
+                if (!progressionOnly)
+                    step["advancement"] = p.advancement; // implied in the spoiler; the validator needs it
+                sphereSteps.push_back(std::move(step));
+            }
+            // Junk is still collected (it drives the traversal) but not printed.
             if (!p.advancement)
                 continue;
             log << "    [" << (p.checkGame == GAME_OOT ? "OOT" : "MM ") << "] " << p.check << "  <-  " << p.item

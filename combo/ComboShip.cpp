@@ -1452,9 +1452,10 @@ static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRan
                                   nlohmann::json* playthroughOut, const std::string& sohDump,
                                   const std::string& mmDump) {
     // Thin wrapper over the shared traversal (combo/rando/ComboPlaythrough.h); passes this build's
-    // MM oracle-restore pointer. Keeps the in-game generator and headless validator identical.
+    // MM oracle-restore pointer. A playthroughOut here means the spoiler's playthrough section, which
+    // lists progression only; the text-log path and the headless validator keep every step.
     ComboRando::RunPlaythrough(spoilerJson, ootOracle, mmOracle, seedLabel, Combo_MM_Rando_Restore, playthroughOut,
-                               sohDump, mmDump);
+                               sohDump, mmDump, /*progressionOnly*/ playthroughOut != nullptr);
 }
 
 // Env-gated entry: COMBO_PLAYTHROUGH=<seed> generates that seed headless, then writes its log.

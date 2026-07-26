@@ -237,6 +237,9 @@ int main(int argc, char** argv) {
                 const int owS = ow, mwS = mw; // wallets from earlier spheres only
                 for (const auto& st : sph.value("steps", nlohmann::json::array())) {
                     std::string game = st.value("game", ""), chk = st.value("check", ""), item = st.value("item", "");
+                    // Junk is never required, so an unaffordable junk slot must not fail a beatable seed.
+                    if (!st.value("advancement", true))
+                        continue;
                     if (game == "oot" && ootPrices.contains(chk)) {
                         static const int caps[5] = { 0, 99, 200, 500, 999 };
                         int price = ootPrices[chk].get<int>();

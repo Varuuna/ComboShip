@@ -791,10 +791,10 @@ touched, so native single-game SoH is unchanged.
 **Why:** The cross-fill ignored OOT's `RSK_LOGIC_RULES` and `RSK_ALL_LOCATIONS_REACHABLE` — it always
 ran an all-reachable assumed fill. Native OOT relaxes: No Logic fast-fills everything; ALR-off places
 with logic only until beatable. The combo fill now honors these **per-game**: OOT relaxes, MM always
-stays all-reachable (portal is ungated at runtime, so MM reachability must never degrade).
+stays all-reachable (MM reachability must never degrade).
 
 **`soh/soh/OTRGlobals.cpp` (`SOH_DumpRandoStaticData`):** the dump gains an `"accessibility"` block
-(`noLogic`, `allLocationsReachable`, `lockOverworldDoors`, `forceMaskShopKey`) read from the live
+(`noLogic`, `allLocationsReachable`, `lockOverworldDoors`) read from the live
 Context. Defaults (ALL_REACHABLE) if the prep throws.
 
 **`combo/rando/CrossWorldRando.h`:** `enum class OotAccess { ALL_REACHABLE, BEATABLE_ONLY, NO_LOGIC }`
@@ -808,12 +808,8 @@ Validation classifies unreachable advancement by **item-game**: MM unreachable i
 OOT unreachable is fatal only under ALL_REACHABLE, tolerated (logged) under relaxed modes. BEATABLE_ONLY
 additionally requires the win still holds (`reachableFixpoint` now also returns the final `ootOwned`).
 
-**Portal-key guard:** with Overworld Keys ON + Force Mask Shop Key OFF under a relaxed mode and
-`portalCheckName=""`, the fill can't guarantee the Mask Shop Key's reach-path — it warns loudly. The
-intended combo config is Force ON (key locked at a sphere-0 KF check → exempt from relaxation) or
-Overworld Keys OFF. **Future portal:** when a real gate is wired (`portalCheckName` at
-`combo/ComboShip.cpp`), treat the Mask Shop Key + reach prerequisites as MM-advancement-equivalent
-(exempt from OOT relaxation) or hard-fail NO_LOGIC — TODO left at the call site.
+See "Gate MM on the OOT→MM portal region" below — the portal is no longer ungated, which is what makes
+the MM-always-all-reachable rule above sound.
 
 **`combo/rando/ComboPlaythrough.h`:** `MmOnlyMajoraGoal` — under NO_LOGIC the pare-down (WotH) gates
 requiredness on MM only, since OOT may be structurally unbeatable from empty. Wired at both
@@ -903,3 +899,125 @@ runs before the fill, and an unwind across the C ABI into the other DLL is unrec
   runtime state that *can* be replayed get a `CwDrawKind` and the raw table row; the rest return 0 and
   the other game falls back to its sentinel. Remains ARE portable (their object-segment setup is
   vestigial under OTR extraction) — only the 0.02 scale must carry across.
+
+## Gate MM on the OOT→MM portal region (2026-07-26)
+
+**Why:** the cross-fill never modeled the portal — every call site passed `portalCheckName=""`, so
+`portalOpen` was unconditionally true and MM was reachable from sphere 0. The fixpoint then credited an
+OOT item placed on an MM check back into `ootOwned` and re-queried OOT with it, "proving" the portal
+reachable using an item obtainable only through the portal. Real softlocks (adult start, Door of Time
+behind Song of Time, Song of Time behind the portal). `portalCheckName` can never work: `RR_MARKET_MASK_SHOP`
+holds no real checks (`RC_MASK_SHOP_HINT` is an `OtherHint`, `RC_MK_MASK_SHOP_SIGN` a sign), and the
+oracle only returns `allLocations` names. The portal must be modeled as **region** access.
+
+**`soh/soh/OTRGlobals.cpp`:** `Combo_SOH_Rando_GetReachableChecks` stashes
+`RegionTable(RR_MARKET_MASK_SHOP)->Child() || ->Adult()` into a file-static at the end of its existing
+`ReachabilitySearch`; new export `Combo_SOH_Rando_GetPortalOpen()` returns it. **Contract:** call it
+right after `GetReachableChecks` — it describes that owned-set. Piggybacking is deliberate; a second
+traversal per fixpoint iteration would roughly double gen time. Any age, not child-only: the
+age/time/key requirement is already in the entrance condition (`market.cpp`), so with vanilla entrances
+it collapses to child-day on its own, and under interior entrance shuffle the mask-shop scene can sit
+behind a different door.
+
+**`combo/rando/CrossWorldRando.h`:** `OracleFns` gains a nullable `GetPortalOpen` (MM leaves it null).
+`CrossWorldCombinedFill` drops `portalCheckName` and reads the gate off the OOT oracle **immediately
+after** the OOT query in each fixpoint iteration, before any MM check is credited — that ordering is
+what makes it sound. Latched (monotone) for the rest of the fixpoint. Retry/validation conditions are
+unchanged: `mmAdvUnreachable > 0` is already fatal in every mode, so a closed portal fails the pass.
+
+- **NO_LOGIC bypass:** the gate is skipped entirely (`portalGated == false`). An impossible seed is that
+  mode's point.
+- **Hard fail on missing export:** any non-NO_LOGIC mode with a null `GetPortalOpen` returns
+  `success=false` naming the export. Silently degrading to ungated would reproduce exactly this bug, and
+  stale-DLL mismatches are a known hazard here. Both entry points also refuse up front when the other
+  oracle exports resolved but this one didn't: the launcher errors instead of taking its no-logic
+  fallback (which would have generated an ungated seed), and headless hard-fails on required exports.
+
+  The gate is bypassed for NO_LOGIC in `ComboPlaythrough.h` too (`portalGated` parameter), so the hint
+  pare-down and the fill agree; otherwise a NO_LOGIC seed's `MmOnlyMajoraGoal` could never be met and
+  every advancement item would be classified required, flattening WotH/Foolish hints.
+
+**`combo/rando/ComboPlaythrough.h`:** the same latched gate in `RunPlaythrough` (sphere trace + the
+full-inventory "ever reachable" pass) and in `PareDownPlaythrough`'s `winsWithout`, or the
+`--playthrough` validator would keep certifying these seeds beatable. The reachability memo now caches
+the portal bit next to the set (`ReachResult`): a memo hit runs no search, so reading the DLL's bit
+afterwards would be stale.
+
+**`soh/.../3drando/fill.cpp` (`ComboFillConfined`):** the Mask Shop Key is filled within
+`ctx->allLocations` (OOT-only), which keeps it out of the cross-world pool. The `RSK_COMBO_FORCE_MASK_SHOP_KEY`
+setting that used to force it onto a fixed early check is **deleted**: its target was
+`RC_KF_BEHIND_MIDOS_RUPEE`, an `RCTYPE_FREESTANDING` location, so with Shuffle Freestanding off (the
+default) it was absent from `allLocations` and the force silently degraded to `AssumedFill` — it had
+likely never worked for child starts. Measured over 10 seeds on adult + song-only Door of Time +
+songsanity, forcing changed the hard-failure rate not at all (1/10 either way); it only cut retry churn
+~41%. Not worth a user-facing switch whose "off" position is strictly worse.
+
+**Deliberately NOT done:** hand-enumerating the portal's prerequisites (Ocarina / Song of Time /
+`RG_OPEN_CHEST` / stones) anywhere. That would re-encode `market.cpp` + `temple_of_time.cpp` in a second
+place and go stale. They are *derived* per seed instead — see below.
+
+### Portal-aware fill (2026-07-26, same change)
+
+The gate alone left a cliff: `AssumedFill` assumes every not-yet-placed item is owned, so a prerequisite
+could land late, `portalOpen` flip false, and **every** remaining MM check vanish at once — MM items
+dead-end. ~1/10 hard failures on adult + song-only Door of Time + songsanity. Fixed in three parts.
+
+**Mask Shop exclusions.** The scene never runs, so everything in `RR_MARKET_MASK_SHOP` is uncollectable.
+`RC_MK_MASK_SHOP_SIGN` is **not registered** under `COMBO_BUILD` (`ShuffleSigns.cpp`), which leaves its
+`locationTable` slot at `RC_UNKNOWN_CHECK` → `GenerateLocationPool` and the check tracker both skip it. An
+exclusion set or a dump filter would have kept it visible in the tracker. `RSK_MASK_SHOP_HINT` is forced
+off in `FinalizeSettings` — `RH_MASK_SHOP_HINT` is delivered inside that scene, so leaving it on silently
+burns a hint. `RC_MASK_SHOP_HINT` is an `OtherHint`, never in `allLocations`; nothing to do.
+
+**Derived prerequisite set (`CrossWorldCombinedFill`).** A **sufficient witness**, built forward from an
+empty owned set, not a required set: remove-one minimization fails when routes are interchangeable (Song
+of Time vs. an entrance-shuffle route — dropping either alone keeps the portal open, so neither looks
+required and nothing gets constrained). Each round bisects the canonically-sorted OOT advancement pool for
+the item that flips `GetPortalOpen`, adds it to the witness and drops everything after it: O(log n) queries
+per witness item. RNG-free so it cannot shift the seeded stream.
+
+The probe is `ootClosedFixpoint`, not a single query, and that detail is the whole correctness argument.
+Only `ootForcedOwned` is owned outright; an OOT `fixed[]` item is credited **when its check is reachable**,
+which is exactly what `reachableFixpoint` does in the real fill. Owning `fixed[]` items outright instead
+looks self-consistent (the Tier-1 check agrees with the derivation) but is optimistic in the same direction
+as the derivation, so nothing ever detects the disagreement with the real model — and on default settings
+(`RSK_SHUFFLE_SONGS` = Song Locations) Song of Time is a `fixed[]` entry, so the witness would collapse to
+`{Ocarina}`, Phase A0 would place the Ocarina in a child-only area that really needs Song of Time first,
+Tier 1 would pass, and the seed would deadlock. Where the whole requirement set is `fixed[]`, the witness
+would come out empty and Phase A0 would not run at all. Budget `kMaxDeriveQueries = 1500` (queries, not
+probes — each probe is a fixpoint); over it, warn and fall through to the old unconstrained behaviour.
+
+**Prerequisites placed first (Phase A0).** Before general placement — mixing them into the normal random
+order would let one land at position ~400/460, keeping MM locked for most of the fill so MM receives
+almost only junk (a silently bad seed, worse than the failure being fixed). Candidates come from
+`ootClosedFixpoint`: an OOT-only fixpoint with the portal shut, nothing assumed beyond forced-owned items,
+MM never queried. Each item is chosen **randomly** across that whole valid set — variety comes from the
+choice, not the ordering. (A deterministic first-match put the key on the same check five attempts running
+and burned the entire retry budget.)
+
+**Same constraint on the soh side**, because that layer places some of the carriers itself:
+`ComboFillPortalClosed` (`fill.cpp`, `COMBO_BUILD`) is an assumed-fill variant that assumes **nothing**
+from the free pool — candidates are only what's reachable from starting inventory plus already-placed
+items. `ComboFillConfined` routes the Mask Shop Key and `PlaceRestrictedSongs` through it,
+unconditionally; items with no such check fall through to the normal `AssumedFill`, so it is never worse
+than before, and it logs placed-vs-fell-through so the path can't silently become a no-op. The combo layer
+cannot fix the key at all: it arrives as a `fixed[]` entry the cross-fill never re-fills or validates.
+
+*Not* wired into `RandomizeDungeonRewards`: its End-of-Dungeon branch fills the 9 boss checks, none of
+which are reachable from starting inventory with nothing placed, so every candidate set would be empty —
+9 wasted `ReachabilitySearch` calls for no placements. The plan's "spiritual stones" case is Own
+Dungeon/Vanilla anyway, which goes through `RandomizeOwnDungeon`/`PlaceVanillaItem`; when rewards are
+shuffled Anywhere they land in the cross pool and the derivation picks them up like any other item.
+
+**Failure policy.** Tier 1 — portal still shut after the prerequisites are placed: repick just those,
+`kMaxPrereqTries = 4`. (Phase A0 runs before any general placement, so a repick resets `placements` to
+`lockedPlacements` and costs nothing but the prerequisite choices.) Tier 2 — budget exhausted: fail the
+pass into the retry loop, `kMaxPasses = 5` × `kFillAttempts = 3`, down from 10 × 5 — the old ceiling is
+what produced the 300-800 s waits, and 15 still covers the observed pre-fix tail (seeds seen succeeding on
+attempt 4 and pass 10). Both are pass counts, never wall-clock: a time limit makes success
+machine-dependent and breaks seed sharing. All three budgets are `constexpr` in `CrossWorldRando.h`;
+`ComboShip.cpp` and `comborando` both read `kFillAttempts` from there, since headless seeds only reproduce
+in-game ones while the two loops agree. Tier 3 — the derivation finds the portal unreachable even with
+everything owned: **warn loudly and generate anyway**, since a prediction of structural impossibility was
+already made once and proved wrong. Terminal failures now name the last pass cause instead of "assumed
+fill failed".

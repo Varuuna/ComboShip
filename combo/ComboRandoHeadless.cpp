@@ -43,6 +43,7 @@ typedef void (*FnOracleVoid)(void);
 typedef void (*FnOracleSetItems)(const char*);
 typedef const char* (*FnOracleGetChecks)(void);
 typedef void (*FnOraclePlaceItem)(const char*, const char*);
+typedef uint8_t (*FnOracleGetPortalOpen)(void); // OOT->MM portal gate (see CrossWorldRando.h)
 
 // Must match ComboShip.cpp's ComboHash (FNV-1a 32-bit) so headless seeds match in-game seeds.
 uint32_t ComboHash(const std::string& s) {
@@ -121,15 +122,16 @@ int main(int argc, char** argv) {
     ComboRando::OracleFns oot{ Sym<FnOracleVoid>(soh, "Combo_SOH_Rando_Reset"),
                                Sym<FnOracleSetItems>(soh, "Combo_SOH_Rando_SetOwnedItems"),
                                Sym<FnOracleGetChecks>(soh, "Combo_SOH_Rando_GetReachableChecks"),
-                               Sym<FnOraclePlaceItem>(soh, "Combo_SOH_Rando_PlaceItem") };
+                               Sym<FnOraclePlaceItem>(soh, "Combo_SOH_Rando_PlaceItem"),
+                               Sym<FnOracleGetPortalOpen>(soh, "Combo_SOH_Rando_GetPortalOpen") };
     ComboRando::OracleFns mmO{ Sym<FnOracleVoid>(mm, "Combo_MM_Rando_Reset"),
                                Sym<FnOracleSetItems>(mm, "Combo_MM_Rando_SetOwnedItems"),
                                Sym<FnOracleGetChecks>(mm, "Combo_MM_Rando_GetReachableChecks"),
                                Sym<FnOraclePlaceItem>(mm, "Combo_MM_Rando_PlaceItem") };
 
     if (!SOH_InitRandoHeadless || !MM_InitRandoHeadless || !SOH_Dump || !MM_Dump || !oot.Reset || !oot.SetOwnedItems ||
-        !oot.GetReachableChecks || !oot.PlaceItem || !mmO.Reset || !mmO.SetOwnedItems || !mmO.GetReachableChecks ||
-        !mmO.PlaceItem) {
+        !oot.GetReachableChecks || !oot.PlaceItem || !oot.GetPortalOpen || !mmO.Reset || !mmO.SetOwnedItems ||
+        !mmO.GetReachableChecks || !mmO.PlaceItem) {
         std::cerr << "[comborando] missing required DLL exports — rebuild soh.dll / 2ship.dll\n";
         return 2;
     }
@@ -224,7 +226,9 @@ int main(int argc, char** argv) {
             };
             mergeFixed(sohDump, "oot");
             mergeFixed(mmDump, "mm");
-            return ComboRando::RunPlaythrough(passFlat.dump(), oot, mmO, label, MM_Restore, ptOut, sohDump, mmDump);
+            return ComboRando::RunPlaythrough(passFlat.dump(), oot, mmO, label, MM_Restore, ptOut, sohDump, mmDump,
+                                              ComboRando::OotAccessFromDump(sohDump) !=
+                                                  ComboRando::OotAccess::NO_LOGIC);
         };
 
         // Affordability canary: re-check every priced purchase in the walk against the wallets held
@@ -348,8 +352,9 @@ int main(int argc, char** argv) {
         ComboRando::CombinedFillResult r{};
         ComboRando::RequirednessResult pareDownResult; // cross-hint verification (headless mirror of RunComboFill)
         // Whole-fill retries with re-derived seeds, identical to RunComboFill (GAP-4) so a headless
-        // seed reproduces the in-game one even when early attempts fail.
-        for (int attempt = 0; attempt < 5; ++attempt) {
+        // seed reproduces the in-game one even when early attempts fail (shared budget, same header).
+        const int kFillAttempts = ComboRando::kFillAttempts;
+        for (int attempt = 0; attempt < kFillAttempts; ++attempt) {
             masterSeed = base + attempt * 0x9E3779B9u;
             if (SOH_SetSeed)
                 SOH_SetSeed(masterSeed);
@@ -359,8 +364,7 @@ int main(int argc, char** argv) {
             mmDump = MM_Dump();
             std::string forced = SOH_GetForced ? SOH_GetForced(masterSeed) : "";
             ComboRando::OotAccess ootAccess = ComboRando::OotAccessFromDump(sohDump);
-            r = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, oot, mmO, "", nullptr, forced,
-                                                   ootAccess);
+            r = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, oot, mmO, nullptr, forced, ootAccess);
             if (r.success) {
                 // Cross-hint data (Phase 2/3 mirror of RunComboFill, incl. the same area maps so the
                 // WotH/Foolish rollup matches in-game): needs this attempt's still-live oracle session.
@@ -383,7 +387,8 @@ int main(int argc, char** argv) {
                     pareDownResult = ComboRando::PareDownPlaythrough(
                         r.spoilerJson, oot, mmO, nullptr, sohDump, mmDump, ootAreas, mmAreas,
                         ootAccess == ComboRando::OotAccess::NO_LOGIC ? ComboRando::MmOnlyMajoraGoal
-                                                                     : ComboRando::DefaultGanonMajoraGoal);
+                                                                     : ComboRando::DefaultGanonMajoraGoal,
+                        ootAccess != ComboRando::OotAccess::NO_LOGIC);
                 else
                     std::cout << "[comborando]   pare-down skipped (no enabled hint surface needs requiredness)\n";
             }
@@ -391,7 +396,8 @@ int main(int argc, char** argv) {
                 MM_Restore();
             if (r.success)
                 break;
-            std::cerr << "[comborando]   attempt " << (attempt + 1) << "/5 failed: " << r.error << "\n";
+            std::cerr << "[comborando]   attempt " << (attempt + 1) << "/" << kFillAttempts << " failed: " << r.error
+                      << "\n";
         }
         std::string tag = "'" + seed + "'" + (count > 1 ? ("+" + std::to_string(i)) : "");
         if (r.success) {

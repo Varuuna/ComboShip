@@ -1253,9 +1253,10 @@ void ComboMenu::DrawSharedPanel() {
             anchor.group = "Network";
             anchor.kind = HubEntry::COMBO_NETWORK;
             netE.push_back(std::move(anchor));
-            // The Anchor sidebar is drawn inside the panel above; surface only the other SoH Network
-            // sidebars (Sail, Crowd Control) as their own entries.
-            AppendSectionEntries(netE, "Network", HubEntry::ENGINE, model.Oot(), "Network", { "Anchor" });
+            // Anchor is drawn inside the panel above. Sail and Crowd Control are hidden: neither works
+            // in a combo build yet, so showing them only invites bug reports.
+            AppendSectionEntries(netE, "Network", HubEntry::ENGINE, model.Oot(), "Network",
+                                 { "Anchor", "Sail", "Crowd Control" });
             groups.push_back({ "Network", std::move(netE) });
         }
     } else {

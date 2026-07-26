@@ -13,6 +13,10 @@ extern "C" {
 
 #define CW_DRAW_MAX_DLISTS 8
 
+/* Producer return code: state the recipe needs isn't available yet (the other game is dormant /
+ * not yet initialised). Consumers must RETRY next frame, never negative-cache. */
+#define CW_DRAW_NOT_READY (-1)
+
 /* ComboShip: which OOT get-item draw func the consumer must replicate. SIMPLE (0) = the plain
  * OPA-then-XLU submission the consumer already does (self-contained funcs + rupees/wallets/etc). The
  * rest are the non-portable OOT funcs (segment-8/9 texture scrolls, billboard rotation, per-instance
@@ -59,11 +63,8 @@ typedef enum {
 
 #define CW_DRAW_MAX_OPS 20
 
-/* ComboShip: a tiny draw bytecode for funcs whose structure is per-DL transforms and colors rather
- * than one flat OPA/XLU submission (MM's DrawClock, DrawOwlStatue, DrawTycoonWallet, ...). The
- * producer emits the ops with its own live values folded in; the consumer replays them against its
- * own matrix stack and gbi. Anything needing GPU state beyond this (texture scrolls, skeletons)
- * gets a dedicated CwDrawKind instead. */
+/* ComboShip: draw bytecode for funcs shaped as per-DL transforms/colors rather than one flat
+ * OPA/XLU submission (MM's DrawClock, DrawOwlStatue, ...). See docs/deviations/rando.md. */
 typedef enum {
     CW_OP_END = 0,
     CW_OP_SETUP_OPA,   /* Gfx_SetupDL_25Opa; later ops target the OPA stream */
@@ -98,34 +99,24 @@ typedef struct {
     float scale;              /* extra model scale; 0 = none (e.g. MM boss remains: 0.02f) */
     int32_t hasEnvColor;      /* 1 = emit envColor before the DLs (e.g. MM song notes) */
     uint8_t envColor[4];      /* RGBA */
-    int32_t xluSeg8TexScroll; /* 1 = bind segment 8 to the animated flame texscroll before the XLU
-                                 layer (skulltula token flame); consumer replicates the owning game's
-                                 Gfx_TwoTexScrollEx so the dropped animated layer renders again */
-    /* Resource-driven animated material (generalizes xluSeg8TexScroll for items whose animation lives
-     * in a TextureAnimation resource, e.g. MM's Moon's Tear). If matAnimPath != NULL the consumer
-     * loads it from the owning game's RM and binds the animated segment before the DLs (see
-     * ComboForeignTexAnim_Run). matAnimPath is the owning game's own "__OTR__..." path (unrouted). */
-    const char* matAnimPath;  /* TextureAnimation resource, or NULL */
+    int32_t xluSeg8TexScroll; /* 1 = bind seg 8 to the animated flame texscroll before the XLU layer
+                                 (skulltula token); the consumer replays the owner's Gfx_TwoTexScrollEx */
+    /* Resource-driven animated material (generalizes xluSeg8TexScroll; MM's Moon's Tear). The
+     * consumer loads it from the owning game's RM and binds the segment — ComboForeignTexAnim_Run. */
+    const char* matAnimPath;  /* owning game's own (unrouted) TextureAnimation path, or NULL */
     int32_t matAnimBindOpa;   /* 1 = also bind the animated segment on the OPA layer (item body samples it) */
     int32_t matAnimBillboard; /* 1 = Matrix_ReplaceRotation(billboardMtxF) before the XLU layer (glow) */
 
-    /* ComboShip: kind-tagged draw recipe for the non-portable OOT funcs (OOT->MM foreign-draw
-     * portability). drawKind selects the consumer handler; when != CW_DRAW_KIND_SIMPLE, dlists[] are
-     * the raw OOT table row (submission order handled by the handler) and xluStartIndex is ignored.
-     * The scroll/matrix params are constant per kind and embedded in the consumer handler (1:1 port of
-     * the OOT func); only the JEWEL per-layer colors and the MUSIC_NOTE tint vary, so they are carried
-     * here as data. Colors are RGBA (alpha always 255). */
+    /* Kind-tagged recipe for the non-portable funcs: drawKind picks the consumer handler; when
+     * != SIMPLE, dlists[] is the raw table row and xluStartIndex is ignored. Colors are RGBA. */
     int32_t drawKind;        /* CwDrawKind */
     uint8_t primColorXlu[4]; /* JEWEL gem (XLU) prim; MUSIC_NOTE grayscale tint */
     uint8_t envColorXlu[4];  /* JEWEL gem (XLU) env */
     uint8_t primColorOpa[4]; /* JEWEL setting (OPA) prim */
     uint8_t envColorOpa[4];  /* JEWEL setting (OPA) env */
 
-    /* ComboShip: 1 = this recipe depends on live save state and must NOT be cached — the consumer
-     * re-queries it every frame. Set by producers for items whose model is CHOSEN at draw time rather
-     * than fixed: progressive tiers (which sword/quiver you're owed), Triforce shards
-     * (collected % 3, and the completed model), and junk/trap indirection. Consumers cache recipes per
-     * check per save slot, so without this the first model drawn is frozen for the whole slot. */
+    /* 1 = model is chosen from live save state (progressive tier, Triforce shard, junk/trap), so the
+     * consumer must re-query every frame instead of caching. */
     int32_t stateDependent;
 
     /* ComboShip: CW_DRAW_KIND_COLOR_LAYERS payload — the per-DL prim/env colors the rando key/map/
@@ -140,9 +131,37 @@ typedef struct {
     CwDrawOp ops[CW_DRAW_MAX_OPS];
 } CwItemDrawInfo;
 
-/* Returns 1 and fills out on success; 0 if the item is unknown/undrawable.
- * itemName is in the owning game's item namespace (MM: RI_* spoilerName; OOT: English name). */
+/* Returns 1 and fills out on success; 0 if the item is unknown/undrawable; CW_DRAW_NOT_READY if the
+ * producer's state isn't up yet. itemName is in the owning game's namespace (MM: RI_* spoilerName). */
 typedef int32_t (*Fn_GetItemDrawInfo)(const char* itemName, CwItemDrawInfo* out);
+
+/* Lowest dlists[] slot index each kind's handler blind-indexes, +1. Both resolvers reject a recipe
+ * below this before caching it, so a handler can never submit a null display list. */
+static inline int32_t CwMinDlistsForKind(int32_t kind) {
+    switch (kind) {
+        case CW_DRAW_KIND_POTION:
+            return 6;
+        case CW_DRAW_KIND_POES:
+        case CW_DRAW_KIND_SCALE:
+            return 4;
+        case CW_DRAW_KIND_FAIRY:
+        case CW_DRAW_KIND_MAGIC_SPELL:
+        case CW_DRAW_KIND_MM_FAIRY_BOTTLE:
+            return 3;
+        case CW_DRAW_KIND_MIRROR_SHIELD:
+        case CW_DRAW_KIND_BLUE_FIRE:
+        case CW_DRAW_KIND_JEWEL:
+        case CW_DRAW_KIND_SKULL_TOKEN:
+        case CW_DRAW_KIND_BOSS_SOUL:
+        case CW_DRAW_KIND_DOUBLE_DEFENSE:
+        case CW_DRAW_KIND_BRONZE_SCALE:
+            return 2;
+        case CW_DRAW_KIND_OPS:
+            return 0; /* the interpreter bounds-checks every CW_OP_DLIST index itself */
+        default:
+            return 1;
+    }
+}
 
 /* ComboShip: one segment bind a foreign animated draw needs in the host frame. Every bind is
  * restored to an empty DL after the draw (segment hygiene); a bind we cannot express means the
@@ -190,11 +209,8 @@ typedef struct {
 #define CW_ANIM_MAX_LIMB_COLORS 6
 #define CW_ANIM_MAX_LIMB_DLS 4
 
-/* ComboShip: animated variant — the owning game describes a skeletal/animated item (skeleton,
- * animation, texture-animation paths); the host's combo-owned code (combo/menu/ComboForeignAnim.h)
- * loads the resources via the owning game's ResourceManager (CrossRMRegistry) and drives the host's
- * own SkelAnime engine. First served: MM stray fairies. Paths are static literals (process lifetime).
- * APPEND-ONLY: this is a POD C ABI shared by soh.dll and 2ship.dll — never reorder/resize members. */
+/* ComboShip: animated variant — the owner describes a skeletal item and ComboForeignAnim.h loads it
+ * via the owner's RM and drives the host's SkelAnime. APPEND-ONLY (POD C ABI, two DLLs). */
 typedef struct {
     const char* skelPath;    /* FlexSkeleton resource (OTR path) */
     const char* animPath;    /* Animation resource */

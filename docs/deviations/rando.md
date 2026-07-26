@@ -823,3 +823,83 @@ requiredness on MM only, since OOT may be structurally unbeatable from empty. Wi
 unbeatable but keeps MM fully reachable + Majora beatable is downgraded from FAIL to PASS (No Logic).
 
 **Hearts:** see the preceding "OOT hearts as junk" section — shrinks the OOT advancement pool.
+
+## Cross-game foreign-draw hardening: cache liveness, colour pinning, recipe validation (2026-07-26)
+
+Review follow-ups on the foreign-item draw path (`combo/menu/ComboForeignDraw{OOT,MM}.h`,
+`ComboItemDraw{ABI,OOT,MM}.h`, `ComboForeignAnim.h`, both `z_draw.c` exposures).
+
+**1. Transient vs permanent resolution failures.** The per-check draw cache used to write a sticky
+`ok=false` entry on *every* failure path, so a lookup that merely ran too early froze the sentinel
+into that check for the whole save slot — and worst on `stateDependent` recipes, which re-resolve
+every frame and therefore get thousands of chances to hit a transient failure. Two changes:
+- The fill is now a separate function returning `Ok / Unknown / NotReady`, and the recipe is built
+  into a **local** that is only copied into the cache after the attempt — a failure can never clobber
+  a live cached recipe (this also fixed the animated branch silently dropping `stateDependent`).
+  `NotReady` erases the entry and retries next frame; only `Unknown` negative-caches (that path is
+  what keeps junk checks from making a cross-DLL call every frame).
+- Producers can now say "not ready" over the ABI: `CW_DRAW_NOT_READY (-1)`. `OOT_GetItemDrawInfo`
+  returns it while `OTRGlobals::Instance` / `gRandomizer` / `gRandoContext` are null (normal while OOT
+  is dormant) instead of the old `0`.
+- Both draw caches are additionally keyed on the foreign-map **generation** — MM already had
+  `Rando::MiscBehavior::ComboRandoGen()`; OOT gained `OOT_ForeignMapGen()`, bumped by
+  `SOH_LoadComboRando` and by the lazy rebuild inside `OOT_LookupForeign`. A negative entry recorded
+  before the spoiler blob arrived is therefore discarded when the map is (re)built, without paying a
+  per-frame retry for seeds that genuinely have no foreign checks.
+
+**2. Colour pinning on every handler.** MM's scene `AnimatedMaterial` type-4 entries leave a
+continuously-interpolated prim colour in the pipeline; a foreign recipe that only sets env inherits
+it (playtest bug: an OOT key ring cycling colours in MM). The pin existed on two handlers only. It is
+now a macro per consumer (`MM_FOREIGN_PIN_{OPA,XLU}` / `OOT_FOREIGN_PIN_{OPA,XLU}`) emitted
+immediately after *every* `Gfx_SetupDL25_*` / `Gfx_SetupDL_25*` and before the handler's own colour
+commands, including both streams of the ops interpreter (`CW_OP_SETUP_OPA` / `CW_OP_SETUP_XLU` each
+re-pin, so an ops recipe opening on XLU — MM's `DrawDoubleDefense` — is covered).
+`MM_DrawForeignMusicNote` is the one exception to "pin the setup's stream": its OOT original sets up
+*Opa* state but submits on XLU, so the XLU pin is used.
+
+**3/4. Recipe validation.** soh's `z_draw.c` mirror of `CwDrawKind` now carries explicit `= N` values
+(MM's already did), so inserting a kind can't silently re-tag every OOT recipe. And
+`CwMinDlistsForKind()` (in the ABI header) gives the lowest `dlists[]` slot each kind's handler
+blind-indexes; both resolvers reject a shorter recipe as `Unknown` before caching it, so a handler
+can never `gSPDisplayList(disp, NULL)`. `CW_DRAW_KIND_OPS` is exempt — the interpreter already
+bounds-checks each `CW_OP_DLIST` index.
+
+**5/6. Misc.** The OOT-host animated branch now copies `anim.stateDependent` (the MM mirror always
+did). All four `*_GetItem{,Anim}DrawInfo` exports wrap their **entire** body in `try/catch(...)`:
+`itemNameToEnum.find` / `GetItemIdFromDisplayName` construct `std::string`s and `CVarGetInteger`
+runs before the fill, and an unwind across the C ABI into the other DLL is unrecoverable.
+
+**Detail moved out of inline comments** (project rule: 1-2 line inline comments):
+- *Draw bytecode (`CwDrawOp`)*: for funcs shaped as per-DL transforms/colours rather than one flat
+  OPA/XLU submission (MM's `DrawClock`, `DrawOwlStatue`, `DrawTycoonWallet`). The producer folds its
+  own live values into the ops; the consumer replays them against its own matrix stack and gbi.
+  Anything needing GPU state beyond this (texture scrolls, skeletons) gets a dedicated `CwDrawKind`.
+- *`matAnimPath`*: generalizes `xluSeg8TexScroll` for items whose animation lives in a
+  `TextureAnimation` resource (MM's Moon's Tear). The consumer loads it from the owning game's RM
+  (`ComboForeignTexAnim_Run`) and binds the animated segment before the DLs; the path is the owning
+  game's own unrouted `"__OTR__..."` string. The skulltula token has *no* such resource — MM draws it
+  with an inline `Gfx_TwoTexScrollEx` — hence the separate hardcoded flag.
+- *Handler invariant (`ComboForeignDraw{MM,OOT}.h`)*: every DL that samples a segment is preceded by
+  a bind of that segment **in the same stream**, so we never submit a DL against an unbound segment
+  (the documented garbage-DL crash class). Scroll/matrix params are constant per func and taken
+  verbatim from the owning game's source; only per-instance colours travel as data.
+- *No namespace in `ComboForeignAnim.h`*: `OPEN_DISPS`/`CLOSE_DISPS` embed block-scope declarations of
+  `FrameInterpolation_Record*Child`. A prior visible `extern "C"` declaration gives the block-scope
+  redeclaration C linkage — but only at global scope; inside a namespace MSVC mangles it as C++ and
+  the link fails (verified). Hence the `extern "C"` pre-declaration and `Cfa-`/`ComboForeignAnim_`
+  name prefixes instead of a namespace.
+- *Limb-DL routing*: limb DLs in a foreign loaded skeleton are `"__OTR__<path>"` string pointers
+  (`SkeletonLimbFactory` stores `path.c_str()`). The host's GbiWrap resolves plain `"__OTR__"` strings
+  at submission time against the *host's* RM (wrong game); `"__OTR__@<game>:"` strings instead go out
+  as `G_DL_OTR_FILEPATH` commands the interpreter resolves against the named game's RM with scoped
+  inner-reference resolution. `CfaRouteLimbDList` rewrites and interns them (the pointer is emitted
+  into the display list and dereferenced later, so it must outlive the frame).
+- *Texanim segment hygiene*: OOT re-establishes segments 8-D at the start of each frame's buffers
+  (`Scene_Draw` -> scene draw config, `z_scene_table.c sDefaultDisplayList`), so contamination is
+  bounded to commands *after* the draw in the current stream; re-pointing at an empty DL makes those
+  see a no-op instead of our prim/env-colour DL.
+- *MM `GetItem_GetDrawTableEntry` portability*: only self-contained funcs (plain
+  `Gfx_SetupDL25 Opa/Xlu` + optional scale) are exposed as `KIND_SIMPLE`. Funcs needing extra MM
+  runtime state that *can* be replayed get a `CwDrawKind` and the raw table row; the rest return 0 and
+  the other game falls back to its sentinel. Remains ARE portable (their object-segment setup is
+  vestigial under OTR extraction) — only the 0.02 scale must carry across.

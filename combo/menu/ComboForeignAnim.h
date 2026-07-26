@@ -60,11 +60,8 @@
 
 #include "ComboItemDrawABI.h"
 
-// soh's OPEN_DISPS/CLOSE_DISPS macros (macros.h) embed BLOCK-SCOPE declarations of these. With a
-// prior visible extern "C" declaration the block-scope redeclaration inherits C linkage — but ONLY
-// at global scope; inside a namespace MSVC mangles it as a C++ symbol and the link fails
-// (verified). Hence the extern "C" pre-declaration below AND no namespace around this header's
-// functions (everything is Cfa-/ComboForeignAnim_-prefixed instead).
+// OPEN_DISPS embeds block-scope decls of these; C linkage only survives at global scope, so this
+// header is namespace-free and pre-declares them extern "C". See docs/deviations/rando.md.
 extern "C" {
 void FrameInterpolation_RecordOpenChild(const void* a, int b);
 void FrameInterpolation_RecordCloseChild(void);
@@ -101,10 +98,8 @@ constexpr int16_t kMatTypeColorLagrange = 4;
 constexpr int32_t kMaxMatEntries = 8; // sanity bound when walking the entry array
 constexpr int32_t kMaxKeyFrames = 50; // MM's handler uses fixed f32[50] tables — same bound
 
-// ---- Ported handler subset (z_scene_proc.c:226-363, type 4 only). Parameterized on
-// (play->state.gfxCtx for allocs/DISPS, step) instead of MM's sMatAnim* globals; alphaRatio is 1
-// and flags are XLU-only by design: the animated foreign items draw exclusively on the XLU layer,
-// so unlike MM's AnimatedMat_Draw (flags=3) we never touch the OPA stream's segment state.
+// ---- Ported handler subset (z_scene_proc.c:226-363, type 4 only), parameterized on gfxCtx+step
+// instead of MM's sMatAnim* globals; alphaRatio 1, XLU-only by design.
 
 inline float CfaLagrangeInterp(int32_t n, const float x[], const float fx[], float xp) {
     float weights[kMaxKeyFrames];
@@ -289,13 +284,8 @@ struct CfaTexAnimEntry {
 // The foreign game whose limb DLs the in-flight DrawFlex is submitting (single-threaded draw).
 inline const char* sCfaCurrentGame = nullptr;
 
-// Limb DLs in the foreign game's loaded skeletons are "__OTR__<path>" STRING pointers (see MM's
-// SkeletonLimbFactory: limbData.standardLimb.dList = path.c_str()). The host's GbiWrap resolves
-// plain "__OTR__" strings at SUBMISSION time through the HOST's RM (wrong game), but routes
-// "__OTR__@<game>:" strings as G_DL_OTR_FILEPATH commands the interpreter resolves against the
-// named game's RM with scoped inner-reference resolution — exactly like the static foreign-DL
-// path. So rewrite each limb DL string to its routed form (interned: the pointer is emitted into
-// the display list and dereferenced at interpreter time).
+// Foreign limb DLs are "__OTR__<path>" strings the host's GbiWrap would resolve against the WRONG
+// RM, so rewrite each to its interned "__OTR__@<game>:" routed form. See docs/deviations/rando.md.
 inline Gfx* CfaRouteLimbDList(Gfx* dList) {
     const char* s = (const char*)dList;
     if (s == nullptr || strncmp(s, "__OTR__", 7) != 0) {
@@ -784,10 +774,8 @@ inline int32_t ComboForeignAnim_Draw(const CwItemAnimDrawInfo* info, const char*
         SkelAnime_Update(&skelEntry.skelAnime);
     }
 
-    // RM bracket: any RAW-pointer spans the skeletal draw submits resolve their inner
-    // hash/path refs against the owning game's RM at interpreter time. The limb DLs themselves go
-    // out as "__OTR__@<game>:" routed strings (CfaRouteLimbDList), which carry their own scoped
-    // override — the bracket is the safety net for everything else.
+    // RM bracket: safety net so any RAW-pointer span the draw submits resolves its inner refs
+    // against the owning game's RM (routed limb DLs carry their own scoped override).
     sCfaCurrentGame = game;
     gSPComboRMPush(POLY_XLU_DISP++, game);
     POLY_XLU_DISP = SkelAnime_DrawFlex(play, skelEntry.skelAnime.skeleton, skelEntry.skelAnime.jointTable,
@@ -795,11 +783,8 @@ inline int32_t ComboForeignAnim_Draw(const CwItemAnimDrawInfo* info, const char*
                                        (CFA_LIMB_ARG)(intptr_t)info->hiddenLimb, POLY_XLU_DISP);
     gSPComboRMPop(POLY_XLU_DISP++);
 
-    // Segment hygiene: re-point the segments the texanim wrote at a benign empty DL. OOT's own
-    // discipline re-establishes segments 8-D at the START of each frame's buffers (Scene_Draw ->
-    // scene draw config, soh z_scene_table.c sDefaultDisplayList), so contamination is bounded to
-    // commands AFTER this draw in the current XLU stream; the empty DL makes those see a no-op
-    // instead of our prim/env-color DL. (The OPA stream was never touched — see CfaSetColorSegment.)
+    // Segment hygiene: re-point the segments the texanim wrote at a benign empty DL (XLU only —
+    // the OPA stream was never touched). See docs/deviations/rando.md.
     if (writtenSegCount > 0) {
         Gfx* empty = (Gfx*)CFA_ALLOC(play->state.gfxCtx, sizeof(Gfx));
         Gfx* e = empty;

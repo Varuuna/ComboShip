@@ -416,13 +416,23 @@ static Vec3f spawnPos = { 0.0f, -999.0f, 0.0f };
 // ComboShip: cache of OOT checks that hold a foreign (MM-bound) item, built from the pushed spoiler
 // blob by SOH_LoadComboRando. No per-slot file reload — data now arrives in memory.
 static std::unordered_map<std::string, ComboRando::ForeignItem> g_ootForeignMap;
+// ComboShip: bumped on every successful (re)build; foreign-draw caches key on it so a lookup that
+// ran before the blob arrived can't leave a stale negative entry (MM mirror: ComboRandoGen()).
+static uint64_t g_ootForeignGen = 0;
+
+uint64_t OOT_ForeignMapGen() {
+    return g_ootForeignGen;
+}
 
 // ComboShip: also used by MerchantMessages/check tracker to show the real foreign item name.
 const ComboRando::ForeignItem* OOT_LookupForeign(int slot, const std::string& checkName) {
     (void)slot;
     // Lazily build from the in-memory blob if a lookup races the load-time push.
-    if (g_ootForeignMap.empty())
+    if (g_ootForeignMap.empty()) {
         g_ootForeignMap = ComboRando::LoadForeignForGame(0, ComboRando::GAME_OOT);
+        if (!g_ootForeignMap.empty())
+            ++g_ootForeignGen;
+    }
     auto it = g_ootForeignMap.find(checkName);
     return it == g_ootForeignMap.end() ? nullptr : &it->second;
 }
@@ -468,6 +478,7 @@ void OOT_DeliverForeign(RandomizerCheck rc) {
 extern "C" __declspec(dllexport) void SOH_LoadComboRando(const char* json) {
     ComboRando::Combo_SetForeignJson(json);
     g_ootForeignMap = ComboRando::LoadForeignForGame(0, ComboRando::GAME_OOT);
+    ++g_ootForeignGen; // invalidate the foreign-draw caches keyed on this
 }
 #endif
 

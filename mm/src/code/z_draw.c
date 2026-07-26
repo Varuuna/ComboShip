@@ -384,18 +384,10 @@ void GetItem_Draw(PlayState* play, s16 drawId) {
 }
 
 #ifdef COMBO_BUILD
-// ComboShip: expose one sDrawItemTable row for cross-game rendering (see combo/menu/ComboItemDrawABI.h
-// and MM_GetItemDrawInfo in 2s2h/BenPort.cpp). Only "self-contained" draw funcs are exposed — ones
-// that just submit display lists under plain Gfx_SetupDL25 Opa/Xlu state (plus an optional scale).
-// Funcs needing extra MM runtime state (texture scrolls, AnimatedMat_Draw, Mtx resources — e.g.
-// RecoveryHeart/Fish/Potion) aren't portable to the other game's frame and return 0; that game then
-// falls back to its sentinel model. Remains ARE portable (their object-segment setup is vestigial
-// under OTR extraction); only the 0.02 scale must carry across (*outScale).
-// outDlists is filled in submission order; *outXluStart is the index of the first XLU-layer entry
-// (-1 = all OPA). Returns the dlist count, or 0 if the row is unsupported.
-// ComboShip: funcs needing GPU state that can't be baked into a DL list (segment-8 texture scrolls,
-// billboard rotation) set *outDrawKind to a CwDrawKind value and carry outDlists in RAW table order;
-// the consumer's per-kind handler replays the func in its own frame.
+// ComboShip: expose one sDrawItemTable row for cross-game rendering (combo/menu/ComboItemDrawABI.h).
+// outDlists is in submission order, *outXluStart is the first XLU entry (-1 = all OPA); non-portable
+// funcs set *outDrawKind and carry the RAW table row. Returns 0 for unsupported rows.
+// See docs/deviations/rando.md for what is and isn't portable and why.
 s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale,
                               s32* outXluSeg8TexScroll, s32* outDrawKind) {
     // Mirror of CwDrawKind (ABI header is C++/POD; z_draw.c is C so keep local names in sync).

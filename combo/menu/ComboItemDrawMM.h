@@ -902,27 +902,27 @@ static int32_t MM_FillItemDrawInfo(RandoItemId id, CwItemDrawInfo* out) {
     return 1;
 }
 
+// Whole body inside the try: we run on OOT's graph thread while MM is dormant, and an unwind across
+// the C ABI into soh.dll is unrecoverable.
 extern "C" __declspec(dllexport) int32_t MM_GetItemDrawInfo(const char* itemName, CwItemDrawInfo* out) {
-    if (itemName == nullptr || out == nullptr) {
-        return 0;
-    }
-    RandoItemId id = Rando::StaticData::GetItemIdFromDisplayName(itemName);
-    if (id == RI_UNKNOWN) {
-        id = Rando::StaticData::GetItemIdFromName(itemName); // sentinel / raw RI_
-    }
-    if (id == RI_UNKNOWN || MM_HasAnimDraw(id)) {
-        return 0; // the animated ABI serves the skeletal class (enemy souls, minifrogs)
-    }
-    *out = CwItemDrawInfo{};
-    // We run on OOT's graph thread while MM is dormant; never let an exception unwind across the C
-    // ABI into soh.dll.
     try {
+        if (itemName == nullptr || out == nullptr) {
+            return 0;
+        }
+        RandoItemId id = Rando::StaticData::GetItemIdFromDisplayName(itemName);
+        if (id == RI_UNKNOWN) {
+            id = Rando::StaticData::GetItemIdFromName(itemName); // sentinel / raw RI_
+        }
+        if (id == RI_UNKNOWN || MM_HasAnimDraw(id)) {
+            return 0; // the animated ABI serves the skeletal class (enemy souls, minifrogs)
+        }
+        *out = CwItemDrawInfo{};
         if (!MM_FillItemDrawInfo(id, out)) {
             return 0;
         }
+        out->stateDependent = (MM_IsProgressiveItem(id) || MM_IsStateDependentDraw(id)) ? 1 : 0;
+        return 1;
     } catch (...) { return 0; }
-    out->stateDependent = (MM_IsProgressiveItem(id) || MM_IsStateDependentDraw(id)) ? 1 : 0;
-    return 1;
 }
 
 // Animated variant. Items in the animated class (currently the stray fairies, drawn by
@@ -930,51 +930,51 @@ extern "C" __declspec(dllexport) int32_t MM_GetItemDrawInfo(const char* itemName
 // and OOT falls through to this one. MM only DESCRIBES the item — resource paths + DrawStrayFairy
 // parameters — and the host's combo-owned ComboForeignAnim.h does the loading and drawing.
 // Returns 0 for items outside the animated class.
+// Whole body inside the try: an unwind across the C ABI into soh.dll is unrecoverable.
 extern "C" __declspec(dllexport) int32_t MM_GetItemAnimDrawInfo(const char* itemName, CwItemAnimDrawInfo* out) {
-    if (itemName == nullptr || out == nullptr) {
-        return 0;
-    }
-    const char* texAnim;
-    // ComboShip: itemName is the friendly combo-spoiler name; fall back to the RI_ spoilerName.
-    RandoItemId animId = Rando::StaticData::GetItemIdFromDisplayName(itemName);
-    if (animId == RI_UNKNOWN) {
-        animId = Rando::StaticData::GetItemIdFromName(itemName);
-    }
-    *out = CwItemAnimDrawInfo{};
-    // The OPA/skeletal class (enemy souls, minifrogs); never let an exception cross the C ABI.
     try {
-        if (MM_FillAnimDrawInfo(animId, out)) {
+        if (itemName == nullptr || out == nullptr) {
+            return 0;
+        }
+        const char* texAnim;
+        // ComboShip: itemName is the friendly combo-spoiler name; fall back to the RI_ spoilerName.
+        RandoItemId animId = Rando::StaticData::GetItemIdFromDisplayName(itemName);
+        if (animId == RI_UNKNOWN) {
+            animId = Rando::StaticData::GetItemIdFromName(itemName);
+        }
+        *out = CwItemAnimDrawInfo{};
+        if (MM_FillAnimDrawInfo(animId, out)) { // the OPA/skeletal class (enemy souls, minifrogs)
             return 1;
         }
+        switch (animId) {
+            case RI_WOODFALL_STRAY_FAIRY:
+                texAnim = gStrayFairyWoodfallTexAnim;
+                break;
+            case RI_SNOWHEAD_STRAY_FAIRY:
+                texAnim = gStrayFairySnowheadTexAnim;
+                break;
+            case RI_GREAT_BAY_STRAY_FAIRY:
+                texAnim = gStrayFairyGreatBayTexAnim;
+                break;
+            case RI_STONE_TOWER_STRAY_FAIRY:
+                texAnim = gStrayFairyStoneTowerTexAnim;
+                break;
+            case RI_CLOCK_TOWN_STRAY_FAIRY:
+                texAnim = gStrayFairyClockTownTexAnim;
+                break;
+            default:
+                return 0; // not in the animated class
+        }
+        out->skelPath = gStrayFairySkel;
+        out->animPath = gStrayFairyFlyingAnim;
+        out->texAnimPath = texAnim;
+        out->scale = 0.03f;
+        out->billboard = 1;
+        out->xlu = 1;
+        out->limbCount = STRAY_FAIRY_LIMB_MAX;
+        out->hiddenLimb = STRAY_FAIRY_LIMB_RIGHT_FACING_HEAD;
+        return 1;
     } catch (...) { return 0; }
-    switch (animId) {
-        case RI_WOODFALL_STRAY_FAIRY:
-            texAnim = gStrayFairyWoodfallTexAnim;
-            break;
-        case RI_SNOWHEAD_STRAY_FAIRY:
-            texAnim = gStrayFairySnowheadTexAnim;
-            break;
-        case RI_GREAT_BAY_STRAY_FAIRY:
-            texAnim = gStrayFairyGreatBayTexAnim;
-            break;
-        case RI_STONE_TOWER_STRAY_FAIRY:
-            texAnim = gStrayFairyStoneTowerTexAnim;
-            break;
-        case RI_CLOCK_TOWN_STRAY_FAIRY:
-            texAnim = gStrayFairyClockTownTexAnim;
-            break;
-        default:
-            return 0; // not in the animated class
-    }
-    out->skelPath = gStrayFairySkel;
-    out->animPath = gStrayFairyFlyingAnim;
-    out->texAnimPath = texAnim;
-    out->scale = 0.03f;
-    out->billboard = 1;
-    out->xlu = 1;
-    out->limbCount = STRAY_FAIRY_LIMB_MAX;
-    out->hiddenLimb = STRAY_FAIRY_LIMB_RIGHT_FACING_HEAD;
-    return 1;
 }
 
 #endif // COMBO_ITEM_DRAW_MM_H

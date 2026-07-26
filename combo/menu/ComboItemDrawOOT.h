@@ -447,48 +447,45 @@ static int32_t OOT_FillItemDrawInfo(RandomizerGet rg, CwItemDrawInfo* out) {
 }
 
 // Cross-game item draw info. MM resolves this via GetProcAddress to learn which OOT display lists
-// render a foreign item, then submits them through "__OTR__@oot:"-routed paths resolved against OOT's
-// ResourceManager (CrossRMRegistry). itemName is the OOT English item name — the same grant key the
-// foreign map carries for OOT items (the combo generator writes GetName().english; itemNameToEnum is
-// keyed on it, see soh/.../item_list.cpp). The returned dlists point at OOT's static OTR asset-path
-// string literals, valid for process lifetime. Returns 0 for unknown items / non-portable draw funcs;
-// the caller falls back to its sentinel.
+// render a foreign item; itemName is the OOT English item name (the foreign map's grant key).
+// Returns 0 for unknown/non-portable items, CW_DRAW_NOT_READY while OOT's rando state is down.
+// The whole body is inside the try: an unwind across the C ABI into 2ship.dll is unrecoverable.
 static bool OOT_BossSoulUsesSkeleton(RandomizerGet rg); // defined with the animated ABI below
 
 extern "C" __declspec(dllexport) int32_t OOT_GetItemDrawInfo(const char* itemName, CwItemDrawInfo* out) {
-    if (itemName == nullptr || out == nullptr) {
-        return 0;
-    }
-    auto& nameMap = Rando::StaticData::itemNameToEnum;
-    auto it = nameMap.find(itemName);
-    if (it == nameMap.end()) {
-        return 0;
-    }
-    RandomizerGet rg = it->second;
-    // Sold Out / Hint have no model of their own: Item::GetGIEntry falls back to RG_NONE, whose gid 0
-    // is GID_BOTTLE, so the gid path would draw a misleading bottle. Sentinel instead.
-    if (rg == RG_NONE || rg == RG_COMBO_FOREIGN || rg == RG_SOLD_OUT || rg == RG_HINT) {
-        return 0;
-    }
-    // Boss souls drawing their real skeleton have no static DL row — served by the animated ABI.
-    if (OOT_BossSoulUsesSkeleton(rg)) {
-        return 0;
-    }
-    // We run on MM's graph thread while OOT is dormant, and Item::GetGIEntry dereferences gRandomizer
-    // / gRandoContext (plus OOT gameplay state) for progressive tiers. Bail to the sentinel instead of
-    // crashing, and never let an exception unwind across the C ABI into 2ship.dll.
-    if (OTRGlobals::Instance == nullptr || OTRGlobals::Instance->gRandomizer == nullptr ||
-        OTRGlobals::Instance->gRandoContext == nullptr) {
-        return 0;
-    }
-    *out = CwItemDrawInfo{};
     try {
+        if (itemName == nullptr || out == nullptr) {
+            return 0;
+        }
+        auto& nameMap = Rando::StaticData::itemNameToEnum;
+        auto it = nameMap.find(itemName);
+        if (it == nameMap.end()) {
+            return 0;
+        }
+        RandomizerGet rg = it->second;
+        // Sold Out / Hint have no model of their own: Item::GetGIEntry falls back to RG_NONE, whose
+        // gid 0 is GID_BOTTLE, so the gid path would draw a misleading bottle. Sentinel instead.
+        if (rg == RG_NONE || rg == RG_COMBO_FOREIGN || rg == RG_SOLD_OUT || rg == RG_HINT) {
+            return 0;
+        }
+        // Boss souls drawing their real skeleton have no static DL row — served by the animated ABI.
+        if (OOT_BossSoulUsesSkeleton(rg)) {
+            return 0;
+        }
+        // We run on MM's graph thread while OOT is dormant, and Item::GetGIEntry dereferences
+        // gRandomizer/gRandoContext for progressive tiers. Transient: tell MM to retry, not to
+        // negative-cache the sentinel for the rest of the save slot.
+        if (OTRGlobals::Instance == nullptr || OTRGlobals::Instance->gRandomizer == nullptr ||
+            OTRGlobals::Instance->gRandoContext == nullptr) {
+            return CW_DRAW_NOT_READY;
+        }
+        *out = CwItemDrawInfo{};
         if (!OOT_FillItemDrawInfo(rg, out)) {
             return 0;
         }
+        out->stateDependent = OOT_IsStateDependentDraw(rg) ? 1 : 0;
+        return 1;
     } catch (...) { return 0; }
-    out->stateDependent = OOT_IsStateDependentDraw(rg) ? 1 : 0;
-    return 1;
 }
 
 // Boss-soul flame colors, shared by the simplified recipe above and the skeletal one below.
@@ -677,18 +674,18 @@ static int32_t OOT_FillBossSoulAnim(int slot, CwItemAnimDrawInfo* out) {
 // animated get-item draw (fairy, blue fire, poes, skull token) is a segment-8 texture scroll rather
 // than a SkelAnime skeleton and rides the static ABI. Returns 0 otherwise; MM falls back to its
 // sentinel. Mirror of MM_GetItemAnimDrawInfo.
+// Whole body inside the try: an unwind across the C ABI into 2ship.dll is unrecoverable.
 extern "C" __declspec(dllexport) int32_t OOT_GetItemAnimDrawInfo(const char* itemName, CwItemAnimDrawInfo* out) {
-    if (itemName == nullptr || out == nullptr) {
-        return 0;
-    }
-    auto& nameMap = Rando::StaticData::itemNameToEnum;
-    auto it = nameMap.find(itemName);
-    if (it == nameMap.end() || !OOT_BossSoulUsesSkeleton(it->second)) {
-        return 0;
-    }
-    *out = CwItemAnimDrawInfo{};
-    // Never let an exception unwind across the C ABI into 2ship.dll.
     try {
+        if (itemName == nullptr || out == nullptr) {
+            return 0;
+        }
+        auto& nameMap = Rando::StaticData::itemNameToEnum;
+        auto it = nameMap.find(itemName);
+        if (it == nameMap.end() || !OOT_BossSoulUsesSkeleton(it->second)) {
+            return 0;
+        }
+        *out = CwItemAnimDrawInfo{};
         return OOT_FillBossSoulAnim((int)it->second - (int)RG_GOHMA_SOUL, out);
     } catch (...) { return 0; }
 }

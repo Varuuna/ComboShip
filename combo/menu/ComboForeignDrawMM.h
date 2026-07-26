@@ -28,6 +28,7 @@
 #error "ComboForeignDrawMM.h is TU-glue: include the host engine headers before it"
 #endif
 
+#include <cstdint>
 #include <cstring>
 #include <string>
 #include <unordered_map>
@@ -79,28 +80,14 @@ inline const char* ComboInternRoutedPathOOT(const std::string& s) {
     return sPool.insert(s).first->c_str();
 }
 
-// Full lookup chain (foreign map -> OOT export -> routed strings), cached per check per slot so it
-// runs once per check instead of every frame.
-inline const ComboForeignDrawInfoOOT* ComboResolveForeignDrawInfoOOT(RandoCheckId rc) {
-    static std::unordered_map<int32_t, ComboForeignDrawInfoOOT> sCache;
-    static int sCacheSlot = -1;
-    int slot = gSaveContext.fileNum;
-    if (slot != sCacheSlot) {
-        sCache.clear();
-        sCacheSlot = slot;
-    }
-    auto cached = sCache.find(rc);
-    if (cached != sCache.end() && !cached->second.stateDependent) {
-        return cached->second.ok ? &cached->second : nullptr;
-    }
-    // A state-dependent recipe (progressive tier, Triforce shard, junk/trap) is re-resolved every
-    // frame; caching it would freeze whichever model happened to be correct on the first draw.
-    ComboForeignDrawInfoOOT& info = sCache[rc]; // default ok=false caches negative results too
-    info = ComboForeignDrawInfoOOT{};
+// One resolution attempt's outcome. NotReady = a producer/lookup that simply isn't up yet (soh.dll
+// not resident, OOT's rando context null while dormant), which must NEVER be negative-cached.
+enum class ComboForeignResolveOOT { Ok, Unknown, NotReady };
 
+inline ComboForeignResolveOOT ComboFillForeignDrawInfoOOT(RandoCheckId rc, ComboForeignDrawInfoOOT& info) {
     const ComboRando::ForeignItem* fi = Rando::MiscBehavior::MM_LookupForeign(rc);
     if (fi == nullptr || fi->itemGame != ComboRando::GAME_OOT) {
-        return nullptr;
+        return ComboForeignResolveOOT::Unknown;
     }
 
 #ifdef _WIN32
@@ -110,14 +97,17 @@ inline const ComboForeignDrawInfoOOT* ComboResolveForeignDrawInfoOOT(RandoCheckI
         sGetItemDrawInfo = h ? (Fn_GetItemDrawInfo)GetProcAddress(h, "OOT_GetItemDrawInfo") : nullptr;
     }
     if (sGetItemDrawInfo == nullptr) {
-        sCache.erase(rc); // soh.dll may simply not be resident yet — don't negative-cache, retry later
-        return nullptr;
+        return ComboForeignResolveOOT::NotReady; // soh.dll may simply not be resident yet
     }
     // A disguised trap must draw the item it pretends to be. Same namespace, so the itemGame dispatch
     // above is unaffected. Not state-dependent: like OOT, the disguise holds until the get-item cutscene.
     const char* drawName = fi->HasDisguise() ? fi->fakeItemName.c_str() : fi->itemName.c_str();
     CwItemDrawInfo raw{};
-    if (sGetItemDrawInfo(drawName, &raw) == 0 || raw.dlistCount <= 0) {
+    int32_t rcStatic = sGetItemDrawInfo(drawName, &raw);
+    if (rcStatic == CW_DRAW_NOT_READY) {
+        return ComboForeignResolveOOT::NotReady; // OOT dormant / rando context null — retry next frame
+    }
+    if (rcStatic == 0 || raw.dlistCount <= 0) {
         // ComboShip: no static DL row — try the animated ABI (OOT boss souls' real skeletons). OOT
         // only describes the item; ComboForeignAnim_Draw loads + draws it (mirror of the OOT side).
         static Fn_GetItemAnimDrawInfo sGetItemAnimDrawInfo = nullptr;
@@ -125,21 +115,31 @@ inline const ComboForeignDrawInfoOOT* ComboResolveForeignDrawInfoOOT(RandoCheckI
             HMODULE h = GetModuleHandleA("soh.dll");
             sGetItemAnimDrawInfo = h ? (Fn_GetItemAnimDrawInfo)GetProcAddress(h, "OOT_GetItemAnimDrawInfo") : nullptr;
         }
-        if (sGetItemAnimDrawInfo != nullptr && sGetItemAnimDrawInfo(drawName, &info.anim) != 0) {
+        if (sGetItemAnimDrawInfo == nullptr) {
+            return ComboForeignResolveOOT::NotReady;
+        }
+        int32_t rcAnim = sGetItemAnimDrawInfo(drawName, &info.anim);
+        if (rcAnim == CW_DRAW_NOT_READY) {
+            return ComboForeignResolveOOT::NotReady;
+        }
+        if (rcAnim != 0) {
             info.animOk = true;
             info.stateDependent = info.anim.stateDependent != 0;
             info.ok = true;
-            return &info;
+            return ComboForeignResolveOOT::Ok;
         }
-        return nullptr; // unknown item or non-portable draw func: cached negative -> sentinel forever
+        return ComboForeignResolveOOT::Unknown; // unknown item or non-portable draw func -> sentinel
     }
 
     static constexpr char kOtrPrefix[] = "__OTR__";
     int32_t n = raw.dlistCount < CW_DRAW_MAX_DLISTS ? raw.dlistCount : CW_DRAW_MAX_DLISTS;
+    if (n < CwMinDlistsForKind(raw.drawKind)) {
+        return ComboForeignResolveOOT::Unknown; // handler would blind-index a missing slot
+    }
     for (int32_t i = 0; i < n; i++) {
         const char* p = raw.dlists[i];
         if (p == nullptr || strncmp(p, kOtrPrefix, sizeof(kOtrPrefix) - 1) != 0) {
-            return nullptr; // not an OTR path literal — can't route it
+            return ComboForeignResolveOOT::Unknown; // not an OTR path literal — can't route it
         }
         info.dls[i] = ComboInternRoutedPathOOT(std::string("__OTR__@oot:") + (p + sizeof(kOtrPrefix) - 1));
     }
@@ -161,22 +161,59 @@ inline const ComboForeignDrawInfoOOT* ComboResolveForeignDrawInfoOOT(RandoCheckI
         info.envColorOpa[i] = raw.envColorOpa[i];
     }
     info.ok = true;
-    return &info;
+    return ComboForeignResolveOOT::Ok;
 #else
-    return nullptr; // GetProcAddress resolution is Windows-only for now (matches ComboMenuModel)
+    return ComboForeignResolveOOT::Unknown; // GetProcAddress resolution is Windows-only (ComboMenuModel)
 #endif
+}
+
+// Full lookup chain (foreign map -> OOT export -> routed strings), cached per check per slot per
+// foreign-map generation so it runs once per check instead of every frame.
+inline const ComboForeignDrawInfoOOT* ComboResolveForeignDrawInfoOOT(RandoCheckId rc) {
+    static std::unordered_map<int32_t, ComboForeignDrawInfoOOT> sCache;
+    static int sCacheSlot = -1;
+    static uint64_t sCacheGen = (uint64_t)-1;
+    int slot = gSaveContext.fileNum;
+    uint64_t gen = Rando::MiscBehavior::ComboRandoGen();
+    if (slot != sCacheSlot || gen != sCacheGen) {
+        sCache.clear();
+        sCacheSlot = slot;
+        sCacheGen = gen;
+    }
+    auto cached = sCache.find(rc);
+    if (cached != sCache.end() && !cached->second.stateDependent) {
+        return cached->second.ok ? &cached->second : nullptr;
+    }
+    // A state-dependent recipe (progressive tier, Triforce shard, junk/trap) is re-resolved every
+    // frame; caching it would freeze whichever model happened to be correct on the first draw.
+    ComboForeignDrawInfoOOT info{}; // built locally: a failure must not clobber a live cached recipe
+    if (ComboFillForeignDrawInfoOOT(rc, info) == ComboForeignResolveOOT::NotReady) {
+        sCache.erase(rc); // transient — retry next frame instead of freezing the sentinel in
+        return nullptr;
+    }
+    ComboForeignDrawInfoOOT& entry = sCache[rc]; // Unknown caches ok=false: one lookup, then sentinel
+    entry = info;
+    return entry.ok ? &entry : nullptr;
 }
 
 } // namespace
 
-// ---- Non-portable OOT draw funcs (segment-8/9 texture scrolls, billboard rotation, per-instance
-// prim/env color). Each handler is a 1:1 port of the OOT get-item func (soh/src/code/z_draw.c),
-// re-binding the required segment(s) in MM's frame with MM's own gbi BEFORE submitting the routed
-// @oot: DLs, then restoring the segment(s). The scroll/matrix params are constant per func and taken
-// verbatim from the OOT source; only the JEWEL/MUSIC_NOTE colors are carried as data. HARD INVARIANT:
-// every DL that samples a segment is preceded by a bind of that segment in the same stream, so we
-// never submit a DL against an unbound segment (crash). Free (non-namespaced) inline functions so the
-// OPEN_DISPS block-scope decls keep C linkage — see combo/menu/ComboForeignAnim.h.
+// ---- Non-portable OOT draw funcs: each handler is a 1:1 port of the OOT get-item func
+// (soh/src/code/z_draw.c), re-binding the segment(s) it needs in MM's frame before submitting the
+// routed @oot: DLs. See docs/deviations/rando.md for the invariants.
+
+// Pin prim+env to white right after a setup DL, before the handler's own colour commands: a layer
+// the recipe doesn't tint must not inherit MM's continuously-interpolated scene material colour.
+#define MM_FOREIGN_PIN_OPA()                                        \
+    do {                                                            \
+        gDPSetPrimColor(POLY_OPA_DISP++, 0, 0, 255, 255, 255, 255); \
+        gDPSetEnvColor(POLY_OPA_DISP++, 255, 255, 255, 255);        \
+    } while (0)
+#define MM_FOREIGN_PIN_XLU()                                        \
+    do {                                                            \
+        gDPSetPrimColor(POLY_XLU_DISP++, 0, 0, 255, 255, 255, 255); \
+        gDPSetEnvColor(POLY_XLU_DISP++, 255, 255, 255, 255);        \
+    } while (0)
 
 // Restore the segments a handler bound (8 and/or 9) to a benign empty DL so later same-frame commands
 // don't sample our scroll DLs. Restores on both streams (harmless where a segment wasn't bound).
@@ -205,6 +242,7 @@ inline void MM_DrawForeignSimple(const ComboForeignDrawInfoOOT* info) {
     }
     if (xs > 0) {
         Gfx_SetupDL25_Opa(gfxCtx);
+        MM_FOREIGN_PIN_OPA();
         MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
         if (info->hasEnvColor) {
             gDPSetEnvColor(POLY_OPA_DISP++, info->envColor[0], info->envColor[1], info->envColor[2], info->envColor[3]);
@@ -215,6 +253,7 @@ inline void MM_DrawForeignSimple(const ComboForeignDrawInfoOOT* info) {
     }
     if (xs < n) {
         Gfx_SetupDL25_Xlu(gfxCtx);
+        MM_FOREIGN_PIN_XLU();
         MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
         if (info->hasEnvColor) {
             gDPSetEnvColor(POLY_XLU_DISP++, info->envColor[0], info->envColor[1], info->envColor[2], info->envColor[3]);
@@ -232,6 +271,7 @@ inline void MM_DrawForeignGoronSword(const ComboForeignDrawInfoOOT* info) {
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Opa(gfxCtx);
+    MM_FOREIGN_PIN_OPA();
     gSPSegment(POLY_OPA_DISP++, 0x08,
                (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 1, play->state.frames * 0,
                                              32, 32, 1, play->state.frames * 0, play->state.frames * 0, 32, 32, 1, 0, 0,
@@ -249,6 +289,7 @@ inline void MM_DrawForeignDekuNuts(const ComboForeignDrawInfoOOT* info) {
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Opa(gfxCtx);
+    MM_FOREIGN_PIN_OPA();
     gSPSegment(POLY_OPA_DISP++, 0x08,
                (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 6, play->state.frames * 6,
                                              32, 32, 1, play->state.frames * 6, play->state.frames * 6, 32, 32, 6, 6, 6,
@@ -266,6 +307,7 @@ inline void MM_DrawForeignRecoveryHeart(const ComboForeignDrawInfoOOT* info) {
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Xlu(gfxCtx);
+    MM_FOREIGN_PIN_XLU();
     gSPSegment(POLY_XLU_DISP++, 0x08,
                (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 0, -(play->state.frames * 3),
                                              32, 32, 1, play->state.frames * 0, -(play->state.frames * 2), 32, 32, 0,
@@ -283,6 +325,7 @@ inline void MM_DrawForeignFish(const ComboForeignDrawInfoOOT* info) {
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Xlu(gfxCtx);
+    MM_FOREIGN_PIN_XLU();
     gSPSegment(POLY_XLU_DISP++, 0x08,
                (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 0, play->state.frames * 1,
                                              32, 32, 1, play->state.frames * 0, play->state.frames * 1, 32, 32, 0, 1, 0,
@@ -300,6 +343,7 @@ inline void MM_DrawForeignPotion(const ComboForeignDrawInfoOOT* info) {
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Opa(gfxCtx);
+    MM_FOREIGN_PIN_OPA();
     gSPSegment(POLY_OPA_DISP++, 0x08,
                (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, -play->state.frames, play->state.frames, 32, 32,
                                              1, -play->state.frames, play->state.frames, 32, 32, -1, 1, -1, 1));
@@ -309,6 +353,7 @@ inline void MM_DrawForeignPotion(const ComboForeignDrawInfoOOT* info) {
     gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[2]);
     gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[3]);
     Gfx_SetupDL25_Xlu(gfxCtx);
+    MM_FOREIGN_PIN_XLU();
     MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
     gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[4]);
     gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[5]);
@@ -323,12 +368,14 @@ inline void MM_DrawForeignMirrorShield(const ComboForeignDrawInfoOOT* info) {
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Opa(gfxCtx);
+    MM_FOREIGN_PIN_OPA();
     gSPSegment(POLY_OPA_DISP++, 0x08,
                (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, 0, play->state.frames * 2 % 256, 64, 64, 1, 0,
                                              play->state.frames * 1 % 128, 32, 32, 0, 2, 0, 1));
     MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
     gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[0]);
     Gfx_SetupDL25_Xlu(gfxCtx);
+    MM_FOREIGN_PIN_XLU();
     MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
     gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[1]);
     CLOSE_DISPS(gfxCtx);
@@ -342,9 +389,11 @@ inline void MM_DrawForeignBlueFire(const ComboForeignDrawInfoOOT* info) {
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Opa(gfxCtx);
+    MM_FOREIGN_PIN_OPA();
     MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
     gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[0]);
     Gfx_SetupDL25_Xlu(gfxCtx);
+    MM_FOREIGN_PIN_XLU();
     gSPSegment(POLY_XLU_DISP++, 0x08,
                (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, 0, 0, 16, 32, 1, play->state.frames * 1,
                                              -(play->state.frames * 8), 16, 32, 0, 0, 1, -8));
@@ -365,9 +414,11 @@ inline void MM_DrawForeignPoes(const ComboForeignDrawInfoOOT* info) {
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Opa(gfxCtx);
+    MM_FOREIGN_PIN_OPA();
     MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
     gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[0]);
     Gfx_SetupDL25_Xlu(gfxCtx);
+    MM_FOREIGN_PIN_XLU();
     MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
     gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[1]);
     gSPSegment(POLY_XLU_DISP++, 0x08,
@@ -390,9 +441,11 @@ inline void MM_DrawForeignFairy(const ComboForeignDrawInfoOOT* info) {
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Opa(gfxCtx);
+    MM_FOREIGN_PIN_OPA();
     MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
     gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[0]);
     Gfx_SetupDL25_Xlu(gfxCtx);
+    MM_FOREIGN_PIN_XLU();
     MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
     gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[1]);
     gSPSegment(POLY_XLU_DISP++, 0x08,
@@ -423,10 +476,12 @@ inline void MM_DrawForeignJewel(const ComboForeignDrawInfoOOT* info) {
     MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
     MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
     Gfx_SetupDL25_Xlu(gfxCtx);
+    MM_FOREIGN_PIN_XLU();
     gDPSetPrimColor(POLY_XLU_DISP++, 0, 128, info->primColorXlu[0], info->primColorXlu[1], info->primColorXlu[2], 255);
     gDPSetEnvColor(POLY_XLU_DISP++, info->envColorXlu[0], info->envColorXlu[1], info->envColorXlu[2], 255);
     gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[0]);
     Gfx_SetupDL25_Opa(gfxCtx);
+    MM_FOREIGN_PIN_OPA();
     gDPSetPrimColor(POLY_OPA_DISP++, 0, 128, info->primColorOpa[0], info->primColorOpa[1], info->primColorOpa[2], 255);
     gDPSetEnvColor(POLY_OPA_DISP++, info->envColorOpa[0], info->envColorOpa[1], info->envColorOpa[2], 255);
     gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[1]);
@@ -442,6 +497,7 @@ inline void MM_DrawForeignMagicSpell(const ComboForeignDrawInfoOOT* info) {
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Xlu(gfxCtx);
+    MM_FOREIGN_PIN_XLU();
     gSPSegment(POLY_XLU_DISP++, 0x08,
                (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 2, -(play->state.frames * 6),
                                              32, 32, 1, play->state.frames * 1, -(play->state.frames * 2), 32, 32, 2,
@@ -461,6 +517,7 @@ inline void MM_DrawForeignScale(const ComboForeignDrawInfoOOT* info) {
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Xlu(gfxCtx);
+    MM_FOREIGN_PIN_XLU();
     gSPSegment(POLY_XLU_DISP++, 0x08,
                (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 2, -(play->state.frames * 2),
                                              64, 64, 1, play->state.frames * 4, -(play->state.frames * 4), 32, 32, 2,
@@ -481,9 +538,11 @@ inline void MM_DrawForeignSkullToken(const ComboForeignDrawInfoOOT* info) {
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Opa(gfxCtx);
+    MM_FOREIGN_PIN_OPA();
     MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
     gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[0]);
     Gfx_SetupDL25_Xlu(gfxCtx);
+    MM_FOREIGN_PIN_XLU();
     gSPSegment(POLY_XLU_DISP++, 0x08,
                (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 0, -(play->state.frames * 5),
                                              32, 32, 1, play->state.frames * 0, play->state.frames * 0, 32, 64, 0, -5,
@@ -502,7 +561,8 @@ inline void MM_DrawForeignMusicNote(const ComboForeignDrawInfoOOT* info) {
     MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
     gDPSetGrayscaleColor(POLY_XLU_DISP++, info->primColorXlu[0], info->primColorXlu[1], info->primColorXlu[2], 255);
     gSPGrayscale(POLY_XLU_DISP++, true);
-    Gfx_SetupDL25_Opa(gfxCtx);
+    Gfx_SetupDL25_Opa(gfxCtx); // OOT's func really does set up Opa state for an XLU submission
+    MM_FOREIGN_PIN_XLU();      // pin the stream the DL goes out on, not the setup's
     gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->dls[0]);
     gSPGrayscale(POLY_XLU_DISP++, false);
     CLOSE_DISPS(gfxCtx);
@@ -515,6 +575,7 @@ inline void MM_DrawForeignBossSoul(const ComboForeignDrawInfoOOT* info) {
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Xlu(gfxCtx);
+    MM_FOREIGN_PIN_XLU();
     gSPSegment(POLY_XLU_DISP++, 0x08,
                (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, 0, 0, 16, 32, 1, play->state.frames * 1,
                                              -(play->state.frames * 8), 16, 32, 0, 0, 1, -8));
@@ -546,11 +607,8 @@ inline void MM_DrawForeignColorLayers(const ComboForeignDrawInfoOOT* info) {
     OPEN_DISPS(gfxCtx);
     if (xs > 0) {
         Gfx_SetupDL25_Opa(gfxCtx);
+        MM_FOREIGN_PIN_OPA();
         MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
-        // Pin both color channels first: a layer the recipe doesn't tint would otherwise inherit
-        // whatever the host frame last set (MM's animated scene materials => colors that drift).
-        gDPSetPrimColor(POLY_OPA_DISP++, 0, 0, 255, 255, 255, 255);
-        gDPSetEnvColor(POLY_OPA_DISP++, 255, 255, 255, 255);
         for (int32_t i = 0; i < xs; i++) {
             if (info->layerPrimMask & (1 << i)) {
                 gDPSetPrimColor(POLY_OPA_DISP++, 0, 0, info->layerPrimColor[i][0], info->layerPrimColor[i][1],
@@ -565,9 +623,8 @@ inline void MM_DrawForeignColorLayers(const ComboForeignDrawInfoOOT* info) {
     }
     if (xs < n) {
         Gfx_SetupDL25_Xlu(gfxCtx);
+        MM_FOREIGN_PIN_XLU();
         MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
-        gDPSetPrimColor(POLY_XLU_DISP++, 0, 0, 255, 255, 255, 255);
-        gDPSetEnvColor(POLY_XLU_DISP++, 255, 255, 255, 255);
         for (int32_t i = xs; i < n; i++) {
             if (info->layerPrimMask & (1 << i)) {
                 gDPSetPrimColor(POLY_XLU_DISP++, 0, 0, info->layerPrimColor[i][0], info->layerPrimColor[i][1],
@@ -588,6 +645,7 @@ inline void MM_DrawForeignGrayscaleXlu(const ComboForeignDrawInfoOOT* info) {
     GraphicsContext* gfxCtx = gPlayState->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Xlu(gfxCtx);
+    MM_FOREIGN_PIN_XLU();
     MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
     gDPSetGrayscaleColor(POLY_XLU_DISP++, info->primColorXlu[0], info->primColorXlu[1], info->primColorXlu[2], 255);
     gSPGrayscale(POLY_XLU_DISP++, true);
@@ -601,6 +659,7 @@ inline void MM_DrawForeignDoubleDefense(const ComboForeignDrawInfoOOT* info) {
     GraphicsContext* gfxCtx = gPlayState->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Xlu(gfxCtx);
+    MM_FOREIGN_PIN_XLU();
     MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
     gDPSetGrayscaleColor(POLY_XLU_DISP++, 255, 255, 255, 255);
     gSPGrayscale(POLY_XLU_DISP++, true);
@@ -616,6 +675,7 @@ inline void MM_DrawForeignMasterSword(const ComboForeignDrawInfoOOT* info) {
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Opa(gfxCtx);
+    MM_FOREIGN_PIN_OPA();
     gSPSegment(
         POLY_OPA_DISP++, 0x08,
         (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, 0, play->state.frames * 1, 0, 32, 32, 1, 0, 0, 32, 32, 1, 0, 0, 0));
@@ -635,6 +695,7 @@ inline void MM_DrawForeignBronzeScale(const ComboForeignDrawInfoOOT* info) {
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
     Gfx_SetupDL25_Xlu(gfxCtx);
+    MM_FOREIGN_PIN_XLU();
     gSPSegment(POLY_XLU_DISP++, 0x08,
                (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, 0, play->state.frames * 2, -(play->state.frames * 2), 64, 64, 1,
                                              play->state.frames * 4, -(play->state.frames * 4), 32, 32, 2, -2, 4, -4));
@@ -738,5 +799,8 @@ inline void MM_DrawComboForeign(RandoCheckId randoCheckId) {
             break;
     }
 }
+
+#undef MM_FOREIGN_PIN_OPA
+#undef MM_FOREIGN_PIN_XLU
 
 #endif // COMBO_FOREIGN_DRAW_MM_H

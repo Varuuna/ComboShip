@@ -1147,6 +1147,14 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             fail("empty static-data dump");
             return;
         }
+        // ComboShip: OOT forced placements (Link's Pocket) the static dump can't carry. The fill
+        // reserves these out of the cross pool and commits them so the check isn't left unplaced.
+        // Read BEFORE the entrance shuffle: it reads the live placement ComboFillConfined just made,
+        // and the shuffle's ItemReset would wipe it.
+        std::string forcedOot;
+        if (SOH_GetForcedPlacements)
+            forcedOot = SOH_GetForcedPlacements(masterSeed);
+
         // ComboShip (#90): OOT entrance shuffle. Runs after the dump (settings finalized) and before the
         // fill, so logic validates the shuffled world. No-op when the entrance options are off.
         if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(masterSeed)) {
@@ -1160,12 +1168,6 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
                                             Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem };
         ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
                                            Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
-
-        // ComboShip: OOT forced placements (Link's Pocket) the static dump can't carry. The fill
-        // reserves these out of the cross pool and commits them so the check isn't left unplaced.
-        std::string forcedOot;
-        if (SOH_GetForcedPlacements)
-            forcedOot = SOH_GetForcedPlacements(masterSeed);
 
         // ComboShip: honor OOT's logic/ALR settings per-game (MM stays all-reachable). TODO: when the
         // portal gets a real gate, set portalCheckName here and exempt the Mask Shop Key + its reach
@@ -1688,6 +1690,9 @@ static int Combo_OnReloadRequest(const char* path) {
         // Same deterministic call as generation — reproduces (or clears) this seed's entrance layout.
         if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(masterSeed)) {
             std::cerr << "[ComboShip] reload: OOT entrance shuffle failed to re-derive — aborting\n";
+            // Restore first: bailing here would otherwise leave the seed's OOT CVars as the baseline.
+            if (isSilentAutoLoad && SOH_RestoreRandoSettings)
+                SOH_RestoreRandoSettings(userOotSnapshot.c_str());
             return 0;
         }
         bool hintsPresent = j.value("hints", nlohmann::json::object()).contains("oot");

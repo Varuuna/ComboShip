@@ -4770,7 +4770,8 @@ extern "C" __declspec(dllexport) const char* SOH_GetForcedPlacements(uint32_t se
     nlohmann::json out = nlohmann::json::object();
     try {
         auto ctx = OTRGlobals::Instance->gRandoContext;
-        Rando::Settings::GetInstance()->SetAllToContext(); // ensure chosen CVar settings are live
+        // No SetAllToContext here: the dump this follows already applied the CVars and finalized, and
+        // re-pushing reverts everything FinalizeSettings derived (resolved starting age, Ganon's Trials).
         auto lp = ctx->GetOption(RSK_LINKS_POCKET);
         if (lp.Is(RO_LINKS_POCKET_DUNGEON_REWARD)) {
             // ComboShip: RandomizeDungeonRewards (inside SOH_DumpRandoStaticData->ComboFillConfined, run

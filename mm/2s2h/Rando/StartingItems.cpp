@@ -153,7 +153,7 @@ void SetStartingItemsInSave(RandoSaveInfo& randoSaveInfo, std::vector<RandoItemI
 }
 
 std::vector<RandoItemId> GetStartingItemsFromConfig() {
-    auto allConfig = Ship::Context::GetInstance()->GetConfig()->GetNestedJson();
+    auto allConfig = Ship::Context::GetRawInstance()->GetConfig()->GetNestedJson();
     std::vector<RandoItemId> startingItems = { RI_PROGRESSIVE_SWORD, RI_SHIELD_HERO, RI_OCARINA, RI_SONG_TIME };
 
     // Verify that the config has CVars.gRando.StartingItems and its an array
@@ -173,7 +173,7 @@ std::vector<RandoItemId> GetStartingItemsFromConfig() {
             }
         } else if (allConfig["CVars"]["gRando"]["StartingItems"].is_string()) {
             CVarClear("gRando.StartingItems");
-            Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+            Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
         } else if (allConfig["CVars"]["gRando"]["StartingItems"].is_null()) {
             startingItems.clear();
         }
@@ -189,8 +189,8 @@ void SetStartingItemsInConfig(std::vector<RandoItemId>& startingItems) {
             startingItemsJson.push_back(Rando::StaticData::Items[randoItemId].spoilerName);
         }
     }
-    Ship::Context::GetInstance()->GetConfig()->SetBlock("CVars.gRando.StartingItems", startingItemsJson);
-    Ship::Context::GetInstance()->GetConfig()->Save();
+    Ship::Context::GetRawInstance()->GetConfig()->SetBlock("CVars.gRando.StartingItems", startingItemsJson);
+    Ship::Context::GetRawInstance()->GetConfig()->Save();
 }
 
 } // namespace Rando

@@ -70,6 +70,10 @@ static RegisterShipInitFunc initFunc([]() {
             CHECK(RC_DEKU_PALACE_BEAN_SALESMAN_GROTTO_GRASS_10, true),
             CHECK(RC_DEKU_PALACE_BEAN_SALESMAN_GROTTO_GRASS_11, true),
             CHECK(RC_DEKU_PALACE_BEAN_SALESMAN_GROTTO_GRASS_12, true),
+            CHECK(RC_DEKU_PALACE_BEAN_SALESMAN_GROTTO_BUTTERFLY_01, HAS_ITEM(ITEM_DEKU_STICK)),
+            CHECK(RC_DEKU_PALACE_BEAN_SALESMAN_GROTTO_BUTTERFLY_02, HAS_ITEM(ITEM_DEKU_STICK)),
+            CHECK(RC_DEKU_PALACE_BEAN_SALESMAN_GROTTO_BUTTERFLY_03, HAS_ITEM(ITEM_DEKU_STICK)),
+            CHECK(RC_DEKU_PALACE_BEAN_SALESMAN_GROTTO_BUTTERFLY_04, HAS_ITEM(ITEM_DEKU_STICK)),
             // TODO: Bean salesman check
         },
         .exits = { //     TO                                         FROM
@@ -355,6 +359,7 @@ static RegisterShipInitFunc initFunc([]() {
             CHECK(RC_SOUTHERN_SWAMP_POISON_GRASS_10, true),
             CHECK(RC_SOUTHERN_SWAMP_POISON_GRASS_11, true),
             CHECK(RC_SOUTHERN_SWAMP_POISON_GRASS_12, true),
+            CHECK(RC_SOUTHERN_SWAMP_POISON_BEEHIVE, CAN_USE_PROJECTILE && CAN_TRAVERSE_WAIST_DEEP_WATER),
             CHECK(RC_ENEMY_DROP_MINI_BABA, CanKillEnemy(ACTOR_EN_KAREBABA)),
         },
         .exits = { //     TO                                         FROM

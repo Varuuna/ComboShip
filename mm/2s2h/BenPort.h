@@ -54,7 +54,7 @@ class OTRGlobals {
     ImFont* fontMonoLarger = nullptr;
     ImFont* fontMonoLargest = nullptr;
 
-    std::shared_ptr<Ship::Context> context;
+    Ship::Context* context = nullptr;
 
     OTRGlobals();
     ~OTRGlobals();
@@ -168,7 +168,6 @@ void Controller_UnblockGameInput();
 void Overlay_DisplayText(float duration, const char* text);
 void Overlay_DisplayText_Seconds(int seconds, const char* text);
 uint32_t Ship_GetInterpolationFPS();
-uint32_t Ship_GetInterpolationFrameCount();
 
 void Gfx_RegisterBlendedTexture(const char* name, u8* mask, u8* replacement);
 void Gfx_UnregisterBlendedTexture(const char* name);

@@ -41,6 +41,9 @@ std::vector<RandoItemId> GetSariaPriorityItemsFromConfig();
 void SetSariaPriorityItemsInConfig(std::vector<RandoItemId>& priorityItems);
 std::vector<RandoItemId> GetSariaPriorityItemCandidates();
 
+std::vector<RandoCheckId> GetExcludedChecksFromConfig();
+void SetExcludedChecksInConfig(std::vector<RandoCheckId>& excludedChecks);
+
 std::vector<RandoCheckId> FindMultiItemPlacement(RandoItemId randoItemId);
 
 } // namespace Rando

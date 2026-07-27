@@ -140,7 +140,7 @@ typedef struct {
 std::unordered_map<std::string, std::unordered_map<int, OriginalRGB>> originalRGB;
 
 void PatchPalette(const char* path, int index, uint8_t r, uint8_t g, uint8_t b) {
-    auto res = Ship::Context::GetInstance()->GetResourceManager()->LoadResource(path);
+    auto res = Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path);
     auto data = (uint8_t*)res->GetRawPointer();
 
     if (!originalRGB.contains(path) || !originalRGB[path].contains(index)) {
@@ -160,7 +160,7 @@ void UnpatchPalette(const char* path, int index) {
         return;
     }
 
-    auto res = Ship::Context::GetInstance()->GetResourceManager()->LoadResource(path);
+    auto res = Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path);
     auto data = (uint8_t*)res->GetRawPointer();
 
     data[index * 2] = originalRGB[path][index].data1;
@@ -195,7 +195,7 @@ Gfx disableGrayscale[] = {
 // difference between the average color and the target color. It then colors the range according to newBase,
 // and shades it lighter or darker based on the difference between the average color and the target color.
 void ShadePaletteNewBase(const char* path, uint32_t begin, uint32_t end, Color_RGBA8 newBase, SHADE_MODE mode) {
-    auto res = Ship::Context::GetInstance()->GetResourceManager()->LoadResource(path);
+    auto res = Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path);
     auto data = (uint8_t*)res->GetRawPointer();
 
     uint32_t maxR = 0;
@@ -313,7 +313,7 @@ void ShadePaletteGradient(const char* path, uint32_t begin, uint32_t end, Color_
     oldBase.b >>= 3;
     oldBase.a >>= 3;
 
-    auto res = Ship::Context::GetInstance()->GetResourceManager()->LoadResource(path);
+    auto res = Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path);
     auto data = (uint8_t*)res->GetRawPointer();
     for (int i = begin; i <= end; i++) {
         uint16_t col16 = (data[i * 2] << 8) | data[i * 2 + 1];
@@ -330,7 +330,7 @@ void ShadePaletteGradient(const char* path, uint32_t begin, uint32_t end, Color_
 
 // Patches a single pixel in a raw RGBA16 (RGBA5551) texture, preserving the original alpha bit.
 void PatchRGBA16Pixel(const char* path, int index, uint8_t r, uint8_t g, uint8_t b) {
-    auto res = Ship::Context::GetInstance()->GetResourceManager()->LoadResource(path);
+    auto res = Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path);
     auto data = (uint8_t*)res->GetRawPointer();
 
     if (!originalRGB.contains(path) || !originalRGB[path].contains(index)) {
@@ -353,7 +353,7 @@ void PatchRGBA16Pixel(const char* path, int index, uint8_t r, uint8_t g, uint8_t
  * so transparent background areas are left untouched.
  */
 void ShadeRGBA16NewBase(const char* path, uint32_t begin, uint32_t end, Color_RGBA8 newBase, SHADE_MODE mode) {
-    auto res = Ship::Context::GetInstance()->GetResourceManager()->LoadResource(path);
+    auto res = Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path);
     auto data = (uint8_t*)res->GetRawPointer();
 
     uint32_t maxR = 0;
@@ -605,7 +605,7 @@ const char* kCosmeticRandomizeOnSeedGenCvar = "gCosmetics.RandomizeOnSeedGen";
 int sCosmeticRainbowHue = 0;
 
 void CosmeticEditorSave() {
-    Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+    Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
 }
 
 Color_RGBA8 CosmeticEditorGetDefaultColor(const CosmeticOption& option) {

@@ -110,6 +110,8 @@ int main(int argc, char** argv) {
     auto SOH_SetSeed = Sym<FnSetSeed>(soh, "SOH_SetComboRandoSeed");
     auto MM_SetSeed = Sym<FnSetSeed>(mm, "MM_SetComboRandoSeed");
     auto SOH_GetForced = Sym<FnGetForced>(soh, "SOH_GetForcedPlacements");
+    // OOT entrance shuffle (#90) — without this the validator checks a vanilla entrance graph.
+    auto SOH_ShuffleEntrances = Sym<int (*)(uint64_t)>(soh, "SOH_ShuffleEntrancesForCombo");
     auto MM_Restore = Sym<FnOracleVoid>(mm, "Combo_MM_Rando_Restore");
     auto SOH_DumpEnabledTricks = Sym<FnDump>(soh, "SOH_DumpEnabledTricks");
     auto SOH_DumpRandoHintData = Sym<FnDump>(soh, "SOH_DumpRandoHintData"); // cross-hint verification
@@ -358,6 +360,12 @@ int main(int argc, char** argv) {
             sohDump = SOH_Dump();
             mmDump = MM_Dump();
             std::string forced = SOH_GetForced ? SOH_GetForced(masterSeed) : "";
+            // Same placement as RunComboFill: after the dump/forced read, before the fill, so logic
+            // validates the shuffled world. No-op when the entrance options are off.
+            if (SOH_ShuffleEntrances && !SOH_ShuffleEntrances(masterSeed)) {
+                std::cerr << "[comborando] seed " << masterSeed << ": entrance shuffle found no valid layout\n";
+                continue;
+            }
             ComboRando::OotAccess ootAccess = ComboRando::OotAccessFromDump(sohDump);
             r = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, oot, mmO, "", nullptr, forced,
                                                    ootAccess);

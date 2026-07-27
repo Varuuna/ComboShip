@@ -1,6 +1,7 @@
 #include "soh/Enhancements/custom-message/CustomMessageManager.h"
 #include "soh/Enhancements/custom-message/CustomMessageTypes.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
+#include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/randomizer/randomizer_entrance.h"
 #include "soh/ShipInit.hpp"
 
@@ -76,7 +77,8 @@ void HandleSaveMenu(bool* should, PlayState* play) {
                                            &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
                     Play_PerformSave(play);
                     pauseCtx->unk_1EC = 4;
-                    if (IsSceneDungeon(gSaveContext.savedSceneNum)) {
+                    if (IsSceneDungeon(gSaveContext.savedSceneNum) ||
+                        CVarGetInteger(CVAR_ENHANCEMENT("RememberSaveLocation"), 0)) {
                         Message_StartTextbox(play, TEXT_CONTINUE_DUNGEON_MSG, NULL);
                     } else {
                         Message_StartTextbox(play, TEXT_CONTINUE_OVERWORLD_MSG, NULL);
@@ -120,14 +122,6 @@ void HandleSaveMenu(bool* should, PlayState* play) {
                                                &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
                         Play_SaveSceneFlags(play);
                         Sram_OpenSave();
-                        if (!IsSceneDungeon(gSaveContext.savedSceneNum)) {
-                            if (IS_RANDO && Randomizer_GetSettingValue(RSK_SHUFFLE_OVERWORLD_SPAWNS)) {
-                                if (LINK_AGE_IN_YEARS == YEARS_ADULT) {
-                                    gSaveContext.entranceIndex = ENTR_HYRULE_FIELD_10;
-                                }
-                                gSaveContext.entranceIndex = Entrance_OverrideNextIndex(gSaveContext.entranceIndex);
-                            }
-                        }
                         pauseCtx->promptChoice = 0;
                         pauseCtx->unk_1EC = 7;
                         break;
@@ -137,14 +131,7 @@ void HandleSaveMenu(bool* should, PlayState* play) {
                                                &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
                         Play_SaveSceneFlags(play);
                         Sram_OpenSave();
-                        gSaveContext.entranceIndex = (LINK_AGE_IN_YEARS == YEARS_CHILD) ? ENTR_LINKS_HOUSE_CHILD_SPAWN
-                                                                                        : ENTR_TEMPLE_OF_TIME_WARP_PAD;
-                        if (IS_RANDO && Randomizer_GetSettingValue(RSK_SHUFFLE_OVERWORLD_SPAWNS)) {
-                            if (LINK_AGE_IN_YEARS == YEARS_ADULT) {
-                                gSaveContext.entranceIndex = ENTR_HYRULE_FIELD_10;
-                            }
-                            gSaveContext.entranceIndex = Entrance_OverrideNextIndex(gSaveContext.entranceIndex);
-                        }
+                        gSaveContext.ship.resetToSpawn = 1;
                         pauseCtx->promptChoice = 0;
                         pauseCtx->unk_1EC = 7;
                         break;
@@ -156,6 +143,7 @@ void HandleSaveMenu(bool* should, PlayState* play) {
                 interfaceCtx->unk_244 += 10;
                 if (interfaceCtx->unk_244 >= 255) {
                     interfaceCtx->unk_244 = 255;
+                    GameInteractor_ExecuteOnExitGame(gSaveContext.fileNum);
                     pauseCtx->state = 0;
                     R_UPDATE_RATE = 3;
                     R_PAUSE_MENU_MODE = 0;
@@ -164,9 +152,6 @@ void HandleSaveMenu(bool* should, PlayState* play) {
                     // Reset frame counter to prevent autosave on respawn
                     play->gameplayFrames = 0;
                     gSaveContext.nextTransitionType = TRANS_TYPE_FADE_BLACK;
-                    gSaveContext.health = CVarGetInteger(CVAR_ENHANCEMENT("FullHealthSpawn"), 0)
-                                              ? gSaveContext.healthCapacity
-                                              : STARTING_HEALTH;
                     Audio_QueueSeqCmd(0xF << 28 | SEQ_PLAYER_BGM_MAIN << 24 | 0xA);
                     gSaveContext.healthAccumulator = 0;
                     gSaveContext.magicState = MAGIC_STATE_IDLE;
@@ -176,6 +161,21 @@ void HandleSaveMenu(bool* should, PlayState* play) {
                     gSaveContext.magicLevel = gSaveContext.magic = 0;
                     play->state.running = false;
                     SET_NEXT_GAMESTATE(&play->state, Play_Init, PlayState);
+                    gSaveContext.seqId = static_cast<uint8_t>(NA_BGM_DISABLED);
+                    gSaveContext.natureAmbienceId = 0xFF;
+                    GameInteractor_ExecuteOnLoadGame(gSaveContext.fileNum);
+                    if (gSaveContext.ship.resetToSpawn) {
+                        if (LINK_IS_CHILD) {
+                            gSaveContext.entranceIndex =
+                                Entrance_OverrideNextIndex(ENTR_LINKS_HOUSE_CHILD_SPAWN); // Child Overworld Spawn
+                        } else {
+                            // Adult Overworld Spawn. Normally 0x5F4 (ENTR_TEMPLE_OF_TIME_WARP_PAD), but 0x282
+                            // (ENTR_HYRULE_FIELD_10) has been repurposed to differentiate from Prelude which also uses
+                            // 0x5F4
+                            gSaveContext.entranceIndex = Entrance_OverrideNextIndex(ENTR_HYRULE_FIELD_10);
+                        }
+                        gSaveContext.ship.resetToSpawn = 0;
+                    }
                 }
             }
             break;
@@ -191,30 +191,32 @@ void RegisterBetterSave() {
     continueOverworldMsg.Format();
     continueDungeonMsg.Format();
 
-    REGISTER_VB_SHOULD(VB_LOAD_SAVE_MENU, {
+    COND_VB_SHOULD(VB_LOAD_SAVE_MENU, CVAR_BETTERSAVE_VALUE, {
         PlayState* play = va_arg(args, PlayState*);
         HandleSaveMenu(should, play);
     });
 
-    REGISTER_VB_SHOULD(VB_DRAW_SAVE_MENU, { *should = false; });
+    COND_VB_SHOULD(VB_DRAW_SAVE_MENU, CVAR_BETTERSAVE_VALUE, { *should = false; });
 
-    COND_ID_HOOK(OnOpenText, TEXT_SAVE_MSG, true, [](uint16_t* textId, bool* loadFromMessageTable) {
+    COND_ID_HOOK(OnOpenText, TEXT_SAVE_MSG, CVAR_BETTERSAVE_VALUE, [](uint16_t* textId, bool* loadFromMessageTable) {
         saveMsg.LoadIntoFont();
         *loadFromMessageTable = false;
         return;
     });
 
-    COND_ID_HOOK(OnOpenText, TEXT_CONTINUE_DUNGEON_MSG, true, [](uint16_t* textId, bool* loadFromMessageTable) {
-        continueDungeonMsg.LoadIntoFont();
-        *loadFromMessageTable = false;
-        return;
-    });
+    COND_ID_HOOK(OnOpenText, TEXT_CONTINUE_DUNGEON_MSG, CVAR_BETTERSAVE_VALUE,
+                 [](uint16_t* textId, bool* loadFromMessageTable) {
+                     continueDungeonMsg.LoadIntoFont();
+                     *loadFromMessageTable = false;
+                     return;
+                 });
 
-    COND_ID_HOOK(OnOpenText, TEXT_CONTINUE_OVERWORLD_MSG, true, [](uint16_t* textId, bool* loadFromMessageTable) {
-        continueOverworldMsg.LoadIntoFont();
-        *loadFromMessageTable = false;
-        return;
-    });
+    COND_ID_HOOK(OnOpenText, TEXT_CONTINUE_OVERWORLD_MSG, CVAR_BETTERSAVE_VALUE,
+                 [](uint16_t* textId, bool* loadFromMessageTable) {
+                     continueOverworldMsg.LoadIntoFont();
+                     *loadFromMessageTable = false;
+                     return;
+                 });
 }
 
 static RegisterShipInitFunc initFunc(RegisterBetterSave, { CVAR_BETTERSAVE });

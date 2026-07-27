@@ -1,6 +1,6 @@
 #include "hints.hpp"
 
-#include "random.hpp"
+#include "../rng.h"
 #include "fill.hpp"
 #include "../trial.h"
 #include "../entrance.h"

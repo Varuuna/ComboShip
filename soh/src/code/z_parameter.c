@@ -2721,6 +2721,23 @@ s32 Inventory_ConsumeFairy(PlayState* play) {
     return 0;
 }
 
+// SOH helper
+bool Inventory_HatchWeirdEgg(PlayState* play) {
+    if (!IS_RANDO) {
+        return Inventory_ReplaceItem(play, ITEM_WEIRD_EGG, ITEM_CHICKEN);
+    }
+
+    if (!LINK_IS_CHILD || !Flags_GetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_WEIRD_EGG)) {
+        return 0;
+    }
+
+    Flags_UnsetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_WEIRD_EGG);
+    Flags_SetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_CHICKEN);
+    Inventory_ReplaceItem(play, ITEM_WEIRD_EGG, ITEM_CHICKEN);
+    return 1;
+}
+
+// SOH helper
 bool Inventory_HatchPocketCucco(PlayState* play) {
     if (!IS_RANDO) {
         return Inventory_ReplaceItem(play, ITEM_POCKET_EGG, ITEM_POCKET_CUCCO);

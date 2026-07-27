@@ -23,6 +23,8 @@ void gSPSegment(void* value, int segNum, uintptr_t target);
 void gSPSegmentLoadRes(void* value, int segNum, uintptr_t target);
 void gSPDisplayList(Gfx* pkt, Gfx* dl);
 void gDPSetTileSizeInterp(Gfx* pkt, int t, float uls, float ult, float lrs, float lrt);
+void gDPSetTileSizeLerp(Gfx* pkt, int t, float uls0, float ult0, float lrs0, float lrt0, float uls1, float ult1,
+                        float lrs1, float lrt1);
 void gSPDisplayListOffset(Gfx* pkt, Gfx* dl, int offset);
 void gSPVertex(Gfx* pkt, uintptr_t v, int n, int v0);
 void gSPInvalidateTexCache(Gfx* pkt, uintptr_t texAddr);
@@ -1080,6 +1082,7 @@ bool Inventory_HasEmptyBottleSlot(void);
 s32 Inventory_HasSpecificBottle(u8 bottleItem);
 void Inventory_UpdateBottleItem(PlayState* play, u8 item, u8 cButton);
 s32 Inventory_ConsumeFairy(PlayState* play);
+bool Inventory_HatchWeirdEgg(PlayState* play);
 bool Inventory_HatchPocketCucco(PlayState* play);
 void Interface_SetDoAction(PlayState* play, u16 action);
 void Interface_SetNaviCall(PlayState* play, u16 naviCallState);

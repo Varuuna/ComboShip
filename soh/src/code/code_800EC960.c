@@ -1313,44 +1313,119 @@ u32 sDebugPadPress;           // decomp: debug only
 s32 sAudioUpdateTaskStart;    // decomp: debug only
 s32 sAudioUpdateTaskEnd;      // decomp: debug only
 
-#define AUDIO_OCA_SHIP_SAVESTATE_FIELDS(F) \
-    F(sIsOcarinaInputEnabled)              \
-    F(sOcarinaInstrumentId)                \
-    F(sCurOcarinaPitch)                    \
-    F(sPrevOcarinaPitch)                   \
-    F(sCurOcarinaButtonIndex)              \
-    F(sMusicStaffPrevPitch)                \
-    F(sCurOcarinaBendFreq)                 \
-    F(sRelativeOcarinaVolume)              \
-    F(sCurOcarinaBendIndex)                \
-    F(sCurOcarinaVolume)                   \
-    F(sCurOcarinaVibrato)                  \
-    F(sPlaybackState)                      \
-    F(sOcarinaFlags)                       \
-    F(sPlaybackNoteTimer)                  \
-    F(sPlaybackNotePos)                    \
-    F(sPlaybackStaffPos)                   \
-    F(sOcarinaInputButtonCur)              \
-    F(sOcarinaInputButtonStart)            \
-    F(sOcarinaInputButtonPrev)             \
-    F(sOcarinaInputButtonPress)            \
-    F(D_8016BA1C)                          \
-    F(sCurOcarinaSongWithoutMusicStaff)    \
-    F(sOcarinaWithoutMusicStaffPos)        \
-    F(sOcarinaHasStartedSong)              \
-    F(sFirstOcarinaSongIndex)              \
-    F(sLastOcarinaSongIndex)               \
-    F(sAvailOcarinaSongFlags)              \
-    F(sStaffOcarinaPlayingPos)             \
-    F(sMusicStaffPos)                      \
-    F(sMusicStaffCurHeldLength)            \
-    F(sMusicStaffExpectedLength)           \
-    F(sMusicStaffExpectedPitch)            \
-    F(sScarecrowsLongSongSecondNote)       \
-    F(sIsMalonSinging)                     \
-    F(sMalonSingingDist)                   \
+#define AUDIOOCARINA_SHIP_SAVESTATE_FIELDS(F)          \
+    F(sOcarinaSongNotes[OCARINA_SONG_MEMORY_GAME])     \
+    F(sOcarinaSongNotes[OCARINA_SONG_SCARECROW_SPAWN]) \
+    F(sOcaMemoryGameAppendPos)                         \
+    F(sOcaMemoryGameEndPos)                            \
+    F(D_801305B0)                                      \
+    F(D_801305B4)                                      \
+    F(D_801305B8)                                      \
+    F(D_801305BC)                                      \
+    F(D_801305C0)                                      \
+    F(sAudioIncreasingTranspose)                       \
+    F(sPrevChargeLevel)                                \
+    F(sSfxSwordChargeFreq)                             \
+    F(sEnterGanonsTowerTimer)                          \
+    F(D_80130608)                                      \
+    F(sAudioCutsceneFlag)                              \
+    F(sSpecReverb)                                     \
+    F(sAudioEnvReverb)                                 \
+    F(sAudioCodeReverb)                                \
+    F(sPrevSeqMode)                                    \
+    F(sAudioEnemyDist)                                 \
+    F(sAudioEnemyVol)                                  \
+    F(sPrevMainBgmSeqId)                               \
+    F(sSeqResumePoint)                                 \
+    F(sPrevSceneSeqId)                                 \
+    F(sNumFramesStill)                                 \
+    F(sNumFramesMoving)                                \
+    F(sAudioBaseFilter)                                \
+    F(sAudioExtraFilter)                               \
+    F(sAudioBaseFilter2)                               \
+    F(sAudioExtraFilter2)                              \
+    F(sSariaBgmPtr)                                    \
+    F(D_80130650)                                      \
+    F(D_8016B7A8)                                      \
+    F(D_8016B7AC)                                      \
+    F(D_8016B7B0)                                      \
+    F(D_8016B7B4)                                      \
+    F(sRiverFreqScaleLerp)                             \
+    F(sWaterfallFreqScaleLerp)                         \
+    F(D_8016B7D8)                                      \
+    F(D_8016B7DC)                                      \
+    F(D_8016B7E0)                                      \
+    F(sRiverSoundMainBgmVol)                           \
+    F(sRiverSoundMainBgmCurrentVol)                    \
+    F(sRiverSoundMainBgmLower)                         \
+    F(sRiverSoundMainBgmRestore)                       \
+    F(sGanonsTowerVol)                                 \
+    F(sSfxChannelState)                                \
+    F(sMalonSingingTimer)                              \
+    F(sMalonSingingDisabled)                           \
+    F(D_8016B9F3)                                      \
+    F(sFanfareStartTimer)                              \
+    F(sFanfareSeqId)                                   \
+    F(sRecordingState)                                 \
+    F(sRecordSongPos)                                  \
+    F(sOcarinaRecordTaskStart)                         \
+    F(sRecordOcarinaPitch)                             \
+    F(sRecordOcarinaVolume)                            \
+    F(sRecordOcarinaVibrato)                           \
+    F(sRecordOcarinaBendIndex)                         \
+    F(sRecordOcarinaButtonIndex)                       \
+    F(sPlayedOcarinaSongIndexPlusOne)                  \
+    F(sMusicStaffNumNotesPerTest)                      \
+    F(sOcarinaDropInputTimer)                          \
+    F(sPlayingStaff)                                   \
+    F(sPlaybackStaff)                                  \
+    F(sRecordingStaff)                                 \
+    F(sNotePlaybackVolume)                             \
+    F(sNotePlaybackVibrato)                            \
+    F(sNotePlaybackBend)                               \
+    F(sRelativeNotePlaybackBend)                       \
+    F(sRelativeNotePlaybackVolume)                     \
+    F(sOcarinaPlaybackTaskStart)                       \
+    F(sPrevOcarinaWithMusicStaffFlags)                 \
+    F(sOcarinaUpdateTaskStart)                         \
+    F(sOcarinaInputStickAdj)                           \
+    F(sIsOcarinaInputEnabled)                          \
+    F(sOcarinaInstrumentId)                            \
+    F(sCurOcarinaPitch)                                \
+    F(sPrevOcarinaPitch)                               \
+    F(sCurOcarinaButtonIndex)                          \
+    F(sMusicStaffPrevPitch)                            \
+    F(sCurOcarinaBendFreq)                             \
+    F(sRelativeOcarinaVolume)                          \
+    F(sCurOcarinaBendIndex)                            \
+    F(sCurOcarinaVolume)                               \
+    F(sCurOcarinaVibrato)                              \
+    F(sPlaybackState)                                  \
+    F(sOcarinaFlags)                                   \
+    F(sPlaybackNoteTimer)                              \
+    F(sPlaybackNotePos)                                \
+    F(sPlaybackStaffPos)                               \
+    F(sOcarinaInputButtonCur)                          \
+    F(sOcarinaInputButtonStart)                        \
+    F(sOcarinaInputButtonPrev)                         \
+    F(sOcarinaInputButtonPress)                        \
+    F(D_8016BA1C)                                      \
+    F(sCurOcarinaSongWithoutMusicStaff)                \
+    F(sOcarinaWithoutMusicStaffPos)                    \
+    F(sOcarinaHasStartedSong)                          \
+    F(sFirstOcarinaSongIndex)                          \
+    F(sLastOcarinaSongIndex)                           \
+    F(sAvailOcarinaSongFlags)                          \
+    F(sStaffOcarinaPlayingPos)                         \
+    F(sMusicStaffPos)                                  \
+    F(sMusicStaffCurHeldLength)                        \
+    F(sMusicStaffExpectedLength)                       \
+    F(sMusicStaffExpectedPitch)                        \
+    F(sScarecrowsLongSongSecondNote)                   \
+    F(sIsMalonSinging)                                 \
+    F(sMalonSingingDist)                               \
     F(sPlaybackPitch)
-SHIP_SAVESTATE_DEFINE(AudioOca, AUDIO_OCA_SHIP_SAVESTATE_FIELDS)
+SHIP_SAVESTATE_DEFINE(AudioOcarina, AUDIOOCARINA_SHIP_SAVESTATE_FIELDS)
 
 void PadMgr_RequestPadData(PadMgr* padmgr, Input* inputs, s32 mode);
 
@@ -2328,35 +2403,16 @@ void AudioOcarina_RecordSong(void) {
 void AudioOcarina_MemoryGameInit(u8 minigameRound) {
     u8 i;
 
-    // #region SOH [Enhancement]
-    if (CVarGetInteger(CVAR_ENHANCEMENT("CustomizeOcarinaGame"), 0)) {
-        u8 startingNotes = 3;
-        u8 roundOneCount = CVarGetInteger(CVAR_ENHANCEMENT("OcarinaGame.RoundOneNotes"), 5);
-        u8 roundTwoCount = CVarGetInteger(CVAR_ENHANCEMENT("OcarinaGame.RoundTwoNotes"), 6);
-        u8 roundThreeCount = CVarGetInteger(CVAR_ENHANCEMENT("OcarinaGame.RoundThreeNotes"), 8);
-        u8 modMinigameNoteCnts[] = { roundOneCount, roundTwoCount, roundThreeCount };
+    if (minigameRound > 2) {
+        minigameRound = 2;
+    }
 
-        startingNotes = CVarGetInteger(CVAR_ENHANCEMENT("OcarinaGame.StartingNotes"), 3);
-
-        if (minigameRound > 2) {
-            minigameRound = 2;
-        }
-
-        sOcaMemoryGameAppendPos = 0;
-        sOcaMemoryGameEndPos = modMinigameNoteCnts[minigameRound];
-
-        for (i = 0; i < startingNotes; i++) {
-            AudioOcarina_MemoryGameNextNote();
-        }
-        // #endregion
-    } else {
-        if (minigameRound > 2) {
-            minigameRound = 2;
-        }
-
-        sOcaMemoryGameAppendPos = 0;
+    sOcaMemoryGameAppendPos = 0;
+    if (GameInteractor_Should(VB_SET_LOST_WOODS_OCARINA_GAME_NOTES, true, minigameRound, &sOcaMemoryGameEndPos)) {
         sOcaMemoryGameEndPos = sOcaMemoryGameNumNotes[minigameRound];
+    }
 
+    if (GameInteractor_Should(VB_SET_LOST_WOODS_OCARINA_GAME_STARTING_NOTES, true)) {
         for (i = 0; i < 3; i++) {
             AudioOcarina_MemoryGameNextNote();
         }
@@ -2378,24 +2434,13 @@ s32 AudioOcarina_MemoryGameNextNote(void) {
         randomPitch = sButtonToPitchMap[(randomButtonIndex + 1) % 5];
     }
 
-    // #region SOH [Enhancement]
-    if (CVarGetInteger(CVAR_ENHANCEMENT("CustomizeOcarinaGame"), 0)) {
-        int noteSpeed = 0x2D;
-        noteSpeed = noteSpeed / CVarGetInteger(CVAR_ENHANCEMENT("OcarinaGame.NoteSpeed"), 1);
+    sOcarinaSongNotes[OCARINA_SONG_MEMORY_GAME][sOcaMemoryGameAppendPos].pitch = randomPitch;
+    sOcarinaSongNotes[OCARINA_SONG_MEMORY_GAME][sOcaMemoryGameAppendPos].length = 0x2D;
+    sOcarinaSongNotes[OCARINA_SONG_MEMORY_GAME][sOcaMemoryGameAppendPos].volume = 0x50;
+    sOcarinaSongNotes[OCARINA_SONG_MEMORY_GAME][sOcaMemoryGameAppendPos].vibrato = 0;
+    sOcarinaSongNotes[OCARINA_SONG_MEMORY_GAME][sOcaMemoryGameAppendPos].bend = 0;
 
-        sOcarinaSongNotes[OCARINA_SONG_MEMORY_GAME][sOcaMemoryGameAppendPos].pitch = randomPitch;
-        sOcarinaSongNotes[OCARINA_SONG_MEMORY_GAME][sOcaMemoryGameAppendPos].length = noteSpeed;
-        sOcarinaSongNotes[OCARINA_SONG_MEMORY_GAME][sOcaMemoryGameAppendPos].volume = 0x50;
-        sOcarinaSongNotes[OCARINA_SONG_MEMORY_GAME][sOcaMemoryGameAppendPos].vibrato = 0;
-        sOcarinaSongNotes[OCARINA_SONG_MEMORY_GAME][sOcaMemoryGameAppendPos].bend = 0;
-        // #endregion
-    } else {
-        sOcarinaSongNotes[OCARINA_SONG_MEMORY_GAME][sOcaMemoryGameAppendPos].pitch = randomPitch;
-        sOcarinaSongNotes[OCARINA_SONG_MEMORY_GAME][sOcaMemoryGameAppendPos].length = 0x2D;
-        sOcarinaSongNotes[OCARINA_SONG_MEMORY_GAME][sOcaMemoryGameAppendPos].volume = 0x50;
-        sOcarinaSongNotes[OCARINA_SONG_MEMORY_GAME][sOcaMemoryGameAppendPos].vibrato = 0;
-        sOcarinaSongNotes[OCARINA_SONG_MEMORY_GAME][sOcaMemoryGameAppendPos].bend = 0;
-    }
+    GameInteractor_Should(VB_MODIFY_LOST_WOODS_OCARINA_GAME_NOTE_SPEED, false, sOcaMemoryGameAppendPos);
 
     sOcaMemoryGameAppendPos++;
 

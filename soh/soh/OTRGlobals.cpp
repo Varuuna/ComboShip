@@ -3731,6 +3731,7 @@ extern "C" __declspec(dllexport) int SOH_ShuffleEntrancesForCombo(uint64_t seed)
         if (!ctx->GetOption(RSK_SHUFFLE_ENTRANCES)) {
             // Clear a previous seed's layout so it can't leak into this save via SaveManager.
             ctx->GetEntranceShuffler()->UnshuffleAllEntrances();
+            CreateWarpSongTexts(); // vanilla destinations; native VanillaFill() does this too
             return 1;
         }
         // Burn the oracle's lazy init NOW — its first Reset would RegionTable_Init the graph back to
@@ -3758,6 +3759,9 @@ extern "C" __declspec(dllexport) int SOH_ShuffleEntrancesForCombo(uint64_t seed)
             }
             SetAreas();
             ctx->GetEntranceShuffler()->CreateEntranceOverrides();
+            // Warp song destination texts, as native Fill() does. SOH_ApplyComboHints also calls this,
+            // but only when hints are enabled — without this a hints-off seed shows "No Hint".
+            CreateWarpSongTexts();
             return 1;
         }
         SPDLOG_ERROR("[ComboShip] SOH_ShuffleEntrancesForCombo: no valid layout after 5 retries");

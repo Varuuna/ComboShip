@@ -15,6 +15,7 @@ extern "C" {
 #include "overlays/actors/ovl_En_Sth/z_en_sth.h"
 }
 
+<<<<<<< HEAD
 // ComboShip: must match the "##MM" tracker-window suffix from 2s2h/BenGui/BenGui.cpp. The popout
 // "Settings" buttons resolve their window by name (BenGui/Menu.cpp -> GetGuiWindow(windowName)),
 // so the WindowName() here has to carry the same suffix the window was registered with.
@@ -23,6 +24,9 @@ extern "C" {
 #else
 #define COMBO_MM_TRACKER_SUFFIX ""
 #endif
+=======
+#include <fast/Fast3dGui.h>
+>>>>>>> vendor-mm
 
 // TODO: This block should come from elsewhere, tied to data in Rando::StaticData::Options
 std::unordered_map<int32_t, const char*> logicOptions = {
@@ -75,7 +79,6 @@ std::vector<int32_t> incompatibleWithVanilla = {
 // clang-format on
 
 std::vector<RandoCheckId> checkExclusionList;
-bool isExcludedInitialized = false;
 
 namespace BenGui {
 extern std::shared_ptr<Rando::CheckTracker::CheckTrackerWindow> mRandoCheckTrackerWindow;
@@ -158,29 +161,94 @@ void SortExcludedChecks() {
 }
 
 void SaveExcludedChecks() {
-    std::string excludedString = "";
     SortExcludedChecks();
-
-    for (auto& data : checkExclusionList) {
-        excludedString += std::to_string(data);
-        excludedString += ",";
-    }
-    CVarSetString("gRando.ExcludedChecks", excludedString.c_str());
-    Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+    Rando::SetExcludedChecksInConfig(checkExclusionList);
+    Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
     ShipInit::Init("gRando.ExcludedChecks");
 }
 
 void LoadExcludedChecks() {
-    std::string checksList = CVarGetString("gRando.ExcludedChecks", "");
+    checkExclusionList = Rando::GetExcludedChecksFromConfig();
+}
+static RegisterShipInitFunc loadExcludedChecksInit(LoadExcludedChecks, { "gRando.ExcludedChecks" });
 
-    if (checksList != "") {
-        std::string word;
-        std::istringstream stream(checksList);
-        while (std::getline(stream, word, ',')) {
-            checkExclusionList.push_back((RandoCheckId)std::stoi(word));
+struct CuratedCheckGroup {
+    const char* label;
+    const char* description;
+    std::vector<std::pair<RandoCheckId, RandoCheckId>> ranges;
+};
+
+// clang-format off
+std::vector<CuratedCheckGroup> curatedCheckGroups = {
+    {
+        "Cow Grotto Grass",
+        "Every blade of grass in the Great Bay Coast and Termina Field cow grottos.",
+        {
+            { RC_GREAT_BAY_COAST_COW_GROTTO_GRASS_01, RC_GREAT_BAY_COAST_COW_GROTTO_GRASS_72 },
+            { RC_TERMINA_FIELD_COW_GROTTO_GRASS_01, RC_TERMINA_FIELD_COW_GROTTO_GRASS_72 },
+        },
+    },
+    {
+        "Termina Field Grass",
+        "Every blade of grass in Termina Field itself. The grottos within it are unaffected.",
+        {
+            { RC_TERMINA_FIELD_GRASS_01, RC_TERMINA_FIELD_GRASS_216 },
+        },
+    },
+    {
+        "Common Exclusions",
+        "Minigames and side content that take a lot of time or a lot of luck to finish:",
+        {
+            { RC_BENEATH_THE_GRAVEYARD_DAMPE_CHEST, RC_BENEATH_THE_GRAVEYARD_DAMPE_CHEST },
+            { RC_CLOCK_TOWN_EAST_HONEY_DARLING_ALL_DAYS, RC_CLOCK_TOWN_EAST_HONEY_DARLING_ALL_DAYS },
+            { RC_CLOCK_TOWN_EAST_SHOOTING_GALLERY_PERFECT_SCORE, RC_CLOCK_TOWN_EAST_SHOOTING_GALLERY_PERFECT_SCORE },
+            { RC_SWAMP_SHOOTING_GALLERY_PERFECT_SCORE, RC_SWAMP_SHOOTING_GALLERY_PERFECT_SCORE },
+            { RC_DEKU_PLAYGROUND_ALL_DAYS, RC_DEKU_PLAYGROUND_ALL_DAYS },
+            { RC_DEKU_SHRINE_MASK_OF_SCENTS, RC_DEKU_SHRINE_MASK_OF_SCENTS },
+            { RC_GREAT_BAY_COAST_FISHERMAN_MINIGAME, RC_GREAT_BAY_COAST_FISHERMAN_MINIGAME },
+            { RC_MOON_FIERCE_DEITY_MASK, RC_MOON_FIERCE_DEITY_MASK },
+            { RC_MOUNTAIN_VILLAGE_FROG_CHOIR, RC_MOUNTAIN_VILLAGE_FROG_CHOIR },
+            { RC_STOCK_POT_INN_COUPLES_MASK, RC_STOCK_POT_INN_COUPLES_MASK },
+            { RC_WATERFALL_RAPIDS_BEAVER_RACE_02, RC_WATERFALL_RAPIDS_BEAVER_RACE_02 },
+            { RC_PINNACLE_ROCK_REUNITE_SEAHORSE, RC_PINNACLE_ROCK_REUNITE_SEAHORSE },
+        },
+    },
+};
+// clang-format on
+
+const std::vector<std::vector<RandoCheckId>>& GetCuratedGroupChecks() {
+    static std::vector<std::vector<RandoCheckId>> curatedGroupChecks;
+    if (curatedGroupChecks.empty()) {
+        for (auto& curatedCheckGroup : curatedCheckGroups) {
+            std::vector<RandoCheckId> groupChecks;
+            for (auto& [firstCheckId, lastCheckId] : curatedCheckGroup.ranges) {
+                for (int32_t checkId = firstCheckId; checkId <= lastCheckId; checkId++) {
+                    if (Rando::StaticData::Checks.contains((RandoCheckId)checkId)) {
+                        groupChecks.push_back((RandoCheckId)checkId);
+                    }
+                }
+            }
+            std::sort(groupChecks.begin(), groupChecks.end());
+            curatedGroupChecks.push_back(groupChecks);
         }
     }
-    SortExcludedChecks();
+    return curatedGroupChecks;
+}
+
+void SetCuratedGroupExcluded(const std::vector<RandoCheckId>& groupChecks, bool excluded) {
+    if (excluded) {
+        for (RandoCheckId randoCheckId : groupChecks) {
+            auto it = std::lower_bound(checkExclusionList.begin(), checkExclusionList.end(), randoCheckId);
+            if (it == checkExclusionList.end() || *it != randoCheckId) {
+                checkExclusionList.insert(it, randoCheckId);
+            }
+        }
+    } else {
+        std::erase_if(checkExclusionList, [&](const RandoCheckId& randoCheckId) {
+            return std::binary_search(groupChecks.begin(), groupChecks.end(), randoCheckId);
+        });
+    }
+    SaveExcludedChecks();
 }
 
 static int checksInPool = 0;
@@ -188,8 +256,10 @@ static int itemsInPool = 0;
 static int junkInPool = 0;
 static int balanceStatus = 0; // 0 = Able to balance, 1 = Unlikely to balance, 2 = Unable to balance
 static std::set<RandoItemId> setOfItemsInPool;
+static std::set<RandoCheckId> setOfChecksInPool;
 void RefreshMetrics() {
     setOfItemsInPool.clear();
+    setOfChecksInPool.clear();
     RandoSaveInfo randoSaveInfo;
     std::vector<RandoCheckId> checkPool;
     std::vector<RandoItemId> itemPool;
@@ -207,6 +277,9 @@ void RefreshMetrics() {
     checksInPool = checkPool.size();
     itemsInPool = itemPool.size();
     junkInPool = 0;
+    for (auto& check : checkPool) {
+        setOfChecksInPool.insert(check);
+    }
     for (auto& item : itemPool) {
         setOfItemsInPool.insert(item);
         if (Rando::StaticData::Items[item].randoItemType == RITYPE_JUNK) {
@@ -261,6 +334,7 @@ static RegisterShipInitFunc refreshMetricsInit(RefreshMetrics, {
                                                                    "gRando.Options.RO_SHUFFLE_BARREL_DROPS",
                                                                    "gRando.Options.RO_SHUFFLE_BOSS_REMAINS",
                                                                    "gRando.Options.RO_SHUFFLE_BOSS_SOULS",
+                                                                   "gRando.Options.RO_SHUFFLE_BUTTERFLIES",
                                                                    "gRando.Options.RO_SHUFFLE_COWS",
                                                                    "gRando.Options.RO_SHUFFLE_CRATE_DROPS",
                                                                    "gRando.Options.RO_SHUFFLE_ENEMY_DROPS",
@@ -269,6 +343,7 @@ static RegisterShipInitFunc refreshMetricsInit(RefreshMetrics, {
                                                                    "gRando.Options.RO_SHUFFLE_FROGS",
                                                                    "gRando.Options.RO_SHUFFLE_GOLD_SKULLTULAS",
                                                                    "gRando.Options.RO_SHUFFLE_GRASS_DROPS",
+                                                                   "gRando.Options.RO_SHUFFLE_HIVE_DROPS",
                                                                    "gRando.Options.RO_SHUFFLE_TRAPS",
                                                                    "gRando.Options.RO_SHUFFLE_OCARINA_BUTTONS",
                                                                    "gRando.Options.RO_SHUFFLE_OWL_STATUES",
@@ -282,6 +357,7 @@ static RegisterShipInitFunc refreshMetricsInit(RefreshMetrics, {
                                                                    "gRando.Options.RO_SHUFFLE_SONG_SUN",
                                                                    "gRando.Options.RO_SHUFFLE_SWIM",
                                                                    "gRando.Options.RO_SHUFFLE_TINGLE_SHOPS",
+                                                                   "gRando.Options.RO_SHUFFLE_TREE_DROPS",
                                                                    "gRando.Options.RO_SHUFFLE_TYCOON_WALLET",
                                                                    "gRando.Options.RO_SHUFFLE_TRIFORCE_PIECES",
                                                                    "gRando.Options.RO_SKULLTULA_TOKENS_MAX",
@@ -550,9 +626,9 @@ static void DrawShufflesTab() {
     CVarCheckbox("Shuffle Snowball Drops", Rando::StaticData::Options[RO_SHUFFLE_SNOWBALL_DROPS].cvar);
     CVarCheckbox("Shuffle Grass Drops", Rando::StaticData::Options[RO_SHUFFLE_GRASS_DROPS].cvar);
     CVarCheckbox("Shuffle Tree Drops", Rando::StaticData::Options[RO_SHUFFLE_TREE_DROPS].cvar);
+    CVarCheckbox("Shuffle Butterflies", Rando::StaticData::Options[RO_SHUFFLE_BUTTERFLIES].cvar);
     CVarCheckbox("Shuffle Frogs", Rando::StaticData::Options[RO_SHUFFLE_FROGS].cvar);
-    CVarCheckbox("Shuffle Hive Drops", "gPlaceholderBool",
-                 CheckboxOptions({ { .disabled = true, .disabledTooltip = "Coming Soon" } }));
+    CVarCheckbox("Shuffle Hive Drops", Rando::StaticData::Options[RO_SHUFFLE_HIVE_DROPS].cvar);
     CVarCheckbox("Shuffle Freestanding Items", Rando::StaticData::Options[RO_SHUFFLE_FREESTANDING_ITEMS].cvar);
     CVarCheckbox("Shuffle Wonder Items", "gPlaceholderBool",
                  CheckboxOptions({ { .disabled = true, .disabledTooltip = "Coming Soon" } }));
@@ -622,7 +698,11 @@ static void DrawPriorityItemsPopup() {
                 ImGui::TableNextColumn();
                 const char* texturePath = Rando::StaticData::GetIconTexturePath(itemId);
                 ImTextureID textureId =
+<<<<<<< HEAD
                     std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())
+=======
+                    std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui())
+>>>>>>> vendor-mm
                         ->GetTextureByName(texturePath);
                 float iconOffsetY = (ImGui::GetFrameHeight() - PRIORITY_BUTTON_SIZE) * 0.5f;
                 if (iconOffsetY > 0.0f) {
@@ -759,6 +839,9 @@ static void DrawItemsTab() {
                  CheckboxOptions({ { .disabled = true, .disabledTooltip = "Coming Soon" } }));
     CVarCheckbox("Infinite Upgrades", "gPlaceholderBool",
                  CheckboxOptions({ { .disabled = true, .disabledTooltip = "Coming Soon" } }));
+    CVarCheckbox("Purchase Infinite Rupees", Rando::StaticData::Options[RO_PURCHASE_INFINITE_RUPEES].cvar,
+                 CheckboxOptions({ { .tooltip = "Rupees in shops can be purchased any number of times "
+                                                "within a cycle." } }));
     ImGui::EndChild();
     ImGui::SameLine();
     ImGui::BeginChild("randoItemsColumn2", ImVec2(columnWidth, ImGui::GetContentRegionAvail().y));
@@ -955,7 +1038,11 @@ static void DrawStartingItemsTab() {
         Rando::StaticData::RandoStaticItem randoStaticItem = Rando::StaticData::Items[startingItem];
         const char* texturePath = Rando::StaticData::GetIconTexturePath(startingItem);
         ImTextureID textureId =
+<<<<<<< HEAD
             std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())
+=======
+            std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui())
+>>>>>>> vendor-mm
                 ->GetTextureByName(texturePath);
 
         ImVec4 tintColor =
@@ -1021,9 +1108,15 @@ static void DrawStartingItemsTab() {
 
                     Rando::StaticData::RandoStaticItem randoStaticItem = Rando::StaticData::Items[item];
                     const char* texturePath = Rando::StaticData::GetIconTexturePath(item);
+<<<<<<< HEAD
                     ImTextureID textureId =
                         std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())
                             ->GetTextureByName(texturePath);
+=======
+                    ImTextureID textureId = std::dynamic_pointer_cast<Fast::Fast3dGui>(
+                                                Ship::Context::GetRawInstance()->GetWindow()->GetGui())
+                                                ->GetTextureByName(texturePath);
+>>>>>>> vendor-mm
 
                     // Force new row for Song of Time, first frog, and first time item
                     if (item == RI_SONG_TIME || item == RI_FROG_BLUE || item == RI_TIME_DAY_1) {
@@ -1105,6 +1198,68 @@ static void DrawFilterWithButton(ImGuiTextFilter& filter, const char* placeholde
     }
 }
 
+static void DrawCuratedCheckGroups(UIWidgets::Colors menuThemeColor) {
+    struct CuratedGroupButton {
+        std::string label;
+        std::string tooltip;
+        const std::vector<RandoCheckId>* checks;
+        bool allExcluded;
+        bool disabled;
+    };
+
+    const auto& curatedGroupChecks = GetCuratedGroupChecks();
+    std::vector<CuratedGroupButton> curatedGroupButtons;
+    for (size_t i = 0; i < curatedCheckGroups.size(); i++) {
+        const auto& groupChecks = curatedGroupChecks[i];
+        bool allExcluded =
+            !groupChecks.empty() && std::all_of(groupChecks.begin(), groupChecks.end(), [](RandoCheckId randoCheckId) {
+                return std::binary_search(checkExclusionList.begin(), checkExclusionList.end(), randoCheckId);
+            });
+        bool anyInPool = std::any_of(groupChecks.begin(), groupChecks.end(), [](RandoCheckId randoCheckId) {
+            return setOfChecksInPool.contains(randoCheckId);
+        });
+
+        std::string tooltip = curatedCheckGroups[i].description;
+        if (groupChecks.size() <= 12) {
+            for (RandoCheckId randoCheckId : groupChecks) {
+                tooltip += "\n- " + Rando::StaticData::CheckNames[randoCheckId];
+            }
+        }
+        tooltip +=
+            allExcluded ? "\n\nClick to stop excluding these checks." : "\n\nClick to exclude all of these checks.";
+
+        curatedGroupButtons.push_back({
+            std::string(curatedCheckGroups[i].label) + " (" + std::to_string(groupChecks.size()) + ")",
+            tooltip,
+            &groupChecks,
+            allExcluded,
+            !anyInPool && !allExcluded,
+        });
+    }
+
+    ImGui::SeparatorText("Curated Groups");
+    f32 windowRight = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+    for (size_t i = 0; i < curatedGroupButtons.size(); i++) {
+        auto& curatedGroupButton = curatedGroupButtons[i];
+        if (Button(curatedGroupButton.label.c_str(),
+                   ButtonOptions({ { .tooltip = curatedGroupButton.tooltip.c_str(),
+                                     .disabled = curatedGroupButton.disabled,
+                                     .disabledTooltip = "These checks are not shuffled by the current settings" } })
+                       .Size(Sizes::Inline)
+                       .Color(curatedGroupButton.allExcluded ? Colors::Orange : menuThemeColor))) {
+            SetCuratedGroupExcluded(*curatedGroupButton.checks, !curatedGroupButton.allExcluded);
+        }
+
+        if (i + 1 < curatedGroupButtons.size()) {
+            f32 nextButtonRight = ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x +
+                                  CalcButtonWidth(curatedGroupButtons[i + 1].label.c_str());
+            if (nextButtonRight < windowRight) {
+                ImGui::SameLine();
+            }
+        }
+    }
+}
+
 static void DrawCheckFilterTab() {
     if (CVarGetInteger(Rando::StaticData::Options[RO_LOGIC].cvar, RO_LOGIC_GLITCHLESS) >= RO_LOGIC_VANILLA) {
         ImGui::TextColored(UIWidgets::ColorValues.at(UIWidgets::Colors::Red),
@@ -1117,22 +1272,24 @@ static void DrawCheckFilterTab() {
     bool excludeFiltered = false;
     bool removeFiltered = false;
     bool removeAllChecks = false;
-    if (!isExcludedInitialized) {
-        LoadExcludedChecks();
-        isExcludedInitialized = true;
-    }
+    RandoCheckId checkToExclude = RC_UNKNOWN;
+    RandoCheckId checkToRestore = RC_UNKNOWN;
+
+    DrawCuratedCheckGroups(menuThemeColor);
 
     f32 columnWidth = ImGui::GetContentRegionAvail().x / 2 - (ImGui::GetStyle().ItemSpacing.x * 2);
-    ImGui::BeginChild("randoIncludedChecks", ImVec2(columnWidth, ImGui::GetContentRegionAvail().y));
-    ImGui::SeparatorText("Normal Checks");
+    ImGui::BeginChild("randoIncludedChecks", ImVec2(columnWidth, ImGui::GetContentRegionAvail().y),
+                      ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::SeparatorText("Shuffled Checks");
 
     static ImGuiTextFilter includedFilter;
-    const char* leftButtonLabel = includedFilter.IsActive() ? "Junk Filtered" : "Junk All";
+    const char* leftButtonLabel = includedFilter.IsActive() ? "Exclude Filtered" : "Exclude All";
     f32 availableWidth = ImGui::GetContentRegionAvail().x;
-    DrawFilterWithButton(includedFilter, "Normal Search", leftButtonLabel, availableWidth, menuThemeColor,
+    DrawFilterWithButton(includedFilter, "Shuffled Search", leftButtonLabel, availableWidth, menuThemeColor,
                          excludeFiltered, excludeAllChecks, 30.0f, 24.0f, 6.0f, 18.0f);
 
-    if (ImGui::BeginTable("Normal Checks", 1)) {
+    ImGui::BeginChild("randoIncludedChecksList", ImVec2(0, 0));
+    if (ImGui::BeginTable("Shuffled Checks", 1)) {
         ImGui::TableNextColumn();
 
         for (auto& includedChecks : Rando::StaticData::Checks) {
@@ -1140,11 +1297,11 @@ static void DrawCheckFilterTab() {
                 continue;
             }
 
-            if (!includedFilter.PassFilter(Rando::StaticData::CheckNames[includedChecks.first].c_str())) {
+            if (!setOfChecksInPool.contains(includedChecks.first)) {
                 continue;
             }
 
-            if (std::binary_search(checkExclusionList.begin(), checkExclusionList.end(), includedChecks.first)) {
+            if (!includedFilter.PassFilter(Rando::StaticData::CheckNames[includedChecks.first].c_str())) {
                 continue;
             }
 
@@ -1157,74 +1314,68 @@ static void DrawCheckFilterTab() {
             ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
                                    ImGui::IsItemHovered() ? IM_COL32(255, 255, 0, 128) : IM_COL32(255, 255, 255, 0));
             if (ImGui::IsItemClicked()) {
-                auto it = std::lower_bound(checkExclusionList.begin(), checkExclusionList.end(), includedChecks.first);
-                if (it == checkExclusionList.end() || *it != includedChecks.first) {
-                    checkExclusionList.insert(it, includedChecks.first);
-                    SaveExcludedChecks();
-                }
+                checkToExclude = includedChecks.first;
             }
             ImGui::TableNextColumn();
         }
         ImGui::EndTable();
     }
     ImGui::EndChild();
+    ImGui::EndChild();
     ImGui::SameLine();
-    ImGui::BeginChild("randoExcludedChecks", ImVec2(columnWidth, ImGui::GetContentRegionAvail().y));
-    ImGui::SeparatorText("Forced Junk Checks");
+    ImGui::BeginChild("randoExcludedChecks", ImVec2(columnWidth, ImGui::GetContentRegionAvail().y),
+                      ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::SeparatorText("Excluded Checks");
 
     static ImGuiTextFilter excludedFilter;
     const char* rightButtonLabel = excludedFilter.IsActive() ? "Remove Filtered" : "Remove All";
     f32 rightAvailableWidth = ImGui::GetContentRegionAvail().x;
-    DrawFilterWithButton(excludedFilter, "Junk Search", rightButtonLabel, rightAvailableWidth, menuThemeColor,
+    DrawFilterWithButton(excludedFilter, "Excluded Search", rightButtonLabel, rightAvailableWidth, menuThemeColor,
                          removeFiltered, removeAllChecks, 30.0f, 24.0f, 6.0f, 18.0f);
 
-    if (ImGui::BeginTable("Forced Junk Checks", 1)) {
+    ImGui::BeginChild("randoExcludedChecksList", ImVec2(0, 0));
+    if (ImGui::BeginTable("Excluded Checks", 1)) {
         ImGui::TableNextColumn();
-        for (auto it = checkExclusionList.begin(); it != checkExclusionList.end();) {
-            if (!excludedFilter.PassFilter(Rando::StaticData::CheckNames[*it].c_str())) {
-                ++it;
+        for (RandoCheckId randoCheckId : checkExclusionList) {
+            if (!excludedFilter.PassFilter(Rando::StaticData::CheckNames[randoCheckId].c_str())) {
                 continue;
             }
 
-            ImGui::Text("%s", Rando::StaticData::CheckNames[*it].c_str());
+            ImGui::Text("%s", Rando::StaticData::CheckNames[randoCheckId].c_str());
 
             ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
                                    ImGui::IsItemHovered() ? IM_COL32(255, 255, 0, 128) : IM_COL32(255, 255, 255, 0));
             if (ImGui::IsItemClicked()) {
-                it = checkExclusionList.erase(it);
-                SaveExcludedChecks();
-            } else {
-                ++it;
+                checkToRestore = randoCheckId;
             }
             ImGui::TableNextColumn();
         }
         ImGui::EndTable();
     }
     ImGui::EndChild();
+    ImGui::EndChild();
 
-    // Junk all checks
-    if (excludeAllChecks) {
-        checkExclusionList.clear();
-        checkExclusionList.reserve(Rando::StaticData::Checks.size());
-        for (auto& includedChecks : Rando::StaticData::Checks) {
-            if (includedChecks.first != RC_UNKNOWN) {
-                checkExclusionList.push_back(includedChecks.first);
-            }
+    if (checkToExclude != RC_UNKNOWN) {
+        auto it = std::lower_bound(checkExclusionList.begin(), checkExclusionList.end(), checkToExclude);
+        if (it == checkExclusionList.end() || *it != checkToExclude) {
+            checkExclusionList.insert(it, checkToExclude);
+            SaveExcludedChecks();
         }
-        SortExcludedChecks();
-        SaveExcludedChecks();
-        includedFilter.Clear();
-        excludeAllChecks = false;
     }
 
-    // Junk filtered checks
-    if (excludeFiltered) {
+    if (checkToRestore != RC_UNKNOWN) {
+        std::erase(checkExclusionList, checkToRestore);
+        SaveExcludedChecks();
+    }
+
+    if (excludeAllChecks || excludeFiltered) {
         for (auto& includedChecks : Rando::StaticData::Checks) {
-            if (includedChecks.first == RC_UNKNOWN) {
+            if (!setOfChecksInPool.contains(includedChecks.first)) {
                 continue;
             }
 
-            if (!includedFilter.PassFilter(Rando::StaticData::CheckNames[includedChecks.first].c_str())) {
+            if (excludeFiltered &&
+                !includedFilter.PassFilter(Rando::StaticData::CheckNames[includedChecks.first].c_str())) {
                 continue;
             }
 
@@ -1235,6 +1386,7 @@ static void DrawCheckFilterTab() {
         }
         SaveExcludedChecks();
         includedFilter.Clear();
+        excludeAllChecks = false;
         excludeFiltered = false;
     }
 

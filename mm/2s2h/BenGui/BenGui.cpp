@@ -95,7 +95,7 @@ std::shared_ptr<BenMenu> GetBenMenu() {
 } // ComboShip
 
 void SetupMenu() {
-    auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
+    auto gui = Ship::Context::GetRawInstance()->GetWindow()->GetGui();
     mBenMenu = std::make_shared<BenMenu>("gWindows.Menu", "Settings Menu");
 #ifndef COMBO_BUILD
     gui->SetMenu(mBenMenu); // ComboShip: comboui owns the menu; MM only builds its tree.
@@ -134,7 +134,7 @@ void ActivateMenu() {
 }
 
 void SetupGuiElements() {
-    auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
+    auto gui = Ship::Context::GetRawInstance()->GetWindow()->GetGui();
 
     mStatsWindow = gui->GetGuiWindow("Stats");
     if (mStatsWindow == nullptr) {
@@ -239,7 +239,7 @@ void SetupGuiElements() {
 }
 
 void Destroy() {
-    auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
+    auto gui = Ship::Context::GetRawInstance()->GetWindow()->GetGui();
 
     gui->RemoveAllGuiWindows();
     mBenMenuBar = nullptr;
@@ -297,7 +297,7 @@ void SetDisplayOverlayVisibility(bool visible) {
     } else {
         CVarSetInteger("gWindows.DisplayOverlay", visible ? 1 : 0);
     }
-    Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+    Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
 }
 
 } // namespace BenGui

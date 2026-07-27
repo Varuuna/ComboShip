@@ -12,6 +12,7 @@ static RegisterShipInitFunc initFunc([]() {
         .checks = {
             CHECK(RC_PIRATE_FORTRESS_INTERIOR_BEEHIVE_POT_01, true),
             CHECK(RC_PIRATE_FORTRESS_INTERIOR_BEEHIVE_POT_02, true),
+            CHECK(RC_PIRATE_FORTRESS_CAPTAIN_ROOM_UPPER_BEEHIVE, CAN_USE_PROJECTILE),
         },
         .exits = { //     TO                                         FROM
             EXIT(ENTRANCE(PIRATES_FORTRESS, 2),             ENTRANCE(PIRATES_FORTRESS_INTERIOR, 1), true),

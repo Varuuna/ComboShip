@@ -34,9 +34,11 @@
 #include <ship/utils/StringHelper.h>
 #include <nlohmann/json.hpp>
 #include "build.h"
+#include <stb_image.h>
 
 #include <fast/interpreter.h>
 #include <fast/backends/gfx_rendering_api.h>
+#include <fast/Fast3dWindow.h>
 
 #ifdef __APPLE__
 #include <SDL_scancode.h>
@@ -288,7 +290,7 @@ OTRGlobals::OTRGlobals() {
 
     if (shipArchiveVersionMatch) {
 
-        auto overlay = context->GetInstance()->GetWindow()->GetGui()->GetGameOverlay();
+        auto overlay = context->GetRawInstance()->GetWindow()->GetGui()->GetGameOverlay();
         overlay->LoadFont("Press Start 2P", 12.0f, "fonts/PressStart2P-Regular.ttf");
         overlay->LoadFont("Fipps", 32.0f, "fonts/Fipps-Regular.otf");
         overlay->SetCurrentFont(CVarGetString(CVAR_GAME_OVERLAY_FONT, "Press Start 2P"));
@@ -745,9 +747,13 @@ void OTRGlobals::Initialize() {
     context->InitConsoleVariables();
     auto logLevel = static_cast<spdlog::level::level_enum>(CVarGetInteger("gDeveloperTools.LogLevel", defaultLogLevel));
     context->InitLogging(logLevel, logLevel);
-    Ship::Context::GetInstance()->GetLogger()->set_pattern("[%H:%M:%S.%e] [%s:%#] [%^%l%$] %v");
+    Ship::Context::GetRawInstance()->GetLogger()->set_pattern("[%H:%M:%S.%e] [%s:%#] [%^%l%$] %v");
 
+<<<<<<< HEAD
     InitGfxDebugger();
+=======
+    std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow())->GetGfxDebugger();
+>>>>>>> vendor-mm
     context->InitFileDropMgr();
 
     // tell LUS to reserve 3 2S2H specific threads (Game, Audio, Save)
@@ -799,9 +805,13 @@ void OTRGlobals::Initialize() {
                                     static_cast<uint32_t>(SOH::ResourceType::SOH_CollisionHeader), 0);
     loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinarySkeletonV0>(), RESOURCE_FORMAT_BINARY,
                                     "Skeleton", static_cast<uint32_t>(SOH::ResourceType::SOH_Skeleton), 0);
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryXMLSkeletonV0>(), RESOURCE_FORMAT_XML,
+                                    "Skeleton", static_cast<uint32_t>(SOH::ResourceType::SOH_Skeleton), 0);
     loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinarySkeletonLimbV0>(),
                                     RESOURCE_FORMAT_BINARY, "SkeletonLimb",
                                     static_cast<uint32_t>(SOH::ResourceType::SOH_SkeletonLimb), 0);
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryXMLSkeletonLimbV0>(), RESOURCE_FORMAT_XML,
+                                    "SkeletonLimb", static_cast<uint32_t>(SOH::ResourceType::SOH_SkeletonLimb), 0);
     loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryPathMMV0>(), RESOURCE_FORMAT_BINARY,
                                     "Path", static_cast<uint32_t>(SOH::ResourceType::SOH_Path), 0);
     loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryCutsceneV0>(), RESOURCE_FORMAT_BINARY,
@@ -863,11 +873,6 @@ extern "C" uint32_t Ship_GetInterpolationFPS() {
     return OTRGlobals::Instance->GetInterpolationFPS();
 }
 
-// Number of interpolated frames
-extern "C" uint32_t Ship_GetInterpolationFrameCount() {
-    return ceil((float)Ship_GetInterpolationFPS() / 20.0f);
-}
-
 struct ExtensionEntry {
     std::string path;
     std::string ext;
@@ -907,6 +912,7 @@ ImFont* OTRGlobals::CreateDefaultFontWithSize(float size) {
 }
 
 uint32_t OTRGlobals::GetInterpolationFPS() {
+<<<<<<< HEAD
 #ifdef COMBO_BUILD
     // ComboShip: the shared Graphics tab is OOT-rendered and writes the gSettings.* names.
     const char* matchRefreshCvar = "gSettings.MatchRefreshRate";
@@ -921,6 +927,14 @@ uint32_t OTRGlobals::GetInterpolationFPS() {
                !Ship::Context::GetInstance()->GetWindow()->CanDisableVerticalSync()) {
         return std::min<uint32_t>(Ship::Context::GetInstance()->GetWindow()->GetCurrentRefreshRate(),
                                   CVarGetInteger(interpFpsCvar, 20));
+=======
+    if (CVarGetInteger("gMatchRefreshRate", 0)) {
+        return Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate();
+    } else if (CVarGetInteger(CVAR_VSYNC_ENABLED, 1) ||
+               !Ship::Context::GetRawInstance()->GetWindow()->CanDisableVerticalSync()) {
+        return std::min<uint32_t>(Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate(),
+                                  CVarGetInteger("gInterpolationFPS", 20));
+>>>>>>> vendor-mm
     }
     return CVarGetInteger(interpFpsCvar, 20);
 }
@@ -1034,7 +1048,7 @@ extern "C" void OTRAudio_Exit() {
 }
 
 extern "C" void OTRExtScanner() {
-    auto lst = *Ship::Context::GetInstance()->GetResourceManager()->GetArchiveManager()->ListFiles("*").get();
+    auto lst = *Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->ListFiles("*").get();
 
     for (auto& rPath : lst) {
         std::vector<std::string> raw = StringHelper::Split(rPath, ".");
@@ -1110,7 +1124,7 @@ extern "C" void InitOTR(int argc, char* argv[]) {
     std::shared_ptr<Ship::Config> conf = OTRGlobals::Instance->context->GetConfig();
     conf->RegisterVersionUpdater(std::make_shared<Ben::ConfigVersion1Updater>());
     conf->RunVersionUpdates();
-    Ship::Context::GetInstance()->GetConsoleVariables()->Save();
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->Save();
 
     GameInteractor::Instance = new GameInteractor();
     AudioCollection::Instance = new AudioCollection();
@@ -1197,8 +1211,8 @@ extern "C" void InitOTR(int argc, char* argv[]) {
     }
 #endif
 
-    Ship::Context::GetInstance()->GetFileDropMgr()->RegisterDropHandler(BinarySaveConverter_HandleFileDropped);
-    Ship::Context::GetInstance()->GetFileDropMgr()->RegisterDropHandler(SaveManager_HandleFileDropped);
+    Ship::Context::GetRawInstance()->GetFileDropMgr()->RegisterDropHandler(BinarySaveConverter_HandleFileDropped);
+    Ship::Context::GetRawInstance()->GetFileDropMgr()->RegisterDropHandler(SaveManager_HandleFileDropped);
 }
 
 extern "C" void SaveManager_ThreadPoolWait() {
@@ -1295,7 +1309,7 @@ extern "C" void Graph_StartFrame() {
 #if 0
         case KbScancode::LUS_KB_F5: {
             if (CVarGetInteger("gSaveStatesEnabled", 0) == 0) {
-                Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGameOverlay()->TextDrawNotification(
+                Ship::Context::GetRawInstance()->GetWindow()->GetGui()->GetGameOverlay()->TextDrawNotification(
                     6.0f, true, "Save states not enabled. Check Cheats Menu.");
                 return;
             }
@@ -1316,7 +1330,7 @@ extern "C" void Graph_StartFrame() {
         }
         case KbScancode::LUS_KB_F6: {
             if (CVarGetInteger("gSaveStatesEnabled", 0) == 0) {
-                Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGameOverlay()->TextDrawNotification(
+                Ship::Context::GetRawInstance()->GetWindow()->GetGui()->GetGameOverlay()->TextDrawNotification(
                     6.0f, true, "Save states not enabled. Check Cheats Menu.");
                 return;
             }
@@ -1331,7 +1345,7 @@ extern "C" void Graph_StartFrame() {
         }
         case KbScancode::LUS_KB_F7: {
             if (CVarGetInteger("gSaveStatesEnabled", 0) == 0) {
-                Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGameOverlay()->TextDrawNotification(
+                Ship::Context::GetRawInstance()->GetWindow()->GetGui()->GetGameOverlay()->TextDrawNotification(
                     6.0f, true, "Save states not enabled. Check Cheats Menu.");
                 return;
             }
@@ -1382,7 +1396,8 @@ extern "C" void Graph_StartFrame() {
 #endif
 }
 
-void RunCommands(Gfx* Commands, const std::vector<std::unordered_map<Mtx*, MtxF>>& mtx_replacements) {
+// Interpolated frames of a tick are evenly spaced numerators time+step, time+2*step, ... over denom.
+void RunCommands(Gfx* Commands, int time, int step, int denom, int count) {
     auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(OTRGlobals::Instance->context->GetWindow());
 
     if (wnd == nullptr) {
@@ -1398,8 +1413,12 @@ void RunCommands(Gfx* Commands, const std::vector<std::unordered_map<Mtx*, MtxF>
     UIWidgets::Colors themeColor =
         static_cast<UIWidgets::Colors>(CVarGetInteger("gSettings.Menu.Theme", UIWidgets::Colors::LightBlue));
     ImGui::PushStyleColor(ImGuiCol_TitleBgActive, UIWidgets::ColorValues.at(themeColor));
-    for (const auto& m : mtx_replacements) {
-        wnd->DrawAndRunGraphicsCommands(Commands, m);
+    for (int i = 0; i < count; i++) {
+        time += step;
+        std::unordered_map<Mtx*, MtxF> mtx_replacements =
+            (time == denom) ? std::unordered_map<Mtx*, MtxF>() : FrameInterpolation_Interpolate((float)time / denom);
+        intp->mInterpolationT = (float)time / denom;
+        wnd->DrawAndRunGraphicsCommands(Commands, mtx_replacements);
         intp->mInterpolationIndex++;
     }
     ImGui::PopStyleColor();
@@ -1413,14 +1432,13 @@ extern "C" void Graph_ProcessGfxCommands(Gfx* commands) {
     }
 
     audio.cv_to_thread.notify_one();
-    std::vector<std::unordered_map<Mtx*, MtxF>> mtx_replacements;
     int target_fps = OTRGlobals::Instance->GetInterpolationFPS();
     static int last_fps;
     static int last_update_rate;
     static int time;
     int fps = target_fps;
     int original_fps = 60 / R_UPDATE_RATE;
-    auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
+    auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
 
     if (target_fps == 20 || original_fps > target_fps) {
         fps = original_fps;
@@ -1433,13 +1451,11 @@ extern "C" void Graph_ProcessGfxCommands(Gfx* commands) {
     // time_base = fps * original_fps (one second)
     int next_original_frame = fps;
 
+    int start_time = time;
+    int count = 0;
     while (time + original_fps <= next_original_frame) {
         time += original_fps;
-        if (time != next_original_frame) {
-            mtx_replacements.push_back(FrameInterpolation_Interpolate((float)time / next_original_frame));
-        } else {
-            mtx_replacements.emplace_back();
-        }
+        count++;
     }
 
     time -= fps;
@@ -1448,13 +1464,15 @@ extern "C" void Graph_ProcessGfxCommands(Gfx* commands) {
         wnd->SetTargetFps(fps);
     }
 
+    int step = original_fps;
     // When the gfx debugger is active, only run with the final mtx
     if (GfxDebuggerIsDebugging()) {
-        mtx_replacements.clear();
-        mtx_replacements.emplace_back();
+        start_time = next_original_frame;
+        step = 0;
+        count = 1;
     }
 
-    RunCommands(commands, mtx_replacements);
+    RunCommands(commands, start_time, step, next_original_frame, count);
 
     last_fps = fps;
     last_update_rate = R_UPDATE_RATE;
@@ -1469,7 +1487,7 @@ extern "C" void Graph_ProcessGfxCommands(Gfx* commands) {
     bool curAltAssets = CVarGetInteger("gEnhancements.Mods.AlternateAssets", 0);
     if (prevAltAssets != curAltAssets) {
         prevAltAssets = curAltAssets;
-        Ship::Context::GetInstance()->GetResourceManager()->SetAltAssetsEnabled(curAltAssets);
+        Ship::Context::GetRawInstance()->GetResourceManager()->SetAltAssetsEnabled(curAltAssets);
         gfx_texture_cache_clear();
         PlayerCustomFlipbooks_Patch();
         SOH::SkeletonPatcher::UpdateSkeletons();
@@ -1488,7 +1506,7 @@ extern "C" void OTRGetPixelDepthPrepare(float x, float y) {
     // Invert the Y value to match the origin values used in the renderer
     float adjustedY = SCREEN_HEIGHT - y;
 
-    auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
+    auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
     if (wnd == nullptr) {
         return;
     }
@@ -1500,7 +1518,7 @@ extern "C" uint16_t OTRGetPixelDepth(float x, float y) {
     // Invert the Y value to match the origin values used in the renderer
     float adjustedY = SCREEN_HEIGHT - y;
 
-    auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
+    auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
     if (wnd == nullptr) {
         return 0;
     }
@@ -1509,20 +1527,20 @@ extern "C" uint16_t OTRGetPixelDepth(float x, float y) {
 }
 
 extern "C" bool ResourceMgr_IsAltAssetsEnabled() {
-    return Ship::Context::GetInstance()->GetResourceManager()->IsAltAssetsEnabled();
+    return Ship::Context::GetRawInstance()->GetResourceManager()->IsAltAssetsEnabled();
 }
 
 extern "C" uint32_t ResourceMgr_GetNumGameVersions() {
-    return Ship::Context::GetInstance()->GetResourceManager()->GetArchiveManager()->GetGameVersions().size();
+    return Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->GetGameVersions().size();
 }
 
 extern "C" uint32_t ResourceMgr_GetGameVersion(int index) {
-    return Ship::Context::GetInstance()->GetResourceManager()->GetArchiveManager()->GetGameVersions()[index];
+    return Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->GetGameVersions()[index];
 }
 
 extern "C" uint32_t ResourceMgr_GetGamePlatform(int index) {
     uint32_t version =
-        Ship::Context::GetInstance()->GetResourceManager()->GetArchiveManager()->GetGameVersions()[index];
+        Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->GetGameVersions()[index];
 
     switch (version) {
         case MM_NTSC_US_10:
@@ -1534,7 +1552,7 @@ extern "C" uint32_t ResourceMgr_GetGamePlatform(int index) {
 
 extern "C" uint32_t ResourceMgr_GetGameRegion(int index) {
     uint32_t version =
-        Ship::Context::GetInstance()->GetResourceManager()->GetArchiveManager()->GetGameVersions()[index];
+        Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->GetGameVersions()[index];
 
     switch (version) {
         case MM_NTSC_US_10:
@@ -1544,10 +1562,10 @@ extern "C" uint32_t ResourceMgr_GetGameRegion(int index) {
 }
 
 extern "C" void ResourceMgr_LoadDirectory(const char* resName) {
-    Ship::Context::GetInstance()->GetResourceManager()->LoadResources(resName);
+    Ship::Context::GetRawInstance()->GetResourceManager()->LoadResources(resName);
 }
 extern "C" void ResourceMgr_DirtyDirectory(const char* resName) {
-    Ship::Context::GetInstance()->GetResourceManager()->DirtyResources(resName);
+    Ship::Context::GetRawInstance()->GetResourceManager()->DirtyResources(resName);
 }
 
 extern "C" void ResourceMgr_UnloadResource(const char* resName) {
@@ -1555,7 +1573,7 @@ extern "C" void ResourceMgr_UnloadResource(const char* resName) {
     if (path.starts_with("__OTR__")) {
         path = path.substr(7);
     }
-    Ship::Context::GetInstance()->GetResourceManager()->UnloadResource(path);
+    Ship::Context::GetRawInstance()->GetResourceManager()->UnloadResource(path);
 }
 
 static void ResourceMgr_UnloadOriginalWhenAltExists(const char* resName) {
@@ -1572,7 +1590,7 @@ static void ResourceMgr_UnloadOriginalWhenAltExists(const char* resName) {
 // OTRTODO: There is probably a more elegant way to go about this...
 // Kenix: This is definitely leaking memory when it's called.
 extern "C" char** ResourceMgr_ListFiles(const char* searchMask, int* resultSize) {
-    auto lst = Ship::Context::GetInstance()->GetResourceManager()->GetArchiveManager()->ListFiles(searchMask);
+    auto lst = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->ListFiles(searchMask);
     char** result = (char**)malloc(lst->size() * sizeof(char*));
 
     for (size_t i = 0; i < lst->size(); i++) {
@@ -1596,11 +1614,11 @@ extern "C" uint8_t ResourceMgr_FileExists(const char* filePath) {
 }
 
 extern "C" void ResourceMgr_LoadFile(const char* resName) {
-    Ship::Context::GetInstance()->GetResourceManager()->LoadResource(resName);
+    Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(resName);
 }
 
 std::shared_ptr<Ship::IResource> GetResourceByName(const char* path) {
-    return Ship::Context::GetInstance()->GetResourceManager()->LoadResource(path);
+    return Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path);
 }
 
 extern "C" char* ResourceMgr_LoadFileFromDisk(const char* filePath) {
@@ -1716,7 +1734,7 @@ std::unordered_map<std::string, std::unordered_map<std::string, GfxPatch>> origi
 // using OTRs instead (When that is available). Index can be found using the commented out section below.
 extern "C" void ResourceMgr_PatchGfxByName(const char* path, const char* patchName, int index, Gfx instruction) {
     auto res = std::static_pointer_cast<Fast::DisplayList>(
-        Ship::Context::GetInstance()->GetResourceManager()->LoadResource(path));
+        Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path));
 
     // Leaving this here for people attempting to find the correct Dlist index to patch
     /*if (strcmp("__OTR__objects/object_gi_longsword/gGiBiggoronSwordDL", path) == 0) {
@@ -1754,7 +1772,7 @@ extern "C" void ResourceMgr_PatchGfxByName(const char* path, const char* patchNa
 extern "C" void ResourceMgr_PatchGfxCopyCommandByName(const char* path, const char* patchName, int destinationIndex,
                                                       int sourceIndex) {
     auto res = std::static_pointer_cast<Fast::DisplayList>(
-        Ship::Context::GetInstance()->GetResourceManager()->LoadResource(path));
+        Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path));
 
     // Do not patch custom assets as they most likely do not have the same instructions as authentic assets
     if (res->GetInitData()->IsCustom) {
@@ -1774,7 +1792,7 @@ extern "C" void ResourceMgr_PatchGfxCopyCommandByName(const char* path, const ch
 extern "C" void ResourceMgr_UnpatchGfxByName(const char* path, const char* patchName) {
     if (originalGfx.contains(path) && originalGfx[path].contains(patchName)) {
         auto res = std::static_pointer_cast<Fast::DisplayList>(
-            Ship::Context::GetInstance()->GetResourceManager()->LoadResource(path));
+            Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path));
 
         Gfx* gfx = (Gfx*)&res->Instructions[originalGfx[path][patchName].index];
         *gfx = originalGfx[path][patchName].instruction;
@@ -1796,7 +1814,7 @@ extern "C" void ResourceMgr_ResetAllPatchesForDL(const char* path) {
     }
 
     auto res = std::static_pointer_cast<Fast::DisplayList>(
-        Ship::Context::GetInstance()->GetResourceManager()->LoadResource(path));
+        Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path));
 
     // Iterate through all patches and restore original instructions
     auto& patches = originalGfx[path];
@@ -1919,7 +1937,7 @@ extern "C" SoundFontSample* ReadCustomSample(const char* path) {
 
         ExtensionEntry entry = ExtensionCache[path];
 
-        auto sampleRaw = Ship::Context::GetInstance()->GetResourceManager()->LoadFile(entry.path);
+        auto sampleRaw = Ship::Context::GetRawInstance()->GetResourceManager()->LoadFile(entry.path);
         uint32_t* strem = (uint32_t*)sampleRaw->Buffer.get();
         uint8_t* strem2 = (uint8_t*)strem;
 
@@ -2101,7 +2119,7 @@ ImFont* OTRGlobals::CreateFontWithSize(float size, std::string fontPath) {
         initData->ResourceVersion = 0;
         initData->Path = fontPath;
         std::shared_ptr<Ship::Font> fontData = std::static_pointer_cast<Ship::Font>(
-            Ship::Context::GetInstance()->GetResourceManager()->LoadResource(fontPath, false, initData));
+            Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(fontPath, false, initData));
         ImFontConfig fontConf;
         fontConf.FontDataOwnedByAtlas = false;
         font = mImGuiIo->Fonts->AddFontFromMemoryTTF(fontData->Data, fontData->DataSize, size, &fontConf, nullptr);
@@ -2312,13 +2330,13 @@ Color_RGB8 GetColorForControllerLED() {
 extern "C" void OTRControllerCallback(uint8_t rumble) {
     // We call this every tick, SDL accounts for this use and prevents driver spam
     // https://github.com/libsdl-org/SDL/blob/f17058b562c8a1090c0c996b42982721ace90903/src/joystick/SDL_joystick.c#L1114-L1144
-    Ship::Context::GetInstance()->GetControlDeck()->GetControllerByPort(0)->GetLED()->SetLEDColor(
+    Ship::Context::GetRawInstance()->GetControlDeck()->GetControllerByPort(0)->GetLED()->SetLEDColor(
         GetColorForControllerLED());
 
     static std::shared_ptr<BenInputEditorWindow> controllerConfigWindow = nullptr;
     if (controllerConfigWindow == nullptr) {
         controllerConfigWindow = std::dynamic_pointer_cast<BenInputEditorWindow>(
-            Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGuiWindow("2S2H Input Editor"));
+            Ship::Context::GetRawInstance()->GetWindow()->GetGui()->GetGuiWindow("2S2H Input Editor"));
         // note: the current implementation may not be desired in LUS, as "true" rumble support
         //    using osMotor calls is planned: https://github.com/Kenix3/libultraship/issues/9
     }
@@ -2328,18 +2346,18 @@ extern "C" void OTRControllerCallback(uint8_t rumble) {
 
     // TODO: other ports?
     if (rumble) {
-        Ship::Context::GetInstance()->GetControlDeck()->GetControllerByPort(0)->GetRumble()->StartRumble();
+        Ship::Context::GetRawInstance()->GetControlDeck()->GetControllerByPort(0)->GetRumble()->StartRumble();
     } else {
-        Ship::Context::GetInstance()->GetControlDeck()->GetControllerByPort(0)->GetRumble()->StopRumble();
+        Ship::Context::GetRawInstance()->GetControlDeck()->GetControllerByPort(0)->GetRumble()->StopRumble();
     }
 }
 
 extern "C" float OTRGetAspectRatio() {
-    return Ship::Context::GetInstance()->GetWindow()->GetAspectRatio();
+    return Ship::Context::GetRawInstance()->GetWindow()->GetAspectRatio();
 }
 
 extern "C" float OTRGetDimensionFromLeftEdge(float v) {
-    auto fastWnd = dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
+    auto fastWnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
     auto intP = fastWnd->GetInterpreterWeak().lock();
 
     if (!intP) {
@@ -2353,7 +2371,7 @@ extern "C" float OTRGetDimensionFromLeftEdge(float v) {
 }
 
 extern "C" float OTRGetDimensionFromRightEdge(float v) {
-    auto fastWnd = dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
+    auto fastWnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
     auto intP = fastWnd->GetInterpreterWeak().lock();
 
     if (!intP) {
@@ -2369,7 +2387,7 @@ extern "C" float OTRGetDimensionFromRightEdge(float v) {
 
 // Gets the width of the current render target area
 extern "C" uint32_t OTRGetGameRenderWidth() {
-    auto fastWnd = dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
+    auto fastWnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
     auto intP = fastWnd->GetInterpreterWeak().lock();
 
     if (!intP) {
@@ -2385,7 +2403,7 @@ extern "C" uint32_t OTRGetGameRenderWidth() {
 
 // Gets the height of the current render target area
 extern "C" uint32_t OTRGetGameRenderHeight() {
-    auto fastWnd = dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
+    auto fastWnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
     auto intP = fastWnd->GetInterpreterWeak().lock();
 
     if (!intP) {
@@ -2426,7 +2444,7 @@ Calling with Y (1,1) will return 10
 . . . _ _ _ _ _ _ _ _ . . .
 */
 extern "C" int32_t OTRConvertHUDXToScreenX(int32_t v) {
-    auto fastWnd = dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
+    auto fastWnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
     auto intP = fastWnd->GetInterpreterWeak().lock();
 
     if (!intP) {
@@ -2453,7 +2471,7 @@ extern "C" int32_t OTRConvertHUDXToScreenX(int32_t v) {
 }
 
 extern "C" void Gfx_RegisterBlendedTexture(const char* name, u8* mask, u8* replacement) {
-    if (auto intP = dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow())
+    if (auto intP = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow())
                         ->GetInterpreterWeak()
                         .lock()) {
         intP->RegisterBlendedTexture(name, mask, replacement);
@@ -2463,7 +2481,7 @@ extern "C" void Gfx_RegisterBlendedTexture(const char* name, u8* mask, u8* repla
 }
 
 extern "C" void Gfx_UnregisterBlendedTexture(const char* name) {
-    if (auto intP = dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow())
+    if (auto intP = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow())
                         ->GetInterpreterWeak()
                         .lock()) {
         intP->UnregisterBlendedTexture(name);
@@ -2483,7 +2501,7 @@ extern "C" void Gfx_TextureCacheDelete(const uint8_t* texAddr) {
         texAddr = (const uint8_t*)ResourceGetDataByName(imgName);
     }
 
-    if (auto intP = dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow())
+    if (auto intP = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow())
                         ->GetInterpreterWeak()
                         .lock()) {
         intP->TextureCacheDelete(texAddr);
@@ -2506,7 +2524,7 @@ extern "C" void AudioPlayer_Play(const uint8_t* buf, uint32_t len) {
 
 extern "C" int Controller_ShouldRumble(size_t slot) {
     // don't rumble if we don't have rumble mappings
-    if (Ship::Context::GetInstance()
+    if (Ship::Context::GetRawInstance()
             ->GetControlDeck()
             ->GetControllerByPort(static_cast<uint8_t>(slot))
             ->GetRumble()
@@ -2516,7 +2534,7 @@ extern "C" int Controller_ShouldRumble(size_t slot) {
     }
 
     // don't rumble if we don't have connected gamepads
-    if (Ship::Context::GetInstance()
+    if (Ship::Context::GetRawInstance()
             ->GetControlDeck()
             ->GetConnectedPhysicalDeviceManager()
             ->GetConnectedSDLGamepadsForPort(slot)
@@ -4095,7 +4113,7 @@ extern "C" bool Ship_HandleConsoleCrashAsReset() {
     }
 
     std::reinterpret_pointer_cast<Ship::ConsoleWindow>(
-        Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGuiWindow("Console"))
+        Ship::Context::GetRawInstance()->GetWindow()->GetGui()->GetGuiWindow("Console"))
         ->Dispatch("reset");
 
     Notification::Emit({

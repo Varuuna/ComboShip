@@ -344,12 +344,16 @@ ResourceFactoryXMLAudioSequenceV0::ReadResource(std::shared_ptr<Ship::File> file
     const char* path = child->Attribute("Path");
     std::shared_ptr<Ship::File> seqFile;
     if (path != nullptr) {
+<<<<<<< HEAD
 #ifdef COMBO_BUILD
         // ComboShip: pin MM's own RM — audio factories race active-RM swaps on other threads.
         seqFile = Ship::CrossRMRegistry::GetOrActive("mm")->GetArchiveManager()->LoadFile(path);
 #else
         seqFile = Ship::Context::GetInstance()->GetResourceManager()->GetArchiveManager()->LoadFile(path);
 #endif
+=======
+        seqFile = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->LoadFile(path);
+>>>>>>> vendor-mm
     }
 
     if (!streamed) {

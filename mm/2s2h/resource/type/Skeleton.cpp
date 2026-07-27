@@ -69,7 +69,7 @@ void SkeletonPatcher::ClearSkeletons() {
 }
 
 void SkeletonPatcher::UpdateSkeletons() {
-    auto resourceMgr = Ship::Context::GetInstance()->GetResourceManager();
+    auto resourceMgr = Ship::Context::GetRawInstance()->GetResourceManager();
     bool isAlt = resourceMgr->IsAltAssetsEnabled();
 
     for (const auto& skel : skeletons) {

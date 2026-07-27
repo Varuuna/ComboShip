@@ -16,6 +16,8 @@ uint64_t GetUnixTimestamp();
 #include "assets/archives/icon_item_static/icon_item_static_yar.h"
 #include "GameInteractor/GameInteractor.h"
 
+#include <fast/Fast3dGui.h>
+
 #define BLANK_SPLIT "--:--:--.-"
 
 // ImVec4 Colors
@@ -194,7 +196,12 @@ void DrawSplitsList(bool isMain) {
                 SplitsPushImageButtonStyle();
                 if (ImGui::ImageButton(
                         std::to_string(i).c_str(),
+<<<<<<< HEAD
                         std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())
+=======
+                        std::dynamic_pointer_cast<Fast::Fast3dGui>(
+                            Ship::Context::GetRawInstance()->GetWindow()->GetGui())
+>>>>>>> vendor-mm
                             ->GetTextureByName(splitList[i].splitType == SPLIT_TYPE_NORMAL
                                                    ? GetItemImageById(splitList[i].splitId)
                                                    : gPauseUnusedCursorTex),

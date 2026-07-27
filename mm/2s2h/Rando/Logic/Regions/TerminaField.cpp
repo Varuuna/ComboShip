@@ -28,6 +28,8 @@ static RegisterShipInitFunc initFunc([]() {
             CHECK(RC_TERMINA_FIELD_BIO_BABA_GROTTO, CAN_BE_ZORA && CAN_USE_ABILITY(SWIM)),
             CHECK(RC_TERMINA_FIELD_BIO_BABA_GROTTO_GRASS_01, true),
             CHECK(RC_TERMINA_FIELD_BIO_BABA_GROTTO_GRASS_02, true),
+            CHECK(RC_TERMINA_FIELD_BIO_BABA_GROTTO_BEEHIVE_01, CAN_USE_PROJECTILE && CAN_BE_ZORA && CAN_USE_ABILITY(SWIM)),
+            CHECK(RC_TERMINA_FIELD_BIO_BABA_GROTTO_BEEHIVE_02, CAN_USE_PROJECTILE && CAN_BE_ZORA && CAN_USE_ABILITY(SWIM)),
             CHECK(RC_ENEMY_DROP_BIO_DEKU_BABA, CanKillEnemy(ACTOR_BOSS_05)),
         },
         .exits = { //     TO                                         FROM
@@ -110,7 +112,11 @@ static RegisterShipInitFunc initFunc([]() {
             CHECK(RC_TERMINA_FIELD_COW_GROTTO_GRASS_70, true),
             CHECK(RC_TERMINA_FIELD_COW_GROTTO_GRASS_71, true),
             CHECK(RC_TERMINA_FIELD_COW_GROTTO_GRASS_72, true),
+            CHECK(RC_TERMINA_FIELD_COW_GROTTO_BUTTERFLY_01, HAS_ITEM(ITEM_DEKU_STICK)),
+            CHECK(RC_TERMINA_FIELD_COW_GROTTO_BUTTERFLY_02, HAS_ITEM(ITEM_DEKU_STICK)),
+            CHECK(RC_TERMINA_FIELD_COW_GROTTO_BUTTERFLY_03, HAS_ITEM(ITEM_DEKU_STICK)),
             CHECK(RC_ENEMY_DROP_GIANT_BEE, CAN_USE_PROJECTILE && CanKillEnemy(ACTOR_EN_BEE)), // In a beehive
+            CHECK(RC_TERMINA_FIELD_COW_GROTTO_BEEHIVE, CAN_USE_PROJECTILE),
         },
         .exits = { //     TO                                         FROM
             EXIT(ENTRANCE(TERMINA_FIELD, 0),                ENTRANCE(GROTTOS, 17), true),
@@ -153,7 +159,10 @@ static RegisterShipInitFunc initFunc([]() {
             CHECK(RC_TERMINA_FIELD_GOSSIP_STONE_GROTTO_3_GRASS_03, true),
             CHECK(RC_TERMINA_FIELD_GOSSIP_STONE_GROTTO_3_GRASS_04, true),
             CHECK(RC_TERMINA_FIELD_GOSSIP_STONE_GROTTO_3_GRASS_05, true),
+            CHECK(RC_TERMINA_FIELD_GOSSIP_STONE_GROTTO_3_BUTTERFLY_01, HAS_ITEM(ITEM_DEKU_STICK)),
+            CHECK(RC_TERMINA_FIELD_GOSSIP_STONE_GROTTO_3_BUTTERFLY_02, HAS_ITEM(ITEM_DEKU_STICK)),
             CHECK(RC_ENEMY_DROP_GIANT_BEE, CAN_USE_PROJECTILE && CanKillEnemy(ACTOR_EN_BEE)), // In a beehive
+            CHECK(RC_TERMINA_FIELD_GOSSIP_STONE_GROTTO_3_BEEHIVE, CAN_USE_PROJECTILE),
         },
         .exits = { //     TO                                         FROM
             EXIT(ENTRANCE(TERMINA_FIELD, 0),                ENTRANCE(GROTTOS, 0), true),
@@ -511,6 +520,8 @@ static RegisterShipInitFunc initFunc([]() {
             CHECK(RC_ENEMY_DROP_EENO, CanKillEnemy(ACTOR_EN_SNOWMAN) && IS_NIGHT()), // Night only
             CHECK(RC_ENEMY_DROP_BAD_BAT, CanKillEnemy(ACTOR_EN_BAT)),
             CHECK(RC_ENEMY_DROP_TAKKURI, CanKillEnemy(ACTOR_EN_THIEFBIRD)),
+            CHECK(RC_TERMINA_FIELD_BUTTERFLY_01, HAS_ITEM(ITEM_DEKU_STICK)),
+            CHECK(RC_TERMINA_FIELD_BUTTERFLY_02, HAS_ITEM(ITEM_DEKU_STICK)),
         },
         .exits = { //     TO                                         FROM
             EXIT(ENTRANCE(GROTTOS, 0),                      ENTRANCE(TERMINA_FIELD, 0), CAN_USE_EXPLOSIVE || CAN_BE_GORON), // Gossip Stone #3

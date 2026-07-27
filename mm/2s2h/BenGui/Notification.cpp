@@ -8,6 +8,8 @@ extern "C" {
 #include "variables.h"
 }
 
+#include <fast/Fast3dGui.h>
+
 namespace Notification {
 
 static uint32_t nextId = 0;
@@ -90,7 +92,11 @@ void Window::Draw() {
 
         if (notification.itemIcon != nullptr) {
             ImGui::Image(
+<<<<<<< HEAD
                 std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())
+=======
+                std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui())
+>>>>>>> vendor-mm
                     ->GetTextureByName(notification.itemIcon),
                 ImVec2(22 * CVarGetFloat("gNotifications.Size", 1.8f), 22 * CVarGetFloat("gNotifications.Size", 1.8f)));
             ImGui::SameLine();

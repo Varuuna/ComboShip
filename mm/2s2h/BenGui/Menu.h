@@ -47,8 +47,13 @@ class Menu : public GuiWindow {
     uint8_t searchSidebarIndex;
     UIWidgets::Colors defaultThemeIndex;
     std::shared_ptr<std::vector<int32_t>> availableWindowBackends;
+<<<<<<< HEAD
     std::unordered_map<Fast::WindowBackend, const char*> availableWindowBackendsMap;
     Fast::WindowBackend configWindowBackend;
+=======
+    std::unordered_map<int32_t, const char*> availableWindowBackendsMap;
+    int32_t configWindowBackend;
+>>>>>>> vendor-mm
 
     std::unordered_map<uint32_t, disabledInfo> disabledMap;
     std::vector<disabledInfo> disabledVector;

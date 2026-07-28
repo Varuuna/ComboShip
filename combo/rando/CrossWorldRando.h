@@ -706,6 +706,20 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                       << " ms) — retrying\n";
             continue;
         }
+        // ALL_REACHABLE covers every check, not just advancement ones: a junk-holding check the oracle
+        // can't reach still violates it. Entrance shuffle is what makes this reachable in practice, and
+        // it's layout-driven (the same seed strands the same checks under a completely different item
+        // distribution), so re-placing items can't fix it — bail to the caller's seed reroll rather
+        // than burn the remaining passes. MM is excluded: its oracle under-models 3 checks on every
+        // seed, so enforcing there would fail everything.
+        if (ootAccess == OotAccess::ALL_REACHABLE && junkUnreachableOot > 0) {
+            std::cerr << "[ComboShip] CrossWorldCombinedFill: " << junkUnreachableOot
+                      << " OOT check(s) unreachable under All Locations Reachable (pass " << pass
+                      << ") — rerolling seed\n";
+            result.error = "OOT All Locations Reachable violated (" + std::to_string(junkUnreachableOot) +
+                           " unreachable checks) — reroll for a new entrance layout";
+            return result;
+        }
         if (ootAdvUnreachable > 0)
             std::cout << "[ComboShip] CrossWorldCombinedFill: " << ootAdvUnreachable
                       << " OOT advancement item(s) on unreachable checks — tolerated (relaxed OOT mode)\n";

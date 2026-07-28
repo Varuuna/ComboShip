@@ -1158,8 +1158,15 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         // ComboShip (#90): OOT entrance shuffle. Runs after the dump (settings finalized) and before the
         // fill, so logic validates the shuffled world. No-op when the entrance options are off.
         if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(masterSeed)) {
-            fail("OOT entrance shuffle found no valid layout (5 retries) — regenerate or relax entrance settings");
-            return;
+            // A different masterSeed yields a different layout, so reroll rather than sending the user
+            // to the settings; the post-loop check reports it if every attempt fails. Mirrors the loop
+            // tail's MM restore, which this skips.
+            lastFillError = "OOT entrance shuffle found no valid layout — relax the entrance settings";
+            std::cout << "[ComboShip] RunComboFill: attempt " << (attempt + 1) << "/" << kFillAttempts
+                      << " failed: " << lastFillError << "\n";
+            if (Combo_MM_Rando_Restore)
+                Combo_MM_Rando_Restore();
+            continue;
         }
         if (!haveOracles)
             break; // no oracles -> no-logic fallback below; the dumps are still needed

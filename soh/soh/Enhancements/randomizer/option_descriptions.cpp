@@ -844,11 +844,6 @@ void Settings::CreateOptionDescriptions() {
         "Item placement logic will respect this option, so it might be required to use this to progress.";
     mOptionDescriptions[RSK_SKELETON_KEY] =
         "Adds a new item called the \"Skeleton Key\", it unlocks every dungeon door locked by a small key.";
-#ifdef COMBO_BUILD
-    mOptionDescriptions[RSK_COMBO_FORCE_MASK_SHOP_KEY] =
-        "TEMP debug: forces the Mask Shop Key onto a fixed early Kokiri Forest check (reachable at spawn) so "
-        "MM can be reached without the plandomizer.";
-#endif
     mOptionDescriptions[RSK_SUNLIGHT_ARROWS] =
         "Light Arrows can be used to light up the sun switches instead of using the Mirror Shield. "
         "Item placement logic will respect this option, so it might be required to use this to progress.";

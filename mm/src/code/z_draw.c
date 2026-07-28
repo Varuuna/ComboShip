@@ -384,28 +384,36 @@ void GetItem_Draw(PlayState* play, s16 drawId) {
 }
 
 #ifdef COMBO_BUILD
-// ComboShip: expose one sDrawItemTable row for cross-game rendering (see combo/menu/ComboItemDrawABI.h
-// and MM_GetItemDrawInfo in 2s2h/BenPort.cpp). Only "self-contained" draw funcs are exposed — ones
-// that just submit display lists under plain Gfx_SetupDL25 Opa/Xlu state (plus an optional scale).
-// Funcs needing extra MM runtime state (texture scrolls, AnimatedMat_Draw, Mtx resources — e.g.
-// RecoveryHeart/Fish/Potion) aren't portable to the other game's frame and return 0; that game then
-// falls back to its sentinel model. Remains ARE portable (their object-segment setup is vestigial
-// under OTR extraction); only the 0.02 scale must carry across (*outScale).
-// outDlists is filled in submission order; *outXluStart is the index of the first XLU-layer entry
-// (-1 = all OPA). Returns the dlist count, or 0 if the row is unsupported.
+// ComboShip: expose one sDrawItemTable row for cross-game rendering (combo/menu/ComboItemDrawABI.h).
+// outDlists is in submission order, *outXluStart is the first XLU entry (-1 = all OPA); non-portable
+// funcs set *outDrawKind and carry the RAW table row. Returns 0 for unsupported rows.
+// See docs/deviations/rando.md for what is and isn't portable and why.
 s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale,
-                              s32* outXluSeg8TexScroll) {
+                              s32* outXluSeg8TexScroll, s32* outDrawKind) {
+    // Mirror of CwDrawKind (ABI header is C++/POD; z_draw.c is C so keep local names in sync).
+    enum {
+        KIND_SIMPLE = 0,
+        KIND_GORON_SWORD = 1,
+        KIND_DEKU_NUTS = 2,
+        KIND_RECOVERY_HEART = 3,
+        KIND_FISH = 4,
+        KIND_POTION = 5,
+        KIND_POES = 8,
+        KIND_MM_FAIRY_BOTTLE = 21,
+    };
     static const s8 sOrder0[] = { 0 };
     static const s8 sOrder01[] = { 0, 1 };
     static const s8 sOrder012[] = { 0, 1, 2 };
     static const s8 sOrder1023[] = { 1, 0, 2, 3 };
     static const s8 sOrder1032[] = { 1, 0, 3, 2 };
     static const s8 sOrderWallet[] = { 1, 0, 2, 3, 4, 5, 6, 7 };
+    static const s8 sOrderRaw[] = { 0, 1, 2, 3, 4, 5, 6, 7 };
     void (*drawFunc)(PlayState*, s16);
     void** res;
     const s8* order;
     s32 count;
     s32 xluStart;
+    s32 kind = KIND_SIMPLE;
     s32 i;
 
     if ((drawId < 0) || (drawId >= ARRAY_COUNT(sDrawItemTable)) || (outDlists == NULL) || (outXluStart == NULL) ||
@@ -415,6 +423,9 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
     *outScale = 0.0f; // 0 = no extra scale
     if (outXluSeg8TexScroll != NULL) {
         *outXluSeg8TexScroll = 0;
+    }
+    if (outDrawKind != NULL) {
+        *outDrawKind = KIND_SIMPLE;
     }
     drawFunc = sDrawItemTable[drawId].drawFunc;
     res = sDrawItemTable[drawId].drawResources;
@@ -478,10 +489,59 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
         order = sOrder01;
         count = 2;
         xluStart = 1;
+    } else if (drawFunc == GetItem_DrawBombchu) {
+        // Single OPA DL; the func's SETUPDL_23 is approximated as the consumer's 25Opa.
+        order = sOrder0;
+        count = 1;
+        xluStart = -1;
+    } else if (drawFunc == GetItem_DrawFairyContainer) {
+        // Bottle (OPA) + glass (XLU); the AnimatedMat scroll is replicated by the consumer
+        // (matAnimPath). The billboarded contents DL needs a Mtx resource and is dropped.
+        order = sOrder01;
+        count = 2;
+        xluStart = 1;
+    } else if (drawFunc == GetItem_DrawGoronSword) {
+        kind = KIND_GORON_SWORD;
+        order = sOrderRaw;
+        count = 1;
+        xluStart = -1;
+    } else if (drawFunc == GetItem_DrawDekuNuts) {
+        kind = KIND_DEKU_NUTS;
+        order = sOrderRaw;
+        count = 1;
+        xluStart = -1;
+    } else if (drawFunc == GetItem_DrawRecoveryHeart) {
+        kind = KIND_RECOVERY_HEART;
+        order = sOrderRaw;
+        count = 1;
+        xluStart = 0;
+    } else if (drawFunc == GetItem_DrawFish) {
+        kind = KIND_FISH;
+        order = sOrderRaw;
+        count = 1;
+        xluStart = 0;
+    } else if (drawFunc == GetItem_DrawPotion) {
+        kind = KIND_POTION;
+        order = sOrderRaw;
+        count = 6;
+        xluStart = 4;
+    } else if (drawFunc == GetItem_DrawPoes) {
+        kind = KIND_POES;
+        order = sOrderRaw;
+        count = 4;
+        xluStart = 1;
+    } else if (drawFunc == GetItem_DrawFairyBottle) {
+        kind = KIND_MM_FAIRY_BOTTLE;
+        order = sOrderRaw;
+        count = 3;
+        xluStart = 1;
     } else {
         return 0;
     }
 
+    if ((kind != KIND_SIMPLE) && ((outDrawKind == NULL) || (count > maxDlists))) {
+        return 0; // a kind handler indexes the full raw row; truncating it would misdraw
+    }
     if (count > maxDlists) {
         count = maxDlists;
     }
@@ -492,6 +552,9 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
         outDlists[i] = res[order[i]];
     }
     *outXluStart = (xluStart > count) ? count : xluStart;
+    if (outDrawKind != NULL) {
+        *outDrawKind = kind;
+    }
     return count;
 }
 #endif

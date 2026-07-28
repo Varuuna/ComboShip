@@ -4,10 +4,13 @@
 #pragma once
 
 #ifdef COMBO_BUILD
+#include <cstdint>
 #include "rando/CrossForeign.h"
 #include "soh/Enhancements/randomizer/randomizerTypes.h"
 // ComboShip: per-slot foreign-item lookup (defined in hook_handlers.cpp).
 const ComboRando::ForeignItem* OOT_LookupForeign(int slot, const std::string& checkName);
+// ComboShip: generation of the foreign map; bumped on every rebuild so draw caches can invalidate.
+uint64_t OOT_ForeignMapGen();
 // ComboShip: currently-queued get-item check (RC_UNKNOWN_CHECK if none) — fallback identity for
 // the foreign draw func (defined in hook_handlers.cpp).
 RandomizerCheck OOT_GetQueuedDrawCheck();

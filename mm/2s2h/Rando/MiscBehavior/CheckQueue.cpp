@@ -96,7 +96,9 @@ void Rando::MiscBehavior::BroadcastCheckObtainedIfFirst(RandoCheckId rc, RandoIt
 // home-game importance (advancement) against the skip-get-item-cutscene setting.
 bool Rando::MiscBehavior::ShouldShowForeignCutscene(RandoCheckId rc) {
     const ComboRando::ForeignItem* fi = MM_LookupForeign(rc);
-    const bool advancement = fi != nullptr && fi->advancement;
+    // A disguised trap counts as the progression it pretends to be, or skipping junk cutscenes would
+    // identify every trap on sight.
+    const bool advancement = fi != nullptr && (fi->advancement || fi->HasDisguise());
     const int lvl = CVarGetInteger("gEnhancements.Cutscenes.SkipGetItemCutscenes", 0);
     if (lvl == 0) {
         return true;

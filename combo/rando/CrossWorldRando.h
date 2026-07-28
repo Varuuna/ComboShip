@@ -52,6 +52,9 @@ struct OracleFns {
     void (*SetOwnedItems)(const char*);
     const char* (*GetReachableChecks)(void);
     void (*PlaceItem)(const char*, const char*);
+    // OOT only (null for MM): is the OOT->MM portal region reachable? Valid only immediately after a
+    // GetReachableChecks call, whose owned-set it describes (the DLL piggybacks on that search).
+    uint8_t (*GetPortalOpen)(void) = nullptr;
 };
 
 // ---------- Data types ----------
@@ -103,19 +106,36 @@ struct CombinedFillResult {
     std::string error;
 };
 
-// portalCheckName: the OOT check/region name that gates access to MM (e.g. "Mido's House").
-// If empty, MM is reachable from start.
+// Retry budgets. Pass counts, never wall-clock: a time limit would make success machine-dependent and
+// break seed sharing. kFillAttempts is shared with ComboShip.cpp/ComboRandoHeadless.cpp — headless seeds
+// only reproduce in-game ones while both loops agree.
+// Measured: 25 seeds over 3 adult/Overworld-Keys configs all succeeded on pass 1 with 0 retries, so 6
+// total passes is ~6x headroom while capping the worst-case wait (15 passes was ~3 min).
+constexpr int kFillAttempts = 2;   // whole-fill retries (re-derives the seed, re-rolls the dumps)
+constexpr int kMaxPasses = 3;      // passes within one fill
+constexpr int kMaxPrereqTries = 4; // Tier-1 repicks of just the portal prerequisites
+
+// MM access is gated on the OOT->MM portal region (Happy Mask Shop) via ootOracle.GetPortalOpen.
 // progress: optional thread-safe progress struct polled by the UI. May be nullptr.
 // forcedOotJson: OOT checks the dump can't carry (e.g. Link's Pocket). Each forced item is reserved
 // out of the cross pool, owned-from-start for logic, and appended to the OOT placements.
 inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson, const std::string& mmDumpJson,
                                                  uint32_t masterSeed, const OracleFns& ootOracle,
-                                                 const OracleFns& mmOracle, const std::string& portalCheckName = "",
+                                                 const OracleFns& mmOracle,
                                                  ComboRando::ComboGenProgress* progress = nullptr,
                                                  const std::string& forcedOotJson = "",
                                                  OotAccess ootAccess = OotAccess::ALL_REACHABLE) {
     CombinedFillResult result;
     result.success = false;
+
+    // Portal gate: NO_LOGIC deliberately skips it (an impossible seed is that mode's point). Any other
+    // mode without the export would silently fill MM as sphere-0 reachable — the bug this gate fixes.
+    const bool portalGated = ootAccess != OotAccess::NO_LOGIC;
+    if (portalGated && ootOracle.GetPortalOpen == nullptr) {
+        result.error = "OOT oracle is missing Combo_SOH_Rando_GetPortalOpen — rebuild soh.dll (the OOT->MM "
+                       "portal cannot be gated without it)";
+        return result;
+    }
 
     if (progress)
         progress->phase.store(1); // Preparing pools
@@ -173,18 +193,6 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     } catch (const std::exception& e) {
         result.error = std::string("Pool parse error: ") + e.what();
         return result;
-    }
-
-    // Portal-key guard: Overworld Keys ON + Force Mask Shop Key OFF under a relaxed mode may strand the
-    // Mask Shop Key (portalCheckName="" can't detect it) → MM unreachable. Warn. See docs/deviations/rando.md.
-    if (ootAccess != OotAccess::ALL_REACHABLE && portalCheckName.empty()) {
-        try {
-            auto a = nlohmann::json::parse(sohDumpJson).value("accessibility", nlohmann::json::object());
-            if (a.value("lockOverworldDoors", false) && !a.value("forceMaskShopKey", false))
-                std::cerr << "[ComboShip] CrossWorldCombinedFill: WARNING — Overworld Keys ON + Force Mask Shop "
-                             "Key OFF under a relaxed OOT mode: the Mask Shop Key's reach-path is not guaranteed "
-                             "(portal ungated); MM may be unreachable. Enable Force Mask Shop Key.\n";
-        } catch (...) {}
     }
 
     // Forced OOT placements (e.g. Link's Pocket): reserve each item out of the cross pool and treat
@@ -305,6 +313,100 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         return out;
     };
 
+    // OOT-only, portal SHUT: nothing assumed from the free pool, MM never queried. Credits a placement
+    // only once its check is reachable — reachableFixpoint's rule, so this can't certify what it rejects.
+    struct OotClosedResult {
+        std::unordered_set<std::string> reach;
+        bool portalOpen = false;
+    };
+    auto ootClosedFixpoint = [&](const std::vector<CwPlacement>& pl,
+                                 const std::vector<std::string>& extraOwned) -> OotClosedResult {
+        std::vector<std::string> owned = ootForcedOwned;
+        owned.insert(owned.end(), extraOwned.begin(), extraOwned.end());
+        std::vector<bool> credited(pl.size(), false);
+        OotClosedResult r;
+        for (;;) {
+            r.reach = queryReachable(ootOracle, owned);
+            r.portalOpen = r.portalOpen || ootOracle.GetPortalOpen == nullptr || ootOracle.GetPortalOpen() != 0;
+            bool changed = false;
+            for (size_t i = 0; i < pl.size(); ++i) {
+                if (credited[i] || pl[i].check.game != GAME_OOT || pl[i].item.game != GAME_OOT)
+                    continue;
+                if (r.reach.count(pl[i].check.name)) {
+                    owned.push_back(pl[i].item.name);
+                    credited[i] = true;
+                    changed = true;
+                }
+            }
+            if (!changed)
+                return r;
+        }
+    };
+
+    // Portal prerequisites: a SUFFICIENT witness set for the OOT->MM portal, built FORWARD from empty.
+    // RNG-free (canonical order) so it can't shift the seeded stream. See docs/deviations/rando.md.
+    std::vector<std::string> portalPrereqs;
+    if (portalGated) {
+        // Each probe is a fixpoint (several queries), so this bounds queries, not probes.
+        const int kMaxDeriveQueries = 1500;
+        const uint32_t queries0 = ootStats.count;
+        int used = 0;
+        auto portalOpenWith = [&](const std::vector<std::string>& owned) {
+            bool open = ootClosedFixpoint(lockedPlacements, owned).portalOpen;
+            used = static_cast<int>(ootStats.count - queries0);
+            return open;
+        };
+        const std::vector<std::string> base; // free pool only; locked items earn their way in by reach
+        std::vector<std::string> rest;
+        for (const auto& it : advItems)
+            if (it.game == GAME_OOT)
+                rest.push_back(it.name);
+        std::sort(rest.begin(), rest.end());
+
+        std::vector<std::string> witness;
+        auto ownedWith = [&](size_t k) {
+            std::vector<std::string> o = base;
+            o.insert(o.end(), witness.begin(), witness.end());
+            o.insert(o.end(), rest.begin(), rest.begin() + k);
+            return o;
+        };
+        if (portalOpenWith(base)) {
+            std::cout << "[ComboShip] CrossWorldCombinedFill: portal open from the start — no prerequisites\n";
+        } else if (!portalOpenWith(ownedWith(rest.size()))) {
+            // Tier 3: warn loudly, try anyway — a derivation bug must not block a config that generates.
+            std::cerr << "[ComboShip] CrossWorldCombinedFill: WARNING — the OOT->MM portal looks unreachable even "
+                         "with every OOT item owned; generating anyway, MM may end up unreachable\n";
+        } else {
+            // Bisect `rest` for the item that flips the portal, add it, drop everything after it, repeat.
+            while (used < kMaxDeriveQueries && !rest.empty()) {
+                size_t lo = 0, hi = rest.size(); // portal closed at lo, open at hi
+                while (hi - lo > 1 && used < kMaxDeriveQueries) {
+                    size_t mid = lo + (hi - lo) / 2;
+                    if (portalOpenWith(ownedWith(mid)))
+                        hi = mid;
+                    else
+                        lo = mid;
+                }
+                witness.push_back(rest[hi - 1]);
+                rest.resize(hi - 1);
+                if (portalOpenWith(ownedWith(0)))
+                    break;
+            }
+            if (used >= kMaxDeriveQueries) {
+                std::cerr << "[ComboShip] CrossWorldCombinedFill: WARNING — portal prerequisite derivation exceeded "
+                             "its "
+                          << kMaxDeriveQueries << "-query budget; falling back to an unconstrained fill\n";
+            } else {
+                portalPrereqs = witness;
+                std::cout << "[ComboShip] CrossWorldCombinedFill: portal prerequisites (" << portalPrereqs.size()
+                          << ", " << used << " queries):";
+                for (const auto& n : portalPrereqs)
+                    std::cout << " " << n;
+                std::cout << "\n";
+            }
+        }
+    }
+
     // Cross-game sphere-collect fixpoint: starting from the per-game base sets (unplaced
     // advancement items), repeatedly query both oracles and credit any prior placement whose
     // CHECK became reachable to the ITEM's game's owned set, until nothing changes. This spans
@@ -325,9 +427,13 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         mmOwned.insert(mmOwned.end(), mmForcedOwned.begin(), mmForcedOwned.end());
         std::vector<bool> credited(placements.size(), false);
         std::unordered_set<std::string> ootReachable, mmReachable;
+        bool portalOpen = !portalGated; // latched: once OOT can reach the portal it stays open
         for (;;) {
             ootReachable = queryReachable(ootOracle, ootOwned);
-            bool portalOpen = portalCheckName.empty() || ootReachable.count(portalCheckName) > 0;
+            // Read the portal off THIS OOT query, before any MM check is credited below — that ordering
+            // is what stops the fill proving the portal with an item that lives behind it.
+            if (!portalOpen)
+                portalOpen = ootOracle.GetPortalOpen() != 0;
             mmReachable = portalOpen ? queryReachable(mmOracle, mmOwned) : std::unordered_set<std::string>{};
             bool changed = false;
             for (size_t i = 0; i < placements.size(); ++i) {
@@ -354,10 +460,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
 
     // --- Assumed fill of advancement items, then junk fast-fill; retry whole passes on dead
     // ends or failed validation (deterministic: one rng stream continues across passes) ---
-    const int kMaxPasses = 10;
     std::unordered_set<std::string> filledChecks; // checkKey()-keyed
     bool fillOk = false;
     int passesUsed = 0;
+    std::string lastPassError; // names the terminal cause instead of a generic "fill failed"
 
     for (int pass = 1; pass <= kMaxPasses && !fillOk; ++pass) {
         passesUsed = pass;
@@ -375,15 +481,67 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         for (const auto& lp : lockedPlacements)
             filledChecks.insert(checkKey(lp.check));
 
+        // Phase A0: portal prerequisites FIRST, into portal-closed-reachable checks, each chosen RANDOMLY
+        // across the whole valid set (variety comes from the choice, not the ordering).
+        std::vector<CwItem> advRest = advItems;
+        bool prereqOk = portalPrereqs.empty();
+        for (int t = 1; t <= kMaxPrereqTries && !prereqOk; ++t) {
+            placements = lockedPlacements;
+            filledChecks.clear();
+            for (const auto& lp : lockedPlacements)
+                filledChecks.insert(checkKey(lp.check));
+            advRest = advItems;
+            std::vector<CwItem> prereq; // one pool instance per witness name
+            for (const auto& name : portalPrereqs) {
+                for (size_t i = 0; i < advRest.size(); ++i) {
+                    if (advRest[i].game == GAME_OOT && advRest[i].name == name) {
+                        prereq.push_back(advRest[i]);
+                        advRest.erase(advRest.begin() + i);
+                        break;
+                    }
+                }
+            }
+            cwShuffle(prereq, rng);
+            bool placedAll = true;
+            for (const auto& item : prereq) {
+                auto fr = ootClosedFixpoint(placements, {});
+                std::vector<size_t> cands;
+                for (size_t ci = 0; ci < allChecks.size(); ++ci) {
+                    if (allChecks[ci].game != GAME_OOT || filledChecks.count(checkKey(allChecks[ci])))
+                        continue;
+                    if (fr.reach.count(allChecks[ci].name))
+                        cands.push_back(ci);
+                }
+                if (cands.empty()) {
+                    placedAll = false;
+                    break;
+                }
+                size_t pick = cands[rng.below(static_cast<uint32_t>(cands.size()))];
+                placements.push_back({ allChecks[pick], item });
+                filledChecks.insert(checkKey(allChecks[pick]));
+            }
+            prereqOk = placedAll && ootClosedFixpoint(placements, {}).portalOpen;
+            if (!prereqOk)
+                std::cerr << "[ComboShip] CrossWorldCombinedFill: portal still closed after prerequisite placement "
+                             "(pass "
+                          << pass << ", try " << t << "/" << kMaxPrereqTries << ") — repicking\n";
+        }
+        if (!prereqOk) {
+            lastPassError = "the OOT->MM portal's prerequisites could not be placed within reach of the start";
+            std::cerr << "[ComboShip] CrossWorldCombinedFill: " << lastPassError << " (pass " << pass << ", "
+                      << passMs() << " ms) — retrying\n";
+            continue;
+        }
+
         // Phase A: place advancement items with logic, assuming only UNPLACED ones are owned. NO_LOGIC
         // assumed-fills only MM adv (OOT adv rides Phase B junk); other modes keep advItems unreordered.
         std::vector<CwItem> toPlace;
         if (ootAccess == OotAccess::NO_LOGIC) {
-            for (const auto& it : advItems)
+            for (const auto& it : advRest)
                 if (it.game == GAME_MM)
                     toPlace.push_back(it);
         } else {
-            toPlace = advItems;
+            toPlace = advRest;
         }
         std::vector<CwItem> relaxedToJunk; // OOT adv stranded off-path under BEATABLE_ONLY dead-ends
         cwShuffle(toPlace, rng);
@@ -448,6 +606,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                     batchCap = batch.size() / 2; // too conservative at this depth — shrink
                     continue;
                 }
+                lastPassError = "dead end placing '" + batch.front().name + "' (no reachable check left for it)";
                 std::cerr << "[ComboShip] CrossWorldCombinedFill: dead end placing '" << batch.front().name
                           << "' (pass " << pass << ", " << placements.size() << " placed, " << passMs()
                           << " ms) — retrying\n";
@@ -476,7 +635,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         // stream — placed without logic, tolerated-if-unreachable by the mode-aware validation below.
         std::vector<CwItem> junkToPlace = junkItems;
         if (ootAccess == OotAccess::NO_LOGIC) {
-            for (const auto& it : advItems)
+            for (const auto& it : advRest)
                 if (it.game == GAME_OOT)
                     junkToPlace.push_back(it);
         }
@@ -539,10 +698,27 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                                   : goalOk                              ? " goal=ok"
                                            : " goal=UNBEATABLE(ganon=" + std::to_string(ootWin) +
                                                  " majora=" + std::to_string(mmWin) + ")";
+            lastPassError = "validation failed — mmAdvUnreachable=" + std::to_string(mmAdvUnreachable) +
+                            " ootAdvUnreachable=" + std::to_string(ootAdvUnreachable) + goalStr +
+                            (mmAdvUnreachable > 0 ? " (MM items stranded: the portal closed mid-fill)" : "");
             std::cerr << "[ComboShip] CrossWorldCombinedFill: validation failed — mmAdvUnreachable=" << mmAdvUnreachable
                       << " ootAdvUnreachable=" << ootAdvUnreachable << goalStr << " (pass " << pass << ", " << passMs()
                       << " ms) — retrying\n";
             continue;
+        }
+        // ALL_REACHABLE covers every check, not just advancement ones: a junk-holding check the oracle
+        // can't reach still violates it. Entrance shuffle is what makes this reachable in practice, and
+        // it's layout-driven (the same seed strands the same checks under a completely different item
+        // distribution), so re-placing items can't fix it — bail to the caller's seed reroll rather
+        // than burn the remaining passes. MM is excluded: its oracle under-models 3 checks on every
+        // seed, so enforcing there would fail everything.
+        if (ootAccess == OotAccess::ALL_REACHABLE && junkUnreachableOot > 0) {
+            std::cerr << "[ComboShip] CrossWorldCombinedFill: " << junkUnreachableOot
+                      << " OOT check(s) unreachable under All Locations Reachable (pass " << pass
+                      << ") — rerolling seed\n";
+            result.error = "OOT All Locations Reachable violated (" + std::to_string(junkUnreachableOot) +
+                           " unreachable checks) — reroll for a new entrance layout";
+            return result;
         }
         if (ootAdvUnreachable > 0)
             std::cout << "[ComboShip] CrossWorldCombinedFill: " << ootAdvUnreachable
@@ -560,7 +736,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
 
     if (!fillOk) {
         result.error = "assumed fill failed after " + std::to_string(kMaxPasses) +
-                       " passes (dead ends or unreachable checks; see log)";
+                       " passes; last cause: " + (lastPassError.empty() ? "unknown (see log)" : lastPassError);
         return result;
     }
 

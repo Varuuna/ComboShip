@@ -942,6 +942,40 @@ static void AssumedFill(const std::vector<RandomizerGet>& items, const std::vect
     } while (unsuccessfulPlacement);
 }
 
+#ifdef COMBO_BUILD
+// ComboShip: assumed fill that assumes NOTHING from the free pool — candidates are only what's reachable
+// from starting inventory + already-placed items. Returns what it couldn't place, for AssumedFill.
+static std::vector<RandomizerGet> ComboFillPortalClosed(const std::vector<RandomizerGet>& items,
+                                                        const std::vector<RandomizerCheck>& allowedLocations,
+                                                        const char* what, bool setLocationsAsHintable = false) {
+    auto ctx = Rando::Context::GetInstance();
+    if (ctx->GetOption(RSK_LOGIC_RULES).Is(RO_LOGIC_NO_LOGIC))
+        return items;
+    std::vector<RandomizerGet> toPlace = items;
+    Shuffle(toPlace);
+    std::vector<RandomizerGet> leftover;
+    while (!toPlace.empty()) {
+        RandomizerGet item = toPlace.back();
+        toPlace.pop_back();
+        logic->Reset();
+        const std::vector<RandomizerCheck> accessible = ReachabilitySearch(allowedLocations);
+        if (accessible.empty()) {
+            leftover.push_back(item);
+            continue;
+        }
+        Rando::StaticData::RetrieveItem(item).SetAsPlaythrough();
+        const RandomizerCheck loc = RandomElement(accessible);
+        ctx->PlaceItemInLocation(loc, item);
+        if (setLocationsAsHintable)
+            ctx->GetItemLocation(loc)->SetAsHintable();
+    }
+    // Coverage is the whole point of this path — log it so it can't silently degrade to a no-op.
+    SPDLOG_INFO("[ComboShip] portal-closed fill ({}): {} placed, {} fell through to AssumedFill", what,
+                items.size() - leftover.size(), leftover.size());
+    return leftover;
+}
+#endif
+
 static std::vector<RandomizerGet> GetStonesInPool(std::vector<RandomizerGet> pool) {
     return FilterFromPool(pool, [](const auto i) {
         return Rando::StaticData::RetrieveItem(i).GetItemType() == ITEMTYPE_DUNGEONREWARD &&
@@ -1243,7 +1277,11 @@ static void RandomizeLinksPocket() {
 
 // ComboShip: extracted from Fill() so the combo confined-placement entry point can reuse the exact
 // same restricted-song placement. Behavior is unchanged for Fill().
-static void PlaceRestrictedSongs() {
+static void PlaceRestrictedSongs(
+#ifdef COMBO_BUILD
+    bool comboPortalClosed = false // ComboShip: prefer portal-closed-reachable checks (Song of Time)
+#endif
+) {
     auto ctx = Rando::Context::GetInstance();
     if (ctx->GetOption(RSK_SHUFFLE_SONGS).IsNot(RO_SONG_SHUFFLE_ANYWHERE) &&
         ctx->GetOption(RSK_SHUFFLE_SONGS).IsNot(RO_SONG_SHUFFLE_OFF)) {
@@ -1265,6 +1303,10 @@ static void PlaceRestrictedSongs() {
             });
         }
 
+#ifdef COMBO_BUILD
+        if (comboPortalClosed)
+            songs = ComboFillPortalClosed(songs, songLocations, "restricted songs", true);
+#endif
         AssumedFill(songs, songLocations, true);
     }
 }
@@ -1550,7 +1592,7 @@ void ComboFillConfined() {
     for (auto dungeon : ctx->GetDungeons()->GetDungeonList()) {
         RandomizeOwnDungeon(dungeon);
     }
-    PlaceRestrictedSongs();
+    PlaceRestrictedSongs(true);
     RandomizeDungeonItems();
     // ComboShip: keep the Mask Shop Key in OOT — assumed-fill it within OOT so it leaves itemPool and
     // can't enter the cross-world pool and land in MM. Other overworld keys stay cross-world eligible.
@@ -1558,15 +1600,9 @@ void ComboFillConfined() {
         std::vector<RandomizerGet> maskShopKey =
             FilterAndEraseFromPool(itemPool, [](const RandomizerGet i) { return i == RG_MASK_SHOP_KEY; });
         if (!maskShopKey.empty()) {
-            // TEMP (RSK_COMBO_FORCE_MASK_SHOP_KEY): force the key onto a fixed spawn-reachable KF check so
-            // MM is reachable without the plando; otherwise keep it OOT-confined via a normal assumed fill.
-            RandomizerCheck forced = RC_KF_BEHIND_MIDOS_RUPEE;
-            if (ctx->GetOption(RSK_COMBO_FORCE_MASK_SHOP_KEY) &&
-                std::find(ctx->allLocations.begin(), ctx->allLocations.end(), forced) != ctx->allLocations.end()) {
-                ctx->PlaceItemInLocation(forced, RG_MASK_SHOP_KEY, false, false);
-            } else {
+            maskShopKey = ComboFillPortalClosed(maskShopKey, ctx->allLocations, "Mask Shop Key");
+            if (!maskShopKey.empty())
                 AssumedFill(maskShopKey, ctx->allLocations);
-            }
         }
     }
     // Guard: Buy items are shop-only (placed above, never pooled); strip any that leak into itemPool.

@@ -42,7 +42,7 @@ This document is the authoritative checklist. **Statuses:**
 | 6 | `GenerateStartingInventory()` (`:1315`) | starting items from settings | `ComboFillConfined:1519`, oracle `:3789` + `ApplyStartingInventory` per reset (`:3800`) | replicated |
 | 7 | `FillExcludedLocations()` (`:1316`) | junk-fill user-excluded checks | `ComboFillConfined:1520`; travels via `fixed[]` | replicated |
 | 8 | Temp `GetMinVanillaShopItems(8)` inject + later erase (`:1321`, `:1333`) | shield-gated reachability during confined placement | `ComboFillConfined:1523`, erase `:1549` | replicated |
-| 9 | Entrance shuffle (`:1322`) | `ShuffleAllEntrances` + retry on failure | cross-entrance work lives on its own feature branch | n/a here — tracked by feat/cross-entrances |
+| 9 | Entrance shuffle (`:1322`) | `ShuffleAllEntrances` + retry on failure | `SOH_ShuffleEntrancesForCombo` (OTRGlobals.cpp), called per fill attempt / gentest seed / reload | replicated for OOT (issue #90); MM entrance shuffle still deferred |
 | 10 | `SetAreas()` (`:1331`) | area metadata for hints/barren | `ComboFillConfined:1524` | replicated |
 | 11 | Shopsanity slots + **shop prices** (`:1342-1386`) | pick shuffled slots, `SetCustomPrice(GetRandomPrice(...))`, vanilla items elsewhere | `Combo_SetupOOTShops` (`:3253`) — **apply-time only**; slot set replicated in dump via `Combo_ShuffledShopSlots` (`:3227`) | **GAP-1** (prices absent during fill/oracle) |
 | 12 | Scrub prices (`:1389`) | random or vanilla per `RSK_SHUFFLE_SCRUBS` | `Combo_SetupOOTShops:3274` — apply-time only | **GAP-1** |
@@ -58,7 +58,7 @@ This document is the authoritative checklist. **Statuses:**
 | 22 | `GeneratePlaythrough` + beatable gate (`:1467-1470`) | in-fill beatability proof | full-pool validation fixpoint (`CrossWorldRando.h:436`) + `comborando --playthrough` | replicated (different mechanism) |
 | 23 | `PareDownPlaythrough` / `CalculateWotH` / `CalculateBarren` (`:1473-1482`) | playthrough minimization + hint categories | not run | **GAP-2** (only matters if gossip hints are surfaced; see GAP-3) |
 | 24 | `CreateItemOverrides()` (`:1486`) | override table, ice-trap disguises | apply path `:3630` (+ disguise candidates `:3620`) | replicated |
-| 25 | `CreateEntranceOverrides()` (`:1487`) | entrance override table | entrance feature branch | n/a here — tracked by feat/cross-entrances |
+| 25 | `CreateEntranceOverrides()` (`:1487`) | entrance override table | `SOH_ShuffleEntrancesForCombo` (OTRGlobals.cpp) | replicated for OOT (issue #90); MM still deferred |
 | 26 | `CreateAllHints()` / `CreateWarpSongTexts()` (`:1491-1492`) | gossip-stone hints, warp texts | not run by `SOH_ApplyRandoPlacements` | **GAP-3** (decide: generate combo-aware hints or explicitly disable stones) |
 | 27 | Retry loop: 5 attempts, `Regions::ResetAllLocations` + `logic->Reset` between (`:1305`, `:1498-1505`) | whole-fill retry with fresh RNG state | `kMaxPasses = 10` inside `CrossWorldCombinedFill` (`CrossWorldRando.h:318`); no outer retry in `RunComboFill` (`ComboShip.cpp:686`) | **GAP-4** (converge on SoH's policy per fidelity rule) |
 

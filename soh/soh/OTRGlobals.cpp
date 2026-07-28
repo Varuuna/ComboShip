@@ -52,6 +52,8 @@
 #include "soh/Enhancements/randomizer/location_access.h"
 #include "soh/Enhancements/randomizer/3drando/item_pool.hpp"
 #include "soh/Enhancements/randomizer/3drando/starting_inventory.hpp"
+#include "soh/Enhancements/randomizer/3drando/pool_functions.hpp" // ComboShip: AddElementsToPool
+#include "soh/Enhancements/randomizer/entrance.h"                 // ComboShip: ENTRANCE_SHUFFLE_FAILURE
 #include "soh/Enhancements/randomizer/3drando/hints.hpp" // ComboShip: CreateChildAltarHint/CreateAdultAltarHint
 #include "soh/Enhancements/randomizer/randomizer_check_objects.h" // ComboShip: GetRCAreaName/AreaIsDungeon for hint dump
 #include "soh/Enhancements/randomizer/trial.h"                    // ComboShip: GetTrials() for resolved trial dump
@@ -2999,6 +3001,15 @@ void Combo_ApplyItemReceiveSideEffects(const GetItemEntry& gie) {
 // ComboShip: save-direct grant of a resolved OOT item. Shared by SOH_GrantCrossItem and Anchor's
 // team-state backfill so both apply identical dispatch + side effects + persist.
 void Combo_GrantResolvedOOT(const GetItemEntry& gie) {
+    // ComboShip (#84): drop bottle CONTENTS when no bottle is free. Milk Bottle and Ruto's Letter are
+    // excluded exactly as Item_Give excludes them — they create a new bottle, so gating them here
+    // would permanently lose Ruto's Letter and softlock the seed.
+    if (gie.modIndex == MOD_NONE &&
+        (((gie.itemId >= ITEM_POTION_RED) && (gie.itemId <= ITEM_POE)) || (gie.itemId == ITEM_MILK)) &&
+        gie.itemId != ITEM_MILK_BOTTLE && gie.itemId != ITEM_LETTER_RUTO && !Inventory_HasEmptyBottle()) {
+        SPDLOG_INFO("[ComboShip] OOT cross-grant: no empty bottle, dropping bottle contents");
+        return;
+    }
     // A resolved OOT item can be a vanilla (MOD_NONE) entry, which Randomizer_Item_Give asserts
     // against. Dispatch by mod index exactly like Anchor's HandlePacket_GiveItem.
     if (gie.modIndex == MOD_NONE) {
@@ -3715,6 +3726,79 @@ extern "C" __declspec(dllexport) void SOH_PrepRandoContext(void) {
     }
 }
 
+// ComboShip: forward decl (defined with the oracle exports below) — see SOH_ShuffleEntrancesForCombo.
+static void EnsureOracleInit();
+
+// ComboShip: native Fill()'s entrance-shuffle prologue (3drando/fill.cpp), run headlessly — the combo
+// generator never runs Fill(), so without this the OOT entrance options do nothing in combo seeds.
+// Deterministic per seed, so generation/reload/gentest re-derive the same layout. Call after the
+// dump/prep (settings finalized). Returns 1 on success or shuffle-off, 0 when every retry failed.
+extern "C" __declspec(dllexport) int SOH_ShuffleEntrancesForCombo(uint64_t seed) {
+    try {
+        auto ctx = OTRGlobals::Instance->gRandoContext;
+        // The CVar-less master toggle, derived from the individual options by FinalizeSettings.
+        if (!ctx->GetOption(RSK_SHUFFLE_ENTRANCES)) {
+            // Clear a previous seed's layout so it can't leak into this save via SaveManager.
+            ctx->GetEntranceShuffler()->UnshuffleAllEntrances();
+            CreateWarpSongTexts(); // vanilla destinations; native VanillaFill() does this too
+            return 1;
+        }
+        // Burn the oracle's lazy init NOW — its first Reset would RegionTable_Init the graph back to
+        // vanilla mid-fill, making logic validate a world the save doesn't play.
+        EnsureOracleInit();
+        // Native Fill() retries the whole prologue up to 5x on shuffle failure.
+        for (int retry = 0; retry < 5; ++retry) {
+            ctx->GetEntranceShuffler()->playthroughEntrances.clear();
+            RegionTable_Init(); // vanilla graph baseline (needed on retries/regeneration)
+            // GenerateItemPool asserts pool <= EMPTY locations, so drop a prior seed's placements first
+            // (native Fill() ItemResets here too). Callers must read forced placements before this.
+            ctx->ItemReset();
+            GenerateItemPool(); // ValidateEntrances' all-items pass reads itemPool; self-clears
+            GenerateStartingInventory();
+            // Temp shop items (worst-case shopsanity) for world validation, as Fill() does.
+            AddElementsToPool(itemPool, GetMinVanillaShopItems(8));
+            Random_Init(seed + retry);
+            int ret = ctx->GetEntranceShuffler()->ShuffleAllEntrances();
+            std::erase_if(itemPool, [](const auto item) {
+                return Rando::StaticData::RetrieveItem(item).GetItemType() == ITEMTYPE_SHOP;
+            });
+            if (ret == ENTRANCE_SHUFFLE_FAILURE) {
+                SPDLOG_WARN("[ComboShip] SOH_ShuffleEntrancesForCombo: shuffle failed (retry {})", retry);
+                continue;
+            }
+            SetAreas();
+            ctx->GetEntranceShuffler()->CreateEntranceOverrides();
+            // Warp song destination texts, as native Fill() does. SOH_ApplyComboHints also calls this,
+            // but only when hints are enabled — without this a hints-off seed shows "No Hint".
+            CreateWarpSongTexts();
+            return 1;
+        }
+        SPDLOG_ERROR("[ComboShip] SOH_ShuffleEntrancesForCombo: no valid layout after 5 retries");
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[ComboShip] SOH_ShuffleEntrancesForCombo: {}", e.what());
+    } catch (...) { SPDLOG_ERROR("[ComboShip] SOH_ShuffleEntrancesForCombo: unknown exception"); }
+    return 0;
+}
+
+// ComboShip: resolved entrance overrides as JSON for the consolidated spoiler's "entrances.oot".
+// Informational — reload re-derives via SOH_ShuffleEntrancesForCombo.
+extern "C" __declspec(dllexport) const char* SOH_DumpEntranceOverrides(void) {
+    static std::string buf;
+    nlohmann::json out = nlohmann::json::array();
+    auto& overrides = OTRGlobals::Instance->gRandoContext->GetEntranceShuffler()->entranceOverrides;
+    for (const EntranceOverride& o : overrides) {
+        if (o.type == 0 && o.index == 0 && o.override == 0)
+            break; // zero terminator (table is zero-filled past the last real override)
+        out.push_back({ { "type", o.type },
+                        { "index", o.index },
+                        { "destination", o.destination },
+                        { "override", o.override },
+                        { "overrideDestination", o.overrideDestination } });
+    }
+    buf = out.dump();
+    return buf.c_str();
+}
+
 // ComboShip: coherent OOT rando dump for the combo generator. Runs the headless prep sequence
 // (GetLogic()->Reset, FinalizeSettings, RegionTable_Init, GenerateLocationPool) so ctx->allLocations
 // holds the real shuffled-check set for the current settings, then dumps those checks + their vanilla
@@ -3733,8 +3817,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
     // (safe: unchanged fill behavior) if the prep throws before these are read.
     nlohmann::json accessibility = { { "noLogic", false },
                                      { "allLocationsReachable", true },
-                                     { "lockOverworldDoors", false },
-                                     { "forceMaskShopKey", false } };
+                                     { "lockOverworldDoors", false } };
 
     // ComboShip: mirror MM (BenPort isAdvancement) — hearts are never logic-required under glitchless,
     // so class PoH/HC/treasure-game heart as junk. Shrinks the OOT advancement pool (fewer dead-ends).
@@ -3838,7 +3921,6 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         accessibility["noLogic"] = ctx->GetOption(RSK_LOGIC_RULES).Is(RO_LOGIC_NO_LOGIC);
         accessibility["allLocationsReachable"] = static_cast<bool>(ctx->GetOption(RSK_ALL_LOCATIONS_REACHABLE));
         accessibility["lockOverworldDoors"] = static_cast<bool>(ctx->GetOption(RSK_LOCK_OVERWORLD_DOORS));
-        accessibility["forceMaskShopKey"] = static_cast<bool>(ctx->GetOption(RSK_COMBO_FORCE_MASK_SHOP_KEY));
 
         usedPool = true;
 #else
@@ -3903,9 +3985,11 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         // ComboShip: OOT item names are already human English; displayName == name keeps the
         // dump schema symmetric with MM's (which needs the distinction: RI_* vs human).
         // advancement drives whether a foreign item plays the held-up pickup animation.
+        // ComboShip: "trap" lets the cross-world layer disguise a foreign trap in the other game.
         items.push_back({ { "name", name },
                           { "displayName", name },
-                          { "advancement", comboIsAdv(static_cast<RandomizerGet>(rg)) } });
+                          { "advancement", comboIsAdv(static_cast<RandomizerGet>(rg)) },
+                          { "trap", rg == RG_ICE_TRAP } });
     }
 
     cached = nlohmann::json{
@@ -4620,10 +4704,21 @@ extern "C" __declspec(dllexport) void Combo_SOH_Rando_SetOwnedItems(const char* 
     } catch (...) {}
 }
 
+#ifdef COMBO_BUILD
+// ComboShip: OOT->MM portal (Happy Mask Shop) region access, stashed by the search below.
+static bool sComboPortalOpen = false;
+#endif
+
 extern "C" __declspec(dllexport) const char* Combo_SOH_Rando_GetReachableChecks(void) {
     static std::string buf;
     auto ctx = OTRGlobals::Instance->gRandoContext;
     auto reachable = ReachabilitySearch(ctx->allLocations);
+#ifdef COMBO_BUILD
+    // RR_MARKET_MASK_SHOP holds no real checks, so the cross-fill gates MM on REGION access. Any age:
+    // the requirement lives in the entrance condition, so this survives entrance shuffle moving it.
+    Region* portal = RegionTable(RR_MARKET_MASK_SHOP);
+    sComboPortalOpen = portal->Child() || portal->Adult();
+#endif
     nlohmann::json out = nlohmann::json::array();
     for (RandomizerCheck rc : reachable) {
         const std::string& name = Rando::StaticData::GetLocation(rc)->GetName();
@@ -4633,6 +4728,14 @@ extern "C" __declspec(dllexport) const char* Combo_SOH_Rando_GetReachableChecks(
     buf = out.dump();
     return buf.c_str();
 }
+
+#ifdef COMBO_BUILD
+// ComboShip: portal openness for the owned-set of the LAST GetReachableChecks call — callers must query
+// it right after that call. Piggybacks on that search; a second traversal would double oracle gen cost.
+extern "C" __declspec(dllexport) uint8_t Combo_SOH_Rando_GetPortalOpen(void) {
+    return sComboPortalOpen ? 1 : 0;
+}
+#endif
 
 extern "C" __declspec(dllexport) void Combo_SOH_Rando_PlaceItem(const char* checkName, const char* itemName) {
     if (!checkName || !itemName)
@@ -4699,7 +4802,8 @@ extern "C" __declspec(dllexport) const char* SOH_GetForcedPlacements(uint32_t se
     nlohmann::json out = nlohmann::json::object();
     try {
         auto ctx = OTRGlobals::Instance->gRandoContext;
-        Rando::Settings::GetInstance()->SetAllToContext(); // ensure chosen CVar settings are live
+        // No SetAllToContext here: the dump this follows already applied the CVars and finalized, and
+        // re-pushing reverts everything FinalizeSettings derived (resolved starting age, Ganon's Trials).
         auto lp = ctx->GetOption(RSK_LINKS_POCKET);
         if (lp.Is(RO_LINKS_POCKET_DUNGEON_REWARD)) {
             // ComboShip: RandomizeDungeonRewards (inside SOH_DumpRandoStaticData->ComboFillConfined, run

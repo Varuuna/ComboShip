@@ -1398,16 +1398,16 @@ void Settings::CreateOptions() {
     OPT_BOOL(RSK_KAK_50_SKULLS_HINT, "50 GS Hint", CVAR_RANDOMIZER_SETTING("50GSHint"), mOptionDescriptions[RSK_KAK_50_SKULLS_HINT], IMFLAG_NONE);
     OPT_BOOL(RSK_KAK_100_SKULLS_HINT, "100 GS Hint", CVAR_RANDOMIZER_SETTING("100GSHint"), mOptionDescriptions[RSK_KAK_100_SKULLS_HINT], IMFLAG_NONE);
     OPT_BOOL(RSK_MASK_SHOP_HINT, "Mask Shop Hint", CVAR_RANDOMIZER_SETTING("MaskShopHint"), mOptionDescriptions[RSK_MASK_SHOP_HINT]);
+#ifdef COMBO_BUILD
+    // ComboShip: unreadable (portal scene) and force-disabled in FinalizeSettings — don't offer the toggle.
+    mOptions[RSK_MASK_SHOP_HINT].Hide();
+#endif
     // TODO: Compasses show rewards/woth, maps show dungeon mode
     OPT_BOOL(RSK_BLUE_FIRE_ARROWS, "Blue Fire Arrows", CVAR_RANDOMIZER_SETTING("BlueFireArrows"), mOptionDescriptions[RSK_BLUE_FIRE_ARROWS]);
     OPT_BOOL(RSK_SUNLIGHT_ARROWS, "Sunlight Arrows", CVAR_RANDOMIZER_SETTING("SunlightArrows"), mOptionDescriptions[RSK_SUNLIGHT_ARROWS]);
     OPT_BOOL(RSK_ROCS_FEATHER, "Roc's Feather", CVAR_RANDOMIZER_SETTING("RocsFeather"), mOptionDescriptions[RSK_ROCS_FEATHER]);
     OPT_U8(RSK_INFINITE_UPGRADES, "Infinite Upgrades", {"Off", "Progressive", "Condensed Progressive"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("InfiniteUpgrades"), mOptionDescriptions[RSK_INFINITE_UPGRADES]);
     OPT_BOOL(RSK_SKELETON_KEY, "Skeleton Key", CVAR_RANDOMIZER_SETTING("SkeletonKey"), mOptionDescriptions[RSK_SKELETON_KEY]);
-#ifdef COMBO_BUILD
-    OPT_BOOL(RSK_COMBO_FORCE_MASK_SHOP_KEY, "Force Mask Shop Key Early (TEMP)",
-             CVAR_RANDOMIZER_SETTING("ComboForceMaskShopKey"), mOptionDescriptions[RSK_COMBO_FORCE_MASK_SHOP_KEY]);
-#endif
     OPT_BOOL(RSK_SLINGBOW_BREAK_BEEHIVES, "Slingshot/Bow Can Break Beehives", CVAR_RANDOMIZER_SETTING("SlingBowBeehives"), mOptionDescriptions[RSK_SLINGBOW_BREAK_BEEHIVES]);
     OPT_U8(RSK_ITEM_POOL, "Item Pool", {"Plentiful", "Balanced", "Scarce", "Minimal"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("ItemPool"), mOptionDescriptions[RSK_ITEM_POOL], WIDGET_CVAR_COMBOBOX, RO_ITEM_POOL_BALANCED);
     OPT_BOOL(RSK_BASE_ICE_TRAPS, "Base Ice Traps", CVAR_RANDOMIZER_SETTING("BaseIceTraps"), mOptionDescriptions[RSK_BASE_ICE_TRAPS], IMFLAG_NONE, WIDGET_CVAR_COMBOBOX, RO_GENERIC_ON);
@@ -2101,32 +2101,28 @@ void Settings::CreateOptions() {
                               WidgetContainerType::SECTION);
     mOptionGroups[RSG_MENU_COLUMN_SHOP_SHUFFLES] =
         OptionGroup::SubGroup("", { &mOptionGroups[RSG_MENU_SECTION_SHOP_SHUFFLES] }, WidgetContainerType::COLUMN);
-    mOptionGroups[RSG_MENU_SECTION_ADDITIONAL_ITEMS] =
-        OptionGroup::SubGroup("Additional Items",
-                              {
-                                  &mOptions[RSK_SHUFFLE_CHILD_WALLET],
-                                  &mOptions[RSK_INCLUDE_TYCOON_WALLET],
-                                  &mOptions[RSK_SHUFFLE_FISHING_POLE],
-                                  &mOptions[RSK_SHUFFLE_DEKU_STICK_BAG],
-                                  &mOptions[RSK_SHUFFLE_DEKU_NUT_BAG],
-                                  &mOptions[RSK_SHUFFLE_OCARINA_BUTTONS],
-                                  &mOptions[RSK_SHUFFLE_SWIM],
-                                  &mOptions[RSK_SHUFFLE_GRAB],
-                                  &mOptions[RSK_SHUFFLE_CLIMB],
-                                  &mOptions[RSK_SHUFFLE_CRAWL],
-                                  &mOptions[RSK_SHUFFLE_SPEAK],
-                                  &mOptions[RSK_SHUFFLE_OPEN_CHEST],
-                                  &mOptions[RSK_SHUFFLE_BEAN_SOULS],
-                                  &mOptions[RSK_ROCS_FEATHER],
-                                  &mOptions[RSK_BOMBCHU_BAG],
-                                  &mOptions[RSK_ENABLE_BOMBCHU_DROPS],
-                                  &mOptions[RSK_INFINITE_UPGRADES],
-                                  &mOptions[RSK_SKELETON_KEY],
-#ifdef COMBO_BUILD
-                                  &mOptions[RSK_COMBO_FORCE_MASK_SHOP_KEY],
-#endif
-                              },
-                              WidgetContainerType::SECTION);
+    mOptionGroups[RSG_MENU_SECTION_ADDITIONAL_ITEMS] = OptionGroup::SubGroup("Additional Items",
+                                                                             {
+                                                                                 &mOptions[RSK_SHUFFLE_CHILD_WALLET],
+                                                                                 &mOptions[RSK_INCLUDE_TYCOON_WALLET],
+                                                                                 &mOptions[RSK_SHUFFLE_FISHING_POLE],
+                                                                                 &mOptions[RSK_SHUFFLE_DEKU_STICK_BAG],
+                                                                                 &mOptions[RSK_SHUFFLE_DEKU_NUT_BAG],
+                                                                                 &mOptions[RSK_SHUFFLE_OCARINA_BUTTONS],
+                                                                                 &mOptions[RSK_SHUFFLE_SWIM],
+                                                                                 &mOptions[RSK_SHUFFLE_GRAB],
+                                                                                 &mOptions[RSK_SHUFFLE_CLIMB],
+                                                                                 &mOptions[RSK_SHUFFLE_CRAWL],
+                                                                                 &mOptions[RSK_SHUFFLE_SPEAK],
+                                                                                 &mOptions[RSK_SHUFFLE_OPEN_CHEST],
+                                                                                 &mOptions[RSK_SHUFFLE_BEAN_SOULS],
+                                                                                 &mOptions[RSK_ROCS_FEATHER],
+                                                                                 &mOptions[RSK_BOMBCHU_BAG],
+                                                                                 &mOptions[RSK_ENABLE_BOMBCHU_DROPS],
+                                                                                 &mOptions[RSK_INFINITE_UPGRADES],
+                                                                                 &mOptions[RSK_SKELETON_KEY],
+                                                                             },
+                                                                             WidgetContainerType::SECTION);
     mOptionGroups[RSG_MENU_COLUMN_ADDITIONAL_ITEMS] =
         OptionGroup::SubGroup("", { &mOptionGroups[RSG_MENU_SECTION_ADDITIONAL_ITEMS] }, WidgetContainerType::COLUMN);
     mOptionGroups[RSG_MENU_SIDEBAR_SHUFFLES] =
@@ -2626,6 +2622,11 @@ void Settings::UpdateAllOptions() {
 
 void Context::FinalizeSettings(const std::set<RandomizerCheck>& excludedLocations,
                                const std::set<RandomizerTrick>& enabledTricks) {
+#ifdef COMBO_BUILD
+    // ComboShip: the Happy Mask Shop scene is the OOT->MM portal and never runs, so its hint can never
+    // be read — leaving it on would silently burn a hint.
+    mOptions[RSK_MASK_SHOP_HINT].Set(RO_GENERIC_OFF);
+#endif
     // With certain access settings, the seed is only beatable if Starting Age is set to Child.
     if (mOptions[RSK_LOGIC_RULES].IsNot(RO_LOGIC_NO_LOGIC) &&
         ((mOptions[RSK_DOOR_OF_TIME].Is(RO_DOOROFTIME_CLOSED) && !mOptions[RSK_SHUFFLE_OCARINA]) ||

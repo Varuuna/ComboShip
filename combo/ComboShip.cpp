@@ -291,17 +291,26 @@ typedef void (*FnOracleVoid)(void);
 typedef void (*FnOracleSetItems)(const char*);
 typedef const char* (*FnOracleGetChecks)(void);
 typedef void (*FnOraclePlaceItem)(const char*, const char*);
+typedef uint8_t (*FnOracleGetPortalOpen)(void);
 
 static FnOracleVoid Combo_SOH_Rando_Reset = nullptr;
 static FnOracleSetItems Combo_SOH_Rando_SetOwnedItems = nullptr;
 static FnOracleGetChecks Combo_SOH_Rando_GetReachableChecks = nullptr;
 static FnOraclePlaceItem Combo_SOH_Rando_PlaceItem = nullptr;
+// OOT->MM portal gate (Happy Mask Shop region access) — see CrossWorldRando.h.
+static FnOracleGetPortalOpen Combo_SOH_Rando_GetPortalOpen = nullptr;
 
 static FnOracleVoid Combo_MM_Rando_Reset = nullptr;
 static FnOracleSetItems Combo_MM_Rando_SetOwnedItems = nullptr;
 static FnOracleGetChecks Combo_MM_Rando_GetReachableChecks = nullptr;
 static FnOraclePlaceItem Combo_MM_Rando_PlaceItem = nullptr;
 static FnOracleVoid Combo_MM_Rando_Restore = nullptr;
+
+// ComboShip (#90): OOT entrance shuffle — the combo generator never runs native Fill(), so the
+// entrance options need this explicit headless shuffle + an informational spoiler dump.
+typedef int (*FnShuffleEntrances)(uint64_t);
+static FnShuffleEntrances SOH_ShuffleEntrancesForCombo = nullptr;
+static FnDumpData SOH_DumpEntranceOverrides = nullptr;
 
 // ---------- ComboShip merged per-slot save container (Save/file{N+1}.combosav) ----------
 // One JSON file per slot holds both games' saves verbatim + combo metadata (completion + baked rando).
@@ -1119,10 +1128,16 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
                              Combo_SOH_Rando_GetReachableChecks && Combo_SOH_Rando_PlaceItem && Combo_MM_Rando_Reset &&
                              Combo_MM_Rando_SetOwnedItems && Combo_MM_Rando_GetReachableChecks &&
                              Combo_MM_Rando_PlaceItem && Combo_MM_Rando_Restore;
+    // Stale soh.dll: refuse rather than fall back to an ungated fill, which would silently reintroduce
+    // portal-unreachable (softlockable) seeds. See docs/deviations/rando.md.
+    if (haveOracles && !Combo_SOH_Rando_GetPortalOpen) {
+        fail("stale soh.dll: Combo_SOH_Rando_GetPortalOpen missing, portal gate unavailable");
+        return;
+    }
 
-    // Whole-fill retries mirroring SoH's 5-attempt Fill() loop (GAP-4): each attempt re-derives the
-    // master seed, so dumps, confined placement, and prices re-roll deterministically per attempt.
-    const int kFillAttempts = 5;
+    // Whole-fill retries (GAP-4): each attempt re-derives the master seed, so dumps, confined placement,
+    // and prices re-roll deterministically per attempt. Budget lives in CrossWorldRando.h.
+    const int kFillAttempts = ComboRando::kFillAttempts;
     for (int attempt = 0; attempt < kFillAttempts && !usedCombinedFill; ++attempt) {
         // Space each retry's seed far apart (golden-ratio step) so attempts don't correlate.
         masterSeed = baseSeed + attempt * 0x9E3779B9u;
@@ -1141,25 +1156,40 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             fail("empty static-data dump");
             return;
         }
-        if (!haveOracles)
-            break; // no oracles -> no-logic fallback below; the dumps are still needed
-
-        ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
-                                            Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem };
-        ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
-                                           Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
-
         // ComboShip: OOT forced placements (Link's Pocket) the static dump can't carry. The fill
         // reserves these out of the cross pool and commits them so the check isn't left unplaced.
+        // Read BEFORE the entrance shuffle: it reads the live placement ComboFillConfined just made,
+        // and the shuffle's ItemReset would wipe it.
         std::string forcedOot;
         if (SOH_GetForcedPlacements)
             forcedOot = SOH_GetForcedPlacements(masterSeed);
 
-        // ComboShip: honor OOT's logic/ALR settings per-game (MM stays all-reachable). TODO: when the
-        // portal gets a real gate, set portalCheckName here and exempt the Mask Shop Key + its reach
-        // prerequisites from OOT relaxation (or hard-fail NO_LOGIC) — see CrossWorldRando.h guard.
+        // ComboShip (#90): OOT entrance shuffle. Runs after the dump (settings finalized) and before the
+        // fill, so logic validates the shuffled world. No-op when the entrance options are off.
+        if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(masterSeed)) {
+            // A different masterSeed yields a different layout, so reroll rather than sending the user
+            // to the settings; the post-loop check reports it if every attempt fails. Mirrors the loop
+            // tail's MM restore, which this skips.
+            lastFillError = "OOT entrance shuffle found no valid layout — relax the entrance settings";
+            std::cout << "[ComboShip] RunComboFill: attempt " << (attempt + 1) << "/" << kFillAttempts
+                      << " failed: " << lastFillError << "\n";
+            if (Combo_MM_Rando_Restore)
+                Combo_MM_Rando_Restore();
+            continue;
+        }
+        if (!haveOracles)
+            break; // no oracles -> no-logic fallback below; the dumps are still needed
+
+        ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
+                                            Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem,
+                                            Combo_SOH_Rando_GetPortalOpen };
+        ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
+                                           Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
+
+        // ComboShip: honor OOT's logic/ALR settings per-game (MM stays all-reachable). The fill gates MM
+        // on the portal region via ootOracle.GetPortalOpen; NO_LOGIC bypasses it.
         ComboRando::OotAccess ootAccess = ComboRando::OotAccessFromDump(sohDump);
-        auto result = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle, "", progress,
+        auto result = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle, progress,
                                                          forcedOot, ootAccess);
 
         if (result.success) {
@@ -1184,7 +1214,8 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
                     result.spoilerJson, ootOracle, mmOracle, nullptr, sohDump, mmDump, ootCheckAreasCache,
                     buildMmCheckAreas(mmDump),
                     ootAccess == ComboRando::OotAccess::NO_LOGIC ? ComboRando::MmOnlyMajoraGoal
-                                                                 : ComboRando::DefaultGanonMajoraGoal);
+                                                                 : ComboRando::DefaultGanonMajoraGoal,
+                    ootAccess != ComboRando::OotAccess::NO_LOGIC);
             } else {
                 std::cout << "[ComboShip] RunComboFill: pare-down skipped (no enabled hint surface needs "
                              "requiredness)\n";
@@ -1203,7 +1234,9 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     }
 
     if (haveOracles && !usedCombinedFill) {
-        fail((std::string("combined fill failed after retries: ") + lastFillError).c_str());
+        fail((std::string("combined fill failed after ") + std::to_string(kFillAttempts) + " attempts — " +
+              lastFillError)
+                 .c_str());
         return;
     }
 
@@ -1261,6 +1294,10 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
                 fm["advancement"] = ait->second;
             }
         }
+
+        // ComboShip: disguise cross-placed traps as a plausible progression item of their own game.
+        ComboRando::AssignTrapDisguises(foreignArr, j.value("oot", nlohmann::json::object()),
+                                        j.value("mm", nlohmann::json::object()), sohDump, mmDump, masterSeed);
 
         // The apply payloads (fed to each game's placement injection) hold the SENTINEL for foreign
         // checks — the check's own game places the sentinel and diverts the real item cross-game. The
@@ -1347,6 +1384,16 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         auto foreignEnriched = ComboRando::BuildForeignArray(foreignArr, ootCheckAreasCache);
         consolidated["foreign"] = foreignEnriched;
         consolidated["playthrough"] = playthroughJson;
+        // ComboShip (#90): OOT entrance layout — informational, reload re-derives it from masterSeed.
+        {
+            nlohmann::json ootEnt = nlohmann::json::array();
+            if (SOH_DumpEntranceOverrides) {
+                try {
+                    ootEnt = nlohmann::json::parse(SOH_DumpEntranceOverrides());
+                } catch (...) {}
+            }
+            consolidated["entrances"] = { { "oot", std::move(ootEnt) } };
+        }
         // ComboShip: cross-game hint generation (Phase 3) — real per-seed hint assignments, from the
         // pare-down computed above. usedCombinedFill guards the no-logic fallback path (no oracles/
         // pare-down data there): that path ships with an empty hints payload, same as before Phase 3.
@@ -1395,8 +1442,9 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
 // same oracles as the real generator under the current CVars. Returns the FAILED seed count.
 static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
     if (!(Combo_SOH_Rando_Reset && Combo_SOH_Rando_SetOwnedItems && Combo_SOH_Rando_GetReachableChecks &&
-          Combo_SOH_Rando_PlaceItem && Combo_MM_Rando_Reset && Combo_MM_Rando_SetOwnedItems &&
-          Combo_MM_Rando_GetReachableChecks && Combo_MM_Rando_PlaceItem && Combo_MM_Rando_Restore)) {
+          Combo_SOH_Rando_PlaceItem && Combo_SOH_Rando_GetPortalOpen && Combo_MM_Rando_Reset &&
+          Combo_MM_Rando_SetOwnedItems && Combo_MM_Rando_GetReachableChecks && Combo_MM_Rando_PlaceItem &&
+          Combo_MM_Rando_Restore)) {
         std::cerr << "[GENTEST] oracle exports unavailable — cannot run\n";
         return -1;
     }
@@ -1412,7 +1460,8 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
     }
 
     ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
-                                        Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem };
+                                        Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem,
+                                        Combo_SOH_Rando_GetPortalOpen };
     ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
                                        Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
 
@@ -1422,7 +1471,13 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
     auto t0 = std::chrono::steady_clock::now();
     for (int i = 0; i < numSeeds; ++i) {
         uint32_t seed = seedBase + static_cast<uint32_t>(i);
-        auto result = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, seed, ootOracle, mmOracle, "", nullptr);
+        // Per-seed OOT entrance layout, exactly like the real generator (no-op when the options are off).
+        if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(seed)) {
+            std::cerr << "[GENTEST]   seed " << seed << " FAIL: OOT entrance shuffle found no valid layout\n";
+            ++failures;
+            continue;
+        }
+        auto result = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, seed, ootOracle, mmOracle, nullptr);
         Combo_MM_Rando_Restore(); // reset the MM oracle's snapshot guard for the next fill
         if (result.success) {
             std::cout << "[GENTEST]   seed " << seed << " PASS\n";
@@ -1455,14 +1510,17 @@ static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRan
     // MM oracle-restore pointer. A playthroughOut here means the spoiler's playthrough section, which
     // lists progression only; the text-log path and the headless validator keep every step.
     ComboRando::RunPlaythrough(spoilerJson, ootOracle, mmOracle, seedLabel, Combo_MM_Rando_Restore, playthroughOut,
-                               sohDump, mmDump, /*progressionOnly*/ playthroughOut != nullptr);
+                               sohDump, mmDump,
+                               ComboRando::OotAccessFromDump(sohDump) != ComboRando::OotAccess::NO_LOGIC,
+                               /*progressionOnly*/ playthroughOut != nullptr);
 }
 
 // Env-gated entry: COMBO_PLAYTHROUGH=<seed> generates that seed headless, then writes its log.
 static void RunComboPlaythrough(const std::string& inputSeed) {
     if (!(Combo_SOH_Rando_Reset && Combo_SOH_Rando_SetOwnedItems && Combo_SOH_Rando_GetReachableChecks &&
-          Combo_SOH_Rando_PlaceItem && Combo_MM_Rando_Reset && Combo_MM_Rando_SetOwnedItems &&
-          Combo_MM_Rando_GetReachableChecks && Combo_MM_Rando_PlaceItem && Combo_MM_Rando_Restore)) {
+          Combo_SOH_Rando_PlaceItem && Combo_SOH_Rando_GetPortalOpen && Combo_MM_Rando_Reset &&
+          Combo_MM_Rando_SetOwnedItems && Combo_MM_Rando_GetReachableChecks && Combo_MM_Rando_PlaceItem &&
+          Combo_MM_Rando_Restore)) {
         std::cerr << "[PLAYTHROUGH] oracle exports unavailable\n";
         return;
     }
@@ -1471,14 +1529,20 @@ static void RunComboPlaythrough(const std::string& inputSeed) {
         return;
     }
     ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
-                                        Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem };
+                                        Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem,
+                                        Combo_SOH_Rando_GetPortalOpen };
     ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
                                        Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
     std::string seedStr = inputSeed.empty() ? "1" : inputSeed;
     std::string sohDump = SOH_DumpRandoStaticData();
     std::string mmDump = MM_DumpRandoStaticData();
-    auto fill = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, ComboHash(seedStr.c_str()), ootOracle, mmOracle, "",
-                                                   nullptr);
+    const uint32_t masterSeed = ComboHash(seedStr.c_str());
+    // OOT entrance layout, same as the real generator (no-op when the options are off).
+    if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(masterSeed)) {
+        std::cerr << "[PLAYTHROUGH] OOT entrance shuffle found no valid layout\n";
+        return;
+    }
+    auto fill = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle, nullptr);
     if (!fill.success) {
         Combo_MM_Rando_Restore();
         std::cerr << "[PLAYTHROUGH] seed '" << seedStr << "' did not generate: " << fill.error << "\n";
@@ -1641,7 +1705,8 @@ static int Combo_OnReloadRequest(const char* path) {
                 std::cout << "[ComboShip] Reload: SOH_DumpRandoSettings returned empty snapshot\n";
         }
 
-        // OOT: restore settings -> seed RNG -> prep settings-scoped pool -> apply placements -> hash.
+        // OOT: restore settings -> seed RNG -> prep settings-scoped pool -> re-derive entrances ->
+        // apply placements -> hash.
         if (SOH_RestoreRandoSettings)
             SOH_RestoreRandoSettings(ootSettings.c_str());
         if (SOH_SetComboRandoSeed)
@@ -1652,6 +1717,14 @@ static int Combo_OnReloadRequest(const char* path) {
             MM_SetComboRandoSeed(masterSeed);
         if (SOH_PrepRandoContext)
             SOH_PrepRandoContext();
+        // Same deterministic call as generation — reproduces (or clears) this seed's entrance layout.
+        if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(masterSeed)) {
+            std::cerr << "[ComboShip] reload: OOT entrance shuffle failed to re-derive — aborting\n";
+            // Restore first: bailing here would otherwise leave the seed's OOT CVars as the baseline.
+            if (isSilentAutoLoad && SOH_RestoreRandoSettings)
+                SOH_RestoreRandoSettings(userOotSnapshot.c_str());
+            return 0;
+        }
         bool hintsPresent = j.value("hints", nlohmann::json::object()).contains("oot");
         if (SOH_SetComboHintsPresent)
             SOH_SetComboHintsPresent(hintsPresent ? 1 : 0);
@@ -2068,11 +2141,16 @@ int main(int argc, char** argv) {
     Combo_SOH_Rando_SetOwnedItems = (FnOracleSetItems)GetSym(sohModule, "Combo_SOH_Rando_SetOwnedItems");
     Combo_SOH_Rando_GetReachableChecks = (FnOracleGetChecks)GetSym(sohModule, "Combo_SOH_Rando_GetReachableChecks");
     Combo_SOH_Rando_PlaceItem = (FnOraclePlaceItem)GetSym(sohModule, "Combo_SOH_Rando_PlaceItem");
+    Combo_SOH_Rando_GetPortalOpen = (FnOracleGetPortalOpen)GetSym(sohModule, "Combo_SOH_Rando_GetPortalOpen");
     Combo_MM_Rando_Reset = (FnOracleVoid)GetSym(mmModule, "Combo_MM_Rando_Reset");
     Combo_MM_Rando_SetOwnedItems = (FnOracleSetItems)GetSym(mmModule, "Combo_MM_Rando_SetOwnedItems");
     Combo_MM_Rando_GetReachableChecks = (FnOracleGetChecks)GetSym(mmModule, "Combo_MM_Rando_GetReachableChecks");
     Combo_MM_Rando_PlaceItem = (FnOraclePlaceItem)GetSym(mmModule, "Combo_MM_Rando_PlaceItem");
     Combo_MM_Rando_Restore = (FnOracleVoid)GetSym(mmModule, "Combo_MM_Rando_Restore");
+
+    // OOT entrance-shuffle wiring (#90)
+    SOH_ShuffleEntrancesForCombo = (FnShuffleEntrances)GetSym(sohModule, "SOH_ShuffleEntrancesForCombo");
+    SOH_DumpEntranceOverrides = (FnDumpData)GetSym(sohModule, "SOH_DumpEntranceOverrides");
 
     // Cross-game erase seam (issue #1)
     SOH_SetComboSaveIO = (FnSetComboSaveIO)GetSym(sohModule, "SOH_SetComboSaveIO");

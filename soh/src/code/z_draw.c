@@ -422,20 +422,20 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
     // Mirror of CwDrawKind (ABI header is C++/POD; z_draw.c is C so keep local names in sync).
     enum {
         KIND_SIMPLE = 0,
-        KIND_GORON_SWORD,
-        KIND_DEKU_NUTS,
-        KIND_RECOVERY_HEART,
-        KIND_FISH,
-        KIND_POTION,
-        KIND_MIRROR_SHIELD,
-        KIND_BLUE_FIRE,
-        KIND_POES,
-        KIND_FAIRY,
-        KIND_JEWEL,
-        KIND_MAGIC_SPELL,
-        KIND_SCALE,
-        KIND_SKULL_TOKEN,
-        KIND_MUSIC_NOTE
+        KIND_GORON_SWORD = 1,
+        KIND_DEKU_NUTS = 2,
+        KIND_RECOVERY_HEART = 3,
+        KIND_FISH = 4,
+        KIND_POTION = 5,
+        KIND_MIRROR_SHIELD = 6,
+        KIND_BLUE_FIRE = 7,
+        KIND_POES = 8,
+        KIND_FAIRY = 9,
+        KIND_JEWEL = 10,
+        KIND_MAGIC_SPELL = 11,
+        KIND_SCALE = 12,
+        KIND_SKULL_TOKEN = 13,
+        KIND_MUSIC_NOTE = 14
     };
     static const s8 sOrder0[] = { 0 };
     static const s8 sOrder01[] = { 0, 1 };

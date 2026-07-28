@@ -46,9 +46,10 @@ void BuildMerchantMessage(CustomMessage& msg, RandomizerCheck rc, bool mysteriou
         if (rgid == RG_COMBO_FOREIGN) {
             const ComboRando::ForeignItem* fi =
                 OOT_LookupForeign(gSaveContext.fileNum, Rando::StaticData::GetLocation(rc)->GetName());
-            if (fi != nullptr && !fi->displayName.empty()) {
-                itemName = CustomMessage(
-                    Text{ std::string(fi->displayName), std::string(fi->displayName), std::string(fi->displayName) });
+            // A foreign trap is sold under its typo'd disguise name, like OOT's own ice traps.
+            std::string shown = fi == nullptr ? "" : (fi->fakeTrickName.empty() ? fi->displayName : fi->fakeTrickName);
+            if (!shown.empty()) {
+                itemName = CustomMessage(Text{ shown, shown, shown });
                 color = "%g";
                 msg.Replace("[[color]]", color);
                 msg.InsertNames({ itemName, CustomMessage(std::to_string(location->GetPrice())) });

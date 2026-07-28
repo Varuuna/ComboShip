@@ -68,22 +68,34 @@ inline Tri& operator+=(Tri& a, const Tri& b) {
 // entry (the shape SOH_DumpRandoHintData's Combo_HintTextToJson emits), per the player's hintClarity
 // option (0=Obscure, 1=Ambiguous, 2=Clear — matches RO_HINT_CLARITY_* ordering). Falls back toward
 // clear when the requested tier has no variants recorded.
-inline Tri PickTemplate(const nlohmann::json& entry, int clarity, CwRng& rng) {
-    auto pickFrom = [&](const nlohmann::json& arr) -> Tri {
-        size_t idx = arr.size() > 1 ? rng.below(static_cast<uint32_t>(arr.size())) : 0;
-        return FromJson(arr[idx]);
+// `mask` (a trap's disguise entry, null for none): the RNG draw always runs on `entry`, so the stream
+// is byte-identical either way; the drawn tier/index is then remapped onto the mask, which is rendered.
+inline Tri PickTemplate(const nlohmann::json& entry, int clarity, CwRng& rng, const nlohmann::json* mask = nullptr) {
+    const nlohmann::json& src = mask ? *mask : entry;
+    auto render = [&](const char* tier, size_t idx) -> Tri {
+        if (tier) {
+            auto a = src.value(tier, nlohmann::json::array());
+            if (!a.empty())
+                return FromJson(a[idx % a.size()]);
+        }
+        return FromJson(src.value("clear", nlohmann::json::object()));
     };
     if (clarity <= 0) {
         auto obs = entry.value("obscure", nlohmann::json::array());
         if (!obs.empty())
-            return pickFrom(obs);
+            return render("obscure", obs.size() > 1 ? rng.below(static_cast<uint32_t>(obs.size())) : 0);
     }
     if (clarity <= 1) {
         auto amb = entry.value("ambiguous", nlohmann::json::array());
         if (!amb.empty())
-            return pickFrom(amb);
+            return render("ambiguous", amb.size() > 1 ? rng.below(static_cast<uint32_t>(amb.size())) : 0);
     }
-    return FromJson(entry.value("clear", nlohmann::json::object()));
+    return render(nullptr, 0);
+}
+
+// Null json (no disguise) -> no mask pointer.
+inline const nlohmann::json* MaskOrNull(const nlohmann::json& j) {
+    return j.is_null() ? nullptr : &j;
 }
 
 // Splices [[N]] (1-indexed) placeholders per-language, matching CustomMessage::InsertNames' convention.
@@ -110,6 +122,7 @@ struct HintCandidate {
     GameId itemGame;
     std::string itemKey;                                // raw item key (RG english name / RI_* spoiler name)
     nlohmann::json itemHint = nlohmann::json::object(); // same shape as locationHint
+    nlohmann::json itemHintMask;                        // trap disguise's hint entry (null = none)
     uint32_t weight = 1;
     bool required = false;
 };
@@ -256,6 +269,25 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
         return { hint, it != mmItems.end() ? std::max<uint32_t>(1, it->second.weightClass) : 1u };
     };
 
+    // Trap disguises: hint text must name the disguise, never the true trap. "<checkGame>:<check>" ->
+    // fake item name (already in the item's own game namespace, so the hint maps above resolve it).
+    std::unordered_map<std::string, std::string> disguiseByCheck;
+    for (auto& fm : foreignArray) {
+        std::string fake = fm.value("fakeItemName", "");
+        if (!fake.empty())
+            disguiseByCheck.emplace(fm.value("checkGame", "") + ":" + fm.value("checkName", ""), std::move(fake));
+    }
+    // Consumes no RNG and never changes weights — purely the text a hint renders for this check.
+    auto maskHint = [&](GameId checkGame, const std::string& check, GameId itemGame) -> nlohmann::json {
+        auto it = disguiseByCheck.find((checkGame == GAME_OOT ? "oot:" : "mm:") + check);
+        if (it == disguiseByCheck.end())
+            return nlohmann::json();
+        nlohmann::json h = itemHintAndWeight(itemGame, it->second, false).first;
+        if (h.value("clear", nlohmann::json::object()).empty())
+            h = { { "clear", { { "en", it->second }, { "de", it->second }, { "fr", it->second } } } };
+        return h;
+    };
+
     // Family-B upgrade data (Phase 4 consumes this): MM items placed at an OOT check, keyed by the
     // MM item's own friendly name -> "in <area> (OOT)".
     for (auto& fm : foreignArray) {
@@ -307,6 +339,7 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
             c.locationHint = { { "clear", { { "en", region }, { "de", region }, { "fr", region } } } };
         }
         std::tie(c.itemHint, c.weight) = itemHintAndWeight(p.itemGame, p.item, c.required);
+        c.itemHintMask = maskHint(p.checkGame, p.check, p.itemGame); // weight stays the true item's
         if (p.major && !c.areaKey.empty())
             areaHasMajor.insert(c.areaKey);
         candidates.push_back(std::move(c));
@@ -495,8 +528,10 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
                     continue;
                 const auto& placed = placements[plIt->second];
                 nlohmann::json itemHint = itemHintAndWeight(placed.itemGame, placed.item, false).first;
+                // Unfiltered by advancement, so this check can hold a disguised trap — hint the disguise.
+                nlohmann::json itemMask = maskHint(GAME_OOT, checkName, placed.itemGame);
                 Tri msg = PickTemplate(locIt->second.locationHint, hintClarity, rng);
-                ReplacePlaceholder(msg, 1, PickTemplate(itemHint, hintClarity, rng));
+                ReplacePlaceholder(msg, 1, PickTemplate(itemHint, hintClarity, rng, MaskOrNull(itemMask)));
                 uint8_t copies = std::min<uint8_t>(preset.alwaysCopies, static_cast<uint8_t>(totalStones));
                 for (uint8_t copy = 0; copy < copies; ++copy) {
                     ootHints.push_back(
@@ -565,11 +600,13 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
                     if (cand.checkGame == GAME_OOT) {
                         // OOT location HintTexts are full sentences with [[1]] = the item name.
                         msg = PickTemplate(cand.locationHint, hintClarity, rng);
-                        ReplacePlaceholder(msg, 1, PickTemplate(cand.itemHint, hintClarity, rng));
+                        ReplacePlaceholder(
+                            msg, 1, PickTemplate(cand.itemHint, hintClarity, rng, MaskOrNull(cand.itemHintMask)));
                     } else {
                         // MM checks have no authored location sentence — compose item + region.
                         msg = PickTemplate(tmpl("RHT_CAN_BE_FOUND_AT"), hintClarity, rng);
-                        ReplacePlaceholder(msg, 1, PickTemplate(cand.itemHint, hintClarity, rng));
+                        ReplacePlaceholder(
+                            msg, 1, PickTemplate(cand.itemHint, hintClarity, rng, MaskOrNull(cand.itemHintMask)));
                         ReplacePlaceholder(msg, 2, areaText(cand.areaKey));
                     }
                     usedCheckKeys.insert(usedKey);
@@ -588,7 +625,8 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
                     usedKey = keys[pick];
                     const auto& cand = candidates[pick];
                     msg = PickTemplate(tmpl(cand.dungeon ? "RHT_HOARDS" : "RHT_CAN_BE_FOUND_AT"), hintClarity, rng);
-                    ReplacePlaceholder(msg, 1, PickTemplate(cand.itemHint, hintClarity, rng));
+                    ReplacePlaceholder(msg, 1,
+                                       PickTemplate(cand.itemHint, hintClarity, rng, MaskOrNull(cand.itemHintMask)));
                     ReplacePlaceholder(msg, 2, areaText(cand.areaKey));
                     usedCheckKeys.insert(usedKey);
                     placed = true;
@@ -628,7 +666,7 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
     for (auto& c : candidates) {
         if (c.checkGame != GAME_OOT)
             continue;
-        Tri itemName = PickTemplate(c.itemHint, 2, rng);
+        Tri itemName = PickTemplate(c.itemHint, 2, rng, MaskOrNull(c.itemHintMask));
         Tri area = areaText(c.areaKey);
         std::string text = itemName.en + " can be found " + (c.dungeon ? "hoarded in " : "at ") + area.en + " (OOT)";
         mmGossipPool.push_back({ { "weight", c.required ? 3 : 1 }, { "text", text } });

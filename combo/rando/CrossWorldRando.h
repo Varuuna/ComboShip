@@ -350,9 +350,8 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         std::vector<std::string> trimNotes;
         for (Game g : { GAME_OOT, GAME_MM }) {
             const char* tag = (g == GAME_OOT ? "oot" : "mm");
-            const size_t checkCount =
-                static_cast<size_t>(std::count_if(allChecks.begin(), allChecks.end(),
-                                                  [g](const CwCheck& c) { return c.game == g; }));
+            const size_t checkCount = static_cast<size_t>(
+                std::count_if(allChecks.begin(), allChecks.end(), [g](const CwCheck& c) { return c.game == g; }));
             const size_t itemCount = countFor(advItems, g) + countFor(junkItems, g);
             size_t trimmed = 0, padded = 0;
 
@@ -377,8 +376,8 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                         }
                     }
                     if (!best) {
-                        result.error = std::string("cannot balance the ") + tag + " pool: " +
-                                       std::to_string(surplus - k) +
+                        result.error = std::string("cannot balance the ") + tag +
+                                       " pool: " + std::to_string(surplus - k) +
                                        " surplus item(s) left and no discardable junk remains; only junk may be "
                                        "discarded, so refusing to drop anything else";
                         std::cerr << "[ComboShip] CrossWorldCombinedFill: " << result.error << "\n";
@@ -429,10 +428,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
 
             trimmedTotal += trimmed;
             paddedTotal += padded;
-            balanceLine += std::string(balanceLine.empty() ? "" : ", ") + tag + " items=" +
-                           std::to_string(countFor(advItems, g) + countFor(junkItems, g)) + "/checks=" +
-                           std::to_string(checkCount) + " (trimmed " + std::to_string(trimmed) + ", padded " +
-                           std::to_string(padded) + ")";
+            balanceLine += std::string(balanceLine.empty() ? "" : ", ") + tag +
+                           " items=" + std::to_string(countFor(advItems, g) + countFor(junkItems, g)) +
+                           "/checks=" + std::to_string(checkCount) + " (trimmed " + std::to_string(trimmed) +
+                           ", padded " + std::to_string(padded) + ")";
         }
         std::cout << "[ComboShip] CrossWorldCombinedFill: pool balance — " << balanceLine << " (forced "
                   << forcedPlacements.size() << ")\n";
@@ -892,19 +891,19 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                     continue;
                 // Classify by the same predicate the trim uses, so an advancement item that happens to
                 // be category JUNK (OOT bombchus, Buy Blue Fire) is reported as a real loss, not filler.
-                const auto info = expectedInfo.count(key) ? expectedInfo.at(key) : ExpectedInfo{ CwCat::UNKNOWN, false };
+                const auto info =
+                    expectedInfo.count(key) ? expectedInfo.at(key) : ExpectedInfo{ CwCat::UNKNOWN, false };
                 (info.discardable ? missingJunk : missingBad) += static_cast<size_t>(n);
                 if (!info.discardable && missingNames.size() < 300)
                     missingNames += (missingNames.empty() ? "" : ", ") + key + " x" + std::to_string(n) + " [" +
                                     CwCatName(info.cat) + "]";
             }
             if (missingBad > 0 || missingJunk > 0 || overPlaced > 0 || unexpected > 0) {
-                result.error = missingBad > 0 ? std::to_string(missingBad) +
-                                                    " non-junk pool item(s) never placed: " + missingNames
-                                              : std::to_string(missingJunk) + " junk never placed, " +
-                                                    std::to_string(overPlaced) + " over-placed, " +
-                                                    std::to_string(unexpected) +
-                                                    " not from the pool (balancer arithmetic bug)";
+                result.error = missingBad > 0
+                                   ? std::to_string(missingBad) + " non-junk pool item(s) never placed: " + missingNames
+                                   : std::to_string(missingJunk) + " junk never placed, " + std::to_string(overPlaced) +
+                                         " over-placed, " + std::to_string(unexpected) +
+                                         " not from the pool (balancer arithmetic bug)";
                 std::cerr << "[ComboShip] CrossWorldCombinedFill: INVARIANT VIOLATED — " << result.error << "\n";
                 return result;
             }

@@ -2719,6 +2719,10 @@ extern "C" __declspec(dllexport) void MM_ResumeGame(int fileNum) {
 }
 #endif
 
+#ifdef COMBO_BUILD
+// ComboShip: everything to the matching #endif is combo-only (MM_*/Combo_MM_* exports + their
+// statics). Guarded so an upstream merge can see the whole added region at a glance.
+
 // ComboShip: write a default MM save for the given OOT slot (0-indexed) to disk. Called when OOT
 // creates a new save, so MM has a matching save ready for the transition. ootName8 is the
 // OOT-entered file name (8 font-code bytes, same charset as MM); may be null.
@@ -4005,6 +4009,7 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Restore(void) {
     gCurrentRegionTime = sMM_OracleSavedRegionTime;
     sMM_OracleActive = false;
 }
+#endif // COMBO_BUILD — combo-only region opened above MM_InitSaveFile
 
 #ifdef COMBO_BUILD
 // ComboShip: cross-game item-draw exports (MM_GetItemDrawInfo / MM_GetItemAnimDrawInfo). Bodies

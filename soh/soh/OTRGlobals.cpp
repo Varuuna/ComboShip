@@ -3827,6 +3827,28 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         return Rando::StaticData::RetrieveItem(rg).IsAdvancement();
     };
 
+    // ComboShip: native category, so the cross fill can trim ONLY junk — `advancement` alone can't say
+    // that (it lumps junk with hearts/traps). Unknown maps to "major" so it is never trimmable.
+    auto comboCategory = [](RandomizerGet rg) -> const char* {
+        switch (Rando::StaticData::RetrieveItem(rg).GetCategory()) {
+            case ITEM_CATEGORY_JUNK:
+                return "junk";
+            case ITEM_CATEGORY_LESSER:
+                return "lesser";
+            case ITEM_CATEGORY_HEALTH:
+                return "health";
+            case ITEM_CATEGORY_BOSS_KEY:
+                return "bossKey";
+            case ITEM_CATEGORY_SMALL_KEY:
+                return "smallKey";
+            case ITEM_CATEGORY_SKULLTULA_TOKEN:
+                return "token";
+            case ITEM_CATEGORY_MAJOR:
+                return "major";
+        }
+        return "major";
+    };
+
     bool usedPool = false;
     try {
         auto ctx = OTRGlobals::Instance->gRandoContext;
@@ -3896,7 +3918,10 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             const std::string& in = Rando::StaticData::RetrieveItem(rg).GetName().GetEnglish();
             if (in.empty())
                 continue;
-            pool.push_back({ { "name", in }, { "advancement", comboIsAdv(rg) }, { "major", isMajor(rg) } });
+            pool.push_back({ { "name", in },
+                             { "advancement", comboIsAdv(rg) },
+                             { "major", isMajor(rg) },
+                             { "category", comboCategory(rg) } });
         }
         // itemPool excludes shop slots (CountEmptyLocations(false)); shuffled shop checks are covered
         // by junk, exactly like native FastFill's GetJunkItem() padding — Buy items stay shop-only.
@@ -3904,7 +3929,8 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             RandomizerGet jg = GetJunkItem();
             pool.push_back({ { "name", Rando::StaticData::RetrieveItem(jg).GetName().GetEnglish() },
                              { "advancement", comboIsAdv(jg) },
-                             { "major", isMajor(jg) } });
+                             { "major", isMajor(jg) },
+                             { "category", comboCategory(jg) } });
         }
         // Rolled prices (set by ComboFillConfined at Fill()'s native position) for every priced
         // check type — the consolidated spoiler carries these so the validator/reload never guess.

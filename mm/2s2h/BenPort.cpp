@@ -3170,6 +3170,34 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         return it.randoItemType != RITYPE_JUNK && it.randoItemType != RITYPE_HEALTH && it.randoItemId != RI_TRAP;
     };
 
+    // ComboShip: native category, so the cross fill can trim ONLY junk — `advancement` alone can't say
+    // that (it lumps junk with hearts/traps). Unknown maps to "major" so it is never trimmable.
+    auto categoryName = [](const auto& it) -> const char* {
+        switch (it.randoItemType) {
+            case RITYPE_JUNK:
+                return "junk";
+            case RITYPE_LESSER:
+                return "lesser";
+            case RITYPE_HEALTH:
+                return "health";
+            case RITYPE_BOSS_KEY:
+                return "bossKey";
+            case RITYPE_SMALL_KEY:
+                return "smallKey";
+            case RITYPE_SKULLTULA_TOKEN:
+                return "token";
+            case RITYPE_MAJOR:
+                return "major";
+            case RITYPE_MASK:
+                return "mask";
+            case RITYPE_STRAY_FAIRY:
+                return "strayFairy";
+            case RITYPE_MAX:
+                break;
+        }
+        return "major"; // no default: a new RITYPE_ must warn, not silently become non-discardable
+    };
+
     // Confined pre-placements -> fixed[] (removed checks = checkPoolBefore minus checkPool).
     for (RandoCheckId id : checkPoolBefore) {
         if (stillFillable.count(id))
@@ -3221,8 +3249,9 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         if (it == Rando::StaticData::Items.end() || !it->second.spoilerName || it->second.spoilerName[0] == '\0')
             continue;
         // ComboShip: friendly item name for the normalized combo spoiler.
-        pool.push_back(
-            { { "name", Rando::StaticData::GetItemDisplayName(iid) }, { "advancement", isAdvancement(it->second) } });
+        pool.push_back({ { "name", Rando::StaticData::GetItemDisplayName(iid) },
+                         { "advancement", isAdvancement(it->second) },
+                         { "category", categoryName(it->second) } });
     }
 
     for (auto& [id, item] : Rando::StaticData::Items) {

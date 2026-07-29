@@ -8,6 +8,10 @@
 //                                                  spoiler to saves/combo/comborando.spoiler.json (count 1)
 //   comborando.exe --playthrough <spoiler.json>    forward-traverse a finished seed to judge beatability
 //
+// Exact-seed repro (generate mode): --settings <consolidated.json> restores that seed's OOT/MM settings
+// and tricks, and --master-seed <n> uses n directly instead of hashing --seed. Together they reproduce a
+// reported seed's generation bit-for-bit, which plain --seed cannot.
+//
 // --playthrough runs two passes, ignoring the seed's No-Logic/Glitchless flag (it always evaluates real
 // gates; permissiveness comes only from tricks): Pass 1 uses the seed's own tricks ("can this player beat
 // it?"); if that sticks, Pass 2 enables every trick to tell "needs more tricks than configured" apart from
@@ -82,6 +86,9 @@ int main(int argc, char** argv) {
     std::string seed = "1";
     int count = 1;
     std::string playthroughFile;
+    std::string settingsFile; // consolidated spoiler to restore settings/tricks from (exact-seed repro)
+    bool haveMasterSeed = false;
+    uint32_t masterSeedArg = 0;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--seed" && i + 1 < argc)
@@ -90,6 +97,12 @@ int main(int argc, char** argv) {
             count = std::max(1, std::atoi(argv[++i]));
         else if (a == "--playthrough" && i + 1 < argc)
             playthroughFile = argv[++i];
+        else if (a == "--settings" && i + 1 < argc)
+            settingsFile = argv[++i];
+        else if (a == "--master-seed" && i + 1 < argc) {
+            masterSeedArg = static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
+            haveMasterSeed = true;
+        }
     }
 
     HMODULE soh = LoadLibraryA("soh.dll");
@@ -347,11 +360,34 @@ int main(int argc, char** argv) {
     }
 
     // ---- Generate + validate mode. ----
-    std::cout << "[comborando] validating " << count << " seed(s) from '" << seed << "'\n";
+    // Restore a reported seed's settings so generation matches it; otherwise live CVar defaults apply.
+    if (!settingsFile.empty()) {
+        if (!SOH_RestoreSettings || !MM_RestoreSettings) {
+            std::cerr << "[comborando] --settings needs the settings-restore exports — rebuild soh.dll / 2ship.dll\n";
+            return 2;
+        }
+        try {
+            auto sj = nlohmann::json::parse(ReadFile(settingsFile));
+            const auto& oot = sj.contains("oot") ? sj["oot"] : sj;
+            const auto& mm = sj.contains("mm") ? sj["mm"] : sj;
+            if (oot.contains("settings"))
+                SOH_RestoreSettings(oot["settings"].dump().c_str());
+            if (mm.contains("settings"))
+                MM_RestoreSettings(mm["settings"].dump().c_str());
+            if (SOH_SetEnabledTricks && oot.contains("enabledTricks"))
+                SOH_SetEnabledTricks(oot["enabledTricks"].dump().c_str());
+            std::cout << "[comborando] restored settings from '" << settingsFile << "'\n";
+        } catch (const std::exception& e) {
+            std::cerr << "[comborando] could not read/parse '" << settingsFile << "': " << e.what() << "\n";
+            return 2;
+        }
+    }
+    std::cout << "[comborando] validating " << count << " seed(s) from "
+              << (haveMasterSeed ? "masterSeed " + std::to_string(masterSeedArg) : "'" + seed + "'") << "\n";
     int failures = 0;
     auto t0 = std::chrono::steady_clock::now();
     for (int i = 0; i < count; ++i) {
-        const uint32_t base = ComboHash(seed) + static_cast<uint32_t>(i);
+        const uint32_t base = (haveMasterSeed ? masterSeedArg : ComboHash(seed)) + static_cast<uint32_t>(i);
         uint32_t masterSeed = base;
         std::string sohDump, mmDump, sohHintDump;
         ComboRando::CombinedFillResult r{};

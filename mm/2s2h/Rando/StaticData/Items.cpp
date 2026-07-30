@@ -734,6 +734,10 @@ std::string GetItemName(RandoItemId randoItemId, bool includeArticle, RandoCheck
     if (randoItemId == RI_COMBO_FOREIGN && randoCheckId != RC_UNKNOWN) {
         const ComboRando::ForeignItem* fi = Rando::MiscBehavior::MM_LookupForeign(randoCheckId);
         if (fi != nullptr) {
+            // A foreign trap keeps its typo'd disguise name until the check is collected.
+            if (!fi->fakeTrickName.empty() && !RANDO_SAVE_CHECKS[randoCheckId].obtained) {
+                return fi->fakeTrickName;
+            }
             // KNOWN TRADEOFF: OOT displayNames carry no article, so includeArticle is ignored —
             // hint text reads "I can offer you Hookshot" instead of "...the Hookshot". Proper fix
             // = carry an article field through the dumps + foreign map; accepted for now.

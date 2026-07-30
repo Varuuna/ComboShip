@@ -2196,7 +2196,10 @@ void DrawLocation(RandomizerCheck rc) {
                         if (itemLoc->GetPlacedRandomizerGet() == RG_COMBO_FOREIGN) {
                             const ComboRando::ForeignItem* fi =
                                 OOT_LookupForeign(gSaveContext.fileNum, Rando::StaticData::GetLocation(rc)->GetName());
-                            if (fi != nullptr && !fi->displayName.empty()) {
+                            if (fi != nullptr && fi->HasDisguise()) {
+                                // Not collected yet: show the disguise (trick name once identified).
+                                txt = status == RCSHOW_IDENTIFIED ? fi->fakeTrickName : fi->fakeDisplayName;
+                            } else if (fi != nullptr && !fi->displayName.empty()) {
                                 txt = fi->displayName;
                             }
                         }

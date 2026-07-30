@@ -130,7 +130,19 @@ inline std::unordered_set<std::string> QueryReachable(const OracleFns& o, const 
     return out;
 }
 
+// OOT->MM portal openness for the owned-set of the LAST QueryReachable on this oracle (see OracleFns).
+// No export (MM oracle, or an old soh.dll) => ungated, matching the pre-gate behavior.
+inline bool OraclePortalOpen(const OracleFns& o) {
+    return o.GetPortalOpen == nullptr || o.GetPortalOpen() != 0;
+}
+
 using ReachSet = std::shared_ptr<const std::unordered_set<std::string>>;
+
+// A memoized query result: the reachable set plus the portal bit that belonged to the same search.
+struct ReachResult {
+    ReachSet reach;
+    bool portalOpen = true;
+};
 
 // Memo key for an owned-item MULTISET: reachability depends on which items and HOW MANY (1 vs 2
 // Hookshots differ), not grant order. Sort only — dedupe would collapse progressive counts (stale hit).
@@ -146,15 +158,17 @@ inline std::string CanonicalOwnedKey(std::vector<std::string> owned) {
 
 // Memoized QueryReachable keyed on CanonicalOwnedKey: the same owned-set prefixes recur across the
 // hundreds of counterfactual replays (each starts from empty), so caching collapses the repeats.
-inline ReachSet QueryReachableMemo(const OracleFns& o, const std::vector<std::string>& owned,
-                                   std::unordered_map<std::string, ReachSet>& memo) {
+inline ReachResult QueryReachableMemo(const OracleFns& o, const std::vector<std::string>& owned,
+                                      std::unordered_map<std::string, ReachResult>& memo) {
     std::string key = CanonicalOwnedKey(owned);
     auto it = memo.find(key);
     if (it != memo.end())
         return it->second;
-    auto reach = std::make_shared<const std::unordered_set<std::string>>(QueryReachable(o, owned));
-    memo.emplace(std::move(key), reach);
-    return reach;
+    // Cache the portal bit with the set: a memo hit runs no search, so reading it later would be stale.
+    ReachResult r{ std::make_shared<const std::unordered_set<std::string>>(QueryReachable(o, owned)), false };
+    r.portalOpen = OraclePortalOpen(o);
+    memo.emplace(std::move(key), r);
+    return r;
 }
 
 // Default win condition: RC_GANON reachable (OOT) AND MM's in-lair check (Majora).
@@ -202,7 +216,8 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
                                               const std::string& sohDumpJson = "", const std::string& mmDumpJson = "",
                                               const std::unordered_map<std::string, std::string>& ootCheckAreas = {},
                                               const std::unordered_map<std::string, std::string>& mmCheckAreas = {},
-                                              GoalPredicate goalReached = DefaultGanonMajoraGoal) {
+                                              GoalPredicate goalReached = DefaultGanonMajoraGoal,
+                                              bool portalGated = true) {
     RequirednessResult result;
     auto placements = ParseSpoilerPlacements(spoilerJson, sohDumpJson, mmDumpJson);
 
@@ -212,7 +227,8 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
 
     // Per-invocation reachability memo (one per oracle): the same owned-set prefixes recur across
     // every counterfactual replay (sphere 0 is identical in all), so caching collapses the repeats.
-    std::unordered_map<std::string, ReachSet> ootMemo, mmMemo;
+    std::unordered_map<std::string, ReachResult> ootMemo, mmMemo;
+    static const auto kEmptyReach = std::make_shared<const std::unordered_set<std::string>>();
 
     // Excludes a SET of placements from ever crediting their items, then sphere-collects everything
     // else from empty until stable. creditedOut (optional) reports what was credited when the run
@@ -222,9 +238,13 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
         std::vector<char> credited(placements.size(), 0);
         ReachSet ootReach, mmReach;
         bool won = false;
+        // Latched: MM stays open once OOT can reach the Happy Mask Shop. Ungated (NO_LOGIC) = open.
+        bool portalOpen = !portalGated;
         for (;;) {
-            ootReach = QueryReachableMemo(ootOracle, ootOwned, ootMemo);
-            mmReach = QueryReachableMemo(mmOracle, mmOwned, mmMemo);
+            auto ootQ = QueryReachableMemo(ootOracle, ootOwned, ootMemo);
+            ootReach = ootQ.reach;
+            portalOpen = portalOpen || ootQ.portalOpen;
+            mmReach = portalOpen ? QueryReachableMemo(mmOracle, mmOwned, mmMemo).reach : kEmptyReach;
             // Test the goal per sphere and stop at the first win: we only break when the goal IS met
             // and never un-credit an item, so an early win is final regardless of oracle monotonicity.
             if (goalReached(*ootReach, *mmReach, ootOwned)) {
@@ -331,10 +351,13 @@ struct PlaythroughResult {
 // tower-top + Boss Key owned; MM uses the in-lair check which already encodes the remains/masks gate).
 // sohDumpJson/mmDumpJson (optional): static-data dumps whose pool[]/fixed[] advancement flags let the
 // text log show only progression items; unknown names default to advancement so nothing is hidden.
+// progressionOnly also drops junk from playthroughOut — for the spoiler. Leave it false for validation:
+// the affordability check needs every step, including junk sitting in a priced shop slot.
 inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const OracleFns& ootOracle,
                                         const OracleFns& mmOracle, const std::string& seedLabel, void (*mmRestore)(),
                                         nlohmann::json* playthroughOut = nullptr, const std::string& sohDumpJson = "",
-                                        const std::string& mmDumpJson = "") {
+                                        const std::string& mmDumpJson = "", bool portalGated = true,
+                                        bool progressionOnly = false) {
     static const char* kOotGanon = "Ganon";           // RC_GANON reachable = OOT beatable (see CrossWorldRando.h)
     static const char* kMmWin = "Moon Majora Pot 01"; // ComboShip: friendly form of RC_MOON_MAJORA_POT_01
 
@@ -354,9 +377,13 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
 
     int beatableSphere = -1;
     const int kMaxSpheres = 200;
+    // Latched: MM stays open once OOT can reach the Happy Mask Shop. Ungated (NO_LOGIC) = open.
+    bool portalOpen = !portalGated;
     for (int sphere = 0; sphere < kMaxSpheres; ++sphere) {
         auto ootReach = queryReachable(ootOracle, ownedOot);
-        auto mmReach = queryReachable(mmOracle, ownedMm);
+        // Portal bit belongs to the OOT query just made; read it before crediting any MM check.
+        portalOpen = portalOpen || OraclePortalOpen(ootOracle);
+        auto mmReach = portalOpen ? queryReachable(mmOracle, ownedMm) : std::unordered_set<std::string>{};
         bool canGanon = ootReach.count(kOotGanon) > 0;
         bool canMajora = mmReach.count(kMmWin) > 0;
         if (canGanon && canMajora) {
@@ -387,12 +414,16 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
             std::string key = (p.checkGame == GAME_OOT ? "oot:" : "mm:") + p.check;
             collected.insert(key);
             (p.itemGame == GAME_OOT ? ownedOot : ownedMm).push_back(p.item);
-            if (playthroughOut)
-                sphereSteps.push_back({ { "game", p.checkGame == GAME_OOT ? "oot" : "mm" },
+            if (playthroughOut && (p.advancement || !progressionOnly)) {
+                nlohmann::json step = { { "game", p.checkGame == GAME_OOT ? "oot" : "mm" },
                                         { "check", p.check },
                                         { "item", p.item },
-                                        { "foreign", p.checkGame != p.itemGame } });
-            // Junk is still collected (and kept in playthroughOut for hints) but not printed.
+                                        { "foreign", p.checkGame != p.itemGame } };
+                if (!progressionOnly)
+                    step["advancement"] = p.advancement; // implied in the spoiler; the validator needs it
+                sphereSteps.push_back(std::move(step));
+            }
+            // Junk is still collected (it drives the traversal) but not printed.
             if (!p.advancement)
                 continue;
             log << "    [" << (p.checkGame == GAME_OOT ? "OOT" : "MM ") << "] " << p.check << "  <-  " << p.item
@@ -408,7 +439,8 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
     for (auto& p : placements)
         (p.itemGame == GAME_OOT ? allOot : allMm).push_back(p.item);
     auto everReachOot = queryReachable(ootOracle, allOot);
-    auto everReachMm = queryReachable(mmOracle, allMm);
+    bool everPortalOpen = OraclePortalOpen(ootOracle);
+    auto everReachMm = everPortalOpen ? queryReachable(mmOracle, allMm) : std::unordered_set<std::string>{};
     result.ganonReachable = everReachOot.count(kOotGanon) > 0;
     result.majoraReachable = everReachMm.count(kMmWin) > 0;
 

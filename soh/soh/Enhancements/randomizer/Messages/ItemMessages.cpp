@@ -234,7 +234,11 @@ void BuildComboForeignMessage(Player* player, CustomMessage& msg) {
     if (rc != RC_UNKNOWN_CHECK) {
         const ComboRando::ForeignItem* fi =
             OOT_LookupForeign(gSaveContext.fileNum, Rando::StaticData::GetLocation(rc)->GetName());
-        if (fi != nullptr && !fi->displayName.empty()) {
+        // ComboShip: a disguised trap keeps lying at pickup, matching OOT's native ice trap and MM's
+        // side (CheckQueue reads the trick name before marking the check obtained).
+        if (fi != nullptr && fi->HasDisguise() && !fi->fakeTrickName.empty()) {
+            name = fi->fakeTrickName;
+        } else if (fi != nullptr && !fi->displayName.empty()) {
             name = fi->displayName;
         }
     }

@@ -573,14 +573,14 @@ comboSkipVisibilityGates:;
     ImGui::SetNextWindowSize(ImVec2(485.0f, 500.0f), ImGuiCond_FirstUseEver);
 
 #ifdef COMBO_BUILD
-    // ComboShip: pin to the main viewport — a window that gets its own viewport is force-rendered
-    // opaque (imgui.cpp RenderWindowDecorations), a black background during the hold-to-swap peek.
-    ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID);
     // Shared "Window type" (gCombo.CheckTracker.WindowType is canonical, see ComboTrackerBridge):
     // floating = borderless overlay like the item tracker; window (default) = the upstream look.
     ImGuiWindowFlags comboWinFlags = ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing;
     if (CVarGetInteger("gCombo.CheckTracker.WindowType", 1) == 0) {
         comboWinFlags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDocking;
+        // ComboShip (#98): pin floating overlays only — their own viewport renders force-opaque (black
+        // during the hold-to-swap peek). Windowed ones stay unpinned so they can leave the main window.
+        ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID);
     }
     // ComboShip: distinct ImGui identity (##MM) so OOT's and MM's check trackers can show together.
     ImGui::Begin("Check Tracker##MM", nullptr, comboWinFlags);

@@ -8,6 +8,10 @@
 //                                                  spoiler to saves/combo/comborando.spoiler.json (count 1)
 //   comborando.exe --playthrough <spoiler.json>    forward-traverse a finished seed to judge beatability
 //
+// Exact-seed repro (generate mode): --settings <consolidated.json> restores that seed's OOT/MM settings
+// and tricks, and --master-seed <n> uses n directly instead of hashing --seed. Together they reproduce a
+// reported seed's generation bit-for-bit, which plain --seed cannot.
+//
 // --playthrough runs two passes, ignoring the seed's No-Logic/Glitchless flag (it always evaluates real
 // gates; permissiveness comes only from tricks): Pass 1 uses the seed's own tricks ("can this player beat
 // it?"); if that sticks, Pass 2 enables every trick to tell "needs more tricks than configured" apart from
@@ -43,6 +47,7 @@ typedef void (*FnOracleVoid)(void);
 typedef void (*FnOracleSetItems)(const char*);
 typedef const char* (*FnOracleGetChecks)(void);
 typedef void (*FnOraclePlaceItem)(const char*, const char*);
+typedef uint8_t (*FnOracleGetPortalOpen)(void); // OOT->MM portal gate (see CrossWorldRando.h)
 
 // Must match ComboShip.cpp's ComboHash (FNV-1a 32-bit) so headless seeds match in-game seeds.
 uint32_t ComboHash(const std::string& s) {
@@ -81,6 +86,9 @@ int main(int argc, char** argv) {
     std::string seed = "1";
     int count = 1;
     std::string playthroughFile;
+    std::string settingsFile; // consolidated spoiler to restore settings/tricks from (exact-seed repro)
+    bool haveMasterSeed = false;
+    uint32_t masterSeedArg = 0;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--seed" && i + 1 < argc)
@@ -89,6 +97,12 @@ int main(int argc, char** argv) {
             count = std::max(1, std::atoi(argv[++i]));
         else if (a == "--playthrough" && i + 1 < argc)
             playthroughFile = argv[++i];
+        else if (a == "--settings" && i + 1 < argc)
+            settingsFile = argv[++i];
+        else if (a == "--master-seed" && i + 1 < argc) {
+            masterSeedArg = static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
+            haveMasterSeed = true;
+        }
     }
 
     HMODULE soh = LoadLibraryA("soh.dll");
@@ -110,6 +124,8 @@ int main(int argc, char** argv) {
     auto SOH_SetSeed = Sym<FnSetSeed>(soh, "SOH_SetComboRandoSeed");
     auto MM_SetSeed = Sym<FnSetSeed>(mm, "MM_SetComboRandoSeed");
     auto SOH_GetForced = Sym<FnGetForced>(soh, "SOH_GetForcedPlacements");
+    // OOT entrance shuffle (#90) — without this the validator checks a vanilla entrance graph.
+    auto SOH_ShuffleEntrances = Sym<int (*)(uint64_t)>(soh, "SOH_ShuffleEntrancesForCombo");
     auto MM_Restore = Sym<FnOracleVoid>(mm, "Combo_MM_Rando_Restore");
     auto SOH_DumpEnabledTricks = Sym<FnDump>(soh, "SOH_DumpEnabledTricks");
     auto SOH_DumpRandoHintData = Sym<FnDump>(soh, "SOH_DumpRandoHintData"); // cross-hint verification
@@ -121,15 +137,16 @@ int main(int argc, char** argv) {
     ComboRando::OracleFns oot{ Sym<FnOracleVoid>(soh, "Combo_SOH_Rando_Reset"),
                                Sym<FnOracleSetItems>(soh, "Combo_SOH_Rando_SetOwnedItems"),
                                Sym<FnOracleGetChecks>(soh, "Combo_SOH_Rando_GetReachableChecks"),
-                               Sym<FnOraclePlaceItem>(soh, "Combo_SOH_Rando_PlaceItem") };
+                               Sym<FnOraclePlaceItem>(soh, "Combo_SOH_Rando_PlaceItem"),
+                               Sym<FnOracleGetPortalOpen>(soh, "Combo_SOH_Rando_GetPortalOpen") };
     ComboRando::OracleFns mmO{ Sym<FnOracleVoid>(mm, "Combo_MM_Rando_Reset"),
                                Sym<FnOracleSetItems>(mm, "Combo_MM_Rando_SetOwnedItems"),
                                Sym<FnOracleGetChecks>(mm, "Combo_MM_Rando_GetReachableChecks"),
                                Sym<FnOraclePlaceItem>(mm, "Combo_MM_Rando_PlaceItem") };
 
     if (!SOH_InitRandoHeadless || !MM_InitRandoHeadless || !SOH_Dump || !MM_Dump || !oot.Reset || !oot.SetOwnedItems ||
-        !oot.GetReachableChecks || !oot.PlaceItem || !mmO.Reset || !mmO.SetOwnedItems || !mmO.GetReachableChecks ||
-        !mmO.PlaceItem) {
+        !oot.GetReachableChecks || !oot.PlaceItem || !oot.GetPortalOpen || !mmO.Reset || !mmO.SetOwnedItems ||
+        !mmO.GetReachableChecks || !mmO.PlaceItem) {
         std::cerr << "[comborando] missing required DLL exports — rebuild soh.dll / 2ship.dll\n";
         return 2;
     }
@@ -224,7 +241,9 @@ int main(int argc, char** argv) {
             };
             mergeFixed(sohDump, "oot");
             mergeFixed(mmDump, "mm");
-            return ComboRando::RunPlaythrough(passFlat.dump(), oot, mmO, label, MM_Restore, ptOut, sohDump, mmDump);
+            return ComboRando::RunPlaythrough(passFlat.dump(), oot, mmO, label, MM_Restore, ptOut, sohDump, mmDump,
+                                              ComboRando::OotAccessFromDump(sohDump) !=
+                                                  ComboRando::OotAccess::NO_LOGIC);
         };
 
         // Affordability canary: re-check every priced purchase in the walk against the wallets held
@@ -237,6 +256,9 @@ int main(int argc, char** argv) {
                 const int owS = ow, mwS = mw; // wallets from earlier spheres only
                 for (const auto& st : sph.value("steps", nlohmann::json::array())) {
                     std::string game = st.value("game", ""), chk = st.value("check", ""), item = st.value("item", "");
+                    // Junk is never required, so an unaffordable junk slot must not fail a beatable seed.
+                    if (!st.value("advancement", true))
+                        continue;
                     if (game == "oot" && ootPrices.contains(chk)) {
                         static const int caps[5] = { 0, 99, 200, 500, 999 };
                         int price = ootPrices[chk].get<int>();
@@ -338,18 +360,42 @@ int main(int argc, char** argv) {
     }
 
     // ---- Generate + validate mode. ----
-    std::cout << "[comborando] validating " << count << " seed(s) from '" << seed << "'\n";
+    // Restore a reported seed's settings so generation matches it; otherwise live CVar defaults apply.
+    if (!settingsFile.empty()) {
+        if (!SOH_RestoreSettings || !MM_RestoreSettings) {
+            std::cerr << "[comborando] --settings needs the settings-restore exports — rebuild soh.dll / 2ship.dll\n";
+            return 2;
+        }
+        try {
+            auto sj = nlohmann::json::parse(ReadFile(settingsFile));
+            const auto& oot = sj.contains("oot") ? sj["oot"] : sj;
+            const auto& mm = sj.contains("mm") ? sj["mm"] : sj;
+            if (oot.contains("settings"))
+                SOH_RestoreSettings(oot["settings"].dump().c_str());
+            if (mm.contains("settings"))
+                MM_RestoreSettings(mm["settings"].dump().c_str());
+            if (SOH_SetEnabledTricks && oot.contains("enabledTricks"))
+                SOH_SetEnabledTricks(oot["enabledTricks"].dump().c_str());
+            std::cout << "[comborando] restored settings from '" << settingsFile << "'\n";
+        } catch (const std::exception& e) {
+            std::cerr << "[comborando] could not read/parse '" << settingsFile << "': " << e.what() << "\n";
+            return 2;
+        }
+    }
+    std::cout << "[comborando] validating " << count << " seed(s) from "
+              << (haveMasterSeed ? "masterSeed " + std::to_string(masterSeedArg) : "'" + seed + "'") << "\n";
     int failures = 0;
     auto t0 = std::chrono::steady_clock::now();
     for (int i = 0; i < count; ++i) {
-        const uint32_t base = ComboHash(seed) + static_cast<uint32_t>(i);
+        const uint32_t base = (haveMasterSeed ? masterSeedArg : ComboHash(seed)) + static_cast<uint32_t>(i);
         uint32_t masterSeed = base;
         std::string sohDump, mmDump, sohHintDump;
         ComboRando::CombinedFillResult r{};
         ComboRando::RequirednessResult pareDownResult; // cross-hint verification (headless mirror of RunComboFill)
         // Whole-fill retries with re-derived seeds, identical to RunComboFill (GAP-4) so a headless
-        // seed reproduces the in-game one even when early attempts fail.
-        for (int attempt = 0; attempt < 5; ++attempt) {
+        // seed reproduces the in-game one even when early attempts fail (shared budget, same header).
+        const int kFillAttempts = ComboRando::kFillAttempts;
+        for (int attempt = 0; attempt < kFillAttempts; ++attempt) {
             masterSeed = base + attempt * 0x9E3779B9u;
             if (SOH_SetSeed)
                 SOH_SetSeed(masterSeed);
@@ -358,9 +404,14 @@ int main(int argc, char** argv) {
             sohDump = SOH_Dump();
             mmDump = MM_Dump();
             std::string forced = SOH_GetForced ? SOH_GetForced(masterSeed) : "";
+            // Same placement as RunComboFill: after the dump/forced read, before the fill, so logic
+            // validates the shuffled world. No-op when the entrance options are off.
+            if (SOH_ShuffleEntrances && !SOH_ShuffleEntrances(masterSeed)) {
+                std::cerr << "[comborando] seed " << masterSeed << ": entrance shuffle found no valid layout\n";
+                continue;
+            }
             ComboRando::OotAccess ootAccess = ComboRando::OotAccessFromDump(sohDump);
-            r = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, oot, mmO, "", nullptr, forced,
-                                                   ootAccess);
+            r = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, oot, mmO, nullptr, forced, ootAccess);
             if (r.success) {
                 // Cross-hint data (Phase 2/3 mirror of RunComboFill, incl. the same area maps so the
                 // WotH/Foolish rollup matches in-game): needs this attempt's still-live oracle session.
@@ -383,7 +434,8 @@ int main(int argc, char** argv) {
                     pareDownResult = ComboRando::PareDownPlaythrough(
                         r.spoilerJson, oot, mmO, nullptr, sohDump, mmDump, ootAreas, mmAreas,
                         ootAccess == ComboRando::OotAccess::NO_LOGIC ? ComboRando::MmOnlyMajoraGoal
-                                                                     : ComboRando::DefaultGanonMajoraGoal);
+                                                                     : ComboRando::DefaultGanonMajoraGoal,
+                        ootAccess != ComboRando::OotAccess::NO_LOGIC);
                 else
                     std::cout << "[comborando]   pare-down skipped (no enabled hint surface needs requiredness)\n";
             }
@@ -391,7 +443,8 @@ int main(int argc, char** argv) {
                 MM_Restore();
             if (r.success)
                 break;
-            std::cerr << "[comborando]   attempt " << (attempt + 1) << "/5 failed: " << r.error << "\n";
+            std::cerr << "[comborando]   attempt " << (attempt + 1) << "/" << kFillAttempts << " failed: " << r.error
+                      << "\n";
         }
         std::string tag = "'" + seed + "'" + (count > 1 ? ("+" + std::to_string(i)) : "");
         if (r.success) {
@@ -439,8 +492,11 @@ int main(int argc, char** argv) {
                                 ootCheckAreas.emplace(std::move(name), std::move(area));
                         }
                     } catch (...) {}
-                    consolidated["foreign"] = ComboRando::BuildForeignArray(
-                        fillSpoiler.value("foreign", nlohmann::json::array()), ootCheckAreas);
+                    auto foreignArr = fillSpoiler.value("foreign", nlohmann::json::array());
+                    ComboRando::AssignTrapDisguises(foreignArr, fillSpoiler.value("oot", nlohmann::json::object()),
+                                                    fillSpoiler.value("mm", nlohmann::json::object()), sohDump, mmDump,
+                                                    masterSeed);
+                    consolidated["foreign"] = ComboRando::BuildForeignArray(foreignArr, ootCheckAreas);
                     // Cross-hint generation (mirrors RunComboFill) — enables the headless determinism check.
                     consolidated["hints"] =
                         ComboRando::Generate(masterSeed, sohDump, sohHintDump, mmDump, consolidated["foreign"],

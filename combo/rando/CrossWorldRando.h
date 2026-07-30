@@ -52,6 +52,9 @@ struct OracleFns {
     void (*SetOwnedItems)(const char*);
     const char* (*GetReachableChecks)(void);
     void (*PlaceItem)(const char*, const char*);
+    // OOT only (null for MM): is the OOT->MM portal region reachable? Valid only immediately after a
+    // GetReachableChecks call, whose owned-set it describes (the DLL piggybacks on that search).
+    uint8_t (*GetPortalOpen)(void) = nullptr;
 };
 
 // ---------- Data types ----------
@@ -79,10 +82,67 @@ inline OotAccess OotAccessFromDump(const std::string& sohDumpJson) {
 // Reuses GameId from CrossForeign.h (GAME_OOT = 0, GAME_MM = 1)
 using Game = GameId;
 
+// Native item category from each game's dump. Governs what may be DISCARDED, independently of
+// `advancement` (which governs which fill phase places it). Only JUNK is ever discardable.
+enum class CwCat { JUNK, LESSER, HEALTH, BOSS_KEY, SMALL_KEY, TOKEN, MAJOR, MASK, STRAY_FAIRY, UNKNOWN };
+
+inline CwCat CwCatFromName(const std::string& s) {
+    if (s == "junk")
+        return CwCat::JUNK;
+    if (s == "lesser")
+        return CwCat::LESSER;
+    if (s == "health")
+        return CwCat::HEALTH;
+    if (s == "bossKey")
+        return CwCat::BOSS_KEY;
+    if (s == "smallKey")
+        return CwCat::SMALL_KEY;
+    if (s == "token")
+        return CwCat::TOKEN;
+    if (s == "major")
+        return CwCat::MAJOR;
+    if (s == "mask")
+        return CwCat::MASK;
+    if (s == "strayFairy")
+        return CwCat::STRAY_FAIRY;
+    return CwCat::UNKNOWN; // older DLL or a new category — never discardable
+}
+
+inline const char* CwCatName(CwCat c) {
+    switch (c) {
+        case CwCat::JUNK:
+            return "junk";
+        case CwCat::LESSER:
+            return "lesser";
+        case CwCat::HEALTH:
+            return "health";
+        case CwCat::BOSS_KEY:
+            return "bossKey";
+        case CwCat::SMALL_KEY:
+            return "smallKey";
+        case CwCat::TOKEN:
+            return "token";
+        case CwCat::MAJOR:
+            return "major";
+        case CwCat::MASK:
+            return "mask";
+        case CwCat::STRAY_FAIRY:
+            return "strayFairy";
+        default:
+            return "unknown";
+    }
+}
+
 struct CwItem {
     Game game;
     std::string name;
     bool advancement;
+    CwCat cat = CwCat::UNKNOWN;
+    // Only native-JUNK may absorb a surplus, and never if it gates logic: OOT files bombchus and
+    // Buy Blue Fire/Arrows as ITEM_CATEGORY_JUNK with advancement=true (item_list.cpp:278-325).
+    bool discardable() const {
+        return cat == CwCat::JUNK && !advancement;
+    }
 };
 
 struct CwCheck {
@@ -103,19 +163,36 @@ struct CombinedFillResult {
     std::string error;
 };
 
-// portalCheckName: the OOT check/region name that gates access to MM (e.g. "Mido's House").
-// If empty, MM is reachable from start.
+// Retry budgets. Pass counts, never wall-clock: a time limit would make success machine-dependent and
+// break seed sharing. kFillAttempts is shared with ComboShip.cpp/ComboRandoHeadless.cpp — headless seeds
+// only reproduce in-game ones while both loops agree.
+// Measured: 25 seeds over 3 adult/Overworld-Keys configs all succeeded on pass 1 with 0 retries, so 6
+// total passes is ~6x headroom while capping the worst-case wait (15 passes was ~3 min).
+constexpr int kFillAttempts = 2;   // whole-fill retries (re-derives the seed, re-rolls the dumps)
+constexpr int kMaxPasses = 3;      // passes within one fill
+constexpr int kMaxPrereqTries = 4; // Tier-1 repicks of just the portal prerequisites
+
+// MM access is gated on the OOT->MM portal region (Happy Mask Shop) via ootOracle.GetPortalOpen.
 // progress: optional thread-safe progress struct polled by the UI. May be nullptr.
 // forcedOotJson: OOT checks the dump can't carry (e.g. Link's Pocket). Each forced item is reserved
 // out of the cross pool, owned-from-start for logic, and appended to the OOT placements.
 inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson, const std::string& mmDumpJson,
                                                  uint32_t masterSeed, const OracleFns& ootOracle,
-                                                 const OracleFns& mmOracle, const std::string& portalCheckName = "",
+                                                 const OracleFns& mmOracle,
                                                  ComboRando::ComboGenProgress* progress = nullptr,
                                                  const std::string& forcedOotJson = "",
                                                  OotAccess ootAccess = OotAccess::ALL_REACHABLE) {
     CombinedFillResult result;
     result.success = false;
+
+    // Portal gate: NO_LOGIC deliberately skips it (an impossible seed is that mode's point). Any other
+    // mode without the export would silently fill MM as sphere-0 reachable — the bug this gate fixes.
+    const bool portalGated = ootAccess != OotAccess::NO_LOGIC;
+    if (portalGated && ootOracle.GetPortalOpen == nullptr) {
+        result.error = "OOT oracle is missing Combo_SOH_Rando_GetPortalOpen — rebuild soh.dll (the OOT->MM "
+                       "portal cannot be gated without it)";
+        return result;
+    }
 
     if (progress)
         progress->phase.store(1); // Preparing pools
@@ -126,6 +203,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     std::vector<CwItem> advItems, junkItems;
     std::vector<CwCheck> allChecks;
     std::vector<CwPlacement> lockedPlacements; // confined pre-placements (own-dungeon keys, etc.)
+
+    // Set when a dump carries pool[] but no category — a stale DLL, which would otherwise surface as an
+    // unbalanceable pool ("no discardable junk") instead of the rebuild it actually needs.
+    std::string missingCategory;
 
     auto parsePool = [&](Game game, const std::string& dumpJson) {
         auto d = nlohmann::json::parse(dumpJson);
@@ -139,25 +220,33 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
 
         // Item pool: the game's real generated pool, split into advancement/junk.
         if (d.contains("pool")) {
+            size_t parsed = 0, withCategory = 0;
             for (auto& it : d["pool"]) {
                 std::string name = it.value("name", "");
                 if (name.empty())
                     continue;
                 bool adv = it.value("advancement", true);
-                (adv ? advItems : junkItems).push_back({ game, name, adv });
+                CwCat cat = CwCatFromName(it.value("category", std::string{}));
+                ++parsed;
+                withCategory += (cat != CwCat::UNKNOWN) ? 1 : 0;
+                (adv ? advItems : junkItems).push_back({ game, name, adv, cat });
             }
+            if (parsed > 0 && withCategory == 0)
+                missingCategory = (game == GAME_OOT ? "soh.dll" : "2ship.dll");
         } else {
-            // Fallback for an older game DLL: reconstruct the pool from per-check vanilla items.
+            // Older DLL: reconstruct from per-check vanilla items — exactly one per check, so the
+            // balancer no-ops. Class non-advancement as junk so a forced reservation can still pad.
             for (auto& c : d.value("checks", nlohmann::json::array())) {
                 std::string vi = c.value("vanillaItem", "");
                 if (vi.empty())
                     continue;
                 bool adv = c.value("advancement", true);
-                (adv ? advItems : junkItems).push_back({ game, vi, adv });
+                (adv ? advItems : junkItems).push_back({ game, vi, adv, adv ? CwCat::UNKNOWN : CwCat::JUNK });
             }
         }
 
-        // Confined pre-placements: locked to their check, credited to logic when reached.
+        // Confined pre-placements: locked to their check, credited to logic when reached. No category —
+        // locked items never enter junkItems, so they are never trim candidates.
         for (auto& f : d.value("fixed", nlohmann::json::array())) {
             std::string check = f.value("check", "");
             std::string item = f.value("item", "");
@@ -174,17 +263,12 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         result.error = std::string("Pool parse error: ") + e.what();
         return result;
     }
-
-    // Portal-key guard: Overworld Keys ON + Force Mask Shop Key OFF under a relaxed mode may strand the
-    // Mask Shop Key (portalCheckName="" can't detect it) → MM unreachable. Warn. See docs/deviations/rando.md.
-    if (ootAccess != OotAccess::ALL_REACHABLE && portalCheckName.empty()) {
-        try {
-            auto a = nlohmann::json::parse(sohDumpJson).value("accessibility", nlohmann::json::object());
-            if (a.value("lockOverworldDoors", false) && !a.value("forceMaskShopKey", false))
-                std::cerr << "[ComboShip] CrossWorldCombinedFill: WARNING — Overworld Keys ON + Force Mask Shop "
-                             "Key OFF under a relaxed OOT mode: the Mask Shop Key's reach-path is not guaranteed "
-                             "(portal ungated); MM may be unreachable. Enable Force Mask Shop Key.\n";
-        } catch (...) {}
+    if (!missingCategory.empty()) {
+        result.error = missingCategory +
+                       " is stale: its pool[] has no per-item `category`, so the fill cannot tell junk from "
+                       "progression and refuses to balance the pool — rebuild soh.dll / 2ship.dll";
+        std::cerr << "[ComboShip] CrossWorldCombinedFill: " << result.error << "\n";
+        return result;
     }
 
     // Forced OOT placements (e.g. Link's Pocket): reserve each item out of the cross pool and treat
@@ -247,19 +331,112 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                         continue;
                     forcedPlacements.push_back({ { GAME_OOT, checkName }, { GAME_OOT, itemName, adv } });
                     ootForcedOwned.push_back(itemName);
-                    // The forced check (Link's Pocket) is an EXTRA location with no vanilla item of
-                    // its own, so reserving an item for it would leave the dump's checks one item
-                    // short (an empty check). Add one OOT junk filler to keep items==checks balanced.
-                    for (size_t qi = 0; qi < junkItems.size(); ++qi) {
-                        if (junkItems[qi].game == GAME_OOT) {
-                            CwItem filler = junkItems[qi]; // copy before push_back (may reallocate)
-                            junkItems.push_back(filler);
-                            break;
-                        }
-                    }
+                    // No filler: Link's Pocket isn't in checks[], so reserving its item is already
+                    // balanced. The old filler left a permanent +1 surplus Phase B silently discarded.
                 }
             }
         } catch (...) {}
+    }
+
+    // --- Balance each game's pool against its checks: P_g == C_g ---
+    // Both generators over-supply on purpose and the over-supply is PROGRESSION, so only junk may be
+    // sacrificed. RNG-free and ahead of `rng`, so it can't shift the stream. See deviations/rando.md.
+    size_t trimmedTotal = 0, paddedTotal = 0;
+    {
+        auto countFor = [](const std::vector<CwItem>& v, Game g) {
+            return static_cast<size_t>(std::count_if(v.begin(), v.end(), [g](const CwItem& i) { return i.game == g; }));
+        };
+        std::string balanceLine;
+        std::vector<std::string> trimNotes;
+        for (Game g : { GAME_OOT, GAME_MM }) {
+            const char* tag = (g == GAME_OOT ? "oot" : "mm");
+            const size_t checkCount = static_cast<size_t>(
+                std::count_if(allChecks.begin(), allChecks.end(), [g](const CwCheck& c) { return c.game == g; }));
+            const size_t itemCount = countFor(advItems, g) + countFor(junkItems, g);
+            size_t trimmed = 0, padded = 0;
+
+            if (itemCount > checkCount) {
+                // Most-duplicated discardable name first, (count desc, name asc) — a total order, so
+                // hash iteration order can't leak in. Sheds bulk filler, keeps the last of rarer junk.
+                const size_t surplus = itemCount - checkCount;
+                std::unordered_map<std::string, int> avail;
+                for (const auto& i : junkItems)
+                    if (i.game == g && i.discardable())
+                        ++avail[i.name];
+                std::unordered_map<std::string, int> remove;
+                for (size_t k = 0; k < surplus; ++k) {
+                    const std::string* best = nullptr;
+                    int bestCount = 0;
+                    for (const auto& [n, c] : avail) {
+                        if (c <= 0)
+                            continue;
+                        if (!best || c > bestCount || (c == bestCount && n < *best)) {
+                            best = &n;
+                            bestCount = c;
+                        }
+                    }
+                    if (!best) {
+                        result.error = std::string("cannot balance the ") + tag +
+                                       " pool: " + std::to_string(surplus - k) +
+                                       " surplus item(s) left and no discardable junk remains; only junk may be "
+                                       "discarded, so refusing to drop anything else";
+                        std::cerr << "[ComboShip] CrossWorldCombinedFill: " << result.error << "\n";
+                        return result;
+                    }
+                    --avail[*best];
+                    ++remove[*best];
+                }
+                for (const auto& [n, c] : remove)
+                    trimNotes.push_back(std::string(tag) + " junk: " + n + " x" + std::to_string(c));
+                // Single pass: drop exactly `remove[name]` instances of each chosen junk name.
+                std::vector<CwItem> kept;
+                kept.reserve(junkItems.size());
+                for (auto& i : junkItems) {
+                    auto it = (i.game == g && i.discardable()) ? remove.find(i.name) : remove.end();
+                    if (it != remove.end() && it->second > 0) {
+                        --it->second;
+                        ++trimmed;
+                        continue;
+                    }
+                    kept.push_back(std::move(i));
+                }
+                junkItems = std::move(kept);
+            } else if (itemCount < checkCount) {
+                // Clone one of THIS game's junk items so no check goes itemless. Never clone the other
+                // game's: the name wouldn't resolve in this game's apply path (a silent empty check).
+                const size_t deficit = checkCount - itemCount;
+                const CwItem* src = nullptr;
+                for (const auto& i : junkItems)
+                    if (i.game == g && i.discardable()) {
+                        src = &i;
+                        break;
+                    }
+                if (!src) {
+                    result.error = std::string("cannot balance the ") + tag + " pool: " + std::to_string(deficit) +
+                                   " check(s) short and no " + tag + " junk to clone";
+                    std::cerr << "[ComboShip] CrossWorldCombinedFill: " << result.error << "\n";
+                    return result;
+                }
+                CwItem filler = *src; // copy before push_back (may reallocate)
+                for (size_t k = 0; k < deficit; ++k)
+                    junkItems.push_back(filler);
+                padded = deficit;
+                std::cout << "[ComboShip] CrossWorldCombinedFill: " << tag << " pool was " << deficit
+                          << " item(s) short of its checks; padded with junk ('" << filler.name
+                          << "') — benign if a forced placement reserved an item, else the dump under-filled\n";
+            }
+
+            trimmedTotal += trimmed;
+            paddedTotal += padded;
+            balanceLine += std::string(balanceLine.empty() ? "" : ", ") + tag +
+                           " items=" + std::to_string(countFor(advItems, g) + countFor(junkItems, g)) +
+                           "/checks=" + std::to_string(checkCount) + " (trimmed " + std::to_string(trimmed) +
+                           ", padded " + std::to_string(padded) + ")";
+        }
+        std::cout << "[ComboShip] CrossWorldCombinedFill: pool balance — " << balanceLine << " (forced "
+                  << forcedPlacements.size() << ")\n";
+        for (const auto& n : trimNotes)
+            std::cout << "[ComboShip] CrossWorldCombinedFill:     trimmed " << n << "\n";
     }
 
     CwRng rng(masterSeed);
@@ -305,6 +482,100 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         return out;
     };
 
+    // OOT-only, portal SHUT: nothing assumed from the free pool, MM never queried. Credits a placement
+    // only once its check is reachable — reachableFixpoint's rule, so this can't certify what it rejects.
+    struct OotClosedResult {
+        std::unordered_set<std::string> reach;
+        bool portalOpen = false;
+    };
+    auto ootClosedFixpoint = [&](const std::vector<CwPlacement>& pl,
+                                 const std::vector<std::string>& extraOwned) -> OotClosedResult {
+        std::vector<std::string> owned = ootForcedOwned;
+        owned.insert(owned.end(), extraOwned.begin(), extraOwned.end());
+        std::vector<bool> credited(pl.size(), false);
+        OotClosedResult r;
+        for (;;) {
+            r.reach = queryReachable(ootOracle, owned);
+            r.portalOpen = r.portalOpen || ootOracle.GetPortalOpen == nullptr || ootOracle.GetPortalOpen() != 0;
+            bool changed = false;
+            for (size_t i = 0; i < pl.size(); ++i) {
+                if (credited[i] || pl[i].check.game != GAME_OOT || pl[i].item.game != GAME_OOT)
+                    continue;
+                if (r.reach.count(pl[i].check.name)) {
+                    owned.push_back(pl[i].item.name);
+                    credited[i] = true;
+                    changed = true;
+                }
+            }
+            if (!changed)
+                return r;
+        }
+    };
+
+    // Portal prerequisites: a SUFFICIENT witness set for the OOT->MM portal, built FORWARD from empty.
+    // RNG-free (canonical order) so it can't shift the seeded stream. See docs/deviations/rando.md.
+    std::vector<std::string> portalPrereqs;
+    if (portalGated) {
+        // Each probe is a fixpoint (several queries), so this bounds queries, not probes.
+        const int kMaxDeriveQueries = 1500;
+        const uint32_t queries0 = ootStats.count;
+        int used = 0;
+        auto portalOpenWith = [&](const std::vector<std::string>& owned) {
+            bool open = ootClosedFixpoint(lockedPlacements, owned).portalOpen;
+            used = static_cast<int>(ootStats.count - queries0);
+            return open;
+        };
+        const std::vector<std::string> base; // free pool only; locked items earn their way in by reach
+        std::vector<std::string> rest;
+        for (const auto& it : advItems)
+            if (it.game == GAME_OOT)
+                rest.push_back(it.name);
+        std::sort(rest.begin(), rest.end());
+
+        std::vector<std::string> witness;
+        auto ownedWith = [&](size_t k) {
+            std::vector<std::string> o = base;
+            o.insert(o.end(), witness.begin(), witness.end());
+            o.insert(o.end(), rest.begin(), rest.begin() + k);
+            return o;
+        };
+        if (portalOpenWith(base)) {
+            std::cout << "[ComboShip] CrossWorldCombinedFill: portal open from the start — no prerequisites\n";
+        } else if (!portalOpenWith(ownedWith(rest.size()))) {
+            // Tier 3: warn loudly, try anyway — a derivation bug must not block a config that generates.
+            std::cerr << "[ComboShip] CrossWorldCombinedFill: WARNING — the OOT->MM portal looks unreachable even "
+                         "with every OOT item owned; generating anyway, MM may end up unreachable\n";
+        } else {
+            // Bisect `rest` for the item that flips the portal, add it, drop everything after it, repeat.
+            while (used < kMaxDeriveQueries && !rest.empty()) {
+                size_t lo = 0, hi = rest.size(); // portal closed at lo, open at hi
+                while (hi - lo > 1 && used < kMaxDeriveQueries) {
+                    size_t mid = lo + (hi - lo) / 2;
+                    if (portalOpenWith(ownedWith(mid)))
+                        hi = mid;
+                    else
+                        lo = mid;
+                }
+                witness.push_back(rest[hi - 1]);
+                rest.resize(hi - 1);
+                if (portalOpenWith(ownedWith(0)))
+                    break;
+            }
+            if (used >= kMaxDeriveQueries) {
+                std::cerr << "[ComboShip] CrossWorldCombinedFill: WARNING — portal prerequisite derivation exceeded "
+                             "its "
+                          << kMaxDeriveQueries << "-query budget; falling back to an unconstrained fill\n";
+            } else {
+                portalPrereqs = witness;
+                std::cout << "[ComboShip] CrossWorldCombinedFill: portal prerequisites (" << portalPrereqs.size()
+                          << ", " << used << " queries):";
+                for (const auto& n : portalPrereqs)
+                    std::cout << " " << n;
+                std::cout << "\n";
+            }
+        }
+    }
+
     // Cross-game sphere-collect fixpoint: starting from the per-game base sets (unplaced
     // advancement items), repeatedly query both oracles and credit any prior placement whose
     // CHECK became reachable to the ITEM's game's owned set, until nothing changes. This spans
@@ -325,9 +596,13 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         mmOwned.insert(mmOwned.end(), mmForcedOwned.begin(), mmForcedOwned.end());
         std::vector<bool> credited(placements.size(), false);
         std::unordered_set<std::string> ootReachable, mmReachable;
+        bool portalOpen = !portalGated; // latched: once OOT can reach the portal it stays open
         for (;;) {
             ootReachable = queryReachable(ootOracle, ootOwned);
-            bool portalOpen = portalCheckName.empty() || ootReachable.count(portalCheckName) > 0;
+            // Read the portal off THIS OOT query, before any MM check is credited below — that ordering
+            // is what stops the fill proving the portal with an item that lives behind it.
+            if (!portalOpen)
+                portalOpen = ootOracle.GetPortalOpen() != 0;
             mmReachable = portalOpen ? queryReachable(mmOracle, mmOwned) : std::unordered_set<std::string>{};
             bool changed = false;
             for (size_t i = 0; i < placements.size(); ++i) {
@@ -354,10 +629,25 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
 
     // --- Assumed fill of advancement items, then junk fast-fill; retry whole passes on dead
     // ends or failed validation (deterministic: one rng stream continues across passes) ---
-    const int kMaxPasses = 10;
     std::unordered_set<std::string> filledChecks; // checkKey()-keyed
     bool fillOk = false;
     int passesUsed = 0;
+    std::string lastPassError; // names the terminal cause instead of a generic "fill failed"
+
+    // Expected post-balance multiset, for the per-pass backstop below: every pool item must reach
+    // `placements`. This is the assertion that catches item loss from ANY cause, not just truncation.
+    std::unordered_map<std::string, int> expectedItems;
+    struct ExpectedInfo {
+        CwCat cat;
+        bool discardable;
+    };
+    std::unordered_map<std::string, ExpectedInfo> expectedInfo;
+    for (const auto* src : { &advItems, &junkItems })
+        for (const auto& i : *src) {
+            const std::string key = std::string(i.game == GAME_OOT ? "oot:" : "mm:") + i.name;
+            ++expectedItems[key];
+            expectedInfo[key] = { i.cat, i.discardable() };
+        }
 
     for (int pass = 1; pass <= kMaxPasses && !fillOk; ++pass) {
         passesUsed = pass;
@@ -375,15 +665,67 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         for (const auto& lp : lockedPlacements)
             filledChecks.insert(checkKey(lp.check));
 
+        // Phase A0: portal prerequisites FIRST, into portal-closed-reachable checks, each chosen RANDOMLY
+        // across the whole valid set (variety comes from the choice, not the ordering).
+        std::vector<CwItem> advRest = advItems;
+        bool prereqOk = portalPrereqs.empty();
+        for (int t = 1; t <= kMaxPrereqTries && !prereqOk; ++t) {
+            placements = lockedPlacements;
+            filledChecks.clear();
+            for (const auto& lp : lockedPlacements)
+                filledChecks.insert(checkKey(lp.check));
+            advRest = advItems;
+            std::vector<CwItem> prereq; // one pool instance per witness name
+            for (const auto& name : portalPrereqs) {
+                for (size_t i = 0; i < advRest.size(); ++i) {
+                    if (advRest[i].game == GAME_OOT && advRest[i].name == name) {
+                        prereq.push_back(advRest[i]);
+                        advRest.erase(advRest.begin() + i);
+                        break;
+                    }
+                }
+            }
+            cwShuffle(prereq, rng);
+            bool placedAll = true;
+            for (const auto& item : prereq) {
+                auto fr = ootClosedFixpoint(placements, {});
+                std::vector<size_t> cands;
+                for (size_t ci = 0; ci < allChecks.size(); ++ci) {
+                    if (allChecks[ci].game != GAME_OOT || filledChecks.count(checkKey(allChecks[ci])))
+                        continue;
+                    if (fr.reach.count(allChecks[ci].name))
+                        cands.push_back(ci);
+                }
+                if (cands.empty()) {
+                    placedAll = false;
+                    break;
+                }
+                size_t pick = cands[rng.below(static_cast<uint32_t>(cands.size()))];
+                placements.push_back({ allChecks[pick], item });
+                filledChecks.insert(checkKey(allChecks[pick]));
+            }
+            prereqOk = placedAll && ootClosedFixpoint(placements, {}).portalOpen;
+            if (!prereqOk)
+                std::cerr << "[ComboShip] CrossWorldCombinedFill: portal still closed after prerequisite placement "
+                             "(pass "
+                          << pass << ", try " << t << "/" << kMaxPrereqTries << ") — repicking\n";
+        }
+        if (!prereqOk) {
+            lastPassError = "the OOT->MM portal's prerequisites could not be placed within reach of the start";
+            std::cerr << "[ComboShip] CrossWorldCombinedFill: " << lastPassError << " (pass " << pass << ", "
+                      << passMs() << " ms) — retrying\n";
+            continue;
+        }
+
         // Phase A: place advancement items with logic, assuming only UNPLACED ones are owned. NO_LOGIC
-        // assumed-fills only MM adv (OOT adv rides Phase B junk); other modes keep advItems unreordered.
+        // assumed-fills only MM adv (OOT adv rides Phase B's fast fill); other modes keep advItems as-is.
         std::vector<CwItem> toPlace;
         if (ootAccess == OotAccess::NO_LOGIC) {
-            for (const auto& it : advItems)
+            for (const auto& it : advRest)
                 if (it.game == GAME_MM)
                     toPlace.push_back(it);
         } else {
-            toPlace = advItems;
+            toPlace = advRest;
         }
         std::vector<CwItem> relaxedToJunk; // OOT adv stranded off-path under BEATABLE_ONLY dead-ends
         cwShuffle(toPlace, rng);
@@ -448,6 +790,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                     batchCap = batch.size() / 2; // too conservative at this depth — shrink
                     continue;
                 }
+                lastPassError = "dead end placing '" + batch.front().name + "' (no reachable check left for it)";
                 std::cerr << "[ComboShip] CrossWorldCombinedFill: dead end placing '" << batch.front().name
                           << "' (pass " << pass << ", " << placements.size() << " placed, " << passMs()
                           << " ms) — retrying\n";
@@ -471,27 +814,99 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         if (deadEnd)
             continue;
 
-        // Phase B: junk fast-fill into the remaining checks — zero oracle calls. Relaxed OOT
-        // advancement (NO_LOGIC: all OOT adv; BEATABLE_ONLY: stranded dead-end items) rides this
-        // stream — placed without logic, tolerated-if-unreachable by the mode-aware validation below.
-        std::vector<CwItem> junkToPlace = junkItems;
+        // Phase B: fast-fill the remaining checks — zero oracle calls. Holds junk AND relaxed OOT
+        // advancement, placed without logic and tolerated-if-unreachable by the validation below.
+        std::vector<CwItem> fastFillItems = junkItems;
         if (ootAccess == OotAccess::NO_LOGIC) {
-            for (const auto& it : advItems)
+            for (const auto& it : advRest)
                 if (it.game == GAME_OOT)
-                    junkToPlace.push_back(it);
+                    fastFillItems.push_back(it);
         }
-        junkToPlace.insert(junkToPlace.end(), relaxedToJunk.begin(), relaxedToJunk.end());
-        cwShuffle(junkToPlace, rng);
+        fastFillItems.insert(fastFillItems.end(), relaxedToJunk.begin(), relaxedToJunk.end());
+        cwShuffle(fastFillItems, rng);
+        // Advancement to the front so the truncatable tail is junk by construction. stable_partition is
+        // RNG-free, so the shuffle above still decides placement; only adv/junk precedence is forced.
+        auto dropFrom = std::stable_partition(fastFillItems.begin(), fastFillItems.end(),
+                                              [](const CwItem& i) { return i.advancement; });
+        const size_t mustPlace = static_cast<size_t>(dropFrom - fastFillItems.begin());
         size_t ji = 0;
-        for (size_t ci = 0; ci < allChecks.size() && ji < junkToPlace.size(); ++ci) {
+        for (size_t ci = 0; ci < allChecks.size() && ji < fastFillItems.size(); ++ci) {
             if (filledChecks.count(checkKey(allChecks[ci])))
                 continue;
-            placements.push_back({ allChecks[ci], junkToPlace[ji++] });
+            placements.push_back({ allChecks[ci], fastFillItems[ji++] });
             filledChecks.insert(checkKey(allChecks[ci]));
         }
-        if (ji < junkToPlace.size()) {
-            std::cerr << "[ComboShip] CrossWorldCombinedFill: pool/check mismatch — " << (junkToPlace.size() - ji)
-                      << " junk items left over\n";
+        // The balancer made items == checks per game, so ANY leftover or unfilled check is an
+        // arithmetic bug — nothing is discarded here. Non-junk leftovers are named first: they are the
+        // rule-1 violations, and mislabelling one as junk is how the original item loss stayed hidden.
+        size_t unfilled = 0;
+        for (const auto& c : allChecks)
+            if (!filledChecks.count(checkKey(c)))
+                ++unfilled;
+        size_t leftoverBad = 0;
+        std::string leftoverNames;
+        for (size_t k = ji; k < fastFillItems.size(); ++k) {
+            if (fastFillItems[k].discardable())
+                continue;
+            ++leftoverBad;
+            if (leftoverNames.size() < 300)
+                leftoverNames += (leftoverNames.empty() ? "" : ", ") + fastFillItems[k].name + " [" +
+                                 (fastFillItems[k].game == GAME_OOT ? "oot/" : "mm/") +
+                                 CwCatName(fastFillItems[k].cat) + "]";
+        }
+        if (ji < fastFillItems.size() || unfilled > 0) {
+            // Layout-independent arithmetic, identical on every pass — bail to the caller's seed reroll
+            // instead of burning kMaxPasses reproducing the same wrong answer.
+            result.error = "pool/check imbalance — " + std::to_string(fastFillItems.size() - ji) +
+                           " item(s) had no check left (" + std::to_string(leftoverBad) + " non-junk" +
+                           (leftoverNames.empty() ? "" : ": " + leftoverNames) + "), " + std::to_string(unfilled) +
+                           " check(s) unfilled, placed " + std::to_string(ji) + " of which " +
+                           std::to_string(mustPlace) + " were must-place";
+            std::cerr << "[ComboShip] CrossWorldCombinedFill: " << result.error << "\n";
+            return result;
+        }
+
+        // Backstop: every pool item must have landed somewhere. O(n), no oracle calls, and ahead of the
+        // validation fixpoint so a validation retry can't mask it. Non-JUNK residue is the headline.
+        {
+            auto residual = expectedItems;
+            size_t unexpected = 0;
+            for (const auto& p : placements) {
+                if (lockedCheckKeys.count(checkKey(p.check)))
+                    continue;
+                auto it = residual.find(std::string(p.item.game == GAME_OOT ? "oot:" : "mm:") + p.item.name);
+                if (it == residual.end())
+                    ++unexpected; // placed an item that was never in the pool
+                else
+                    --it->second;
+            }
+            size_t missingBad = 0, missingJunk = 0, overPlaced = 0;
+            std::string missingNames;
+            for (const auto& [key, n] : residual) {
+                if (n < 0) {
+                    overPlaced += static_cast<size_t>(-n);
+                    continue;
+                }
+                if (n == 0)
+                    continue;
+                // Classify by the same predicate the trim uses, so an advancement item that happens to
+                // be category JUNK (OOT bombchus, Buy Blue Fire) is reported as a real loss, not filler.
+                const auto info =
+                    expectedInfo.count(key) ? expectedInfo.at(key) : ExpectedInfo{ CwCat::UNKNOWN, false };
+                (info.discardable ? missingJunk : missingBad) += static_cast<size_t>(n);
+                if (!info.discardable && missingNames.size() < 300)
+                    missingNames += (missingNames.empty() ? "" : ", ") + key + " x" + std::to_string(n) + " [" +
+                                    CwCatName(info.cat) + "]";
+            }
+            if (missingBad > 0 || missingJunk > 0 || overPlaced > 0 || unexpected > 0) {
+                result.error = missingBad > 0
+                                   ? std::to_string(missingBad) + " non-junk pool item(s) never placed: " + missingNames
+                                   : std::to_string(missingJunk) + " junk never placed, " + std::to_string(overPlaced) +
+                                         " over-placed, " + std::to_string(unexpected) +
+                                         " not from the pool (balancer arithmetic bug)";
+                std::cerr << "[ComboShip] CrossWorldCombinedFill: INVARIANT VIOLATED — " << result.error << "\n";
+                return result;
+            }
         }
 
         // Validation: with nothing assumed, sphere-collecting placed items must reach every
@@ -539,10 +954,27 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                                   : goalOk                              ? " goal=ok"
                                            : " goal=UNBEATABLE(ganon=" + std::to_string(ootWin) +
                                                  " majora=" + std::to_string(mmWin) + ")";
+            lastPassError = "validation failed — mmAdvUnreachable=" + std::to_string(mmAdvUnreachable) +
+                            " ootAdvUnreachable=" + std::to_string(ootAdvUnreachable) + goalStr +
+                            (mmAdvUnreachable > 0 ? " (MM items stranded: the portal closed mid-fill)" : "");
             std::cerr << "[ComboShip] CrossWorldCombinedFill: validation failed — mmAdvUnreachable=" << mmAdvUnreachable
                       << " ootAdvUnreachable=" << ootAdvUnreachable << goalStr << " (pass " << pass << ", " << passMs()
                       << " ms) — retrying\n";
             continue;
+        }
+        // ALL_REACHABLE covers every check, not just advancement ones: a junk-holding check the oracle
+        // can't reach still violates it. Entrance shuffle is what makes this reachable in practice, and
+        // it's layout-driven (the same seed strands the same checks under a completely different item
+        // distribution), so re-placing items can't fix it — bail to the caller's seed reroll rather
+        // than burn the remaining passes. MM is excluded: its oracle under-models 3 checks on every
+        // seed, so enforcing there would fail everything.
+        if (ootAccess == OotAccess::ALL_REACHABLE && junkUnreachableOot > 0) {
+            std::cerr << "[ComboShip] CrossWorldCombinedFill: " << junkUnreachableOot
+                      << " OOT check(s) unreachable under All Locations Reachable (pass " << pass
+                      << ") — rerolling seed\n";
+            result.error = "OOT All Locations Reachable violated (" + std::to_string(junkUnreachableOot) +
+                           " unreachable checks) — reroll for a new entrance layout";
+            return result;
         }
         if (ootAdvUnreachable > 0)
             std::cout << "[ComboShip] CrossWorldCombinedFill: " << ootAdvUnreachable
@@ -552,7 +984,8 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                   << " advancement items reachable from scratch (pass " << pass << ", " << passMs() << " ms; "
                   << junkItems.size() << " junk, " << junkUnreachable
                   << " junk on oracle-unreachable checks [oot=" << junkUnreachableOot
-                  << " mm=" << (junkUnreachable - junkUnreachableOot) << "])\n";
+                  << " mm=" << (junkUnreachable - junkUnreachableOot) << "]; pool balanced: " << trimmedTotal
+                  << " trimmed, " << paddedTotal << " padded)\n";
         std::cout << "[ComboShip] CrossWorldCombinedFill: oracle queries — oot " << ootStats.count << "x/"
                   << ootStats.ms << " ms, mm " << mmStats.count << "x/" << mmStats.ms << " ms\n";
         fillOk = true;
@@ -560,7 +993,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
 
     if (!fillOk) {
         result.error = "assumed fill failed after " + std::to_string(kMaxPasses) +
-                       " passes (dead ends or unreachable checks; see log)";
+                       " passes; last cause: " + (lastPassError.empty() ? "unknown (see log)" : lastPassError);
         return result;
     }
 
@@ -581,8 +1014,12 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     nlohmann::json spoiler;
     spoiler["masterSeed"] = masterSeed;
     spoiler["mode"] = "combined-logic assumed-fill";
+    // poolTrimmed/poolPadded let a shipped spoiler self-report that it came from a balanced fill.
     spoiler["fillStats"] = { { "advancementItems", static_cast<uint32_t>(advItems.size()) },
                              { "junkItems", static_cast<uint32_t>(junkItems.size()) },
+                             { "poolTrimmed", static_cast<uint32_t>(trimmedTotal) },
+                             { "poolPadded", static_cast<uint32_t>(paddedTotal) },
+                             { "checks", static_cast<uint32_t>(allChecks.size()) },
                              { "passes", passesUsed } };
 
     nlohmann::json ootPlacements = nlohmann::json::object();
@@ -667,6 +1104,10 @@ inline std::string CrossWorldGenerateSpoiler(const std::string& sohDumpJson, con
             std::vector<std::string> shuffled = poolItems;
             CwRng rng(seed);
             cwShuffle(shuffled, rng);
+            // Same silent-truncation shape as the real fill had; this path only runs with no oracles.
+            if (shuffled.size() != checkNames.size())
+                std::cerr << "[ComboShip] CrossWorldGenerateSpoiler: " << key << " pool/check mismatch — "
+                          << shuffled.size() << " items vs " << checkNames.size() << " checks\n";
             for (size_t i = 0; i < checkNames.size() && i < shuffled.size(); ++i) {
                 out[checkNames[i]] = shuffled[i];
             }

@@ -526,10 +526,11 @@ comboSkipVisibilityGates:;
     if (!shouldWindowSplit) {
         ImGui::PushStyleColor(ImGuiCol_WindowBg, windowBg);
 #ifdef COMBO_BUILD
-        // ComboShip: pin to the main viewport (like OOT's BeginFloatingWindows). A window that gets
-        // its own viewport is force-rendered opaque (imgui.cpp RenderWindowDecorations), which
-        // showed as a black tracker background during the hold-to-swap gesture.
-        ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID);
+        // ComboShip (#98): pin floating overlays only, as OOT's BeginFloatingWindows does — their own
+        // viewport renders force-opaque (black during hold-to-swap). Windowed ones must stay unpinned
+        // or they can never leave the main window.
+        if (!CVarGetInteger("gSettings.ItemTracker.WindowType", 0))
+            ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID);
         // ComboShip: distinct ImGui identity (##MM) so OOT's and MM's item trackers can show together.
         singleWindowOpen = ImGui::Begin("Item Tracker##MM", nullptr, windowFlags);
 #else
@@ -551,7 +552,8 @@ comboSkipVisibilityGates:;
             std::string name = std::string(group.name) + "##" + std::to_string(index);
 #ifdef COMBO_BUILD
             name += "MM"; // distinct ImGui identity vs OOT's split-group windows
-            ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID); // same pin as the single window
+            if (!CVarGetInteger("gSettings.ItemTracker.WindowType", 0)) // same floating-only pin as above
+                ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID);
 #endif
             isWindowOpen = ImGui::Begin(name.c_str(), nullptr, windowFlags);
         } else {

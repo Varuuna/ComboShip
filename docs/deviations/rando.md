@@ -273,11 +273,72 @@ keys/boss keys, dungeon rewards, restricted songs, MM stray fairies), shuffling 
   placements are seeded into `placements`/`filledChecks` each pass so `reachableFixpoint` credits them
   when their check is reached (collected-in-place, unlike owned-from-start Link's Pocket).
 
-**Invariant:** `pool.size() >= checks.size()` for both games — surplus is junk (excluded-location
-fills, MM overflow) that the cross fill drops; a shortfall (`pool < checks`) would leave checks
-unfilled and is warned. Shuffled shopsanity slots aren't in `itemPool` (`CountEmptyLocations(false)`
-excludes shops), so the OOT dump adds each shuffled shop slot's vanilla buy item to `pool[]`. Link's
-Pocket is excluded from the dump entirely — it stays owned by `SOH_GetForcedPlacements`.
+**Invariant (corrected 2026-07-29 — see "Pool/check balance" below):** the combo fill enforces
+`items == checks` PER GAME. The dumps deliberately over-supply and the over-supply is **progression**,
+not junk, so reconciling it means sacrificing junk to make room. Shuffled shopsanity slots aren't in
+`itemPool` (`CountEmptyLocations(false)` excludes shops), so the OOT dump adds each shuffled shop slot's
+vanilla buy item to `pool[]`. Link's Pocket is excluded from the dump entirely — it stays owned by
+`SOH_GetForcedPlacements`, which reserves its item out of `pool[]`.
+
+## Pool/check balance: only JUNK may ever be discarded (2026-07-29)
+
+**The bug this replaced.** The old invariant above read "*`pool.size() >= checks.size()` … surplus is
+junk … that the cross fill drops*". That premise was false, and it made a truncating `for` loop look
+safe. A reported seed (masterSeed 1568694522, No Logic both games, ALR on) silently lost three OOT
+advancement items — `Volvagia's Soul`, `Nocturne of Shadow`, `Water Temple Boss Key` — leaving
+`Volvagia` (Goron's Ruby), `Fire Temple Volvagia Heart Container` and the Water Temple reward
+permanently unobtainable while generation reported success.
+
+**Why the pool exceeds the checks.** Both generators add items that have no vanilla location *precisely
+because they are special*, and every one is progression:
+- MM (`Rando/Logic/GeneratePools.cpp`): progressive sword `:158`, hero shield `:159`, boss souls
+  `:164-171`, enemy souls `:174-178`, clock items `:181-196`, swim `:199-201`, progressive wallet `:226`,
+  **20x `RI_TRIFORCE_PIECE`** `:230-236`, skeleton key `:238` (+27), minus starting items whose locations
+  remain `:281-287` (−18) = **+9**. Excluded checks (`:139-149`) push the item but not the check: +1 each.
+  2Ship reconciles in `MiscBehavior/OnFileCreate.cpp:91-137`; the dump only mirrored the pad direction.
+- OOT: `ComboFillConfined` runs `FillExcludedLocations()` (`fill.cpp:1565`), which places a *fresh*
+  `GetJunkItem()` so the location moves to `fixed[]` while its pool item stays (+1 each); plus
+  `RC_LINKS_POCKET`, counted in `locCount` but omitted from `checks[]` (+1). Stock soh discards its
+  leftover safely at `fill.cpp:1505` only because `:1497-1499` extracts every `IsAdvancement()` item first.
+
+**The rules.**
+1. **Only items whose native category is `JUNK` may be discarded** — never advancement, hearts, masks,
+   keys or tokens. If the surplus can't be absorbed by `JUNK` alone, generation fails loudly.
+2. **No Logic constrains PLACEMENT, never MEMBERSHIP.** It may put any item on any check, including
+   unreachable ones (validation tolerates that outside `ALL_REACHABLE`). It is never licence to omit an
+   item. "Anywhere" is not "nowhere".
+
+**Implementation.**
+- `pool[]` entries now carry `category` (`OTRGlobals.cpp` `comboCategory`, `BenPort.cpp` `categoryName`)
+  — a stable string from each game's own taxonomy (OOT `GetItemCategory`, MM `RandoItemType`), which are
+  the same 7 categories modulo MM's `mask`/`strayFairy`. The old single `advancement` bool fused junk with
+  hearts and traps, so "only junk" was not expressible; `advancement` is retained as the orthogonal axis
+  (it selects the fill *phase*, not discardability). Unknown/absent category => never discardable.
+- `CrossWorldRando.h` balances per game after the forced-placement block, before `CwRng rng(masterSeed)`:
+  trims surplus `JUNK` most-duplicated-name-first (RNG-free, so the seeded stream can't shift), pads a
+  deficit with cloned junk, hard-fails if `JUNK` runs out. Per-game rather than global on purpose: under
+  global-only an OOT surplus and an MM deficit cancel and the defect stays invisible.
+- Phase B's stream is `fastFillItems` (it holds junk *and* relaxed OOT advancement; the old name
+  `junkToPlace` asserted the discarded tail was junk while it discarded a boss key). A `stable_partition`
+  puts advancement ahead of junk with a named `mustPlace` boundary, so the truncatable tail is junk by
+  construction. This does not narrow No Logic's freedom: `allChecks` is the uniformly shuffled sequence,
+  so advancement still takes a uniformly random subset of the free checks.
+- Any leftover that isn't `JUNK`, any unfilled check, or `ji < mustPlace` is a hard failure (returns
+  `!success` -> the caller's `kFillAttempts` reroll -> a loud user-visible error), not a warning.
+- Post-fill backstop: the full pool multiset must appear in `placements`, checked per pass ahead of the
+  validation fixpoint. Non-`JUNK` residue is reported by name — this is the assertion that would have
+  named the three lost items. Guards key on **category**, never on `advancement`: a Heart Container is
+  `advancement == false`, so an advancement-keyed guard would have let a stranded heart pass.
+- Deleted the Link's Pocket junk filler: the dump's pool already carries LP's item, so the reservation is
+  self-balancing and the filler left a permanent +1 surplus.
+
+**Seed compatibility:** every existing seed string now yields different placements — removing surplus
+items changes `cwShuffle`'s draw count, and no correct fix avoids that. Headless <-> in-game parity is
+preserved (all logic is in the shared header).
+
+**Known follow-up:** Heart Containers stay `advancement == false` (`comboIsAdv`'s deliberate demotion);
+`category == HEALTH` is what protects them from discarding. They can still land on an unreachable check
+in relaxed modes. Revisit only if that becomes a real complaint.
 
 ## Cross-world Link's Pocket placement (2026-06-21)
 
@@ -1012,7 +1073,8 @@ shuffled Anywhere they land in the cross pool and the derivation picks them up l
 **Failure policy.** Tier 1 — portal still shut after the prerequisites are placed: repick just those,
 `kMaxPrereqTries = 4`. (Phase A0 runs before any general placement, so a repick resets `placements` to
 `lockedPlacements` and costs nothing but the prerequisite choices.) Tier 2 — budget exhausted: fail the
-pass into the retry loop, `kMaxPasses = 5` × `kFillAttempts = 3`, down from 10 × 5 — the old ceiling is
+pass into the retry loop, `kMaxPasses = 3` × `kFillAttempts = 2` (`CrossWorldRando.h:171-172`), down from
+10 × 5 — the old ceiling is
 what produced the 300-800 s waits, and 15 still covers the observed pre-fix tail (seeds seen succeeding on
 attempt 4 and pass 10). Both are pass counts, never wall-clock: a time limit makes success
 machine-dependent and breaks seed sharing. All three budgets are `constexpr` in `CrossWorldRando.h`;

@@ -2719,6 +2719,10 @@ extern "C" __declspec(dllexport) void MM_ResumeGame(int fileNum) {
 }
 #endif
 
+#ifdef COMBO_BUILD
+// ComboShip: everything to the matching #endif is combo-only (MM_*/Combo_MM_* exports + their
+// statics). Guarded so an upstream merge can see the whole added region at a glance.
+
 // ComboShip: write a default MM save for the given OOT slot (0-indexed) to disk. Called when OOT
 // creates a new save, so MM has a matching save ready for the transition. ootName8 is the
 // OOT-entered file name (8 font-code bytes, same charset as MM); may be null.
@@ -3170,6 +3174,34 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         return it.randoItemType != RITYPE_JUNK && it.randoItemType != RITYPE_HEALTH && it.randoItemId != RI_TRAP;
     };
 
+    // ComboShip: native category, so the cross fill can trim ONLY junk — `advancement` alone can't say
+    // that (it lumps junk with hearts/traps). Unknown maps to "major" so it is never trimmable.
+    auto categoryName = [](const auto& it) -> const char* {
+        switch (it.randoItemType) {
+            case RITYPE_JUNK:
+                return "junk";
+            case RITYPE_LESSER:
+                return "lesser";
+            case RITYPE_HEALTH:
+                return "health";
+            case RITYPE_BOSS_KEY:
+                return "bossKey";
+            case RITYPE_SMALL_KEY:
+                return "smallKey";
+            case RITYPE_SKULLTULA_TOKEN:
+                return "token";
+            case RITYPE_MAJOR:
+                return "major";
+            case RITYPE_MASK:
+                return "mask";
+            case RITYPE_STRAY_FAIRY:
+                return "strayFairy";
+            case RITYPE_MAX:
+                break;
+        }
+        return "major"; // no default: a new RITYPE_ must warn, not silently become non-discardable
+    };
+
     // Confined pre-placements -> fixed[] (removed checks = checkPoolBefore minus checkPool).
     for (RandoCheckId id : checkPoolBefore) {
         if (stillFillable.count(id))
@@ -3221,8 +3253,9 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         if (it == Rando::StaticData::Items.end() || !it->second.spoilerName || it->second.spoilerName[0] == '\0')
             continue;
         // ComboShip: friendly item name for the normalized combo spoiler.
-        pool.push_back(
-            { { "name", Rando::StaticData::GetItemDisplayName(iid) }, { "advancement", isAdvancement(it->second) } });
+        pool.push_back({ { "name", Rando::StaticData::GetItemDisplayName(iid) },
+                         { "advancement", isAdvancement(it->second) },
+                         { "category", categoryName(it->second) } });
     }
 
     for (auto& [id, item] : Rando::StaticData::Items) {
@@ -3976,6 +4009,7 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Restore(void) {
     gCurrentRegionTime = sMM_OracleSavedRegionTime;
     sMM_OracleActive = false;
 }
+#endif // COMBO_BUILD — combo-only region opened above MM_InitSaveFile
 
 #ifdef COMBO_BUILD
 // ComboShip: cross-game item-draw exports (MM_GetItemDrawInfo / MM_GetItemAnimDrawInfo). Bodies

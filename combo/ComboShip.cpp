@@ -1576,7 +1576,7 @@ static void RunComboPlaythrough(const std::string& inputSeed) {
             continue;
         }
         fill = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle, nullptr, forcedOot,
-                                                 ComboRando::OotAccessFromDump(sohDump));
+                                                  ComboRando::OotAccessFromDump(sohDump));
         if (!fill.success)
             Combo_MM_Rando_Restore();
     }

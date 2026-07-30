@@ -1452,13 +1452,6 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
         std::cerr << "[GENTEST] dump functions not resolved — cannot run\n";
         return -1;
     }
-    std::string sohDump = SOH_DumpRandoStaticData();
-    std::string mmDump = MM_DumpRandoStaticData();
-    if (sohDump.empty() || mmDump.empty()) {
-        std::cerr << "[GENTEST] empty dump — cannot run\n";
-        return -1;
-    }
-
     ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
                                         Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem,
                                         Combo_SOH_Rando_GetPortalOpen };
@@ -1470,19 +1463,41 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
     int failures = 0;
     auto t0 = std::chrono::steady_clock::now();
     for (int i = 0; i < numSeeds; ++i) {
-        uint32_t seed = seedBase + static_cast<uint32_t>(i);
-        // Per-seed OOT entrance layout, exactly like the real generator (no-op when the options are off).
-        if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(seed)) {
-            std::cerr << "[GENTEST]   seed " << seed << " FAIL: OOT entrance shuffle found no valid layout\n";
-            ++failures;
-            continue;
+        const uint32_t baseSeed = seedBase + static_cast<uint32_t>(i);
+        ComboRando::CombinedFillResult result{};
+        // Mirror RunComboFill's whole-fill retries: a seed rejected on attempt 0 is a PASS in-game
+        // after one reroll, so counting it FAIL here would inflate the failure rate.
+        for (int attempt = 0; attempt < ComboRando::kFillAttempts && !result.success; ++attempt) {
+            const uint32_t seed = baseSeed + attempt * 0x9E3779B9u;
+            // Seeds before the dump (shop/scrub choices are seed-derived and made inside it); forced
+            // placements before the shuffle, whose ItemReset wipes the placement they read.
+            if (SOH_SetComboRandoSeed)
+                SOH_SetComboRandoSeed(seed);
+            if (MM_SetComboRandoSeed)
+                MM_SetComboRandoSeed(seed);
+            std::string sohDump = SOH_DumpRandoStaticData();
+            std::string mmDump = MM_DumpRandoStaticData();
+            if (sohDump.empty() || mmDump.empty()) {
+                std::cerr << "[GENTEST] empty dump — cannot run\n";
+                return -1;
+            }
+            std::string forcedOot;
+            if (SOH_GetForcedPlacements)
+                forcedOot = SOH_GetForcedPlacements(seed);
+            // Per-seed OOT entrance layout, exactly like the real generator (no-op when the options are off).
+            if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(seed)) {
+                result.error = "OOT entrance shuffle found no valid layout";
+                Combo_MM_Rando_Restore();
+                continue; // a different masterSeed yields a different layout — reroll, like RunComboFill
+            }
+            result = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, seed, ootOracle, mmOracle, nullptr, forcedOot,
+                                                        ComboRando::OotAccessFromDump(sohDump));
+            Combo_MM_Rando_Restore(); // reset the MM oracle's snapshot guard for the next fill
         }
-        auto result = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, seed, ootOracle, mmOracle, nullptr);
-        Combo_MM_Rando_Restore(); // reset the MM oracle's snapshot guard for the next fill
         if (result.success) {
-            std::cout << "[GENTEST]   seed " << seed << " PASS\n";
+            std::cout << "[GENTEST]   seed " << baseSeed << " PASS\n";
         } else {
-            std::cerr << "[GENTEST]   seed " << seed << " FAIL: " << result.error << "\n";
+            std::cerr << "[GENTEST]   seed " << baseSeed << " FAIL: " << result.error << "\n";
             ++failures;
         }
     }
@@ -1534,17 +1549,38 @@ static void RunComboPlaythrough(const std::string& inputSeed) {
     ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
                                        Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
     std::string seedStr = inputSeed.empty() ? "1" : inputSeed;
-    std::string sohDump = SOH_DumpRandoStaticData();
-    std::string mmDump = MM_DumpRandoStaticData();
-    const uint32_t masterSeed = ComboHash(seedStr.c_str());
-    // OOT entrance layout, same as the real generator (no-op when the options are off).
-    if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(masterSeed)) {
-        std::cerr << "[PLAYTHROUGH] OOT entrance shuffle found no valid layout\n";
-        return;
+    const uint32_t baseSeed = ComboHash(seedStr.c_str());
+    std::string sohDump, mmDump;
+    ComboRando::CombinedFillResult fill{};
+    // Mirror RunComboFill including its retries — the player's seed may have come from attempt 1, and
+    // validating only attempt 0 would either report "did not generate" or log a world they never got.
+    for (int attempt = 0; attempt < ComboRando::kFillAttempts && !fill.success; ++attempt) {
+        const uint32_t masterSeed = baseSeed + attempt * 0x9E3779B9u;
+        if (SOH_SetComboRandoSeed)
+            SOH_SetComboRandoSeed(masterSeed);
+        if (MM_SetComboRandoSeed)
+            MM_SetComboRandoSeed(masterSeed);
+        sohDump = SOH_DumpRandoStaticData();
+        mmDump = MM_DumpRandoStaticData();
+        if (sohDump.empty() || mmDump.empty()) {
+            std::cerr << "[PLAYTHROUGH] empty static-data dump\n";
+            return;
+        }
+        // Read before the entrance shuffle: its ItemReset wipes the placement this reads.
+        std::string forcedOot;
+        if (SOH_GetForcedPlacements)
+            forcedOot = SOH_GetForcedPlacements(masterSeed);
+        if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(masterSeed)) {
+            fill.error = "OOT entrance shuffle found no valid layout";
+            Combo_MM_Rando_Restore();
+            continue;
+        }
+        fill = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle, nullptr, forcedOot,
+                                                  ComboRando::OotAccessFromDump(sohDump));
+        if (!fill.success)
+            Combo_MM_Rando_Restore();
     }
-    auto fill = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle, nullptr);
     if (!fill.success) {
-        Combo_MM_Rando_Restore();
         std::cerr << "[PLAYTHROUGH] seed '" << seedStr << "' did not generate: " << fill.error << "\n";
         return;
     }

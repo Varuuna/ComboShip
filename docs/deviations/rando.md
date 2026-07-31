@@ -1048,3 +1048,38 @@ ComboShip could reach that state two ways, both now closed:
 
 Tripwire: `Combo_LoadMMSaveFile` logs an error whenever a loaded MM save isn't `SAVETYPE_RANDO`.
 Already-broken saves are not repaired — re-create the file.
+
+## Per-seed spoiler names + shop-only prices (2026-07-31)
+
+**Spoilers no longer overwrite each other.** Generation wrote a single
+`Randomizer/Last-Generated-Randomizer.json` (`ComboRando::PendingPath()`), so every new seed clobbered
+the previous one. Replaced with `ComboRando::ComboSpoilerPath(fileHash, stem)` →
+`Randomizer/Combo-23-48-56-60-85.json`, built from the same 5 hash-icon indexes SoH names its own
+spoilers with (`spoiler_log.cpp`). The newest is remembered in `CVAR_GENERAL("ComboSpoiler")`, mirroring
+SoH's `SpoilerLog` CVar, via new `SOH_Set/GetComboSpoilerPath` exports — the launcher has no CVar access
+of its own. The file-select auto-reload reads that CVar instead of a fixed path.
+
+Two traps this had to avoid:
+
+- **CVars are main-thread only.** `libultraship`'s `ConsoleVariable` map is completely unlocked, and
+  `Save()` iterates it while ImGui touches CVars every frame. `RunComboFill` runs on a worker thread, so
+  it only *writes the file* (`WriteComboSpoiler`); `Combo_FinalizeGenerate` sets the CVar
+  (`RememberComboSpoiler`). Same hazard the main-thread-only placement apply already documents.
+- **The plandomizer export** wrote to the pending path; under per-seed naming that would overwrite the
+  source seed with the edited copy, so it writes `Combo-Plando-<hash>.json` instead.
+
+Nothing reads `Last-Generated-Randomizer.json` any more; an install with only that file has no
+remembered seed until the next generate or drag-drop.
+
+**`mm.prices` is now shops only.** It carried a price for ~every shuffled check (390 of 392 placements,
+against 104 of 1246 on OOT's side). Root cause is upstream: `GeneratePools.cpp`'s tingle-shop guard is
+`if (type == RCTYPE_TINGLE_SHOP && shuffle == NO) continue; else roll price;` — the `else` binds to the
+whole compound condition, so it rolls for every check that got past the shuffle gates. With tingle
+shuffle on, the `continue` is unreachable entirely.
+
+Not fixed locally: `Ship_Random` is the fill's own stream, so dropping ~390 draws per generation would
+shift every seed and break reproduction of existing spoilers. Filed as a 2Ship upstream bug. Instead
+`MM_DumpRandoStaticData` emits only `RCTYPE_SHOP` / `RCTYPE_TINGLE_SHOP` into the spoiler while
+`sMMComboCheckPrices` still captures the full set for the oracle. Safe because all 37 checks using
+`CAN_AFFORD` are exactly those 25 + 12, and the only runtime readers of `.price` are the shop/tingle
+actors (`EnGirlA`, `EnBal`, `EnIn`, `EnTab`).

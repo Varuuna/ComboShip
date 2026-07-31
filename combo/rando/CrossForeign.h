@@ -84,9 +84,16 @@ inline std::filesystem::path ConsolidatedDir() {
     return std::filesystem::path("Randomizer");
 }
 
-// Pending (unbound) seed written at Generate; remembered so the player can Start without regenerating.
-inline std::filesystem::path PendingPath() {
-    return ConsolidatedDir() / "Last-Generated-Randomizer.json";
+// Per-seed spoiler named from the 5 hash-icon indexes, like SoH's own (spoiler_log.cpp). The newest
+// is remembered in CVAR_GENERAL("ComboSpoiler"); see docs/deviations/rando.md.
+inline std::filesystem::path ComboSpoilerPath(const nlohmann::json& fileHash, const char* stem = "Combo") {
+    std::string name = stem;
+    for (const auto& idx : fileHash) {
+        char pair[8];
+        snprintf(pair, sizeof(pair), "-%02d", idx.get<int>());
+        name += pair;
+    }
+    return ConsolidatedDir() / (name + ".json");
 }
 
 // The consolidated combo spoiler, pushed once per save-load by SOH_/MM_LoadComboRando. The three

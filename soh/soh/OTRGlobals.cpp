@@ -4585,6 +4585,16 @@ extern "C" __declspec(dllexport) int SOH_RequestComboReload(const char* path) {
     return gComboReloadCallback ? gComboReloadCallback(path) : 0;
 }
 
+// ComboShip: path of the most recently generated/loaded combo spoiler, so a restart can reload it
+// without regenerating. Mirrors how SoH remembers its own spoiler in CVAR_GENERAL("SpoilerLog").
+extern "C" __declspec(dllexport) void SOH_SetComboSpoilerPath(const char* path) {
+    CVarSetString(CVAR_GENERAL("ComboSpoiler"), path ? path : "");
+    Ship::Context::GetInstance()->GetConsoleVariables()->Save();
+}
+extern "C" __declspec(dllexport) const char* SOH_GetComboSpoilerPath(void) {
+    return CVarGetString(CVAR_GENERAL("ComboSpoiler"), "");
+}
+
 // ComboShip: the active save slot (combo seed key), or -1 if none. Used by the comboui hint system to
 // find the loaded seed's per-slot consolidated file.
 extern "C" __declspec(dllexport) int SOH_GetActiveFileNum(void) {

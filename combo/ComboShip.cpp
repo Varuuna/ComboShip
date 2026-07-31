@@ -227,6 +227,10 @@ static FnTakeStr MM_RestoreRandoSettings = nullptr;
 static FnTakeStr SOH_SetCheckPrices = nullptr;
 static FnTakeStr MM_SetCheckPrices = nullptr;
 static FnSetReloadCb SOH_SetOnComboReloadCallback = nullptr;
+// Remembered spoiler path (CVAR_GENERAL("ComboSpoiler")) — soh owns the config, so the launcher goes
+// through it rather than parsing comboship.json itself.
+static FnTakeStr SOH_SetComboSpoilerPath = nullptr;
+static FnDumpData SOH_GetComboSpoilerPath = nullptr;
 
 // ComboShip merged per-slot save container: setters that push the launcher's save-IO callbacks into
 // each DLL, plus the once-per-load push of the baked combo rando (foreign map + cross-hints).
@@ -538,6 +542,7 @@ static ComboRando::ComboGenProgress g_ComboProgress;
 static std::atomic<bool> g_ComboPendingFinalize{ false }; // worker succeeded, main-thread apply not yet run
 // Main-thread finalize inputs stashed by the worker (consumed by Combo_FinalizeGenerate).
 static std::string g_FinalizeOotApply;
+static std::filesystem::path g_FinalizeSpoilerPath;
 static uint32_t g_FinalizeDisplaySeed = 0;
 // Consolidated spoiler JSON for the just-generated seed. The worker writes the pending file from it;
 // Combo_OnOOTSaveInit bakes it into the slot's container and pushes it into both DLLs at Start.
@@ -1047,6 +1052,28 @@ static int ComboRandRange(int minV, int maxV) {
 
 static int g_PendingMMFileNum = -1;
 
+// ComboShip: write a seed's spoiler under its own hash-icon name. Returns the path (empty on failure).
+// Worker-safe: pointing the CVar at it is a separate main-thread step (RememberComboSpoiler).
+static std::filesystem::path WriteComboSpoiler(const nlohmann::json& fileHash, const std::string& json) {
+    std::error_code ec;
+    std::filesystem::create_directories(ComboRando::ConsolidatedDir(), ec);
+    auto path = ComboRando::ComboSpoilerPath(fileHash);
+    std::ofstream out(path, std::ios::trunc);
+    if (!out.is_open()) {
+        std::cerr << "[ComboShip] could not write spoiler " << path.string() << std::endl;
+        return {};
+    }
+    out << json;
+    return path;
+}
+
+// ComboShip: mark a spoiler as the one a restart reloads. MAIN THREAD ONLY — this writes a CVar and
+// saves the config, and libultraship's ConsoleVariable map is unlocked (same race as the apply below).
+static void RememberComboSpoiler(const std::filesystem::path& path) {
+    if (SOH_SetComboSpoilerPath && !path.empty())
+        SOH_SetComboSpoilerPath(path.string().c_str());
+}
+
 // ComboShip: a silent auto-reload must not let the pending seed's settings overwrite the user's
 // gRando.* CVars on disk. MM reads gRando.* only at slot-bind, so its restore is deferred there
 // (not inline in Combo_OnReloadRequest like OOT's). See docs/deviations/rando.md.
@@ -1395,13 +1422,11 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
                                                  : nlohmann::json{ { "version", 1 } };
         g_ConsolidatedJson = consolidated.dump(2);
 
-        // Write the pending (unbound) file so the seed is remembered and Start-able without regenerating.
-        {
-            std::ofstream pf(ComboRando::PendingPath(), std::ios::trunc);
-            if (pf.is_open())
-                pf << g_ConsolidatedJson;
-        }
-        std::cout << "[ComboShip] RunComboFill: placements computed; consolidated pending seed written\n";
+        // This seed's own spoiler, so earlier seeds survive instead of being overwritten. The CVar that
+        // makes it the remembered one is set by Combo_FinalizeGenerate (main thread).
+        g_FinalizeSpoilerPath = WriteComboSpoiler(consolidated["file_hash"], g_ConsolidatedJson);
+        std::cout << "[ComboShip] RunComboFill: placements computed; spoiler written to "
+                  << g_FinalizeSpoilerPath.string() << "\n";
 
         if (progress) {
             progress->seed.store(masterSeed);
@@ -1608,6 +1633,8 @@ static void Combo_FinalizeGenerate() {
     }
     if (SOH_SetComboSeedHash)
         SOH_SetComboSeedHash(g_FinalizeDisplaySeed);
+    RememberComboSpoiler(g_FinalizeSpoilerPath); // worker wrote the file; the CVar is ours to set
+    g_FinalizeSpoilerPath.clear();
     if (hintsPresent && SOH_ApplyComboHints)
         SOH_ApplyComboHints(hints.dump().c_str());
     // A fresh generation's live MM CVars already ARE this seed's settings, so slot-bind must fall
@@ -1643,7 +1670,16 @@ static int Combo_OnReloadRequest(const char* path) {
     // A null/empty path is the silent first-frame auto-reload; a non-empty path is an explicit drop
     // (a deliberate seed switch, so its settings are allowed to become the new persisted baseline).
     bool isSilentAutoLoad = !(path && path[0]);
-    std::string file = (path && path[0]) ? std::string(path) : ComboRando::PendingPath().string();
+    std::string file;
+    if (!isSilentAutoLoad) {
+        file = path;
+    } else if (SOH_GetComboSpoilerPath) {
+        const char* remembered = SOH_GetComboSpoilerPath();
+        if (remembered)
+            file = remembered;
+    }
+    if (file.empty())
+        return 0; // nothing generated yet on this install
     std::ifstream in(file);
     if (!in.is_open())
         return 0;
@@ -1738,14 +1774,10 @@ static int Combo_OnReloadRequest(const char* path) {
         // Keep the loaded seed so Start binds it to the chosen slot; recompute the hash-icon filename.
         g_ConsolidatedJson = j.dump(2);
         g_FinalizeDisplaySeed = displaySeed;
-        // Make this the remembered pending seed (so a dropped seed survives a restart before Start).
-        {
-            std::error_code ec;
-            std::filesystem::create_directories(ComboRando::ConsolidatedDir(), ec);
-            std::ofstream pf(ComboRando::PendingPath(), std::ios::trunc);
-            if (pf.is_open())
-                pf << g_ConsolidatedJson;
-        }
+        // Remember it so it survives a restart before Start. Re-filed under its hash name so the
+        // remembered path always holds the content just loaded, never a same-named older spoiler.
+        RememberComboSpoiler(j.contains("file_hash") ? WriteComboSpoiler(j["file_hash"], g_ConsolidatedJson)
+                                                     : std::filesystem::path(file));
         // Populate the shared progress so the comboui Generate panel shows the remembered seed
         // (seed string, per-game check counts, cross-game count) just like a fresh generation.
         g_ComboProgress.Reset();
@@ -2061,6 +2093,8 @@ int main(int argc, char** argv) {
     SOH_SetCheckPrices = (FnTakeStr)GetSym(sohModule, "SOH_SetCheckPrices");
     MM_SetCheckPrices = (FnTakeStr)GetSym(mmModule, "MM_SetCheckPrices");
     SOH_SetOnComboReloadCallback = (FnSetReloadCb)GetSym(sohModule, "SOH_SetOnComboReloadCallback");
+    SOH_SetComboSpoilerPath = (FnTakeStr)GetSym(sohModule, "SOH_SetComboSpoilerPath");
+    SOH_GetComboSpoilerPath = (FnDumpData)GetSym(sohModule, "SOH_GetComboSpoilerPath");
     MM_InitRandoSaveFile = (FnMMInitRandoSave)GetSym(mmModule, "MM_InitRandoSaveFile");
     SOH_SetOnComboGenerateCallback = (FnSetGenerateCb)GetSym(sohModule, "SOH_SetOnComboGenerateCallback");
     SOH_ApplyRandoPlacements = (FnApplyPlacements)GetSym(sohModule, "SOH_ApplyRandoPlacements");

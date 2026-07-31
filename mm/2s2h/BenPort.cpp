@@ -3145,17 +3145,21 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     std::vector<RandoItemId> itemPool;
     Rando::Logic::GeneratePools(saveInfo, checkPool, itemPool);
 
-    // Capture the prices GeneratePools rolled into this (otherwise discarded) saveInfo — the full
-    // native fresh-generation price state, not just the shop/tingle subset 2Ship's own spoiler keeps.
+    // Capture the prices GeneratePools rolled into this (otherwise discarded) saveInfo. It rolls one per
+    // shuffled check, not just purchaseable ones (upstream), so only shops/tingle reach the spoiler.
     sMMComboCheckPrices.clear();
     for (auto& [id, chk] : Rando::StaticData::Checks) {
         uint16_t p = saveInfo.randoSaveChecks[id].price;
-        if (p != 0) {
-            sMMComboCheckPrices[id] = p;
-            const std::string& cn = Rando::StaticData::GetCheckDisplayName(id); // ComboShip: friendly name
-            if (!cn.empty())
-                prices[cn] = p;
+        if (p == 0) {
+            continue;
         }
+        sMMComboCheckPrices[id] = p;
+        if (chk.randoCheckType != RCTYPE_SHOP && chk.randoCheckType != RCTYPE_TINGLE_SHOP) {
+            continue;
+        }
+        const std::string& cn = Rando::StaticData::GetCheckDisplayName(id); // ComboShip: friendly name
+        if (!cn.empty())
+            prices[cn] = p;
     }
 
     // Confine own-dungeon items via MM's own logic (writes RANDO_SAVE_CHECKS, shrinks both pools).

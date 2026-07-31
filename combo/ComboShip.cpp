@@ -1403,7 +1403,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         // the same parse done above, right after sohHintDump was produced, instead of re-parsing it here.
         auto foreignEnriched = ComboRando::BuildForeignArray(foreignArr, ootCheckAreasCache);
         consolidated["foreign"] = foreignEnriched;
-        consolidated["playthrough"] = playthroughJson;
+        consolidated["playthrough"] = ComboRando::PlaythroughLines(playthroughJson);
         // ComboShip (#90): OOT entrance layout — informational, reload re-derives it from masterSeed.
         {
             nlohmann::json ootEnt = nlohmann::json::array();

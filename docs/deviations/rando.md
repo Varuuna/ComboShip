@@ -1083,3 +1083,12 @@ shift every seed and break reproduction of existing spoilers. Filed as a 2Ship u
 `sMMComboCheckPrices` still captures the full set for the oracle. Safe because all 37 checks using
 `CAN_AFFORD` are exactly those 25 + 12, and the only runtime readers of `.price` are the shop/tingle
 actors (`EnGirlA`, `EnBal`, `EnIn`, `EnTab`).
+
+**The spoiler's `playthrough` steps are plain strings.** They were objects
+(`{check, game, item, foreign}`), which reads as noise for something a player scans. Now each sphere's
+`steps` is a string array of `"[OOT] Check --> Item"`; cross-game placements aren't marked, since which
+game owns an item isn't actionable. `RunPlaythrough` still emits the structured form — the headless
+`--playthrough` validator's affordability canary needs `game`/`check`/`item`/`foreign`/`advancement` —
+so the flattening happens in `ComboRando::PlaythroughLines`, applied only where the consolidated spoiler
+is assembled. The validator builds its own `pt1` from its own `RunPlaythrough` call and never reads the
+spoiler's section, so the two formats don't collide.

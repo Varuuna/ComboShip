@@ -24,7 +24,7 @@
 #include "soh/Enhancements/cosmetics/cosmeticsTypes.h" // COLORSCHEME_*
 #include "soh/OTRGlobals.h"                            // rando-context null guards (MM calls us while OOT is dormant)
 #include <string>
-#include "dungeon.h"                               // Rando::DungeonKey / GetDungeon()->IsMQ() (key-ring MQ variants)
+#include "soh/Enhancements/randomizer/dungeon.h"   // Rando::DungeonKey / GetDungeon()->IsMQ() (key-ring MQ variants)
 #include "objects/object_gi_fire/object_gi_fire.h" // gGiBlueFireFlameDL (boss-soul flame)
 #include "objects/object_gi_key/object_gi_key.h"   // gGiSmallKeyDL
 #include "objects/object_gi_bosskey/object_gi_bosskey.h"     // gGiBossKeyDL / gGiBossKeyGemDL

@@ -91,10 +91,12 @@ target_compile_definitions(ComboShip PRIVATE COMBO_RELEASE_VERSION="${COMBO_RELE
 # NOT link SDL2main here — ComboShip provides its own main().
 find_package(SDL2 REQUIRED)
 find_package(SDL2_net REQUIRED)
+# SDL2_net before SDL2: a static libSDL2_net.a needs SDL2 symbols resolved by what FOLLOWS it on
+# the link line, and Linux's default --as-needed would otherwise drop the earlier libSDL2.so.
 if(TARGET SDL2_net::SDL2_net-static)
-    target_link_libraries(ComboShip PRIVATE SDL2::SDL2 SDL2_net::SDL2_net-static)
+    target_link_libraries(ComboShip PRIVATE SDL2_net::SDL2_net-static SDL2::SDL2)
 else()
-    target_link_libraries(ComboShip PRIVATE SDL2::SDL2 SDL2_net::SDL2_net)
+    target_link_libraries(ComboShip PRIVATE SDL2_net::SDL2_net SDL2::SDL2)
 endif()
 
 # Add dependencies to ensure games are built first

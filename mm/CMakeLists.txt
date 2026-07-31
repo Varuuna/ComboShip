@@ -211,6 +211,9 @@ endif()
 if (NOT MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
     target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_DL_LIBS}) # Combo_ResolveSym uses dlsym
+    # soh's CMakeLists caches CMAKE_C_STANDARD 23 globally; mm's decomp C relies on C17 semantics
+    # (empty-parens prototypes like PadMgr_ThreadEntry), matching upstream 2ship's default.
+    set_target_properties(${PROJECT_NAME} PROPERTIES C_STANDARD 17)
 endif()
 ################################################################################
 # MSVC runtime library

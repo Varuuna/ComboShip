@@ -1,8 +1,8 @@
 #ifdef _WIN32
 #include <Windows.h>
+#endif
 #include <stdio.h>
 #include <locale.h>
-#endif
 #include "ComboExport.h"
 
 #include "audiomgr.h"

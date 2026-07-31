@@ -210,7 +210,7 @@ endif()
 # ABI opts back in via COMBO_EXPORT (combo/ComboExport.h). PE gets this per-DLL binding for free.
 if (NOT MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
-    target_link_libraries(${PROJECT_NAME} ${CMAKE_DL_LIBS}) # Combo_ResolveSym uses dlsym
+    target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_DL_LIBS}) # Combo_ResolveSym uses dlsym
 endif()
 ################################################################################
 # MSVC runtime library

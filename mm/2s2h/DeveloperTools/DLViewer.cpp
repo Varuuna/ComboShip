@@ -146,7 +146,7 @@ CommandCategory GetCommandCategory(int cmd) {
 
 void PerformDisplayListSearch() {
     // Get all DL files using broad pattern (glob_match is case-sensitive, so we filter manually)
-    static auto result = Ship::Context::GetInstance()->GetResourceManager()->GetArchiveManager()->ListFiles("*DL*");
+    static auto result = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->ListFiles("*DL*");
 
     displayListSearchResults.clear();
 
@@ -275,7 +275,7 @@ void DrawInstructionFilters() {
             CVarSetInteger("gDeveloperTools.DLViewer.Filter.Sync", value);
             CVarSetInteger("gDeveloperTools.DLViewer.Filter.Other", value);
             CVarSetInteger("gDeveloperTools.DLViewer.Filter.Unknown", value);
-            Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+            Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
         }
         g->CurrentItemFlags = backup_item_flags;
 
@@ -783,7 +783,7 @@ void DLViewerWindow::DrawElement() {
 
     try {
         auto res = std::static_pointer_cast<Fast::DisplayList>(
-            Ship::Context::GetInstance()->GetResourceManager()->LoadResource(activeDisplayList));
+            Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(activeDisplayList));
 
         if (res->GetInitData()->Type != static_cast<uint32_t>(Fast::ResourceType::DisplayList)) {
             ImGui::Text("Resource type is not a Display List. Please choose another.");

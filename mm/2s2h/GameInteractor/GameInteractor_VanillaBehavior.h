@@ -122,6 +122,22 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // true
+    // ```
+    // #### `args`
+    // - `*Actor` (ObjComb)
+    VB_BEEHIVE_ALREADY_BROKEN,
+
+    // #### `result`
+    // ```c
+    // true
+    // ```
+    // #### `args`
+    // - `*Actor` (ObjComb)
+    VB_BEEHIVE_SPAWN_ACTOR,
+
+    // #### `result`
+    // ```c
     // false
     // ```
     // #### `args`

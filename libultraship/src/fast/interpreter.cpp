@@ -4377,6 +4377,29 @@ bool gfx_set_tile_size_interp_handler_rdp(F3DGfx** cmd0) {
     return false;
 }
 
+bool gfx_set_tile_size_lerp_handler_rdp(F3DGfx** cmd0) {
+    F3DGfx* cmd = *cmd0;
+    Interpreter* gfx = mInstance.lock().get();
+
+    int tile = C1(24, 3);
+    float coords[8];
+    for (int i = 0; i < 8; i += 2) {
+        ++(*cmd0);
+        memcpy(&coords[i], &(*cmd0)->words.w0, sizeof(float));
+        memcpy(&coords[i + 1], &(*cmd0)->words.w1, sizeof(float));
+    }
+
+    float t = gfx->mInterpolationT;
+    gfx->mRdp->texture_tile[tile].uls = coords[0] + t * (coords[4] - coords[0]);
+    gfx->mRdp->texture_tile[tile].ult = coords[1] + t * (coords[5] - coords[1]);
+    gfx->mRdp->texture_tile[tile].lrs = coords[2] + t * (coords[6] - coords[2]);
+    gfx->mRdp->texture_tile[tile].lrt = coords[3] + t * (coords[7] - coords[3]);
+    gfx->mRdp->textures_changed[0] = true;
+    gfx->mRdp->textures_changed[1] = true;
+
+    return false;
+}
+
 bool gfx_set_interpolation_index_target(F3DGfx** cmd0) {
     F3DGfx* cmd = *cmd0;
     Interpreter* gfx = mInstance.lock().get();
@@ -4695,6 +4718,8 @@ static constexpr UcodeHandler rdpHandlers = {
       { "G_SETTARGETINTERPINDEX", gfx_set_interpolation_index_target } }, // G_SETTARGETINTERPINDEX
     { RDP_G_SETTILESIZE_INTERP,
       { "G_SETTILESIZE_INTERP", gfx_set_tile_size_interp_handler_rdp } },            // G_SETTILESIZE_INTERP
+    { RDP_G_SETTILESIZE_LERP,
+      { "G_SETTILESIZE_LERP", gfx_set_tile_size_lerp_handler_rdp } },                // G_SETTILESIZE_LERP
     { RDP_G_TEXRECT, { "G_TEXRECT", gfx_tex_rect_and_flip_handler_rdp } },           // G_TEXRECT (-28)
     { RDP_G_TEXRECTFLIP, { "G_TEXRECTFLIP", gfx_tex_rect_and_flip_handler_rdp } },   // G_TEXRECTFLIP (-27)
     { RDP_G_RDPLOADSYNC, { "mRdpLOADSYNC", gfx_stubbed_command_handler } },          // mRdpLOADSYNC (-26)

@@ -68,7 +68,7 @@ static void MigrateWarpPoints(Ship::Config* conf) {
                                                { "rotY", rotY },
                                                { "bootToPoint", bootToPoint } };
 
-            Ship::Context::GetInstance()->GetConfig()->SetBlock("WarpPoints", warpPoints);
+            Ship::Context::GetRawInstance()->GetConfig()->SetBlock("WarpPoints", warpPoints);
         }
     }
 }

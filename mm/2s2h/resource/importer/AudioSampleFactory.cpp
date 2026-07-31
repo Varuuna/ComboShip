@@ -298,7 +298,7 @@ ResourceFactoryXMLAudioSampleV0::ReadResource(std::shared_ptr<Ship::File> file,
     // ComboShip: pin MM's own RM — audio factories race active-RM swaps on other threads.
     auto sampleFile = Ship::CrossRMRegistry::GetOrActive("mm")->GetArchiveManager()->LoadFile(path);
 #else
-    auto sampleFile = Ship::Context::GetInstance()->GetResourceManager()->GetArchiveManager()->LoadFile(path);
+    auto sampleFile = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->LoadFile(path);
 #endif
     audioSample->sample.fileSize = sampleFile->Buffer.get()->size();
     if (customFormatStr != nullptr) {

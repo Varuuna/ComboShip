@@ -8,26 +8,28 @@
 
 void RegisterSkipBottleCatchCutscene() {
     COND_VB_SHOULD(VB_PLAY_BOTTLE_CATCH_TEXT, CVAR, {
-        Player* player = va_arg(args, Player*);
-        Actor* interactRangeActor = va_arg(args, Actor*);
-        ItemId itemId = (ItemId)va_arg(args, int);
-        PlayerItemAction itemAction = (PlayerItemAction)va_arg(args, int);
+        if (*should) {
+            Player* player = va_arg(args, Player*);
+            Actor* interactRangeActor = va_arg(args, Actor*);
+            ItemId itemId = (ItemId)va_arg(args, int);
+            PlayerItemAction itemAction = (PlayerItemAction)va_arg(args, int);
 
-        interactRangeActor->parent = &player->actor;
-        Player_UpdateBottleHeld(gPlayState, player, itemId, itemAction);
-        Audio_PlayFanfare(NA_BGM_GET_ITEM);
+            interactRangeActor->parent = &player->actor;
+            Player_UpdateBottleHeld(gPlayState, player, itemId, itemAction);
+            Audio_PlayFanfare(NA_BGM_GET_ITEM);
 
-        if (itemAction == PLAYER_IA_BOTTLE_DEKU_PRINCESS) {
-            // Kill Deku Princess actor immediately upon capture
-            Actor_Kill(interactRangeActor);
+            if (itemAction == PLAYER_IA_BOTTLE_DEKU_PRINCESS) {
+                // Kill Deku Princess actor immediately upon capture
+                Actor_Kill(interactRangeActor);
+            }
+
+            Notification::Emit({
+                .itemIcon = (const char*)gItemIcons[itemId],
+                .message = "Caught!",
+            });
+
+            *should = false;
         }
-
-        Notification::Emit({
-            .itemIcon = (const char*)gItemIcons[itemId],
-            .message = "Caught!",
-        });
-
-        *should = false;
     });
 }
 

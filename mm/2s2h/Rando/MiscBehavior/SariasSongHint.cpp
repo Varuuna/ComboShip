@@ -72,7 +72,7 @@ void Rando::SetSariaPriorityItemsInSave(RandoSaveInfo& randoSaveInfo, std::vecto
 }
 
 std::vector<RandoItemId> Rando::GetSariaPriorityItemsFromConfig() {
-    auto allConfig = Ship::Context::GetInstance()->GetConfig()->GetNestedJson();
+    auto allConfig = Ship::Context::GetRawInstance()->GetConfig()->GetNestedJson();
     std::vector<RandoItemId> priorityItems = Rando::GetDefaultSariaPriorityItems();
 
     if (allConfig.find("CVars") != allConfig.end() && allConfig["CVars"].is_object() &&
@@ -92,7 +92,7 @@ std::vector<RandoItemId> Rando::GetSariaPriorityItemsFromConfig() {
             }
         } else if (allConfig["CVars"]["gRando"]["SariaPriorityItems"].is_string()) {
             CVarClear("gRando.SariaPriorityItems");
-            Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+            Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
         } else if (allConfig["CVars"]["gRando"]["SariaPriorityItems"].is_null()) {
             priorityItems.clear();
         }
@@ -109,7 +109,7 @@ void Rando::SetSariaPriorityItemsInConfig(std::vector<RandoItemId>& priorityItem
         }
     }
     // SetBlock() already persists to disk internally - no separate Save() call needed here.
-    Ship::Context::GetInstance()->GetConfig()->SetBlock("CVars.gRando.SariaPriorityItems", priorityItemsJson);
+    Ship::Context::GetRawInstance()->GetConfig()->SetBlock("CVars.gRando.SariaPriorityItems", priorityItemsJson);
 }
 
 static bool IsExcludedFromSariaPriorityItemCandidates(RandoItemId randoItemId) {

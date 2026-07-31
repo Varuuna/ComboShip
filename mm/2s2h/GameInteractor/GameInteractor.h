@@ -443,13 +443,18 @@ class GameInteractor {
         HooksToUnregister<H>::hooksForFilter.clear();
     }
 
+    // Inline on MSVC, out of line elsewhere, and that difference is load-bearing. The body
+    // instantiates ProcessUnregisteredHooks<> for every hook in the table. MSVC's PCH is a state
+    // snapshot, so doing it inside the PCH hands the result to every TU for free; Clang's PCH
+    // replays pending instantiations per TU, where the same inline definition dominated even an
+    // empty TU. Measure before changing this.
+#ifdef _MSC_VER
     void RemoveAllQueuedHooks() {
-#define DEFINE_HOOK(name, _) ProcessUnregisteredHooks<name>();
-
-#include "GameInteractor_HookTable.h"
-
-#undef DEFINE_HOOK
+#include "GameInteractor_RemoveAllQueuedHooks.inc"
     }
+#else
+    void RemoveAllQueuedHooks();
+#endif
 
     class HookFilter {
       public:

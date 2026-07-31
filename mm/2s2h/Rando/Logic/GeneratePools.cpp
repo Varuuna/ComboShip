@@ -1,7 +1,6 @@
 #include "Logic.h"
 #include "Rando/MiscBehavior/ClockShuffle.h"
 #include <libultraship/bridge/consolevariablebridge.h>
-#include <sstream>
 
 extern "C" {
 #include "variables.h"
@@ -17,13 +16,7 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
     std::vector<RandoItemId> computedStartingItems = Rando::GetComputedStartingItems(saveInfo);
     startingItems.insert(startingItems.end(), computedStartingItems.begin(), computedStartingItems.end());
 
-    std::vector<RandoCheckId> excludedChecks;
-    std::string excludedChecksList = CVarGetString("gRando.ExcludedChecks", "");
-    std::string word;
-    std::istringstream stream(excludedChecksList);
-    while (std::getline(stream, word, ',')) {
-        excludedChecks.push_back((RandoCheckId)std::stoi(word));
-    }
+    std::vector<RandoCheckId> excludedChecks = Rando::GetExcludedChecksFromConfig();
 
     // First loop through all regions and add checks/items to the pool
     for (auto& [randoRegionId, randoRegion] : Rando::Logic::Regions) {
@@ -75,8 +68,18 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
                 continue;
             }
 
+            if (randoStaticCheck.randoCheckType == RCTYPE_BEEHIVE &&
+                saveInfo.randoSaveOptions[RO_SHUFFLE_HIVE_DROPS] == RO_GENERIC_NO) {
+                continue;
+            }
+
             if (randoStaticCheck.randoCheckType == RCTYPE_TREE &&
                 saveInfo.randoSaveOptions[RO_SHUFFLE_TREE_DROPS] == RO_GENERIC_NO) {
+                continue;
+            }
+
+            if (randoStaticCheck.randoCheckType == RCTYPE_BUTTERFLY &&
+                saveInfo.randoSaveOptions[RO_SHUFFLE_BUTTERFLIES] == RO_GENERIC_NO) {
                 continue;
             }
 
@@ -133,17 +136,20 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
                 }
             }
 
-            // When a check is skipped, we still want to add it's vanilla item to the pool, but we don't add the check.
-            // Mark it as skipped and set it to junk. These leaves an inbalance in the pools that will get sorted
-            // automatically if there is enough space.
+            // Excluded checks are always left out of the check pool, but what happens to them depends on what their
+            // vanilla item is worth. A check whose vanilla item is junk (grass, pots, snowballs...) has nothing worth
+            // preserving, so it stays unshuffled and behaves exactly like it does in vanilla, and its item never enters
+            // the item pool. Every other check keeps its item in the pool and is marked as skipped with junk in its
+            // place. That leaves an inbalance in the pools that will get sorted automatically if there is enough space.
             if (saveInfo.randoSaveOptions[RO_LOGIC] != RO_LOGIC_VANILLA) {
-                auto it = std::find(excludedChecks.begin(), excludedChecks.end(), randoCheckId);
-                if (it != excludedChecks.end()) {
-                    itemPool.push_back(randoStaticCheck.randoItemId);
+                if (std::binary_search(excludedChecks.begin(), excludedChecks.end(), randoCheckId)) {
+                    if (Rando::StaticData::Items[randoStaticCheck.randoItemId].randoItemType != RITYPE_JUNK) {
+                        itemPool.push_back(randoStaticCheck.randoItemId);
 
-                    saveInfo.randoSaveChecks[randoCheckId].shuffled = true;
-                    saveInfo.randoSaveChecks[randoCheckId].randoItemId = RI_JUNK;
-                    saveInfo.randoSaveChecks[randoCheckId].skipped = true;
+                        saveInfo.randoSaveChecks[randoCheckId].shuffled = true;
+                        saveInfo.randoSaveChecks[randoCheckId].randoItemId = RI_JUNK;
+                        saveInfo.randoSaveChecks[randoCheckId].skipped = true;
+                    }
                     continue;
                 }
             }

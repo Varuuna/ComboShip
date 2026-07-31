@@ -31,7 +31,7 @@ std::map<std::string, WarpPoint> warpPoints;
 #define CVAR_BOOT_TO_FILE_SELECT ((bool)CVarGetInteger(CVAR_BOOT_TO_FILE_SELECT_NAME, 0))
 
 void LoadConfig() {
-    auto allConfig = Ship::Context::GetInstance()->GetConfig()->GetNestedJson();
+    auto allConfig = Ship::Context::GetRawInstance()->GetConfig()->GetNestedJson();
     if (allConfig.find("WarpPoints") == allConfig.end() || !allConfig["WarpPoints"].is_object()) {
         allConfig["WarpPoints"] = nlohmann::json::object();
     }
@@ -39,10 +39,10 @@ void LoadConfig() {
 }
 
 void SaveConfig() {
-    auto allConfig = Ship::Context::GetInstance()->GetConfig()->GetNestedJson();
+    auto allConfig = Ship::Context::GetRawInstance()->GetConfig()->GetNestedJson();
     allConfig["WarpPoints"] = warpPoints;
-    Ship::Context::GetInstance()->GetConfig()->SetBlock("WarpPoints", warpPoints);
-    Ship::Context::GetInstance()->GetConfig()->Save();
+    Ship::Context::GetRawInstance()->GetConfig()->SetBlock("WarpPoints", warpPoints);
+    Ship::Context::GetRawInstance()->GetConfig()->Save();
 }
 
 void Warp(WarpPoint& warpPoint) {

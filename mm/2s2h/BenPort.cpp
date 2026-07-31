@@ -2611,6 +2611,12 @@ extern "C" void Combo_AdoptOOTGlobalOptions(void) {
 // C-callable wrapper used by title_setup.c (which is a C file) to load a MM save from disk.
 extern "C" void Combo_LoadMMSaveFile(int mmFileNum) {
     SaveManager_LoadSaveFile(mmFileNum);
+    // No vanilla mode in ComboShip: a non-rando save means the slot was created wrong, and every
+    // IS_RANDO hook stays unregistered (COND_HOOK tests the condition once, at OnSaveLoad).
+    if (gSaveContext.save.shipSaveInfo.saveType != SAVETYPE_RANDO) {
+        SPDLOG_ERROR("[ComboShip] MM save file{} is not SAVETYPE_RANDO — rando behavior is disabled for this slot",
+                     mmFileNum);
+    }
 }
 
 extern "C" void MM_RunMain(void);
@@ -2728,19 +2734,11 @@ extern "C" __declspec(dllexport) void MM_ResumeGame(int fileNum) {
 // ComboShip: everything to the matching #endif is combo-only (MM_*/Combo_MM_* exports + their
 // statics). Guarded so an upstream merge can see the whole added region at a glance.
 
-// ComboShip: write a default MM save for the given OOT slot (0-indexed) to disk. Called when OOT
-// creates a new save, so MM has a matching save ready for the transition. ootName8 is the
-// OOT-entered file name (8 font-code bytes, same charset as MM); may be null.
-extern "C" __declspec(dllexport) void MM_InitSaveFile(int fileNum, const unsigned char* ootName8) {
-    // fileNum is OOT's 0-indexed slot; MM save files are 1-indexed (file1.json, file2.json, file3.json)
-    SaveManager_InitNewSaveForSlot(fileNum + 1, ootName8);
-}
-
 // ComboShip: bring the MM save for the given OOT slot (0-indexed) into MM's dormant gSaveContext, so
 // the tracker peek shows real items before MM is visited this session. Same headless load path
 // title_setup.c runs on resume (no gPlayState needed).
 extern "C" __declspec(dllexport) void MM_LoadSaveForCombo(int fileNum) {
-    SaveManager_LoadSaveFile(fileNum + 1);
+    Combo_LoadMMSaveFile(fileNum + 1); // shares the saveType tripwire
 }
 
 static void Combo_MM_ApplyCheckPrices();
@@ -2759,9 +2757,10 @@ extern "C" __declspec(dllexport) void MM_SetComboRandoSeed(uint64_t seed) {
 // The combo layer owns placement, so we do NOT run MM's own generator. We build the playable baseline
 // (South Clock Town, post-first-cycle Human Link), mark the save SAVETYPE_RANDO, and feed the placement
 // through Rando::Spoiler::ApplyToSaveContext. Headless-safe: never calls GrantStartingItems / Item_Give
-// (those need gPlayState). Falls back to a vanilla save on any error.
-extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const char* placementJson,
-                                                           const unsigned char* ootName8) {
+// (those need gPlayState). Returns 0 on success, nonzero if no placements applied — the save stays
+// SAVETYPE_RANDO either way, since a vanilla one disables every IS_RANDO hook.
+extern "C" __declspec(dllexport) int MM_InitRandoSaveFile(int fileNum, const char* placementJson,
+                                                          const unsigned char* ootName8) {
     // Playable combo baseline first (Human Link, South Clock Town, ocarina/songs, etc.).
     SaveManager_InitNewSaveForSlot(fileNum + 1, ootName8);
     // Sram_InitNewSave (inside the call above) resets fileNum; restore it so SaveManager_SaveCurrentForCombo
@@ -2769,8 +2768,10 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
     gSaveContext.fileNum = (s16)fileNum;
 
     if (!placementJson || placementJson[0] == '\0') {
-        SPDLOG_WARN("[ComboShip] MM_InitRandoSaveFile: no placement for slot {}; left vanilla MM save", fileNum);
-        return;
+        SPDLOG_ERROR("[ComboShip] MM_InitRandoSaveFile: no placement for slot {}", fileNum);
+        gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_RANDO;
+        SaveManager_SaveCurrentForCombo();
+        return -1;
     }
 
     // Mark the save as rando and zero the rando struct (mirrors Rando::MiscBehavior::OnFileCreate).
@@ -2870,17 +2871,19 @@ extern "C" __declspec(dllexport) void MM_InitRandoSaveFile(int fileNum, const ch
         SPDLOG_INFO("[ComboShip] MM_InitRandoSaveFile: applied {} placements for slot {}", spoiler["checks"].size(),
                     fileNum);
     } catch (const std::exception& e) {
-        SPDLOG_ERROR("[ComboShip] MM_InitRandoSaveFile: {} — falling back to vanilla save for slot {}", e.what(),
-                     fileNum);
-        // Rebuild the playable baseline: the rando strips above already ran, and a stripped save
-        // persisted as vanilla (no sword/ocarina/magic) would soft-lock the slot.
+        SPDLOG_ERROR("[ComboShip] MM_InitRandoSaveFile: {} — slot {} has no placements", e.what(), fileNum);
+        // Rebuild the playable baseline: the rando strips above already ran, and persisting a stripped
+        // save (no sword/ocarina/magic) would soft-lock the slot. Stays SAVETYPE_RANDO on purpose.
         SaveManager_InitNewSaveForSlot(fileNum + 1, ootName8);
         gSaveContext.fileNum = (s16)fileNum;
-        gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_VANILLA;
+        gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_RANDO;
+        SaveManager_SaveCurrentForCombo();
+        return -1;
     }
 
-    // Persist the (rando) save to the slot file.
+    // Persist the rando save to the slot file.
     SaveManager_SaveCurrentForCombo();
+    return 0;
 }
 
 // ComboShip (issue #1): cross-game erase seam. A save slot is one combined OOT+MM playthrough, so
@@ -3167,17 +3170,21 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
     std::vector<RandoItemId> itemPool;
     Rando::Logic::GeneratePools(saveInfo, checkPool, itemPool);
 
-    // Capture the prices GeneratePools rolled into this (otherwise discarded) saveInfo — the full
-    // native fresh-generation price state, not just the shop/tingle subset 2Ship's own spoiler keeps.
+    // Capture the prices GeneratePools rolled into this (otherwise discarded) saveInfo. It rolls one per
+    // shuffled check, not just purchaseable ones (upstream), so only shops/tingle reach the spoiler.
     sMMComboCheckPrices.clear();
     for (auto& [id, chk] : Rando::StaticData::Checks) {
         uint16_t p = saveInfo.randoSaveChecks[id].price;
-        if (p != 0) {
-            sMMComboCheckPrices[id] = p;
-            const std::string& cn = Rando::StaticData::GetCheckDisplayName(id); // ComboShip: friendly name
-            if (!cn.empty())
-                prices[cn] = p;
+        if (p == 0) {
+            continue;
         }
+        sMMComboCheckPrices[id] = p;
+        if (chk.randoCheckType != RCTYPE_SHOP && chk.randoCheckType != RCTYPE_TINGLE_SHOP) {
+            continue;
+        }
+        const std::string& cn = Rando::StaticData::GetCheckDisplayName(id); // ComboShip: friendly name
+        if (!cn.empty())
+            prices[cn] = p;
     }
 
     // Confine own-dungeon items via MM's own logic (writes RANDO_SAVE_CHECKS, shrinks both pools).
@@ -4030,7 +4037,7 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Restore(void) {
     gCurrentRegionTime = sMM_OracleSavedRegionTime;
     sMM_OracleActive = false;
 }
-#endif // COMBO_BUILD — combo-only region opened above MM_InitSaveFile
+#endif // COMBO_BUILD — combo-only region opened above MM_LoadSaveForCombo
 
 #ifdef COMBO_BUILD
 // ComboShip: cross-game item-draw exports (MM_GetItemDrawInfo / MM_GetItemAnimDrawInfo). Bodies

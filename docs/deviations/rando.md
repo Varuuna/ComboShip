@@ -1083,3 +1083,74 @@ in-game ones while the two loops agree. Tier 3 — the derivation finds the port
 everything owned: **warn loudly and generate anyway**, since a prediction of structural impossibility was
 already made once and proved wrong. Terminal failures now name the last pass cause instead of "assumed
 fill failed".
+
+## MM rando save always SAVETYPE_RANDO (2026-07-31)
+
+A player reported Song of Time wiping all Stray Fairies and dungeon Small Keys. That wipe
+(`z_sram_NES.c:687-691`) is correct *vanilla* MM behaviour; only the rando-only `AfterEndOfCycleSave`
+hook (`Rando/MiscBehavior/OnCycleSave.cpp`) restores them, and `COND_HOOK` tests `IS_RANDO` **once, at
+registration** (fired from `title_setup.c` on every MM entry). So a `SAVETYPE_VANILLA` MM save silently
+disables it — plus every other `IS_RANDO` behaviour, and `BenJsonConversions.hpp` then omits the whole
+`rando` block from the save.
+
+ComboShip could reach that state two ways, both now closed:
+
+- **Stale placement cache.** `g_PendingMMPlacements` was set only at generation / seed-reload and
+  *cleared after the first file creation*, never repopulated. Creating a second save file (or erase +
+  re-create) without re-generating fell through to a vanilla MM save, while `g_ConsolidatedJson` was
+  *not* cleared — so the slot still looked like a valid seed (baked `combo.rando`, randomized OOT).
+  Fixed by deleting the cache: `Combo_OnOOTSaveInit` re-derives MM's apply payload from the bound
+  consolidated seed on every creation, via the new `ComboRando::ApplyPayloadFromConsolidated`
+  (`combo/rando/CrossForeign.h`, extracted from the reconstruction `Combo_OnReloadRequest` already
+  used). The `MM_InitSaveFile` vanilla fallback and that now-dead export are gone.
+- **Silent catch.** `MM_InitRandoSaveFile`'s exception path marked the save `SAVETYPE_VANILLA`. It still
+  rebuilds the playable baseline (the rando strips run before the apply, so a bare return would persist
+  a soft-locked slot) but keeps `SAVETYPE_RANDO` and now returns nonzero; the launcher logs loudly. Same
+  for the empty-placement early return.
+
+Tripwire: `Combo_LoadMMSaveFile` logs an error whenever a loaded MM save isn't `SAVETYPE_RANDO`.
+Already-broken saves are not repaired — re-create the file.
+
+## Per-seed spoiler names + shop-only prices (2026-07-31)
+
+**Spoilers no longer overwrite each other.** Generation wrote a single
+`Randomizer/Last-Generated-Randomizer.json` (`ComboRando::PendingPath()`), so every new seed clobbered
+the previous one. Replaced with `ComboRando::ComboSpoilerPath(fileHash, stem)` →
+`Randomizer/Combo-23-48-56-60-85.json`, built from the same 5 hash-icon indexes SoH names its own
+spoilers with (`spoiler_log.cpp`). The newest is remembered in `CVAR_GENERAL("ComboSpoiler")`, mirroring
+SoH's `SpoilerLog` CVar, via new `SOH_Set/GetComboSpoilerPath` exports — the launcher has no CVar access
+of its own. The file-select auto-reload reads that CVar instead of a fixed path.
+
+Two traps this had to avoid:
+
+- **CVars are main-thread only.** `libultraship`'s `ConsoleVariable` map is completely unlocked, and
+  `Save()` iterates it while ImGui touches CVars every frame. `RunComboFill` runs on a worker thread, so
+  it only *writes the file* (`WriteComboSpoiler`); `Combo_FinalizeGenerate` sets the CVar
+  (`RememberComboSpoiler`). Same hazard the main-thread-only placement apply already documents.
+- **The plandomizer export** wrote to the pending path; under per-seed naming that would overwrite the
+  source seed with the edited copy, so it writes `Combo-Plando-<hash>.json` instead.
+
+Nothing reads `Last-Generated-Randomizer.json` any more; an install with only that file has no
+remembered seed until the next generate or drag-drop.
+
+**`mm.prices` is now shops only.** It carried a price for ~every shuffled check (390 of 392 placements,
+against 104 of 1246 on OOT's side). Root cause is upstream: `GeneratePools.cpp`'s tingle-shop guard is
+`if (type == RCTYPE_TINGLE_SHOP && shuffle == NO) continue; else roll price;` — the `else` binds to the
+whole compound condition, so it rolls for every check that got past the shuffle gates. With tingle
+shuffle on, the `continue` is unreachable entirely.
+
+Not fixed locally: `Ship_Random` is the fill's own stream, so dropping ~390 draws per generation would
+shift every seed and break reproduction of existing spoilers. Filed as a 2Ship upstream bug. Instead
+`MM_DumpRandoStaticData` emits only `RCTYPE_SHOP` / `RCTYPE_TINGLE_SHOP` into the spoiler while
+`sMMComboCheckPrices` still captures the full set for the oracle. Safe because all 37 checks using
+`CAN_AFFORD` are exactly those 25 + 12, and the only runtime readers of `.price` are the shop/tingle
+actors (`EnGirlA`, `EnBal`, `EnIn`, `EnTab`).
+
+**The spoiler's `playthrough` steps are plain strings.** They were objects
+(`{check, game, item, foreign}`), which reads as noise for something a player scans. Now each sphere's
+`steps` is a string array of `"[OOT] Check --> Item"`; cross-game placements aren't marked, since which
+game owns an item isn't actionable. `RunPlaythrough` still emits the structured form — the headless
+`--playthrough` validator's affordability canary needs `game`/`check`/`item`/`foreign`/`advancement` —
+so the flattening happens in `ComboRando::PlaythroughLines`, applied only where the consolidated spoiler
+is assembled. The validator builds its own `pt1` from its own `RunPlaythrough` call and never reads the
+spoiler's section, so the two formats don't collide.

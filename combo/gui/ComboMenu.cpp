@@ -155,13 +155,13 @@ struct PlandoState {
 };
 static PlandoState sPlando;
 
-// List every *.json in the Randomizer folder (PendingPath's parent) as a loadable spoiler; default the
-// selection to Last-Generated when present.
+// List every *.json in the Randomizer folder as a loadable spoiler; default the selection to the
+// remembered (most recently generated) one when it's among them.
 void PlandoRefreshSpoilerList() {
     sPlando.spoilerNames.clear();
     sPlando.spoilerPaths.clear();
     std::error_code ec;
-    auto dir = ComboRando::PendingPath().parent_path();
+    auto dir = ComboRando::ConsolidatedDir();
     if (std::filesystem::exists(dir, ec)) {
         for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
             if (e.is_regular_file() && e.path().extension() == ".json") {
@@ -171,8 +171,12 @@ void PlandoRefreshSpoilerList() {
         }
     }
     sPlando.spoilerSel = sPlando.spoilerPaths.empty() ? -1 : 0;
+    std::string remembered = std::filesystem::path(CVarGetString("gGeneral.ComboSpoiler", "")).stem().string();
+    if (remembered.empty()) {
+        return;
+    }
     for (int i = 0; i < (int)sPlando.spoilerNames.size(); i++) {
-        if (sPlando.spoilerNames[i].find("Last-Generated") != std::string::npos) {
+        if (sPlando.spoilerNames[i] == remembered) {
             sPlando.spoilerSel = i;
             break;
         }
@@ -971,8 +975,12 @@ void PlandoLoad() {
             } catch (...) {}
         }
         if (sPlando.loadedJson.empty()) {
-            sPlando.loadedJson = readFile(ComboRando::PendingPath());
-            srcLabel = ComboRando::PendingPath().filename().string();
+            // The launcher remembers the newest generated spoiler here (soh owns the config).
+            std::filesystem::path remembered = CVarGetString("gGeneral.ComboSpoiler", "");
+            if (!remembered.empty()) {
+                sPlando.loadedJson = readFile(remembered);
+                srcLabel = remembered.filename().string();
+            }
         }
     }
     if (sPlando.loadedJson.empty()) {
@@ -1066,11 +1074,13 @@ void PlandoSavePlay() {
 
     std::error_code ec;
     std::filesystem::create_directories(ComboRando::ConsolidatedDir(), ec);
-    auto path = ComboRando::PendingPath();
+    // Its own file: writing the source seed's name would overwrite that seed with the edited copy.
+    auto path = j.contains("file_hash") ? ComboRando::ComboSpoilerPath(j["file_hash"], "Combo-Plando")
+                                        : ComboRando::ConsolidatedDir() / "Combo-Plando.json";
     {
         std::ofstream out(path, std::ios::trunc);
         if (!out.is_open()) {
-            sPlando.status = "Failed to write the pending file.";
+            sPlando.status = "Failed to write the plandomizer file.";
             sPlando.statusError = true;
             return;
         }

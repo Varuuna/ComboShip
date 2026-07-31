@@ -48,12 +48,11 @@
 #include "soh/Enhancements/randomizer/Traps.h" // ComboShip: Rando::Traps::CanBeTrapModel for disguise curation
 #include "soh/Enhancements/randomizer/3drando/fill.hpp"
 #include "soh/Enhancements/randomizer/3drando/shops.hpp"
-#include "soh/Enhancements/randomizer/3drando/random.hpp"
+#include "soh/Enhancements/randomizer/rng.h"
 #include "soh/Enhancements/randomizer/location_access.h"
 #include "soh/Enhancements/randomizer/3drando/item_pool.hpp"
 #include "soh/Enhancements/randomizer/3drando/starting_inventory.hpp"
-#include "soh/Enhancements/randomizer/3drando/pool_functions.hpp" // ComboShip: AddElementsToPool
-#include "soh/Enhancements/randomizer/entrance.h"                 // ComboShip: ENTRANCE_SHUFFLE_FAILURE
+#include "soh/Enhancements/randomizer/entrance.h"        // ComboShip: ENTRANCE_SHUFFLE_FAILURE
 #include "soh/Enhancements/randomizer/3drando/hints.hpp" // ComboShip: CreateChildAltarHint/CreateAdultAltarHint
 #include "soh/Enhancements/randomizer/randomizer_check_objects.h" // ComboShip: GetRCAreaName/AreaIsDungeon for hint dump
 #include "soh/Enhancements/randomizer/trial.h"                    // ComboShip: GetTrials() for resolved trial dump
@@ -106,7 +105,7 @@
 #include "soh/Network/CrowdControl/CrowdControl.h"
 #include "soh/Network/Sail/Sail.h"
 #include "soh/Network/Anchor/Anchor.h"
-#include "soh/util.h"                                // ComboShip: SohUtils::GetSceneName for the Anchor roster export
+#include "soh/util.h" // ComboShip: SohUtils::GetSceneName (Anchor roster), AppendVector (entrance-shuffle pool)
 #include "soh/Enhancements/randomizer/SeedContext.h" // ComboShip: Rando::Context::GetSeed for roster seed-mismatch
 #include "Enhancements/game-interactor/GameInteractor.h"
 #include "Enhancements/randomizer/draw.h"
@@ -2070,6 +2069,7 @@ void RunCommands(Gfx* Commands, int time, int step, int denom, int count) {
         time += step;
         std::unordered_map<Mtx*, MtxF> mtx_replacements =
             (time == denom) ? std::unordered_map<Mtx*, MtxF>() : FrameInterpolation_Interpolate((float)time / denom);
+        intp->mInterpolationT = (float)time / denom;
         wnd->DrawAndRunGraphicsCommands(Commands, mtx_replacements);
         intp->mInterpolationIndex++;
     }
@@ -3756,7 +3756,7 @@ extern "C" __declspec(dllexport) int SOH_ShuffleEntrancesForCombo(uint64_t seed)
             GenerateItemPool(); // ValidateEntrances' all-items pass reads itemPool; self-clears
             GenerateStartingInventory();
             // Temp shop items (worst-case shopsanity) for world validation, as Fill() does.
-            AddElementsToPool(itemPool, GetMinVanillaShopItems(8));
+            SohUtils::AppendVector(itemPool, GetMinVanillaShopItems(8));
             Random_Init(seed + retry);
             int ret = ctx->GetEntranceShuffler()->ShuffleAllEntrances();
             std::erase_if(itemPool, [](const auto item) {
@@ -3825,6 +3825,28 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         if (rg == RG_PIECE_OF_HEART || rg == RG_HEART_CONTAINER || rg == RG_TREASURE_GAME_HEART)
             return false;
         return Rando::StaticData::RetrieveItem(rg).IsAdvancement();
+    };
+
+    // ComboShip: native category, so the cross fill can trim ONLY junk — `advancement` alone can't say
+    // that (it lumps junk with hearts/traps). Unknown maps to "major" so it is never trimmable.
+    auto comboCategory = [](RandomizerGet rg) -> const char* {
+        switch (Rando::StaticData::RetrieveItem(rg).GetCategory()) {
+            case ITEM_CATEGORY_JUNK:
+                return "junk";
+            case ITEM_CATEGORY_LESSER:
+                return "lesser";
+            case ITEM_CATEGORY_HEALTH:
+                return "health";
+            case ITEM_CATEGORY_BOSS_KEY:
+                return "bossKey";
+            case ITEM_CATEGORY_SMALL_KEY:
+                return "smallKey";
+            case ITEM_CATEGORY_SKULLTULA_TOKEN:
+                return "token";
+            case ITEM_CATEGORY_MAJOR:
+                return "major";
+        }
+        return "major";
     };
 
     bool usedPool = false;
@@ -3896,7 +3918,10 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             const std::string& in = Rando::StaticData::RetrieveItem(rg).GetName().GetEnglish();
             if (in.empty())
                 continue;
-            pool.push_back({ { "name", in }, { "advancement", comboIsAdv(rg) }, { "major", isMajor(rg) } });
+            pool.push_back({ { "name", in },
+                             { "advancement", comboIsAdv(rg) },
+                             { "major", isMajor(rg) },
+                             { "category", comboCategory(rg) } });
         }
         // itemPool excludes shop slots (CountEmptyLocations(false)); shuffled shop checks are covered
         // by junk, exactly like native FastFill's GetJunkItem() padding — Buy items stay shop-only.
@@ -3904,7 +3929,8 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             RandomizerGet jg = GetJunkItem();
             pool.push_back({ { "name", Rando::StaticData::RetrieveItem(jg).GetName().GetEnglish() },
                              { "advancement", comboIsAdv(jg) },
-                             { "major", isMajor(jg) } });
+                             { "major", isMajor(jg) },
+                             { "category", comboCategory(jg) } });
         }
         // Rolled prices (set by ComboFillConfined at Fill()'s native position) for every priced
         // check type — the consolidated spoiler carries these so the validator/reload never guess.
@@ -4909,9 +4935,4 @@ bool SoH_HandleConfigDrop(char* filePath) {
         return false;
     }
     return false;
-}
-
-// Number of interpolated frames
-extern "C" uint32_t Ship_GetInterpolationFrameCount() {
-    return static_cast<uint32_t>(ceil((float)OTRGlobals::Instance->GetInterpolationFPS() / 20.0f));
 }

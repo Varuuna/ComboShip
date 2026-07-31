@@ -146,6 +146,8 @@ static RegisterShipInitFunc refreshInitFunc(
             RefreshObtainableTrapItems();
         });
 
+        allTrapItems.clear();
+
         if (IS_RANDO) {
             for (auto& [randoCheckId, _] : Rando::StaticData::Checks) {
                 RandoSaveCheck saveCheck = RANDO_SAVE_CHECKS[randoCheckId];

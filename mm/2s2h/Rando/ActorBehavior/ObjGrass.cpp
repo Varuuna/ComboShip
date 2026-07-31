@@ -451,7 +451,8 @@ void Rando::ActorBehavior::InitObjGrassBehavior() {
 
     COND_VB_SHOULD(VB_KUSA_BUSH_DRAW_BE_OVERRIDDEN, IS_RANDO, {
         Actor* actor = va_arg(args, Actor*);
-        if (GetObjectRandoCheckId(actor) != RC_UNKNOWN) {
+        RandoCheckId randoCheckId = GetObjectRandoCheckId(actor);
+        if (randoCheckId != RC_UNKNOWN && !RANDO_SAVE_CHECKS[randoCheckId].obtained) {
             *should = false;
             actor->draw = EnKusaBush_RandoDraw;
         }
@@ -462,7 +463,7 @@ void Rando::ActorBehavior::InitObjGrassBehavior() {
         ObjGrassElement* grassElem = va_arg(args, ObjGrassElement*);
         s32 j = va_arg(args, s32);
         RandoCheckId randoCheckId = GetObjectRandoCheckId(grassElem);
-        if (randoCheckId != RC_UNKNOWN) {
+        if (randoCheckId != RC_UNKNOWN && !RANDO_SAVE_CHECKS[randoCheckId].obtained) {
             *should = false;
             ObjGrass_RandoDrawOpa(objGrass, grassElem, j, randoCheckId);
         }
@@ -472,7 +473,7 @@ void Rando::ActorBehavior::InitObjGrassBehavior() {
         ObjGrass* objGrass = va_arg(args, ObjGrass*);
         ObjGrassElement* grassElem = va_arg(args, ObjGrassElement*);
         RandoCheckId randoCheckId = GetObjectRandoCheckId(grassElem);
-        if (randoCheckId != RC_UNKNOWN) {
+        if (randoCheckId != RC_UNKNOWN && !RANDO_SAVE_CHECKS[randoCheckId].obtained) {
             *should = false;
             ObjGrass_RandoDrawXlu(objGrass, grassElem, randoCheckId);
         }

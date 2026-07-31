@@ -199,6 +199,20 @@ void GfxDebuggerWindow::DrawDisasNode(const F3DGfx* cmd, std::vector<const F3DGf
                 break;
             }
 
+            // Header word plus 2 float tile coordinates
+            case RDP_G_SETTILESIZE_INTERP: {
+                simpleNode(cmd, opcode);
+                cmd += 3;
+                break;
+            }
+
+            // Header word plus 4 float tile coordinate endpoints
+            case RDP_G_SETTILESIZE_LERP: {
+                simpleNode(cmd, opcode);
+                cmd += 5;
+                break;
+            }
+
             case OTR_G_MARKER: {
                 cmd++;
                 uint64_t hash = ((uint64_t)cmd->words.w0 << 32) + cmd->words.w1;
@@ -646,7 +660,8 @@ void GfxDebuggerWindow::DrawDisas() {
 
                 if (isNew && metadata.resource != nullptr) {
                     gui->UnloadTexture(name);
-                    gui->LoadGuiTexture(name, *metadata.resource, ImVec4{ 1.0f, 1.0f, 1.0f, 1.0f });
+                    // ComboShip: upstream LUS #1157 passes nullptr here; std::string from nullptr is UB.
+                    gui->LoadGuiTexture(name, *metadata.resource, "", ImVec4{ 1.0f, 1.0f, 1.0f, 1.0f });
                 }
 
                 ImGui::Image(gui->GetTextureByName(name), ImVec2{ 100.0f, 100.0f });

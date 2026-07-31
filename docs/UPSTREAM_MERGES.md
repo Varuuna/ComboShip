@@ -165,6 +165,11 @@ Each merge pass gets its **own dated file** under [`merges/`](merges/) — one p
 file we had to touch after the mechanical 3-way merge and why. This keeps the per-merge required
 changes easy to track (and to diff against the recurring-deviation list below). Newest first:
 
+- [2026-07-27](merges/2026-07-27.md) — soh `1ea720607` → `2c5762a0f` / mm `ed47d2ec9` → `e3310fe1b`
+  (libultraship pin unchanged, but #1141 `G_SETTILESIZE_LERP` and #1157 `LoadGuiTexture(palettePath)`
+  had to be hand-ported — both games now require them). Deleted our BetterSaveMenu hook block in
+  favour of upstream #6984; reverted mm's `OTRGlobals::context` to `shared_ptr`; ported the MM
+  excluded-checks round-trip to #1817's JSON-array form.
 - [2026-07-25](merges/2026-07-25-extractors.md) — extractors only: ZAPDTR `ee3397a36` → `be1c68a79` /
   OTRExporter `32e088e28` → `c5465ba0b` (libultraship, soh, mm unchanged). ZAPD now uses LUS's
   StringHelper; re-merged our runtime MM-ROM detection over upstream's `#ifdef GAME_MM` PAL branch.

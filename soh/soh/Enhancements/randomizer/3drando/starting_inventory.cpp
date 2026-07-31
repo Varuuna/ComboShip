@@ -5,6 +5,7 @@
 #include "../logic.h"
 #include "pool_functions.hpp"
 #include "soh/Enhancements/randomizer/static_data.h"
+#include "soh/util.h"
 
 std::vector<RandomizerGet> StartingInventory;
 uint8_t AdditionalHeartContainers;
@@ -158,7 +159,7 @@ void GenerateStartingInventory() {
 
 bool StartingInventoryHasBottle() {
     RandomizerGet bottle = RG_EMPTY_BOTTLE;
-    return ElementInContainer(bottle, StartingInventory);
+    return SohUtils::Contains(bottle, StartingInventory);
 }
 
 void ApplyStartingInventory() {

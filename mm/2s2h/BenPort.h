@@ -54,6 +54,8 @@ class OTRGlobals {
     ImFont* fontMonoLarger = nullptr;
     ImFont* fontMonoLargest = nullptr;
 
+    // ComboShip: stays a shared_ptr (soh/OTRGlobals.h does too). We skip LUS #1103, so LUS still holds
+    // the instance in a weak_ptr — a raw member would drop the last reference and free the Context.
     std::shared_ptr<Ship::Context> context;
 
     OTRGlobals();
@@ -168,7 +170,6 @@ void Controller_UnblockGameInput();
 void Overlay_DisplayText(float duration, const char* text);
 void Overlay_DisplayText_Seconds(int seconds, const char* text);
 uint32_t Ship_GetInterpolationFPS();
-uint32_t Ship_GetInterpolationFrameCount();
 
 void Gfx_RegisterBlendedTexture(const char* name, u8* mask, u8* replacement);
 void Gfx_UnregisterBlendedTexture(const char* name);

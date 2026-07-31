@@ -190,7 +190,7 @@ void RegisterDebugMode() {
         if (CHECK_BTN_ANY(gGameState->input[0].press.button, mask) &&
             CHECK_BTN_ALL(gGameState->input[0].cur.button, mask)) {
             std::reinterpret_pointer_cast<Ship::ConsoleWindow>(
-                Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGuiWindow("Console"))
+                Ship::Context::GetRawInstance()->GetWindow()->GetGui()->GetGuiWindow("Console"))
                 ->Dispatch("reset");
         }
     });

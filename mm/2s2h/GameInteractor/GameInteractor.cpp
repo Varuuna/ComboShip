@@ -587,6 +587,13 @@ void ProcessEvents(Actor* actor) {
     GameInteractor::Instance->events.erase(GameInteractor::Instance->events.begin());
 }
 
+// On MSVC this is defined inline in the header instead; see the declaration for why.
+#ifndef _MSC_VER
+void GameInteractor::RemoveAllQueuedHooks() {
+#include "GameInteractor_RemoveAllQueuedHooks.inc"
+}
+#endif
+
 void GameInteractor::RegisterOwnHooks() {
     // Cleanup all hooks at the start of each frame
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameStateMainStart>(

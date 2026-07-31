@@ -82,6 +82,7 @@ static RegisterShipInitFunc initFunc([]() {
             CHECK(RC_WOODFALL_TEMPLE_ENTRANCE_CHEST, CAN_BE_DEKU || HAS_ITEM(ITEM_HOOKSHOT)),
             CHECK(RC_WOODFALL_TEMPLE_SF_ENTRANCE, CAN_USE_PROJECTILE),
             CHECK(RC_WOODFALL_TEMPLE_ENTRANCE_POT, CAN_BE_DEKU),
+            CHECK(RC_WOODFALL_TEMPLE_ENTRANCE_BEEHIVE, CAN_USE_PROJECTILE),
             CHECK(RC_ENEMY_DROP_SKULLTULA, CanKillEnemy(ACTOR_EN_ST)),
             CHECK(RC_ENEMY_DROP_BOE, CanKillEnemy(ACTOR_EN_MKK)),
         },
@@ -145,6 +146,7 @@ static RegisterShipInitFunc initFunc([]() {
             CHECK(RC_WOODFALL_TEMPLE_MAZE_POT_02, true),
             // TODO: Trick for bombs & chus here - Doesn't need a trick. Bomb can break it from above
             CHECK(RC_WOODFALL_TEMPLE_SF_MAZE_BEEHIVE, CAN_USE_PROJECTILE ||  CAN_USE_EXPLOSIVE),
+            CHECK(RC_WOODFALL_TEMPLE_MAZE_ROOM_BEEHIVE, CAN_USE_PROJECTILE),
             // TODO: Maybe add a health check here later
             CHECK(RC_WOODFALL_TEMPLE_SF_MAZE_BUBBLE, true),
             CHECK(RC_WOODFALL_TEMPLE_SF_MAZE_SKULLTULA, CanKillEnemy(ACTOR_EN_ST)),

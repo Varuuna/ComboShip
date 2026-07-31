@@ -135,7 +135,12 @@ bool Context::InitLogging(spdlog::level::level_enum debugBuildLogLevel,
         std::vector<spdlog::sink_ptr> sinks;
 
 #if (!defined(_WIN32)) || defined(_DEBUG)
-#if defined(_DEBUG) && defined(_WIN32)
+// ComboShip: in a combo build the host .exe owns the console and the game DLLs run inside it. Skip
+// the FreeConsole()/AllocConsole() + stdout redirect below (it would steal the console into a new
+// window per game DLL, and every module shares one UCRT under /MD, so the redirect invalidates the
+// launcher's already-open fds -> assert in ucrt write.cpp) but keep the stdout_color sink so each
+// game logs into the inherited console. See docs/UPSTREAM_MERGES.md.
+#if defined(_DEBUG) && defined(_WIN32) && !defined(COMBO_BUILD)
         // LLVM on Windows allocs a hidden console in its entrypoint function.
         // We free that console here to create our own.
         FreeConsole();

@@ -67,7 +67,7 @@ void ReloadMmControls() {
 
 // Keep only the foreground game's notification window in the shared Gui's draw loop.
 void SetForegroundNotification(int fg) {
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
         return;
     }

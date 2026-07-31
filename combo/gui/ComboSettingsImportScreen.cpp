@@ -58,7 +58,7 @@ void CopyPath(char* dst, size_t cap, const std::string& src) {
 }
 
 void UseSharedImGuiContext() {
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     if (ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
         ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
     }
@@ -75,7 +75,7 @@ extern "C" __declspec(dllexport) int ComboUI_RunSettingsImport(const ComboSettin
     out->sohPath[0] = '\0';
     out->mmPath[0] = '\0';
 
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
         return 0;
     }

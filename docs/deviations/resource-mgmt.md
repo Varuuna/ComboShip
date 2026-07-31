@@ -138,11 +138,12 @@ whose `#define main SDL_main` breaks `GameState::main` users (e.g. `CustomLogoTi
 the `*_MenuApplyCVarChange` export scopes redundant but they stay as documentation of the
 export-boundary rule.
 
-## Cherry-pick: LUS PR #1121 — round interpolated texture tile sizes (2026-07-14)
+## RETIRED (2026-08-01): LUS PR #1121 cherry-pick — round interpolated texture tile sizes
 
-`libultraship/src/fast/interpreter.cpp`: cherry-picked unmerged upstream PR
-Kenix3/libultraship#1121 (commit `c66cebe2f`, fixes #1119 / Shipwright#6666). Interpolated
-float tile coords truncated to int made the rendered texture window alternate 32×32/32×31
-across interpolation phases → animated water/lava flicker above 20 FPS. New
-`GetTileSizeFromCoordinates()` rounds via `lroundf`. Drop this local copy once the PR lands
-upstream and the pin passes it.
+Was a local cherry-pick of unmerged Kenix3/libultraship#1121 in
+`libultraship/src/fast/interpreter.cpp` (interpolated float tile coords truncated to int made the
+texture window alternate 32×32/32×31 across phases → animated water/lava flicker above 20 FPS).
+
+Dropped in the 2026-08-01 `port-maintenance` switch: upstream landed it as **#1164**, and **#1135**
+then refined `GetTileSizeFromCoordinates()` to treat an unset tile (`high <= low`) as zero size
+rather than the phantom 1-texel our copy produced. We now carry upstream's version verbatim.

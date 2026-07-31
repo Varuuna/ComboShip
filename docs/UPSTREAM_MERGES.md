@@ -81,16 +81,24 @@ manual (it's judgement work). Three pieces:
   - Running the local `scripts/upstream-merge.ps1` by hand still works exactly as before — use it when
     you'd rather drive the pass locally instead of finishing the bot's draft.
 
-## Standing policy: libultraship branch (Kenix3 `main`)
+## Standing policy: libultraship branch (Kenix3 `port-maintenance`)
 
-We **always** vendor Kenix3 `libultraship` `main`. soh/2ship are vendored as the `soh/`/`mm/`
-**source folders only** — we never adopt their submodule pins. If soh or 2ship *source* hits a
-build break around **window/Context init-deinit or other non-game infrastructure**, check whether
-that upstream pins a different LUS branch (e.g. soh@develop moved to Kenix3 `port-maintenance` for
-the "Untangle Context destructor" PR #1103) and **cherry-pick the specific commit(s) into our
-vendored `libultraship/` — additively where possible — rather than switching the branch we track.**
-Concrete instance handled in the 2026-06-15 pass: the `GetInstance()`→`GetRawInstance()` rename
-(see that section below).
+We vendor Kenix3 `libultraship` **`port-maintenance`** — *not* `main`. **Do not "correct" this back.**
+
+`main` and `port-maintenance` are divergent lines. **Every Harbour Masters port tracks
+`port-maintenance`**: Shipwright `develop`, 2ship `develop`, and Lighthouse all pin commits on it.
+`main` carries engine refactors no port has adopted (Component system #1174, the Ship/Fast namespace
+split #1177, list standardization #1178, the ResourceInitData/ResourceIdentifier rework #1187).
+
+We tracked `main` until 2026-08-01 and cherry-picked port fixes across the gap one at a time — #1103
+(`GetRawInstance`), #1126, #1141, #1157, #1121/#1164. That cost grew every pass while the branches
+kept diverging, so the 2026-08-01 pass switched lines and retired all of those local copies. Adopting
+`port-maintenance` also brought #1103 properly: **libultraship now owns the `Context` via
+`unique_ptr`, `GetInstance()`/`SetInstance()` are gone, and callers use `GetRawInstance()`.**
+
+soh/2ship are still vendored as the `soh/`/`mm/` **source folders only** — we never adopt their
+submodule pins. If a port needs a LUS commit we don't have, cherry-pick it additively rather than
+switching branches again.
 
 ## Standing policy: mm asset headers are TRACKED (match upstream)
 
@@ -165,6 +173,11 @@ Each merge pass gets its **own dated file** under [`merges/`](merges/) — one p
 file we had to touch after the mechanical 3-way merge and why. This keeps the per-merge required
 changes easy to track (and to diff against the recurring-deviation list below). Newest first:
 
+- [2026-08-01](merges/2026-08-01.md) — libultraship `a3f1e102e` → `bbb565bd9`, **switching line from
+  Kenix3 `main` to `port-maintenance`** (soh + mm unchanged). Adopted #1103: LUS owns the `Context`
+  via `unique_ptr`, `GetInstance()`/`SetInstance()` gone, ~72 call sites moved to `GetRawInstance()`,
+  soh's teardown now calls `DestroyInstance()` explicitly. Retired six local back-ports/cherry-picks.
+  Fixed two Windows-only bugs in `scripts/upstream-merge.ps1`.
 - [2026-07-27](merges/2026-07-27.md) — soh `1ea720607` → `2c5762a0f` / mm `ed47d2ec9` → `e3310fe1b`
   (libultraship pin unchanged, but #1141 `G_SETTILESIZE_LERP` and #1157 `LoadGuiTexture(palettePath)`
   had to be hand-ported — both games now require them). Deleted our BetterSaveMenu hook block in

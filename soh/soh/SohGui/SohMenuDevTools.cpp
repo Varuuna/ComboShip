@@ -28,7 +28,7 @@ static void ComboInlineWindow(const char* windowName, bool requiresForeground) {
         ImGui::TextDisabled("Available while Ship of Harkinian is running.");
         return;
     }
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
         return;
     }

@@ -1512,7 +1512,7 @@ void Rando::RegisterMenu() {
 #ifdef COMBO_BUILD
     // ComboShip: embed the settings inline (mirrors SoH's tracker sidebars); skipped while popped out.
     mBenMenu->AddWidget(path, "Item Tracker Settings Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
-        auto ctx = Ship::Context::GetInstance();
+        auto ctx = Ship::Context::GetRawInstance();
         if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
             return;
         auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Item Tracker Settings" COMBO_MM_TRACKER_SUFFIX);
@@ -1531,7 +1531,7 @@ void Rando::RegisterMenu() {
 #ifdef COMBO_BUILD
     // ComboShip: embed the settings inline (mirrors SoH's tracker sidebars); skipped while popped out.
     mBenMenu->AddWidget(path, "Check Tracker Settings Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
-        auto ctx = Ship::Context::GetInstance();
+        auto ctx = Ship::Context::GetRawInstance();
         if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
             return;
         auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Check Tracker Settings" COMBO_MM_TRACKER_SUFFIX);

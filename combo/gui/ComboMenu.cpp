@@ -216,7 +216,7 @@ void ComboMenu::DrawElement() {
     // separate from libultraship.dll where the context actually lives. Point it at the shared
     // context before any ImGui call here (same pattern soh.dll/2ship.dll use) — otherwise
     // ImGui::BeginTabBar dereferences a null context and crashes.
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     if (ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
         ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
     }
@@ -294,12 +294,12 @@ void ComboMenu::DrawElement() {
                 bw(ICON_FA_POWER_OFF) + bw(ICON_FA_UNDO) + bw(ICON_FA_TIMES_CIRCLE) + st.ItemSpacing.x * 2.0f;
             ImGui::SameLine(ImGui::GetContentRegionMax().x - total);
             if (ImGui::Button(ICON_FA_POWER_OFF)) {
-                Ship::Context::GetInstance()->GetWindow()->Close();
+                Ship::Context::GetRawInstance()->GetWindow()->Close();
             }
             ImGui::SameLine();
             if (ImGui::Button(ICON_FA_UNDO)) {
                 if (auto console = std::static_pointer_cast<Ship::ConsoleWindow>(
-                        Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGuiWindow("Console"))) {
+                        Ship::Context::GetRawInstance()->GetWindow()->GetGui()->GetGuiWindow("Console"))) {
                     console->Dispatch("reset");
                 }
             }
@@ -627,7 +627,7 @@ void DrawTrackerSharedPanel() {
     RenderGameTrackerBlock(1, ComboTracker::kSwapItem, "Rando", "Item Tracker");
 
     if (changed) {
-        if (auto ctx = Ship::Context::GetInstance(); ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
+        if (auto ctx = Ship::Context::GetRawInstance(); ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
             ctx->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
         }
     }
@@ -667,7 +667,7 @@ void DrawCheckTrackerSharedPanel() {
     RenderGameTrackerBlock(1, ComboTracker::kSwapCheck, "Rando", "Check Tracker");
 
     if (changed) {
-        if (auto ctx = Ship::Context::GetInstance(); ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
+        if (auto ctx = Ship::Context::GetRawInstance(); ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
             ctx->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
         }
     }
@@ -682,7 +682,7 @@ static void AnchorLoadStr(char* buf, size_t n, const char* cvar, const char* dfl
 
 // Persist CVar writes to disk next frame (mirrors soh's Anchor menu, which saves after every edit).
 static void AnchorSaveCVars() {
-    if (auto ctx = Ship::Context::GetInstance(); ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
+    if (auto ctx = Ship::Context::GetRawInstance(); ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
         ctx->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
     }
 }
@@ -847,7 +847,7 @@ void DrawNetworkSharedPanel() {
             roomOpen = !roomOpen;
             CVarSetInteger("gCombo.Anchor.RoomWindow", roomOpen ? 1 : 0);
             AnchorSaveCVars();
-            if (auto ctx = Ship::Context::GetInstance(); ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
+            if (auto ctx = Ship::Context::GetRawInstance(); ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
                 if (auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Anchor Room")) {
                     if (roomOpen)
                         win->Show();
@@ -1659,7 +1659,7 @@ extern "C" __declspec(dllexport) void ComboUI_Register(void)
 extern "C" void ComboUI_Register(void)
 #endif
 {
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
         return; // GUI not ready
     }

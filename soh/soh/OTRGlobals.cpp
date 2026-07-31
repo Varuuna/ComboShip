@@ -378,14 +378,14 @@ OTRGlobals::OTRGlobals() {
     // ImGui's current-context global (GImGui) is a per-module static. libultraship.dll created
     // the context inside InitWindow; point this DLL's GImGui at it before any ImGui use here
     // (e.g. CreateFontWithSize below), or ImGui::GetIO() asserts on a null context.
-    ImGui::SetCurrentContext(context->GetInstance()->GetWindow()->GetGui()->GetImGuiContext());
+    ImGui::SetCurrentContext(context->GetWindow()->GetGui()->GetImGuiContext());
 #endif
 
     SohGui::SetupMenu();
 
     if (sohArchiveVersionMatch) {
 
-        auto overlay = context->GetRawInstance()->GetWindow()->GetGui()->GetGameOverlay();
+        auto overlay = context->GetWindow()->GetGui()->GetGameOverlay();
         overlay->LoadFont("Press Start 2P", 12.0f, "fonts/PressStart2P-Regular.ttf");
         overlay->LoadFont("Fipps", 32.0f, "fonts/Fipps-Regular.otf");
         overlay->SetCurrentFont(CVarGetString(CVAR_GAME_OVERLAY_FONT, "Press Start 2P"));
@@ -1879,6 +1879,9 @@ extern "C" void DeinitOTR() {
 #endif
 
     OTRGlobals::Instance->context = nullptr;
+    // Destroys the Context (libultraship owns it since #1103). Was previously implicit: soh dropped
+    // the last shared_ptr. Must stay here — MM_Deinit runs first and only clears its own pointer.
+    Ship::Context::DestroyInstance();
 #ifdef COMBO_BUILD
     // ComboShip: ~Context ran ImGui::DestroyContext, but that only nulls libultraship's GImGui —
     // this DLL's module-local GImGui still points at the freed context. soh statics destroyed at
@@ -3110,7 +3113,7 @@ extern "C" s32 gComboReturnFileNum = -1;
 
 // Re-activate OOT's resources and re-init the pieces SOH_PrepareForTransition tore down.
 static void SOH_ReinitForResume() {
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
 
     // Re-activate OOT's own ResourceManager. Its archives, factories, and resource cache stayed
     // resident the entire time MM was running (MM used its own RM), so nothing was unloaded and no
@@ -3298,7 +3301,7 @@ extern "C" __declspec(dllexport) int32_t SOH_MenuDrawWidget(int32_t i, int32_t w
 extern "C" bool WindowIsRunning(void);
 
 extern "C" __declspec(dllexport) void SOH_ResumeGame(void) {
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     // Flush every log line immediately so the resume diagnostics survive a hard crash (the console
     // window closes on crash; the log file is what we read afterward).
     ctx->GetLogger()->flush_on(spdlog::level::trace);
@@ -3339,7 +3342,7 @@ extern "C" __declspec(dllexport) void SOH_ResumeGame(void) {
 // Restores OOT's RM/audio/GUI/menu so OOT's first real boot (SOH_RunMain) renders correctly. Like
 // SOH_ResumeGame minus the frame-loop reset and game loop — SOH_RunMain runs the loop.
 extern "C" __declspec(dllexport) void SOH_ResumeForeground(void) {
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     SOH_ReinitForResume(); // OOT RM active, OOT audio, OOT GUI + menu
     // Re-sync this DLL's ImGui current-context (GImGui is per-module).
     ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
@@ -4615,7 +4618,7 @@ extern "C" __declspec(dllexport) int SOH_RequestComboReload(const char* path) {
 // without regenerating. Mirrors how SoH remembers its own spoiler in CVAR_GENERAL("SpoilerLog").
 extern "C" __declspec(dllexport) void SOH_SetComboSpoilerPath(const char* path) {
     CVarSetString(CVAR_GENERAL("ComboSpoiler"), path ? path : "");
-    Ship::Context::GetInstance()->GetConsoleVariables()->Save();
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->Save();
 }
 extern "C" __declspec(dllexport) const char* SOH_GetComboSpoilerPath(void) {
     return CVarGetString(CVAR_GENERAL("ComboSpoiler"), "");

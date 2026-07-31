@@ -100,9 +100,9 @@ void Menu::RemoveSidebarSearch() {
 
 void Menu::UpdateWindowBackendObjects() {
     Fast::WindowBackend runningWindowBackend =
-        (Fast::WindowBackend)Ship::Context::GetInstance()->GetWindow()->GetWindowBackend();
-    int32_t configWindowBackendId = Ship::Context::GetInstance()->GetConfig()->GetInt("Window.Backend.Id", -1);
-    if (Ship::Context::GetInstance()->GetWindow()->IsAvailableWindowBackend(configWindowBackendId)) {
+        (Fast::WindowBackend)Ship::Context::GetRawInstance()->GetWindow()->GetWindowBackend();
+    int32_t configWindowBackendId = Ship::Context::GetRawInstance()->GetConfig()->GetInt("Window.Backend.Id", -1);
+    if (Ship::Context::GetRawInstance()->GetWindow()->IsAvailableWindowBackend(configWindowBackendId)) {
         configWindowBackend = static_cast<Fast::WindowBackend>(configWindowBackendId);
     } else {
         configWindowBackend = static_cast<Fast::WindowBackend>(runningWindowBackend);

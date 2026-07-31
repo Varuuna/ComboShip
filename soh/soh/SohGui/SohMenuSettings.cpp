@@ -466,7 +466,7 @@ void SohMenu::AddMenuSettings() {
         .RaceDisable(false)
         .HideInSearch(true)
         .CustomFunction([](WidgetInfo&) {
-            auto ctx = Ship::Context::GetInstance();
+            auto ctx = Ship::Context::GetRawInstance();
             if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
                 return;
             }
@@ -505,7 +505,7 @@ void SohMenu::AddMenuSettings() {
         .RaceDisable(false)
         .HideInSearch(true)
         .CustomFunction([](WidgetInfo&) {
-            auto ctx = Ship::Context::GetInstance();
+            auto ctx = Ship::Context::GetRawInstance();
             if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
                 return;
             }
@@ -588,7 +588,7 @@ void SohMenu::AddMenuSettings() {
         .RaceDisable(false)
         .HideInSearch(true)
         .CustomFunction([](WidgetInfo&) {
-            auto ctx = Ship::Context::GetInstance();
+            auto ctx = Ship::Context::GetRawInstance();
             if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
                 return;
             }

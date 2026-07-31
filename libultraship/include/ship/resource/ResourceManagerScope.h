@@ -13,7 +13,7 @@ namespace Ship {
 class ResourceManagerScope {
   public:
     explicit ResourceManagerScope(std::shared_ptr<ResourceManager> target) {
-        auto ctx = Context::GetInstance();
+        auto ctx = Context::GetRawInstance();
         if (ctx && target) {
             mPrevious = ctx->GetResourceManager();
             if (mPrevious != target) {
@@ -23,13 +23,13 @@ class ResourceManagerScope {
                 // so the dtor only restores into the same Context we swapped. The single-thread
                 // model is the norm; this is a cheap mechanical guard against ever writing
                 // mPrevious into a different Context if the active Context were swapped in-scope.
-                mCtx = ctx.get();
+                mCtx = ctx;
             }
         }
     }
     ~ResourceManagerScope() {
         if (mSwapped) {
-            if (auto ctx = Context::GetInstance(); ctx && ctx.get() == mCtx) {
+            if (auto ctx = Context::GetRawInstance(); ctx && ctx == mCtx) {
                 ctx->SetResourceManager(mPrevious);
             }
         }

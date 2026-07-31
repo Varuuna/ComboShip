@@ -124,7 +124,7 @@ void ActivateMenu() {
         SetupMenu();
     }
 #else
-    auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
+    auto gui = Ship::Context::GetRawInstance()->GetWindow()->GetGui();
     if (mBenMenu == nullptr) {
         SetupMenu();
     } else {

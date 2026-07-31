@@ -54,26 +54,26 @@ std::shared_ptr<ResourceManager> CrossRMRegistry::GetOrActive(const std::string&
     if (rm) {
         return rm;
     }
-    auto ctx = Context::GetInstance();
+    auto ctx = Context::GetRawInstance();
     return ctx ? ctx->GetResourceManager() : nullptr;
 }
 
 OwnRMScope::OwnRMScope(const char* name) {
-    auto ctx = Context::GetInstance();
+    auto ctx = Context::GetRawInstance();
     auto target = CrossRMRegistry::Get(name);
     if (ctx && target) {
         mPrevious = ctx->GetResourceManager();
         if (mPrevious != target) {
             ctx->SetResourceManager(target);
             mSwapped = true;
-            mCtx = ctx.get();
+            mCtx = ctx;
         }
     }
 }
 
 OwnRMScope::~OwnRMScope() {
     if (mSwapped) {
-        if (auto ctx = Context::GetInstance(); ctx && ctx.get() == mCtx) {
+        if (auto ctx = Context::GetRawInstance(); ctx && ctx == mCtx) {
             ctx->SetResourceManager(mPrevious);
         }
     }

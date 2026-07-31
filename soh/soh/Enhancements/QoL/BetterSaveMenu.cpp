@@ -4,9 +4,6 @@
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/randomizer/randomizer_entrance.h"
 #include "soh/ShipInit.hpp"
-#ifdef COMBO_BUILD
-#include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
-#endif
 
 extern "C" {
 extern PlayState* gPlayState;
@@ -162,12 +159,6 @@ void HandleSaveMenu(bool* should, PlayState* play) {
                     gSaveContext.magicCapacity = 0;
                     gSaveContext.magicFillTarget = gSaveContext.magic;
                     gSaveContext.magicLevel = gSaveContext.magic = 0;
-#ifdef COMBO_BUILD
-                    // Sram_OpenSave recreated gRandoContext; re-init consumers (check tracker's region-table
-                    // ctx) as a real quit+load does, else the stale ctx crashes the recalc. See title_setup.c.
-                    GameInteractor_ExecuteOnExitGame(gSaveContext.fileNum);
-                    GameInteractor_ExecuteOnLoadGame(gSaveContext.fileNum);
-#endif
                     play->state.running = false;
                     SET_NEXT_GAMESTATE(&play->state, Play_Init, PlayState);
                     gSaveContext.seqId = static_cast<uint8_t>(NA_BGM_DISABLED);

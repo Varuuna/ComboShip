@@ -561,19 +561,11 @@ void DrawEntranceList() {
                 ImGui::PushID(sceneObjectList[i].splitId);
                 SplitsPushImageButtonStyle();
 
-<<<<<<< HEAD
-                if (ImGui::ImageButton(
-                        std::to_string(sceneObjectList[i].splitId).c_str(),
-                        std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())
-                            ->GetTextureByName(gPauseUnusedCursorTex),
-                        ImVec2(32.0f, 32.0f))) {
-=======
                 if (ImGui::ImageButton(std::to_string(sceneObjectList[i].splitId).c_str(),
                                        std::dynamic_pointer_cast<Fast::Fast3dGui>(
                                            Ship::Context::GetRawInstance()->GetWindow()->GetGui())
                                            ->GetTextureByName(gPauseUnusedCursorTex),
                                        ImVec2(32.0f, 32.0f))) {
->>>>>>> vendor-mm
                     AddSplitEntryBySceneId(sceneObjectList[i].splitId);
                 };
                 ImGui::SameLine();
@@ -597,11 +589,7 @@ void DrawItemList(const char* tableName, IndexRangeObject range, uint32_t tableS
             SplitsPushImageButtonStyle();
             if (ImGui::ImageButton(
                     std::to_string(splitObjectList[i].splitId).c_str(),
-<<<<<<< HEAD
-                    std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())
-=======
                     std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui())
->>>>>>> vendor-mm
                         ->GetTextureByName(GetItemImageById(splitObjectList[i].splitId)),
                     GetItemImageSizeById(splitObjectList[i].splitId) * 1.5f, ImVec2(0, 0), ImVec2(1, 1),
                     ImVec4(0, 0, 0, 0), Ship_GetItemColorTint(splitObjectList[i].splitId))) {
@@ -663,11 +651,7 @@ void TimesplitsSettingsWindow::DrawElement() {
                     if (ImGui::ImageButton(
                             std::to_string(i).c_str(),
                             std::dynamic_pointer_cast<Fast::Fast3dGui>(
-<<<<<<< HEAD
-                                Ship::Context::GetInstance()->GetWindow()->GetGui())
-=======
                                 Ship::Context::GetRawInstance()->GetWindow()->GetGui())
->>>>>>> vendor-mm
                                 ->GetTextureByName(splitList[i].splitType == SPLIT_TYPE_NORMAL
                                                        ? GetItemImageById(splitList[i].splitId)
                                                        : gPauseUnusedCursorTex),

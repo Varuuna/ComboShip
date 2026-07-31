@@ -196,12 +196,8 @@ void DrawSplitsList(bool isMain) {
                 SplitsPushImageButtonStyle();
                 if (ImGui::ImageButton(
                         std::to_string(i).c_str(),
-<<<<<<< HEAD
-                        std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())
-=======
                         std::dynamic_pointer_cast<Fast::Fast3dGui>(
                             Ship::Context::GetRawInstance()->GetWindow()->GetGui())
->>>>>>> vendor-mm
                             ->GetTextureByName(splitList[i].splitType == SPLIT_TYPE_NORMAL
                                                    ? GetItemImageById(splitList[i].splitId)
                                                    : gPauseUnusedCursorTex),

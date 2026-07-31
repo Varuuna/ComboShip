@@ -23,7 +23,11 @@ std::vector<RandoCheckId> GetExcludedChecksFromConfig() {
             }
         } else if (allConfig["CVars"]["gRando"]["ExcludedChecks"].is_string()) {
             CVarClear("gRando.ExcludedChecks");
-            Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+            // ComboShip: headless generation (comborando.exe) has no Window/Gui; only flush here when one exists.
+            auto window = Ship::Context::GetRawInstance()->GetWindow();
+            if (window != nullptr && window->GetGui() != nullptr) {
+                window->GetGui()->SaveConsoleVariablesNextFrame();
+            }
         }
     }
 

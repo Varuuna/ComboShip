@@ -34,16 +34,6 @@ void DrawInGameTimer(uint32_t timer, ImVec4 color = ImVec4(1, 1, 1, 1)) {
         }
         if (c == '.') {
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (8.0f * windowScale));
-<<<<<<< HEAD
-            ImGui::Image(std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())
-                             ->GetTextureByName(digitList[textureIndex]),
-                         ImVec2(8.0f * windowScale, 8.0f * windowScale), ImVec2(0, 0.5f), ImVec2(1, 1), color,
-                         tintColor);
-        } else {
-            ImGui::Image(std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())
-                             ->GetTextureByName(digitList[textureIndex]),
-                         ImVec2(8.0f * windowScale, 16.0f * windowScale), ImVec2(0, 0), ImVec2(1, 1), color, tintColor);
-=======
             ImGui::Image(
                 std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui())
                     ->GetTextureByName(digitList[textureIndex]),
@@ -53,7 +43,6 @@ void DrawInGameTimer(uint32_t timer, ImVec4 color = ImVec4(1, 1, 1, 1)) {
                 std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui())
                     ->GetTextureByName(digitList[textureIndex]),
                 ImVec2(8.0f * windowScale, 16.0f * windowScale), ImVec2(0, 0), ImVec2(1, 1), color, tintColor);
->>>>>>> vendor-mm
         }
         ImGui::SameLine(0, 0);
     }
@@ -81,11 +70,7 @@ void DisplayOverlayWindow::Draw() {
                      ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoScrollbar);
     ImGui::SetWindowFontScale(windowScale);
 
-<<<<<<< HEAD
-    ImGui::Image(std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())
-=======
     ImGui::Image(std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui())
->>>>>>> vendor-mm
                      ->GetTextureByName(gTimerClockIconTex),
                  ImVec2(16.0f * windowScale, 16.0f * windowScale));
     ImGui::SameLine(0, 10.0f);

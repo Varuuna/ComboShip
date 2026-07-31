@@ -54,7 +54,9 @@ class OTRGlobals {
     ImFont* fontMonoLarger = nullptr;
     ImFont* fontMonoLargest = nullptr;
 
-    Ship::Context* context = nullptr;
+    // ComboShip: stays a shared_ptr (soh/OTRGlobals.h does too). We skip LUS #1103, so LUS still holds
+    // the instance in a weak_ptr — a raw member would drop the last reference and free the Context.
+    std::shared_ptr<Ship::Context> context;
 
     OTRGlobals();
     ~OTRGlobals();

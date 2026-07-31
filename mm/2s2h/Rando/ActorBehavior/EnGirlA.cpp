@@ -78,35 +78,24 @@ s32 EnGirlA_RandoCanBuyFunc(PlayState* play, EnGirlA* enGirlA) {
 
 void EnGirlA_RandoBuyFunc(PlayState* play, EnGirlA* enGirlA) {
     auto& randoSaveCheck = RANDO_SAVE_CHECKS[enGirlA->actor.world.rot.z];
-<<<<<<< HEAD
-    RandoItemId randoItemId = Rando::ConvertItem(randoSaveCheck.randoItemId, (RandoCheckId)enGirlA->actor.world.rot.z);
-=======
     RandoCheckId randoCheckId = (RandoCheckId)enGirlA->actor.world.rot.z;
     RandoItemId randoItemId = Rando::ConvertItem(randoSaveCheck.randoItemId, randoCheckId);
+#ifdef COMBO_BUILD
+    // ComboShip (bugs 1/3): capture obtained BEFORE the mark below, so a re-buy of a renewable
+    // neither re-delivers a cross-game item nor re-broadcasts an already-permanent check.
+    bool wasObtained = randoSaveCheck.obtained;
+#endif
     randoSaveCheck.obtained = randoSaveCheck.cycleObtained = true;
->>>>>>> vendor-mm
     Rupees_ChangeBy(-play->msgCtx.unk1206C);
 #ifdef COMBO_BUILD
     // ComboShip: OOT-bound item — deliver cross-game instead of granting locally (mirrors CheckQueue).
-    // Bug 3: guard on wasObtained — cycleObtained resets every Song of Time and could re-trigger this
-    // buy, which would re-deliver the item into OOT's save.
     if (randoSaveCheck.randoItemId == RI_COMBO_FOREIGN) {
-        bool wasObtained = randoSaveCheck.obtained;
-        randoSaveCheck.cycleObtained = true;
-        randoSaveCheck.obtained = true;
         if (!wasObtained) {
-            Rando::MiscBehavior::SendForeignCheck((RandoCheckId)enGirlA->actor.world.rot.z);
+            Rando::MiscBehavior::SendForeignCheck(randoCheckId);
         }
         return;
     }
 #endif
-#ifdef COMBO_BUILD
-    // ComboShip (bug 1): shop buys never went through CheckQueue's broadcast; capture obtained
-    // BEFORE the grant (bug 3 pattern — see CheckQueue.cpp) so a re-buy of a renewable doesn't
-    // re-share an already-permanent check.
-    bool wasObtained = randoSaveCheck.obtained;
-#endif
-    randoSaveCheck.obtained = true;
     if (randoItemId == RI_TRAP) {
         RollTrapType();
     } else if (randoItemId == RI_JUNK) {

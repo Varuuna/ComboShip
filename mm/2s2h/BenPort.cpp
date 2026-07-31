@@ -749,11 +749,7 @@ void OTRGlobals::Initialize() {
     context->InitLogging(logLevel, logLevel);
     Ship::Context::GetRawInstance()->GetLogger()->set_pattern("[%H:%M:%S.%e] [%s:%#] [%^%l%$] %v");
 
-<<<<<<< HEAD
     InitGfxDebugger();
-=======
-    std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow())->GetGfxDebugger();
->>>>>>> vendor-mm
     context->InitFileDropMgr();
 
     // tell LUS to reserve 3 2S2H specific threads (Game, Audio, Save)
@@ -912,7 +908,6 @@ ImFont* OTRGlobals::CreateDefaultFontWithSize(float size) {
 }
 
 uint32_t OTRGlobals::GetInterpolationFPS() {
-<<<<<<< HEAD
 #ifdef COMBO_BUILD
     // ComboShip: the shared Graphics tab is OOT-rendered and writes the gSettings.* names.
     const char* matchRefreshCvar = "gSettings.MatchRefreshRate";
@@ -927,14 +922,6 @@ uint32_t OTRGlobals::GetInterpolationFPS() {
                !Ship::Context::GetInstance()->GetWindow()->CanDisableVerticalSync()) {
         return std::min<uint32_t>(Ship::Context::GetInstance()->GetWindow()->GetCurrentRefreshRate(),
                                   CVarGetInteger(interpFpsCvar, 20));
-=======
-    if (CVarGetInteger("gMatchRefreshRate", 0)) {
-        return Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate();
-    } else if (CVarGetInteger(CVAR_VSYNC_ENABLED, 1) ||
-               !Ship::Context::GetRawInstance()->GetWindow()->CanDisableVerticalSync()) {
-        return std::min<uint32_t>(Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate(),
-                                  CVarGetInteger("gInterpolationFPS", 20));
->>>>>>> vendor-mm
     }
     return CVarGetInteger(interpFpsCvar, 20);
 }
@@ -3057,9 +3044,16 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoSettings(void) {
         if (opt.cvar && opt.cvar[0])
             j[opt.cvar] = (int)CVarGetInteger(opt.cvar, opt.defaultValue);
     }
-    // Excluded-checks CSV is a string CVar outside the options walk; GeneratePools parses it, so a
-    // replayed spoiler must carry it or local exclusions leak in (GAP-7 mirror).
-    j["gRando.ExcludedChecks"] = CVarGetString("gRando.ExcludedChecks", "");
+    // Excluded checks are a JSON-array config block of RC_ names (upstream #1817) outside the options
+    // walk; GeneratePools reads them, so a replayed spoiler must carry them or local exclusions leak
+    // in (GAP-7 mirror).
+    nlohmann::json ec = nlohmann::json::array();
+    for (RandoCheckId rcid : Rando::GetExcludedChecksFromConfig()) {
+        auto cit = Rando::StaticData::Checks.find(rcid); // find, not [] — Checks is a std::map
+        if (cit != Rando::StaticData::Checks.end() && cit->second.name && cit->second.name[0])
+            ec.push_back(cit->second.name);
+    }
+    j["gRando.ExcludedChecks"] = ec;
     // Starting items are a JSON-array config block (not a flat CVar); carry them so a joiner's save
     // uses the author's kit instead of local defaults.
     nlohmann::json si = nlohmann::json::array();
@@ -3081,8 +3075,17 @@ extern "C" __declspec(dllexport) void MM_RestoreRandoSettings(const char* json) 
         return;
     try {
         auto j = nlohmann::json::parse(json);
-        // Snapshot is authoritative: pre-clear so pre-GAP-7 spoilers don't inherit local exclusions.
-        CVarSetString("gRando.ExcludedChecks", "");
+        // Excluded checks: authoritative RC_-name array from the seed (skipped in the loop below). The
+        // snapshot wins outright, so an absent list clears local exclusions (pre-GAP-7 spoilers).
+        std::vector<RandoCheckId> excluded;
+        if (j.contains("gRando.ExcludedChecks") && j["gRando.ExcludedChecks"].is_array()) {
+            for (auto& n : j["gRando.ExcludedChecks"]) {
+                auto rcid = Rando::StaticData::GetCheckIdFromName(n.get<std::string>().c_str());
+                if (rcid > RC_UNKNOWN && rcid < RC_MAX)
+                    excluded.push_back(rcid);
+            }
+        }
+        Rando::SetExcludedChecksInConfig(excluded);
         // Starting items: authoritative array from the seed (handled here, skipped in the loop).
         if (j.contains("gRando.StartingItems") && j["gRando.StartingItems"].is_array()) {
             std::vector<RandoItemId> items;
@@ -3094,7 +3097,7 @@ extern "C" __declspec(dllexport) void MM_RestoreRandoSettings(const char* json) 
             Rando::SetStartingItemsInConfig(items);
         }
         for (auto it = j.begin(); it != j.end(); ++it) {
-            if (it.key() == "gRando.StartingItems")
+            if (it.key() == "gRando.StartingItems" || it.key() == "gRando.ExcludedChecks")
                 continue;
             if (it.value().is_string())
                 CVarSetString(it.key().c_str(), it.value().get<std::string>().c_str());

@@ -23,7 +23,6 @@
 #include "2s2h/Rando/Rando.h"
 #include "build.h"
 
-<<<<<<< HEAD
 // ComboShip: MM dev-tool / viewer windows share names with OOT's in the single shared Gui registry,
 // which keys by display name and rejects duplicates. BenGui.cpp registers the MM windows with this
 // "##MM" suffix so they are not dropped; the popout WindowName() references below must use the same
@@ -69,10 +68,6 @@ static void ComboInlineWindow(const char* windowName, bool requiresForeground) {
     win->DrawElement();
 }
 #endif
-=======
-#include <fast/Fast3dGui.h>
-#include <fast/Fast3dWindow.h>
->>>>>>> vendor-mm
 
 extern "C" {
 #include "z64.h"
@@ -468,11 +463,7 @@ void BenMenu::AddSettings() {
         ImGui::PopStyleColor();
         ImGui::SameLine();
         ImTextureID heartTextureId =
-<<<<<<< HEAD
-            std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())
-=======
             std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui())
->>>>>>> vendor-mm
                 ->GetTextureByName((const char*)gQuestIconHeartContainer2Tex);
         ImGui::Image(heartTextureId, ImVec2(25.0f, 25.0f));
         ImGui::TextWrapped("Special thanks to our contributors, playtesters, artists, moderators, helpers, and "
@@ -2355,21 +2346,13 @@ void BenMenu::InitElement() {
             "Multi-viewports not supported" } },
         { DISABLE_FOR_NOT_DIRECTX,
           { [](disabledInfo& info) -> bool {
-<<<<<<< HEAD
-               return Ship::Context::GetInstance()->GetWindow()->GetWindowBackend() !=
-=======
                return Ship::Context::GetRawInstance()->GetWindow()->GetWindowBackend() !=
->>>>>>> vendor-mm
                       Fast::WindowBackend::FAST3D_DXGI_DX11;
            },
             "Available Only on DirectX" } },
         { DISABLE_FOR_DIRECTX,
           { [](disabledInfo& info) -> bool {
-<<<<<<< HEAD
-               return Ship::Context::GetInstance()->GetWindow()->GetWindowBackend() ==
-=======
                return Ship::Context::GetRawInstance()->GetWindow()->GetWindowBackend() ==
->>>>>>> vendor-mm
                       Fast::WindowBackend::FAST3D_DXGI_DX11;
            },
             "Not Available on DirectX" } },

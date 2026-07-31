@@ -15,7 +15,6 @@ extern "C" {
 #include "overlays/actors/ovl_En_Sth/z_en_sth.h"
 }
 
-<<<<<<< HEAD
 // ComboShip: must match the "##MM" tracker-window suffix from 2s2h/BenGui/BenGui.cpp. The popout
 // "Settings" buttons resolve their window by name (BenGui/Menu.cpp -> GetGuiWindow(windowName)),
 // so the WindowName() here has to carry the same suffix the window was registered with.
@@ -24,9 +23,6 @@ extern "C" {
 #else
 #define COMBO_MM_TRACKER_SUFFIX ""
 #endif
-=======
-#include <fast/Fast3dGui.h>
->>>>>>> vendor-mm
 
 // TODO: This block should come from elsewhere, tied to data in Rando::StaticData::Options
 std::unordered_map<int32_t, const char*> logicOptions = {
@@ -698,11 +694,7 @@ static void DrawPriorityItemsPopup() {
                 ImGui::TableNextColumn();
                 const char* texturePath = Rando::StaticData::GetIconTexturePath(itemId);
                 ImTextureID textureId =
-<<<<<<< HEAD
-                    std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())
-=======
                     std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui())
->>>>>>> vendor-mm
                         ->GetTextureByName(texturePath);
                 float iconOffsetY = (ImGui::GetFrameHeight() - PRIORITY_BUTTON_SIZE) * 0.5f;
                 if (iconOffsetY > 0.0f) {
@@ -1038,11 +1030,7 @@ static void DrawStartingItemsTab() {
         Rando::StaticData::RandoStaticItem randoStaticItem = Rando::StaticData::Items[startingItem];
         const char* texturePath = Rando::StaticData::GetIconTexturePath(startingItem);
         ImTextureID textureId =
-<<<<<<< HEAD
-            std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())
-=======
             std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui())
->>>>>>> vendor-mm
                 ->GetTextureByName(texturePath);
 
         ImVec4 tintColor =
@@ -1108,15 +1096,9 @@ static void DrawStartingItemsTab() {
 
                     Rando::StaticData::RandoStaticItem randoStaticItem = Rando::StaticData::Items[item];
                     const char* texturePath = Rando::StaticData::GetIconTexturePath(item);
-<<<<<<< HEAD
-                    ImTextureID textureId =
-                        std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetInstance()->GetWindow()->GetGui())
-                            ->GetTextureByName(texturePath);
-=======
                     ImTextureID textureId = std::dynamic_pointer_cast<Fast::Fast3dGui>(
                                                 Ship::Context::GetRawInstance()->GetWindow()->GetGui())
                                                 ->GetTextureByName(texturePath);
->>>>>>> vendor-mm
 
                     // Force new row for Song of Time, first frog, and first time item
                     if (item == RI_SONG_TIME || item == RI_FROG_BLUE || item == RI_TIME_DAY_1) {

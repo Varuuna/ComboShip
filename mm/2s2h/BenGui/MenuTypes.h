@@ -295,11 +295,7 @@ static const std::unordered_map<Ship::AudioBackend, const char*> audioBackendsMa
     { Ship::AudioBackend::NUL, "Null" },
 };
 
-<<<<<<< HEAD
 static const std::unordered_map<Fast::WindowBackend, const char*> windowBackendsMap = {
-=======
-static const std::unordered_map<int32_t, const char*> windowBackendsMap = {
->>>>>>> vendor-mm
     { Fast::WindowBackend::FAST3D_DXGI_DX11, "DirectX" },
     { Fast::WindowBackend::FAST3D_SDL_OPENGL, "OpenGL" },
     { Fast::WindowBackend::FAST3D_SDL_METAL, "Metal" },

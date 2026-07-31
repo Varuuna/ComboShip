@@ -15,8 +15,12 @@
 //
 // Exit codes: 0 = beatable as configured; 3 = beatable only with all tricks; 1 = not beatable / seed
 // failed; 2 = setup error.
+#ifdef _WIN32
 #define NOMINMAX // windows.h min/max macros clash with std::min/std::max in CrossWorldRando.h
 #include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -53,9 +57,25 @@ uint32_t ComboHash(const std::string& s) {
     return h;
 }
 
-template <typename T> T Sym(HMODULE m, const char* name) {
+// Same module-loading seam as ComboShip.cpp's LoadDll/GetSym (see there for the RTLD notes).
+#ifdef _WIN32
+typedef HMODULE DllHandle;
+DllHandle LoadGameModule(const char* name) {
+    return LoadLibraryA(name);
+}
+template <typename T> T Sym(DllHandle m, const char* name) {
     return reinterpret_cast<T>(GetProcAddress(m, name));
 }
+#else
+typedef void* DllHandle;
+DllHandle LoadGameModule(const char* name) {
+    // Bare names search the system library paths; the tool runs from the game dir, so anchor there.
+    return dlopen((std::string("./") + name).c_str(), RTLD_NOW | RTLD_GLOBAL);
+}
+template <typename T> T Sym(DllHandle m, const char* name) {
+    return reinterpret_cast<T>(dlsym(m, name));
+}
+#endif
 
 std::string ReadFile(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
@@ -92,10 +112,18 @@ int main(int argc, char** argv) {
             playthroughFile = argv[++i];
     }
 
-    HMODULE soh = LoadLibraryA("soh.dll");
-    HMODULE mm = LoadLibraryA("2ship.dll");
+#ifdef _WIN32
+    DllHandle soh = LoadGameModule("soh.dll");
+    DllHandle mm = LoadGameModule("2ship.dll");
+#elif defined(__APPLE__)
+    DllHandle soh = LoadGameModule("libsoh.dylib");
+    DllHandle mm = LoadGameModule("lib2ship.dylib");
+#else
+    DllHandle soh = LoadGameModule("libsoh.so");
+    DllHandle mm = LoadGameModule("lib2ship.so");
+#endif
     if (!soh || !mm) {
-        std::cerr << "[comborando] failed to load soh.dll / 2ship.dll — run from the game directory\n";
+        std::cerr << "[comborando] failed to load the soh / 2ship game modules — run from the game directory\n";
         return 2;
     }
 

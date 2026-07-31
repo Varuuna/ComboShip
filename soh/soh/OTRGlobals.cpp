@@ -1,5 +1,7 @@
 ﻿#include "OTRGlobals.h"
 #include "OTRAudio.h"
+#include "ComboExport.h"
+#include "ComboResolve.h"
 #include <algorithm>
 #include <atomic>
 #include <filesystem>
@@ -1638,10 +1640,10 @@ extern "C" void InitOTR(int argc, char* argv[]) {
 }
 
 #ifdef COMBO_BUILD
-extern "C" __declspec(dllexport) void SOH_InitWindowOnly() {
+extern "C" COMBO_EXPORT void SOH_InitWindowOnly() {
     OTRGlobals::Instance = new OTRGlobals();
 }
-extern "C" __declspec(dllexport) void SOH_FinishInit() {
+extern "C" COMBO_EXPORT void SOH_FinishInit() {
     Combo_FinishInit();
 }
 
@@ -1653,7 +1655,7 @@ bool gComboHeadlessRando = false;
 // Rando-only headless init: Context config/CVars + rando static data — NO window, RM, audio, or GUI.
 // Enough for the reachability oracles so a headless tool can generate + validate cross-world seeds
 // without opening the game. See docs/UPSTREAM_MERGES.md.
-extern "C" __declspec(dllexport) void SOH_InitRandoHeadless() {
+extern "C" COMBO_EXPORT void SOH_InitRandoHeadless() {
     if (OTRGlobals::Instance)
         return; // already initialized (full boot or a prior headless call)
     gComboHeadlessRando = true;
@@ -1695,7 +1697,7 @@ extern "C" __declspec(dllexport) void SOH_InitRandoHeadless() {
 // dependent subsystems. The launcher does the per-leaf merge (SoH wins) and excludes the Window block;
 // here we install each block, persist, and reload CVars + controller mappings. Runs before
 // Combo_FinishInit so RunVersionUpdates() then sees the imported state.
-extern "C" __declspec(dllexport) int SOH_ApplyImportedConfig(const char* mergedJsonUtf8) {
+extern "C" COMBO_EXPORT int SOH_ApplyImportedConfig(const char* mergedJsonUtf8) {
     if (!mergedJsonUtf8 || !OTRGlobals::Instance) {
         return 0;
     }
@@ -1891,10 +1893,10 @@ extern "C" void DeinitOTR() {
 #ifdef COMBO_BUILD
 // ComboShip: stop OOT audio and wait for pending saves WITHOUT destroying the context or window.
 // Called before launching MM so archives can be safely swapped.
-// declspec must follow the extern "C" specifier: the split form (`__declspec(dllexport)` on its
+// COMBO_EXPORT must follow the extern "C" specifier: the split form (the export attribute on its
 // own line BEFORE `extern "C"`) is silently ignored by MSVC (C4091), so this function would not be
 // exported and the MM boot gate would fail.
-extern "C" __declspec(dllexport) void SOH_PrepareForTransition(void) {
+extern "C" COMBO_EXPORT void SOH_PrepareForTransition(void) {
     SaveManager_ThreadPoolWait();
     OTRAudio_Exit();
     // ComboShip: do NOT SohGui::Destroy() here. The Gui is a single shared libultraship instance that
@@ -2738,7 +2740,7 @@ extern "C" void Gfx_TextureCacheDelete(const uint8_t* texAddr) {
 // ComboShip exports — soh.dll side
 // ============================================================
 
-extern "C" __declspec(dllexport) void SOH_Init() {
+extern "C" COMBO_EXPORT void SOH_Init() {
     // ComboShip: InitOTR takes (argc, argv) for CLI-driven extraction, but we drive extraction
     // separately (SOH_Extract) and have no CLI args here, so pass none.
     InitOTR(0, nullptr);
@@ -2746,13 +2748,13 @@ extern "C" __declspec(dllexport) void SOH_Init() {
 
 extern "C" void (*gComboSaveInitCallback)(int fileNum) = nullptr;
 
-extern "C" __declspec(dllexport) void SOH_SetOnNewSaveCallback(void (*cb)(int fileNum)) {
+extern "C" COMBO_EXPORT void SOH_SetOnNewSaveCallback(void (*cb)(int fileNum)) {
     gComboSaveInitCallback = cb;
 }
 
 // ComboShip: the current save's file name (8 font-code bytes). Valid inside the new-save callback,
 // where the launcher copies it into the matching MM save.
-extern "C" __declspec(dllexport) void SOH_GetCurrentPlayerName(unsigned char out8[8]) {
+extern "C" COMBO_EXPORT void SOH_GetCurrentPlayerName(unsigned char out8[8]) {
     for (int i = 0; i < 8; i++) {
         out8[i] = gSaveContext.playerName[i];
     }
@@ -2762,7 +2764,7 @@ extern "C" __declspec(dllexport) void SOH_GetCurrentPlayerName(unsigned char out
 // never writes (MM's file select is never reached), so MM falls back to SaveContext_Init's hardcoded
 // defaults — notably Switch targeting. MM adopts OOT's values on entry instead. Language is
 // deliberately excluded: the two games' enums disagree (OOT ENG=0, MM JPN=0).
-extern "C" __declspec(dllexport) void SOH_GetGlobalOptions(int* zTarget, int* audio) {
+extern "C" COMBO_EXPORT void SOH_GetGlobalOptions(int* zTarget, int* audio) {
     if (zTarget)
         *zTarget = gSaveContext.zTargetSetting;
     if (audio)
@@ -2771,7 +2773,7 @@ extern "C" __declspec(dllexport) void SOH_GetGlobalOptions(int* zTarget, int* au
 
 extern "C" void (*gComboSceneSwitchCallback)(int fileNum) = nullptr;
 
-extern "C" __declspec(dllexport) void SOH_SetOnSceneSwitchCallback(void (*cb)(int fileNum)) {
+extern "C" COMBO_EXPORT void SOH_SetOnSceneSwitchCallback(void (*cb)(int fileNum)) {
     gComboSceneSwitchCallback = cb;
 }
 
@@ -2780,7 +2782,7 @@ extern "C" void (*gComboSaveLoadCallback)(int fileNum) = nullptr;
 // ComboShip: fires when OOT loads a save into gameplay (file select / debug select / warp). The
 // launcher uses it to pull the matching MM save into dormant MM memory (tracker peek). Call after
 // SOH_Init (needs GameInteractor).
-extern "C" __declspec(dllexport) void SOH_SetOnLoadSaveCallback(void (*cb)(int fileNum)) {
+extern "C" COMBO_EXPORT void SOH_SetOnLoadSaveCallback(void (*cb)(int fileNum)) {
     gComboSaveLoadCallback = cb;
     static bool sHooked = false;
     if (!sHooked && GameInteractor::Instance) {
@@ -2796,33 +2798,33 @@ extern "C" __declspec(dllexport) void SOH_SetOnLoadSaveCallback(void (*cb)(int f
 #ifdef COMBO_BUILD
 // ComboShip: launcher registers its release-eviction poll; OOT drains it each frame (main thread).
 extern "C" int (*gComboOutdatedSaveNotice)() = nullptr;
-extern "C" __declspec(dllexport) void SOH_SetOutdatedSaveNotice(int (*fn)()) {
+extern "C" COMBO_EXPORT void SOH_SetOutdatedSaveNotice(int (*fn)()) {
     gComboOutdatedSaveNotice = fn;
 }
 
 // ComboShip: Anchor transport seam. The persistent socket lives in ComboShip.exe; these exports
-// wire the launcher's connection to soh's in-place Anchor (declspec must follow extern "C" or the
-// symbol isn't exported). See docs/UPSTREAM_MERGES.md.
-extern "C" __declspec(dllexport) void SOH_SetAnchorSend(void (*cb)(const char*)) {
+// wire the launcher's connection to soh's in-place Anchor (COMBO_EXPORT must follow extern "C" or
+// MSVC won't export the symbol). See docs/UPSTREAM_MERGES.md.
+extern "C" COMBO_EXPORT void SOH_SetAnchorSend(void (*cb)(const char*)) {
     gComboAnchorSend = cb;
 }
-extern "C" __declspec(dllexport) void SOH_SetAnchorConnect(void (*cb)(const char*, uint16_t)) {
+extern "C" COMBO_EXPORT void SOH_SetAnchorConnect(void (*cb)(const char*, uint16_t)) {
     gComboAnchorConnect = cb;
 }
-extern "C" __declspec(dllexport) void SOH_SetAnchorDisconnect(void (*cb)(void)) {
+extern "C" COMBO_EXPORT void SOH_SetAnchorDisconnect(void (*cb)(void)) {
     gComboAnchorDisconnect = cb;
 }
-extern "C" __declspec(dllexport) void SOH_Anchor_RecvJson(const char* json) {
+extern "C" COMBO_EXPORT void SOH_Anchor_RecvJson(const char* json) {
     if (Anchor::Instance && json) {
         Anchor::Instance->InjectIncomingJson(json);
     }
 }
-extern "C" __declspec(dllexport) void SOH_Anchor_OnConnected(void) {
+extern "C" COMBO_EXPORT void SOH_Anchor_OnConnected(void) {
     if (Anchor::Instance) {
         Anchor::Instance->SetConnectedFromCombo(true);
     }
 }
-extern "C" __declspec(dllexport) void SOH_Anchor_OnDisconnected(void) {
+extern "C" COMBO_EXPORT void SOH_Anchor_OnDisconnected(void) {
     if (Anchor::Instance) {
         Anchor::Instance->SetConnectedFromCombo(false);
     }
@@ -2830,17 +2832,17 @@ extern "C" __declspec(dllexport) void SOH_Anchor_OnDisconnected(void) {
 // A6: launcher registers its per-frame dormant-pump fn; the active game calls it each frame (see the
 // OnGameFrameUpdate hook) so the launcher can drive the dormant sibling's apply on the game thread.
 extern "C" void (*gComboPumpDormant)() = nullptr;
-extern "C" __declspec(dllexport) void SOH_SetPumpDormant(void (*cb)()) {
+extern "C" COMBO_EXPORT void SOH_SetPumpDormant(void (*cb)()) {
     gComboPumpDormant = cb;
 }
-extern "C" __declspec(dllexport) void SOH_Anchor_PumpDormant(void) {
+extern "C" COMBO_EXPORT void SOH_Anchor_PumpDormant(void) {
     if (Anchor::Instance) {
         Anchor::Instance->PumpDormant();
     }
 }
 // Bug 2: launcher-orchestrated resync (auto on connect + combo menu button), dormant-safe.
 // Finding 3: never let an exception unwind across this extern "C" boundary.
-extern "C" __declspec(dllexport) void SOH_Anchor_RequestResync(void) {
+extern "C" COMBO_EXPORT void SOH_Anchor_RequestResync(void) {
     try {
         if (Anchor::Instance) {
             Anchor::Instance->RequestResyncDormantSafe();
@@ -2852,7 +2854,7 @@ extern "C" __declspec(dllexport) void SOH_Anchor_RequestResync(void) {
 
 // ComboShip: combo-native Anchor connection panel drives Enable/Disable (soh's own menu is hidden in
 // combo). Mirrors Menu.cpp's Enable/Disable path incl. the Enabled CVar write.
-extern "C" __declspec(dllexport) void SOH_Anchor_SetEnabled(int enabled) {
+extern "C" COMBO_EXPORT void SOH_Anchor_SetEnabled(int enabled) {
     try {
         if (!Anchor::Instance) {
             return;
@@ -2872,7 +2874,7 @@ extern "C" __declspec(dllexport) void SOH_Anchor_SetEnabled(int enabled) {
 }
 
 // ComboShip: connection state for the combo panel status line/gating. bit0=isEnabled, bit1=isConnected.
-extern "C" __declspec(dllexport) int SOH_Anchor_GetConnectionState(void) {
+extern "C" COMBO_EXPORT int SOH_Anchor_GetConnectionState(void) {
     if (!Anchor::Instance) {
         return 0;
     }
@@ -2881,7 +2883,7 @@ extern "C" __declspec(dllexport) int SOH_Anchor_GetConnectionState(void) {
 
 // ComboShip: owner-gating for the combo panel's room-admin section. bit0=isOwner,
 // bit1=isGlobalRoom. 0 if Anchor not connected. Mirrors AnchorAdminMenu's gate.
-extern "C" __declspec(dllexport) int SOH_Anchor_GetOwnerInfo(void) {
+extern "C" COMBO_EXPORT int SOH_Anchor_GetOwnerInfo(void) {
     try {
         auto anchor = Anchor::Instance;
         if (!anchor || !anchor->isEnabled || !anchor->isConnected) {
@@ -2900,7 +2902,7 @@ extern "C" __declspec(dllexport) int SOH_Anchor_GetOwnerInfo(void) {
 }
 
 // ComboShip: broadcast the RoomSettings.* CVar changes made in the combo admin panel to the room.
-extern "C" __declspec(dllexport) void SOH_Anchor_SendRoomState(void) {
+extern "C" COMBO_EXPORT void SOH_Anchor_SendRoomState(void) {
     try {
         if (Anchor::Instance) {
             Anchor::Instance->SendPacket_UpdateRoomState();
@@ -2911,7 +2913,7 @@ extern "C" __declspec(dllexport) void SOH_Anchor_SendRoomState(void) {
 }
 
 // ComboShip: clear team state for every team present in the room (mirrors AnchorAdminMenu's button).
-extern "C" __declspec(dllexport) void SOH_Anchor_ClearTeamState(void) {
+extern "C" COMBO_EXPORT void SOH_Anchor_ClearTeamState(void) {
     try {
         if (!Anchor::Instance) {
             return;
@@ -2930,7 +2932,7 @@ extern "C" __declspec(dllexport) void SOH_Anchor_ClearTeamState(void) {
 
 // ComboShip: stateless OOT scene-name lookup for the combo room window. The launcher owns the roster
 // now; comboui resolves each OOT peer's area name from its raw scene id via this (works while dormant).
-extern "C" __declspec(dllexport) const char* SOH_Anchor_ResolveScene(int sceneId) {
+extern "C" COMBO_EXPORT const char* SOH_Anchor_ResolveScene(int sceneId) {
     static std::string cached;
     if (sceneId >= 0 && sceneId < 1000) {
         cached = SohUtils::GetSceneName(sceneId);
@@ -2942,7 +2944,7 @@ extern "C" __declspec(dllexport) const char* SOH_Anchor_ResolveScene(int sceneId
 
 // ComboShip: same-game teleport trigger for the combo room window (OOT active + OOT peer).
 // Wraps SendPacket_RequestTeleport, which re-validates via CanTeleportTo and no-ops if disallowed.
-extern "C" __declspec(dllexport) void SOH_Anchor_RequestTeleport(uint32_t clientId) {
+extern "C" COMBO_EXPORT void SOH_Anchor_RequestTeleport(uint32_t clientId) {
     try {
         if (Anchor::Instance) {
             Anchor::Instance->SendPacket_RequestTeleport(clientId);
@@ -3041,7 +3043,7 @@ void Combo_GrantResolvedOOT(const GetItemEntry& gie) {
     }
 }
 
-extern "C" __declspec(dllexport) void SOH_GrantCrossItem(const char* itemName) {
+extern "C" COMBO_EXPORT void SOH_GrantCrossItem(const char* itemName) {
     if (!itemName)
         return;
     auto it = Rando::StaticData::itemNameToEnum.find(itemName);
@@ -3057,7 +3059,7 @@ extern "C" __declspec(dllexport) void SOH_GrantCrossItem(const char* itemName) {
 // ComboShip: mark a foreign OOT check obtained without re-delivering — used on the NETWORK receive
 // path so a client that gets a teammate's broadcast won't later physically collect the same check
 // and double-deliver. Save-only (no grant), persisted immediately.
-extern "C" __declspec(dllexport) void SOH_MarkForeignObtained(const char* checkName) {
+extern "C" COMBO_EXPORT void SOH_MarkForeignObtained(const char* checkName) {
     if (!checkName)
         return;
     auto it = Rando::StaticData::locationNameToEnum.find(checkName);
@@ -3079,18 +3081,18 @@ extern "C" __declspec(dllexport) void SOH_MarkForeignObtained(const char* checkN
 // ComboShip: routing seam — the launcher registers DeliverCrossItem here so OOT's foreign-check
 // detection can hand an item to the OTHER game immediately (mirrors SOH_SetAnchorSend).
 extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName) = nullptr;
-extern "C" __declspec(dllexport) void SOH_SetCrossDeliver(void (*cb)(int, const char*, const char*)) {
+extern "C" COMBO_EXPORT void SOH_SetCrossDeliver(void (*cb)(int, const char*, const char*)) {
     gComboCrossDeliver = cb;
 }
 // ComboShip: routing seam for the network-receive idempotency mark (see SOH_MarkForeignObtained).
 extern "C" void (*gComboMarkForeignObtained)(int srcGame, const char* checkName) = nullptr;
-extern "C" __declspec(dllexport) void SOH_SetMarkForeignObtained(void (*cb)(int, const char*)) {
+extern "C" COMBO_EXPORT void SOH_SetMarkForeignObtained(void (*cb)(int, const char*)) {
     gComboMarkForeignObtained = cb;
 }
 // ComboShip: end-gating seam. z_boss_ganon2.c calls gComboFinalBossDefeated when Ganon dies to learn
 // whether MM's Majora is also dead (=> play OOT's ending) or not (=> warp to the portal to finish MM).
 extern "C" int (*gComboFinalBossDefeated)(int game, int fileNum) = nullptr;
-extern "C" __declspec(dllexport) void SOH_SetFinalBossDefeatedCb(int (*cb)(int, int)) {
+extern "C" COMBO_EXPORT void SOH_SetFinalBossDefeatedCb(int (*cb)(int, int)) {
     gComboFinalBossDefeated = cb;
 }
 #endif
@@ -3134,14 +3136,14 @@ static void SOH_ReinitForResume() {
 }
 
 // ComboShip: symmetric marker mirroring MM_NotifyComboTransition; called before SOH_ResumeGame.
-extern "C" __declspec(dllexport) void SOH_NotifyComboReturn(void) {
+extern "C" COMBO_EXPORT void SOH_NotifyComboReturn(void) {
     // Currently a no-op; kept for symmetry with the forward transition's notify call.
 }
 
 // ComboShip: draw OOT's menu content (content-only, themed) into the current ImGui window.
 // onlyCsv: if non-empty, comma-separated allow-list of "Header" or "Header/Sidebar" paths to show.
 // skipCsv: if onlyCsv is empty, comma-separated block-list of paths to hide.
-extern "C" __declspec(dllexport) void SOH_DrawSettings(const char* onlyCsv, const char* skipCsv) {
+extern "C" COMBO_EXPORT void SOH_DrawSettings(const char* onlyCsv, const char* skipCsv) {
     // ComboShip: soh.dll's per-module ImGui GImGui isn't current when OOT is backgrounded (MM is
     // foreground and the player opens the Shared/OOT tab). Point it at the shared context before any
     // ImGui call, else ImGui::GetCurrentWindow() is null and we crash.
@@ -3175,13 +3177,13 @@ extern "C" __declspec(dllexport) void SOH_DrawSettings(const char* onlyCsv, cons
 // must run before invoking a custom widget. soh.dll has its own per-module ImGui GImGui — see
 // combo/menu/ComboMenuSharedContext.h.
 
-extern "C" __declspec(dllexport) const CwMenu* SOH_ExportMenu(void) {
+extern "C" COMBO_EXPORT const CwMenu* SOH_ExportMenu(void) {
     ComboMenuContext::UseSharedImGuiContext();
     auto menu = SohGui::GetSohMenu();
     return menu ? menu->ExportComboMenu() : nullptr;
 }
 
-extern "C" __declspec(dllexport) void SOH_MenuInvokeCallback(int32_t i) {
+extern "C" COMBO_EXPORT void SOH_MenuInvokeCallback(int32_t i) {
     ComboMenuContext::UseSharedImGuiContext();
     // Menu code can load OOT resources — scope OOT's own RM, not the foreground game's (also in the
     // eval/draw/apply exports below; see combo/gui/ComboWidgetRender.h).
@@ -3193,7 +3195,7 @@ extern "C" __declspec(dllexport) void SOH_MenuInvokeCallback(int32_t i) {
 // ComboShip: re-run the ShipInit func(s) registered for this CVar, mirroring what soh's native
 // UIWidgets does after a widget change. Without this, settings changed via the combo menu only take
 // effect on the next ShipInit::InitAll (game boot / new save) — enhancements wouldn't apply live.
-extern "C" __declspec(dllexport) void SOH_MenuApplyCVarChange(const char* cvar) {
+extern "C" COMBO_EXPORT void SOH_MenuApplyCVarChange(const char* cvar) {
     Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("oot")); // ShipInit funcs load OOT resources
     if (cvar && cvar[0])
         ShipInit::Init(cvar);
@@ -3209,8 +3211,7 @@ bool Combo_OotIsForeground(void) {
     static bool sTried = false;
     if (!sTried) {
         sTried = true;
-        if (HMODULE h = GetModuleHandleA("comboui.dll"))
-            sFn = (int (*)(void))GetProcAddress(h, "ComboUI_GetForegroundGame");
+        sFn = (int (*)(void))Combo_ResolveSym("comboui", "ComboUI_GetForegroundGame");
     }
     return sFn ? (sFn() == 0) : true;
 }
@@ -3221,7 +3222,7 @@ static bool sComboResetPending = false;
 
 // ComboShip (#89): MM-initiated equivalent of the reset flag — an owl save quits to OOT's title
 // rather than MM's own file select, which combo has no path to.
-extern "C" __declspec(dllexport) void SOH_SetComboBootToTitle(void) {
+extern "C" COMBO_EXPORT void SOH_SetComboBootToTitle(void) {
     sComboResetPending = true;
 }
 
@@ -3236,8 +3237,7 @@ bool Combo_HandleReset(void) {
     static bool sTried = false;
     if (!sTried) {
         sTried = true;
-        if (HMODULE h = GetModuleHandleA("2ship.dll"))
-            sFn = (void (*)(void))GetProcAddress(h, "MM_RequestComboReturn");
+        sFn = (void (*)(void))Combo_ResolveSym("2ship", "MM_RequestComboReturn");
     }
     if (sFn)
         sFn();
@@ -3250,21 +3250,19 @@ bool Combo_HandleReset(void) {
 // the export rather than setting gOpenWindows.Menu.
 extern "C" void SOH_OpenComboRandoSettings(void) {
 #ifdef COMBO_BUILD
-    if (HMODULE h = GetModuleHandleA("comboui.dll")) {
-        if (auto fn = (void (*)(void))GetProcAddress(h, "ComboUI_OpenRandomizerSettings"))
-            fn();
-    }
+    if (auto fn = (void (*)(void))Combo_ResolveSym("comboui", "ComboUI_OpenRandomizerSettings"))
+        fn();
 #endif
 }
 
-extern "C" __declspec(dllexport) int32_t SOH_MenuEvalDisabled(int32_t i, const char** outReason) {
+extern "C" COMBO_EXPORT int32_t SOH_MenuEvalDisabled(int32_t i, const char** outReason) {
     ComboMenuContext::UseSharedImGuiContext();
     Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("oot"));
     auto menu = SohGui::GetSohMenu();
     return menu ? menu->EvalDisabledByIndex(i, outReason) : 0;
 }
 
-extern "C" __declspec(dllexport) void SOH_MenuDrawCustom(int32_t i) {
+extern "C" COMBO_EXPORT void SOH_MenuDrawCustom(int32_t i) {
     // Like SOH_DrawSettings: soh.dll's per-module ImGui GImGui isn't current when OOT is backgrounded,
     // so point it at the shared context before any ImGui call.
     ComboMenuContext::UseSharedImGuiContext();
@@ -3281,7 +3279,7 @@ extern "C" __declspec(dllexport) void SOH_MenuDrawCustom(int32_t i) {
 
 // Draws widget i via OOT's real MenuDrawItem (UIWidgets) into comboui's current window/cell. Same
 // context/RM/Init+Update contract as SOH_MenuDrawCustom. Returns 1 if the CVar changed this frame.
-extern "C" __declspec(dllexport) int32_t SOH_MenuDrawWidget(int32_t i, int32_t width) {
+extern "C" COMBO_EXPORT int32_t SOH_MenuDrawWidget(int32_t i, int32_t width) {
     ComboMenuContext::UseSharedImGuiContext();
     Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("oot"));
     if (auto menu = SohGui::GetSohMenu()) {
@@ -3297,7 +3295,7 @@ extern "C" __declspec(dllexport) int32_t SOH_MenuDrawWidget(int32_t i, int32_t w
 // Forest. Counterpart to MM's reuse path in BenPort.cpp.
 extern "C" bool WindowIsRunning(void);
 
-extern "C" __declspec(dllexport) void SOH_ResumeGame(void) {
+extern "C" COMBO_EXPORT void SOH_ResumeGame(void) {
     auto ctx = Ship::Context::GetInstance();
     // Flush every log line immediately so the resume diagnostics survive a hard crash (the console
     // window closes on crash; the log file is what we read afterward).
@@ -3338,7 +3336,7 @@ extern "C" __declspec(dllexport) void SOH_ResumeGame(void) {
 // startup right after MM is eagerly booted, which left MM's RM active and tore down OOT's audio/GUI.
 // Restores OOT's RM/audio/GUI/menu so OOT's first real boot (SOH_RunMain) renders correctly. Like
 // SOH_ResumeGame minus the frame-loop reset and game loop — SOH_RunMain runs the loop.
-extern "C" __declspec(dllexport) void SOH_ResumeForeground(void) {
+extern "C" COMBO_EXPORT void SOH_ResumeForeground(void) {
     auto ctx = Ship::Context::GetInstance();
     SOH_ReinitForResume(); // OOT RM active, OOT audio, OOT GUI + menu
     // Re-sync this DLL's ImGui current-context (GImGui is per-module).
@@ -3347,7 +3345,7 @@ extern "C" __declspec(dllexport) void SOH_ResumeForeground(void) {
 #endif
 
 #if not defined(__SWITCH__) && not defined(__WIIU__)
-extern "C" __declspec(dllexport) bool SOH_Extract(const char* searchPath) {
+extern "C" COMBO_EXPORT bool SOH_Extract(const char* searchPath) {
     std::string path = searchPath ? searchPath : std::filesystem::current_path().string();
     std::string installPath = Ship::Context::GetAppBundlePath();
     Extractor extract;
@@ -3371,7 +3369,7 @@ static std::future<void> gComboExtractFuture;
 static std::string gComboExtractRomPath;
 
 // Returns nonzero if romPath is a recognized OoT ROM (validation only, no dialog, no extraction).
-extern "C" __declspec(dllexport) int SOH_ValidateRom(const char* romPath) {
+extern "C" COMBO_EXPORT int SOH_ValidateRom(const char* romPath) {
     if (!romPath) {
         return 0;
     }
@@ -3380,7 +3378,7 @@ extern "C" __declspec(dllexport) int SOH_ValidateRom(const char* romPath) {
 }
 
 // ComboShip: header-only version check for the folder auto-scan (no full-ROM read/CRC).
-extern "C" __declspec(dllexport) int SOH_ClassifyRom(const char* romPath) {
+extern "C" COMBO_EXPORT int SOH_ClassifyRom(const char* romPath) {
     if (!romPath) {
         return 0;
     }
@@ -3390,7 +3388,7 @@ extern "C" __declspec(dllexport) int SOH_ClassifyRom(const char* romPath) {
 
 // Kicks ZAPD extraction of romPath on a background task. Non-blocking; returns 0 if a job is already
 // running or the arg is null. Poll SOH_GetExtractionProgress for completion.
-extern "C" __declspec(dllexport) int SOH_StartExtraction(const char* romPath) {
+extern "C" COMBO_EXPORT int SOH_StartExtraction(const char* romPath) {
     if (!romPath) {
         return 0;
     }
@@ -3421,8 +3419,8 @@ extern "C" __declspec(dllexport) int SOH_StartExtraction(const char* romPath) {
     return 1;
 }
 
-extern "C" __declspec(dllexport) void SOH_GetExtractionProgress(unsigned long long* count, unsigned long long* total,
-                                                                int* done, int* success) {
+extern "C" COMBO_EXPORT void SOH_GetExtractionProgress(unsigned long long* count, unsigned long long* total, int* done,
+                                                       int* success) {
     if (count) {
         *count = (unsigned long long)gComboExtractCount.load();
     }
@@ -3606,7 +3604,7 @@ void Combo_SetupOOTShops() {
 // every price-establishing step. Empty on the generation path (rolls stand).
 static std::unordered_map<std::string, uint16_t> sComboCheckPriceOverrides;
 
-extern "C" __declspec(dllexport) void SOH_SetCheckPrices(const char* json) {
+extern "C" COMBO_EXPORT void SOH_SetCheckPrices(const char* json) {
     sComboCheckPriceOverrides.clear();
     if (!json)
         return;
@@ -3630,7 +3628,7 @@ static void Combo_ApplyPriceOverrides() {
 
 // Combo master seed for OOT-side reproducible generation (shop/scrub/merchant RNG). Set by the combo
 // launcher before SOH_DumpRandoStaticData and reused at SOH_ApplyRandoPlacements so both agree.
-extern "C" __declspec(dllexport) void SOH_SetComboRandoSeed(uint64_t seed) {
+extern "C" COMBO_EXPORT void SOH_SetComboRandoSeed(uint64_t seed) {
     sComboRandoSeed = seed;
     sComboRandoSeedSet = true;
 }
@@ -3639,7 +3637,7 @@ extern "C" __declspec(dllexport) void SOH_SetComboRandoSeed(uint64_t seed) {
 // ComboShip: snapshot every OOT rando option as {cvarName: value}. The combo orchestrator stores
 // this in the consolidated spoiler so a dropped/reloaded seed reproduces the exact settings on any
 // machine (OOT options are CVar-backed; SOH_RestoreRandoSettings writes them back).
-extern "C" __declspec(dllexport) const char* SOH_DumpRandoSettings(void) {
+extern "C" COMBO_EXPORT const char* SOH_DumpRandoSettings(void) {
     static std::string cached;
     nlohmann::json j = nlohmann::json::object();
     for (const auto& opt : Rando::Settings::GetInstance()->GetAllOptions()) {
@@ -3657,7 +3655,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoSettings(void) {
 // ComboShip: restore OOT rando settings from a {cvarName:value} snapshot (written by
 // SOH_DumpRandoSettings into the consolidated spoiler). Used by the reload/drop path so a seed plays
 // with its own settings; SOH_PrepRandoContext then pushes them into the Context via SetAllToContext.
-extern "C" __declspec(dllexport) void SOH_RestoreRandoSettings(const char* json) {
+extern "C" COMBO_EXPORT void SOH_RestoreRandoSettings(const char* json) {
     if (!json)
         return;
     try {
@@ -3713,7 +3711,7 @@ static std::set<RandomizerCheck> Combo_ParseExcludedLocations() {
     return excluded;
 }
 
-extern "C" __declspec(dllexport) void SOH_PrepRandoContext(void) {
+extern "C" COMBO_EXPORT void SOH_PrepRandoContext(void) {
     try {
         auto ctx = OTRGlobals::Instance->gRandoContext;
         Rando::Settings::GetInstance()->SetAllToContext();
@@ -3733,7 +3731,7 @@ static void EnsureOracleInit();
 // generator never runs Fill(), so without this the OOT entrance options do nothing in combo seeds.
 // Deterministic per seed, so generation/reload/gentest re-derive the same layout. Call after the
 // dump/prep (settings finalized). Returns 1 on success or shuffle-off, 0 when every retry failed.
-extern "C" __declspec(dllexport) int SOH_ShuffleEntrancesForCombo(uint64_t seed) {
+extern "C" COMBO_EXPORT int SOH_ShuffleEntrancesForCombo(uint64_t seed) {
     try {
         auto ctx = OTRGlobals::Instance->gRandoContext;
         // The CVar-less master toggle, derived from the individual options by FinalizeSettings.
@@ -3782,7 +3780,7 @@ extern "C" __declspec(dllexport) int SOH_ShuffleEntrancesForCombo(uint64_t seed)
 
 // ComboShip: resolved entrance overrides as JSON for the consolidated spoiler's "entrances.oot".
 // Informational — reload re-derives via SOH_ShuffleEntrancesForCombo.
-extern "C" __declspec(dllexport) const char* SOH_DumpEntranceOverrides(void) {
+extern "C" COMBO_EXPORT const char* SOH_DumpEntranceOverrides(void) {
     static std::string buf;
     nlohmann::json out = nlohmann::json::array();
     auto& overrides = OTRGlobals::Instance->gRandoContext->GetEntranceShuffler()->entranceOverrides;
@@ -3805,7 +3803,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpEntranceOverrides(void) {
 // items — keeping the generator's permutation coherent with Randomizer_InitSaveFile. Recomputes every
 // call (result depends on live CVar/settings). If the prep throws, falls back to iterating all RC_MAX
 // so the dump always succeeds. Caller MUST invoke this AFTER SOH_Init() returns.
-extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
+extern "C" COMBO_EXPORT const char* SOH_DumpRandoStaticData(void) {
     static std::string cached;
 
     nlohmann::json checks = nlohmann::json::array();
@@ -4085,7 +4083,7 @@ static bool Combo_IsUsedHintTemplate(const std::string& name) {
 // distributor decides which are hintable for its combined world) — trimming that further to a
 // placed-set filter hit a reproducible crash during headless verification and was backed out; only
 // hintTextTable (below) is trimmed for now. See docs/UPSTREAM_MERGES.md cross-hints entry.
-extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
+extern "C" COMBO_EXPORT const char* SOH_DumpRandoHintData(void) {
     static std::string cached;
     nlohmann::json out = nlohmann::json::object();
     try {
@@ -4306,7 +4304,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
 static bool sComboHintsPresent = false;
 #endif
 
-extern "C" __declspec(dllexport) void SOH_SetComboHintsPresent(int present) {
+extern "C" COMBO_EXPORT void SOH_SetComboHintsPresent(int present) {
 #ifdef COMBO_BUILD
     sComboHintsPresent = present != 0;
 #endif
@@ -4318,7 +4316,7 @@ extern "C" __declspec(dllexport) void SOH_SetComboHintsPresent(int present) {
 // "__GANONDORF__"/"__TRIAL__.../"__JUNK__..." handled below. Never throws across the ABI. Must run
 // AFTER SOH_ApplyRandoPlacements (placements need to exist for native CreateStaticHints/
 // CreateWarpSongTexts, called at the end, to fill in whatever combo didn't pre-populate).
-extern "C" __declspec(dllexport) void SOH_ApplyComboHints(const char* json) {
+extern "C" COMBO_EXPORT void SOH_ApplyComboHints(const char* json) {
     if (!json)
         return;
 #ifdef COMBO_BUILD
@@ -4396,7 +4394,7 @@ extern "C" __declspec(dllexport) void SOH_ApplyComboHints(const char* json) {
 // For each entry, look up the check and item enums and place it. Then SetSeedGenerated(true) so
 // Sram_InitSave proceeds into Randomizer_InitSaveFile(). Does NOT call OOT's own
 // Fill()/GenerateItemPool() — the combo generator owns the placement.
-extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json) {
+extern "C" COMBO_EXPORT void SOH_ApplyRandoPlacements(const char* json) {
     if (!json) {
         SPDLOG_ERROR("[ComboShip] SOH_ApplyRandoPlacements: null JSON");
         return;
@@ -4515,7 +4513,7 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
 // all-zero -> five Deku Nuts. The combo orchestrator passes a settings-aware hash value here (after
 // SOH_ApplyRandoPlacements, which ItemResets). GenerateHash() fills hashIconIndexes from the string,
 // then SaveManager persists it into the save's meta on creation, exactly as stock SoH.
-extern "C" __declspec(dllexport) void SOH_SetComboSeedHash(uint32_t hashValue) {
+extern "C" COMBO_EXPORT void SOH_SetComboSeedHash(uint32_t hashValue) {
     auto ctx = OTRGlobals::Instance->gRandoContext;
     if (!ctx)
         return;
@@ -4528,7 +4526,7 @@ extern "C" __declspec(dllexport) void SOH_SetComboSeedHash(uint32_t hashValue) {
 // Randomizer_InitSaveFile() consumes them.
 extern "C" void (*gComboGenerateCallback)(int fileNum) = nullptr;
 
-extern "C" __declspec(dllexport) void SOH_SetOnComboGenerateCallback(void (*cb)(int fileNum)) {
+extern "C" COMBO_EXPORT void SOH_SetOnComboGenerateCallback(void (*cb)(int fileNum)) {
     gComboGenerateCallback = cb;
 }
 
@@ -4542,21 +4540,21 @@ extern "C" void (*gComboGenerateRequestCallback)(const char*) = nullptr;
 static const ComboRando::ComboGenProgress* gComboProgressPtr = nullptr;
 static int (*gComboFinalizeCallback)() = nullptr;
 
-extern "C" __declspec(dllexport) void SOH_SetOnComboGenerateRequestCallback(void (*cb)(const char*)) {
+extern "C" COMBO_EXPORT void SOH_SetOnComboGenerateRequestCallback(void (*cb)(const char*)) {
     gComboGenerateRequestCallback = cb;
 }
 
-extern "C" __declspec(dllexport) void SOH_SetComboProgressPtr(const ComboRando::ComboGenProgress* p) {
+extern "C" COMBO_EXPORT void SOH_SetComboProgressPtr(const ComboRando::ComboGenProgress* p) {
     gComboProgressPtr = p;
 }
 
-extern "C" __declspec(dllexport) const ComboRando::ComboGenProgress* SOH_GetComboGenProgress(void) {
+extern "C" COMBO_EXPORT const ComboRando::ComboGenProgress* SOH_GetComboGenProgress(void) {
     return gComboProgressPtr;
 }
 
 // C-friendly progress percent (0-100) for the native file-select screen (which is C and can't read
 // the C++ atomics directly).
-extern "C" __declspec(dllexport) int SOH_GetComboGenPercent(void) {
+extern "C" COMBO_EXPORT int SOH_GetComboGenPercent(void) {
     if (!gComboProgressPtr)
         return 0;
     int total = gComboProgressPtr->total.load();
@@ -4564,13 +4562,13 @@ extern "C" __declspec(dllexport) int SOH_GetComboGenPercent(void) {
     return total > 0 ? static_cast<int>((100LL * placed) / total) : 0;
 }
 
-extern "C" __declspec(dllexport) void SOH_SetOnComboFinalizeCallback(int (*cb)()) {
+extern "C" COMBO_EXPORT void SOH_SetOnComboFinalizeCallback(int (*cb)()) {
     gComboFinalizeCallback = cb;
 }
 
 // Called every frame on the main thread from the file-select loop. Runs the launcher's pending
 // main-thread apply; returns nonzero once generation is fully resolved (finalized or failed).
-extern "C" __declspec(dllexport) int SOH_PollComboFinalize(void) {
+extern "C" COMBO_EXPORT int SOH_PollComboFinalize(void) {
     return gComboFinalizeCallback ? gComboFinalizeCallback() : 1;
 }
 
@@ -4578,22 +4576,22 @@ extern "C" __declspec(dllexport) int SOH_PollComboFinalize(void) {
 // drag-drop). The launcher does the work on the calling (main) thread; path null/empty = the
 // remembered pending file. Returns 1 if a seed was loaded.
 static int (*gComboReloadCallback)(const char*) = nullptr;
-extern "C" __declspec(dllexport) void SOH_SetOnComboReloadCallback(int (*cb)(const char*)) {
+extern "C" COMBO_EXPORT void SOH_SetOnComboReloadCallback(int (*cb)(const char*)) {
     gComboReloadCallback = cb;
 }
-extern "C" __declspec(dllexport) int SOH_RequestComboReload(const char* path) {
+extern "C" COMBO_EXPORT int SOH_RequestComboReload(const char* path) {
     return gComboReloadCallback ? gComboReloadCallback(path) : 0;
 }
 
 // ComboShip: the active save slot (combo seed key), or -1 if none. Used by the comboui hint system to
 // find the loaded seed's per-slot consolidated file.
-extern "C" __declspec(dllexport) int SOH_GetActiveFileNum(void) {
+extern "C" COMBO_EXPORT int SOH_GetActiveFileNum(void) {
     return (gSaveContext.fileNum == 0xFF) ? -1 : (int)gSaveContext.fileNum;
 }
 
 // ComboShip: JSON array of OOT rando checks the player has obtained, for the sphere-hint system
 // (which step is "done"). Reads the live rando Context; safe to call while OOT is dormant.
-extern "C" __declspec(dllexport) const char* Combo_SOH_GetObtainedChecks(void) {
+extern "C" COMBO_EXPORT const char* Combo_SOH_GetObtainedChecks(void) {
     static std::string cached;
     nlohmann::json out = nlohmann::json::array();
     auto ctx = OTRGlobals::Instance->gRandoContext;
@@ -4615,7 +4613,7 @@ extern "C" __declspec(dllexport) const char* Combo_SOH_GetObtainedChecks(void) {
 // Trigger combo generation. Gated on RandoGenerating so a second press during generation is a no-op;
 // reads the seed from the shared CVar (written by the comboui seed field). Sets RandoGenerating=1 so
 // the file-select loop swaps to gallop music + shows progress; the finalize poll clears it.
-extern "C" __declspec(dllexport) void SOH_TriggerComboGenerate(void) {
+extern "C" COMBO_EXPORT void SOH_TriggerComboGenerate(void) {
     if (CVarGetInteger(CVAR_GENERAL("RandoGenerating"), 0) != 0)
         return; // already generating
     if (!gComboGenerateRequestCallback)
@@ -4630,21 +4628,21 @@ extern "C" __declspec(dllexport) void SOH_TriggerComboGenerate(void) {
 // GameState::init is cleared after init runs, so match on ::main (set to FileChoose_Main for the
 // state's lifetime by FileChoose_Init).
 extern "C" void FileChoose_Main(GameState* thisx);
-extern "C" __declspec(dllexport) uint8_t SOH_IsOnFileSelect(void) {
+extern "C" COMBO_EXPORT uint8_t SOH_IsOnFileSelect(void) {
     return (gPlayState == NULL && gGameState != NULL && gGameState->main == (GameStateFunc)FileChoose_Main) ? 1 : 0;
 }
 
 // ComboShip (#89): leave OOT's game loop before its first Play frame so the launcher can enter MM.
 // Clearing init is what ends RunFrame's `while (nextOvl)` (FileChoose queued Play_Init); no save and no
 // OnExitGame here — both would break the resume. See docs/deviations/boot-shutdown.md.
-extern "C" __declspec(dllexport) void SOH_ParkForComboMMResume(void) {
+extern "C" COMBO_EXPORT void SOH_ParkForComboMMResume(void) {
     if (!gGameState)
         return;
     gGameState->init = nullptr;
     gGameState->running = false;
 }
 
-extern "C" __declspec(dllexport) void SOH_SetSeedGenerated(uint8_t g) {
+extern "C" COMBO_EXPORT void SOH_SetSeedGenerated(uint8_t g) {
     if (OTRGlobals::Instance && OTRGlobals::Instance->gRandoContext)
         OTRGlobals::Instance->gRandoContext->SetSeedGenerated(g != 0);
 }
@@ -4672,7 +4670,7 @@ static void EnsureOracleInit() {
     sOracleInitialized = true;
 }
 
-extern "C" __declspec(dllexport) void Combo_SOH_Rando_Reset(void) {
+extern "C" COMBO_EXPORT void Combo_SOH_Rando_Reset(void) {
     auto ctx = OTRGlobals::Instance->gRandoContext;
     EnsureOracleInit();
     ctx->GetLogic()->Reset();
@@ -4688,7 +4686,7 @@ extern "C" __declspec(dllexport) void Combo_SOH_Rando_Reset(void) {
     ApplyStartingInventory();
 }
 
-extern "C" __declspec(dllexport) void Combo_SOH_Rando_SetOwnedItems(const char* itemNamesJson) {
+extern "C" COMBO_EXPORT void Combo_SOH_Rando_SetOwnedItems(const char* itemNamesJson) {
     if (!itemNamesJson)
         return;
     auto ctx = OTRGlobals::Instance->gRandoContext;
@@ -4709,7 +4707,7 @@ extern "C" __declspec(dllexport) void Combo_SOH_Rando_SetOwnedItems(const char* 
 static bool sComboPortalOpen = false;
 #endif
 
-extern "C" __declspec(dllexport) const char* Combo_SOH_Rando_GetReachableChecks(void) {
+extern "C" COMBO_EXPORT const char* Combo_SOH_Rando_GetReachableChecks(void) {
     static std::string buf;
     auto ctx = OTRGlobals::Instance->gRandoContext;
     auto reachable = ReachabilitySearch(ctx->allLocations);
@@ -4732,12 +4730,12 @@ extern "C" __declspec(dllexport) const char* Combo_SOH_Rando_GetReachableChecks(
 #ifdef COMBO_BUILD
 // ComboShip: portal openness for the owned-set of the LAST GetReachableChecks call — callers must query
 // it right after that call. Piggybacks on that search; a second traversal would double oracle gen cost.
-extern "C" __declspec(dllexport) uint8_t Combo_SOH_Rando_GetPortalOpen(void) {
+extern "C" COMBO_EXPORT uint8_t Combo_SOH_Rando_GetPortalOpen(void) {
     return sComboPortalOpen ? 1 : 0;
 }
 #endif
 
-extern "C" __declspec(dllexport) void Combo_SOH_Rando_PlaceItem(const char* checkName, const char* itemName) {
+extern "C" COMBO_EXPORT void Combo_SOH_Rando_PlaceItem(const char* checkName, const char* itemName) {
     if (!checkName || !itemName)
         return;
     auto ctx = OTRGlobals::Instance->gRandoContext;
@@ -4755,7 +4753,7 @@ extern "C" __declspec(dllexport) void Combo_SOH_Rando_PlaceItem(const char* chec
 // pushes into the Context at every SetAllToContext. Dump = the player's list; SetEnabledTricks = replace
 // with a list (playthrough Pass 1); SetAllTricks = every trick (Pass 2). Callers run SOH_PrepRandoContext
 // (or an oracle Reset) afterward to apply.
-extern "C" __declspec(dllexport) const char* SOH_DumpEnabledTricks(void) {
+extern "C" COMBO_EXPORT const char* SOH_DumpEnabledTricks(void) {
     static std::string buf;
     nlohmann::json out = nlohmann::json::array();
     std::string csv = CVarGetString(CVAR_RANDOMIZER_SETTING("EnabledTricks"), "");
@@ -4770,7 +4768,7 @@ extern "C" __declspec(dllexport) const char* SOH_DumpEnabledTricks(void) {
     return buf.c_str();
 }
 
-extern "C" __declspec(dllexport) void SOH_SetEnabledTricks(const char* namesJson) {
+extern "C" COMBO_EXPORT void SOH_SetEnabledTricks(const char* namesJson) {
     if (!namesJson)
         return;
     try {
@@ -4781,7 +4779,7 @@ extern "C" __declspec(dllexport) void SOH_SetEnabledTricks(const char* namesJson
     } catch (...) {}
 }
 
-extern "C" __declspec(dllexport) void SOH_SetAllTricks(void) {
+extern "C" COMBO_EXPORT void SOH_SetAllTricks(void) {
     std::string csv;
     for (int i = 0; i < RT_MAX; i++) {
         const std::string& tag =
@@ -4796,7 +4794,7 @@ extern "C" __declspec(dllexport) void SOH_SetAllTricks(void) {
 // fill never assigns it. Decide its item per RSK_LINKS_POCKET here so the launcher can reserve it
 // from the cross pool. Returns { "Link's Pocket": {"item":"<name>"} } (dungeon-reward) or
 // {"category":"advancement"|"any"} (combo picks); {} for NOTHING. See docs/UPSTREAM_MERGES.md.
-extern "C" __declspec(dllexport) const char* SOH_GetForcedPlacements(uint32_t seed) {
+extern "C" COMBO_EXPORT const char* SOH_GetForcedPlacements(uint32_t seed) {
     (void)seed; // dungeon-reward pick now read from the placed context, not re-rolled from the seed
     static std::string buf;
     nlohmann::json out = nlohmann::json::object();

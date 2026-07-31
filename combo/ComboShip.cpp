@@ -22,6 +22,7 @@
 #include <atomic>
 #include <chrono>
 #include <unordered_map>
+#include <cstring>
 #include <map>
 #include <thread>
 #include <mutex>
@@ -139,7 +140,12 @@ static std::string DllError() {
 #else
 typedef void* DllHandle;
 static DllHandle LoadDll(const char* name) {
-    return dlopen(name, RTLD_NOW | RTLD_GLOBAL);
+    // A bare name would search the system library paths, not the launcher dir; the runtime
+    // layout is portable (modules beside the executable, cwd == exe dir), so anchor it.
+    // RTLD_GLOBAL is what lets Combo_ResolveSym use one process-wide lookup; the games build
+    // with hidden visibility so only the combo ABI lands in the global namespace.
+    std::string path = std::strchr(name, '/') ? name : std::string("./") + name;
+    return dlopen(path.c_str(), RTLD_NOW | RTLD_GLOBAL);
 }
 static void* GetSym(DllHandle h, const char* sym) {
     return dlsym(h, sym);
@@ -148,7 +154,8 @@ static void FreeDll(DllHandle h) {
     dlclose(h);
 }
 static std::string DllError() {
-    return dlerror();
+    const char* e = dlerror();
+    return e ? e : "unknown dlerror";
 }
 #endif
 
@@ -2008,12 +2015,15 @@ int main(int argc, char** argv) {
 #ifdef _WIN32
     const char* sohDll = "soh.dll";
     const char* twoShipDll = "2ship.dll";
+    const char* comboUiDll = "comboui.dll";
 #elif defined(__APPLE__)
     const char* sohDll = "libsoh.dylib";
     const char* twoShipDll = "lib2ship.dylib";
+    const char* comboUiDll = "comboui.dylib"; // comboui sets PREFIX "" (see combo/CMakeLists.txt)
 #else
     const char* sohDll = "libsoh.so";
     const char* twoShipDll = "lib2ship.so";
+    const char* comboUiDll = "comboui.so"; // comboui sets PREFIX "" (see combo/CMakeLists.txt)
 #endif
 
     DllHandle sohModule = LoadDll(sohDll);
@@ -2199,13 +2209,13 @@ int main(int argc, char** argv) {
         windowInitialized = true;
 
         if (!comboUIModule) {
-            comboUIModule = LoadDll("comboui.dll");
+            comboUIModule = LoadDll(comboUiDll);
         }
         if (comboUIModule) {
             ComboUI_RunExtraction = (ComboFnRunExtraction)GetSym(comboUIModule, "ComboUI_RunExtraction");
         }
         if (!ComboUI_RunExtraction) {
-            std::cerr << "ERROR: comboui.dll missing ComboUI_RunExtraction (rebuild required)." << std::endl;
+            std::cerr << "ERROR: comboui module missing ComboUI_RunExtraction (rebuild required)." << std::endl;
             if (comboUIModule)
                 FreeDll(comboUIModule);
             FreeDll(mmModule);
@@ -2254,7 +2264,7 @@ int main(int argc, char** argv) {
             windowInitialized = true;
         }
         if (!comboUIModule) {
-            comboUIModule = LoadDll("comboui.dll");
+            comboUIModule = LoadDll(comboUiDll);
         }
         if (comboUIModule && !ComboUI_RunSettingsImport) {
             ComboUI_RunSettingsImport = (ComboFnRunSettingsImport)GetSym(comboUIModule, "ComboUI_RunSettingsImport");
@@ -2353,7 +2363,7 @@ int main(int argc, char** argv) {
     // OOT has created the shared Gui. comboui owns the menu for the whole process.
     // (It may already be loaded if the extraction screen ran — reuse that handle.)
     if (!comboUIModule) {
-        comboUIModule = LoadDll("comboui.dll");
+        comboUIModule = LoadDll(comboUiDll);
     }
     if (comboUIModule) {
         ComboUI_Register = (FnComboUIRegister)GetSym(comboUIModule, "ComboUI_Register");

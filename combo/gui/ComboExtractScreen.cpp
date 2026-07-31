@@ -7,6 +7,7 @@
 // (ComboMenu.cpp), so it owns the frame loop here. The actual ROM validation + ZAPD work happens in
 // soh.dll / 2ship.dll via the function pointers in ComboExtractCallbacks; this file only renders.
 #include "ComboExtractScreen.h"
+#include "ComboExport.h"
 #include "ComboWidgetStyle.h" // ComboShip port style: ComboMenu_ThemeColor / PushButton / PopButton
 
 #include <libultraship/libultraship.h>
@@ -97,7 +98,7 @@ void UseSharedImGuiContext() {
 
 } // namespace
 
-extern "C" __declspec(dllexport) int ComboUI_RunExtraction(const ComboExtractCallbacks* cb) {
+extern "C" COMBO_EXPORT int ComboUI_RunExtraction(const ComboExtractCallbacks* cb) {
     if (!cb) {
         return 0;
     }

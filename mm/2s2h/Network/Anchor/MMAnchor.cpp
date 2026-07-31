@@ -1,4 +1,5 @@
 #include "MMAnchor.h"
+#include "ComboExport.h"
 #ifdef COMBO_BUILD
 
 #include <spdlog/spdlog.h>
@@ -1050,7 +1051,7 @@ void MMAnchor::HandlePacket_TeleportTo(const nlohmann::json& payload) {
 
 // MARK: - Launcher-facing C ABI (mirrors soh's SOH_Anchor_* exports)
 
-extern "C" __declspec(dllexport) void MM_SetAnchorSend(void (*cb)(const char*)) {
+extern "C" COMBO_EXPORT void MM_SetAnchorSend(void (*cb)(const char*)) {
     gMMComboAnchorSend = cb;
     // Create the adapter now (launcher startup, pre-connect). It used to be created on first
     // Activate, so a client that never entered MM had no instance and RecvJson/PumpDormant dropped
@@ -1061,12 +1062,12 @@ extern "C" __declspec(dllexport) void MM_SetAnchorSend(void (*cb)(const char*)) 
 }
 
 // A6: launcher registers its per-frame dormant-pump fn; MM calls it each active frame (see hook).
-extern "C" __declspec(dllexport) void MM_SetPumpDormant(void (*cb)()) {
+extern "C" COMBO_EXPORT void MM_SetPumpDormant(void (*cb)()) {
     gMMComboPumpDormant = cb;
 }
 
 // A6: launcher calls this (on the active sibling's thread) when MM is the dormant game.
-extern "C" __declspec(dllexport) void MM_Anchor_PumpDormant(void) {
+extern "C" COMBO_EXPORT void MM_Anchor_PumpDormant(void) {
     if (MMAnchor::Instance) {
         MMAnchor::Instance->PumpDormant();
     }
@@ -1074,7 +1075,7 @@ extern "C" __declspec(dllexport) void MM_Anchor_PumpDormant(void) {
 
 // Bug 2: launcher-orchestrated resync (auto on connect + combo menu button), dormant-safe.
 // Finding 3: never let an exception unwind across this extern "C" boundary.
-extern "C" __declspec(dllexport) void MM_Anchor_RequestResync(void) {
+extern "C" COMBO_EXPORT void MM_Anchor_RequestResync(void) {
     try {
         if (MMAnchor::Instance) {
             MMAnchor::Instance->RequestResyncDormantSafe();
@@ -1084,20 +1085,20 @@ extern "C" __declspec(dllexport) void MM_Anchor_RequestResync(void) {
     }
 }
 
-extern "C" __declspec(dllexport) void MM_Anchor_RecvJson(const char* json) {
+extern "C" COMBO_EXPORT void MM_Anchor_RecvJson(const char* json) {
     if (MMAnchor::Instance && json) {
         MMAnchor::Instance->OnIncomingJson(json);
     }
 }
 
-extern "C" __declspec(dllexport) void MM_Anchor_Activate(void) {
+extern "C" COMBO_EXPORT void MM_Anchor_Activate(void) {
     if (MMAnchor::Instance == nullptr) {
         MMAnchor::Instance = new MMAnchor();
     }
     MMAnchor::Instance->Activate();
 }
 
-extern "C" __declspec(dllexport) void MM_Anchor_Deactivate(void) {
+extern "C" COMBO_EXPORT void MM_Anchor_Deactivate(void) {
     if (MMAnchor::Instance) {
         MMAnchor::Instance->Deactivate();
     }
@@ -1105,7 +1106,7 @@ extern "C" __declspec(dllexport) void MM_Anchor_Deactivate(void) {
 
 // ComboShip: stateless MM scene-name lookup for the combo room window. The launcher owns the roster
 // now; comboui resolves each MM peer's area name from its raw scene id via this (works while dormant).
-extern "C" __declspec(dllexport) const char* MM_Anchor_ResolveScene(int rawScene) {
+extern "C" COMBO_EXPORT const char* MM_Anchor_ResolveScene(int rawScene) {
     static std::string cached;
     cached = Ship_GetSceneName((s16)rawScene);
     return cached.c_str();
@@ -1113,7 +1114,7 @@ extern "C" __declspec(dllexport) const char* MM_Anchor_ResolveScene(int rawScene
 
 // Same-game teleport trigger for the combo room window (MM active + MM peer). Wraps
 // SendPacket_RequestTeleport, which re-validates via CanTeleportTo and no-ops if disallowed.
-extern "C" __declspec(dllexport) void MM_Anchor_RequestTeleport(uint32_t clientId) {
+extern "C" COMBO_EXPORT void MM_Anchor_RequestTeleport(uint32_t clientId) {
     try {
         if (MMAnchor::Instance) {
             MMAnchor::Instance->SendPacket_RequestTeleport(clientId);

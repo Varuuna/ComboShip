@@ -1,8 +1,6 @@
 // combo/gui/ComboMenuModel.cpp
 #include "ComboMenuModel.h"
-#ifdef _WIN32
-#include <windows.h>
-#endif
+#include "ComboResolve.h"
 
 namespace ComboRando {
 
@@ -11,20 +9,17 @@ ComboMenuModel& ComboMenuModel::Get() {
     return sInstance;
 }
 
-void ComboMenuModel::LoadGame(GameMenu& g, const char* dll, const char* exportSym, const char* invokeSym,
+void ComboMenuModel::LoadGame(GameMenu& g, const char* moduleName, const char* exportSym, const char* invokeSym,
                               const char* evalSym, const char* drawSym, const char* applySym,
                               const char* drawWidgetSym) {
-#ifdef _WIN32
-    HMODULE h = GetModuleHandleA(dll); // already LoadLibrary'd by the exe — mirror ResolveDraw
-    if (!h) {
-        return; // DLL not yet present in the process — leave g.loaded=false for a later retry
-    }
-    auto exportFn = (Fn_ExportMenu)GetProcAddress(h, exportSym);
-    g.invokeCallback = (Fn_MenuInvokeCallback)GetProcAddress(h, invokeSym);
-    g.evalDisabled = (Fn_MenuEvalDisabled)GetProcAddress(h, evalSym);
-    g.drawCustom = (Fn_MenuDrawCustom)GetProcAddress(h, drawSym);
-    g.applyCVarChange = (Fn_MenuApplyCVar)GetProcAddress(h, applySym);  // optional — not in loaded check
-    g.drawWidget = (Fn_MenuDrawWidget)GetProcAddress(h, drawWidgetSym); // optional — not in loaded check
+    // Resolution is process-wide via Combo_ResolveSym; a module not yet resident just resolves to
+    // nulls, leaving g.loaded=false for a later retry.
+    auto exportFn = (Fn_ExportMenu)Combo_ResolveSym(moduleName, exportSym);
+    g.invokeCallback = (Fn_MenuInvokeCallback)Combo_ResolveSym(moduleName, invokeSym);
+    g.evalDisabled = (Fn_MenuEvalDisabled)Combo_ResolveSym(moduleName, evalSym);
+    g.drawCustom = (Fn_MenuDrawCustom)Combo_ResolveSym(moduleName, drawSym);
+    g.applyCVarChange = (Fn_MenuApplyCVar)Combo_ResolveSym(moduleName, applySym);  // optional — not in loaded check
+    g.drawWidget = (Fn_MenuDrawWidget)Combo_ResolveSym(moduleName, drawWidgetSym); // optional — not in loaded check
 
     // ExportMenu may build the menu lazily (MM does so on ActivateMenu), so it can return
     // null until the game has eager-booted. Re-call it each retry until it yields a menu.
@@ -32,17 +27,6 @@ void ComboMenuModel::LoadGame(GameMenu& g, const char* dll, const char* exportSy
 
     g.loaded =
         (g.menu != nullptr && g.invokeCallback != nullptr && g.evalDisabled != nullptr && g.drawCustom != nullptr);
-#else
-    (void)g;
-    (void)dll;
-    (void)exportSym;
-    (void)invokeSym;
-    (void)evalSym;
-    (void)drawSym;
-    (void)applySym;
-    (void)drawWidgetSym;
-    // Non-Windows: exports are resolved via the OS dynamic loader elsewhere; leave unresolved.
-#endif
 }
 
 void ComboMenuModel::EnsureLoaded() {
@@ -53,11 +37,11 @@ void ComboMenuModel::EnsureLoaded() {
     // Retry each game independently. A game whose menu isn't yet buildable stays loaded=false
     // so a later frame can pick it up; we only latch mLoaded once BOTH have loaded.
     if (!mOot.loaded) {
-        LoadGame(mOot, "soh.dll", "SOH_ExportMenu", "SOH_MenuInvokeCallback", "SOH_MenuEvalDisabled",
-                 "SOH_MenuDrawCustom", "SOH_MenuApplyCVarChange", "SOH_MenuDrawWidget");
+        LoadGame(mOot, "soh", "SOH_ExportMenu", "SOH_MenuInvokeCallback", "SOH_MenuEvalDisabled", "SOH_MenuDrawCustom",
+                 "SOH_MenuApplyCVarChange", "SOH_MenuDrawWidget");
     }
     if (!mMm.loaded) {
-        LoadGame(mMm, "2ship.dll", "MM_ExportMenu", "MM_MenuInvokeCallback", "MM_MenuEvalDisabled", "MM_MenuDrawCustom",
+        LoadGame(mMm, "2ship", "MM_ExportMenu", "MM_MenuInvokeCallback", "MM_MenuEvalDisabled", "MM_MenuDrawCustom",
                  "MM_MenuApplyCVarChange", "MM_MenuDrawWidget");
     }
 

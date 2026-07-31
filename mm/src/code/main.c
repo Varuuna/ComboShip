@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <locale.h>
 #endif
+#include "ComboExport.h"
 
 #include "audiomgr.h"
 #include "fault.h"
@@ -161,10 +162,8 @@ int SDL_main(int argc, char* argv[] /* void* arg*/) {
 #ifdef COMBO_BUILD
 // ComboShip: entry point — same as SDL_main but skips AllocConsole/FreeConsole, since the combo
 // executable already owns the console.
-#ifdef _WIN32
-__declspec(dllexport)
-#endif
-    void MM_RunMain(void) {
+COMBO_EXPORT
+void MM_RunMain(void) {
     intptr_t sysHeap;
 
     setlocale(LC_ALL, ".UTF8");
@@ -214,10 +213,8 @@ __declspec(dllexport)
 // heap/thread/IRQ setup from MM_RunMain() persists for the process lifetime and must NOT re-run.
 // Graph_ThreadEntry runs `while (WindowIsRunning()) RunFrame();` and returns once the shared
 // window's running flag is cleared again. Mirrors SOH_RunGameLoop.
-#ifdef _WIN32
-__declspec(dllexport)
-#endif
-    void MM_RunGameLoop(void) {
+COMBO_EXPORT
+void MM_RunGameLoop(void) {
     Graph_ThreadEntry(0);
 }
 

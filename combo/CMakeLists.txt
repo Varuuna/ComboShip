@@ -50,6 +50,13 @@ set_target_properties(comboui PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY_DEBUG   "${CMAKE_SOURCE_DIR}/x64/Debug"
     ARCHIVE_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/x64/Release"
 )
+# ComboShip Linux: same hidden-visibility rule as soh/2ship (see their CMakeLists) — only the
+# ComboUI_* ABI (COMBO_EXPORT) is resolvable process-wide. RUNTIME_OUTPUT_DIRECTORY above doesn't
+# govern shared libs on Unix; comboui.so lands beside the ComboShip executable by default here.
+if (NOT MSVC)
+    target_compile_options(comboui PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
+    target_link_libraries(comboui PRIVATE ${CMAKE_DL_LIBS}) # Combo_ResolveSym uses dlsym
+endif()
 target_compile_definitions(comboui PRIVATE COMBO_BUILD)
 target_include_directories(comboui PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -74,7 +81,7 @@ target_include_directories(ComboShip PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 # nlohmann/json is used by combo/rando/CrossForeign.h (header-only, pulled transitively through vcpkg)
 find_package(nlohmann_json REQUIRED)
-target_link_libraries(ComboShip PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(ComboShip PRIVATE nlohmann_json::nlohmann_json ${CMAKE_DL_LIBS})
 
 # COMBO_RELEASE_VERSION: launcher-only gate for combosave compat (the games don't gate, so no macro there).
 target_compile_definitions(ComboShip PRIVATE COMBO_RELEASE_VERSION="${COMBO_RELEASE_VERSION}")
@@ -106,7 +113,7 @@ add_dependencies(ComboShip
 # build entirely — build it explicitly with `cmake --build <dir> --target comborando` when wanted.
 add_executable(comborando EXCLUDE_FROM_ALL ComboRandoHeadless.cpp)
 target_include_directories(comborando PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(comborando PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(comborando PRIVATE nlohmann_json::nlohmann_json ${CMAKE_DL_LIBS})
 add_dependencies(comborando soh 2ship)
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set_target_properties(comborando PROPERTIES

@@ -5,9 +5,7 @@
 #include <libultraship/libultraship.h>
 #include <ship/resource/CrossRMRegistry.h>
 #include <imgui_internal.h> // FindWindowByName / SetWindowPos / ImGuiWindow rects
-#ifdef _WIN32
-#include <windows.h> // GetModuleHandleA/GetProcAddress (lazy MM save load for dormant draws)
-#endif
+#include "ComboResolve.h"   // Combo_ResolveSym (lazy MM save load for dormant draws)
 
 namespace {
 
@@ -27,20 +25,16 @@ Peek sPeeks[ComboTracker::kSwapCount];
 
 // Active OOT save slot (0-2), or -1 at the title/file-select screens.
 int OotActiveSlot() {
-#ifdef _WIN32
     static int (*sGetFileNum)(void) = nullptr;
     static bool sTried = false;
     if (!sTried) {
         sTried = true;
-        if (HMODULE soh = GetModuleHandleA("soh.dll")) {
-            sGetFileNum = (int (*)(void))GetProcAddress(soh, "SOH_GetActiveFileNum");
-        }
+        sGetFileNum = (int (*)(void))Combo_ResolveSym("soh", "SOH_GetActiveFileNum");
     }
     if (sGetFileNum) {
         int slot = sGetFileNum();
         return (slot >= 0 && slot <= 2) ? slot : -1;
     }
-#endif
     return -1;
 }
 
@@ -48,7 +42,6 @@ int OotActiveSlot() {
 // into MM's dormant gSaveContext (it holds boot defaults — the tracker would read all-blank). Load
 // it here, once per slot. Never after MM has been foreground: its live memory is newer than disk.
 void EnsureMmSaveLoadedForDormantDraw() {
-#ifdef _WIN32
     if (ComboUI::MmEverForeground()) {
         return;
     }
@@ -56,9 +49,7 @@ void EnsureMmSaveLoadedForDormantDraw() {
     static bool sTried = false;
     if (!sTried) {
         sTried = true;
-        if (HMODULE mm = GetModuleHandleA("2ship.dll")) {
-            sLoadMmSave = (void (*)(int))GetProcAddress(mm, "MM_LoadSaveForCombo");
-        }
+        sLoadMmSave = (void (*)(int))Combo_ResolveSym("2ship", "MM_LoadSaveForCombo");
     }
     static int sLoadedSlot = -1;
     int slot = OotActiveSlot();
@@ -67,7 +58,6 @@ void EnsureMmSaveLoadedForDormantDraw() {
     }
     sLoadMmSave(slot);
     sLoadedSlot = slot;
-#endif
 }
 
 // Write the derived visibility only on change (SetTracker writes the CVar and Show/Hides the

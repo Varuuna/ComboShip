@@ -10,6 +10,7 @@
 #define COMBO_ITEM_DRAW_MM_H
 
 #include <cstring>
+#include "ComboExport.h"
 #include "ComboItemDrawABI.h"
 #include "2s2h_assets.h"                                     // custom rando models (triforce, ocarina buttons, ...)
 #include "objects/gameplay_keep/gameplay_keep.h"             // stray-fairy skel/anim + soul flame DL
@@ -792,7 +793,7 @@ static bool MM_HasAnimDraw(RandoItemId id) {
     return MM_FillAnimDrawInfo(id, &probe) != 0;
 }
 
-// Cross-game item draw info. OOT resolves this via GetProcAddress to learn which MM display lists
+// Cross-game item draw info. OOT resolves this via Combo_ResolveSym to learn which MM display lists
 // render a foreign item, then submits them through "__OTR__@mm:"-routed paths resolved against
 // MM's ResourceManager (CrossRMRegistry). itemName is the friendly combo-spoiler name the foreign
 // map carries (resolve via GetItemIdFromDisplayName; fall back to the RI_ spoilerName for the
@@ -904,7 +905,7 @@ static int32_t MM_FillItemDrawInfo(RandoItemId id, CwItemDrawInfo* out) {
 
 // Whole body inside the try: we run on OOT's graph thread while MM is dormant, and an unwind across
 // the C ABI into soh.dll is unrecoverable.
-extern "C" __declspec(dllexport) int32_t MM_GetItemDrawInfo(const char* itemName, CwItemDrawInfo* out) {
+extern "C" COMBO_EXPORT int32_t MM_GetItemDrawInfo(const char* itemName, CwItemDrawInfo* out) {
     try {
         if (itemName == nullptr || out == nullptr) {
             return 0;
@@ -931,7 +932,7 @@ extern "C" __declspec(dllexport) int32_t MM_GetItemDrawInfo(const char* itemName
 // parameters — and the host's combo-owned ComboForeignAnim.h does the loading and drawing.
 // Returns 0 for items outside the animated class.
 // Whole body inside the try: an unwind across the C ABI into soh.dll is unrecoverable.
-extern "C" __declspec(dllexport) int32_t MM_GetItemAnimDrawInfo(const char* itemName, CwItemAnimDrawInfo* out) {
+extern "C" COMBO_EXPORT int32_t MM_GetItemAnimDrawInfo(const char* itemName, CwItemAnimDrawInfo* out) {
     try {
         if (itemName == nullptr || out == nullptr) {
             return 0;

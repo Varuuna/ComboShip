@@ -4,6 +4,7 @@
 // Import / Skip. The launcher does the JSON parse + merge + apply; this file only renders and reports
 // the chosen paths.
 #include "ComboSettingsImportScreen.h"
+#include "ComboExport.h"
 #include "ComboWidgetStyle.h" // ComboMenu_ThemeColor / PushButton / PopButton
 
 #include <libultraship/libultraship.h>
@@ -66,8 +67,8 @@ void UseSharedImGuiContext() {
 
 } // namespace
 
-extern "C" __declspec(dllexport) int ComboUI_RunSettingsImport(const ComboSettingsImportCallbacks* cb,
-                                                               ComboSettingsImportResult* out) {
+extern "C" COMBO_EXPORT int ComboUI_RunSettingsImport(const ComboSettingsImportCallbacks* cb,
+                                                      ComboSettingsImportResult* out) {
     if (!out) {
         return 0;
     }

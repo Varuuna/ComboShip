@@ -1,5 +1,6 @@
 // combo/gui/ComboAnchorRoomWindow.cpp — see ComboAnchorRoomWindow.h
 #include "ComboAnchorRoomWindow.h"
+#include "ComboExport.h"
 #include "ComboForeground.h" // ComboUI::GetForegroundGame() -> same-game teleport gating
 #include <imgui.h>
 #include <libultraship/libultraship.h> // CVar bridge
@@ -8,9 +9,7 @@
 #include <nlohmann/json.hpp>
 #include <string>
 #include <set>
-#ifdef _WIN32
-#include <windows.h>
-#endif
+#include "ComboResolve.h"
 
 namespace ComboRando {
 
@@ -36,22 +35,16 @@ FnRequestTeleport sMmRequestTeleport = nullptr;
 FnGetConnState sSohGetConnState = nullptr;
 
 void ResolveSyms() {
-#ifdef _WIN32
-    if (HMODULE h = GetModuleHandleA("soh.dll")) {
-        if (!sSohResolveScene)
-            sSohResolveScene = (FnResolveScene)GetProcAddress(h, "SOH_Anchor_ResolveScene");
-        if (!sSohRequestTeleport)
-            sSohRequestTeleport = (FnRequestTeleport)GetProcAddress(h, "SOH_Anchor_RequestTeleport");
-        if (!sSohGetConnState)
-            sSohGetConnState = (FnGetConnState)GetProcAddress(h, "SOH_Anchor_GetConnectionState");
-    }
-    if (HMODULE h = GetModuleHandleA("2ship.dll")) {
-        if (!sMmResolveScene)
-            sMmResolveScene = (FnResolveScene)GetProcAddress(h, "MM_Anchor_ResolveScene");
-        if (!sMmRequestTeleport)
-            sMmRequestTeleport = (FnRequestTeleport)GetProcAddress(h, "MM_Anchor_RequestTeleport");
-    }
-#endif
+    if (!sSohResolveScene)
+        sSohResolveScene = (FnResolveScene)Combo_ResolveSym("soh", "SOH_Anchor_ResolveScene");
+    if (!sSohRequestTeleport)
+        sSohRequestTeleport = (FnRequestTeleport)Combo_ResolveSym("soh", "SOH_Anchor_RequestTeleport");
+    if (!sSohGetConnState)
+        sSohGetConnState = (FnGetConnState)Combo_ResolveSym("soh", "SOH_Anchor_GetConnectionState");
+    if (!sMmResolveScene)
+        sMmResolveScene = (FnResolveScene)Combo_ResolveSym("2ship", "MM_Anchor_ResolveScene");
+    if (!sMmRequestTeleport)
+        sMmRequestTeleport = (FnRequestTeleport)Combo_ResolveSym("2ship", "MM_Anchor_RequestTeleport");
 }
 
 // Low-frequency snapshot: scene/roster state only changes on transitions, so polling the launcher a
@@ -258,11 +251,6 @@ void RegisterAnchorRoomWindow() {
 
 // ComboShip: the launcher hands comboui its always-live Anchor roster getter here (called at startup,
 // right after ComboUI_Register). The room window reads it via sRosterProvider.
-#ifdef _WIN32
-extern "C" __declspec(dllexport) void ComboUI_SetAnchorRosterProvider(const char* (*getter)())
-#else
-extern "C" void ComboUI_SetAnchorRosterProvider(const char* (*getter)())
-#endif
-{
+extern "C" COMBO_EXPORT void ComboUI_SetAnchorRosterProvider(const char* (*getter)()) {
     ComboRando::sRosterProvider = getter;
 }

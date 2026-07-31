@@ -8,14 +8,13 @@
 // OOT trackers use gOpenWindows.* + plain names; MM uses gWindows.* + "##MM"-suffixed names.
 
 #include <libultraship/libultraship.h> // Ship::Context / Gui + CVarGet/SetInteger
-#include <memory>                      // std::weak_ptr (notification-window handle)
-#include "ComboForeground.h"           // ComboUI::GetForegroundGame (cached below)
-#include "ComboAudioBridge.h"          // ComboAudio::SyncAllToMM (on MM entry)
-#include "ComboTrackerCommon.h"        // kTrackers/SetTracker (shared with ComboTrackerSwap)
-#include "ComboTrackerBridge.h"        // ComboTracker::SyncAppearance (re-assert on transitions)
-#ifdef _WIN32
-#include <windows.h> // GetModuleHandleA/GetProcAddress for the MM_ReloadControls entry point
-#endif
+#include "ComboExport.h"
+#include <memory>               // std::weak_ptr (notification-window handle)
+#include "ComboForeground.h"    // ComboUI::GetForegroundGame (cached below)
+#include "ComboAudioBridge.h"   // ComboAudio::SyncAllToMM (on MM entry)
+#include "ComboTrackerCommon.h" // kTrackers/SetTracker (shared with ComboTrackerSwap)
+#include "ComboTrackerBridge.h" // ComboTracker::SyncAppearance (re-assert on transitions)
+#include "ComboResolve.h"       // Combo_ResolveSym for the MM_ReloadControls entry point
 
 namespace {
 
@@ -50,19 +49,15 @@ std::weak_ptr<Ship::GuiWindow> sNotif[2];
 // 2ship.dll. Called on MM entry so rebinds made via the Shared (OOT) controls UI while MM was dormant
 // take effect when MM resumes (MM's ControlDeck caches mappings; it only re-reads on Init / this call).
 void ReloadMmControls() {
-#ifdef _WIN32
     static void (*sFn)() = nullptr;
     static bool sTried = false;
     if (!sTried) {
         sTried = true;
-        if (HMODULE h = GetModuleHandleA("2ship.dll")) {
-            sFn = (void (*)())GetProcAddress(h, "MM_ReloadControls");
-        }
+        sFn = (void (*)())Combo_ResolveSym("2ship", "MM_ReloadControls");
     }
     if (sFn) {
         sFn();
     }
-#endif
 }
 
 // Keep only the foreground game's notification window in the shared Gui's draw loop.
@@ -102,12 +97,12 @@ bool ComboUI::MmEverForeground() {
 // C-ABI variant so the game DLLs can query the foreground game (0 = OOT, 1 = MM) across the DLL
 // boundary — MM uses it to gate its live-world dev viewers (Actor/Collision/Message) from drawing
 // against dormant/swapped play state when its tab is opened while OOT is foreground.
-extern "C" __declspec(dllexport) int ComboUI_GetForegroundGame(void) {
+extern "C" COMBO_EXPORT int ComboUI_GetForegroundGame(void) {
     return sForegroundGame;
 }
 
 // Called by the launcher whenever a game becomes the foreground game (0 = OOT, 1 = MM).
-extern "C" __declspec(dllexport) void ComboUI_OnForegroundGame(int game) {
+extern "C" COMBO_EXPORT void ComboUI_OnForegroundGame(int game) {
     if (game != 0 && game != 1) {
         return;
     }
@@ -153,7 +148,7 @@ extern "C" __declspec(dllexport) void ComboUI_OnForegroundGame(int game) {
 
 // Launcher, just before shutdown: restore the backgrounded game's settings-window CVars so they
 // don't persist as "off" (main tracker CVars are derived and recomputed on next boot).
-extern "C" __declspec(dllexport) void ComboUI_RestoreTrackerIntent(void) {
+extern "C" COMBO_EXPORT void ComboUI_RestoreTrackerIntent(void) {
     // Only the background game's CVars are forced-hidden; the foreground game's live values already
     // reflect the user's latest toggles (a stale snapshot would clobber them).
     const int bg = sForegroundGame ^ 1;

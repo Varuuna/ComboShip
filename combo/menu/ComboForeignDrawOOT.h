@@ -27,19 +27,11 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
-#ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#endif
 
 #include "ComboItemDrawABI.h"
 #include "soh/Enhancements/randomizer/hook_handlers.h" // OOT_LookupForeign / OOT_GetQueuedDrawCheck
 #include "soh/Enhancements/randomizer/static_data.h"
+#include "ComboResolve.h" // Combo_ResolveSym (process-wide combo-ABI symbol resolution)
 
 namespace {
 struct ComboForeignDrawInfo {
@@ -85,11 +77,10 @@ inline ComboForeignResolve ComboFillForeignDrawInfo(RandomizerCheck rc, int slot
         return ComboForeignResolve::Unknown;
     }
 
-#ifdef _WIN32
     static Fn_GetItemDrawInfo sGetItemDrawInfo = nullptr;
     if (sGetItemDrawInfo == nullptr) {
-        HMODULE h = GetModuleHandleA("2ship.dll"); // already loaded by the exe (ComboMenuModel pattern)
-        sGetItemDrawInfo = h ? (Fn_GetItemDrawInfo)GetProcAddress(h, "MM_GetItemDrawInfo") : nullptr;
+        // 2ship already loaded by the exe (ComboMenuModel pattern); resolution is process-wide.
+        sGetItemDrawInfo = (Fn_GetItemDrawInfo)Combo_ResolveSym("2ship", "MM_GetItemDrawInfo");
     }
     if (sGetItemDrawInfo == nullptr) {
         return ComboForeignResolve::NotReady; // 2ship.dll may simply not be resident yet
@@ -107,8 +98,7 @@ inline ComboForeignResolve ComboFillForeignDrawInfo(RandomizerCheck rc, int slot
         // the item; ComboForeignAnim_Draw (combo/menu/ComboForeignAnim.h) loads + draws it.
         static Fn_GetItemAnimDrawInfo sGetItemAnimDrawInfo = nullptr;
         if (sGetItemAnimDrawInfo == nullptr) {
-            HMODULE h = GetModuleHandleA("2ship.dll");
-            sGetItemAnimDrawInfo = h ? (Fn_GetItemAnimDrawInfo)GetProcAddress(h, "MM_GetItemAnimDrawInfo") : nullptr;
+            sGetItemAnimDrawInfo = (Fn_GetItemAnimDrawInfo)Combo_ResolveSym("2ship", "MM_GetItemAnimDrawInfo");
         }
         if (sGetItemAnimDrawInfo == nullptr) {
             return ComboForeignResolve::NotReady;
@@ -156,9 +146,6 @@ inline ComboForeignResolve ComboFillForeignDrawInfo(RandomizerCheck rc, int slot
     }
     info.ok = true;
     return ComboForeignResolve::Ok;
-#else
-    return ComboForeignResolve::Unknown; // GetProcAddress resolution is Windows-only (ComboMenuModel)
-#endif
 }
 
 // Full lookup chain (foreign map -> MM export -> routed strings), cached per check per slot per

@@ -198,9 +198,19 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         OUTPUT_NAME "2s2h-macos"
     )
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+	# ComboShip: the target is SHARED (upstream built an executable named 2s2h.elf); the launcher
+	# dlopens lib2ship.so, so keep the default lib prefix and the target's own name.
 	set_target_properties(${PROJECT_NAME} PROPERTIES
-	OUTPUT_NAME "2s2h.elf"
+	OUTPUT_NAME "2ship"
 	)
+endif()
+
+# ComboShip: on ELF platforms both game libraries define identical engine symbols; hidden default
+# visibility keeps them out of the global namespace (no cross-game interposition) — only the combo
+# ABI opts back in via COMBO_EXPORT (combo/ComboExport.h). PE gets this per-DLL binding for free.
+if (NOT MSVC)
+    target_compile_options(${PROJECT_NAME} PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
+    target_link_libraries(${PROJECT_NAME} ${CMAKE_DL_LIBS}) # Combo_ResolveSym uses dlsym
 endif()
 ################################################################################
 # MSVC runtime library

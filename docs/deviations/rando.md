@@ -1021,3 +1021,30 @@ in-game ones while the two loops agree. Tier 3 — the derivation finds the port
 everything owned: **warn loudly and generate anyway**, since a prediction of structural impossibility was
 already made once and proved wrong. Terminal failures now name the last pass cause instead of "assumed
 fill failed".
+
+## MM rando save always SAVETYPE_RANDO (2026-07-31)
+
+A player reported Song of Time wiping all Stray Fairies and dungeon Small Keys. That wipe
+(`z_sram_NES.c:687-691`) is correct *vanilla* MM behaviour; only the rando-only `AfterEndOfCycleSave`
+hook (`Rando/MiscBehavior/OnCycleSave.cpp`) restores them, and `COND_HOOK` tests `IS_RANDO` **once, at
+registration** (fired from `title_setup.c` on every MM entry). So a `SAVETYPE_VANILLA` MM save silently
+disables it — plus every other `IS_RANDO` behaviour, and `BenJsonConversions.hpp` then omits the whole
+`rando` block from the save.
+
+ComboShip could reach that state two ways, both now closed:
+
+- **Stale placement cache.** `g_PendingMMPlacements` was set only at generation / seed-reload and
+  *cleared after the first file creation*, never repopulated. Creating a second save file (or erase +
+  re-create) without re-generating fell through to a vanilla MM save, while `g_ConsolidatedJson` was
+  *not* cleared — so the slot still looked like a valid seed (baked `combo.rando`, randomized OOT).
+  Fixed by deleting the cache: `Combo_OnOOTSaveInit` re-derives MM's apply payload from the bound
+  consolidated seed on every creation, via the new `ComboRando::ApplyPayloadFromConsolidated`
+  (`combo/rando/CrossForeign.h`, extracted from the reconstruction `Combo_OnReloadRequest` already
+  used). The `MM_InitSaveFile` vanilla fallback and that now-dead export are gone.
+- **Silent catch.** `MM_InitRandoSaveFile`'s exception path marked the save `SAVETYPE_VANILLA`. It still
+  rebuilds the playable baseline (the rando strips run before the apply, so a bare return would persist
+  a soft-locked slot) but keeps `SAVETYPE_RANDO` and now returns nonzero; the launcher logs loudly. Same
+  for the empty-placement early return.
+
+Tripwire: `Combo_LoadMMSaveFile` logs an error whenever a loaded MM save isn't `SAVETYPE_RANDO`.
+Already-broken saves are not repaired — re-create the file.

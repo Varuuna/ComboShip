@@ -80,7 +80,7 @@ callbacks) is larger and lives in `combo/ComboShip.cpp`; see [`deviations/`](dev
 |--------------------------------|--------------------------------------------------------------|
 | `MM_InitArchives`              | (required) MM archive bring-up                               |
 | `MM_Extract`                   | Launch the MM ROM extractor if `mm.o2r` is missing           |
-| `MM_InitSaveFile`              | Create the MM save matching an OOT slot                      |
+| `MM_InitRandoSaveFile`         | Create the rando MM save matching an OOT slot (0 = ok)        |
 | `MM_RunGame`                   | Boot MM into the given file number                           |
 | `MM_ResumeGame`                | Resume MM after returning from OOT                            |
 | `MM_NotifyComboTransition`     | Tell MM an OOT→MM handoff is in progress                      |
@@ -121,8 +121,10 @@ callbacks) is larger and lives in `combo/ComboShip.cpp`; see [`deviations/`](dev
 
 ### Save Linkage
 
-When a new OOT save is created, the launcher's `Combo_OnOOTSaveInit` calls `MM_InitSaveFile` to
-create the matching MM save (**OOT slot N → MM file N+1**). On the OOT→MM handoff, MM's
+When a new OOT save is created, the launcher's `Combo_OnOOTSaveInit` calls `MM_InitRandoSaveFile` to
+create the matching MM save (**OOT slot N → MM file N+1**), deriving MM's placement payload fresh
+from the bound consolidated seed. The MM save is always `SAVETYPE_RANDO` — ComboShip has no vanilla
+mode, and a vanilla MM save would silently disable every `IS_RANDO` behavior. On the OOT→MM handoff, MM's
 `title_setup` loads that file and spawns the player in South Clock Town. This is save *linkage by
 slot*, not a unified/merged save format. Cross-game item grants are written directly into the linked
 save of whichever game is dormant (see [Cross-Game Features](#cross-game-features)).

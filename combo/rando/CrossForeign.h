@@ -42,6 +42,22 @@ typedef void (*FnComboWriteSave)(int game, int fileNum, const char* json);
 inline constexpr const char* kForeignSentinelNameOOT = "Combo Foreign Item"; // OOT English name
 inline constexpr const char* kForeignSentinelNameMM = "RI_COMBO_FOREIGN";    // MM RI_ spoilerName
 
+// Rebuild one game's apply payload from a consolidated seed: stored placements name foreign items
+// for real, so the sentinel goes back at every foreign check (MM's apply THROWS on a real one).
+inline nlohmann::json ApplyPayloadFromConsolidated(const nlohmann::json& consolidated, GameId game) {
+    const char* gameKey = (game == GAME_OOT) ? "oot" : "mm";
+    const char* sentinel = (game == GAME_OOT) ? kForeignSentinelNameOOT : kForeignSentinelNameMM;
+    nlohmann::json apply =
+        consolidated.value(gameKey, nlohmann::json::object()).value("placements", nlohmann::json::object());
+    for (const auto& fm : consolidated.value("foreign", nlohmann::json::array())) {
+        std::string checkName = fm.value("checkName", "");
+        if (!checkName.empty() && fm.value("checkGame", "") == gameKey) {
+            apply[checkName] = sentinel;
+        }
+    }
+    return apply;
+}
+
 struct ForeignItem {
     GameId itemGame;          // the game the item belongs to / must be delivered to
     std::string itemName;     // friendly item name in itemGame (bare; resolved by that game's map)

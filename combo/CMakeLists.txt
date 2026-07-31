@@ -144,8 +144,19 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         target_link_options(ComboShip PRIVATE
             $<$<CONFIG:Release>:/SUBSYSTEM:WINDOWS;/ENTRY:mainCRTStartup>)
     endif()
+else()
+    # ComboShip Linux/macOS: the games' shared objects land in their own build dirs; mirror the
+    # Windows single-deploy-dir layout by copying them beside the launcher, whose loader dlopens
+    # ./libsoh.so etc. from its own directory (cwd == exe dir at runtime).
+    add_custom_command(TARGET ComboShip POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:soh> $<TARGET_FILE:2ship> $<TARGET_FILE:libultraship>
+            $<TARGET_FILE_DIR:ComboShip>
+    )
+endif()
 
-    # The exe and all game DLLs already land in x64/<config> (their own output dirs), so only the asset
+# The exe and every game module land in one deploy dir (x64/<config> on Windows via the output-dir
+# pinning above; the combo build dir elsewhere via the module copies above), so only the asset
     # tree and the PORT/custom .o2r archives need deploying. $<TARGET_FILE_DIR:ComboShip> == x64/<config>,
     # so this is config-correct for Debug AND Release.
     #
@@ -192,7 +203,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     else()
         message(STATUS "ComboShip: mm/2ship.o2r not found — skipping .o2r deploy (run Generate2ShipOtr to produce it).")
     endif()
-endif()
 
 # Install
 install(TARGETS ComboShip DESTINATION . COMPONENT combo)

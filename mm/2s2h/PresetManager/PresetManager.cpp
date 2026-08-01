@@ -69,6 +69,7 @@ nlohmann::json curatedPresetJ = R"(
                 "FixTargettingCameraSnap": 1
             },
             "Cutscenes": {
+                "AutoAdvanceEndingText": 1,
                 "HideTitleCards": 1,
                 "SkipEnemyCutscenes": 1,
                 "SkipEntranceCutscenes": 1,

@@ -7,27 +7,12 @@
 
 namespace {
 
-// The libultraship test harness never calls Context::CreateInstance(), so
-// GetInstance() returns null by default. Context exposes a public constructor
-// plus SetInstance(), so we stand up a minimal, uninitialized Context to
-// genuinely exercise the guard's swap/restore semantics without booting any
-// subsystems.
-//
-// NOTE: ~Context() unconditionally calls GetWindow()->SaveWindowToConfig(),
-// which would dereference the null Window of an uninitialized Context and crash.
-// We therefore deliberately never destruct this Context: it is heap-allocated and
-// intentionally leaked (held by a control block that outlives the process), and
-// registered via SetInstance(), which only stores a weak_ptr. This matters because
-// ctest runs each TEST in its own process, so a static shared_ptr would otherwise
-// run ~Context() at process exit and segfault during teardown.
+// The harness never boots a Context, so GetRawInstance() is null by default. Stand up a minimal,
+// uninitialized one (libultraship owns it) to exercise the guard's swap/restore for real without
+// starting any subsystems. ~Context tolerates the null Window/Config this leaves behind.
 Ship::Context& TestContext() {
-    static std::shared_ptr<Ship::Context>* ctx = [] {
-        auto* held = new std::shared_ptr<Ship::Context>(
-            std::make_shared<Ship::Context>("LusTest", "lustest", ""));
-        Ship::Context::SetInstance(*held);
-        return held; // never deleted on purpose — keeps the Context alive past process exit
-    }();
-    return **ctx;
+    static Ship::Context* ctx = Ship::Context::CreateUninitializedInstance("LusTest", "lustest", "");
+    return *ctx;
 }
 
 // These tests use ResourceManagers purely as identity tokens (pointer equality),

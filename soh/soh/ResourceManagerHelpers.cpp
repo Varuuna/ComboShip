@@ -27,7 +27,7 @@
 #include <ship/resource/CrossRMRegistry.h>
 #define COMBO_OWN_RM() (Ship::CrossRMRegistry::GetOrActive("oot"))
 #else
-#define COMBO_OWN_RM() (Ship::Context::GetInstance()->GetResourceManager())
+#define COMBO_OWN_RM() (Ship::Context::GetRawInstance()->GetResourceManager())
 #endif
 
 extern "C" PlayState* gPlayState;

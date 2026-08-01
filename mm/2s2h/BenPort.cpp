@@ -212,7 +212,7 @@ OTRGlobals::OTRGlobals() {
     // SOH_PrepareForTransition() stopped OOT's audio first.
     bool usingExistingCtx = false;
     if (sComboTransitionActive) {
-        auto existingCtx = Ship::Context::GetInstance();
+        auto existingCtx = Ship::Context::GetRawInstance();
         if (existingCtx != nullptr) {
             context = existingCtx;
             portArchivePath = Ship::Context::LocateFileAcrossAppDirs("2ship.o2r");
@@ -279,7 +279,7 @@ OTRGlobals::OTRGlobals() {
     // ImGui's current-context global (GImGui) is a per-module static; this 2ship.dll has its own,
     // separate from libultraship.dll where the context lives. Point it at the shared context (works
     // for both the reuse path and standalone window creation) before any ImGui use here.
-    ImGui::SetCurrentContext(context->GetInstance()->GetWindow()->GetGui()->GetImGuiContext());
+    ImGui::SetCurrentContext(context->GetWindow()->GetGui()->GetImGuiContext());
     // ComboShip: the reuse path skipped BenGui::SetupMenu(), so MM's BenMenu was never built and
     // the shared Gui's single menu slot still holds OOT's SohMenu. Build MM's menu now that the
     // ImGui context is current (widgets populate lazily via BenMenu::InitElement).
@@ -290,7 +290,7 @@ OTRGlobals::OTRGlobals() {
 
     if (shipArchiveVersionMatch) {
 
-        auto overlay = context->GetRawInstance()->GetWindow()->GetGui()->GetGameOverlay();
+        auto overlay = context->GetWindow()->GetGui()->GetGameOverlay();
         overlay->LoadFont("Press Start 2P", 12.0f, "fonts/PressStart2P-Regular.ttf");
         overlay->LoadFont("Fipps", 32.0f, "fonts/Fipps-Regular.otf");
         overlay->SetCurrentFont(CVarGetString(CVAR_GAME_OVERLAY_FONT, "Press Start 2P"));
@@ -312,7 +312,7 @@ OTRGlobals::OTRGlobals() {
         // MM fonts were just added to the shared ImGui atlas (TexReady=false); the renderer backend
         // already built its font texture for OOT and won't rebuild on its own -> MM's first
         // ImGui::NewFrame() would assert "Font Atlas not built!". Invalidate so the next frame rebuilds.
-        Ship::Context::GetInstance()->GetWindow()->GetGui()->RebuildFontTexture();
+        Ship::Context::GetRawInstance()->GetWindow()->GetGui()->RebuildFontTexture();
     }
 #endif
 }
@@ -720,7 +720,7 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
 // (the mm baseline still called it as a Context method).
 static void InitGfxDebugger() {
     auto dbg =
-        std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow())->GetGfxDebugger();
+        std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow())->GetGfxDebugger();
     if (dbg != nullptr) {
         return;
     }
@@ -917,10 +917,10 @@ uint32_t OTRGlobals::GetInterpolationFPS() {
     const char* interpFpsCvar = "gInterpolationFPS";
 #endif
     if (CVarGetInteger(matchRefreshCvar, 0)) {
-        return Ship::Context::GetInstance()->GetWindow()->GetCurrentRefreshRate();
+        return Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate();
     } else if (CVarGetInteger(CVAR_VSYNC_ENABLED, 1) ||
-               !Ship::Context::GetInstance()->GetWindow()->CanDisableVerticalSync()) {
-        return std::min<uint32_t>(Ship::Context::GetInstance()->GetWindow()->GetCurrentRefreshRate(),
+               !Ship::Context::GetRawInstance()->GetWindow()->CanDisableVerticalSync()) {
+        return std::min<uint32_t>(Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate(),
                                   CVarGetInteger(interpFpsCvar, 20));
     }
     return CVarGetInteger(interpFpsCvar, 20);
@@ -1157,7 +1157,7 @@ extern "C" void InitOTR(int argc, char* argv[]) {
             SaveManager_SaveCurrentForCombo();
         if (gComboReturnCallback)
             gComboReturnCallback(isOwlSaveQuit ? 2 : (isReset ? 1 : 0));
-        if (auto fast3d = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow())) {
+        if (auto fast3d = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow())) {
             fast3d->SetIsRunning(false);
         }
     });
@@ -2686,7 +2686,7 @@ extern "C" __declspec(dllexport) void MM_PrepareForTransition(void) {
 // ComboShip: OOT->MM return. Re-enter MM's game loop on the same shared context/window and jump
 // straight to Play in South Clock Town for the given slot. Counterpart to OOT's SOH_ResumeGame.
 extern "C" __declspec(dllexport) void MM_ResumeGame(int fileNum) {
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     ctx->GetLogger()->flush_on(spdlog::level::trace);
     SPDLOG_INFO("[ComboShip] MM_ResumeGame: begin (fileNum={})", fileNum);
 
@@ -4115,7 +4115,7 @@ extern "C" __declspec(dllexport) void MM_ApplyAudioVolume(int32_t seqPlayerIndex
 // only re-reads on Init / this call), so a rebind made while MM was dormant is not picked up until MM
 // reloads. The combo layer calls this when MM becomes the foreground game. Reloads all populated ports.
 extern "C" __declspec(dllexport) void MM_ReloadControls(void) {
-    auto controlDeck = Ship::Context::GetInstance()->GetControlDeck();
+    auto controlDeck = Ship::Context::GetRawInstance()->GetControlDeck();
     if (!controlDeck)
         return;
     for (uint8_t port = 0; port < 4; ++port) {

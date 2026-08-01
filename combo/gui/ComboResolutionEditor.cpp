@@ -37,7 +37,7 @@ const int kMaxVert = 4320; // 8K
 const int kDefaultMaxScale = 6;
 
 void Save() {
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     if (ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
         ctx->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
     }
@@ -47,7 +47,7 @@ void Save() {
 // overlay's render thread, which is the thread that runs the interpreter (as SoH's MenuUpdate does);
 // a torn read would be a one-frame cosmetic readout, so no synchronization is needed.
 bool GetDims(uint32_t& vpW, uint32_t& vpH, uint32_t& intW, uint32_t& intH) {
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     if (!ctx || !ctx->GetWindow()) {
         return false;
     }

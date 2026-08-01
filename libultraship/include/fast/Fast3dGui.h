@@ -1,5 +1,7 @@
 #pragma once
 #include <SDL2/SDL.h>
+
+#include "Fast3dWindow.h"
 #include "ship/window/gui/Gui.h"
 #include "fast/WindowEvent.h"
 #include "fast/resource/type/Texture.h"
@@ -42,6 +44,7 @@ typedef struct {
             uint32_t Height; ///< Framebuffer height in pixels.
         } Gx2;
     };
+    WindowBackend Backend;
 } GuiWindowInitData;
 
 /**
@@ -143,9 +146,9 @@ class Fast3dGui : public Ship::Gui {
 
   protected:
     void ImGuiWMInit() override;
-    void ImGuiWMShutdown(Ship::Window* window) override;
+    void ImGuiWMShutdown() override;
     void ImGuiBackendInit() override;
-    void ImGuiBackendShutdown(Ship::Window* window) override;
+    void ImGuiBackendShutdown() override;
     void ImGuiBackendNewFrame() override;
     void ImGuiWMNewFrame() override;
     void ImGuiRenderDrawData(ImDrawData* data) override;

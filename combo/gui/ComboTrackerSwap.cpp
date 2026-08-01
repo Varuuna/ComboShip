@@ -187,7 +187,7 @@ class SwapWindow final : public Ship::GuiWindow {
 std::shared_ptr<SwapWindow> sSwapWindow;
 
 void SwapWindow::Draw() {
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
         return;
     }
@@ -275,7 +275,7 @@ void ComboTracker::SetMasterVisible(int tracker, bool visible) {
 }
 
 void ComboTracker::RegisterSwap() {
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
         return;
     }

@@ -7,6 +7,9 @@
 #include <stdbool.h>
 #include <assert.h>
 #include <stdio.h>
+#ifndef _WIN32
+#include <dlfcn.h>
+#endif
 
 #include <any>
 #include <map>
@@ -146,7 +149,7 @@ static std::shared_ptr<Ship::ResourceManager> ActiveResMgr() {
     if (!g_crossRMStack.empty()) {
         return g_crossRMStack.back().rm;
     }
-    return Ship::Context::GetInstance()->GetResourceManager();
+    return Ship::Context::GetRawInstance()->GetResourceManager();
 }
 
 constexpr size_t MAX_TRI_BUFFER = 256;
@@ -482,12 +485,43 @@ ColorCombiner* Interpreter::LookupOrCreateColorCombiner(const ColorCombinerKey& 
     return &mPrevCombiner->second;
 }
 
+void Interpreter::SetResolvedResourceCacheEnabled(bool enabled) {
+    mResolvedResourceCacheEnabled = enabled;
+    if (!enabled) {
+        mResolvedResourceCache.clear();
+    }
+}
+
+// Texture binds resolve the same paths every frame; skip the resource
+// manager's string/hash/mutex work by memoizing on the pointer.
+std::shared_ptr<Ship::IResource> Interpreter::ResolveResourceCached(const char* path) {
+    if (path == nullptr) {
+        return nullptr;
+    }
+    if (!mResolvedResourceCacheEnabled) {
+        return Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(path);
+    }
+    auto it = mResolvedResourceCache.find(path);
+    if (it != mResolvedResourceCache.end()) {
+        return it->second;
+    }
+    auto res = Ship::Context::GetRawInstance()->GetResourceManager()->LoadResourceProcess(path);
+    // Only memoize a hit. The resource manager caches its own misses, so re-asking
+    // for one is cheap, and CacheExternalResource can turn a path that missed into a
+    // valid resource at runtime. A memoized null would outlive the resource itself.
+    if (res != nullptr) {
+        mResolvedResourceCache[path] = res;
+    }
+    return res;
+}
+
 void Interpreter::TextureCacheClear() {
     for (const auto& entry : mTextureCache.map) {
         mTextureCache.free_texture_ids.push_back(entry.second.texture_id);
     }
     mTextureCache.map.clear();
     mTextureCache.lru.clear();
+    mResolvedResourceCache.clear();
     // Pre-allocate buckets so the map never rehashes during normal operation.
     // Rehashing invalidates all iterators, including those stored in LRU entries.
     mTextureCache.map.reserve(TEXTURE_CACHE_MAX_SIZE);
@@ -587,11 +621,12 @@ static uint32_t GetEffectiveLineSize(uint32_t lineSizeBytes, uint32_t fullImageL
 }
 
 static uint32_t GetTileSizeFromCoordinates(float low, float high) {
-    float size = (high - low + 4.0f) / 4.0f;
-    if (size <= 0.0f) {
+    // An unset tile (high <= low) defines no region; return 0 so callers skip the tile-region clamp
+    // instead of collapsing the texture to the phantom 1-texel size the +4 formula would yield.
+    if (high <= low) {
         return 0;
     }
-    return static_cast<uint32_t>(lroundf(size));
+    return static_cast<uint32_t>(lroundf((high - low + 4.0f) / 4.0f));
 }
 
 void Interpreter::ImportTextureRgba16(int tile, bool importReplacement) {
@@ -627,10 +662,22 @@ void Interpreter::ImportTextureRgba16(int tile, bool importReplacement) {
         renderedPixels > 0 && loadedPixels > renderedPixels && loadedPixels * 8 < renderedPixels * 13; // < 1.625x
     bool clampS = (mRdp->texture_tile[tile].cms & G_TX_CLAMP) != 0;
     bool clampT = (mRdp->texture_tile[tile].cmt & G_TX_CLAMP) != 0;
-    if ((pyramidLike || clampS) && tile_w > 0 && tile_w < width) {
+    // A masked axis wraps every 2^mask texels, so trim an over-loaded texture back to that.
+    // Skip a mask smaller than the tile region though - that's stale tile state, not a real load.
+    uint32_t maskW = mRdp->texture_tile[tile].masks;
+    uint32_t maskH = mRdp->texture_tile[tile].maskt;
+    if (maskW != 0 && (1u << maskW) >= tile_w && (1u << maskW) < width) {
+        width = 1u << maskW;
+    }
+    if (maskH != 0 && (1u << maskH) >= tile_h && (1u << maskH) < height) {
+        height = 1u << maskH;
+    }
+    // HD replacement textures must still clamp to the rendered tile region
+    bool isHd = metadata->h_byte_scale != 1 || metadata->v_pixel_scale != 1;
+    if ((isHd || pyramidLike || clampS) && tile_w > 0 && tile_w < width) {
         width = tile_w;
     }
-    if ((pyramidLike || clampT) && tile_h > 0 && tile_h < height) {
+    if ((isHd || pyramidLike || clampT) && tile_h > 0 && tile_h < height) {
         height = tile_h;
     }
 
@@ -694,10 +741,22 @@ void Interpreter::ImportTextureRgba32(int tile, bool importReplacement) {
     bool pyramidLike = renderedPixels > 0 && loadedPixels > renderedPixels && loadedPixels * 8 < renderedPixels * 13;
     bool clampS = (mRdp->texture_tile[tile].cms & G_TX_CLAMP) != 0;
     bool clampT = (mRdp->texture_tile[tile].cmt & G_TX_CLAMP) != 0;
-    if ((pyramidLike || clampS) && tile_w > 0 && tile_w < width) {
+    // A masked axis wraps every 2^mask texels, so trim an over-loaded texture back to that.
+    // Skip a mask smaller than the tile region though - that's stale tile state, not a real load.
+    uint32_t maskW = mRdp->texture_tile[tile].masks;
+    uint32_t maskH = mRdp->texture_tile[tile].maskt;
+    if (maskW != 0 && (1u << maskW) >= tile_w && (1u << maskW) < width) {
+        width = 1u << maskW;
+    }
+    if (maskH != 0 && (1u << maskH) >= tile_h && (1u << maskH) < height) {
+        height = 1u << maskH;
+    }
+    // HD replacement textures must still clamp to the rendered tile region
+    bool isHd = metadata->h_byte_scale != 1 || metadata->v_pixel_scale != 1;
+    if ((isHd || pyramidLike || clampS) && tile_w > 0 && tile_w < width) {
         width = tile_w;
     }
-    if ((pyramidLike || clampT) && tile_h > 0 && tile_h < height) {
+    if ((isHd || pyramidLike || clampT) && tile_h > 0 && tile_h < height) {
         height = tile_h;
     }
 
@@ -998,10 +1057,22 @@ void Interpreter::ImportTextureCi4(int tile, bool importReplacement) {
     bool pyramidLike = renderedPixels > 0 && loadedPixels > renderedPixels && loadedPixels * 8 < renderedPixels * 13;
     bool clampS = (mRdp->texture_tile[tile].cms & G_TX_CLAMP) != 0;
     bool clampT = (mRdp->texture_tile[tile].cmt & G_TX_CLAMP) != 0;
-    if ((pyramidLike || clampS) && tile_w > 0 && tile_w < width) {
+    // A masked axis wraps every 2^mask texels, so trim an over-loaded texture back to that.
+    // Skip a mask smaller than the tile region though - that's stale tile state, not a real load.
+    uint32_t maskW = mRdp->texture_tile[tile].masks;
+    uint32_t maskH = mRdp->texture_tile[tile].maskt;
+    if (maskW != 0 && (1u << maskW) >= tile_w && (1u << maskW) < width) {
+        width = 1u << maskW;
+    }
+    if (maskH != 0 && (1u << maskH) >= tile_h && (1u << maskH) < height) {
+        height = 1u << maskH;
+    }
+    // HD replacement textures must still clamp to the rendered tile region
+    bool isHd = metadata->h_byte_scale != 1 || metadata->v_pixel_scale != 1;
+    if ((isHd || pyramidLike || clampS) && tile_w > 0 && tile_w < width) {
         width = tile_w;
     }
-    if ((pyramidLike || clampT) && tile_h > 0 && tile_h < height) {
+    if ((isHd || pyramidLike || clampT) && tile_h > 0 && tile_h < height) {
         height = tile_h;
     }
 
@@ -1090,10 +1161,22 @@ void Interpreter::ImportTextureCi8(int tile, bool importReplacement) {
     bool pyramidLike = renderedPixels > 0 && loadedPixels > renderedPixels && loadedPixels * 8 < renderedPixels * 13;
     bool clampS = (mRdp->texture_tile[tile].cms & G_TX_CLAMP) != 0;
     bool clampT = (mRdp->texture_tile[tile].cmt & G_TX_CLAMP) != 0;
-    if ((pyramidLike || clampS) && tile_w > 0 && tile_w < width) {
+    // A masked axis wraps every 2^mask texels, so trim an over-loaded texture back to that.
+    // Skip a mask smaller than the tile region though - that's stale tile state, not a real load.
+    uint32_t maskW = mRdp->texture_tile[tile].masks;
+    uint32_t maskH = mRdp->texture_tile[tile].maskt;
+    if (maskW != 0 && (1u << maskW) >= tile_w && (1u << maskW) < width) {
+        width = 1u << maskW;
+    }
+    if (maskH != 0 && (1u << maskH) >= tile_h && (1u << maskH) < height) {
+        height = 1u << maskH;
+    }
+    // HD replacement textures must still clamp to the rendered tile region
+    bool isHd = metadata->h_byte_scale != 1 || metadata->v_pixel_scale != 1;
+    if ((isHd || pyramidLike || clampS) && tile_w > 0 && tile_w < width) {
         width = tile_w;
     }
-    if ((pyramidLike || clampT) && tile_h > 0 && tile_h < height) {
+    if ((isHd || pyramidLike || clampT) && tile_h > 0 && tile_h < height) {
         height = tile_h;
     }
 
@@ -1194,7 +1277,22 @@ void Interpreter::ImportTextureRaw(int tile, bool importReplacement) {
         memset(mTexUploadBuffer + resourceImageSizeBytes, 0, numLoadedBytes - resourceImageSizeBytes);
     }
 
-    mRapi->UploadTexture(mTexUploadBuffer, resultNewLineSize / 4, resultNewHeight);
+    // Describe the buffer by what was actually packed (the loaded HD stride)
+    uint32_t uploadWidth = safeLineSizeBytes / 4;
+    uint32_t uploadHeight = safeLineSizeBytes > 0 ? safeLoadedBytes / safeLineSizeBytes : 0;
+    const bool singleLineLoad = uploadHeight <= 1 && resultNewLineSize != 0 && resultNewLineSize < safeLineSizeBytes;
+    if (uploadWidth > (uint32_t)mRapi->GetMaxTextureSize() || singleLineLoad) {
+        if (safeLoadedBytes == (uint64_t)width * height * 4) {
+            // buffer holds the full image, use its real dimensions
+            uploadWidth = width;
+            uploadHeight = height;
+        } else {
+            // partial load, fall back to the tile-derived dimensions
+            uploadWidth = resultNewLineSize / 4;
+            uploadHeight = resultNewHeight;
+        }
+    }
+    mRapi->UploadTexture(mTexUploadBuffer, uploadWidth, uploadHeight);
 }
 
 void Interpreter::ImportTexture(int i, int tile, bool importReplacement) {
@@ -1966,10 +2064,23 @@ void Interpreter::GfxSpTri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx
             uint32_t loadedPx = tex_width[i] * tex_height[i];
             uint32_t renderedPx = tex_width2[i] * tex_height2[i];
             bool pyrLike = renderedPx > 0 && loadedPx > renderedPx && loadedPx * 8 < renderedPx * 13;
-            if ((pyrLike || (cms & G_TX_CLAMP)) && tex_width2[i] > 0 && tex_width2[i] < tex_width[i]) {
+            // Same wrap-period trim as the import paths. The >= tex_width2 guard skips a stale
+            // mask left by an FB blit (the pause background), which would otherwise tile the FB.
+            uint32_t maskW = mRdp->texture_tile[tile].masks;
+            uint32_t maskH = mRdp->texture_tile[tile].maskt;
+            if (maskW != 0 && (1u << maskW) >= tex_width2[i] && (1u << maskW) < tex_width[i]) {
+                tex_width[i] = 1u << maskW;
+            }
+            if (maskH != 0 && (1u << maskH) >= tex_height2[i] && (1u << maskH) < tex_height[i]) {
+                tex_height[i] = 1u << maskH;
+            }
+            // HD replacements must clamp to the tile region
+            bool isHd = mRdp->loaded_texture[i].raw_tex_metadata.h_byte_scale != 1 ||
+                        mRdp->loaded_texture[i].raw_tex_metadata.v_pixel_scale != 1;
+            if ((isHd || pyrLike || (cms & G_TX_CLAMP)) && tex_width2[i] > 0 && tex_width2[i] < tex_width[i]) {
                 tex_width[i] = tex_width2[i];
             }
-            if ((pyrLike || (cmt & G_TX_CLAMP)) && tex_height2[i] > 0 && tex_height2[i] < tex_height[i]) {
+            if ((isHd || pyrLike || (cmt & G_TX_CLAMP)) && tex_height2[i] > 0 && tex_height2[i] < tex_height[i]) {
                 tex_height[i] = tex_height2[i];
             }
 
@@ -2422,6 +2533,8 @@ void Interpreter::GfxDpSetTile(uint8_t fmt, uint32_t siz, uint32_t line, uint32_
     mRdp->texture_tile[tile].siz = siz;
     mRdp->texture_tile[tile].cms = cms;
     mRdp->texture_tile[tile].cmt = cmt;
+    mRdp->texture_tile[tile].masks = masks;
+    mRdp->texture_tile[tile].maskt = maskt;
     mRdp->texture_tile[tile].shifts = shifts;
     mRdp->texture_tile[tile].shiftt = shiftt;
     mRdp->texture_tile[tile].line_size_bytes = line * 8;
@@ -2520,7 +2633,13 @@ void Interpreter::GfxDpLoadBlock(uint8_t tile, uint32_t uls, uint32_t ult, uint3
     // The standard gDPLoadTextureBlock macro sets width=1, but manually-built DL
     // commands may set the real pixel width.
     uint32_t actual_line_bytes = size_bytes;
-    if (mRdp->texture_to_load.width > 1) {
+    const RawTexMetadata& blkMeta = mRdp->texture_to_load.raw_tex_metadata;
+    bool blkHd = blkMeta.h_byte_scale != 1 || blkMeta.v_pixel_scale != 1;
+    if (mRdp->texture_to_load.width > 1 && blkHd && blkMeta.height > 0 && size_bytes % blkMeta.height == 0) {
+        // HD-upscaled textures report a sentinel SetTextureImage width, so the per-line stride
+        // derived from it is bogus. The resource's stored height is authoritative.
+        actual_line_bytes = size_bytes / blkMeta.height;
+    } else if (mRdp->texture_to_load.width > 1) {
         uint32_t candidate;
         switch (mRdp->texture_to_load.siz) {
             case G_IM_SIZ_4b:
@@ -2953,6 +3072,9 @@ void Interpreter::GfxDpFillRectangle(int32_t ulx, int32_t uly, int32_t lrx, int3
         float y = expanded_lry / 4.0f;
         float w = (expanded_lrx - ulx) / 4.0f;
         float h = (expanded_lry - uly) / 4.0f;
+        float halfNativeWidth = (float)HALF_SCREEN_WIDTH(mActiveFrameBuffer);
+        x = halfNativeWidth + AdjXForAspectRatio(x - halfNativeWidth);
+        w = AdjXForAspectRatio(w);
 
         struct XYWidthHeight area;
         area.x = (int16_t)x;
@@ -4031,6 +4153,27 @@ bool gfx_othermode_h_handler_f3d(F3DGfx** cmd0) {
     return false;
 }
 
+// A resolved address still in the N64 segmented range (<= 0x0FFFFFFF) usually means SegAddr
+// failed to resolve it (segment not set up). Keep it only if it belongs to a loaded module,
+// where it's a real low pointer (e.g. a static TLUT) rather than an unresolved segment addr.
+static bool IsValidResolvedAddress(uintptr_t addr) {
+    if (addr > 0x0FFFFFFF) {
+        return true;
+    }
+
+    // Still in the N64 segmented range, but might be a false positive (a real low pointer).
+#ifdef _WIN32
+    // For Windows, check whether the address belongs to a dll.
+    HMODULE module = nullptr;
+    return GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                              reinterpret_cast<LPCSTR>(addr), &module) != 0;
+#else
+    // For non-Windows platforms, check whether the address belongs to a loaded object.
+    Dl_info info;
+    return dladdr(reinterpret_cast<void*>(addr), &info) != 0;
+#endif
+}
+
 bool gfx_set_timg_handler_rdp(F3DGfx** cmd0) {
     Interpreter* gfx = mInstance.lock().get();
     F3DGfx* cmd = *cmd0;
@@ -4065,23 +4208,9 @@ bool gfx_set_timg_handler_rdp(F3DGfx** cmd0) {
         }
     }
 
-    // If the resolved address is still in the N64 segmented range, SegAddr
-    // failed to resolve it (segment not set up). Skip to avoid dereferencing
-    // invalid memory.
-    // For Windows, also check if the address is not from a dll because this validation returns a false positive caused
-    // by how the virtual memory is allocated.
-#ifdef _WIN32
-    HMODULE module = nullptr;
-    if (i <= 0x0FFFFFFF &&
-        !(GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                             reinterpret_cast<LPCSTR>(i), &module))) {
+    if (!IsValidResolvedAddress(i)) {
         return false;
     }
-#else
-    if (i <= 0x0FFFFFFF) {
-        return false;
-    }
-#endif
 
     gfx->GfxDpSetTextureImage(C0(21, 3), C0(19, 2), C0(0, 12) + 1, imgData, texFlags, rawTexMetdata, (void*)i);
 
@@ -4717,36 +4846,35 @@ static constexpr UcodeHandler rdpHandlers = {
     { RDP_G_SETTARGETINTERPINDEX,
       { "G_SETTARGETINTERPINDEX", gfx_set_interpolation_index_target } }, // G_SETTARGETINTERPINDEX
     { RDP_G_SETTILESIZE_INTERP,
-      { "G_SETTILESIZE_INTERP", gfx_set_tile_size_interp_handler_rdp } },            // G_SETTILESIZE_INTERP
-    { RDP_G_SETTILESIZE_LERP,
-      { "G_SETTILESIZE_LERP", gfx_set_tile_size_lerp_handler_rdp } },                // G_SETTILESIZE_LERP
-    { RDP_G_TEXRECT, { "G_TEXRECT", gfx_tex_rect_and_flip_handler_rdp } },           // G_TEXRECT (-28)
-    { RDP_G_TEXRECTFLIP, { "G_TEXRECTFLIP", gfx_tex_rect_and_flip_handler_rdp } },   // G_TEXRECTFLIP (-27)
-    { RDP_G_RDPLOADSYNC, { "mRdpLOADSYNC", gfx_stubbed_command_handler } },          // mRdpLOADSYNC (-26)
-    { RDP_G_RDPPIPESYNC, { "mRdpPIPESYNC", gfx_stubbed_command_handler } },          // mRdpPIPESYNC (-25)
-    { RDP_G_RDPTILESYNC, { "mRdpTILESYNC", gfx_stubbed_command_handler } },          // mRdpPIPESYNC (-24)
-    { RDP_G_RDPFULLSYNC, { "mRdpFULLSYNC", gfx_stubbed_command_handler } },          // mRdpFULLSYNC (-23)
-    { RDP_G_SETKEYGB, { "G_SETKEYGB", gfx_set_key_gb_handler_rdp } },                // G_SETKEYGB (-22)
-    { RDP_G_SETKEYR, { "G_SETKEYR", gfx_set_key_r_handler_rdp } },                   // G_SETKEYR (-21)
-    { RDP_G_SETCONVERT, { "G_SETCONVERT", gfx_set_convert_handler_rdp } },           // G_SETCONVERT (-20)
-    { RDP_G_SETSCISSOR, { "G_SETSCISSOR", gfx_SetScissor_handler_rdp } },            // G_SETSCISSOR (-19)
-    { RDP_G_SETPRIMDEPTH, { "G_SETPRIMDEPTH", gfx_set_prim_depth_handler_rdp } },    // G_SETPRIMDEPTH (-18)
-    { RDP_G_RDPSETOTHERMODE, { "mRdpSETOTHERMODE", gfx_rdp_set_other_mode_rdp } },   // mRdpSETOTHERMODE (-17)
-    { RDP_G_LOADTLUT, { "G_LOADTLUT", gfx_load_tlut_handler_rdp } },                 // G_LOADTLUT (-16)
-    { RDP_G_SETTILESIZE, { "G_SETTILESIZE", gfx_set_tile_size_handler_rdp } },       // G_SETTILESIZE (-14)
-    { RDP_G_LOADBLOCK, { "G_LOADBLOCK", gfx_load_block_handler_rdp } },              // G_LOADBLOCK (-13)
-    { RDP_G_LOADTILE, { "G_LOADTILE", gfx_load_tile_handler_rdp } },                 // G_LOADTILE (-12)
-    { RDP_G_SETTILE, { "G_SETTILE", gfx_set_tile_handler_rdp } },                    // G_SETTILE (-11)
-    { RDP_G_FILLRECT, { "G_FILLRECT", gfx_fill_rect_handler_rdp } },                 // G_FILLRECT (-10)
-    { RDP_G_SETFILLCOLOR, { "G_SETFILLCOLOR", gfx_set_fill_color_handler_rdp } },    // G_SETFILLCOLOR (-9)
-    { RDP_G_SETFOGCOLOR, { "G_SETFOGCOLOR", gfx_set_fog_color_handler_rdp } },       // G_SETFOGCOLOR (-8)
-    { RDP_G_SETBLENDCOLOR, { "G_SETBLENDCOLOR", gfx_set_blend_color_handler_rdp } }, // G_SETBLENDCOLOR (-7)
-    { RDP_G_SETPRIMCOLOR, { "G_SETPRIMCOLOR", gfx_set_prim_color_handler_rdp } },    // G_SETPRIMCOLOR (-6)
-    { RDP_G_SETENVCOLOR, { "G_SETENVCOLOR", gfx_set_env_color_handler_rdp } },       // G_SETENVCOLOR (-5)
-    { RDP_G_SETCOMBINE, { "G_SETCOMBINE", gfx_set_combine_handler_rdp } },           // G_SETCOMBINE (-4)
-    { RDP_G_SETTIMG, { "G_SETTIMG", gfx_set_timg_handler_rdp } },                    // G_SETTIMG (-3)
-    { RDP_G_SETZIMG, { "G_SETZIMG", gfx_set_z_img_handler_rdp } },                   // G_SETZIMG (-2)
-    { RDP_G_SETCIMG, { "G_SETCIMG", gfx_set_c_img_handler_rdp } },                   // G_SETCIMG (-1)
+      { "G_SETTILESIZE_INTERP", gfx_set_tile_size_interp_handler_rdp } },                     // G_SETTILESIZE_INTERP
+    { RDP_G_SETTILESIZE_LERP, { "G_SETTILESIZE_LERP", gfx_set_tile_size_lerp_handler_rdp } }, // G_SETTILESIZE_LERP
+    { RDP_G_TEXRECT, { "G_TEXRECT", gfx_tex_rect_and_flip_handler_rdp } },                    // G_TEXRECT (-28)
+    { RDP_G_TEXRECTFLIP, { "G_TEXRECTFLIP", gfx_tex_rect_and_flip_handler_rdp } },            // G_TEXRECTFLIP (-27)
+    { RDP_G_RDPLOADSYNC, { "mRdpLOADSYNC", gfx_stubbed_command_handler } },                   // mRdpLOADSYNC (-26)
+    { RDP_G_RDPPIPESYNC, { "mRdpPIPESYNC", gfx_stubbed_command_handler } },                   // mRdpPIPESYNC (-25)
+    { RDP_G_RDPTILESYNC, { "mRdpTILESYNC", gfx_stubbed_command_handler } },                   // mRdpPIPESYNC (-24)
+    { RDP_G_RDPFULLSYNC, { "mRdpFULLSYNC", gfx_stubbed_command_handler } },                   // mRdpFULLSYNC (-23)
+    { RDP_G_SETKEYGB, { "G_SETKEYGB", gfx_set_key_gb_handler_rdp } },                         // G_SETKEYGB (-22)
+    { RDP_G_SETKEYR, { "G_SETKEYR", gfx_set_key_r_handler_rdp } },                            // G_SETKEYR (-21)
+    { RDP_G_SETCONVERT, { "G_SETCONVERT", gfx_set_convert_handler_rdp } },                    // G_SETCONVERT (-20)
+    { RDP_G_SETSCISSOR, { "G_SETSCISSOR", gfx_SetScissor_handler_rdp } },                     // G_SETSCISSOR (-19)
+    { RDP_G_SETPRIMDEPTH, { "G_SETPRIMDEPTH", gfx_set_prim_depth_handler_rdp } },             // G_SETPRIMDEPTH (-18)
+    { RDP_G_RDPSETOTHERMODE, { "mRdpSETOTHERMODE", gfx_rdp_set_other_mode_rdp } },            // mRdpSETOTHERMODE (-17)
+    { RDP_G_LOADTLUT, { "G_LOADTLUT", gfx_load_tlut_handler_rdp } },                          // G_LOADTLUT (-16)
+    { RDP_G_SETTILESIZE, { "G_SETTILESIZE", gfx_set_tile_size_handler_rdp } },                // G_SETTILESIZE (-14)
+    { RDP_G_LOADBLOCK, { "G_LOADBLOCK", gfx_load_block_handler_rdp } },                       // G_LOADBLOCK (-13)
+    { RDP_G_LOADTILE, { "G_LOADTILE", gfx_load_tile_handler_rdp } },                          // G_LOADTILE (-12)
+    { RDP_G_SETTILE, { "G_SETTILE", gfx_set_tile_handler_rdp } },                             // G_SETTILE (-11)
+    { RDP_G_FILLRECT, { "G_FILLRECT", gfx_fill_rect_handler_rdp } },                          // G_FILLRECT (-10)
+    { RDP_G_SETFILLCOLOR, { "G_SETFILLCOLOR", gfx_set_fill_color_handler_rdp } },             // G_SETFILLCOLOR (-9)
+    { RDP_G_SETFOGCOLOR, { "G_SETFOGCOLOR", gfx_set_fog_color_handler_rdp } },                // G_SETFOGCOLOR (-8)
+    { RDP_G_SETBLENDCOLOR, { "G_SETBLENDCOLOR", gfx_set_blend_color_handler_rdp } },          // G_SETBLENDCOLOR (-7)
+    { RDP_G_SETPRIMCOLOR, { "G_SETPRIMCOLOR", gfx_set_prim_color_handler_rdp } },             // G_SETPRIMCOLOR (-6)
+    { RDP_G_SETENVCOLOR, { "G_SETENVCOLOR", gfx_set_env_color_handler_rdp } },                // G_SETENVCOLOR (-5)
+    { RDP_G_SETCOMBINE, { "G_SETCOMBINE", gfx_set_combine_handler_rdp } },                    // G_SETCOMBINE (-4)
+    { RDP_G_SETTIMG, { "G_SETTIMG", gfx_set_timg_handler_rdp } },                             // G_SETTIMG (-3)
+    { RDP_G_SETZIMG, { "G_SETZIMG", gfx_set_z_img_handler_rdp } },                            // G_SETZIMG (-2)
+    { RDP_G_SETCIMG, { "G_SETCIMG", gfx_set_c_img_handler_rdp } },                            // G_SETCIMG (-1)
 };
 
 static constexpr UcodeHandler otrHandlers = {
@@ -4933,7 +5061,7 @@ static void gfx_step() {
 
 #ifdef USE_GBI_TRACE
     if (cmd->words.trace.valid &&
-        Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger("gEnableGFXTrace", 0)) {
+        Ship::Context::GetRawInstance()->GetConsoleVariables()->GetInteger("gEnableGFXTrace", 0)) {
 #define TRACE                                  \
     "\n====================================\n" \
     " - CMD: {:02X}\n"                         \
@@ -5029,8 +5157,8 @@ void Interpreter::Init(class GfxWindowBackend* wapi, class GfxRenderingAPI* rapi
     mRapi->Init();
     mRapi->UpdateFramebufferParameters(0, width, height, 1, false, true, true, true);
     mCurDimensions.internal_mul =
-        Ship::Context::GetInstance()->GetConsoleVariables()->GetFloat(CVAR_INTERNAL_RESOLUTION, 1);
-    mMsaaLevel = Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger(CVAR_MSAA_VALUE, 1);
+        Ship::Context::GetRawInstance()->GetConsoleVariables()->GetFloat(CVAR_INTERNAL_RESOLUTION, 1);
+    mMsaaLevel = Ship::Context::GetRawInstance()->GetConsoleVariables()->GetInteger(CVAR_MSAA_VALUE, 1);
 
     mCurDimensions.width = width;
     mCurDimensions.height = height;

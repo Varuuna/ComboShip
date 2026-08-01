@@ -47,10 +47,9 @@ class OTRGlobals {
   public:
     static OTRGlobals* Instance;
 
-    // ComboShip: holds the STRONG reference to the Context. The Context itself keeps only a weak_ptr,
-    // so OTRGlobals must own the shared_ptr to keep it alive — and our shutdown model (MM_Deinit
-    // releasing the last reference) depends on that refcounting.
-    std::shared_ptr<Ship::Context> context;
+    // Non-owning: libultraship owns the Context (unique_ptr, LUS #1103). soh's DeinitOTR calls
+    // Context::DestroyInstance() — it must run last, after MM_Deinit has dropped its own pointer.
+    Ship::Context* context = nullptr;
     std::shared_ptr<SaveStateMgr> gSaveStateMgr;
     std::shared_ptr<Randomizer> gRandomizer;
     std::shared_ptr<Rando::Context> gRandoContext;

@@ -298,7 +298,7 @@ inline void DrawContent(const Config& cfg, TTheme themeIndex, const std::vector<
     }
     ImGui::PopStyleVar(); // FramePadding
     ImGui::EndChild();    // Menu Block
-    Ship::Context::GetInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+    Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
 }
 
 } // namespace ComboMenuDraw

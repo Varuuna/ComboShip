@@ -2017,7 +2017,7 @@ void SohMenu::AddMenuEnhancements() {
         .RaceDisable(false)
         .HideInSearch(true)
         .CustomFunction([](WidgetInfo&) {
-            auto ctx = Ship::Context::GetInstance();
+            auto ctx = Ship::Context::GetRawInstance();
             if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
                 return;
             auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Cosmetics Editor");
@@ -2043,7 +2043,7 @@ void SohMenu::AddMenuEnhancements() {
         .RaceDisable(false)
         .HideInSearch(true)
         .CustomFunction([](WidgetInfo&) {
-            auto ctx = Ship::Context::GetInstance();
+            auto ctx = Ship::Context::GetRawInstance();
             if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
                 return;
             auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Audio Editor");
@@ -2069,7 +2069,7 @@ void SohMenu::AddMenuEnhancements() {
         .RaceDisable(false)
         .HideInSearch(true)
         .CustomFunction([](WidgetInfo&) {
-            auto ctx = Ship::Context::GetInstance();
+            auto ctx = Ship::Context::GetRawInstance();
             if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
                 return;
             auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Gameplay Stats");
@@ -2095,7 +2095,7 @@ void SohMenu::AddMenuEnhancements() {
         .RaceDisable(false)
         .HideInSearch(true)
         .CustomFunction([](WidgetInfo&) {
-            auto ctx = Ship::Context::GetInstance();
+            auto ctx = Ship::Context::GetRawInstance();
             if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
                 return;
             auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Time Splits");

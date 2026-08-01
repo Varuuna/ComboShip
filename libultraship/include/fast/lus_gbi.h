@@ -138,8 +138,6 @@ constexpr int8_t RDP_G_SETTILESIZE_LERP = OPCODE(0x4a);
 
 /* macros for command parsing: */
 #define GDMACMD(x) (x)
-// ComboShip: back-port of Kenix3 libultraship #1126 (Fix warnings). soh@develop tracks LUS
-// port-maintenance which has this; we vendor LUS main which doesn't yet. Drop once main gains #1126.
 #ifdef GIMMCMD
 #undef GIMMCMD
 #endif

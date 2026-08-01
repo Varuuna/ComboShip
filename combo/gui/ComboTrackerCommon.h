@@ -59,7 +59,7 @@ inline const char* KindWindowName(const Kind& kind, int game) {
 // the window object so mIsVisible-gated Draws react this same frame.
 inline void SetTracker(const Win& w, bool visible) {
     CVarSetInteger(w.cvar, visible ? 1 : 0);
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     if (ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
         if (auto win = ctx->GetWindow()->GetGui()->GetGuiWindow(w.name)) {
             if (visible) {

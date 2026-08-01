@@ -59,7 +59,7 @@ const char* AudioBackendName(Ship::AudioBackend b) {
 // CW_VIDEO_BACKEND: render-API selector. Mirrors SoH's WIDGET_VIDEO_BACKEND — writes the config
 // and saves; the change takes effect on relaunch (hence the native "Needs reload" label).
 void RenderVideoBackend(const CwWidget& w, const ImVec4& themeColor) {
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     if (!ctx || !ctx->GetWindow() || !ctx->GetConfig()) {
         ImGui::TextDisabled("%s", (w.name && w.name[0]) ? w.name : "Renderer API");
         return;
@@ -109,7 +109,7 @@ void RenderVideoBackend(const CwWidget& w, const ImVec4& themeColor) {
 
 // CW_AUDIO_BACKEND: audio-API selector. Mirrors SoH's WIDGET_AUDIO_BACKEND — applies live.
 void RenderAudioBackend(const CwWidget& w, const ImVec4& themeColor) {
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     if (!ctx || !ctx->GetAudio()) {
         ImGui::TextDisabled("%s", (w.name && w.name[0]) ? w.name : "Audio API");
         return;
@@ -410,7 +410,7 @@ void RenderWidget(const CwWidget& w, const GameMenu& game, int widthBudget) {
                 if (ImGui::Button(txt.c_str())) {
                     std::shared_ptr<Ship::GuiWindow> win;
                     if (w.windowName && w.windowName[0]) {
-                        auto ctx = Ship::Context::GetInstance();
+                        auto ctx = Ship::Context::GetRawInstance();
                         if (ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui())
                             win = ctx->GetWindow()->GetGui()->GetGuiWindow(w.windowName);
                     }

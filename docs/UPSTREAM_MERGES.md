@@ -178,7 +178,8 @@ changes easy to track (and to diff against the recurring-deviation list below). 
   All three mutually compatible for the first time. Adopted #1103: LUS owns the `Context` via
   `unique_ptr`, `GetInstance()`/`SetInstance()` gone, ~72 call sites moved to `GetRawInstance()`,
   soh's teardown now calls `DestroyInstance()` explicitly. Retired six local back-ports/cherry-picks.
-  Fixed two Windows-only bugs in `scripts/upstream-merge.ps1`. **Open: MM HUD A button missing.**
+  Fixed two Windows-only bugs in `scripts/upstream-merge.ps1`. No open regressions — the MM HUD
+  A button turned out to be a pre-existing 2Ship sub-4:3 viewport bug, not merge damage.
 - [2026-07-27](merges/2026-07-27.md) — soh `1ea720607` → `2c5762a0f` / mm `ed47d2ec9` → `e3310fe1b`
   (libultraship pin unchanged, but #1141 `G_SETTILESIZE_LERP` and #1157 `LoadGuiTexture(palettePath)`
   had to be hand-ported — both games now require them). Deleted our BetterSaveMenu hook block in

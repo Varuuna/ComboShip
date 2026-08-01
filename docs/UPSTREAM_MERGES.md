@@ -174,10 +174,11 @@ file we had to touch after the mechanical 3-way merge and why. This keeps the pe
 changes easy to track (and to diff against the recurring-deviation list below). Newest first:
 
 - [2026-08-01](merges/2026-08-01.md) — libultraship `a3f1e102e` → `bbb565bd9`, **switching line from
-  Kenix3 `main` to `port-maintenance`** (soh + mm unchanged). Adopted #1103: LUS owns the `Context`
-  via `unique_ptr`, `GetInstance()`/`SetInstance()` gone, ~72 call sites moved to `GetRawInstance()`,
+  Kenix3 `main` to `port-maintenance`**; soh `2c5762a0f` → `5a57a0cbc`; mm `e3310fe1b` → `ce4bf03ab`.
+  All three mutually compatible for the first time. Adopted #1103: LUS owns the `Context` via
+  `unique_ptr`, `GetInstance()`/`SetInstance()` gone, ~72 call sites moved to `GetRawInstance()`,
   soh's teardown now calls `DestroyInstance()` explicitly. Retired six local back-ports/cherry-picks.
-  Fixed two Windows-only bugs in `scripts/upstream-merge.ps1`.
+  Fixed two Windows-only bugs in `scripts/upstream-merge.ps1`. **Open: MM HUD A button missing.**
 - [2026-07-27](merges/2026-07-27.md) — soh `1ea720607` → `2c5762a0f` / mm `ed47d2ec9` → `e3310fe1b`
   (libultraship pin unchanged, but #1141 `G_SETTILESIZE_LERP` and #1157 `LoadGuiTexture(palettePath)`
   had to be hand-ported — both games now require them). Deleted our BetterSaveMenu hook block in

@@ -356,6 +356,7 @@ static RegisterShipInitFunc refreshMetricsInit(RefreshMetrics, {
                                                                    "gRando.Options.RO_SHUFFLE_TREE_DROPS",
                                                                    "gRando.Options.RO_SHUFFLE_TYCOON_WALLET",
                                                                    "gRando.Options.RO_SHUFFLE_TRIFORCE_PIECES",
+                                                                   "gRando.Options.RO_SHUFFLE_WONDER_ITEMS",
                                                                    "gRando.Options.RO_SKULLTULA_TOKENS_MAX",
                                                                    "gRando.Options.RO_SKULLTULA_TOKENS_REQUIRED",
                                                                    "gRando.Options.RO_STARTING_CONSUMABLES",
@@ -626,8 +627,7 @@ static void DrawShufflesTab() {
     CVarCheckbox("Shuffle Frogs", Rando::StaticData::Options[RO_SHUFFLE_FROGS].cvar);
     CVarCheckbox("Shuffle Hive Drops", Rando::StaticData::Options[RO_SHUFFLE_HIVE_DROPS].cvar);
     CVarCheckbox("Shuffle Freestanding Items", Rando::StaticData::Options[RO_SHUFFLE_FREESTANDING_ITEMS].cvar);
-    CVarCheckbox("Shuffle Wonder Items", "gPlaceholderBool",
-                 CheckboxOptions({ { .disabled = true, .disabledTooltip = "Coming Soon" } }));
+    CVarCheckbox("Shuffle Wonder Items", Rando::StaticData::Options[RO_SHUFFLE_WONDER_ITEMS].cvar);
     ImGui::EndChild();
     ImGui::SameLine();
     ImGui::BeginChild("randoLocationsColumn3", ImVec2(columnWidth, halfHeight));

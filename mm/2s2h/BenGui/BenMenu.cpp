@@ -1622,6 +1622,11 @@ void BenMenu::AddEnhancements() {
     AddWidget(path, "Skip Bottle Pickup Messages", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Dialogue.SkipBottlePickupMessages")
         .Options(CheckboxOptions().Tooltip("Skip pickup messages for bottle swipes."));
+    AddWidget(path, "Auto Advance Ending Text", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.Cutscenes.AutoAdvanceEndingText")
+        .Options(CheckboxOptions().Tooltip(
+            "After completing the game, textboxes shown on the way to the credits advance on their own "
+            "once they've been up long enough to read, so the ending plays out without controller input."));
 
     path.column = SECTION_COLUMN_3;
     AddWidget(path, "Other", WIDGET_SEPARATOR_TEXT);

@@ -134,6 +134,7 @@ void Rando::ActorBehavior::OnFileLoad() {
     Rando::ActorBehavior::InitPlayerBehavior();
     Rando::ActorBehavior::InitSoulsBehavior();
     Rando::ActorBehavior::InitTrapsBehavior();
+    Rando::ActorBehavior::InitWonderItemsBehavior();
 
     COND_HOOK(ShouldVanillaBehavior, IS_RANDO, MiscVanillaBehaviorHandler);
 }

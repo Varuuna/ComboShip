@@ -7,6 +7,18 @@ name: Build (reusable)
 
 on:
   workflow_call:
+    inputs:
+      # The raw cpack .zip, uploaded for release.yml to attach as a Release asset. An artifact is
+      # itself zipped on download, so this one arrives as a zip-inside-a-zip — fine for release.yml
+      # (it unwraps it) but noise on a PR, where pr-artifacts.yml would advertise it as a download.
+      release_zip:
+        type: boolean
+        default: false
+      # comborando + its runtime DLLs (~60MB). validate-seed.yml only ever fetches this from the
+      # latest successful develop run, so building/uploading it on a PR is dead weight.
+      validator:
+        type: boolean
+        default: false
 
 jobs:
   # Fast gate so the ~40-min Windows build doesn't run on a PR that already has committed conflict
@@ -84,7 +96,9 @@ jobs:
         run: cmake --build build/x64 --target 2ship --config Release
       # Headless seed validator (pulls libultraship/soh/2ship as deps, already built above). Uploaded
       # below so validate-seed.yml can download it from develop instead of doing its own build.
+      # Nothing else depends on it, so it is skipped unless a caller asks for the validator.
       - name: Build comborando
+        if: inputs.validator
         run: cmake --build build/x64 --target comborando --config Release
       - name: Build comboui
         run: cmake --build build/x64 --target comboui --config Release
@@ -123,8 +137,8 @@ jobs:
           if-no-files-found: error
 
       # The raw cpack .zip (not the staged tree) for release.yml to attach directly as a Release asset.
-      # Nightly/PR runs ignore it; only release.yml downloads this artifact.
       - name: Upload package zip (release asset)
+        if: inputs.release_zip
         uses: actions/upload-artifact@v4
         with:
           name: ComboShip-package-zip
@@ -134,6 +148,7 @@ jobs:
       # comborando.exe + its deployed runtime DLLs (no o2r — the reachability oracle needs none).
       # validate-seed.yml downloads this from the latest successful develop run instead of rebuilding.
       - name: Upload comborando validator
+        if: inputs.validator
         uses: actions/upload-artifact@v4
         with:
           name: comborando-windows

@@ -257,6 +257,17 @@ std::unordered_map<uint32_t, disabledInfo>& Menu::GetDisabledMap() {
 }
 
 void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors menuThemeIndex) {
+#ifdef COMBO_BUILD
+    // ComboShip: comboui owns the menu, so DrawElement's per-frame disable pass never runs for
+    // popout windows (Audio Editor, Mod Menu) that draw via MenuDrawItem; refresh once per frame.
+    static int32_t lastDisablePassFrame = -1;
+    if (int32_t frame = ImGui::GetFrameCount(); frame != lastDisablePassFrame) {
+        lastDisablePassFrame = frame;
+        for (auto& [reason, info] : disabledMap) {
+            info.active = info.evaluation(info);
+        }
+    }
+#endif
     disabledTempTooltip = "This setting is disabled because: \n\n";
     disabledValue = false;
     disabledTooltip = " ";

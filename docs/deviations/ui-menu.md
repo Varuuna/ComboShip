@@ -249,3 +249,9 @@ file (the `ofstream` opened before `unflatten`).
 **On future merges:** if upstream SoH renames the CVar or grows its own `.Enable`, drop the macro
 seam and re-check the migration. Audited 2026-08-04: this was the only cross-game leaf-vs-subtree
 CVar pair (other candidates were Color-CVar bases, never stored as leaves).
+
+Follow-up (same day): the checkbox still didn't enable the slider — MM's `disabledMap` per-frame
+refresh lives only in `Menu::DrawElement`, which never runs under comboui, so popout windows
+(Audio Editor, Mod Menu) that draw via `MenuDrawItem` read a frozen disable flag.
+`mm/2s2h/BenGui/Menu.cpp` (`Menu::MenuDrawItem`, `COMBO_BUILD`-guarded) now refreshes the map once
+per ImGui frame. SoH needs no parity fix: its popout-drawn widgets have no disable-map preFuncs.

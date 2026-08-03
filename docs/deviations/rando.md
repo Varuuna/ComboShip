@@ -1194,9 +1194,10 @@ be a lot of work for no player-visible gain.
 
 **Anchor teammates still get trapped.** The grant and the broadcast were bundled in one branch; only
 the local cross-grant is skipped. `Anchor_BroadcastCrossItem` / `MMAnchor_BroadcastCrossItem` still
-fire, and the receive path springs the trap on teammates (`Packets/GiveItem.cpp`). Unverified
-assumption worth a two-client test: that the broadcast is not echoed back to the sender, or the finder
-freezes twice.
+fire, and the receive path springs the trap on teammates (`Packets/GiveItem.cpp`). Verified with two
+clients in OOT (2026-08-03): both froze once and the finder was not re-frozen, so the broadcast is not
+echoed back to the sender. Note a teammate playing the *other* game still banks the trap and springs
+it on switch — that is the item-routing model, not a bug in this change.
 
 **Trick names:** both games expose their tables through small `COMBO_BUILD` accessors
 (`Rando::Traps::GetTrickNamesEnglish`, `Rando::StaticData::GetTrickNames`), emitted as `trickNames`

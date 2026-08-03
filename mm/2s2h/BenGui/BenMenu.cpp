@@ -119,6 +119,12 @@ static const std::vector<const char*> cremiaRewardOptions = {
     "Rupee",   // CREMIA_REWARD_ALWAYS_RUPEE
 };
 
+static const std::vector<const char*> treasureChestShopMazeOptions = {
+    "Off",         // TREASURE_CHEST_SHOP_MAZE_OFF
+    "Full Height", // TREASURE_CHEST_SHOP_MAZE_FULL_HEIGHT
+    "Tiered",      // TREASURE_CHEST_SHOP_MAZE_TIERED
+};
+
 static const std::vector<const char*> ammoBuybackOptions = {
     "Vanilla",    // AMMO_BUYBACK_VANILLA
     "Full Price", // AMMO_BUYBACK_FULL_PRICE
@@ -1261,6 +1267,12 @@ void BenMenu::AddEnhancements() {
     AddWidget(path, "3rd Save File Slot", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Saving.FileSlot3")
         .Options(CheckboxOptions().Tooltip("Adds a 3rd file slot that can be used for saves").DefaultValue(true));
+    AddWidget(path, "New File Setup Steps", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.Saving.NewFileSetup")
+        .Options(CheckboxOptions()
+                     .Tooltip("After picking an empty file, asks whether it should be a randomizer file and lets "
+                              "you apply one of your loaded presets before entering a name.")
+                     .DefaultValue(true));
     AddWidget(path, "Persistent Owl Saves", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Saving.PersistentOwlSaves")
         .Options(CheckboxOptions().Tooltip("Continuing a save will not remove the owl save. Playing Song of "
@@ -1488,6 +1500,10 @@ void BenMenu::AddEnhancements() {
     AddWidget(path, "Goron Rolling Fast Spikes", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Masks.GoronRollingFastSpikes")
         .Options(CheckboxOptions().Tooltip("Speeds up the wind-up towards spiky rolling to be near instant."));
+    AddWidget(path, "Goron Rolling Spikes Require Shield Button Press", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.Masks.GoronRollingSpikesRequireShield")
+        .Options(CheckboxOptions().Tooltip("Goron rolling will only use spikes if the Shield button is pressed, "
+                                           "similar to Zora Link's swimming magic shield."));
 
     // Song Enhancements
     path.column = SECTION_COLUMN_2;
@@ -1950,10 +1966,16 @@ void BenMenu::AddEnhancements() {
     AddWidget(path, "Invincible", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Minigames.BoatArcheryInvincible")
         .Options(CheckboxOptions().Tooltip("Koume's health does not decrease when hit."));
-    AddWidget(path, "Treasure Chest Shop Show Full Maze", WIDGET_CVAR_CHECKBOX)
+    AddWidget(path, "Treasure Chest Shop Maze", WIDGET_CVAR_COMBOBOX)
         .CVar("gEnhancements.Minigames.TreasureChestShopShowFullMaze")
-        .Options(CheckboxOptions().Tooltip("Shows the entire maze layout in the Treasure Chest Shop minigame "
-                                           "instead of only revealing tiles near Link."));
+        .Options(ComboboxOptions()
+                     .Tooltip("Shows the entire maze layout in the Treasure Chest Shop minigame instead of only "
+                              "revealing tiles near Link.\n"
+                              "-Off: Only tiles near Link are revealed\n"
+                              "-Full Height: The whole maze is raised to the same height\n"
+                              "-Tiered: Tiles are raised higher the further back they are, so the front rows "
+                              "don't hide the rest")
+                     .ComboVec(&treasureChestShopMazeOptions));
 
     path.column = SECTION_COLUMN_3;
     AddWidget(path, "Other", WIDGET_SEPARATOR_TEXT);

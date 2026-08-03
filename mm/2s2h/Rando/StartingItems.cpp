@@ -28,6 +28,33 @@ std::vector<RandoItemId> GetComputedStartingItems(RandoSaveInfo& randoSaveInfo) 
         }
     }
 
+    if (randoSaveInfo.randoSaveOptions[RO_PLACEMENT_SMALL_KEYS] == RO_DUNGEON_ITEM_START_WITH) {
+        startingItems.insert(startingItems.end(), 1, RI_WOODFALL_SMALL_KEY);
+        startingItems.insert(startingItems.end(), 3, RI_SNOWHEAD_SMALL_KEY);
+        startingItems.insert(startingItems.end(), 1, RI_GREAT_BAY_SMALL_KEY);
+        startingItems.insert(startingItems.end(), 4, RI_STONE_TOWER_SMALL_KEY);
+    }
+
+    if (randoSaveInfo.randoSaveOptions[RO_PLACEMENT_BOSS_KEYS] == RO_DUNGEON_ITEM_START_WITH) {
+        startingItems.push_back(RI_WOODFALL_BOSS_KEY);
+        startingItems.push_back(RI_SNOWHEAD_BOSS_KEY);
+        startingItems.push_back(RI_GREAT_BAY_BOSS_KEY);
+        startingItems.push_back(RI_STONE_TOWER_BOSS_KEY);
+    }
+
+    if (randoSaveInfo.randoSaveOptions[RO_PLACEMENT_STRAY_FAIRIES] == RO_DUNGEON_ITEM_START_WITH) {
+        std::vector<RandoItemId> strayFairies = {
+            RI_WOODFALL_STRAY_FAIRY,
+            RI_SNOWHEAD_STRAY_FAIRY,
+            RI_GREAT_BAY_STRAY_FAIRY,
+            RI_STONE_TOWER_STRAY_FAIRY,
+        };
+
+        for (RandoItemId itemId : strayFairies) {
+            startingItems.insert(startingItems.end(), STRAY_FAIRY_SCATTERED_TOTAL, itemId);
+        }
+    }
+
     if (randoSaveInfo.randoSaveOptions[RO_SHUFFLE_SWIM] != RO_GENERIC_YES) {
         startingItems.push_back(RI_ABILITY_SWIM);
     }

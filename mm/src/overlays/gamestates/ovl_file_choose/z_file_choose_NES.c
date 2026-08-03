@@ -437,6 +437,10 @@ void FileSelect_UnusedCMDelay(GameState* thisx) {
 void FileSelect_RotateToNameEntry(GameState* thisx) {
     FileSelectState* this = (FileSelectState*)thisx;
 
+    if (!GameInteractor_Should(VB_FILE_SELECT_ROTATE_TO_NAME_ENTRY, true, this)) {
+        return;
+    }
+
     this->windowRot += 50.0f;
 
     if (this->windowRot >= 314.0f) {
@@ -527,6 +531,10 @@ void (*sConfigModeUpdateFuncs[])(GameState*) = {
     FileSelect_RotateToMain,            // CM_OPTIONS_TO_MAIN
     // Possible Debug
     FileSelect_UnusedCMDelay, // CM_UNUSED_DELAY
+    // 2S2H [Enhancement] New File Setup
+    FileSelect_RotateToNewFileSetup, // CM_2S2H_ROTATE_TO_NEW_FILE_SETUP
+    FileSelect_UpdateNewFileSetup,   // CM_2S2H_NEW_FILE_SETUP
+    FileSelect_RotateToMain,         // CM_2S2H_NEW_FILE_SETUP_TO_MAIN
 };
 
 s16 sCursorAlphaTargets[] = { 70, 200 };
@@ -1969,6 +1977,36 @@ void FileSelect_ConfigModeDraw(GameState* thisx) {
 
         FileSelect_DrawOptions(&this->state);
     }
+
+    // #region 2S2H [Enhancement]
+    if ((this->configMode >= CM_2S2H_ROTATE_TO_NEW_FILE_SETUP) &&
+        (this->configMode <= CM_2S2H_NEW_FILE_SETUP_TO_MAIN)) {
+        gDPPipeSync(POLY_OPA_DISP++);
+        gDPSetCombineMode(POLY_OPA_DISP++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM);
+        gDPSetPrimColorOverride(POLY_OPA_DISP++, 0, 0, this->windowColor[0], this->windowColor[1], this->windowColor[2],
+                                this->windowAlpha, COSMETIC_ID("Menus.FileWindow"));
+        gDPSetEnvColor(POLY_OPA_DISP++, 0, 0, 0, 0);
+
+        Matrix_Translate(0.0f, 0.0f, -93.6f, MTXMODE_NEW);
+        Matrix_Scale(0.78f, 0.78f, 0.78f, MTXMODE_APPLY);
+        Matrix_RotateXFApply((this->windowRot - 314.0f) / 100.0f);
+
+        MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, this->state.gfxCtx);
+
+        gSPVertex(POLY_OPA_DISP++, &this->windowVtx[0], 32, 0);
+        gSPDisplayList(POLY_OPA_DISP++, gFileSelWindow1DL);
+
+        gSPVertex(POLY_OPA_DISP++, &this->windowVtx[32], 32, 0);
+        gSPDisplayList(POLY_OPA_DISP++, gFileSelWindow2DL);
+
+        gSPVertex(POLY_OPA_DISP++, &this->windowVtx[64], 16, 0);
+        gSPDisplayList(POLY_OPA_DISP++, gFileSelWindow3DL);
+
+        gDPPipeSync(POLY_OPA_DISP++);
+
+        FileSelect_DrawNewFileSetup(&this->state);
+    }
+    // #endregion
 
     gDPPipeSync(POLY_OPA_DISP++);
 

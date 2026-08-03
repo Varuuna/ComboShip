@@ -1683,6 +1683,12 @@ extern "C" char* ResourceMgr_LoadTexOrDListByName(const char* filePath) {
 extern "C" char* ResourceMgr_LoadIfDListByName(const char* filePath) {
     auto res = GetResourceByName(filePath);
 
+#ifdef COMBO_BUILD
+    // ComboShip: a miss returns null here; callers already treat a null return as "not a DList".
+    if (res == nullptr) {
+        return nullptr;
+    }
+#endif
     if (res->GetInitData()->Type == static_cast<uint32_t>(Fast::ResourceType::DisplayList))
         return (char*)&((std::static_pointer_cast<Fast::DisplayList>(res))->Instructions[0]);
 

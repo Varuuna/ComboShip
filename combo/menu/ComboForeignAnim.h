@@ -377,25 +377,8 @@ inline Gfx* CfaBuildScroll(PlayState* play, const CwAnimSegBind* b) {
                               b->xStep1, b->yStep1, b->xStep2, b->yStep2);
 }
 
-// Bind one described segment in the host frame and record it so the caller can restore it.
-inline void CfaBindSeg(PlayState* play, const CwAnimSegBind* b, int32_t* segs, int32_t* segCount) {
-    uintptr_t target = 0;
-    switch (b->kind) {
-        case CW_ANIM_SEG_EMPTY_DL:
-            target = (uintptr_t)CfaEmptyDL(play);
-            break;
-        case CW_ANIM_SEG_PATH:
-            target = (uintptr_t)b->path; // resolved against the owning RM by the bracket around the draw
-            break;
-        case CW_ANIM_SEG_TEXSCROLL:
-            target = (uintptr_t)CfaBuildScroll(play, b);
-            break;
-        case CW_ANIM_SEG_XLU_RENDERMODE_1CY:
-            target = (uintptr_t)CfaXluRenderModeDL(play);
-            break;
-        default:
-            return; // pre-validated; never submit a DL against a segment we could not bind
-    }
+// Emit the segment bind on the described streams. Split out so the RM scope can wrap ONLY this.
+inline void CfaEmitSeg(PlayState* play, const CwAnimSegBind* b, uintptr_t target) {
     OPEN_DISPS(play->state.gfxCtx);
     if (b->onOpa) {
         gSPSegment(POLY_OPA_DISP++, b->segment, target);
@@ -404,9 +387,45 @@ inline void CfaBindSeg(PlayState* play, const CwAnimSegBind* b, int32_t* segs, i
         gSPSegment(POLY_XLU_DISP++, b->segment, target);
     }
     CLOSE_DISPS(play->state.gfxCtx);
+}
+
+// Bind one described segment in the host frame and record it so the caller can restore it.
+// Returns false when the segment could not be bound — callers must then not submit its DL.
+inline bool CfaBindSeg(PlayState* play, const CwAnimSegBind* b, const char* game, int32_t* segs, int32_t* segCount) {
+    uintptr_t target = 0;
+    std::shared_ptr<Ship::ResourceManager> pathRm; // non-null only for CW_ANIM_SEG_PATH
+    switch (b->kind) {
+        case CW_ANIM_SEG_EMPTY_DL:
+            target = (uintptr_t)CfaEmptyDL(play);
+            break;
+        case CW_ANIM_SEG_PATH:
+            // The host's gSPSegment probes this path against the ACTIVE RM at record time, so the
+            // playback bracket cannot help — swap to the owning RM across the emit itself.
+            pathRm = Ship::CrossRMRegistry::Get(game);
+            if (pathRm == nullptr) {
+                return false;
+            }
+            target = (uintptr_t)b->path;
+            break;
+        case CW_ANIM_SEG_TEXSCROLL:
+            target = (uintptr_t)CfaBuildScroll(play, b);
+            break;
+        case CW_ANIM_SEG_XLU_RENDERMODE_1CY:
+            target = (uintptr_t)CfaXluRenderModeDL(play);
+            break;
+        default:
+            return false; // pre-validated; never submit a DL against a segment we could not bind
+    }
+    if (pathRm != nullptr) {
+        Ship::ResourceManagerScope rmScope(pathRm);
+        CfaEmitSeg(play, b, target);
+    } else {
+        CfaEmitSeg(play, b, target); // host-built Gfx pointer: no RM swap
+    }
     if (*segCount < CW_ANIM_MAX_SEGS + 1) {
         segs[(*segCount)++] = b->segment;
     }
+    return true;
 }
 
 // Restore every segment the recipe bound to a benign empty DL, on BOTH streams (harmless where a
@@ -504,8 +523,8 @@ inline void CfaDrawFlame(PlayState* play, const CwItemAnimDrawInfo* info, const 
     OPEN_DISPS(play->state.gfxCtx);
     CFA_SETUP_XLU(play->state.gfxCtx);
     CLOSE_DISPS(play->state.gfxCtx);
-    if (info->flameHasSeg) {
-        CfaBindSeg(play, &info->flameSeg, segs, segCount);
+    if (info->flameHasSeg && !CfaBindSeg(play, &info->flameSeg, game, segs, segCount)) {
+        return; // flameSeg's only consumer is the flame DL; skip it, the model still draws
     }
 
     Matrix_Push();
@@ -600,6 +619,9 @@ inline int32_t ComboForeignAnim_Draw(const CwItemAnimDrawInfo* info, const char*
     if (info->opa && !CfaValidateOpaInfo(info)) {
         return 0; // unexpressible recipe — sentinel beats an unbound-segment draw
     }
+    if (Ship::CrossRMRegistry::Get(game) == nullptr) {
+        return 0; // owning game not resident: bail before any Gfx is emitted
+    }
 
     static std::unordered_map<std::string, CfaSkelEntry> sSkelCache;
     static std::unordered_map<std::string, CfaTexAnimEntry> sTexAnimCache;
@@ -661,8 +683,9 @@ inline int32_t ComboForeignAnim_Draw(const CwItemAnimDrawInfo* info, const char*
             taIt = sTexAnimCache.emplace(info->texAnimPath, CfaTexAnimEntry{}).first;
             CfaTexAnimEntry& e = taIt->second;
             if (auto rm = Ship::CrossRMRegistry::Get(game)) {
-                // No RM swap needed: the TextureAnimation factory has no nested loads for the
-                // color types (TexCycle would, but validation rejects it anyway).
+                // Scoped like the skel/anim load: today's validated types don't nested-load, but
+                // that is a property of the validated subset, not of the factory.
+                Ship::ResourceManagerScope rmScope(rm);
                 e.res = rm->LoadResource(info->texAnimPath);
                 e.mat = e.res ? (const CfaMatEntry*)e.res->GetRawPointer() : nullptr;
                 e.ok = CfaValidateTexAnim(e.mat);
@@ -699,7 +722,13 @@ inline int32_t ComboForeignAnim_Draw(const CwItemAnimDrawInfo* info, const char*
         }
 
         for (int32_t i = 0; i < info->segCount; i++) {
-            CfaBindSeg(play, &info->segs[i], segs, &segCount);
+            if (!CfaBindSeg(play, &info->segs[i], game, segs, &segCount)) {
+                // Unbindable segment: sentinel beats a garbage DL. Unreachable today (both false kinds
+                // are pre-rejected above); the sentinel inherits this item's matrix, so it may be tiny.
+                CfaRestoreSegs(play, segs, segCount);
+                sCfaInfo = nullptr;
+                return 0;
+            }
         }
         // MM's AnimatedMat_Draw inside the enemy-soul funcs: bind the animated material on the OPA
         // stream (the skeleton samples it there), restored with the rest below.
@@ -841,6 +870,7 @@ inline bool ComboForeignTexAnim_Run(PlayState* play, const char* game, const cha
         it = sCache.emplace(texAnimPath, CfaStaticTexAnim{}).first;
         CfaStaticTexAnim& e = it->second;
         if (auto rm = Ship::CrossRMRegistry::Get(game)) {
+            Ship::ResourceManagerScope rmScope(rm); // as above: scope the load, not the draw
             e.res = rm->LoadResource(texAnimPath);
             e.mat = e.res ? (const CfaMatEntry*)e.res->GetRawPointer() : nullptr;
             e.ok = CfaValidateTexAnim(e.mat);

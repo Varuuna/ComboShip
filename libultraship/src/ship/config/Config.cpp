@@ -35,13 +35,27 @@ std::string Config::FormatNestedKey(const std::string& key) {
     return tmp;
 }
 
+bool Config::TryUnflatten(nlohmann::json& out) {
+    try {
+        out = mFlattenedJson.unflatten();
+        return true;
+    } catch (const nlohmann::json::exception& e) {
+        SPDLOG_ERROR("Failed to unflatten config {}: {}", mPath, e.what());
+        return false;
+    }
+}
+
 nlohmann::json Config::Nested(const std::string& key) {
     std::vector<std::string> dots = StringHelper::Split(key, ".");
     if (!mFlattenedJson.is_object()) {
         return mFlattenedJson;
     }
 
-    nlohmann::json gjson = mFlattenedJson.unflatten();
+    // ComboShip: on a clash, fall back to the last successfully unflattened state instead of crashing.
+    nlohmann::json gjson;
+    if (!TryUnflatten(gjson)) {
+        gjson = mNestedJson;
+    }
 
     if (dots.size() > 1) {
         for (auto& dot : dots) {
@@ -129,7 +143,11 @@ void Config::Erase(const std::string& key) {
 }
 
 void Config::SetBlock(const std::string& key, nlohmann::json block) {
-    nlohmann::json gjson = mFlattenedJson.unflatten();
+    // ComboShip: skip (with the helper's error log) rather than crash on a key clash.
+    nlohmann::json gjson;
+    if (!TryUnflatten(gjson)) {
+        return;
+    }
     if (key.find(".") != std::string::npos) {
         nlohmann::json* gjson2 = &gjson;
         std::vector<std::string> dots = StringHelper::Split(key, ".");
@@ -158,7 +176,11 @@ void Config::SetBlock(const std::string& key, nlohmann::json block) {
 }
 
 void Config::EraseBlock(const std::string& key) {
-    nlohmann::json gjson = mFlattenedJson.unflatten();
+    // ComboShip: skip (with the helper's error log) rather than crash on a key clash.
+    nlohmann::json gjson;
+    if (!TryUnflatten(gjson)) {
+        return;
+    }
     if (key.find(".") != std::string::npos) {
         nlohmann::json* gjson2 = &gjson;
         std::vector<std::string> dots = StringHelper::Split(key, ".");
@@ -212,8 +234,12 @@ void Config::Reload() {
 }
 
 void Config::Save() {
+    // ComboShip: unflatten before opening (and thereby truncating) the file, or a leaf-vs-subtree
+    // key clash both crashes and wipes the config.
+    if (!TryUnflatten(mNestedJson)) {
+        return;
+    }
     std::ofstream file(mPath);
-    mNestedJson = mFlattenedJson.unflatten();
     file << mNestedJson.dump(4);
 }
 

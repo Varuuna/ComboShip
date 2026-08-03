@@ -607,7 +607,7 @@ void AudioEditor::DrawElement() {
                 ImGui::SetCursorPosY(ImGui::GetCursorPos().y + 40.f);
                 if (UIWidgets::Button("Reset##linkVoiceFreqMultiplier",
                                       UIWidgets::ButtonOptions().Size(ImVec2(80, 36)).Padding(ImVec2(5.0f, 0.0f)))) {
-                    CVarSetFloat(CVAR_AUDIO("LinkVoiceFreqMultiplier"), 1.0f);
+                    CVarSetFloat(CVAR_LINK_VOICE_FREQ_MULTIPLIER, 1.0f);
                 }
                 SohGui::mSohMenu->MenuDrawItem(randomAudioGenModes,
                                                static_cast<uint32_t>(ImGui::GetContentRegionAvail().x), THEME_COLOR);
@@ -929,7 +929,7 @@ void RegisterAudioWidgets() {
     SohGui::mSohMenu->AddSearchWidget({ ovlDuration, "Enhancements", "Audio Editor", "Audio Options" });
 
     voicePitch = { .name = "Link's Voice Pitch Multiplier", .type = WidgetType::WIDGET_CVAR_SLIDER_FLOAT };
-    voicePitch.CVar(CVAR_AUDIO("LinkVoiceFreqMultiplier"))
+    voicePitch.CVar(CVAR_LINK_VOICE_FREQ_MULTIPLIER)
         .Options(FloatSliderOptions()
                      .Color(THEME_COLOR)
                      .IsPercentage()

@@ -8,6 +8,7 @@
 #include "2s2h/BenPort.h"
 #include "2s2h/ShipUtils.h"
 #include <spdlog/fmt/fmt.h>
+#include <algorithm>
 
 extern "C" {
 #include "z64save.h"
@@ -34,6 +35,36 @@ extern std::shared_ptr<ItemTrackerWindow> mItemTrackerWindow;
 
 std::vector<TrackerGroup> itemTrackerGroups;
 static bool sItemTrackerBtnState = false;
+
+static bool IsTradeItemObtained(RandoItemId randoItemId) {
+    ItemId itemId = Rando::StaticData::Items[randoItemId].itemId;
+    if (INV_CONTENT(itemId) == itemId) {
+        return true;
+    }
+
+    switch (randoItemId) {
+        case RI_MOONS_TEAR:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_MOONS_TEAR);
+        case RI_DEED_LAND:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_DEED_LAND);
+        case RI_DEED_SWAMP:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_DEED_SWAMP);
+        case RI_DEED_MOUNTAIN:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_DEED_MOUNTAIN);
+        case RI_DEED_OCEAN:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_DEED_OCEAN);
+        case RI_ROOM_KEY:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_ROOM_KEY);
+        case RI_LETTER_TO_MAMA:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_MAMA);
+        case RI_LETTER_TO_KAFEI:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_KAFEI);
+        case RI_PENDANT_OF_MEMORIES:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_PENDANT_OF_MEMORIES);
+        default:
+            return false;
+    }
+}
 
 TrackerImageObject GetImageObject(TrackerItemType itemType, u32 itemId) {
     bool isSaveLoaded = gPlayState != NULL && gSaveContext.gameMode == GAMEMODE_NORMAL;
@@ -86,6 +117,17 @@ TrackerImageObject GetImageObject(TrackerItemType itemType, u32 itemId) {
                 } break;
                 case RI_SONG_SARIA: {
                     itemObtained = gSaveContext.save.shipSaveInfo.rando.sariaHintsAvailable > 0;
+                } break;
+                case RI_MOONS_TEAR:
+                case RI_DEED_LAND:
+                case RI_DEED_SWAMP:
+                case RI_DEED_MOUNTAIN:
+                case RI_DEED_OCEAN:
+                case RI_ROOM_KEY:
+                case RI_LETTER_TO_MAMA:
+                case RI_LETTER_TO_KAFEI:
+                case RI_PENDANT_OF_MEMORIES: {
+                    itemObtained = IsTradeItemObtained(randoItemId);
                 } break;
                 default: {
                     itemObtained = !Rando::IsItemObtainable(randoItemId);
@@ -280,23 +322,43 @@ std::string GetItemCounts(TrackerItemType itemType, u32 itemId) {
     return countStr;
 }
 
-void DrawItemCounts(TrackerItemType itemType, u32 itemId, ImVec2 textureSize, float scale, ImVec2 currentPos) {
+// Choose a different font for the font size otherwise it gets scaled and blurry.
+static ImFont* GetItemCountFont(float fontSize) {
+    if (fontSize >= 22.0f) {
+        return OTRGlobals::Instance->fontMonoLargest;
+    }
+    if (fontSize >= 18.0f) {
+        return OTRGlobals::Instance->fontMonoLarger;
+    }
+    return OTRGlobals::Instance->fontMono;
+}
+
+void DrawItemCounts(TrackerItemType itemType, u32 itemId, ImVec2 cellMin, ImVec2 cellSize, float scale) {
     std::string itemCount = GetItemCounts(itemType, itemId);
 
     if (itemCount.empty()) {
         return;
     }
-    ImVec2 textSize = ImGui::CalcTextSize(itemCount.c_str());
 
-    ImVec2 textPos =
-        ImVec2(currentPos.x + textureSize.x - textSize.x - 2.0f, currentPos.y + textureSize.y - textSize.y - 2.0f);
-    ImGui::SetCursorPos(textPos);
-    ImGui::SetWindowFontScale(scale);
-    ImGui::Text("%s", itemCount.c_str());
+    float fontSize = std::max(cellSize.x * 0.44f, 12.0f) * ImGui::GetIO().FontGlobalScale;
+    ImFont* font = GetItemCountFont(fontSize);
+    ImVec2 textSize = font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, itemCount.c_str());
+
+    float pad = 2.0f * scale;
+    ImVec2 textPos(cellMin.x + cellSize.x - textSize.x - pad, cellMin.y + cellSize.y - textSize.y - pad);
+
+    static const ImVec2 outlineDirections[] = { { -1, -1 }, { 0, -1 }, { 1, -1 }, { -1, 0 },
+                                                { 1, 0 },   { -1, 1 }, { 0, 1 },  { 1, 1 } };
+
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    float outline = std::max(1.0f, fontSize / 12.0f);
+    for (const ImVec2& direction : outlineDirections) {
+        drawList->AddText(font, fontSize, textPos + direction * outline, IM_COL32(0, 0, 0, 255), itemCount.c_str());
+    }
+    drawList->AddText(font, fontSize, textPos, IM_COL32(255, 255, 255, 255), itemCount.c_str());
 }
 
 bool DrawItemTrackerSlot(TrackerItemType itemType, u32 itemId, float scale, bool clickable) {
-    ImVec2 currentPos = ImGui::GetCursorPos();
     ImVec2 cellSize(ITEM_TEXTURE_SIZE * scale, ITEM_TEXTURE_SIZE * scale);
 
     TrackerImageObject imageObject = GetImageObject(itemType, itemId);
@@ -381,16 +443,9 @@ bool DrawItemTrackerSlot(TrackerItemType itemType, u32 itemId, float scale, bool
         UIWidgets::Tooltip(itemName.c_str());
     }
 
-    // Save last item data before drawing counts (which uses ImGui::Text and changes last item)
-    ImGuiContext& g = *ImGui::GetCurrentContext();
-    ImGuiLastItemData backup = g.LastItemData;
-
     if (CVarGetInteger("gSettings.ItemTracker.ItemCounts", 1)) {
-        DrawItemCounts(itemType, itemId, cellSize, scale, currentPos);
+        DrawItemCounts(itemType, itemId, p0, cellSize, scale);
     }
-
-    // Restore last item data so drag/drop operations work correctly
-    g.LastItemData = backup;
 
     return clicked;
 }

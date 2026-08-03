@@ -7,24 +7,24 @@
       "branch": "port-maintenance",
       "prefix": "libultraship",
       "subtree": "",
-      "mergedSha": "bbb565bd9",
-      "mergedDate": "2026-08-01"
+      "mergedSha": "9a1a2bd93",
+      "mergedDate": "2026-08-03"
     },
     "soh": {
       "remote": "https://github.com/HarbourMasters/Shipwright.git",
       "branch": "develop",
       "prefix": "soh",
       "subtree": "soh",
-      "mergedSha": "5a57a0cbc",
-      "mergedDate": "2026-08-01"
+      "mergedSha": "688913270",
+      "mergedDate": "2026-08-03"
     },
     "mm": {
       "remote": "https://github.com/HarbourMasters/2ship2harkinian.git",
       "branch": "develop",
       "prefix": "mm",
       "subtree": "mm",
-      "mergedSha": "ce4bf03ab",
-      "mergedDate": "2026-08-01"
+      "mergedSha": "b39664f88",
+      "mergedDate": "2026-08-03"
     },
     "ZAPDTR": {
       "manual": true,

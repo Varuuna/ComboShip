@@ -9,6 +9,13 @@ std::vector<std::string> Rando::Spoiler::spoilerOptions;
 const std::filesystem::path randomizerFolderPath(Ship::Context::GetPathRelativeToAppDirectory("randomizer",
                                                                                               appShortName));
 
+void Rando::Spoiler::SelectSpoiler(s32 index) {
+    bool generateNew = (index <= 0) || (index >= (s32)Rando::Spoiler::spoilerOptions.size());
+
+    CVarSetInteger("gRando.SpoilerFileIndex", generateNew ? 0 : index);
+    CVarSetString("gRando.SpoilerFile", generateNew ? "" : Rando::Spoiler::spoilerOptions[index].c_str());
+}
+
 // This function refreshes the list of spoiler files in the randomizer folder, this list is used in the Randomizer UI,
 // and also includes an option to generate a new seed at the top of the list.
 void Rando::Spoiler::RefreshOptions() {

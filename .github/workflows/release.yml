@@ -12,6 +12,8 @@ on:
 jobs:
   build:
     uses: ./.github/workflows/build.yml
+    with:
+      release_zip: true # the publish job below attaches this artifact as the Release asset
 
   publish:
     needs: build

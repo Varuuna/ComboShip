@@ -1,9 +1,10 @@
 name: Build Artifacts (Windows)
 
 # Nightly / PR build: runs the reusable build pipeline (build.yml) on PRs and on every develop push,
-# producing the runnable ComboShip Release ZIP + comborando validator as downloadable artifacts
-# (pr-artifacts.yml posts nightly.link links; validate-seed.yml pulls comborando from the latest
-# develop run). Releases are cut separately from v* tags — see release.yml.
+# producing the runnable ComboShip Release ZIP as a downloadable artifact (pr-artifacts.yml posts
+# nightly.link links). develop pushes additionally produce the comborando validator, which
+# validate-seed.yml pulls from the latest successful develop run. Releases are cut separately from
+# v* tags — see release.yml.
 
 on:
   pull_request:
@@ -26,3 +27,7 @@ on:
 jobs:
   build:
     uses: ./.github/workflows/build.yml
+    with:
+      # Only develop's validator artifact is ever consumed (validate-seed.yml fetches the latest
+      # successful develop run), so PRs skip building and uploading it.
+      validator: ${{ github.ref == 'refs/heads/develop' }}

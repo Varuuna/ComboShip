@@ -1441,6 +1441,23 @@ Text Rando::Traps::GetTrapName(uint16_t id, uint64_t* state) {
     return ShipUtils::RandomElement(trickNameTable[id], state);
 }
 
+#ifdef COMBO_BUILD
+// ComboShip: all English trick names for an id (empty if none). Ensures the table is built.
+std::vector<std::string> Rando::Traps::GetTrickNamesEnglish(uint16_t id) {
+    if (!initTrickNames) {
+        InitTrickNames();
+        initTrickNames = true;
+    }
+    std::vector<std::string> out;
+    if (id < RG_MAX) {
+        for (const Text& t : trickNameTable[id]) {
+            out.push_back(t.GetEnglish());
+        }
+    }
+    return out;
+}
+#endif
+
 // ComboShip: whether id can disguise an ice trap (has a fake-name entry). Ensures the table is built.
 bool Rando::Traps::CanBeTrapModel(uint16_t id) {
     if (!initTrickNames) {
@@ -1799,6 +1816,27 @@ static std::string ReplaceItemName(const char* c_str, GetItemEntry getItemEntry)
 
     return str;
 }
+
+#ifdef COMBO_BUILD
+// ComboShip: ReplaceItemName resolves the name from the draw entry; a foreign disguise has no local
+// RandomizerGet, so substitute the caller's string into the same taunt tables.
+static std::string ReplaceItemNameWith(const char* c_str, const std::string& name) {
+    const static std::string placeholder = "${itemName}";
+    std::string str = std::string(c_str);
+    for (size_t i = str.find(placeholder); i != std::string::npos; i = str.find(placeholder, i + name.length())) {
+        str.replace(i, placeholder.length(), name);
+    }
+    return str;
+}
+
+void Rando::Traps::BuildIceTrapMessageNamed(CustomMessage& msg, const std::string& itemName) {
+    msg = CustomMessage(ReplaceItemNameWith(ShipUtils::RandomElement(englishIceTrapMessages), itemName),
+                        ReplaceItemNameWith(ShipUtils::RandomElement(germanIceTrapMessages), itemName),
+                        ReplaceItemNameWith(ShipUtils::RandomElement(frenchIceTrapMessages), itemName),
+                        { QM_BLUE, QM_BLUE, QM_BLUE });
+    msg.AutoFormat();
+}
+#endif
 
 void Rando::Traps::BuildIceTrapMessage(CustomMessage& msg, GetItemEntry getItemEntry) {
     if (CVarGetInteger(CVAR_GENERAL("LetItSnow"), 0)) {

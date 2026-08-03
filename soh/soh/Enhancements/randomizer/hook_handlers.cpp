@@ -455,7 +455,18 @@ void OOT_DeliverForeign(RandomizerCheck rc) {
     const std::string checkName = Rando::StaticData::GetLocation(rc)->GetName();
     const ComboRando::ForeignItem* fi = OOT_LookupForeign(slot, checkName);
 
-    if (fi) {
+    if (fi && fi->trap) {
+        // A foreign trap fires on the FINDER; each game springs its own flavour, so an MM trap becomes
+        // OOT's freeze. Deferred exactly like a native ice trap: VB_SHORT_CIRCUIT_GIVE_ITEM_PROCESS is
+        // checked from the per-frame Player_ActionHandler_2, so this springs once the get-item
+        // presentation ends. Freezing directly here resets the held-up animation mid-textbox, which
+        // re-triggers the pickup and loops forever. Never cross-delivered.
+        gSaveContext.ship.pendingIceTrapCount++;
+        // Teammates still receive it — Anchor's receive path springs a trap on them (GiveItem.cpp).
+        // Only the LOCAL cross-grant is skipped, because it fired here instead.
+        Anchor_BroadcastCrossItem((int)fi->itemGame, fi->itemName.c_str(), checkName.c_str());
+        SPDLOG_INFO("[ComboShip] OOT sprang foreign trap '{}' locally (from check '{}')", fi->itemName, checkName);
+    } else if (fi) {
         // Grant straight into the dormant target game's resident save (and persist it there), then
         // share with networked teammates. Replaces the old JSON mailbox + per-frame drain.
         if (gComboCrossDeliver)

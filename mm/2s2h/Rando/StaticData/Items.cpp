@@ -725,6 +725,14 @@ const std::map<RandoItemId, std::vector<std::string>> fakeItemNames = {
     { RI_WALLET_ADULT, { "Silver Wallet", "Medium Wallet" } },
 };
 
+#ifdef COMBO_BUILD
+// ComboShip: expose the curated fake names so the combo dump can pass them cross-game.
+std::vector<std::string> GetTrickNames(RandoItemId id) {
+    auto it = fakeItemNames.find(id);
+    return it != fakeItemNames.end() ? it->second : std::vector<std::string>{};
+}
+#endif
+
 std::string GetItemName(RandoItemId randoItemId, bool includeArticle, RandoCheckId randoCheckId) {
     std::string result;
 

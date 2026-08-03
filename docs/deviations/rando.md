@@ -1154,3 +1154,57 @@ game owns an item isn't actionable. `RunPlaythrough` still emits the structured 
 so the flattening happens in `ComboRando::PlaythroughLines`, applied only where the consolidated spoiler
 is assembled. The validator builds its own `pt1` from its own `RunPlaythrough` call and never reads the
 spoiler's section, so the two formats don't collide.
+
+## Foreign traps fire on the finder, and use each game's curated trick names (2026-08-03)
+
+**Why (effect):** a foreign trap did nothing to the player who found it. MM's `CheckQueue` foreign
+branch showed "You found &lt;disguise&gt;!" and called `SendForeignCheck` — mailing the trap into the
+other game's save — so the freeze never happened where it was collected. Native `RI_TRAP` by contrast
+shows `GetTrapMessage()` and calls `OfferTrapItem()`.
+
+**Why (names):** both games ship curated near-miss name tables — OOT's `trickNameTable`
+(`soh/soh/Enhancements/randomizer/Traps.cpp`, trilingual) and MM's `fakeItemNames`
+(`mm/2s2h/Rando/StaticData/Items.cpp`, English) — but the combo layer used neither. `MakeTrickName`
+only doubled a letter, so a disguised trap read as "Ganon's Souul" instead of "Rauru's Medallion".
+Note upstream MM's own fallback is broken (`fakeItemName` is still empty when the `else` runs, so it
+indexes an empty string), which is why the curated table matters rather than the fallback.
+
+**Trap identity** now rides in the seed. Both dumps already emitted a per-item `trap` flag
+(`rg == RG_ICE_TRAP` / `id == RI_TRAP`) but only `AssignTrapDisguises` consumed it, to pick disguises.
+It now also stamps `fm["trap"] = true` — **before** the no-candidate bail, so a trap that got no
+disguise is still flagged — the emitter writes it into each `foreign[]` entry, and `ForeignItem` gained
+`bool trap`. Absent in older saves → defaults false → previous behaviour, so this needs a regenerated
+seed to take effect.
+
+**Firing:** each game springs its **own** flavour, so an OOT Ice Trap found in MM becomes an MM trap
+and an MM trap found in OOT becomes OOT's freeze. Porting trap implementations between engines would
+be a lot of work for no player-visible gain.
+- MM (`Rando/MiscBehavior/CheckQueue.cpp`): `GetTrapMessage()` + `OfferTrapItem()`, no cross-grant.
+  Fires on every collection, matching native — a Song of Time cycle reset re-arms a native trap check,
+  so a foreign one should re-arm too.
+- OOT (`Enhancements/randomizer/hook_handlers.cpp` `OOT_DeliverForeign`): `FreezePlayer()` directly.
+  **Not** `pendingIceTrapCount++` — that counter is consumed by `VB_SHORT_CIRCUIT_GIVE_ITEM_PROCESS`,
+  which has already run by grant time, so incrementing it springs the trap on the player's **next**
+  pickup and short-circuits that item's presentation instead.
+- OOT text (`Messages/ItemMessages.cpp`): a foreign trap taunts with OOT's real ice-trap tables via a
+  new `Rando::Traps::BuildIceTrapMessageNamed`, naming what it pretended to be. The stock
+  `BuildIceTrapMessage` resolves the name from the draw entry, which for a foreign sentinel would read
+  "Combo Foreign Item" — and a foreign disguise may be an item of the *other* game with no local
+  `RandomizerGet` to resolve at all.
+
+**Anchor teammates still get trapped.** The grant and the broadcast were bundled in one branch; only
+the local cross-grant is skipped. `Anchor_BroadcastCrossItem` / `MMAnchor_BroadcastCrossItem` still
+fire, and the receive path springs the trap on teammates (`Packets/GiveItem.cpp`). Verified with two
+clients in OOT (2026-08-03): both froze once and the finder was not re-frozen, so the broadcast is not
+echoed back to the sender. Note a teammate playing the *other* game still banks the trap and springs
+it on switch — that is the item-routing model, not a bug in this change.
+
+**Trick names:** both games expose their tables through small `COMBO_BUILD` accessors
+(`Rando::Traps::GetTrickNamesEnglish`, `Rando::StaticData::GetTrickNames`), emitted as `trickNames`
+beside the existing `advancement`/`trap` flags and parsed into `ForeignItemMeta`.
+`AssignTrapDisguises` prefers a curated name and falls back to letter-doubling only where an item has
+no entry. English only — OOT's table is trilingual but the foreign schema carries single strings, so
+localisation would mean widening `fakeTrickName` everywhere it is consumed.
+
+**Known nit:** the fallback doubles punctuation (`Tingle''s Clock Town Map`). Upstream skips spaces
+but not apostrophes.

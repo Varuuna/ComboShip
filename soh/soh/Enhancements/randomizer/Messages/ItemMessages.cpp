@@ -241,6 +241,11 @@ void BuildComboForeignMessage(Player* player, CustomMessage& msg) {
         } else if (fi != nullptr && !fi->displayName.empty()) {
             name = fi->displayName;
         }
+        // A foreign trap taunts with OOT's own ice-trap tables, naming what it pretended to be.
+        if (fi != nullptr && fi->trap) {
+            Rando::Traps::BuildIceTrapMessageNamed(msg, name);
+            return;
+        }
     }
     msg = CustomMessage("You found %g[[name]]%w!", "Du erhältst %g[[name]]%w!", "Vous avez trouvé %g[[name]]%w!",
                         TEXTBOX_TYPE_BLUE);

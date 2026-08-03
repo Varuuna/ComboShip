@@ -4015,10 +4015,13 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         // dump schema symmetric with MM's (which needs the distinction: RI_* vs human).
         // advancement drives whether a foreign item plays the held-up pickup animation.
         // ComboShip: "trap" lets the cross-world layer disguise a foreign trap in the other game.
+        // ComboShip: "trickNames" are OOT's curated fake names, so a foreign trap disguised as this
+        // item can lie with a real near-miss name instead of a letter-doubled one.
         items.push_back({ { "name", name },
                           { "displayName", name },
                           { "advancement", comboIsAdv(static_cast<RandomizerGet>(rg)) },
-                          { "trap", rg == RG_ICE_TRAP } });
+                          { "trap", rg == RG_ICE_TRAP },
+                          { "trickNames", Rando::Traps::GetTrickNamesEnglish(static_cast<uint16_t>(rg)) } });
     }
 
     cached = nlohmann::json{

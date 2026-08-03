@@ -16,5 +16,12 @@ RandomizerGet GetTrapTrickModel(uint64_t* state = nullptr);
 bool CanBeTrapModel(uint16_t id);
 bool ShouldJunkItemBeTrap();
 void BuildIceTrapMessage(CustomMessage& msg, GetItemEntry getItemEntry);
+#ifdef COMBO_BUILD
+// ComboShip: same taunt tables, but naming an arbitrary item — a foreign trap's disguise may be an
+// item of the OTHER game, which has no RandomizerGet to resolve a name from.
+void BuildIceTrapMessageNamed(CustomMessage& msg, const std::string& itemName);
+// ComboShip: every English trick name for an id, so the dump can hand them to the cross-world layer.
+std::vector<std::string> GetTrickNamesEnglish(uint16_t id);
+#endif
 } // namespace Traps
 } // namespace Rando

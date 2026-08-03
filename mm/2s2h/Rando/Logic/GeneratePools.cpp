@@ -127,10 +127,10 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
             }
 
             if (randoStaticCheck.randoCheckType == RCTYPE_SHOP) {
-                // We always want shuffle RC_CURIOSITY_SHOP_SPECIAL_ITEM &
+                // We always want shuffle RC_CURIOSITY_SHOP_SPECIAL_ITEM, RC_BOMB_SHOP_ITEM_03 &
                 // RC_BOMB_SHOP_ITEM_04_OR_CURIOSITY_SHOP_ITEM
                 if (saveInfo.randoSaveOptions[RO_SHUFFLE_SHOPS] == RO_GENERIC_NO &&
-                    randoCheckId != RC_CURIOSITY_SHOP_SPECIAL_ITEM &&
+                    randoCheckId != RC_CURIOSITY_SHOP_SPECIAL_ITEM && randoCheckId != RC_BOMB_SHOP_ITEM_03 &&
                     randoCheckId != RC_BOMB_SHOP_ITEM_04_OR_CURIOSITY_SHOP_ITEM) {
                     continue;
                 } else {
@@ -246,8 +246,9 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
         }
     }
 
-    // Shuffle the Skeleton Key into the Pool
-    if (saveInfo.randoSaveOptions[RO_SHUFFLE_SKELETON_KEY] == RO_GENERIC_YES) {
+    // Shuffle the Skeleton Key into the Pool, unless starting with small keys
+    if (saveInfo.randoSaveOptions[RO_SHUFFLE_SKELETON_KEY] == RO_GENERIC_YES &&
+        saveInfo.randoSaveOptions[RO_PLACEMENT_SMALL_KEYS] != RO_DUNGEON_ITEM_START_WITH) {
         itemPool.push_back(RI_SKELETON_KEY);
     }
 

@@ -69,6 +69,11 @@ void Rando::MiscBehavior::OnFileCreate(s16 fileNum) {
                     RANDO_SAVE_OPTIONS[RO_SKULLTULA_TOKENS_REQUIRED] = SPIDER_HOUSE_TOKENS_REQUIRED;
                 }
 
+                // Starting with every Stray Fairy means the Great Fairies always have their full set
+                if (RANDO_SAVE_OPTIONS[RO_PLACEMENT_STRAY_FAIRIES] == RO_DUNGEON_ITEM_START_WITH) {
+                    RANDO_SAVE_OPTIONS[RO_STRAY_FAIRIES_REQUIRED] = STRAY_FAIRY_SCATTERED_TOTAL;
+                }
+
                 // Persist StartingItems to the save
                 auto startingItems = Rando::GetStartingItemsFromConfig();
                 Rando::SetStartingItemsInSave(gSaveContext.save.shipSaveInfo.rando, startingItems);

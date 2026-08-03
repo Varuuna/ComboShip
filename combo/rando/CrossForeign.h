@@ -63,6 +63,7 @@ struct ForeignItem {
     std::string itemName;     // friendly item name in itemGame (bare; resolved by that game's map)
     std::string displayName;  // human string for the "sent"/"received" text
     bool advancement = false; // progression in its home game -> drives the held-up pickup animation
+    bool trap = false;        // a trap in its home game -> fires on the FINDER, never cross-delivered
     // Trap disguise (empty = none). The name/model shown until the check is collected; the GRANT
     // always uses itemName. fakeItemName lives in itemGame's namespace (feeds the draw producers).
     std::string fakeItemName;
@@ -133,6 +134,7 @@ struct ForeignItemMeta {
     std::string displayName;
     bool advancement = false;
     bool trap = false;
+    std::vector<std::string> trickNames; // curated near-miss names for this item (may be empty)
 };
 
 inline std::unordered_map<std::string, ForeignItemMeta> ParseItemMeta(const std::string& dump) {
@@ -147,6 +149,7 @@ inline std::unordered_map<std::string, ForeignItemMeta> ParseItemMeta(const std:
             meta.displayName = it.value("displayName", n);
             meta.advancement = it.value("advancement", false);
             meta.trap = it.value("trap", false);
+            meta.trickNames = it.value("trickNames", std::vector<std::string>{});
             m.emplace(std::move(n), std::move(meta));
         }
     } catch (...) {}
@@ -195,6 +198,7 @@ inline void AssignTrapDisguises(nlohmann::json& foreignArr, const nlohmann::json
         auto mit = meta.find(fm.value("itemName", ""));
         if (mit == meta.end() || !mit->second.trap)
             continue;
+        fm["trap"] = true; // before the no-candidate bail: an undisguised trap is still a trap
         const auto& cand = (itemGame == "mm") ? mmCand : ootCand;
         if (cand.empty())
             continue; // no plausible model this seed -> stays undisguised rather than lying badly
@@ -206,7 +210,10 @@ inline void AssignTrapDisguises(nlohmann::json& foreignArr, const nlohmann::json
             (fmeta != meta.end() && !fmeta->second.displayName.empty()) ? fmeta->second.displayName : fake;
         fm["fakeItemName"] = fake;
         fm["fakeDisplayName"] = dn;
-        fm["fakeTrickName"] = MakeTrickName(dn, next());
+        // Prefer the owning game's curated near-miss name; letter-doubling is only the fallback.
+        const std::vector<std::string>* tn = (fmeta != meta.end()) ? &fmeta->second.trickNames : nullptr;
+        fm["fakeTrickName"] =
+            (tn != nullptr && !tn->empty()) ? (*tn)[next() % tn->size()] : MakeTrickName(dn, next());
     }
 }
 
@@ -236,7 +243,8 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray,
         std::string displayName = tag(fm.value("displayName", itemName));
         nlohmann::json entry = { { "checkGame", checkGame },     { "checkName", checkName },
                                  { "itemGame", itemGame },       { "itemName", itemName },
-                                 { "displayName", displayName }, { "advancement", fm.value("advancement", false) } };
+                                 { "displayName", displayName }, { "advancement", fm.value("advancement", false) },
+                                 { "trap", fm.value("trap", false) } };
         // Trap disguise: fakeItemName stays bare (it's a grant-namespace key); the shown names get tagged.
         std::string fakeItemName = fm.value("fakeItemName", "");
         if (!fakeItemName.empty()) {
@@ -324,6 +332,8 @@ inline std::unordered_map<std::string, ForeignItem> LoadForeignForGame(int slot,
             fi.itemName = fm.value("itemName", "");
             fi.displayName = fm.value("displayName", fi.itemName);
             fi.advancement = fm.value("advancement", false);
+            // Absent in pre-trap-flag saves -> false -> the item cross-delivers as before.
+            fi.trap = fm.value("trap", false);
             // Absent in pre-disguise saves -> empty -> every consumer falls back to the true name.
             fi.fakeItemName = fm.value("fakeItemName", "");
             fi.fakeDisplayName = fm.value("fakeDisplayName", "");

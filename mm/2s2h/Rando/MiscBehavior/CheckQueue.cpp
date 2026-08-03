@@ -150,11 +150,15 @@ void Rando::MiscBehavior::CheckQueue() {
                         // id (before ConvertItem) so the sentinel is matched directly.
                         if (randoSaveCheck.randoItemId == RI_COMBO_FOREIGN) {
                             RandoCheckId cid = (RandoCheckId)CUSTOM_ITEM_PARAM;
+                            const ComboRando::ForeignItem* fi = Rando::MiscBehavior::MM_LookupForeign(cid);
+                            // A foreign trap fires on the FINDER, like a native RI_TRAP: MM's own trap
+                            // message + effect, and never cross-delivered (nothing to send).
+                            const bool foreignTrap = fi != nullptr && fi->trap;
                             std::string foreignName = Rando::StaticData::GetItemName(RI_COMBO_FOREIGN, false, cid);
                             CustomMessage::Entry entry = {
                                 .textboxType = 2,
                                 .icon = Rando::StaticData::GetIconForZMessage(RI_COMBO_FOREIGN),
-                                .msg = "You found " + foreignName + "!",
+                                .msg = foreignTrap ? GetTrapMessage() : ("You found " + foreignName + "!"),
                             };
                             if (CUSTOM_ITEM_FLAGS & CustomItem::GIVE_ITEM_CUTSCENE) {
                                 CustomMessage::SetActiveCustomMessage(entry.msg, entry);
@@ -169,7 +173,15 @@ void Rando::MiscBehavior::CheckQueue() {
                             randoSaveCheck.cycleObtained = true;
                             randoSaveCheck.obtained = true;
                             randoSaveCheck.eligible = false;
-                            if (!wasObtained) {
+                            if (foreignTrap) {
+                                Rando::MiscBehavior::OfferTrapItem(); // fires here, not cross-granted
+                                if (!wasObtained) {
+                                    // Teammates still receive it; Anchor's receive path springs it.
+                                    MMAnchor_BroadcastCrossItem((int)fi->itemGame, fi->itemName.c_str(),
+                                                                Rando::StaticData::GetCheckDisplayName(cid).c_str());
+                                }
+                                SaveManager_SaveCurrentForCombo();
+                            } else if (!wasObtained) {
                                 Rando::MiscBehavior::SendForeignCheck(cid); // cross-deliver + toast + save
                             }
                             queued = false;

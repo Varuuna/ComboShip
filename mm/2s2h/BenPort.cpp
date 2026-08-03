@@ -3299,9 +3299,12 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         // "displayName" is the human string for toasts/shops in the OTHER game (suffixed there).
         // advancement drives whether a foreign item plays the held-up pickup animation.
         // ComboShip: "trap" lets the cross-world layer disguise a foreign trap in the other game.
+        // ComboShip: "trickNames" are MM's curated fake names, so a foreign trap disguised as this
+        // item can lie with a real near-miss name instead of a letter-doubled one.
         nlohmann::json entry = { { "name", Rando::StaticData::GetItemDisplayName(id) },
                                  { "advancement", isAdvancement(item) },
-                                 { "trap", id == RI_TRAP } };
+                                 { "trap", id == RI_TRAP },
+                                 { "trickNames", Rando::StaticData::GetTrickNames(id) } };
         if (item.name && item.name[0] != '\0') {
             entry["displayName"] = item.name;
         }

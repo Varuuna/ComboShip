@@ -391,3 +391,56 @@ entry was fine because it CREATES the save (default `magicLevel` 0).
 
 **Vendored (inside the existing `COMBO_BUILD` block):** `mm/src/code/title_setup.c` — one line,
 `magicLevel = 0` after the save load, mirroring `Sram_OpenSave`.
+
+## Crash-handler tracebacks: honour SymFromAddr, always print module + RVA (2026-08-03)
+
+**Why:** a player's Release traceback named `MM_Anchor_RequestTeleport` three times in a crash with no
+Anchor involvement, and sent the investigation into the Anchor code for about an hour. Three
+compounding defects in `PrintStack`:
+
+1. `SymFromAddr`'s return value was ignored while a single `SYMBOL_INFO` buffer was reused, so a
+   FAILED lookup silently reprinted the **previous** frame's name.
+2. The printed address was `symbol->Address` (the symbol's base), not the PC — so every frame that
+   resolved to the same symbol showed one identical address, and no RVA could be derived.
+3. A Release build ships no PDBs, so dbghelp synthesizes symbols from the **export table** only.
+   Every `static` function (all of the Fast3D interpreter) collapses onto an unrelated neighbouring
+   export, and 2ship.dll exports only its handful of `MM_*` combo entry points — so an entire MM call
+   chain reports as ~3 names, each wildly far from the real function.
+
+**`libultraship/src/ship/debug/CrashHandler.cpp` (COMBO_BUILD-guarded; upstream preserved verbatim
+under `#else` so future lus merges stay mechanical):**
+- `SymSetOptions` gains `SYMOPT_LOAD_LINES | SYMOPT_UNDNAME`. Without `LOAD_LINES`,
+  `SymGetLineFromAddr` can fail even when PDBs are present, silently degrading Debug builds too.
+- Per frame: reset `displacement` and `symbol->Name[0]`, keep `SymFromAddr`'s result, and print
+  `<unresolved>` when it fails — never a stale name.
+- `symbol->Flags & SYMFLAG_EXPORT` is surfaced as a `~export(approx)` marker. That flag is set exactly
+  when dbghelp invented the name from the export table, i.e. on every Release frame. Defect 3 is
+  unfixable without shipping PDBs, so the fix is to make it *visible* rather than silently trusted.
+- The module lookup is hoisted so **both** print branches carry the real PC, the module path and an
+  RVA. The file/line branch had the same stale-name hazard (it printed `symbol->Name` too), which was
+  the most misleading output of the three: this frame's file and line beside the previous frame's name.
+- `AppendStrTrunc` no longer reads past the source string's terminator, and `AppendLine` no longer
+  writes its newline unchecked. The latter was a genuine 1-byte heap overflow: `AppendStr` caps the
+  index at `gMaxBufferSize - 1`, so `AppendLine` could push it to `gMaxBufferSize` and the next
+  `AppendStrTrunc` wrote the terminator one byte past the allocation — inside the crash handler, i.e.
+  corrupting the very log we needed. Reachable for real on a stack-overflow crash with thousands of
+  frames.
+
+**Reading a Release traceback offline** (the whole point of the RVA):
+
+    llvm-symbolizer --obj=<matching dll> --relative-address <rva>
+
+`--relative-address` is mandatory — without it PE addresses are interpreted against the image base
+(`0x180000000`) and every lookup silently returns `??`. Verified end to end: a frame printed as
+`MM_Anchor_RequestTeleport +0x50E4C ... RVA 0x28096C` mapped back to `CfaBindSeg` at
+`combo/menu/ComboForeignAnim.h:403`, matching the Debug trace exactly.
+
+**Deliberately NOT shared with `combo/ComboShip.cpp`'s late filter**, which does the same job
+correctly. `ComboShip.exe` does not link libultraship on purpose — its filter has to survive the
+window after `FreeLibrary`, when `libultraship.dll` may be gone. The ~15 duplicated lines are the
+price of that; do not "DRY" them.
+
+**Known gap:** the RVA is only actionable where we hold the matching linker PDB. Release currently
+produces PDBs for soh/2ship (via the unconditional `/DEBUG` in `mm/CMakeLists.txt`) but **not** for
+libultraship or ComboShip.exe — which is where the crash above actually faulted. PDBs must never ship
+(they are ~5x the download), but they should be generated and archived per tagged release.

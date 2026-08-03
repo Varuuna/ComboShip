@@ -37,7 +37,12 @@ bool CrashHandler::CheckStrLen(const char* str) {
 }
 
 void CrashHandler::AppendStrTrunc(const char* str) {
+#ifdef COMBO_BUILD
+    // ComboShip: also stop at the source's end — upstream reads past it once the buffer fills.
+    while (*str != '\0' && mOutBuffersize < gMaxBufferSize - 1) {
+#else
     while (mOutBuffersize < gMaxBufferSize - 1) {
+#endif
         mOutBuffer[mOutBuffersize++] = *str++;
     }
     mOutBuffer[mOutBuffersize] = '\0';
@@ -56,7 +61,15 @@ void CrashHandler::AppendStr(const char* str) {
 
 void CrashHandler::AppendLine(const char* str) {
     AppendStr(str);
+#ifdef COMBO_BUILD
+    // ComboShip: upstream writes the newline unchecked, so a full buffer lands one byte past the end.
+    if (mOutBuffersize < gMaxBufferSize - 1) {
+        mOutBuffer[mOutBuffersize++] = '\n';
+    }
+    mOutBuffer[mOutBuffersize] = '\0';
+#else
     mOutBuffer[mOutBuffersize++] = '\n';
+#endif
 }
 
 /**
@@ -334,7 +347,12 @@ void CrashHandler::PrintStack(CONTEXT* ctx) {
     process = GetCurrentProcess();
     thread = GetCurrentThread();
 
-    SymSetOptions(SYMOPT_NO_IMAGE_SEARCH | SYMOPT_IGNORE_IMAGEDIR);
+    SymSetOptions(SYMOPT_NO_IMAGE_SEARCH | SYMOPT_IGNORE_IMAGEDIR
+#ifdef COMBO_BUILD
+                  // ComboShip: LOAD_LINES or SymGetLineFromAddr can fail even with PDBs present.
+                  | SYMOPT_LOAD_LINES | SYMOPT_UNDNAME
+#endif
+    );
     SymInitialize(process, "debug", true);
 
     constexpr DWORD machineType =
@@ -355,7 +373,32 @@ void CrashHandler::PrintStack(CONTEXT* ctx) {
         }
         symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
         symbol->MaxNameLen = MAX_SYM_NAME;
+#ifdef COMBO_BUILD
+        // ComboShip: a Release build ships no PDBs, so dbghelp invents names from the export table —
+        // statics collapse onto unrelated exports. Honour the lookup result, flag guesses, and always
+        // emit module+RVA so a log maps offline. See docs/deviations/boot-shutdown.md.
+        const DWORD64 pc = (DWORD64)stack.AddrPC.Offset;
+        displacement = 0;
+        symbol->Name[0] = '\0'; // never reprint the previous frame's name out of the shared buffer
+        const bool haveSym = SymFromAddr(process, pc, &displacement, symbol) != FALSE;
+        const char* symName = haveSym ? symbol->Name : "<unresolved>";
+        const bool exportOnly = haveSym && (symbol->Flags & SYMFLAG_EXPORT) != 0;
+
+        hModule = nullptr;
+        module[0] = '\0';
+        GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                          (LPCTSTR)pc, &hModule);
+        if (hModule == nullptr || GetModuleFileNameA(hModule, module, sizeof(module)) == 0) {
+            strcpy_s(module, sizeof(module), "???");
+        }
+
+        char frameInfo[160];
+        sprintf_s(frameInfo, std::size(frameInfo), "+0x%llX%s (0x%016llX, RVA 0x%llX)", displacement,
+                  exportOnly ? " ~export(approx)" : "", pc,
+                  (hModule != nullptr) ? pc - (DWORD64)hModule : 0);
+#else
         SymFromAddr(process, (ULONG64)stack.AddrPC.Offset, &displacement, symbol);
+#endif
 #if defined(_M_AMD64)
         IMAGEHLP_LINE64 line;
         line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
@@ -363,6 +406,22 @@ void CrashHandler::PrintStack(CONTEXT* ctx) {
         IMAGEHLP_LINE line;
         line.SizeOfStruct = sizeof(IMAGEHLP_LINE);
 #endif
+#ifdef COMBO_BUILD
+        // ComboShip: module+RVA on every frame; the file/line branch also used the shared name buffer.
+        AppendStr("    ");
+        AppendStr(symName);
+        AppendStr(" ");
+        AppendStr(frameInfo);
+        if (SymGetLineFromAddr(process, pc, &disp, &line)) {
+            AppendStr(" in ");
+            AppendStr(line.FileName);
+            char lineNumberStr[16];
+            sprintf_s(lineNumberStr, sizeof(lineNumberStr), " Line: %d", line.LineNumber);
+            AppendLine(lineNumberStr);
+        } else {
+            WRITE_VAR_LINE_M(" in ", module);
+        }
+#else
         if (SymGetLineFromAddr(process, stack.AddrPC.Offset, &disp, &line)) {
             AppendStr("    ");
             AppendStr(symbol->Name);
@@ -388,6 +447,7 @@ void CrashHandler::PrintStack(CONTEXT* ctx) {
                 WRITE_VAR_LINE_M(" in ", "???");
             }
         }
+#endif
     }
     PrintCommon();
     Context::GetRawInstance()->GetLogger()->flush();

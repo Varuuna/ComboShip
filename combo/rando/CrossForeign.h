@@ -212,8 +212,7 @@ inline void AssignTrapDisguises(nlohmann::json& foreignArr, const nlohmann::json
         fm["fakeDisplayName"] = dn;
         // Prefer the owning game's curated near-miss name; letter-doubling is only the fallback.
         const std::vector<std::string>* tn = (fmeta != meta.end()) ? &fmeta->second.trickNames : nullptr;
-        fm["fakeTrickName"] =
-            (tn != nullptr && !tn->empty()) ? (*tn)[next() % tn->size()] : MakeTrickName(dn, next());
+        fm["fakeTrickName"] = (tn != nullptr && !tn->empty()) ? (*tn)[next() % tn->size()] : MakeTrickName(dn, next());
     }
 }
 
@@ -241,9 +240,9 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray,
             return s;
         };
         std::string displayName = tag(fm.value("displayName", itemName));
-        nlohmann::json entry = { { "checkGame", checkGame },     { "checkName", checkName },
-                                 { "itemGame", itemGame },       { "itemName", itemName },
-                                 { "displayName", displayName }, { "advancement", fm.value("advancement", false) },
+        nlohmann::json entry = { { "checkGame", checkGame },         { "checkName", checkName },
+                                 { "itemGame", itemGame },           { "itemName", itemName },
+                                 { "displayName", displayName },     { "advancement", fm.value("advancement", false) },
                                  { "trap", fm.value("trap", false) } };
         // Trap disguise: fakeItemName stays bare (it's a grant-namespace key); the shown names get tagged.
         std::string fakeItemName = fm.value("fakeItemName", "");

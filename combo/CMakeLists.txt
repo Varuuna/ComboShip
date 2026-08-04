@@ -146,12 +146,17 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     endif()
 else()
     # ComboShip Linux/macOS: the games' shared objects land in their own build dirs; mirror the
-    # Windows single-deploy-dir layout by copying them beside the launcher, whose loader dlopens
-    # ./libsoh.so etc. from its own directory (cwd == exe dir at runtime).
+    # Windows single-deploy-dir layout by symlinking them beside the launcher, whose loader dlopens
+    # ./libsoh.so etc. from its own directory (cwd == exe dir at runtime). Symlinks, not copies:
+    # a copy staged by ComboShip's POST_BUILD goes stale when only a game lib rebuilds (ComboShip
+    # doesn't relink for that) — the same stale-module trap the Windows output-dir pinning avoids.
     add_custom_command(TARGET ComboShip POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:soh> $<TARGET_FILE:2ship> $<TARGET_FILE:libultraship>
-            $<TARGET_FILE_DIR:ComboShip>
+        COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:soh>
+            $<TARGET_FILE_DIR:ComboShip>/$<TARGET_FILE_NAME:soh>
+        COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:2ship>
+            $<TARGET_FILE_DIR:ComboShip>/$<TARGET_FILE_NAME:2ship>
+        COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:libultraship>
+            $<TARGET_FILE_DIR:ComboShip>/$<TARGET_FILE_NAME:libultraship>
     )
 endif()
 

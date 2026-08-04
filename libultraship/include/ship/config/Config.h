@@ -226,6 +226,10 @@ class Config {
     template <typename T> std::vector<T> GetArray(const std::string& key);
 
   private:
+    // ComboShip: unflatten throws on a leaf-vs-subtree key clash; all unflatten sites go through
+    // this so the exception can't unwind across the game-DLL boundary. Returns false on failure.
+    bool TryUnflatten(nlohmann::json& out);
+
     nlohmann::json mFlattenedJson;
     nlohmann::json mNestedJson;
     std::string mPath;

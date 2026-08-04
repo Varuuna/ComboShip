@@ -1746,6 +1746,21 @@ static void Combo_FinishInit() {
     conf->RegisterVersionUpdater(std::make_shared<SOH::ConfigVersion7Updater>());
     conf->RunVersionUpdates();
 
+#ifdef COMBO_BUILD
+    // ComboShip: SoH's old float leaf clashes with 2Ship's LinkVoiceFreqMultiplier.{Enable,Scale}
+    // children (Config::Save unflatten throws); migrate it to the .Scale child once and persist
+    // immediately (a mid-session ConsoleVariable::Load would otherwise resurrect it from disk).
+    static const char* kOldVoicePitchCVar = "gAudioEditor.LinkVoiceFreqMultiplier";
+    if (OTRGlobals::Instance->context->GetConsoleVariables()->Get(kOldVoicePitchCVar) != nullptr) {
+        float oldPitch = CVarGetFloat(kOldVoicePitchCVar, (float)CVarGetInteger(kOldVoicePitchCVar, 0));
+        CVarClear(kOldVoicePitchCVar);
+        if (oldPitch > 0.0f) {
+            CVarSetFloat(CVAR_LINK_VOICE_FREQ_MULTIPLIER, oldPitch);
+        }
+        CVarSave();
+    }
+#endif
+
     SohGui::SetupGuiElements();
     SohGui::SetupMenuElements();
 

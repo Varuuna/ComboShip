@@ -2,6 +2,13 @@
 #define CVAR_RANDOMIZER_SETTING(var) CVAR_PREFIX_RANDOMIZER_SETTING "." var
 #define CVAR_COSMETIC(var) CVAR_PREFIX_COSMETIC "." var
 #define CVAR_AUDIO(var) CVAR_PREFIX_AUDIO "." var
+// ComboShip: 2Ship owns LinkVoiceFreqMultiplier.{Enable,Scale}; SoH's float leaf at the parent path
+// makes the shared config's json unflatten throw, so combo builds store it at the .Scale child.
+#ifdef COMBO_BUILD
+#define CVAR_LINK_VOICE_FREQ_MULTIPLIER CVAR_AUDIO("LinkVoiceFreqMultiplier.Scale")
+#else
+#define CVAR_LINK_VOICE_FREQ_MULTIPLIER CVAR_AUDIO("LinkVoiceFreqMultiplier")
+#endif
 #define CVAR_CHEAT(var) CVAR_PREFIX_CHEAT "." var
 #define CVAR_ENHANCEMENT(var) CVAR_PREFIX_ENHANCEMENT "." var
 #define CVAR_SETTING(var) CVAR_PREFIX_SETTING "." var

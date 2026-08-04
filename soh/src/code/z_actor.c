@@ -2243,7 +2243,7 @@ void Player_PlaySfx(Actor* actor, u16 sfxId) {
         Audio_PlaySoundGeneral(sfxId, &actor->projectedPos, 4, &gSfxDefaultFreqAndVolScale, &gSfxDefaultFreqAndVolScale,
                                &gSfxDefaultReverb);
     } else {
-        freqMultiplier = CVarGetFloat(CVAR_AUDIO("LinkVoiceFreqMultiplier"), 1.0);
+        freqMultiplier = CVarGetFloat(CVAR_LINK_VOICE_FREQ_MULTIPLIER, 1.0);
         if (freqMultiplier <= 0) {
             freqMultiplier = 1;
         }

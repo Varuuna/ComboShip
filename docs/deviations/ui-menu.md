@@ -223,3 +223,35 @@ One inline editor (OOT's) covers both games: controls are shared `gSettings.Cont
 `MM_ReloadControls` reloads MM from them, and MM's Controls sidebar is hidden in the overlay (above),
 so no MM-side change is needed. **On future merges:** if SoH renames the "Configure Controller"
 window, update the name string here.
+
+## Link's Voice Pitch Multiplier CVar collision (2026-08-04)
+
+**Why:** SoH stores its pitch slider as a float **leaf** `gAudioEditor.LinkVoiceFreqMultiplier`
+while 2Ship stores **children** of that exact path (`.Enable`/`.Scale`). Upstream never meet; in the
+shared ComboShip CVar table + single config both coexist, and `Config::Save`'s `unflatten()` throws
+(json can't make one key both scalar and object) — an uncaught crash that also truncated the config
+file (the `ofstream` opened before `unflatten`).
+
+**Vendored (`COMBO_BUILD`-guarded):**
+- `soh/soh/cvar_prefixes.h` — `CVAR_LINK_VOICE_FREQ_MULTIPLIER` resolves to the `.Scale` child in
+  combo builds (upstream leaf otherwise); used at the 3 SoH sites (widget, reset button, z_actor.c
+  read). Side effect: both games share one pitch value; MM still gates behind `.Enable`.
+- `soh/soh/OTRGlobals.cpp` (`Combo_FinishInit`, after `RunVersionUpdates()`) — one-shot migration of
+  the old leaf to `.Scale` (covers old combo configs, the legacy `gLinkVoiceFreqMultiplier` updater
+  target, and launcher-imported standalone SoH configs, which all still produce the leaf). Gated on
+  table presence (not float type — a legacy int leaf must still be cleared) and followed by
+  `CVarSave()` so a mid-session `ConsoleVariable::Load` can't resurrect the leaf from disk.
+- `libultraship/src/ship/config/Config.{h,cpp}` — all four `unflatten()` sites (`Save`, `Nested`,
+  `SetBlock`, `EraseBlock`) route through a `TryUnflatten` helper that logs instead of throwing
+  (the exception would unwind across the game-DLL boundary); `Save()` unflattens **before**
+  opening/truncating the file; `Nested()` falls back to the last-good nested state on failure.
+
+**On future merges:** if upstream SoH renames the CVar or grows its own `.Enable`, drop the macro
+seam and re-check the migration. Audited 2026-08-04: this was the only cross-game leaf-vs-subtree
+CVar pair (other candidates were Color-CVar bases, never stored as leaves).
+
+Follow-up (same day): the checkbox still didn't enable the slider — MM's `disabledMap` per-frame
+refresh lives only in `Menu::DrawElement`, which never runs under comboui, so popout windows
+(Audio Editor, Mod Menu) that draw via `MenuDrawItem` read a frozen disable flag.
+`mm/2s2h/BenGui/Menu.cpp` (`Menu::MenuDrawItem`, `COMBO_BUILD`-guarded) now refreshes the map once
+per ImGui frame. SoH needs no parity fix: its popout-drawn widgets have no disable-map preFuncs.

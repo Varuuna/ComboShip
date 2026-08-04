@@ -5,6 +5,7 @@
 #include <SDL2/SDL.h>
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/sinks/null_sink.h>
 #include "ship/install_config.h"
 #include "ship/config/ConsoleVariable.h"
 #include "ship/controller/controldeck/ControlDeck.h"
@@ -67,7 +68,18 @@ Context::~Context() {
         GetConfig()->Save();
     }
     mConfig = nullptr;
-    mLogger->flush();
+    if (mLogger != nullptr) { // ComboShip: a headless CreateUninitializedInstance() never ran InitLogging.
+        mLogger->flush();
+    }
+#ifdef COMBO_BUILD
+    // Drop the registry/default-logger refs + registry thread pool while the game DLLs (whose
+    // set_pattern formatter vtables live in them) are still mapped; the registry's static dtor
+    // would otherwise destroy the sinks at DLL_PROCESS_DETACH, after FreeLibrary -> AV.
+    spdlog::shutdown();
+    // Lus-owned null default logger: late SPDLOG_* calls (game-DLL static dtors) stay crash-proof.
+    spdlog::set_default_logger(
+        std::make_shared<spdlog::logger>("null", std::make_shared<spdlog::sinks::null_sink_mt>()));
+#endif
     mLogger = nullptr;
 #ifndef _DEBUG
     mLogThreadPool = nullptr;

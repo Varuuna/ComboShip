@@ -141,6 +141,19 @@ filter in ComboShip.cpp (`ComboLateCrashFilter` -> combo_late_crash.txt) which c
 post-Context window where lus's CrashHandler is gone/unusable; the filter + cerr shutdown markers
 are kept permanently.
 
+**`libultraship` `Context::~Context` + `luslog.cpp` (spdlog registry — 4th X-close crash class,
+2026-08-04):** every quit AV'd after `main()` returned (silently — only `combo_late_crash.txt`
+showed it). `InitLogging` registers the shared logger in spdlog's registry (a static inside
+libultraship.dll) and both game DLLs `set_pattern` it — spdlog.lib is statically linked into every
+module, so the per-sink `pattern_formatter` vtables land inside soh.dll/2ship.dll. `~Context` never
+unregistered the
+logger, so the registry's static dtor destroyed the sinks at `DLL_PROCESS_DETACH`, after
+`FreeLibrary` unmapped those vtables. Fixed: `~Context` calls `spdlog::shutdown()`
+(COMBO_BUILD-guarded) so the registry (and its `init_thread_pool` worker — a latent loader-lock
+join) dies while everything is mapped, then installs a lus-owned null-sink default logger so any
+late `SPDLOG_*` call stays safe; `luslog()` also null-guards `default_logger_raw()`. Must live in
+lus code — the registry singleton is per-module.
+
 ## Cross-game erase: deleting a slot wipes both OOT and MM saves (issue #1, 2026-06-19)
 
 **Why:** a ComboShip save *slot* (file 1/2/3) is one combined OOT+MM playthrough, but each game's

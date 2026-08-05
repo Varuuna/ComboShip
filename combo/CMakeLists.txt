@@ -162,52 +162,52 @@ endif()
 
 # The exe and every game module land in one deploy dir (x64/<config> on Windows via the output-dir
 # pinning above; the combo build dir elsewhere via the module copies above), so only the asset
-    # tree and the PORT/custom .o2r archives need deploying. $<TARGET_FILE_DIR:ComboShip> == x64/<config>,
-    # so this is config-correct for Debug AND Release.
-    #
-    # Extractor assets (flat structure matching CallZapd expectations). ComboShip runs BOTH the OOT (soh)
-    # and MM (2ship) extractors, so merge both games' extractor + xml dirs into one assets/ tree.
-    # Clear the destination assets/ FIRST: copy_directory merges and never deletes, so a file
-    # renamed/removed upstream (e.g. mm object_rs -> object_rsn) would leave a STALE .xml that ZAPD then
-    # fails on ("Raw data size: 0x0", reached EOF). Clearing makes the source tree authoritative each
-    # build. (The user's ROM/port archives live in the dir root, NOT under assets/, so this is safe.)
-    # See docs/merges/2026-06-20.md.
-    add_custom_command(TARGET ComboShip POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E rm -rf $<TARGET_FILE_DIR:ComboShip>/assets
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/soh/assets/extractor
-            $<TARGET_FILE_DIR:ComboShip>/assets
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/soh/assets/xml
-            $<TARGET_FILE_DIR:ComboShip>/assets/xml
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/mm/assets/extractor
-            $<TARGET_FILE_DIR:ComboShip>/assets
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/mm/assets/xml
-            $<TARGET_FILE_DIR:ComboShip>/assets/xml
-    )
+# tree and the PORT/custom .o2r archives need deploying. $<TARGET_FILE_DIR:ComboShip> == x64/<config>,
+# so this is config-correct for Debug AND Release.
+#
+# Extractor assets (flat structure matching CallZapd expectations). ComboShip runs BOTH the OOT (soh)
+# and MM (2ship) extractors, so merge both games' extractor + xml dirs into one assets/ tree.
+# Clear the destination assets/ FIRST: copy_directory merges and never deletes, so a file
+# renamed/removed upstream (e.g. mm object_rs -> object_rsn) would leave a STALE .xml that ZAPD then
+# fails on ("Raw data size: 0x0", reached EOF). Clearing makes the source tree authoritative each
+# build. (The user's ROM/port archives live in the dir root, NOT under assets/, so this is safe.)
+# See docs/merges/2026-06-20.md.
+add_custom_command(TARGET ComboShip POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E rm -rf $<TARGET_FILE_DIR:ComboShip>/assets
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/soh/assets/extractor
+        $<TARGET_FILE_DIR:ComboShip>/assets
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/soh/assets/xml
+        $<TARGET_FILE_DIR:ComboShip>/assets/xml
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/mm/assets/extractor
+        $<TARGET_FILE_DIR:ComboShip>/assets
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/mm/assets/xml
+        $<TARGET_FILE_DIR:ComboShip>/assets/xml
+)
 
-    # PORT/custom .o2r deploy — guarded so a missing archive doesn't fail the build (see comment above).
-    # copy_if_different aborts if the source is absent; only emit these commands when the files exist at
-    # configure time. A dev who has run GenerateSohOtr/Generate2ShipOtr has them; the compile-only CI
-    # gate has neither and skips this block. If CI later generates the .o2r, reconfigure picks them up.
-    if(EXISTS "${CMAKE_SOURCE_DIR}/soh/soh.o2r")
-        add_custom_command(TARGET ComboShip POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${CMAKE_SOURCE_DIR}/soh/soh.o2r $<TARGET_FILE_DIR:ComboShip>/soh.o2r
-        )
-    else()
-        message(STATUS "ComboShip: soh/soh.o2r not found — skipping .o2r deploy (run GenerateSohOtr to produce it).")
-    endif()
-    if(EXISTS "${CMAKE_SOURCE_DIR}/mm/2ship.o2r")
-        add_custom_command(TARGET ComboShip POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${CMAKE_SOURCE_DIR}/mm/2ship.o2r $<TARGET_FILE_DIR:ComboShip>/2ship.o2r
-        )
-    else()
-        message(STATUS "ComboShip: mm/2ship.o2r not found — skipping .o2r deploy (run Generate2ShipOtr to produce it).")
-    endif()
+# PORT/custom .o2r deploy — guarded so a missing archive doesn't fail the build (see comment above).
+# copy_if_different aborts if the source is absent; only emit these commands when the files exist at
+# configure time. A dev who has run GenerateSohOtr/Generate2ShipOtr has them; the compile-only CI
+# gate has neither and skips this block. If CI later generates the .o2r, reconfigure picks them up.
+if(EXISTS "${CMAKE_SOURCE_DIR}/soh/soh.o2r")
+    add_custom_command(TARGET ComboShip POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/soh/soh.o2r $<TARGET_FILE_DIR:ComboShip>/soh.o2r
+    )
+else()
+    message(STATUS "ComboShip: soh/soh.o2r not found — skipping .o2r deploy (run GenerateSohOtr to produce it).")
+endif()
+if(EXISTS "${CMAKE_SOURCE_DIR}/mm/2ship.o2r")
+    add_custom_command(TARGET ComboShip POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/mm/2ship.o2r $<TARGET_FILE_DIR:ComboShip>/2ship.o2r
+    )
+else()
+    message(STATUS "ComboShip: mm/2ship.o2r not found — skipping .o2r deploy (run Generate2ShipOtr to produce it).")
+endif()
 
 # Install
 install(TARGETS ComboShip DESTINATION . COMPONENT combo)

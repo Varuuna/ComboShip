@@ -42,11 +42,28 @@ typedef void (*FnComboWriteSave)(int game, int fileNum, const char* json);
 inline constexpr const char* kForeignSentinelNameOOT = "Combo Foreign Item"; // OOT English name
 inline constexpr const char* kForeignSentinelNameMM = "RI_COMBO_FOREIGN";    // MM RI_ spoilerName
 
+// Rebuild one game's apply payload from a consolidated seed: stored placements name foreign items
+// for real, so the sentinel goes back at every foreign check (MM's apply THROWS on a real one).
+inline nlohmann::json ApplyPayloadFromConsolidated(const nlohmann::json& consolidated, GameId game) {
+    const char* gameKey = (game == GAME_OOT) ? "oot" : "mm";
+    const char* sentinel = (game == GAME_OOT) ? kForeignSentinelNameOOT : kForeignSentinelNameMM;
+    nlohmann::json apply =
+        consolidated.value(gameKey, nlohmann::json::object()).value("placements", nlohmann::json::object());
+    for (const auto& fm : consolidated.value("foreign", nlohmann::json::array())) {
+        std::string checkName = fm.value("checkName", "");
+        if (!checkName.empty() && fm.value("checkGame", "") == gameKey) {
+            apply[checkName] = sentinel;
+        }
+    }
+    return apply;
+}
+
 struct ForeignItem {
     GameId itemGame;          // the game the item belongs to / must be delivered to
     std::string itemName;     // friendly item name in itemGame (bare; resolved by that game's map)
     std::string displayName;  // human string for the "sent"/"received" text
     bool advancement = false; // progression in its home game -> drives the held-up pickup animation
+    bool trap = false;        // a trap in its home game -> fires on the FINDER, never cross-delivered
     // Trap disguise (empty = none). The name/model shown until the check is collected; the GRANT
     // always uses itemName. fakeItemName lives in itemGame's namespace (feeds the draw producers).
     std::string fakeItemName;
@@ -68,9 +85,16 @@ inline std::filesystem::path ConsolidatedDir() {
     return std::filesystem::path("Randomizer");
 }
 
-// Pending (unbound) seed written at Generate; remembered so the player can Start without regenerating.
-inline std::filesystem::path PendingPath() {
-    return ConsolidatedDir() / "Last-Generated-Randomizer.json";
+// Per-seed spoiler named from the 5 hash-icon indexes, like SoH's own (spoiler_log.cpp). The newest
+// is remembered in CVAR_GENERAL("ComboSpoiler"); see docs/deviations/rando.md.
+inline std::filesystem::path ComboSpoilerPath(const nlohmann::json& fileHash, const char* stem = "Combo") {
+    std::string name = stem;
+    for (const auto& idx : fileHash) {
+        char pair[8];
+        snprintf(pair, sizeof(pair), "-%02d", idx.get<int>());
+        name += pair;
+    }
+    return ConsolidatedDir() / (name + ".json");
 }
 
 // The consolidated combo spoiler, pushed once per save-load by SOH_/MM_LoadComboRando. The three
@@ -110,6 +134,7 @@ struct ForeignItemMeta {
     std::string displayName;
     bool advancement = false;
     bool trap = false;
+    std::vector<std::string> trickNames; // curated near-miss names for this item (may be empty)
 };
 
 inline std::unordered_map<std::string, ForeignItemMeta> ParseItemMeta(const std::string& dump) {
@@ -124,6 +149,7 @@ inline std::unordered_map<std::string, ForeignItemMeta> ParseItemMeta(const std:
             meta.displayName = it.value("displayName", n);
             meta.advancement = it.value("advancement", false);
             meta.trap = it.value("trap", false);
+            meta.trickNames = it.value("trickNames", std::vector<std::string>{});
             m.emplace(std::move(n), std::move(meta));
         }
     } catch (...) {}
@@ -172,6 +198,7 @@ inline void AssignTrapDisguises(nlohmann::json& foreignArr, const nlohmann::json
         auto mit = meta.find(fm.value("itemName", ""));
         if (mit == meta.end() || !mit->second.trap)
             continue;
+        fm["trap"] = true; // before the no-candidate bail: an undisguised trap is still a trap
         const auto& cand = (itemGame == "mm") ? mmCand : ootCand;
         if (cand.empty())
             continue; // no plausible model this seed -> stays undisguised rather than lying badly
@@ -183,7 +210,9 @@ inline void AssignTrapDisguises(nlohmann::json& foreignArr, const nlohmann::json
             (fmeta != meta.end() && !fmeta->second.displayName.empty()) ? fmeta->second.displayName : fake;
         fm["fakeItemName"] = fake;
         fm["fakeDisplayName"] = dn;
-        fm["fakeTrickName"] = MakeTrickName(dn, next());
+        // Prefer the owning game's curated near-miss name; letter-doubling is only the fallback.
+        const std::vector<std::string>* tn = (fmeta != meta.end()) ? &fmeta->second.trickNames : nullptr;
+        fm["fakeTrickName"] = (tn != nullptr && !tn->empty()) ? (*tn)[next() % tn->size()] : MakeTrickName(dn, next());
     }
 }
 
@@ -211,9 +240,10 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray,
             return s;
         };
         std::string displayName = tag(fm.value("displayName", itemName));
-        nlohmann::json entry = { { "checkGame", checkGame },     { "checkName", checkName },
-                                 { "itemGame", itemGame },       { "itemName", itemName },
-                                 { "displayName", displayName }, { "advancement", fm.value("advancement", false) } };
+        nlohmann::json entry = { { "checkGame", checkGame },         { "checkName", checkName },
+                                 { "itemGame", itemGame },           { "itemName", itemName },
+                                 { "displayName", displayName },     { "advancement", fm.value("advancement", false) },
+                                 { "trap", fm.value("trap", false) } };
         // Trap disguise: fakeItemName stays bare (it's a grant-namespace key); the shown names get tagged.
         std::string fakeItemName = fm.value("fakeItemName", "");
         if (!fakeItemName.empty()) {
@@ -301,6 +331,8 @@ inline std::unordered_map<std::string, ForeignItem> LoadForeignForGame(int slot,
             fi.itemName = fm.value("itemName", "");
             fi.displayName = fm.value("displayName", fi.itemName);
             fi.advancement = fm.value("advancement", false);
+            // Absent in pre-trap-flag saves -> false -> the item cross-delivers as before.
+            fi.trap = fm.value("trap", false);
             // Absent in pre-disguise saves -> empty -> every consumer falls back to the true name.
             fi.fakeItemName = fm.value("fakeItemName", "");
             fi.fakeDisplayName = fm.value("fakeDisplayName", "");

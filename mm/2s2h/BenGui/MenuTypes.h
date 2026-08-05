@@ -4,6 +4,8 @@
 #include "UIWidgets.hpp"
 #include <fast/Fast3dWindow.h>
 
+#include <fast/Fast3dWindow.h>
+
 typedef enum {
     DISABLE_FOR_CAMERAS_OFF,
     DISABLE_FOR_DEBUG_CAM_ON,

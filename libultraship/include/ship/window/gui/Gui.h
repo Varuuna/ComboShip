@@ -14,6 +14,7 @@
 #include "ship/window/gui/IconsFontAwesome4.h"
 #include "ship/window/gui/GameOverlay.h"
 #include "ship/window/gui/StatsWindow.h"
+#include "ship/window/gui/FileBrowserWindow.h"
 #include "ship/window/gui/GuiWindow.h"
 #include "ship/window/gui/GuiMenuBar.h"
 
@@ -172,6 +173,11 @@ class Gui {
      *  is not re-evaluated per frame. The base implementation is a no-op. */
     virtual void RefreshImGuiGamepads();
 
+    /** @brief Per-frame recompute of whether ImGui gamepad nav is enabled: on while a menu or any
+     *  popup is open (and controller nav is enabled), off during gameplay so the game keeps the pad.
+     *  Centralised here because popups have no open/close event to hook. */
+    void UpdateGamepadNavigation();
+
     /**
      * @brief Shuts down the ImGui context and releases backend resources.
      * @param window Pointer to the Window whose backend context should be torn down.
@@ -213,19 +219,16 @@ class Gui {
     virtual void ImGuiWMInit();
 
     /** @brief Shuts down the platform/window-manager ImGui backend.
-     *  The base implementation is a no-op.
-     *  ComboShip: takes the window explicitly — this runs from ~Window inside ~Context, where
-     *  Context::GetInstance() is already an expired weak_ptr (null deref if used). */
-    virtual void ImGuiWMShutdown(Ship::Window* window);
+     *  The base implementation is a no-op. */
+    virtual void ImGuiWMShutdown();
 
     /** @brief Initialises the renderer ImGui backend (DX11 / OpenGL / Metal).
      *  The base implementation is a no-op. */
     virtual void ImGuiBackendInit();
 
     /** @brief Shuts down the renderer ImGui backend.
-     *  The base implementation is a no-op.
-     *  ComboShip: takes the window explicitly — see ImGuiWMShutdown. */
-    virtual void ImGuiBackendShutdown(Ship::Window* window);
+     *  The base implementation is a no-op. */
+    virtual void ImGuiBackendShutdown();
 
     /**
      * @brief Submits the ImGui draw data to the active graphics backend.

@@ -36,9 +36,11 @@
 #include <ship/utils/StringHelper.h>
 #include <nlohmann/json.hpp>
 #include "build.h"
+#include <stb_image.h>
 
 #include <fast/interpreter.h>
 #include <fast/backends/gfx_rendering_api.h>
+#include <fast/Fast3dWindow.h>
 
 #ifdef __APPLE__
 #include <SDL_scancode.h>
@@ -208,7 +210,7 @@ OTRGlobals::OTRGlobals() {
     // SOH_PrepareForTransition() stopped OOT's audio first.
     bool usingExistingCtx = false;
     if (sComboTransitionActive) {
-        auto existingCtx = Ship::Context::GetInstance();
+        auto existingCtx = Ship::Context::GetRawInstance();
         if (existingCtx != nullptr) {
             context = existingCtx;
             portArchivePath = Ship::Context::LocateFileAcrossAppDirs("2ship.o2r");
@@ -275,7 +277,7 @@ OTRGlobals::OTRGlobals() {
     // ImGui's current-context global (GImGui) is a per-module static; this 2ship.dll has its own,
     // separate from libultraship.dll where the context lives. Point it at the shared context (works
     // for both the reuse path and standalone window creation) before any ImGui use here.
-    ImGui::SetCurrentContext(context->GetInstance()->GetWindow()->GetGui()->GetImGuiContext());
+    ImGui::SetCurrentContext(context->GetWindow()->GetGui()->GetImGuiContext());
     // ComboShip: the reuse path skipped BenGui::SetupMenu(), so MM's BenMenu was never built and
     // the shared Gui's single menu slot still holds OOT's SohMenu. Build MM's menu now that the
     // ImGui context is current (widgets populate lazily via BenMenu::InitElement).
@@ -286,7 +288,7 @@ OTRGlobals::OTRGlobals() {
 
     if (shipArchiveVersionMatch) {
 
-        auto overlay = context->GetInstance()->GetWindow()->GetGui()->GetGameOverlay();
+        auto overlay = context->GetWindow()->GetGui()->GetGameOverlay();
         overlay->LoadFont("Press Start 2P", 12.0f, "fonts/PressStart2P-Regular.ttf");
         overlay->LoadFont("Fipps", 32.0f, "fonts/Fipps-Regular.otf");
         overlay->SetCurrentFont(CVarGetString(CVAR_GAME_OVERLAY_FONT, "Press Start 2P"));
@@ -308,7 +310,7 @@ OTRGlobals::OTRGlobals() {
         // MM fonts were just added to the shared ImGui atlas (TexReady=false); the renderer backend
         // already built its font texture for OOT and won't rebuild on its own -> MM's first
         // ImGui::NewFrame() would assert "Font Atlas not built!". Invalidate so the next frame rebuilds.
-        Ship::Context::GetInstance()->GetWindow()->GetGui()->RebuildFontTexture();
+        Ship::Context::GetRawInstance()->GetWindow()->GetGui()->RebuildFontTexture();
     }
 #endif
 }
@@ -716,7 +718,7 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
 // (the mm baseline still called it as a Context method).
 static void InitGfxDebugger() {
     auto dbg =
-        std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow())->GetGfxDebugger();
+        std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow())->GetGfxDebugger();
     if (dbg != nullptr) {
         return;
     }
@@ -743,7 +745,7 @@ void OTRGlobals::Initialize() {
     context->InitConsoleVariables();
     auto logLevel = static_cast<spdlog::level::level_enum>(CVarGetInteger("gDeveloperTools.LogLevel", defaultLogLevel));
     context->InitLogging(logLevel, logLevel);
-    Ship::Context::GetInstance()->GetLogger()->set_pattern("[%H:%M:%S.%e] [%s:%#] [%^%l%$] %v");
+    Ship::Context::GetRawInstance()->GetLogger()->set_pattern("[%H:%M:%S.%e] [%s:%#] [%^%l%$] %v");
 
     InitGfxDebugger();
     context->InitFileDropMgr();
@@ -797,9 +799,13 @@ void OTRGlobals::Initialize() {
                                     static_cast<uint32_t>(SOH::ResourceType::SOH_CollisionHeader), 0);
     loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinarySkeletonV0>(), RESOURCE_FORMAT_BINARY,
                                     "Skeleton", static_cast<uint32_t>(SOH::ResourceType::SOH_Skeleton), 0);
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryXMLSkeletonV0>(), RESOURCE_FORMAT_XML,
+                                    "Skeleton", static_cast<uint32_t>(SOH::ResourceType::SOH_Skeleton), 0);
     loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinarySkeletonLimbV0>(),
                                     RESOURCE_FORMAT_BINARY, "SkeletonLimb",
                                     static_cast<uint32_t>(SOH::ResourceType::SOH_SkeletonLimb), 0);
+    loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryXMLSkeletonLimbV0>(), RESOURCE_FORMAT_XML,
+                                    "SkeletonLimb", static_cast<uint32_t>(SOH::ResourceType::SOH_SkeletonLimb), 0);
     loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryPathMMV0>(), RESOURCE_FORMAT_BINARY,
                                     "Path", static_cast<uint32_t>(SOH::ResourceType::SOH_Path), 0);
     loader->RegisterResourceFactory(std::make_shared<SOH::ResourceFactoryBinaryCutsceneV0>(), RESOURCE_FORMAT_BINARY,
@@ -861,11 +867,6 @@ extern "C" uint32_t Ship_GetInterpolationFPS() {
     return OTRGlobals::Instance->GetInterpolationFPS();
 }
 
-// Number of interpolated frames
-extern "C" uint32_t Ship_GetInterpolationFrameCount() {
-    return ceil((float)Ship_GetInterpolationFPS() / 20.0f);
-}
-
 struct ExtensionEntry {
     std::string path;
     std::string ext;
@@ -914,10 +915,10 @@ uint32_t OTRGlobals::GetInterpolationFPS() {
     const char* interpFpsCvar = "gInterpolationFPS";
 #endif
     if (CVarGetInteger(matchRefreshCvar, 0)) {
-        return Ship::Context::GetInstance()->GetWindow()->GetCurrentRefreshRate();
+        return Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate();
     } else if (CVarGetInteger(CVAR_VSYNC_ENABLED, 1) ||
-               !Ship::Context::GetInstance()->GetWindow()->CanDisableVerticalSync()) {
-        return std::min<uint32_t>(Ship::Context::GetInstance()->GetWindow()->GetCurrentRefreshRate(),
+               !Ship::Context::GetRawInstance()->GetWindow()->CanDisableVerticalSync()) {
+        return std::min<uint32_t>(Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate(),
                                   CVarGetInteger(interpFpsCvar, 20));
     }
     return CVarGetInteger(interpFpsCvar, 20);
@@ -1032,7 +1033,7 @@ extern "C" void OTRAudio_Exit() {
 }
 
 extern "C" void OTRExtScanner() {
-    auto lst = *Ship::Context::GetInstance()->GetResourceManager()->GetArchiveManager()->ListFiles("*").get();
+    auto lst = *Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->ListFiles("*").get();
 
     for (auto& rPath : lst) {
         std::vector<std::string> raw = StringHelper::Split(rPath, ".");
@@ -1108,7 +1109,7 @@ extern "C" void InitOTR(int argc, char* argv[]) {
     std::shared_ptr<Ship::Config> conf = OTRGlobals::Instance->context->GetConfig();
     conf->RegisterVersionUpdater(std::make_shared<Ben::ConfigVersion1Updater>());
     conf->RunVersionUpdates();
-    Ship::Context::GetInstance()->GetConsoleVariables()->Save();
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->Save();
 
     GameInteractor::Instance = new GameInteractor();
     AudioCollection::Instance = new AudioCollection();
@@ -1153,7 +1154,7 @@ extern "C" void InitOTR(int argc, char* argv[]) {
             SaveManager_SaveCurrentForCombo();
         if (gComboReturnCallback)
             gComboReturnCallback(isOwlSaveQuit ? 2 : (isReset ? 1 : 0));
-        if (auto fast3d = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow())) {
+        if (auto fast3d = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow())) {
             fast3d->SetIsRunning(false);
         }
     });
@@ -1194,8 +1195,8 @@ extern "C" void InitOTR(int argc, char* argv[]) {
     }
 #endif
 
-    Ship::Context::GetInstance()->GetFileDropMgr()->RegisterDropHandler(BinarySaveConverter_HandleFileDropped);
-    Ship::Context::GetInstance()->GetFileDropMgr()->RegisterDropHandler(SaveManager_HandleFileDropped);
+    Ship::Context::GetRawInstance()->GetFileDropMgr()->RegisterDropHandler(BinarySaveConverter_HandleFileDropped);
+    Ship::Context::GetRawInstance()->GetFileDropMgr()->RegisterDropHandler(SaveManager_HandleFileDropped);
 }
 
 extern "C" void SaveManager_ThreadPoolWait() {
@@ -1292,7 +1293,7 @@ extern "C" void Graph_StartFrame() {
 #if 0
         case KbScancode::LUS_KB_F5: {
             if (CVarGetInteger("gSaveStatesEnabled", 0) == 0) {
-                Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGameOverlay()->TextDrawNotification(
+                Ship::Context::GetRawInstance()->GetWindow()->GetGui()->GetGameOverlay()->TextDrawNotification(
                     6.0f, true, "Save states not enabled. Check Cheats Menu.");
                 return;
             }
@@ -1313,7 +1314,7 @@ extern "C" void Graph_StartFrame() {
         }
         case KbScancode::LUS_KB_F6: {
             if (CVarGetInteger("gSaveStatesEnabled", 0) == 0) {
-                Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGameOverlay()->TextDrawNotification(
+                Ship::Context::GetRawInstance()->GetWindow()->GetGui()->GetGameOverlay()->TextDrawNotification(
                     6.0f, true, "Save states not enabled. Check Cheats Menu.");
                 return;
             }
@@ -1328,7 +1329,7 @@ extern "C" void Graph_StartFrame() {
         }
         case KbScancode::LUS_KB_F7: {
             if (CVarGetInteger("gSaveStatesEnabled", 0) == 0) {
-                Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGameOverlay()->TextDrawNotification(
+                Ship::Context::GetRawInstance()->GetWindow()->GetGui()->GetGameOverlay()->TextDrawNotification(
                     6.0f, true, "Save states not enabled. Check Cheats Menu.");
                 return;
             }
@@ -1379,7 +1380,8 @@ extern "C" void Graph_StartFrame() {
 #endif
 }
 
-void RunCommands(Gfx* Commands, const std::vector<std::unordered_map<Mtx*, MtxF>>& mtx_replacements) {
+// Interpolated frames of a tick are evenly spaced numerators time+step, time+2*step, ... over denom.
+void RunCommands(Gfx* Commands, int time, int step, int denom, int count) {
     auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(OTRGlobals::Instance->context->GetWindow());
 
     if (wnd == nullptr) {
@@ -1395,8 +1397,12 @@ void RunCommands(Gfx* Commands, const std::vector<std::unordered_map<Mtx*, MtxF>
     UIWidgets::Colors themeColor =
         static_cast<UIWidgets::Colors>(CVarGetInteger("gSettings.Menu.Theme", UIWidgets::Colors::LightBlue));
     ImGui::PushStyleColor(ImGuiCol_TitleBgActive, UIWidgets::ColorValues.at(themeColor));
-    for (const auto& m : mtx_replacements) {
-        wnd->DrawAndRunGraphicsCommands(Commands, m);
+    for (int i = 0; i < count; i++) {
+        time += step;
+        std::unordered_map<Mtx*, MtxF> mtx_replacements =
+            (time == denom) ? std::unordered_map<Mtx*, MtxF>() : FrameInterpolation_Interpolate((float)time / denom);
+        intp->mInterpolationT = (float)time / denom;
+        wnd->DrawAndRunGraphicsCommands(Commands, mtx_replacements);
         intp->mInterpolationIndex++;
     }
     ImGui::PopStyleColor();
@@ -1410,14 +1416,13 @@ extern "C" void Graph_ProcessGfxCommands(Gfx* commands) {
     }
 
     audio.cv_to_thread.notify_one();
-    std::vector<std::unordered_map<Mtx*, MtxF>> mtx_replacements;
     int target_fps = OTRGlobals::Instance->GetInterpolationFPS();
     static int last_fps;
     static int last_update_rate;
     static int time;
     int fps = target_fps;
     int original_fps = 60 / R_UPDATE_RATE;
-    auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
+    auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
 
     if (target_fps == 20 || original_fps > target_fps) {
         fps = original_fps;
@@ -1430,13 +1435,11 @@ extern "C" void Graph_ProcessGfxCommands(Gfx* commands) {
     // time_base = fps * original_fps (one second)
     int next_original_frame = fps;
 
+    int start_time = time;
+    int count = 0;
     while (time + original_fps <= next_original_frame) {
         time += original_fps;
-        if (time != next_original_frame) {
-            mtx_replacements.push_back(FrameInterpolation_Interpolate((float)time / next_original_frame));
-        } else {
-            mtx_replacements.emplace_back();
-        }
+        count++;
     }
 
     time -= fps;
@@ -1445,13 +1448,15 @@ extern "C" void Graph_ProcessGfxCommands(Gfx* commands) {
         wnd->SetTargetFps(fps);
     }
 
+    int step = original_fps;
     // When the gfx debugger is active, only run with the final mtx
     if (GfxDebuggerIsDebugging()) {
-        mtx_replacements.clear();
-        mtx_replacements.emplace_back();
+        start_time = next_original_frame;
+        step = 0;
+        count = 1;
     }
 
-    RunCommands(commands, mtx_replacements);
+    RunCommands(commands, start_time, step, next_original_frame, count);
 
     last_fps = fps;
     last_update_rate = R_UPDATE_RATE;
@@ -1466,7 +1471,7 @@ extern "C" void Graph_ProcessGfxCommands(Gfx* commands) {
     bool curAltAssets = CVarGetInteger("gEnhancements.Mods.AlternateAssets", 0);
     if (prevAltAssets != curAltAssets) {
         prevAltAssets = curAltAssets;
-        Ship::Context::GetInstance()->GetResourceManager()->SetAltAssetsEnabled(curAltAssets);
+        Ship::Context::GetRawInstance()->GetResourceManager()->SetAltAssetsEnabled(curAltAssets);
         gfx_texture_cache_clear();
         PlayerCustomFlipbooks_Patch();
         SOH::SkeletonPatcher::UpdateSkeletons();
@@ -1485,7 +1490,7 @@ extern "C" void OTRGetPixelDepthPrepare(float x, float y) {
     // Invert the Y value to match the origin values used in the renderer
     float adjustedY = SCREEN_HEIGHT - y;
 
-    auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
+    auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
     if (wnd == nullptr) {
         return;
     }
@@ -1497,7 +1502,7 @@ extern "C" uint16_t OTRGetPixelDepth(float x, float y) {
     // Invert the Y value to match the origin values used in the renderer
     float adjustedY = SCREEN_HEIGHT - y;
 
-    auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
+    auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
     if (wnd == nullptr) {
         return 0;
     }
@@ -1506,20 +1511,20 @@ extern "C" uint16_t OTRGetPixelDepth(float x, float y) {
 }
 
 extern "C" bool ResourceMgr_IsAltAssetsEnabled() {
-    return Ship::Context::GetInstance()->GetResourceManager()->IsAltAssetsEnabled();
+    return Ship::Context::GetRawInstance()->GetResourceManager()->IsAltAssetsEnabled();
 }
 
 extern "C" uint32_t ResourceMgr_GetNumGameVersions() {
-    return Ship::Context::GetInstance()->GetResourceManager()->GetArchiveManager()->GetGameVersions().size();
+    return Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->GetGameVersions().size();
 }
 
 extern "C" uint32_t ResourceMgr_GetGameVersion(int index) {
-    return Ship::Context::GetInstance()->GetResourceManager()->GetArchiveManager()->GetGameVersions()[index];
+    return Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->GetGameVersions()[index];
 }
 
 extern "C" uint32_t ResourceMgr_GetGamePlatform(int index) {
     uint32_t version =
-        Ship::Context::GetInstance()->GetResourceManager()->GetArchiveManager()->GetGameVersions()[index];
+        Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->GetGameVersions()[index];
 
     switch (version) {
         case MM_NTSC_US_10:
@@ -1531,7 +1536,7 @@ extern "C" uint32_t ResourceMgr_GetGamePlatform(int index) {
 
 extern "C" uint32_t ResourceMgr_GetGameRegion(int index) {
     uint32_t version =
-        Ship::Context::GetInstance()->GetResourceManager()->GetArchiveManager()->GetGameVersions()[index];
+        Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->GetGameVersions()[index];
 
     switch (version) {
         case MM_NTSC_US_10:
@@ -1541,10 +1546,10 @@ extern "C" uint32_t ResourceMgr_GetGameRegion(int index) {
 }
 
 extern "C" void ResourceMgr_LoadDirectory(const char* resName) {
-    Ship::Context::GetInstance()->GetResourceManager()->LoadResources(resName);
+    Ship::Context::GetRawInstance()->GetResourceManager()->LoadResources(resName);
 }
 extern "C" void ResourceMgr_DirtyDirectory(const char* resName) {
-    Ship::Context::GetInstance()->GetResourceManager()->DirtyResources(resName);
+    Ship::Context::GetRawInstance()->GetResourceManager()->DirtyResources(resName);
 }
 
 extern "C" void ResourceMgr_UnloadResource(const char* resName) {
@@ -1552,7 +1557,7 @@ extern "C" void ResourceMgr_UnloadResource(const char* resName) {
     if (path.starts_with("__OTR__")) {
         path = path.substr(7);
     }
-    Ship::Context::GetInstance()->GetResourceManager()->UnloadResource(path);
+    Ship::Context::GetRawInstance()->GetResourceManager()->UnloadResource(path);
 }
 
 static void ResourceMgr_UnloadOriginalWhenAltExists(const char* resName) {
@@ -1569,7 +1574,7 @@ static void ResourceMgr_UnloadOriginalWhenAltExists(const char* resName) {
 // OTRTODO: There is probably a more elegant way to go about this...
 // Kenix: This is definitely leaking memory when it's called.
 extern "C" char** ResourceMgr_ListFiles(const char* searchMask, int* resultSize) {
-    auto lst = Ship::Context::GetInstance()->GetResourceManager()->GetArchiveManager()->ListFiles(searchMask);
+    auto lst = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->ListFiles(searchMask);
     char** result = (char**)malloc(lst->size() * sizeof(char*));
 
     for (size_t i = 0; i < lst->size(); i++) {
@@ -1593,11 +1598,11 @@ extern "C" uint8_t ResourceMgr_FileExists(const char* filePath) {
 }
 
 extern "C" void ResourceMgr_LoadFile(const char* resName) {
-    Ship::Context::GetInstance()->GetResourceManager()->LoadResource(resName);
+    Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(resName);
 }
 
 std::shared_ptr<Ship::IResource> GetResourceByName(const char* path) {
-    return Ship::Context::GetInstance()->GetResourceManager()->LoadResource(path);
+    return Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path);
 }
 
 extern "C" char* ResourceMgr_LoadFileFromDisk(const char* filePath) {
@@ -1675,6 +1680,12 @@ extern "C" char* ResourceMgr_LoadTexOrDListByName(const char* filePath) {
 extern "C" char* ResourceMgr_LoadIfDListByName(const char* filePath) {
     auto res = GetResourceByName(filePath);
 
+#ifdef COMBO_BUILD
+    // ComboShip: a miss returns null here; callers already treat a null return as "not a DList".
+    if (res == nullptr) {
+        return nullptr;
+    }
+#endif
     if (res->GetInitData()->Type == static_cast<uint32_t>(Fast::ResourceType::DisplayList))
         return (char*)&((std::static_pointer_cast<Fast::DisplayList>(res))->Instructions[0]);
 
@@ -1713,7 +1724,7 @@ std::unordered_map<std::string, std::unordered_map<std::string, GfxPatch>> origi
 // using OTRs instead (When that is available). Index can be found using the commented out section below.
 extern "C" void ResourceMgr_PatchGfxByName(const char* path, const char* patchName, int index, Gfx instruction) {
     auto res = std::static_pointer_cast<Fast::DisplayList>(
-        Ship::Context::GetInstance()->GetResourceManager()->LoadResource(path));
+        Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path));
 
     // Leaving this here for people attempting to find the correct Dlist index to patch
     /*if (strcmp("__OTR__objects/object_gi_longsword/gGiBiggoronSwordDL", path) == 0) {
@@ -1751,7 +1762,7 @@ extern "C" void ResourceMgr_PatchGfxByName(const char* path, const char* patchNa
 extern "C" void ResourceMgr_PatchGfxCopyCommandByName(const char* path, const char* patchName, int destinationIndex,
                                                       int sourceIndex) {
     auto res = std::static_pointer_cast<Fast::DisplayList>(
-        Ship::Context::GetInstance()->GetResourceManager()->LoadResource(path));
+        Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path));
 
     // Do not patch custom assets as they most likely do not have the same instructions as authentic assets
     if (res->GetInitData()->IsCustom) {
@@ -1771,7 +1782,7 @@ extern "C" void ResourceMgr_PatchGfxCopyCommandByName(const char* path, const ch
 extern "C" void ResourceMgr_UnpatchGfxByName(const char* path, const char* patchName) {
     if (originalGfx.contains(path) && originalGfx[path].contains(patchName)) {
         auto res = std::static_pointer_cast<Fast::DisplayList>(
-            Ship::Context::GetInstance()->GetResourceManager()->LoadResource(path));
+            Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path));
 
         Gfx* gfx = (Gfx*)&res->Instructions[originalGfx[path][patchName].index];
         *gfx = originalGfx[path][patchName].instruction;
@@ -1793,7 +1804,7 @@ extern "C" void ResourceMgr_ResetAllPatchesForDL(const char* path) {
     }
 
     auto res = std::static_pointer_cast<Fast::DisplayList>(
-        Ship::Context::GetInstance()->GetResourceManager()->LoadResource(path));
+        Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path));
 
     // Iterate through all patches and restore original instructions
     auto& patches = originalGfx[path];
@@ -1916,7 +1927,7 @@ extern "C" SoundFontSample* ReadCustomSample(const char* path) {
 
         ExtensionEntry entry = ExtensionCache[path];
 
-        auto sampleRaw = Ship::Context::GetInstance()->GetResourceManager()->LoadFile(entry.path);
+        auto sampleRaw = Ship::Context::GetRawInstance()->GetResourceManager()->LoadFile(entry.path);
         uint32_t* strem = (uint32_t*)sampleRaw->Buffer.get();
         uint8_t* strem2 = (uint8_t*)strem;
 
@@ -2098,7 +2109,7 @@ ImFont* OTRGlobals::CreateFontWithSize(float size, std::string fontPath) {
         initData->ResourceVersion = 0;
         initData->Path = fontPath;
         std::shared_ptr<Ship::Font> fontData = std::static_pointer_cast<Ship::Font>(
-            Ship::Context::GetInstance()->GetResourceManager()->LoadResource(fontPath, false, initData));
+            Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(fontPath, false, initData));
         ImFontConfig fontConf;
         fontConf.FontDataOwnedByAtlas = false;
         font = mImGuiIo->Fonts->AddFontFromMemoryTTF(fontData->Data, fontData->DataSize, size, &fontConf, nullptr);
@@ -2309,13 +2320,13 @@ Color_RGB8 GetColorForControllerLED() {
 extern "C" void OTRControllerCallback(uint8_t rumble) {
     // We call this every tick, SDL accounts for this use and prevents driver spam
     // https://github.com/libsdl-org/SDL/blob/f17058b562c8a1090c0c996b42982721ace90903/src/joystick/SDL_joystick.c#L1114-L1144
-    Ship::Context::GetInstance()->GetControlDeck()->GetControllerByPort(0)->GetLED()->SetLEDColor(
+    Ship::Context::GetRawInstance()->GetControlDeck()->GetControllerByPort(0)->GetLED()->SetLEDColor(
         GetColorForControllerLED());
 
     static std::shared_ptr<BenInputEditorWindow> controllerConfigWindow = nullptr;
     if (controllerConfigWindow == nullptr) {
         controllerConfigWindow = std::dynamic_pointer_cast<BenInputEditorWindow>(
-            Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGuiWindow("2S2H Input Editor"));
+            Ship::Context::GetRawInstance()->GetWindow()->GetGui()->GetGuiWindow("2S2H Input Editor"));
         // note: the current implementation may not be desired in LUS, as "true" rumble support
         //    using osMotor calls is planned: https://github.com/Kenix3/libultraship/issues/9
     }
@@ -2325,18 +2336,18 @@ extern "C" void OTRControllerCallback(uint8_t rumble) {
 
     // TODO: other ports?
     if (rumble) {
-        Ship::Context::GetInstance()->GetControlDeck()->GetControllerByPort(0)->GetRumble()->StartRumble();
+        Ship::Context::GetRawInstance()->GetControlDeck()->GetControllerByPort(0)->GetRumble()->StartRumble();
     } else {
-        Ship::Context::GetInstance()->GetControlDeck()->GetControllerByPort(0)->GetRumble()->StopRumble();
+        Ship::Context::GetRawInstance()->GetControlDeck()->GetControllerByPort(0)->GetRumble()->StopRumble();
     }
 }
 
 extern "C" float OTRGetAspectRatio() {
-    return Ship::Context::GetInstance()->GetWindow()->GetAspectRatio();
+    return Ship::Context::GetRawInstance()->GetWindow()->GetAspectRatio();
 }
 
 extern "C" float OTRGetDimensionFromLeftEdge(float v) {
-    auto fastWnd = dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
+    auto fastWnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
     auto intP = fastWnd->GetInterpreterWeak().lock();
 
     if (!intP) {
@@ -2350,7 +2361,7 @@ extern "C" float OTRGetDimensionFromLeftEdge(float v) {
 }
 
 extern "C" float OTRGetDimensionFromRightEdge(float v) {
-    auto fastWnd = dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
+    auto fastWnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
     auto intP = fastWnd->GetInterpreterWeak().lock();
 
     if (!intP) {
@@ -2366,7 +2377,7 @@ extern "C" float OTRGetDimensionFromRightEdge(float v) {
 
 // Gets the width of the current render target area
 extern "C" uint32_t OTRGetGameRenderWidth() {
-    auto fastWnd = dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
+    auto fastWnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
     auto intP = fastWnd->GetInterpreterWeak().lock();
 
     if (!intP) {
@@ -2382,7 +2393,7 @@ extern "C" uint32_t OTRGetGameRenderWidth() {
 
 // Gets the height of the current render target area
 extern "C" uint32_t OTRGetGameRenderHeight() {
-    auto fastWnd = dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
+    auto fastWnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
     auto intP = fastWnd->GetInterpreterWeak().lock();
 
     if (!intP) {
@@ -2423,7 +2434,7 @@ Calling with Y (1,1) will return 10
 . . . _ _ _ _ _ _ _ _ . . .
 */
 extern "C" int32_t OTRConvertHUDXToScreenX(int32_t v) {
-    auto fastWnd = dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow());
+    auto fastWnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
     auto intP = fastWnd->GetInterpreterWeak().lock();
 
     if (!intP) {
@@ -2450,7 +2461,7 @@ extern "C" int32_t OTRConvertHUDXToScreenX(int32_t v) {
 }
 
 extern "C" void Gfx_RegisterBlendedTexture(const char* name, u8* mask, u8* replacement) {
-    if (auto intP = dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow())
+    if (auto intP = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow())
                         ->GetInterpreterWeak()
                         .lock()) {
         intP->RegisterBlendedTexture(name, mask, replacement);
@@ -2460,7 +2471,7 @@ extern "C" void Gfx_RegisterBlendedTexture(const char* name, u8* mask, u8* repla
 }
 
 extern "C" void Gfx_UnregisterBlendedTexture(const char* name) {
-    if (auto intP = dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow())
+    if (auto intP = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow())
                         ->GetInterpreterWeak()
                         .lock()) {
         intP->UnregisterBlendedTexture(name);
@@ -2480,7 +2491,7 @@ extern "C" void Gfx_TextureCacheDelete(const uint8_t* texAddr) {
         texAddr = (const uint8_t*)ResourceGetDataByName(imgName);
     }
 
-    if (auto intP = dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetInstance()->GetWindow())
+    if (auto intP = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow())
                         ->GetInterpreterWeak()
                         .lock()) {
         intP->TextureCacheDelete(texAddr);
@@ -2503,7 +2514,7 @@ extern "C" void AudioPlayer_Play(const uint8_t* buf, uint32_t len) {
 
 extern "C" int Controller_ShouldRumble(size_t slot) {
     // don't rumble if we don't have rumble mappings
-    if (Ship::Context::GetInstance()
+    if (Ship::Context::GetRawInstance()
             ->GetControlDeck()
             ->GetControllerByPort(static_cast<uint8_t>(slot))
             ->GetRumble()
@@ -2513,7 +2524,7 @@ extern "C" int Controller_ShouldRumble(size_t slot) {
     }
 
     // don't rumble if we don't have connected gamepads
-    if (Ship::Context::GetInstance()
+    if (Ship::Context::GetRawInstance()
             ->GetControlDeck()
             ->GetConnectedPhysicalDeviceManager()
             ->GetConnectedSDLGamepadsForPort(slot)
@@ -2602,6 +2613,12 @@ extern "C" void Combo_AdoptOOTGlobalOptions(void) {
 // C-callable wrapper used by title_setup.c (which is a C file) to load a MM save from disk.
 extern "C" void Combo_LoadMMSaveFile(int mmFileNum) {
     SaveManager_LoadSaveFile(mmFileNum);
+    // No vanilla mode in ComboShip: a non-rando save means the slot was created wrong, and every
+    // IS_RANDO hook stays unregistered (COND_HOOK tests the condition once, at OnSaveLoad).
+    if (gSaveContext.save.shipSaveInfo.saveType != SAVETYPE_RANDO) {
+        SPDLOG_ERROR("[ComboShip] MM save file{} is not SAVETYPE_RANDO — rando behavior is disabled for this slot",
+                     mmFileNum);
+    }
 }
 
 extern "C" void MM_RunMain(void);
@@ -2671,7 +2688,7 @@ extern "C" COMBO_EXPORT void MM_PrepareForTransition(void) {
 // ComboShip: OOT->MM return. Re-enter MM's game loop on the same shared context/window and jump
 // straight to Play in South Clock Town for the given slot. Counterpart to OOT's SOH_ResumeGame.
 extern "C" COMBO_EXPORT void MM_ResumeGame(int fileNum) {
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     ctx->GetLogger()->flush_on(spdlog::level::trace);
     SPDLOG_INFO("[ComboShip] MM_ResumeGame: begin (fileNum={})", fileNum);
 
@@ -2715,19 +2732,15 @@ extern "C" COMBO_EXPORT void MM_ResumeGame(int fileNum) {
 }
 #endif
 
-// ComboShip: write a default MM save for the given OOT slot (0-indexed) to disk. Called when OOT
-// creates a new save, so MM has a matching save ready for the transition. ootName8 is the
-// OOT-entered file name (8 font-code bytes, same charset as MM); may be null.
-extern "C" COMBO_EXPORT void MM_InitSaveFile(int fileNum, const unsigned char* ootName8) {
-    // fileNum is OOT's 0-indexed slot; MM save files are 1-indexed (file1.json, file2.json, file3.json)
-    SaveManager_InitNewSaveForSlot(fileNum + 1, ootName8);
-}
+#ifdef COMBO_BUILD
+// ComboShip: everything to the matching #endif is combo-only (MM_*/Combo_MM_* exports + their
+// statics). Guarded so an upstream merge can see the whole added region at a glance.
 
 // ComboShip: bring the MM save for the given OOT slot (0-indexed) into MM's dormant gSaveContext, so
 // the tracker peek shows real items before MM is visited this session. Same headless load path
 // title_setup.c runs on resume (no gPlayState needed).
 extern "C" COMBO_EXPORT void MM_LoadSaveForCombo(int fileNum) {
-    SaveManager_LoadSaveFile(fileNum + 1);
+    Combo_LoadMMSaveFile(fileNum + 1); // shares the saveType tripwire
 }
 
 static void Combo_MM_ApplyCheckPrices();
@@ -2746,9 +2759,10 @@ extern "C" COMBO_EXPORT void MM_SetComboRandoSeed(uint64_t seed) {
 // The combo layer owns placement, so we do NOT run MM's own generator. We build the playable baseline
 // (South Clock Town, post-first-cycle Human Link), mark the save SAVETYPE_RANDO, and feed the placement
 // through Rando::Spoiler::ApplyToSaveContext. Headless-safe: never calls GrantStartingItems / Item_Give
-// (those need gPlayState). Falls back to a vanilla save on any error.
-extern "C" COMBO_EXPORT void MM_InitRandoSaveFile(int fileNum, const char* placementJson,
-                                                  const unsigned char* ootName8) {
+// (those need gPlayState). Returns 0 on success, nonzero if no placements applied — the save stays
+// SAVETYPE_RANDO either way, since a vanilla one disables every IS_RANDO hook.
+extern "C" COMBO_EXPORT int MM_InitRandoSaveFile(int fileNum, const char* placementJson,
+                                                          const unsigned char* ootName8) {
     // Playable combo baseline first (Human Link, South Clock Town, ocarina/songs, etc.).
     SaveManager_InitNewSaveForSlot(fileNum + 1, ootName8);
     // Sram_InitNewSave (inside the call above) resets fileNum; restore it so SaveManager_SaveCurrentForCombo
@@ -2756,8 +2770,10 @@ extern "C" COMBO_EXPORT void MM_InitRandoSaveFile(int fileNum, const char* place
     gSaveContext.fileNum = (s16)fileNum;
 
     if (!placementJson || placementJson[0] == '\0') {
-        SPDLOG_WARN("[ComboShip] MM_InitRandoSaveFile: no placement for slot {}; left vanilla MM save", fileNum);
-        return;
+        SPDLOG_ERROR("[ComboShip] MM_InitRandoSaveFile: no placement for slot {}", fileNum);
+        gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_RANDO;
+        SaveManager_SaveCurrentForCombo();
+        return -1;
     }
 
     // Mark the save as rando and zero the rando struct (mirrors Rando::MiscBehavior::OnFileCreate).
@@ -2857,17 +2873,19 @@ extern "C" COMBO_EXPORT void MM_InitRandoSaveFile(int fileNum, const char* place
         SPDLOG_INFO("[ComboShip] MM_InitRandoSaveFile: applied {} placements for slot {}", spoiler["checks"].size(),
                     fileNum);
     } catch (const std::exception& e) {
-        SPDLOG_ERROR("[ComboShip] MM_InitRandoSaveFile: {} — falling back to vanilla save for slot {}", e.what(),
-                     fileNum);
-        // Rebuild the playable baseline: the rando strips above already ran, and a stripped save
-        // persisted as vanilla (no sword/ocarina/magic) would soft-lock the slot.
+        SPDLOG_ERROR("[ComboShip] MM_InitRandoSaveFile: {} — slot {} has no placements", e.what(), fileNum);
+        // Rebuild the playable baseline: the rando strips above already ran, and persisting a stripped
+        // save (no sword/ocarina/magic) would soft-lock the slot. Stays SAVETYPE_RANDO on purpose.
         SaveManager_InitNewSaveForSlot(fileNum + 1, ootName8);
         gSaveContext.fileNum = (s16)fileNum;
-        gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_VANILLA;
+        gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_RANDO;
+        SaveManager_SaveCurrentForCombo();
+        return -1;
     }
 
-    // Persist the (rando) save to the slot file.
+    // Persist the rando save to the slot file.
     SaveManager_SaveCurrentForCombo();
+    return 0;
 }
 
 // ComboShip (issue #1): cross-game erase seam. A save slot is one combined OOT+MM playthrough, so
@@ -3031,9 +3049,16 @@ extern "C" COMBO_EXPORT const char* MM_DumpRandoSettings(void) {
         if (opt.cvar && opt.cvar[0])
             j[opt.cvar] = (int)CVarGetInteger(opt.cvar, opt.defaultValue);
     }
-    // Excluded-checks CSV is a string CVar outside the options walk; GeneratePools parses it, so a
-    // replayed spoiler must carry it or local exclusions leak in (GAP-7 mirror).
-    j["gRando.ExcludedChecks"] = CVarGetString("gRando.ExcludedChecks", "");
+    // Excluded checks are a JSON-array config block of RC_ names (upstream #1817) outside the options
+    // walk; GeneratePools reads them, so a replayed spoiler must carry them or local exclusions leak
+    // in (GAP-7 mirror).
+    nlohmann::json ec = nlohmann::json::array();
+    for (RandoCheckId rcid : Rando::GetExcludedChecksFromConfig()) {
+        auto cit = Rando::StaticData::Checks.find(rcid); // find, not [] — Checks is a std::map
+        if (cit != Rando::StaticData::Checks.end() && cit->second.name && cit->second.name[0])
+            ec.push_back(cit->second.name);
+    }
+    j["gRando.ExcludedChecks"] = ec;
     // Starting items are a JSON-array config block (not a flat CVar); carry them so a joiner's save
     // uses the author's kit instead of local defaults.
     nlohmann::json si = nlohmann::json::array();
@@ -3055,8 +3080,17 @@ extern "C" COMBO_EXPORT void MM_RestoreRandoSettings(const char* json) {
         return;
     try {
         auto j = nlohmann::json::parse(json);
-        // Snapshot is authoritative: pre-clear so pre-GAP-7 spoilers don't inherit local exclusions.
-        CVarSetString("gRando.ExcludedChecks", "");
+        // Excluded checks: authoritative RC_-name array from the seed (skipped in the loop below). The
+        // snapshot wins outright, so an absent list clears local exclusions (pre-GAP-7 spoilers).
+        std::vector<RandoCheckId> excluded;
+        if (j.contains("gRando.ExcludedChecks") && j["gRando.ExcludedChecks"].is_array()) {
+            for (auto& n : j["gRando.ExcludedChecks"]) {
+                auto rcid = Rando::StaticData::GetCheckIdFromName(n.get<std::string>().c_str());
+                if (rcid > RC_UNKNOWN && rcid < RC_MAX)
+                    excluded.push_back(rcid);
+            }
+        }
+        Rando::SetExcludedChecksInConfig(excluded);
         // Starting items: authoritative array from the seed (handled here, skipped in the loop).
         if (j.contains("gRando.StartingItems") && j["gRando.StartingItems"].is_array()) {
             std::vector<RandoItemId> items;
@@ -3068,7 +3102,7 @@ extern "C" COMBO_EXPORT void MM_RestoreRandoSettings(const char* json) {
             Rando::SetStartingItemsInConfig(items);
         }
         for (auto it = j.begin(); it != j.end(); ++it) {
-            if (it.key() == "gRando.StartingItems")
+            if (it.key() == "gRando.StartingItems" || it.key() == "gRando.ExcludedChecks")
                 continue;
             if (it.value().is_string())
                 CVarSetString(it.key().c_str(), it.value().get<std::string>().c_str());
@@ -3138,17 +3172,21 @@ extern "C" COMBO_EXPORT const char* MM_DumpRandoStaticData(void) {
     std::vector<RandoItemId> itemPool;
     Rando::Logic::GeneratePools(saveInfo, checkPool, itemPool);
 
-    // Capture the prices GeneratePools rolled into this (otherwise discarded) saveInfo — the full
-    // native fresh-generation price state, not just the shop/tingle subset 2Ship's own spoiler keeps.
+    // Capture the prices GeneratePools rolled into this (otherwise discarded) saveInfo. It rolls one per
+    // shuffled check, not just purchaseable ones (upstream), so only shops/tingle reach the spoiler.
     sMMComboCheckPrices.clear();
     for (auto& [id, chk] : Rando::StaticData::Checks) {
         uint16_t p = saveInfo.randoSaveChecks[id].price;
-        if (p != 0) {
-            sMMComboCheckPrices[id] = p;
-            const std::string& cn = Rando::StaticData::GetCheckDisplayName(id); // ComboShip: friendly name
-            if (!cn.empty())
-                prices[cn] = p;
+        if (p == 0) {
+            continue;
         }
+        sMMComboCheckPrices[id] = p;
+        if (chk.randoCheckType != RCTYPE_SHOP && chk.randoCheckType != RCTYPE_TINGLE_SHOP) {
+            continue;
+        }
+        const std::string& cn = Rando::StaticData::GetCheckDisplayName(id); // ComboShip: friendly name
+        if (!cn.empty())
+            prices[cn] = p;
     }
 
     // Confine own-dungeon items via MM's own logic (writes RANDO_SAVE_CHECKS, shrinks both pools).
@@ -3164,6 +3202,34 @@ extern "C" COMBO_EXPORT const char* MM_DumpRandoStaticData(void) {
     // RI_TRAP is RITYPE_LESSER but never gates logic — class it junk like OOT's traps.
     auto isAdvancement = [](const auto& it) {
         return it.randoItemType != RITYPE_JUNK && it.randoItemType != RITYPE_HEALTH && it.randoItemId != RI_TRAP;
+    };
+
+    // ComboShip: native category, so the cross fill can trim ONLY junk — `advancement` alone can't say
+    // that (it lumps junk with hearts/traps). Unknown maps to "major" so it is never trimmable.
+    auto categoryName = [](const auto& it) -> const char* {
+        switch (it.randoItemType) {
+            case RITYPE_JUNK:
+                return "junk";
+            case RITYPE_LESSER:
+                return "lesser";
+            case RITYPE_HEALTH:
+                return "health";
+            case RITYPE_BOSS_KEY:
+                return "bossKey";
+            case RITYPE_SMALL_KEY:
+                return "smallKey";
+            case RITYPE_SKULLTULA_TOKEN:
+                return "token";
+            case RITYPE_MAJOR:
+                return "major";
+            case RITYPE_MASK:
+                return "mask";
+            case RITYPE_STRAY_FAIRY:
+                return "strayFairy";
+            case RITYPE_MAX:
+                break;
+        }
+        return "major"; // no default: a new RITYPE_ must warn, not silently become non-discardable
     };
 
     // Confined pre-placements -> fixed[] (removed checks = checkPoolBefore minus checkPool).
@@ -3217,8 +3283,9 @@ extern "C" COMBO_EXPORT const char* MM_DumpRandoStaticData(void) {
         if (it == Rando::StaticData::Items.end() || !it->second.spoilerName || it->second.spoilerName[0] == '\0')
             continue;
         // ComboShip: friendly item name for the normalized combo spoiler.
-        pool.push_back(
-            { { "name", Rando::StaticData::GetItemDisplayName(iid) }, { "advancement", isAdvancement(it->second) } });
+        pool.push_back({ { "name", Rando::StaticData::GetItemDisplayName(iid) },
+                         { "advancement", isAdvancement(it->second) },
+                         { "category", categoryName(it->second) } });
     }
 
     for (auto& [id, item] : Rando::StaticData::Items) {
@@ -3228,9 +3295,12 @@ extern "C" COMBO_EXPORT const char* MM_DumpRandoStaticData(void) {
         // "displayName" is the human string for toasts/shops in the OTHER game (suffixed there).
         // advancement drives whether a foreign item plays the held-up pickup animation.
         // ComboShip: "trap" lets the cross-world layer disguise a foreign trap in the other game.
+        // ComboShip: "trickNames" are MM's curated fake names, so a foreign trap disguised as this
+        // item can lie with a real near-miss name instead of a letter-doubled one.
         nlohmann::json entry = { { "name", Rando::StaticData::GetItemDisplayName(id) },
                                  { "advancement", isAdvancement(item) },
-                                 { "trap", id == RI_TRAP } };
+                                 { "trap", id == RI_TRAP },
+                                 { "trickNames", Rando::StaticData::GetTrickNames(id) } };
         if (item.name && item.name[0] != '\0') {
             entry["displayName"] = item.name;
         }
@@ -3972,6 +4042,7 @@ extern "C" COMBO_EXPORT void Combo_MM_Rando_Restore(void) {
     gCurrentRegionTime = sMM_OracleSavedRegionTime;
     sMM_OracleActive = false;
 }
+#endif // COMBO_BUILD — combo-only region opened above MM_LoadSaveForCombo
 
 #ifdef COMBO_BUILD
 // ComboShip: cross-game item-draw exports (MM_GetItemDrawInfo / MM_GetItemAnimDrawInfo). Bodies
@@ -4049,7 +4120,7 @@ extern "C" COMBO_EXPORT void MM_ApplyAudioVolume(int32_t seqPlayerIndex, float v
 // only re-reads on Init / this call), so a rebind made while MM was dormant is not picked up until MM
 // reloads. The combo layer calls this when MM becomes the foreground game. Reloads all populated ports.
 extern "C" COMBO_EXPORT void MM_ReloadControls(void) {
-    auto controlDeck = Ship::Context::GetInstance()->GetControlDeck();
+    auto controlDeck = Ship::Context::GetRawInstance()->GetControlDeck();
     if (!controlDeck)
         return;
     for (uint8_t port = 0; port < 4; ++port) {
@@ -4116,7 +4187,7 @@ extern "C" bool Ship_HandleConsoleCrashAsReset() {
     }
 
     std::reinterpret_pointer_cast<Ship::ConsoleWindow>(
-        Ship::Context::GetInstance()->GetWindow()->GetGui()->GetGuiWindow("Console"))
+        Ship::Context::GetRawInstance()->GetWindow()->GetGui()->GetGuiWindow("Console"))
         ->Dispatch("reset");
 
     Notification::Emit({

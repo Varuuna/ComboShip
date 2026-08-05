@@ -90,7 +90,7 @@ void ScanForRoms(const std::filesystem::path& dir, std::vector<std::string>& out
 // ImGui's GImGui is a per-module global; point comboui's at the shared libultraship context
 // (same pattern as ComboMenu.cpp) before any ImGui call.
 void UseSharedImGuiContext() {
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     if (ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
         ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
     }
@@ -102,7 +102,7 @@ extern "C" COMBO_EXPORT int ComboUI_RunExtraction(const ComboExtractCallbacks* c
     if (!cb) {
         return 0;
     }
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
         return 0;
     }

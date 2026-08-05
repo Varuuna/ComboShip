@@ -2,28 +2,29 @@
   "_comment": "Last-merged upstream SHA per vendored folder. Source of truth for scripts/upstream-merge.ps1 and the CI upstream-check workflow. Update as the FINAL step of every merge pass. See docs/UPSTREAM_MERGES.md.",
   "upstreams": {
     "libultraship": {
+      "_note": "Tracks port-maintenance, NOT main: soh/2ship/Lighthouse all pin commits on this branch, while main has diverged into refactors no port carries. See docs/UPSTREAM_MERGES.md.",
       "remote": "https://github.com/Kenix3/libultraship.git",
-      "branch": "main",
+      "branch": "port-maintenance",
       "prefix": "libultraship",
       "subtree": "",
-      "mergedSha": "a3f1e102e",
-      "mergedDate": "2026-06-15"
+      "mergedSha": "bbb565bd9",
+      "mergedDate": "2026-08-01"
     },
     "soh": {
       "remote": "https://github.com/HarbourMasters/Shipwright.git",
       "branch": "develop",
       "prefix": "soh",
       "subtree": "soh",
-      "mergedSha": "1ea720607",
-      "mergedDate": "2026-07-20"
+      "mergedSha": "5a57a0cbc",
+      "mergedDate": "2026-08-01"
     },
     "mm": {
       "remote": "https://github.com/HarbourMasters/2ship2harkinian.git",
       "branch": "develop",
       "prefix": "mm",
       "subtree": "mm",
-      "mergedSha": "ed47d2ec9",
-      "mergedDate": "2026-07-20"
+      "mergedSha": "ce4bf03ab",
+      "mergedDate": "2026-08-01"
     },
     "ZAPDTR": {
       "manual": true,

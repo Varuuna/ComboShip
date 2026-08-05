@@ -50,12 +50,11 @@
 #include "soh/Enhancements/randomizer/Traps.h" // ComboShip: Rando::Traps::CanBeTrapModel for disguise curation
 #include "soh/Enhancements/randomizer/3drando/fill.hpp"
 #include "soh/Enhancements/randomizer/3drando/shops.hpp"
-#include "soh/Enhancements/randomizer/3drando/random.hpp"
+#include "soh/Enhancements/randomizer/rng.h"
 #include "soh/Enhancements/randomizer/location_access.h"
 #include "soh/Enhancements/randomizer/3drando/item_pool.hpp"
 #include "soh/Enhancements/randomizer/3drando/starting_inventory.hpp"
-#include "soh/Enhancements/randomizer/3drando/pool_functions.hpp" // ComboShip: AddElementsToPool
-#include "soh/Enhancements/randomizer/entrance.h"                 // ComboShip: ENTRANCE_SHUFFLE_FAILURE
+#include "soh/Enhancements/randomizer/entrance.h"        // ComboShip: ENTRANCE_SHUFFLE_FAILURE
 #include "soh/Enhancements/randomizer/3drando/hints.hpp" // ComboShip: CreateChildAltarHint/CreateAdultAltarHint
 #include "soh/Enhancements/randomizer/randomizer_check_objects.h" // ComboShip: GetRCAreaName/AreaIsDungeon for hint dump
 #include "soh/Enhancements/randomizer/trial.h"                    // ComboShip: GetTrials() for resolved trial dump
@@ -108,7 +107,7 @@
 #include "soh/Network/CrowdControl/CrowdControl.h"
 #include "soh/Network/Sail/Sail.h"
 #include "soh/Network/Anchor/Anchor.h"
-#include "soh/util.h"                                // ComboShip: SohUtils::GetSceneName for the Anchor roster export
+#include "soh/util.h" // ComboShip: SohUtils::GetSceneName (Anchor roster), AppendVector (entrance-shuffle pool)
 #include "soh/Enhancements/randomizer/SeedContext.h" // ComboShip: Rando::Context::GetSeed for roster seed-mismatch
 #include "Enhancements/game-interactor/GameInteractor.h"
 #include "Enhancements/randomizer/draw.h"
@@ -381,14 +380,14 @@ OTRGlobals::OTRGlobals() {
     // ImGui's current-context global (GImGui) is a per-module static. libultraship.dll created
     // the context inside InitWindow; point this DLL's GImGui at it before any ImGui use here
     // (e.g. CreateFontWithSize below), or ImGui::GetIO() asserts on a null context.
-    ImGui::SetCurrentContext(context->GetInstance()->GetWindow()->GetGui()->GetImGuiContext());
+    ImGui::SetCurrentContext(context->GetWindow()->GetGui()->GetImGuiContext());
 #endif
 
     SohGui::SetupMenu();
 
     if (sohArchiveVersionMatch) {
 
-        auto overlay = context->GetRawInstance()->GetWindow()->GetGui()->GetGameOverlay();
+        auto overlay = context->GetWindow()->GetGui()->GetGameOverlay();
         overlay->LoadFont("Press Start 2P", 12.0f, "fonts/PressStart2P-Regular.ttf");
         overlay->LoadFont("Fipps", 32.0f, "fonts/Fipps-Regular.otf");
         overlay->SetCurrentFont(CVarGetString(CVAR_GAME_OVERLAY_FONT, "Press Start 2P"));
@@ -1749,6 +1748,21 @@ static void Combo_FinishInit() {
     conf->RegisterVersionUpdater(std::make_shared<SOH::ConfigVersion7Updater>());
     conf->RunVersionUpdates();
 
+#ifdef COMBO_BUILD
+    // ComboShip: SoH's old float leaf clashes with 2Ship's LinkVoiceFreqMultiplier.{Enable,Scale}
+    // children (Config::Save unflatten throws); migrate it to the .Scale child once and persist
+    // immediately (a mid-session ConsoleVariable::Load would otherwise resurrect it from disk).
+    static const char* kOldVoicePitchCVar = "gAudioEditor.LinkVoiceFreqMultiplier";
+    if (OTRGlobals::Instance->context->GetConsoleVariables()->Get(kOldVoicePitchCVar) != nullptr) {
+        float oldPitch = CVarGetFloat(kOldVoicePitchCVar, (float)CVarGetInteger(kOldVoicePitchCVar, 0));
+        CVarClear(kOldVoicePitchCVar);
+        if (oldPitch > 0.0f) {
+            CVarSetFloat(CVAR_LINK_VOICE_FREQ_MULTIPLIER, oldPitch);
+        }
+        CVarSave();
+    }
+#endif
+
     SohGui::SetupGuiElements();
     SohGui::SetupMenuElements();
 
@@ -1882,6 +1896,9 @@ extern "C" void DeinitOTR() {
 #endif
 
     OTRGlobals::Instance->context = nullptr;
+    // Destroys the Context (libultraship owns it since #1103). Was previously implicit: soh dropped
+    // the last shared_ptr. Must stay here — MM_Deinit runs first and only clears its own pointer.
+    Ship::Context::DestroyInstance();
 #ifdef COMBO_BUILD
     // ComboShip: ~Context ran ImGui::DestroyContext, but that only nulls libultraship's GImGui —
     // this DLL's module-local GImGui still points at the freed context. soh statics destroyed at
@@ -2072,6 +2089,7 @@ void RunCommands(Gfx* Commands, int time, int step, int denom, int count) {
         time += step;
         std::unordered_map<Mtx*, MtxF> mtx_replacements =
             (time == denom) ? std::unordered_map<Mtx*, MtxF>() : FrameInterpolation_Interpolate((float)time / denom);
+        intp->mInterpolationT = (float)time / denom;
         wnd->DrawAndRunGraphicsCommands(Commands, mtx_replacements);
         intp->mInterpolationIndex++;
     }
@@ -3112,7 +3130,7 @@ extern "C" s32 gComboReturnFileNum = -1;
 
 // Re-activate OOT's resources and re-init the pieces SOH_PrepareForTransition tore down.
 static void SOH_ReinitForResume() {
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
 
     // Re-activate OOT's own ResourceManager. Its archives, factories, and resource cache stayed
     // resident the entire time MM was running (MM used its own RM), so nothing was unloaded and no
@@ -3296,7 +3314,7 @@ extern "C" COMBO_EXPORT int32_t SOH_MenuDrawWidget(int32_t i, int32_t width) {
 extern "C" bool WindowIsRunning(void);
 
 extern "C" COMBO_EXPORT void SOH_ResumeGame(void) {
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     // Flush every log line immediately so the resume diagnostics survive a hard crash (the console
     // window closes on crash; the log file is what we read afterward).
     ctx->GetLogger()->flush_on(spdlog::level::trace);
@@ -3337,7 +3355,7 @@ extern "C" COMBO_EXPORT void SOH_ResumeGame(void) {
 // Restores OOT's RM/audio/GUI/menu so OOT's first real boot (SOH_RunMain) renders correctly. Like
 // SOH_ResumeGame minus the frame-loop reset and game loop — SOH_RunMain runs the loop.
 extern "C" COMBO_EXPORT void SOH_ResumeForeground(void) {
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     SOH_ReinitForResume(); // OOT RM active, OOT audio, OOT GUI + menu
     // Re-sync this DLL's ImGui current-context (GImGui is per-module).
     ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
@@ -3754,7 +3772,7 @@ extern "C" COMBO_EXPORT int SOH_ShuffleEntrancesForCombo(uint64_t seed) {
             GenerateItemPool(); // ValidateEntrances' all-items pass reads itemPool; self-clears
             GenerateStartingInventory();
             // Temp shop items (worst-case shopsanity) for world validation, as Fill() does.
-            AddElementsToPool(itemPool, GetMinVanillaShopItems(8));
+            SohUtils::AppendVector(itemPool, GetMinVanillaShopItems(8));
             Random_Init(seed + retry);
             int ret = ctx->GetEntranceShuffler()->ShuffleAllEntrances();
             std::erase_if(itemPool, [](const auto item) {
@@ -3823,6 +3841,28 @@ extern "C" COMBO_EXPORT const char* SOH_DumpRandoStaticData(void) {
         if (rg == RG_PIECE_OF_HEART || rg == RG_HEART_CONTAINER || rg == RG_TREASURE_GAME_HEART)
             return false;
         return Rando::StaticData::RetrieveItem(rg).IsAdvancement();
+    };
+
+    // ComboShip: native category, so the cross fill can trim ONLY junk — `advancement` alone can't say
+    // that (it lumps junk with hearts/traps). Unknown maps to "major" so it is never trimmable.
+    auto comboCategory = [](RandomizerGet rg) -> const char* {
+        switch (Rando::StaticData::RetrieveItem(rg).GetCategory()) {
+            case ITEM_CATEGORY_JUNK:
+                return "junk";
+            case ITEM_CATEGORY_LESSER:
+                return "lesser";
+            case ITEM_CATEGORY_HEALTH:
+                return "health";
+            case ITEM_CATEGORY_BOSS_KEY:
+                return "bossKey";
+            case ITEM_CATEGORY_SMALL_KEY:
+                return "smallKey";
+            case ITEM_CATEGORY_SKULLTULA_TOKEN:
+                return "token";
+            case ITEM_CATEGORY_MAJOR:
+                return "major";
+        }
+        return "major";
     };
 
     bool usedPool = false;
@@ -3894,7 +3934,10 @@ extern "C" COMBO_EXPORT const char* SOH_DumpRandoStaticData(void) {
             const std::string& in = Rando::StaticData::RetrieveItem(rg).GetName().GetEnglish();
             if (in.empty())
                 continue;
-            pool.push_back({ { "name", in }, { "advancement", comboIsAdv(rg) }, { "major", isMajor(rg) } });
+            pool.push_back({ { "name", in },
+                             { "advancement", comboIsAdv(rg) },
+                             { "major", isMajor(rg) },
+                             { "category", comboCategory(rg) } });
         }
         // itemPool excludes shop slots (CountEmptyLocations(false)); shuffled shop checks are covered
         // by junk, exactly like native FastFill's GetJunkItem() padding — Buy items stay shop-only.
@@ -3902,7 +3945,8 @@ extern "C" COMBO_EXPORT const char* SOH_DumpRandoStaticData(void) {
             RandomizerGet jg = GetJunkItem();
             pool.push_back({ { "name", Rando::StaticData::RetrieveItem(jg).GetName().GetEnglish() },
                              { "advancement", comboIsAdv(jg) },
-                             { "major", isMajor(jg) } });
+                             { "major", isMajor(jg) },
+                             { "category", comboCategory(jg) } });
         }
         // Rolled prices (set by ComboFillConfined at Fill()'s native position) for every priced
         // check type — the consolidated spoiler carries these so the validator/reload never guess.
@@ -3984,10 +4028,13 @@ extern "C" COMBO_EXPORT const char* SOH_DumpRandoStaticData(void) {
         // dump schema symmetric with MM's (which needs the distinction: RI_* vs human).
         // advancement drives whether a foreign item plays the held-up pickup animation.
         // ComboShip: "trap" lets the cross-world layer disguise a foreign trap in the other game.
+        // ComboShip: "trickNames" are OOT's curated fake names, so a foreign trap disguised as this
+        // item can lie with a real near-miss name instead of a letter-doubled one.
         items.push_back({ { "name", name },
                           { "displayName", name },
                           { "advancement", comboIsAdv(static_cast<RandomizerGet>(rg)) },
-                          { "trap", rg == RG_ICE_TRAP } });
+                          { "trap", rg == RG_ICE_TRAP },
+                          { "trickNames", Rando::Traps::GetTrickNamesEnglish(static_cast<uint16_t>(rg)) } });
     }
 
     cached = nlohmann::json{
@@ -4583,6 +4630,16 @@ extern "C" COMBO_EXPORT int SOH_RequestComboReload(const char* path) {
     return gComboReloadCallback ? gComboReloadCallback(path) : 0;
 }
 
+// ComboShip: path of the most recently generated/loaded combo spoiler, so a restart can reload it
+// without regenerating. Mirrors how SoH remembers its own spoiler in CVAR_GENERAL("SpoilerLog").
+extern "C" COMBO_EXPORT void SOH_SetComboSpoilerPath(const char* path) {
+    CVarSetString(CVAR_GENERAL("ComboSpoiler"), path ? path : "");
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->Save();
+}
+extern "C" COMBO_EXPORT const char* SOH_GetComboSpoilerPath(void) {
+    return CVarGetString(CVAR_GENERAL("ComboSpoiler"), "");
+}
+
 // ComboShip: the active save slot (combo seed key), or -1 if none. Used by the comboui hint system to
 // find the loaded seed's per-slot consolidated file.
 extern "C" COMBO_EXPORT int SOH_GetActiveFileNum(void) {
@@ -4897,9 +4954,4 @@ bool SoH_HandleConfigDrop(char* filePath) {
         return false;
     }
     return false;
-}
-
-// Number of interpolated frames
-extern "C" uint32_t Ship_GetInterpolationFrameCount() {
-    return static_cast<uint32_t>(ceil((float)OTRGlobals::Instance->GetInterpolationFPS() / 20.0f));
 }

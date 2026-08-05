@@ -87,7 +87,18 @@ foreach ($key in $keys) {
     # 3. Rebuild vendor-<name> at tip (prefixed tree, parent = prior vendor tip).
     $tipTreeRef = if ($subtree) { "${tip}:$subtree" } else { "${tip}^{tree}" }
     $sub = (git rev-parse $tipTreeRef).Trim()
-    $newTree = ("040000 tree $sub`t$prefix" | git mktree).Trim()
+    # read-tree into a temp index, not `| git mktree`: PowerShell's pipeline appends CRLF on
+    # Windows and mktree keeps the \r, yielding a tree entry literally named "<prefix>\r".
+    $tmpIndex = Join-Path ([System.IO.Path]::GetTempPath()) "combo-vendor-index-$key-$([guid]::NewGuid().ToString('N'))"
+    try {
+        $env:GIT_INDEX_FILE = $tmpIndex
+        git read-tree --prefix="$prefix/" $sub
+        if ($LASTEXITCODE -ne 0) { throw "read-tree failed for $key" }
+        $newTree = (git write-tree).Trim()
+    } finally {
+        Remove-Item Env:GIT_INDEX_FILE -ErrorAction SilentlyContinue
+        Remove-Item $tmpIndex -ErrorAction SilentlyContinue
+    }
     $newCommit = (git commit-tree $newTree -p $vendorBranch -m "vendor: $key $branch $($tip.Substring(0,9))").Trim()
     git branch -f $vendorBranch $newCommit | Out-Null
     Write-Host "  rebuilt $vendorBranch @ $($newCommit.Substring(0,9))"
@@ -116,7 +127,13 @@ if ($Merge) {
         } else {
             git merge --no-ff --no-commit $vb 2>&1 | ForEach-Object { "    $_" }
         }
+        $mergeExit = $LASTEXITCODE
         $conf = git diff --name-only --diff-filter=U
+        if ($mergeExit -ne 0 -and -not $conf) {
+            # Strategy failure (not conflicts) — reporting this as "clean" would hide a broken pass.
+            Write-Host "  MERGE FAILED (exit $mergeExit) with no conflicts staged — see errors above." -ForegroundColor Red
+            break
+        }
         if ($conf) {
             Write-Host "  CONFLICTS to resolve by hand:" -ForegroundColor Magenta
             $conf | ForEach-Object { Write-Host "    $_" }

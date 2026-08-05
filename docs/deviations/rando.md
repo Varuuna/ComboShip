@@ -273,11 +273,72 @@ keys/boss keys, dungeon rewards, restricted songs, MM stray fairies), shuffling 
   placements are seeded into `placements`/`filledChecks` each pass so `reachableFixpoint` credits them
   when their check is reached (collected-in-place, unlike owned-from-start Link's Pocket).
 
-**Invariant:** `pool.size() >= checks.size()` for both games — surplus is junk (excluded-location
-fills, MM overflow) that the cross fill drops; a shortfall (`pool < checks`) would leave checks
-unfilled and is warned. Shuffled shopsanity slots aren't in `itemPool` (`CountEmptyLocations(false)`
-excludes shops), so the OOT dump adds each shuffled shop slot's vanilla buy item to `pool[]`. Link's
-Pocket is excluded from the dump entirely — it stays owned by `SOH_GetForcedPlacements`.
+**Invariant (corrected 2026-07-29 — see "Pool/check balance" below):** the combo fill enforces
+`items == checks` PER GAME. The dumps deliberately over-supply and the over-supply is **progression**,
+not junk, so reconciling it means sacrificing junk to make room. Shuffled shopsanity slots aren't in
+`itemPool` (`CountEmptyLocations(false)` excludes shops), so the OOT dump adds each shuffled shop slot's
+vanilla buy item to `pool[]`. Link's Pocket is excluded from the dump entirely — it stays owned by
+`SOH_GetForcedPlacements`, which reserves its item out of `pool[]`.
+
+## Pool/check balance: only JUNK may ever be discarded (2026-07-29)
+
+**The bug this replaced.** The old invariant above read "*`pool.size() >= checks.size()` … surplus is
+junk … that the cross fill drops*". That premise was false, and it made a truncating `for` loop look
+safe. A reported seed (masterSeed 1568694522, No Logic both games, ALR on) silently lost three OOT
+advancement items — `Volvagia's Soul`, `Nocturne of Shadow`, `Water Temple Boss Key` — leaving
+`Volvagia` (Goron's Ruby), `Fire Temple Volvagia Heart Container` and the Water Temple reward
+permanently unobtainable while generation reported success.
+
+**Why the pool exceeds the checks.** Both generators add items that have no vanilla location *precisely
+because they are special*, and every one is progression:
+- MM (`Rando/Logic/GeneratePools.cpp`): progressive sword `:158`, hero shield `:159`, boss souls
+  `:164-171`, enemy souls `:174-178`, clock items `:181-196`, swim `:199-201`, progressive wallet `:226`,
+  **20x `RI_TRIFORCE_PIECE`** `:230-236`, skeleton key `:238` (+27), minus starting items whose locations
+  remain `:281-287` (−18) = **+9**. Excluded checks (`:139-149`) push the item but not the check: +1 each.
+  2Ship reconciles in `MiscBehavior/OnFileCreate.cpp:91-137`; the dump only mirrored the pad direction.
+- OOT: `ComboFillConfined` runs `FillExcludedLocations()` (`fill.cpp:1565`), which places a *fresh*
+  `GetJunkItem()` so the location moves to `fixed[]` while its pool item stays (+1 each); plus
+  `RC_LINKS_POCKET`, counted in `locCount` but omitted from `checks[]` (+1). Stock soh discards its
+  leftover safely at `fill.cpp:1505` only because `:1497-1499` extracts every `IsAdvancement()` item first.
+
+**The rules.**
+1. **Only items whose native category is `JUNK` may be discarded** — never advancement, hearts, masks,
+   keys or tokens. If the surplus can't be absorbed by `JUNK` alone, generation fails loudly.
+2. **No Logic constrains PLACEMENT, never MEMBERSHIP.** It may put any item on any check, including
+   unreachable ones (validation tolerates that outside `ALL_REACHABLE`). It is never licence to omit an
+   item. "Anywhere" is not "nowhere".
+
+**Implementation.**
+- `pool[]` entries now carry `category` (`OTRGlobals.cpp` `comboCategory`, `BenPort.cpp` `categoryName`)
+  — a stable string from each game's own taxonomy (OOT `GetItemCategory`, MM `RandoItemType`), which are
+  the same 7 categories modulo MM's `mask`/`strayFairy`. The old single `advancement` bool fused junk with
+  hearts and traps, so "only junk" was not expressible; `advancement` is retained as the orthogonal axis
+  (it selects the fill *phase*, not discardability). Unknown/absent category => never discardable.
+- `CrossWorldRando.h` balances per game after the forced-placement block, before `CwRng rng(masterSeed)`:
+  trims surplus `JUNK` most-duplicated-name-first (RNG-free, so the seeded stream can't shift), pads a
+  deficit with cloned junk, hard-fails if `JUNK` runs out. Per-game rather than global on purpose: under
+  global-only an OOT surplus and an MM deficit cancel and the defect stays invisible.
+- Phase B's stream is `fastFillItems` (it holds junk *and* relaxed OOT advancement; the old name
+  `junkToPlace` asserted the discarded tail was junk while it discarded a boss key). A `stable_partition`
+  puts advancement ahead of junk with a named `mustPlace` boundary, so the truncatable tail is junk by
+  construction. This does not narrow No Logic's freedom: `allChecks` is the uniformly shuffled sequence,
+  so advancement still takes a uniformly random subset of the free checks.
+- Any leftover that isn't `JUNK`, any unfilled check, or `ji < mustPlace` is a hard failure (returns
+  `!success` -> the caller's `kFillAttempts` reroll -> a loud user-visible error), not a warning.
+- Post-fill backstop: the full pool multiset must appear in `placements`, checked per pass ahead of the
+  validation fixpoint. Non-`JUNK` residue is reported by name — this is the assertion that would have
+  named the three lost items. Guards key on **category**, never on `advancement`: a Heart Container is
+  `advancement == false`, so an advancement-keyed guard would have let a stranded heart pass.
+- Deleted the Link's Pocket junk filler: the dump's pool already carries LP's item, so the reservation is
+  self-balancing and the filler left a permanent +1 surplus.
+
+**Seed compatibility:** every existing seed string now yields different placements — removing surplus
+items changes `cwShuffle`'s draw count, and no correct fix avoids that. Headless <-> in-game parity is
+preserved (all logic is in the shared header).
+
+**Known follow-up:** Heart Containers stay `advancement == false` (`comboIsAdv`'s deliberate demotion);
+`category == HEALTH` is what protects them from discarding. They can still land on an unreachable check
+in relaxed modes. Revisit only if that becomes a real complaint.
 
 ## Cross-world Link's Pocket placement (2026-06-21)
 
@@ -1012,7 +1073,8 @@ shuffled Anywhere they land in the cross pool and the derivation picks them up l
 **Failure policy.** Tier 1 — portal still shut after the prerequisites are placed: repick just those,
 `kMaxPrereqTries = 4`. (Phase A0 runs before any general placement, so a repick resets `placements` to
 `lockedPlacements` and costs nothing but the prerequisite choices.) Tier 2 — budget exhausted: fail the
-pass into the retry loop, `kMaxPasses = 5` × `kFillAttempts = 3`, down from 10 × 5 — the old ceiling is
+pass into the retry loop, `kMaxPasses = 3` × `kFillAttempts = 2` (`CrossWorldRando.h:171-172`), down from
+10 × 5 — the old ceiling is
 what produced the 300-800 s waits, and 15 still covers the observed pre-fix tail (seeds seen succeeding on
 attempt 4 and pass 10). Both are pass counts, never wall-clock: a time limit makes success
 machine-dependent and breaks seed sharing. All three budgets are `constexpr` in `CrossWorldRando.h`;
@@ -1021,3 +1083,128 @@ in-game ones while the two loops agree. Tier 3 — the derivation finds the port
 everything owned: **warn loudly and generate anyway**, since a prediction of structural impossibility was
 already made once and proved wrong. Terminal failures now name the last pass cause instead of "assumed
 fill failed".
+
+## MM rando save always SAVETYPE_RANDO (2026-07-31)
+
+A player reported Song of Time wiping all Stray Fairies and dungeon Small Keys. That wipe
+(`z_sram_NES.c:687-691`) is correct *vanilla* MM behaviour; only the rando-only `AfterEndOfCycleSave`
+hook (`Rando/MiscBehavior/OnCycleSave.cpp`) restores them, and `COND_HOOK` tests `IS_RANDO` **once, at
+registration** (fired from `title_setup.c` on every MM entry). So a `SAVETYPE_VANILLA` MM save silently
+disables it — plus every other `IS_RANDO` behaviour, and `BenJsonConversions.hpp` then omits the whole
+`rando` block from the save.
+
+ComboShip could reach that state two ways, both now closed:
+
+- **Stale placement cache.** `g_PendingMMPlacements` was set only at generation / seed-reload and
+  *cleared after the first file creation*, never repopulated. Creating a second save file (or erase +
+  re-create) without re-generating fell through to a vanilla MM save, while `g_ConsolidatedJson` was
+  *not* cleared — so the slot still looked like a valid seed (baked `combo.rando`, randomized OOT).
+  Fixed by deleting the cache: `Combo_OnOOTSaveInit` re-derives MM's apply payload from the bound
+  consolidated seed on every creation, via the new `ComboRando::ApplyPayloadFromConsolidated`
+  (`combo/rando/CrossForeign.h`, extracted from the reconstruction `Combo_OnReloadRequest` already
+  used). The `MM_InitSaveFile` vanilla fallback and that now-dead export are gone.
+- **Silent catch.** `MM_InitRandoSaveFile`'s exception path marked the save `SAVETYPE_VANILLA`. It still
+  rebuilds the playable baseline (the rando strips run before the apply, so a bare return would persist
+  a soft-locked slot) but keeps `SAVETYPE_RANDO` and now returns nonzero; the launcher logs loudly. Same
+  for the empty-placement early return.
+
+Tripwire: `Combo_LoadMMSaveFile` logs an error whenever a loaded MM save isn't `SAVETYPE_RANDO`.
+Already-broken saves are not repaired — re-create the file.
+
+## Per-seed spoiler names + shop-only prices (2026-07-31)
+
+**Spoilers no longer overwrite each other.** Generation wrote a single
+`Randomizer/Last-Generated-Randomizer.json` (`ComboRando::PendingPath()`), so every new seed clobbered
+the previous one. Replaced with `ComboRando::ComboSpoilerPath(fileHash, stem)` →
+`Randomizer/Combo-23-48-56-60-85.json`, built from the same 5 hash-icon indexes SoH names its own
+spoilers with (`spoiler_log.cpp`). The newest is remembered in `CVAR_GENERAL("ComboSpoiler")`, mirroring
+SoH's `SpoilerLog` CVar, via new `SOH_Set/GetComboSpoilerPath` exports — the launcher has no CVar access
+of its own. The file-select auto-reload reads that CVar instead of a fixed path.
+
+Two traps this had to avoid:
+
+- **CVars are main-thread only.** `libultraship`'s `ConsoleVariable` map is completely unlocked, and
+  `Save()` iterates it while ImGui touches CVars every frame. `RunComboFill` runs on a worker thread, so
+  it only *writes the file* (`WriteComboSpoiler`); `Combo_FinalizeGenerate` sets the CVar
+  (`RememberComboSpoiler`). Same hazard the main-thread-only placement apply already documents.
+- **The plandomizer export** wrote to the pending path; under per-seed naming that would overwrite the
+  source seed with the edited copy, so it writes `Combo-Plando-<hash>.json` instead.
+
+Nothing reads `Last-Generated-Randomizer.json` any more; an install with only that file has no
+remembered seed until the next generate or drag-drop.
+
+**`mm.prices` is now shops only.** It carried a price for ~every shuffled check (390 of 392 placements,
+against 104 of 1246 on OOT's side). Root cause is upstream: `GeneratePools.cpp`'s tingle-shop guard is
+`if (type == RCTYPE_TINGLE_SHOP && shuffle == NO) continue; else roll price;` — the `else` binds to the
+whole compound condition, so it rolls for every check that got past the shuffle gates. With tingle
+shuffle on, the `continue` is unreachable entirely.
+
+Not fixed locally: `Ship_Random` is the fill's own stream, so dropping ~390 draws per generation would
+shift every seed and break reproduction of existing spoilers. Filed as a 2Ship upstream bug. Instead
+`MM_DumpRandoStaticData` emits only `RCTYPE_SHOP` / `RCTYPE_TINGLE_SHOP` into the spoiler while
+`sMMComboCheckPrices` still captures the full set for the oracle. Safe because all 37 checks using
+`CAN_AFFORD` are exactly those 25 + 12, and the only runtime readers of `.price` are the shop/tingle
+actors (`EnGirlA`, `EnBal`, `EnIn`, `EnTab`).
+
+**The spoiler's `playthrough` steps are plain strings.** They were objects
+(`{check, game, item, foreign}`), which reads as noise for something a player scans. Now each sphere's
+`steps` is a string array of `"[OOT] Check --> Item"`; cross-game placements aren't marked, since which
+game owns an item isn't actionable. `RunPlaythrough` still emits the structured form — the headless
+`--playthrough` validator's affordability canary needs `game`/`check`/`item`/`foreign`/`advancement` —
+so the flattening happens in `ComboRando::PlaythroughLines`, applied only where the consolidated spoiler
+is assembled. The validator builds its own `pt1` from its own `RunPlaythrough` call and never reads the
+spoiler's section, so the two formats don't collide.
+
+## Foreign traps fire on the finder, and use each game's curated trick names (2026-08-03)
+
+**Why (effect):** a foreign trap did nothing to the player who found it. MM's `CheckQueue` foreign
+branch showed "You found &lt;disguise&gt;!" and called `SendForeignCheck` — mailing the trap into the
+other game's save — so the freeze never happened where it was collected. Native `RI_TRAP` by contrast
+shows `GetTrapMessage()` and calls `OfferTrapItem()`.
+
+**Why (names):** both games ship curated near-miss name tables — OOT's `trickNameTable`
+(`soh/soh/Enhancements/randomizer/Traps.cpp`, trilingual) and MM's `fakeItemNames`
+(`mm/2s2h/Rando/StaticData/Items.cpp`, English) — but the combo layer used neither. `MakeTrickName`
+only doubled a letter, so a disguised trap read as "Ganon's Souul" instead of "Rauru's Medallion".
+Note upstream MM's own fallback is broken (`fakeItemName` is still empty when the `else` runs, so it
+indexes an empty string), which is why the curated table matters rather than the fallback.
+
+**Trap identity** now rides in the seed. Both dumps already emitted a per-item `trap` flag
+(`rg == RG_ICE_TRAP` / `id == RI_TRAP`) but only `AssignTrapDisguises` consumed it, to pick disguises.
+It now also stamps `fm["trap"] = true` — **before** the no-candidate bail, so a trap that got no
+disguise is still flagged — the emitter writes it into each `foreign[]` entry, and `ForeignItem` gained
+`bool trap`. Absent in older saves → defaults false → previous behaviour, so this needs a regenerated
+seed to take effect.
+
+**Firing:** each game springs its **own** flavour, so an OOT Ice Trap found in MM becomes an MM trap
+and an MM trap found in OOT becomes OOT's freeze. Porting trap implementations between engines would
+be a lot of work for no player-visible gain.
+- MM (`Rando/MiscBehavior/CheckQueue.cpp`): `GetTrapMessage()` + `OfferTrapItem()`, no cross-grant.
+  Fires on every collection, matching native — a Song of Time cycle reset re-arms a native trap check,
+  so a foreign one should re-arm too.
+- OOT (`Enhancements/randomizer/hook_handlers.cpp` `OOT_DeliverForeign`): `FreezePlayer()` directly.
+  **Not** `pendingIceTrapCount++` — that counter is consumed by `VB_SHORT_CIRCUIT_GIVE_ITEM_PROCESS`,
+  which has already run by grant time, so incrementing it springs the trap on the player's **next**
+  pickup and short-circuits that item's presentation instead.
+- OOT text (`Messages/ItemMessages.cpp`): a foreign trap taunts with OOT's real ice-trap tables via a
+  new `Rando::Traps::BuildIceTrapMessageNamed`, naming what it pretended to be. The stock
+  `BuildIceTrapMessage` resolves the name from the draw entry, which for a foreign sentinel would read
+  "Combo Foreign Item" — and a foreign disguise may be an item of the *other* game with no local
+  `RandomizerGet` to resolve at all.
+
+**Anchor teammates still get trapped.** The grant and the broadcast were bundled in one branch; only
+the local cross-grant is skipped. `Anchor_BroadcastCrossItem` / `MMAnchor_BroadcastCrossItem` still
+fire, and the receive path springs the trap on teammates (`Packets/GiveItem.cpp`). Verified with two
+clients in OOT (2026-08-03): both froze once and the finder was not re-frozen, so the broadcast is not
+echoed back to the sender. Note a teammate playing the *other* game still banks the trap and springs
+it on switch — that is the item-routing model, not a bug in this change.
+
+**Trick names:** both games expose their tables through small `COMBO_BUILD` accessors
+(`Rando::Traps::GetTrickNamesEnglish`, `Rando::StaticData::GetTrickNames`), emitted as `trickNames`
+beside the existing `advancement`/`trap` flags and parsed into `ForeignItemMeta`.
+`AssignTrapDisguises` prefers a curated name and falls back to letter-doubling only where an item has
+no entry. English only — OOT's table is trilingual but the foreign schema carries single strings, so
+localisation would mean widening `fakeTrickName` everywhere it is consumed.
+
+**Known nit:** the fallback doubles punctuation (`Tingle''s Clock Town Map`). Upstream skips spaces
+but not apostrophes.

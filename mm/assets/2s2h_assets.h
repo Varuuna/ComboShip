@@ -362,6 +362,36 @@ static const ALIGN_ASSET(2) char gRandoBushJunkDL[] = dgRandoBushJunkDL;
 #define dgRandoBushJunkXluDL "__OTR__objects/gameplay_field_keep/gFieldBushJunkXluDL"
 static const ALIGN_ASSET(2) char gRandoBushJunkXluDL[] = dgRandoBushJunkXluDL;
 
+#define dgRandoCuttableGrassRandomDL "__OTR__objects/gameplay_keep/gRandoCuttableGrassRandomDL"
+static const ALIGN_ASSET(2) char gRandoCuttableGrassRandomDL[] = dgRandoCuttableGrassRandomDL;
+
+#define dgRandoCuttableGrassMinorDL "__OTR__objects/gameplay_keep/gRandoCuttableGrassMinorDL"
+static const ALIGN_ASSET(2) char gRandoCuttableGrassMinorDL[] = dgRandoCuttableGrassMinorDL;
+
+#define dgRandoCuttableGrassMajorDL "__OTR__objects/gameplay_keep/gRandoCuttableGrassMajorDL"
+static const ALIGN_ASSET(2) char gRandoCuttableGrassMajorDL[] = dgRandoCuttableGrassMajorDL;
+
+#define dgRandoCuttableGrassSmallKeyDL "__OTR__objects/gameplay_keep/gRandoCuttableGrassSmallKeyDL"
+static const ALIGN_ASSET(2) char gRandoCuttableGrassSmallKeyDL[] = dgRandoCuttableGrassSmallKeyDL;
+
+#define dgRandoCuttableGrassBossKeyDL "__OTR__objects/gameplay_keep/gRandoCuttableGrassBossKeyDL"
+static const ALIGN_ASSET(2) char gRandoCuttableGrassBossKeyDL[] = dgRandoCuttableGrassBossKeyDL;
+
+#define dgRandoCuttableGrassTokenDL "__OTR__objects/gameplay_keep/gRandoCuttableGrassTokenDL"
+static const ALIGN_ASSET(2) char gRandoCuttableGrassTokenDL[] = dgRandoCuttableGrassTokenDL;
+
+#define dgRandoCuttableGrassMaskDL "__OTR__objects/gameplay_keep/gRandoCuttableGrassMaskDL"
+static const ALIGN_ASSET(2) char gRandoCuttableGrassMaskDL[] = dgRandoCuttableGrassMaskDL;
+
+#define dgRandoCuttableGrassFairyDL "__OTR__objects/gameplay_keep/gRandoCuttableGrassFairyDL"
+static const ALIGN_ASSET(2) char gRandoCuttableGrassFairyDL[] = dgRandoCuttableGrassFairyDL;
+
+#define dgRandoCuttableGrassHeartDL "__OTR__objects/gameplay_keep/gRandoCuttableGrassHeartDL"
+static const ALIGN_ASSET(2) char gRandoCuttableGrassHeartDL[] = dgRandoCuttableGrassHeartDL;
+
+#define dgRandoCuttableGrassJunkDL "__OTR__objects/gameplay_keep/gRandoCuttableGrassJunkDL"
+static const ALIGN_ASSET(2) char gRandoCuttableGrassJunkDL[] = dgRandoCuttableGrassJunkDL;
+
 #define dgChestTrackerIcon "__OTR__textures/icons/gChestTrackerIcon"
 static const ALIGN_ASSET(2) char gChestTrackerIcon[] = dgChestTrackerIcon;
 

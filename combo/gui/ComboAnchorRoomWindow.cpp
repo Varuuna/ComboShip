@@ -70,7 +70,7 @@ void ComboAnchorRoomWindow::Draw() {
     if (!IsVisible()) {
         return;
     }
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
         return;
     }
@@ -237,7 +237,7 @@ void ComboAnchorRoomWindow::DrawElement() {
 }
 
 void RegisterAnchorRoomWindow() {
-    auto ctx = Ship::Context::GetInstance();
+    auto ctx = Ship::Context::GetRawInstance();
     if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
         return;
     }

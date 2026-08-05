@@ -872,7 +872,7 @@ void SohMenu::AddMenuRandomizer() {
         .RaceDisable(false)
         .HideInSearch(true)
         .CustomFunction([](WidgetInfo&) {
-            auto ctx = Ship::Context::GetInstance();
+            auto ctx = Ship::Context::GetRawInstance();
             if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
                 return;
             auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Item Tracker Settings");
@@ -908,7 +908,7 @@ void SohMenu::AddMenuRandomizer() {
         .RaceDisable(false)
         .HideInSearch(true)
         .CustomFunction([](WidgetInfo&) {
-            auto ctx = Ship::Context::GetInstance();
+            auto ctx = Ship::Context::GetRawInstance();
             if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
                 return;
             auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Entrance Tracker Settings");
@@ -944,7 +944,7 @@ void SohMenu::AddMenuRandomizer() {
         .RaceDisable(false)
         .HideInSearch(true)
         .CustomFunction([](WidgetInfo&) {
-            auto ctx = Ship::Context::GetInstance();
+            auto ctx = Ship::Context::GetRawInstance();
             if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
                 return;
             auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Check Tracker Settings");

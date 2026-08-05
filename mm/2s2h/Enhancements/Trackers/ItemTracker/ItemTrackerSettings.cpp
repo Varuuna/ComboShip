@@ -472,12 +472,12 @@ void SaveItemTrackerLayout() {
         });
         itemTrackerLayout.push_back(groupJson);
     }
-    Ship::Context::GetInstance()->GetConfig()->SetBlock("CVars.ItemTrackerLayout", itemTrackerLayout);
-    Ship::Context::GetInstance()->GetConfig()->Save();
+    Ship::Context::GetRawInstance()->GetConfig()->SetBlock("CVars.ItemTrackerLayout", itemTrackerLayout);
+    Ship::Context::GetRawInstance()->GetConfig()->Save();
 }
 
 void LoadItemTrackerConfig() {
-    auto allConfig = Ship::Context::GetInstance()->GetConfig()->GetNestedJson();
+    auto allConfig = Ship::Context::GetRawInstance()->GetConfig()->GetNestedJson();
 
     // Verify that the config has CVars.ItemTrackerLayout and its an array
     if (allConfig.find("CVars") != allConfig.end() && allConfig["CVars"].is_object() &&

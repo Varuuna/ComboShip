@@ -60,6 +60,8 @@ RandoItemId GetItemIdFromName(const char* name);
 // ComboShip: friendly item name <-> id for the normalized combo spoiler (see Items.cpp).
 const std::string& GetItemDisplayName(RandoItemId id);
 RandoItemId GetItemIdFromDisplayName(const char* name);
+// ComboShip: MM's curated fake names for an item, so the dump can hand them to the cross-world layer.
+std::vector<std::string> GetTrickNames(RandoItemId id);
 #endif
 RandoItemId GetItemIdFromVanillaItemId(u32 itemId);
 u8 GetIconForZMessage(RandoItemId itemId);

@@ -22,8 +22,9 @@
 #include <algorithm>
 
 extern "C" {
-#include <variables.h>
-#include <macros.h>
+#include "variables.h"
+#include "macros.h"
+#include "functions.h"
 #include "z64item.h"
 extern PlayState* gPlayState;
 }
@@ -149,6 +150,15 @@ void BuildCustomItemMessage(Player* player, CustomMessage& msg) {
     }
     CustomMessage name =
         CustomMessage(Rando::StaticData::RetrieveItem(static_cast<RandomizerGet>(rgid)).GetName(), TEXTBOX_TYPE_BLUE);
+    if (rgid == RG_OPEN_CHEST &&
+        OTRGlobals::Instance->gRandoContext->GetOption(RSK_SHUFFLE_OPEN_CHEST).Is(RO_OPEN_CHEST_PROGRESSIVE)) {
+        // message is built before the item is given, so the flags still say which copy this is
+        name = Flags_GetRandomizerInf(RAND_INF_CAN_OPEN_CHEST)
+                   ? CustomMessage("Open Big Chests", "Große Truhen öffnen", "Ouvrir les grands coffres",
+                                   TEXTBOX_TYPE_BLUE)
+                   : CustomMessage("Open Small Chests", "Kleine Truhen öffnen", "Ouvrir les petits coffres",
+                                   TEXTBOX_TYPE_BLUE);
+    }
     CustomMessage article = CustomMessage(
         Rando::StaticData::RetrieveItem(static_cast<RandomizerGet>(rgid)).GetArticle(), TEXTBOX_TYPE_BLUE);
     msg.Replace("[[article]]", article);
@@ -230,6 +240,11 @@ void BuildComboForeignMessage(Player* player, CustomMessage& msg) {
             name = fi->fakeTrickName;
         } else if (fi != nullptr && !fi->displayName.empty()) {
             name = fi->displayName;
+        }
+        // A foreign trap taunts with OOT's own ice-trap tables, naming what it pretended to be.
+        if (fi != nullptr && fi->trap) {
+            Rando::Traps::BuildIceTrapMessageNamed(msg, name);
+            return;
         }
     }
     msg = CustomMessage("You found %g[[name]]%w!", "Du erhältst %g[[name]]%w!", "Vous avez trouvé %g[[name]]%w!",

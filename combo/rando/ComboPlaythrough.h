@@ -497,4 +497,20 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
     return result;
 }
 
+// Flatten RunPlaythrough's structured spheres into player-facing lines, "[OOT] Check --> Item". The
+// validator keeps consuming the structured form; only the spoiler shows these.
+inline nlohmann::json PlaythroughLines(const nlohmann::json& spheres) {
+    nlohmann::json out = nlohmann::json::array();
+    for (const auto& sphere : spheres) {
+        nlohmann::json steps = nlohmann::json::array();
+        for (const auto& step : sphere.value("steps", nlohmann::json::array())) {
+            // Which game owns the item isn't actionable for the player, so cross-game isn't marked.
+            steps.push_back("[" + std::string(step.value("game", "") == "mm" ? "MM" : "OOT") + "] " +
+                            step.value("check", "") + " --> " + step.value("item", ""));
+        }
+        out.push_back({ { "sphere", sphere.value("sphere", -1) }, { "steps", std::move(steps) } });
+    }
+    return out;
+}
+
 } // namespace ComboRando

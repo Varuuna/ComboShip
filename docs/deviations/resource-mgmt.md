@@ -138,11 +138,64 @@ whose `#define main SDL_main` breaks `GameState::main` users (e.g. `CustomLogoTi
 the `*_MenuApplyCVarChange` export scopes redundant but they stay as documentation of the
 export-boundary rule.
 
-## Cherry-pick: LUS PR #1121 — round interpolated texture tile sizes (2026-07-14)
+## RETIRED (2026-08-01): LUS PR #1121 cherry-pick — round interpolated texture tile sizes
 
-`libultraship/src/fast/interpreter.cpp`: cherry-picked unmerged upstream PR
-Kenix3/libultraship#1121 (commit `c66cebe2f`, fixes #1119 / Shipwright#6666). Interpolated
-float tile coords truncated to int made the rendered texture window alternate 32×32/32×31
-across interpolation phases → animated water/lava flicker above 20 FPS. New
-`GetTileSizeFromCoordinates()` rounds via `lroundf`. Drop this local copy once the PR lands
-upstream and the pin passes it.
+Was a local cherry-pick of unmerged Kenix3/libultraship#1121 in
+`libultraship/src/fast/interpreter.cpp` (interpolated float tile coords truncated to int made the
+texture window alternate 32×32/32×31 across phases → animated water/lava flicker above 20 FPS).
+
+Dropped in the 2026-08-01 `port-maintenance` switch: upstream landed it as **#1164**, and **#1135**
+then refined `GetTileSizeFromCoordinates()` to treat an unset tile (`high <= low`) as zero size
+rather than the phantom 1-texel our copy produced. We now carry upstream's version verbatim.
+
+## Foreign animated-item segment binds must resolve against the owning RM (2026-08-03)
+
+**Why:** `CfaBindSeg`'s `CW_ANIM_SEG_PATH` case put a raw FOREIGN resource path into the HOST's
+`gSPSegment`. On both hosts that is a real function (`soh/soh/GbiWrap.cpp:34`,
+`mm/src/code/stubs.c:149`) which probes the path at **record time** against
+`Context::GetRawInstance()->GetResourceManager()` — the ACTIVE (host) RM. A foreign path misses,
+`ResourceManager::LoadResource` returns nullptr, and both hosts' `ResourceMgr_LoadIfDListByName`
+dereferenced it unchecked → access violation reading `mInitData`. Reproduced from a player crash
+report: MM drawing a foreign OOT boss soul. Volvagia/Twinrova/Ganon are the only OOT items with a
+PATH segment — plus any Ice Trap *disguised* as one, which is how the player actually hit it, so the
+reach is far wider than the three items suggest.
+
+The old comment on that line claimed the draw-time bracket covered this. It does not: the
+`gSPComboRMPush` calls are GBI commands the interpreter consumes at **playback**
+(`interpreter.cpp` `gfx_combo_rm_push_handler_custom`) and cannot affect a record-time CPU lookup —
+and they are emitted after the bind anyway.
+
+**`combo/menu/ComboForeignAnim.h` (combo-owned):** the emit is split into `CfaEmitSeg` so a
+`Ship::ResourceManagerScope` wraps ONLY the two `gSPSegment` calls. `CfaBindSeg` now takes the owning
+`game` explicitly — never the `sCfaCurrentGame` static, which unlike `sCfaInfo` is never cleared and
+so can carry a stale value across items and across host/foreign direction changes — and returns
+`bool`. The value left in the segment is still the raw path: playback resolves it via `ActiveResMgr()`
+under the bracket, and for a Texture `LoadIfDListByName` correctly returns null so `target` is
+untouched. Failure propagates to the caller's sentinel: an early bail when
+`CrossRMRegistry::Get(game)` is null (before any Gfx is emitted), `CfaRestoreSegs` + `return 0`
+mid-recipe, and `CfaDrawFlame` skipping only its flame DL (the flame is `flameSeg`'s sole consumer,
+so the model still draws).
+
+**The scope MUST stay narrow.** Both archives share one resource path namespace, so a HOST lookup
+performed under the FOREIGN RM does not fail loudly — it silently returns the WRONG asset. soh's
+helper also mangles paths on MQ state, i.e. host state applied to a foreign archive. Wrapping
+`SkelAnime_Draw*`/`Matrix_*`/`OPEN_DISPS` would be worse than the original bug and buys nothing,
+since playback is already covered by the bracket.
+
+Two alternatives were rejected and should stay rejected:
+- **Route the path** as `__OTR__@<game>:` like limb DLs — impossible. Only the DL FILEPATH handler
+  parses the marker; `gfx_set_timg_handler_rdp` does not, so a routed string in a segment base breaks
+  playback.
+- **Bypass with `__gSPSegment`** (skipping the probe entirely) — smallest change and provably
+  crash-free, but only because every `CW_ANIM_SEG_PATH` is a Texture *today*. `CfaValidateSegBind`
+  only checks for an `__OTR__` prefix, so a future foreign *DisplayList* path would leave a heap
+  string in the segment; `ComboIsUnresolvedSegmentTarget` won't reject a real heap address and the
+  interpreter would run the string as GBI — the very class the guard above exists to close.
+
+**`mm/2s2h/BenPort.cpp` + `soh/soh/ResourceManagerHelpers.cpp` (COMBO_BUILD-guarded):**
+`ResourceMgr_LoadIfDListByName` returns null on a miss instead of dereferencing. Both callers already
+test the return (`stubs.c:163`, `GbiWrap.cpp:48`), so the function's contract already admitted null —
+it just failed to produce it. The sibling `ResourceMgr_LoadTexOrDListByName` has the identical
+unguarded deref but is left alone: no `Cfa*` path reaches it via `gSPSegmentLoadRes` today. The other
+~11 unchecked `GetResourceByName` sites in `BenPort.cpp` are a vendored 2Ship pattern whose callers
+deref unconditionally, so guarding them would relocate the crash rather than fix it.

@@ -180,9 +180,7 @@ static FnExtract MM_Extract = nullptr;
 static FnInt MM_ArchiveCount = nullptr;
 static FnSetSaveCallback SOH_SetOnNewSaveCallback = nullptr;
 static FnSetSaveCallback SOH_SetOnLoadSaveCallback = nullptr;
-typedef void (*FnMMInitSaveNamed)(int, const unsigned char*);
 typedef void (*FnGetPlayerName)(unsigned char*);
-static FnMMInitSaveNamed MM_InitSaveFile = nullptr;
 static FnGetPlayerName SOH_GetCurrentPlayerName = nullptr;
 static FnMMInitSave MM_LoadSaveForCombo = nullptr;
 // #89 resume-into-MM: drop out of OOT's loop before it runs a Play frame / tell MM how it was entered.
@@ -236,6 +234,10 @@ static FnTakeStr MM_RestoreRandoSettings = nullptr;
 static FnTakeStr SOH_SetCheckPrices = nullptr;
 static FnTakeStr MM_SetCheckPrices = nullptr;
 static FnSetReloadCb SOH_SetOnComboReloadCallback = nullptr;
+// Remembered spoiler path (CVAR_GENERAL("ComboSpoiler")) — soh owns the config, so the launcher goes
+// through it rather than parsing comboship.json itself.
+static FnTakeStr SOH_SetComboSpoilerPath = nullptr;
+static FnDumpData SOH_GetComboSpoilerPath = nullptr;
 
 // ComboShip merged per-slot save container: setters that push the launcher's save-IO callbacks into
 // each DLL, plus the once-per-load push of the baked combo rando (foreign map + cross-hints).
@@ -515,7 +517,8 @@ static void DeleteForeignSaveFromMM(int slot) {
 // ComboShip: placement injection exports
 typedef void (*FnSetGenerateCb)(void (*)(int));
 typedef void (*FnApplyPlacements)(const char*);
-typedef void (*FnMMInitRandoSave)(int, const char*, const unsigned char*);
+// Returns 0 on success; nonzero means the placement apply failed and the slot has no MM placements.
+typedef int (*FnMMInitRandoSave)(int, const char*, const unsigned char*);
 typedef void (*FnSetComboRandoSeed)(uint64_t);
 typedef void (*FnSetComboSeedHash)(uint32_t);
 static FnSetGenerateCb SOH_SetOnComboGenerateCallback = nullptr;
@@ -546,6 +549,7 @@ static ComboRando::ComboGenProgress g_ComboProgress;
 static std::atomic<bool> g_ComboPendingFinalize{ false }; // worker succeeded, main-thread apply not yet run
 // Main-thread finalize inputs stashed by the worker (consumed by Combo_FinalizeGenerate).
 static std::string g_FinalizeOotApply;
+static std::filesystem::path g_FinalizeSpoilerPath;
 static uint32_t g_FinalizeDisplaySeed = 0;
 // Consolidated spoiler JSON for the just-generated seed. The worker writes the pending file from it;
 // Combo_OnOOTSaveInit bakes it into the slot's container and pushes it into both DLLs at Start.
@@ -1055,9 +1059,27 @@ static int ComboRandRange(int minV, int maxV) {
 
 static int g_PendingMMFileNum = -1;
 
-// ComboShip: the "mm" placement slice from the most recent generate run, stashed so the
-// later Combo_OnOOTSaveInit callback can hand it to MM_InitRandoSaveFile.
-static std::string g_PendingMMPlacements;
+// ComboShip: write a seed's spoiler under its own hash-icon name. Returns the path (empty on failure).
+// Worker-safe: pointing the CVar at it is a separate main-thread step (RememberComboSpoiler).
+static std::filesystem::path WriteComboSpoiler(const nlohmann::json& fileHash, const std::string& json) {
+    std::error_code ec;
+    std::filesystem::create_directories(ComboRando::ConsolidatedDir(), ec);
+    auto path = ComboRando::ComboSpoilerPath(fileHash);
+    std::ofstream out(path, std::ios::trunc);
+    if (!out.is_open()) {
+        std::cerr << "[ComboShip] could not write spoiler " << path.string() << std::endl;
+        return {};
+    }
+    out << json;
+    return path;
+}
+
+// ComboShip: mark a spoiler as the one a restart reloads. MAIN THREAD ONLY — this writes a CVar and
+// saves the config, and libultraship's ConsoleVariable map is unlocked (same race as the apply below).
+static void RememberComboSpoiler(const std::filesystem::path& path) {
+    if (SOH_SetComboSpoilerPath && !path.empty())
+        SOH_SetComboSpoilerPath(path.string().c_str());
+}
 
 // ComboShip: a silent auto-reload must not let the pending seed's settings overwrite the user's
 // gRando.* CVars on disk. MM reads gRando.* only at slot-bind, so its restore is deferred there
@@ -1309,10 +1331,11 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         // The apply payloads (fed to each game's placement injection) hold the SENTINEL for foreign
         // checks — the check's own game places the sentinel and diverts the real item cross-game. The
         // consolidated spoiler placements (below) instead show the real item name for readability (#1).
+        // Only OOT's is built here: OOT applies right after generation, whereas MM applies at slot-bind
+        // and re-derives its payload from the consolidated seed (ApplyPayloadFromConsolidated).
         nlohmann::json ootApply = j.value("oot", nlohmann::json::object());
-        nlohmann::json mmApply = j.value("mm", nlohmann::json::object());
         nlohmann::json ootSpoiler = ootApply; // copy real-name placements before sentinel overwrite
-        nlohmann::json mmSpoiler = mmApply;
+        nlohmann::json mmSpoiler = j.value("mm", nlohmann::json::object());
         for (const auto& fm : foreignArr) {
             std::string cg = fm.value("checkGame", "");
             std::string cn = fm.value("checkName", "");
@@ -1323,10 +1346,8 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
                 ootApply[cn] = ComboRando::kForeignSentinelNameOOT;
                 if (!dn.empty())
                     ootSpoiler[cn] = dn;
-            } else if (cg == "mm") {
-                mmApply[cn] = ComboRando::kForeignSentinelNameMM;
-                if (!dn.empty())
-                    mmSpoiler[cn] = dn;
+            } else if (cg == "mm" && !dn.empty()) {
+                mmSpoiler[cn] = dn;
             }
         }
 
@@ -1338,7 +1359,6 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         uint32_t displaySeed = ComboHash((inputSeed + sohDump + mmDump).c_str());
         g_FinalizeOotApply = ootApply.dump();
         g_FinalizeDisplaySeed = displaySeed;
-        g_PendingMMPlacements = mmApply.dump();
 
         // ComboShip: file_hash = the 5 icon indexes the file-select shows, derived from displaySeed
         // exactly as OOT's GenerateHash (decimal padded to 10, five 2-digit pairs).
@@ -1390,7 +1410,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         // the same parse done above, right after sohHintDump was produced, instead of re-parsing it here.
         auto foreignEnriched = ComboRando::BuildForeignArray(foreignArr, ootCheckAreasCache);
         consolidated["foreign"] = foreignEnriched;
-        consolidated["playthrough"] = playthroughJson;
+        consolidated["playthrough"] = ComboRando::PlaythroughLines(playthroughJson);
         // ComboShip (#90): OOT entrance layout — informational, reload re-derives it from masterSeed.
         {
             nlohmann::json ootEnt = nlohmann::json::array();
@@ -1409,13 +1429,11 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
                                                  : nlohmann::json{ { "version", 1 } };
         g_ConsolidatedJson = consolidated.dump(2);
 
-        // Write the pending (unbound) file so the seed is remembered and Start-able without regenerating.
-        {
-            std::ofstream pf(ComboRando::PendingPath(), std::ios::trunc);
-            if (pf.is_open())
-                pf << g_ConsolidatedJson;
-        }
-        std::cout << "[ComboShip] RunComboFill: placements computed; consolidated pending seed written\n";
+        // This seed's own spoiler, so earlier seeds survive instead of being overwritten. The CVar that
+        // makes it the remembered one is set by Combo_FinalizeGenerate (main thread).
+        g_FinalizeSpoilerPath = WriteComboSpoiler(consolidated["file_hash"], g_ConsolidatedJson);
+        std::cout << "[ComboShip] RunComboFill: placements computed; spoiler written to "
+                  << g_FinalizeSpoilerPath.string() << "\n";
 
         if (progress) {
             progress->seed.store(masterSeed);
@@ -1459,13 +1477,6 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
         std::cerr << "[GENTEST] dump functions not resolved — cannot run\n";
         return -1;
     }
-    std::string sohDump = SOH_DumpRandoStaticData();
-    std::string mmDump = MM_DumpRandoStaticData();
-    if (sohDump.empty() || mmDump.empty()) {
-        std::cerr << "[GENTEST] empty dump — cannot run\n";
-        return -1;
-    }
-
     ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
                                         Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem,
                                         Combo_SOH_Rando_GetPortalOpen };
@@ -1477,19 +1488,41 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
     int failures = 0;
     auto t0 = std::chrono::steady_clock::now();
     for (int i = 0; i < numSeeds; ++i) {
-        uint32_t seed = seedBase + static_cast<uint32_t>(i);
-        // Per-seed OOT entrance layout, exactly like the real generator (no-op when the options are off).
-        if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(seed)) {
-            std::cerr << "[GENTEST]   seed " << seed << " FAIL: OOT entrance shuffle found no valid layout\n";
-            ++failures;
-            continue;
+        const uint32_t baseSeed = seedBase + static_cast<uint32_t>(i);
+        ComboRando::CombinedFillResult result{};
+        // Mirror RunComboFill's whole-fill retries: a seed rejected on attempt 0 is a PASS in-game
+        // after one reroll, so counting it FAIL here would inflate the failure rate.
+        for (int attempt = 0; attempt < ComboRando::kFillAttempts && !result.success; ++attempt) {
+            const uint32_t seed = baseSeed + attempt * 0x9E3779B9u;
+            // Seeds before the dump (shop/scrub choices are seed-derived and made inside it); forced
+            // placements before the shuffle, whose ItemReset wipes the placement they read.
+            if (SOH_SetComboRandoSeed)
+                SOH_SetComboRandoSeed(seed);
+            if (MM_SetComboRandoSeed)
+                MM_SetComboRandoSeed(seed);
+            std::string sohDump = SOH_DumpRandoStaticData();
+            std::string mmDump = MM_DumpRandoStaticData();
+            if (sohDump.empty() || mmDump.empty()) {
+                std::cerr << "[GENTEST] empty dump — cannot run\n";
+                return -1;
+            }
+            std::string forcedOot;
+            if (SOH_GetForcedPlacements)
+                forcedOot = SOH_GetForcedPlacements(seed);
+            // Per-seed OOT entrance layout, exactly like the real generator (no-op when the options are off).
+            if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(seed)) {
+                result.error = "OOT entrance shuffle found no valid layout";
+                Combo_MM_Rando_Restore();
+                continue; // a different masterSeed yields a different layout — reroll, like RunComboFill
+            }
+            result = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, seed, ootOracle, mmOracle, nullptr, forcedOot,
+                                                        ComboRando::OotAccessFromDump(sohDump));
+            Combo_MM_Rando_Restore(); // reset the MM oracle's snapshot guard for the next fill
         }
-        auto result = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, seed, ootOracle, mmOracle, nullptr);
-        Combo_MM_Rando_Restore(); // reset the MM oracle's snapshot guard for the next fill
         if (result.success) {
-            std::cout << "[GENTEST]   seed " << seed << " PASS\n";
+            std::cout << "[GENTEST]   seed " << baseSeed << " PASS\n";
         } else {
-            std::cerr << "[GENTEST]   seed " << seed << " FAIL: " << result.error << "\n";
+            std::cerr << "[GENTEST]   seed " << baseSeed << " FAIL: " << result.error << "\n";
             ++failures;
         }
     }
@@ -1541,17 +1574,38 @@ static void RunComboPlaythrough(const std::string& inputSeed) {
     ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
                                        Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
     std::string seedStr = inputSeed.empty() ? "1" : inputSeed;
-    std::string sohDump = SOH_DumpRandoStaticData();
-    std::string mmDump = MM_DumpRandoStaticData();
-    const uint32_t masterSeed = ComboHash(seedStr.c_str());
-    // OOT entrance layout, same as the real generator (no-op when the options are off).
-    if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(masterSeed)) {
-        std::cerr << "[PLAYTHROUGH] OOT entrance shuffle found no valid layout\n";
-        return;
+    const uint32_t baseSeed = ComboHash(seedStr.c_str());
+    std::string sohDump, mmDump;
+    ComboRando::CombinedFillResult fill{};
+    // Mirror RunComboFill including its retries — the player's seed may have come from attempt 1, and
+    // validating only attempt 0 would either report "did not generate" or log a world they never got.
+    for (int attempt = 0; attempt < ComboRando::kFillAttempts && !fill.success; ++attempt) {
+        const uint32_t masterSeed = baseSeed + attempt * 0x9E3779B9u;
+        if (SOH_SetComboRandoSeed)
+            SOH_SetComboRandoSeed(masterSeed);
+        if (MM_SetComboRandoSeed)
+            MM_SetComboRandoSeed(masterSeed);
+        sohDump = SOH_DumpRandoStaticData();
+        mmDump = MM_DumpRandoStaticData();
+        if (sohDump.empty() || mmDump.empty()) {
+            std::cerr << "[PLAYTHROUGH] empty static-data dump\n";
+            return;
+        }
+        // Read before the entrance shuffle: its ItemReset wipes the placement this reads.
+        std::string forcedOot;
+        if (SOH_GetForcedPlacements)
+            forcedOot = SOH_GetForcedPlacements(masterSeed);
+        if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(masterSeed)) {
+            fill.error = "OOT entrance shuffle found no valid layout";
+            Combo_MM_Rando_Restore();
+            continue;
+        }
+        fill = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle, nullptr, forcedOot,
+                                                  ComboRando::OotAccessFromDump(sohDump));
+        if (!fill.success)
+            Combo_MM_Rando_Restore();
     }
-    auto fill = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle, nullptr);
     if (!fill.success) {
-        Combo_MM_Rando_Restore();
         std::cerr << "[PLAYTHROUGH] seed '" << seedStr << "' did not generate: " << fill.error << "\n";
         return;
     }
@@ -1622,6 +1676,8 @@ static void Combo_FinalizeGenerate() {
     }
     if (SOH_SetComboSeedHash)
         SOH_SetComboSeedHash(g_FinalizeDisplaySeed);
+    RememberComboSpoiler(g_FinalizeSpoilerPath); // worker wrote the file; the CVar is ours to set
+    g_FinalizeSpoilerPath.clear();
     if (hintsPresent && SOH_ApplyComboHints)
         SOH_ApplyComboHints(hints.dump().c_str());
     // A fresh generation's live MM CVars already ARE this seed's settings, so slot-bind must fall
@@ -1657,7 +1713,16 @@ static int Combo_OnReloadRequest(const char* path) {
     // A null/empty path is the silent first-frame auto-reload; a non-empty path is an explicit drop
     // (a deliberate seed switch, so its settings are allowed to become the new persisted baseline).
     bool isSilentAutoLoad = !(path && path[0]);
-    std::string file = (path && path[0]) ? std::string(path) : ComboRando::PendingPath().string();
+    std::string file;
+    if (!isSilentAutoLoad) {
+        file = path;
+    } else if (SOH_GetComboSpoilerPath) {
+        const char* remembered = SOH_GetComboSpoilerPath();
+        if (remembered)
+            file = remembered;
+    }
+    if (file.empty())
+        return 0; // nothing generated yet on this install
     std::ifstream in(file);
     if (!in.is_open())
         return 0;
@@ -1674,23 +1739,8 @@ static int Combo_OnReloadRequest(const char* path) {
         std::string ootSettings = oot.value("settings", nlohmann::json::object()).dump();
         std::string mmSettings = mm.value("settings", nlohmann::json::object()).dump();
 
-        // The stored placements are human-readable (foreign items shown by real name). Rebuild the
-        // sentinel apply payloads — each game must see RI_COMBO_FOREIGN at its foreign checks so it
-        // diverts the real item cross-game; MM's apply THROWS on an unresolvable foreign name.
-        nlohmann::json ootApply = oot.value("placements", nlohmann::json::object());
-        nlohmann::json mmApply = mm.value("placements", nlohmann::json::object());
-        for (const auto& fm : j.value("foreign", nlohmann::json::array())) {
-            std::string cg = fm.value("checkGame", "");
-            std::string cn = fm.value("checkName", "");
-            if (cn.empty())
-                continue;
-            if (cg == "oot")
-                ootApply[cn] = ComboRando::kForeignSentinelNameOOT;
-            else if (cg == "mm")
-                mmApply[cn] = ComboRando::kForeignSentinelNameMM;
-        }
-        std::string ootPlacements = ootApply.dump();
-        std::string mmPlacements = mmApply.dump();
+        // Only OOT's payload is rebuilt here — MM re-derives its own at slot-bind time.
+        std::string ootPlacements = ComboRando::ApplyPayloadFromConsolidated(j, ComboRando::GAME_OOT).dump();
 
         // Spoiler prices override the seeded re-roll (settings may have drifted since generation).
         // Absent on pre-price spoilers: log and fall back to the re-roll (OOT) / zero prices (MM).
@@ -1758,7 +1808,6 @@ static int Combo_OnReloadRequest(const char* path) {
             g_UserMMSettingsSnapshot.clear();
         g_PendingMMSettingsJson = mmSettings;
         g_ComboReloadRestoreUserMM = isSilentAutoLoad;
-        g_PendingMMPlacements = mmPlacements;
         // An explicit drop makes the seed the new baseline immediately for OOT (above); mirror that
         // for MM here instead of waiting for slot-bind, so quit-before-Start doesn't persist a mixed
         // OOT=seed/MM=old-user comboship.json.
@@ -1768,14 +1817,10 @@ static int Combo_OnReloadRequest(const char* path) {
         // Keep the loaded seed so Start binds it to the chosen slot; recompute the hash-icon filename.
         g_ConsolidatedJson = j.dump(2);
         g_FinalizeDisplaySeed = displaySeed;
-        // Make this the remembered pending seed (so a dropped seed survives a restart before Start).
-        {
-            std::error_code ec;
-            std::filesystem::create_directories(ComboRando::ConsolidatedDir(), ec);
-            std::ofstream pf(ComboRando::PendingPath(), std::ios::trunc);
-            if (pf.is_open())
-                pf << g_ConsolidatedJson;
-        }
+        // Remember it so it survives a restart before Start. Re-filed under its hash name so the
+        // remembered path always holds the content just loaded, never a same-named older spoiler.
+        RememberComboSpoiler(j.contains("file_hash") ? WriteComboSpoiler(j["file_hash"], g_ConsolidatedJson)
+                                                     : std::filesystem::path(file));
         // Populate the shared progress so the comboui Generate panel shows the remembered seed
         // (seed string, per-game check counts, cross-game count) just like a fresh generation.
         g_ComboProgress.Reset();
@@ -1804,13 +1849,16 @@ static void Combo_OnOOTSaveInit(int fileNum) {
     Combo_SetLastGame(fileNum, ComboRando::GAME_OOT);
     // ComboShip: bind the pending consolidated seed to this slot — bake it into the container's
     // combo.rando (self-contained), then push it into both DLLs so foreign data is live immediately.
+    nlohmann::json seed;
     if (!g_ConsolidatedJson.empty()) {
+        try {
+            seed = nlohmann::json::parse(g_ConsolidatedJson);
+        } catch (...) {}
         {
             std::lock_guard<std::mutex> lk(g_containerMutex);
             auto& c = LoadOrCreateContainer(fileNum);
-            try {
-                c["combo"]["rando"] = nlohmann::json::parse(g_ConsolidatedJson);
-            } catch (...) {}
+            if (!seed.is_null())
+                c["combo"]["rando"] = seed;
             FlushContainer(fileNum);
         }
         if (SOH_LoadComboRando)
@@ -1824,23 +1872,26 @@ static void Combo_OnOOTSaveInit(int fileNum) {
     unsigned char playerName[8] = { 0x3E, 0x3E, 0x3E, 0x3E, 0x3E, 0x3E, 0x3E, 0x3E }; // 0x3E = N64 blank glyph
     if (SOH_GetCurrentPlayerName)
         SOH_GetCurrentPlayerName(playerName);
-    if (MM_InitRandoSaveFile && !g_PendingMMPlacements.empty()) {
+    // Re-derived every creation, never cached — a consumed cache left later files with a vanilla MM
+    // save, silently disabling every IS_RANDO behavior. See docs/deviations/rando.md.
+    std::string mmPlacements;
+    if (!seed.is_null())
+        mmPlacements = ComboRando::ApplyPayloadFromConsolidated(seed, ComboRando::GAME_MM).dump();
+    if (MM_InitRandoSaveFile && !seed.is_null()) {
         std::cout << "[ComboShip] Creating RANDO MM save for OOT slot " << fileNum << std::endl;
         // Re-assert prices from the seed being applied — a failed re-generation after a reload leaves
         // the MM DLL's captured price map holding the failed seed's rolls, not this spoiler's.
-        if (MM_SetCheckPrices) {
-            try {
-                auto cj = nlohmann::json::parse(g_ConsolidatedJson);
-                MM_SetCheckPrices(
-                    cj.value("mm", nlohmann::json::object()).value("prices", nlohmann::json::object()).dump().c_str());
-            } catch (...) {}
-        }
+        if (MM_SetCheckPrices)
+            MM_SetCheckPrices(
+                seed.value("mm", nlohmann::json::object()).value("prices", nlohmann::json::object()).dump().c_str());
         // A reloaded seed's MM settings only get written here (MM_InitRandoSaveFile is where MM reads
         // them) — never at reload time, so they can't leak into comboship.json before a slot is bound.
         if (!g_PendingMMSettingsJson.empty() && MM_RestoreRandoSettings)
             MM_RestoreRandoSettings(g_PendingMMSettingsJson.c_str());
-        MM_InitRandoSaveFile(fileNum, g_PendingMMPlacements.c_str(), playerName);
-        g_PendingMMPlacements.clear();
+        if (MM_InitRandoSaveFile(fileNum, mmPlacements.c_str(), playerName) != 0) {
+            std::cerr << "[ComboShip] ERROR: MM rando save creation FAILED for slot " << fileNum
+                      << " — this slot's MM save has no placements. Re-create it." << std::endl;
+        }
         // Silent auto-load: the save now has the seed's settings baked in — return the CVars to the
         // user's config. An explicit drop leaves the seed's settings as the new persisted baseline.
         if (g_ComboReloadRestoreUserMM && MM_RestoreRandoSettings && !g_UserMMSettingsSnapshot.empty())
@@ -1848,12 +1899,13 @@ static void Combo_OnOOTSaveInit(int fileNum) {
         g_PendingMMSettingsJson.clear();
         g_UserMMSettingsSnapshot.clear();
         g_ComboReloadRestoreUserMM = false;
-    } else if (MM_InitSaveFile) {
-        // No placement available (e.g. generation was skipped) — fall back to a vanilla MM save.
-        std::cout << "[ComboShip] Creating MM save for OOT slot " << fileNum << std::endl;
-        MM_InitSaveFile(fileNum, playerName);
+    } else {
+        // No seed bound to this slot. ComboShip has no vanilla mode, so there is no valid save to
+        // create here — fail loudly instead of writing one that looks fine and misbehaves later.
+        std::cerr << "[ComboShip] ERROR: no consolidated seed for slot " << fileNum
+                  << " — cannot create an MM rando save. Generate or load a seed first." << std::endl;
     }
-    // Both creation paths build the save in MM's live gSaveContext.
+    // The creation path builds the save in MM's live gSaveContext.
     g_MmSaveInMemorySlot = fileNum;
 }
 
@@ -2058,7 +2110,6 @@ int main(int argc, char** argv) {
     MM_ArchiveCount = (FnInt)GetSym(mmModule, "MM_ArchiveCount");
     SOH_SetOnNewSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnNewSaveCallback");
     SOH_SetOnLoadSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnLoadSaveCallback");
-    MM_InitSaveFile = (FnMMInitSaveNamed)GetSym(mmModule, "MM_InitSaveFile");
     SOH_GetCurrentPlayerName = (FnGetPlayerName)GetSym(sohModule, "SOH_GetCurrentPlayerName");
     MM_LoadSaveForCombo = (FnMMInitSave)GetSym(mmModule, "MM_LoadSaveForCombo");
     SOH_ParkForComboMMResume = (FnVoid)GetSym(sohModule, "SOH_ParkForComboMMResume");
@@ -2088,6 +2139,8 @@ int main(int argc, char** argv) {
     SOH_SetCheckPrices = (FnTakeStr)GetSym(sohModule, "SOH_SetCheckPrices");
     MM_SetCheckPrices = (FnTakeStr)GetSym(mmModule, "MM_SetCheckPrices");
     SOH_SetOnComboReloadCallback = (FnSetReloadCb)GetSym(sohModule, "SOH_SetOnComboReloadCallback");
+    SOH_SetComboSpoilerPath = (FnTakeStr)GetSym(sohModule, "SOH_SetComboSpoilerPath");
+    SOH_GetComboSpoilerPath = (FnDumpData)GetSym(sohModule, "SOH_GetComboSpoilerPath");
     MM_InitRandoSaveFile = (FnMMInitRandoSave)GetSym(mmModule, "MM_InitRandoSaveFile");
     SOH_SetOnComboGenerateCallback = (FnSetGenerateCb)GetSym(sohModule, "SOH_SetOnComboGenerateCallback");
     SOH_ApplyRandoPlacements = (FnApplyPlacements)GetSym(sohModule, "SOH_ApplyRandoPlacements");
@@ -2461,7 +2514,7 @@ int main(int argc, char** argv) {
         std::exit(0);
     }
 
-    if (SOH_SetOnNewSaveCallback && MM_InitSaveFile) {
+    if (SOH_SetOnNewSaveCallback && MM_InitRandoSaveFile) {
         SOH_SetOnNewSaveCallback(Combo_OnOOTSaveInit);
         std::cout << "[ComboShip] OOT new-save callback registered." << std::endl;
     }

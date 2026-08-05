@@ -29,6 +29,7 @@ void InitEnBalBehavior();
 void InitEnBjtBehavior();
 void InitEnBomBowlManBehavior();
 void InitEnBoxBehavior();
+void InitEnButteBehavior();
 void InitEnCowBehavior();
 void InitEnDaiBehavior();
 void InitEnDnhBehavior();
@@ -90,6 +91,7 @@ void InitEnZotBehavior();
 void InitEnZowBehavior();
 void InitItemBHeartBehavior();
 void InitItemGetBehavior();
+void InitObjCombBehavior();
 void InitObjKibakoBehavior();
 void InitObjGrassBehavior();
 void InitObjMoonStoneBehavior();
@@ -101,6 +103,7 @@ void InitObjWarpstoneBehavior();
 void InitPlayerBehavior();
 void InitSoulsBehavior();
 void InitTrapsBehavior();
+void InitWonderItemsBehavior();
 
 } // namespace ActorBehavior
 

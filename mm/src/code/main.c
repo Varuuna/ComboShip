@@ -1,9 +1,15 @@
 #ifdef _WIN32
 #include <Windows.h>
+#include <stdio.h>
+#include <locale.h>
 #endif
+#ifdef COMBO_BUILD
+// ComboShip: MM_RunMain (below) calls setlocale on every platform, and COMBO_EXPORT is the combo
+// ABI's PE/ELF export decoration (combo/ComboExport.h).
 #include <stdio.h>
 #include <locale.h>
 #include "ComboExport.h"
+#endif
 
 #include "audiomgr.h"
 #include "fault.h"

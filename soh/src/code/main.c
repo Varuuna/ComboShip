@@ -2,7 +2,9 @@
 #include <Windows.h>
 #include <locale.h>
 #endif
+#ifdef COMBO_BUILD
 #include "ComboExport.h"
+#endif
 
 #include "global.h"
 #include "vt.h"
@@ -45,7 +47,9 @@ void Main_LogSystemHeap(void) {
 }
 
 // ComboShip: export that runs the OOT game loop. SOH_Init() must be called first. Blocks until OOT exits.
+#ifdef COMBO_BUILD
 COMBO_EXPORT
+#endif
 void SOH_RunMain(int argc, char** argv) {
     GameConsole_Init();
     // ComboShip: SOH_Init() (i.e. InitOTR) was already called by the launcher before this.

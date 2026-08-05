@@ -2762,7 +2762,7 @@ extern "C" COMBO_EXPORT void MM_SetComboRandoSeed(uint64_t seed) {
 // (those need gPlayState). Returns 0 on success, nonzero if no placements applied — the save stays
 // SAVETYPE_RANDO either way, since a vanilla one disables every IS_RANDO hook.
 extern "C" COMBO_EXPORT int MM_InitRandoSaveFile(int fileNum, const char* placementJson,
-                                                          const unsigned char* ootName8) {
+                                                 const unsigned char* ootName8) {
     // Playable combo baseline first (Human Link, South Clock Town, ocarina/songs, etc.).
     SaveManager_InitNewSaveForSlot(fileNum + 1, ootName8);
     // Sram_InitNewSave (inside the call above) resets fileNum; restore it so SaveManager_SaveCurrentForCombo

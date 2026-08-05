@@ -1,6 +1,6 @@
 #include "MMAnchor.h"
-#include "ComboExport.h"
 #ifdef COMBO_BUILD
+#include "ComboExport.h"
 
 #include <spdlog/spdlog.h>
 #include "rando/ComboAnchorToast.h" // shared cross-game resync-toast debounce

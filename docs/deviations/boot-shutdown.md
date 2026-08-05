@@ -210,8 +210,8 @@ container, since there's no per-game `.sav` to copy).
 **Release-version save gate:** `COMBO_RELEASE_VERSION` (root `CMakeLists.txt`, manual — e.g. `0.1.1`)
 is the sole authority for combosave compatibility, enforced at the launcher container level, not in
 either game. It is compiled into the `ComboShip` target only. Every container write stamps
-`comboRelease`; on load, a container missing it or carrying a different string is renamed aside to a
-timestamped `.bak`, its slot recorded, and a fresh container created. OOT drains the recorded slots on
+`comboRelease`; on load, a container missing it or differing in `major.minor` (patch releases keep
+saves) is renamed aside to a timestamped `.bak`, its slot recorded, and a fresh container created. OOT drains the recorded slots on
 its main thread (`SOH_SetOutdatedSaveNotice` → `Combo_TakeEvictionNotice`) and shows an "Outdated
 ComboShip Save" popup — the launcher never touches ImGui (`Combo_ReadGameSave` may run off-thread). The
 old pin-derived `major.minor.patch` triple + MM git commit hash remain for the in-game banner/diagnostics

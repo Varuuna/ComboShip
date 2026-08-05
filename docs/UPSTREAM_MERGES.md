@@ -139,9 +139,9 @@ top-level project) changes on every merge, and the rando-save gate fires on its 
 
 **`COMBO_RELEASE_VERSION` (manual, e.g. `0.1.1`)** is separate from the pin-derived triple and is the
 **sole authority for combosave compatibility** (gated at the launcher container level — see
-`docs/deviations/boot-shutdown.md`). Bump rule: `patch` = combo-side changes; `minor` = a counter of the
-currently-ahead game's upstream releases; `major` = ticks when the trailing game catches up (both synced),
-resetting `minor`. Any bump retires existing combosaves once; not bumping it keeps saves across rebuilds.
+`docs/deviations/boot-shutdown.md`). Only `major.minor` gates saves. Bump rule: `patch` = fixes that
+cannot affect logic, in-game events, or save contents (saves survive); `minor`/`major` = anything
+save-affecting (upstream pin updates, schema or rando-logic changes) and retires existing combosaves once.
 
 **The two o2r version checks are NOT the same granularity** (this bit me once — get it right):
 

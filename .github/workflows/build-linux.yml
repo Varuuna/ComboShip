@@ -19,7 +19,7 @@ on:
       - 'ZAPDTR/**'
       - '.github/workflows/build-linux.yml'
   push:
-    branches: [develop, feature/linux-port]
+    branches: [develop]
     paths: *code_paths
   workflow_dispatch:
 

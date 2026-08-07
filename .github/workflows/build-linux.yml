@@ -3,8 +3,10 @@ name: Build (Linux)
 # Linux port CI: full Release build (Ninja + gcc), port o2r generation, and a headless comborando
 # seed-generation smoke test — the same end-to-end check used to validate the port locally (the
 # fill runs both games' oracles in-process, so it exercises the ELF combo ABI without ROMs).
-# Produces a runnable ComboShip-linux artifact (users add their own extracted oot.o2r/mm.o2r).
-# Windows builds are unaffected — see build.yml / build-artifacts.yml.
+# Produces a runnable ComboShip-linux artifact (users add their own extracted oot.o2r/mm.o2r)
+# plus a self-contained ComboShip-linux-appimage — the plain tree links against the runner's
+# system libraries, so on other distros it needs a matching ABI (see docs/BUILDING_LINUX.md);
+# the AppImage bundles them. Windows builds are unaffected — see build.yml / build-artifacts.yml.
 
 on:
   pull_request:
@@ -17,6 +19,7 @@ on:
       - 'CMake/**'
       - 'OTRExporter/**'
       - 'ZAPDTR/**'
+      - 'scripts/linux/**'
       - '.github/workflows/build-linux.yml'
   push:
     branches: [develop]
@@ -131,24 +134,25 @@ jobs:
         working-directory: build-cmake/combo
         run: ./comborando --seed ci-linux-smoke --count 1
 
-      # Runnable tree: binaries + assets + port o2rs. cp -L dereferences the module symlinks the
-      # POST_BUILD staging creates (an artifact of symlinks would be dead links). Game archives
-      # (oot.o2r / mm.o2r) are ROM-extracted by the user and never built or shipped here.
-      - name: Stage Linux package
-        run: |
-          mkdir -p _packages/stage
-          cp -L build-cmake/combo/ComboShip build-cmake/combo/comborando \
-                build-cmake/combo/comboui.so build-cmake/combo/libsoh.so \
-                build-cmake/combo/lib2ship.so build-cmake/combo/libultraship.so _packages/stage/
-          cp -r build-cmake/combo/assets _packages/stage/
-          for d in mods presets randomizer; do
-            if [ -d "build-cmake/combo/$d" ]; then cp -r "build-cmake/combo/$d" _packages/stage/; fi
-          done
-          cp build-cmake/soh/soh.o2r build-cmake/mm/2ship.o2r _packages/stage/
+      # Stages the runnable tree (binaries + assets + port o2rs; game archives oot.o2r / mm.o2r
+      # are ROM-extracted by the user and never built or shipped here) and packages it as a
+      # self-contained AppImage — linuxdeploy bundles the system .so deps and combo/linux/AppRun
+      # recreates the launcher's portable cwd layout in a writable data dir at run time.
+      - name: Stage Linux package + build AppImage
+        run: ./scripts/linux/make-appimage.sh build-cmake _packages
 
       - name: Upload ComboShip-linux artifact
         uses: actions/upload-artifact@v4
         with:
           name: ComboShip-linux
           path: _packages/stage
+          if-no-files-found: error
+
+      # GitHub zips artifact contents on download, which drops the exec bit — the docs tell users
+      # to chmod +x the AppImage after unzipping (standard for CI-distributed AppImages).
+      - name: Upload ComboShip-linux AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: ComboShip-linux-appimage
+          path: _packages/ComboShip-*-linux-x86_64.AppImage
           if-no-files-found: error

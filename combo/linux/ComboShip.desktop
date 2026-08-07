@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=ComboShip
+Comment=Ocarina of Time + Majora's Mask combo randomizer
+Exec=ComboShip
+Terminal=true
+Icon=ComboShip
+Type=Application
+Categories=Game;
+X-AppImage-Integrate=false

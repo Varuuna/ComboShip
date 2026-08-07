@@ -333,10 +333,17 @@ inline const CwAnimLimbDL* CfaFindLimbDL(s32 limbIndex) {
     return nullptr;
 }
 
+// An ARRAY of ENDDLs, not a single command: DLs may call through a bound segment at an index > 0
+// (MM's Scene_SetRenderModeXlu binds 4-entry ENDDL arrays for exactly this), so every slot an
+// indexed call can select must hold an ENDDL or execution runs off the allocation into whatever
+// follows it. 8 entries = MM's 4 with headroom.
+#define CFA_EMPTY_DL_ENTRIES 8
 inline Gfx* CfaEmptyDL(PlayState* play) {
-    Gfx* dl = (Gfx*)CFA_ALLOC(play->state.gfxCtx, sizeof(Gfx));
+    Gfx* dl = (Gfx*)CFA_ALLOC(play->state.gfxCtx, CFA_EMPTY_DL_ENTRIES * sizeof(Gfx));
     Gfx* p = dl;
-    gSPEndDisplayList(p++);
+    for (int32_t i = 0; i < CFA_EMPTY_DL_ENTRIES; i++) {
+        gSPEndDisplayList(p++);
+    }
     return dl;
 }
 
@@ -815,9 +822,7 @@ inline int32_t ComboForeignAnim_Draw(const CwItemAnimDrawInfo* info, const char*
     // Segment hygiene: re-point the segments the texanim wrote at a benign empty DL (XLU only —
     // the OPA stream was never touched). See docs/deviations/rando.md.
     if (writtenSegCount > 0) {
-        Gfx* empty = (Gfx*)CFA_ALLOC(play->state.gfxCtx, sizeof(Gfx));
-        Gfx* e = empty;
-        gSPEndDisplayList(e++);
+        Gfx* empty = CfaEmptyDL(play); // array-sized: indexed seg calls must stay in bounds
         for (int32_t i = 0; i < writtenSegCount; i++) {
             gSPSegment(POLY_XLU_DISP++, writtenSegs[i], (uintptr_t)empty);
         }
@@ -834,9 +839,7 @@ inline void ComboForeignTexAnim_Restore(PlayState* play, const int32_t* segs, in
     if (play == NULL || count <= 0) {
         return;
     }
-    Gfx* empty = (Gfx*)CFA_ALLOC(play->state.gfxCtx, sizeof(Gfx));
-    Gfx* e = empty;
-    gSPEndDisplayList(e++);
+    Gfx* empty = CfaEmptyDL(play); // array-sized: indexed seg calls must stay in bounds
     OPEN_DISPS(play->state.gfxCtx);
     for (int32_t i = 0; i < count; i++) {
         if (restoreOpa) {

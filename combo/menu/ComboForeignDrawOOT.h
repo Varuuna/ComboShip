@@ -201,9 +201,12 @@ inline const ComboForeignDrawInfo* ComboResolveForeignDrawInfo(RandomizerCheck r
 // Restore the segments a handler bound to a benign empty DL so later same-frame commands don't
 // sample our scroll DLs. Mirrors MM_RestoreForeignSegs / the hygiene in ComboForeignAnim.h.
 inline void OOT_RestoreForeignSegs(PlayState* play, const int32_t* segs, int32_t count) {
-    Gfx* empty = (Gfx*)Graph_Alloc(play->state.gfxCtx, sizeof(Gfx));
+    // Array of ENDDLs: DLs may call through a bound segment at an index > 0 — see CfaEmptyDL.
+    Gfx* empty = (Gfx*)Graph_Alloc(play->state.gfxCtx, 8 * sizeof(Gfx));
     Gfx* e = empty;
-    gSPEndDisplayList(e++);
+    for (int32_t iEmpty = 0; iEmpty < 8; iEmpty++) {
+        gSPEndDisplayList(e++);
+    }
     OPEN_DISPS(play->state.gfxCtx);
     for (int32_t i = 0; i < count; i++) {
         gSPSegment(POLY_OPA_DISP++, segs[i], (uintptr_t)empty);

@@ -327,7 +327,7 @@ static FnDumpData SOH_DumpEntranceOverrides = nullptr;
 // (pushed into each DLL at boot), so the in-process cache stays authoritative. Single mutex serializes
 // OOT's thread-pool writes, MM's synchronous writes, and Anchor cross-writes. Write = temp+rename,
 // never torn on crash. Each container carries "comboRelease" (COMBO_RELEASE_VERSION); a container from a
-// different release is backed up to .bak and recreated — the launcher is the sole save-compat gate.
+// different major.minor is backed up to .bak and recreated — the launcher is the sole save-compat gate.
 // See docs/deviations/boot-shutdown.md.
 static std::mutex g_containerMutex;
 static std::map<int, nlohmann::json> g_containerCache;
@@ -343,6 +343,12 @@ static void Combo_SetForegroundGame(int game) {
 
 static std::filesystem::path ComboContainerPath(int fileNum) {
     return std::filesystem::path("Save") / ("file" + std::to_string(fileNum + 1) + ".combosav");
+}
+
+// Save compat is gated on major.minor only: patch releases must never change save-affecting behavior.
+static std::string ComboReleaseMajorMinor(const std::string& v) {
+    size_t dot = v.find('.');
+    return v.substr(0, dot == std::string::npos ? std::string::npos : v.find('.', dot + 1));
 }
 
 // Hold g_containerMutex. Returns a ref into the cache; loads from disk or creates a fresh container.
@@ -368,11 +374,13 @@ static nlohmann::json& LoadOrCreateContainer(int fileNum) {
     if (existed && !parsed) {
         std::filesystem::rename(path, path.string() + ".corrupt-" + std::to_string(std::time(nullptr)), ec);
     }
-    // COMBO_RELEASE_VERSION gate: a container from a different ComboShip release is outdated. Back it
-    // up aside and start fresh; record the slot so OOT can surface a popup on its main thread.
+    // COMBO_RELEASE_VERSION gate (major.minor only; patch releases keep saves): a container from a
+    // different release is outdated. Back it up aside and start fresh; record the slot so OOT can
+    // surface a popup on its main thread.
     if (parsed) {
         auto rel = j.find("comboRelease");
-        if (rel == j.end() || !rel->is_string() || rel->get<std::string>() != COMBO_RELEASE_VERSION) {
+        if (rel == j.end() || !rel->is_string() ||
+            ComboReleaseMajorMinor(rel->get<std::string>()) != ComboReleaseMajorMinor(COMBO_RELEASE_VERSION)) {
             std::filesystem::rename(path, path.string() + "-" + std::to_string(std::time(nullptr)) + ".bak", ec);
             g_evictedSlots.push_back(fileNum); // caller holds g_containerMutex
             parsed = false;

@@ -10,6 +10,7 @@
 #include "ComboWidgetStyle.h" // ComboShip port style: ComboMenu_ThemeColor / PushButton / PopButton
 
 #include <libultraship/libultraship.h>
+#include <ship/window/FileDropMgr.h> // only forward-declared by the umbrella header
 #include <fast/Fast3dWindow.h>
 #include <imgui.h>
 
@@ -63,6 +64,18 @@ std::string PickRomFile() {
     }
 #endif
     return std::string();
+}
+
+// Dropped-file hand-off from the gfx backend's event pump (via FileDropMgr) to the PICK loop
+// below. Same thread — the pump runs inside wnd->HandleEvents() — so a plain string suffices.
+// Registered only while the extraction screen is up; returns true so FileDropMgr doesn't emit
+// its "unsupported file" overlay for what is actually the expected input here.
+std::string sDroppedRomPath;
+bool HandleRomDrop(char* path) {
+    if (path != nullptr) {
+        sDroppedRomPath = path;
+    }
+    return true;
 }
 
 // Non-recursive scan of a directory for candidate ROM files.
@@ -146,6 +159,15 @@ extern "C" __declspec(dllexport) int ComboUI_RunExtraction(const ComboExtractCal
         }
     }
 
+    // Accept ROMs dragged onto the window while this screen is up. The gfx backends hand drops
+    // to FileDropMgr (created by the window-only boot precisely so it exists here); the handler
+    // stashes the path and the PICK phase below routes it into a slot.
+    auto fileDropMgr = ctx->GetFileDropMgr();
+    sDroppedRomPath.clear();
+    if (fileDropMgr != nullptr) {
+        fileDropMgr->RegisterDropHandler(HandleRomDrop);
+    }
+
     enum Phase { PICK, EXTRACTING, FAILED };
     Phase phase = PICK;
     int activeSlot = -1; // slot currently extracting, -1 = pick next
@@ -202,8 +224,43 @@ extern "C" __declspec(dllexport) int ComboUI_RunExtraction(const ComboExtractCal
             ImGui::Separator();
 
             if (phase == PICK) {
+                // A ROM dropped onto the window: route it by the header-only classify (same
+                // routing as the auto-scan above), replacing a prior selection for that game —
+                // a drop is an explicit user action. If no slot claims it, park it in the first
+                // unfilled slot so the "Not a valid ... ROM" feedback explains what happened.
+                if (!sDroppedRomPath.empty()) {
+                    std::string dropped = std::move(sDroppedRomPath);
+                    sDroppedRomPath.clear();
+                    if (fileDropMgr != nullptr) {
+                        fileDropMgr->ClearDroppedFile();
+                    }
+                    bool placed = false;
+                    for (auto& s : slots) {
+                        if (!s.needed) {
+                            continue;
+                        }
+                        ComboFnValidateRom check = s.classify ? s.classify : s.validate;
+                        if (check && check(dropped.c_str())) {
+                            s.path = dropped;
+                            s.valid = true;
+                            placed = true;
+                            break;
+                        }
+                    }
+                    if (!placed) {
+                        for (auto& s : slots) {
+                            if (s.needed && !s.valid) {
+                                s.path = dropped;
+                                s.valid = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+
                 ImGui::TextWrapped("ComboShip needs both an Ocarina of Time ROM and a Majora's Mask ROM. "
-                                   "Select each ROM below, then click Extract. Both are required.");
+                                   "Select each ROM below or drag and drop ROM files onto this window, "
+                                   "then click Extract. Both are required.");
                 ImGui::Spacing();
 
                 for (int i = 0; i < 2; i++) {
@@ -343,6 +400,12 @@ extern "C" __declspec(dllexport) int ComboUI_RunExtraction(const ComboExtractCal
         gui->EndDraw();
         wnd->EndFrame();
     }
+
+    if (fileDropMgr != nullptr) {
+        fileDropMgr->UnregisterDropHandler(HandleRomDrop);
+        fileDropMgr->ClearDroppedFile();
+    }
+    sDroppedRomPath.clear();
 
     return result;
 }

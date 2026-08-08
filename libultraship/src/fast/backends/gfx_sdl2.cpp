@@ -655,7 +655,16 @@ void GfxWindowBackendSDL2::HandleSingleEvent(SDL_Event& event) {
             }
             break;
         case SDL_DROPFILE:
+#ifdef COMBO_BUILD
+            // ComboShip: null-guard — a file dropped before full game init (e.g. on the ROM
+            // extraction screen, where only the window-only boot has run) reaches here with no
+            // FileDropMgr yet and would crash.
+            if (auto fileDropMgr = Ship::Context::GetRawInstance()->GetFileDropMgr()) {
+                fileDropMgr->SetDroppedFile(event.drop.file);
+            }
+#else
             Ship::Context::GetRawInstance()->GetFileDropMgr()->SetDroppedFile(event.drop.file);
+#endif
             break;
         case SDL_QUIT:
             Close();

@@ -371,6 +371,14 @@ OTRGlobals::OTRGlobals() {
 #endif
     context->InitConsole();
 
+#ifdef COMBO_BUILD
+    // ComboShip: the ROM extraction screen runs between this ctor (SOH_InitWindowOnly) and
+    // Initialize() — without this, a file dropped there reaches the gfx backend with a null
+    // FileDropMgr, and the screen couldn't accept dropped ROMs. Initialize()'s own
+    // InitFileDropMgr call is idempotent, so the full-boot path is unchanged.
+    context->InitFileDropMgr();
+#endif
+
     auto sohInputEditorWindow =
         std::make_shared<SohInputEditorWindow>(CVAR_WINDOW("ControllerConfiguration"), "Configure Controller");
     sohFast3dWindow =

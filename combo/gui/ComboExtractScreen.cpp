@@ -8,9 +8,11 @@
 // soh.dll / 2ship.dll via the function pointers in ComboExtractCallbacks; this file only renders.
 #include "ComboExtractScreen.h"
 #include "ComboExport.h"
+#include "ComboFilePicker.h"  // native Browse dialog (comdlg32 / pfd), shared with the settings-import screen
 #include "ComboWidgetStyle.h" // ComboShip port style: ComboMenu_ThemeColor / PushButton / PopButton
 
 #include <libultraship/libultraship.h>
+#include <ship/window/FileDropMgr.h> // only forward-declared by the umbrella header
 #include <fast/Fast3dWindow.h>
 #include <imgui.h>
 
@@ -20,12 +22,6 @@
 #include <algorithm>
 #include <cstdio>
 #include <cctype>
-
-#ifdef _WIN32
-#include <windows.h>
-#include <commdlg.h>
-#pragma comment(lib, "comdlg32") // GetOpenFileNameA — comboui doesn't otherwise link comdlg32
-#endif
 
 using ComboRando::ComboMenu_PopButton;
 using ComboRando::ComboMenu_PushButton;
@@ -50,20 +46,26 @@ struct RomSlot {
 
 // Native open-file dialog filtered to N64 ROM extensions. Returns "" if cancelled.
 std::string PickRomFile() {
-#ifdef _WIN32
-    char file[MAX_PATH] = { 0 };
-    OPENFILENAMEA ofn = { 0 };
-    ofn.lStructSize = sizeof(ofn);
-    ofn.lpstrFilter = "N64 ROMs (*.z64;*.n64;*.v64)\0*.z64;*.n64;*.v64\0All Files (*.*)\0*.*\0";
-    ofn.lpstrFile = file;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.lpstrTitle = "Select ROM";
-    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-    if (GetOpenFileNameA(&ofn)) {
-        return std::string(file);
+    return ComboFilePicker::PickFile("Select ROM",
+                                     "N64 ROMs (*.z64;*.n64;*.v64)\0*.z64;*.n64;*.v64\0All Files (*.*)\0*.*\0",
+                                     { "N64 ROMs (*.z64 *.n64 *.v64)", "*.z64 *.n64 *.v64", "All Files", "*" });
+}
+
+// The UI disables Browse and points at drag & drop when no dialog helper exists (Linux only).
+bool PickerAvailable() {
+    return ComboFilePicker::Available();
+}
+
+// Dropped-file hand-off from the gfx backend's event pump (via FileDropMgr) to the PICK loop
+// below. Same thread — the pump runs inside wnd->HandleEvents() — so a plain string suffices.
+// Registered only while the extraction screen is up; returns true so FileDropMgr doesn't emit
+// its "unsupported file" overlay for what is actually the expected input here.
+std::string sDroppedRomPath;
+bool HandleRomDrop(char* path) {
+    if (path != nullptr) {
+        sDroppedRomPath = path;
     }
-#endif
-    return std::string();
+    return true;
 }
 
 // Non-recursive scan of a directory for candidate ROM files.
@@ -147,6 +149,15 @@ extern "C" COMBO_EXPORT int ComboUI_RunExtraction(const ComboExtractCallbacks* c
         }
     }
 
+    // Accept ROMs dragged onto the window while this screen is up. The gfx backends hand drops
+    // to FileDropMgr (created by the window-only boot precisely so it exists here); the handler
+    // stashes the path and the PICK phase below routes it into a slot.
+    auto fileDropMgr = ctx->GetFileDropMgr();
+    sDroppedRomPath.clear();
+    if (fileDropMgr != nullptr) {
+        fileDropMgr->RegisterDropHandler(HandleRomDrop);
+    }
+
     enum Phase { PICK, EXTRACTING, FAILED };
     Phase phase = PICK;
     int activeSlot = -1; // slot currently extracting, -1 = pick next
@@ -203,8 +214,51 @@ extern "C" COMBO_EXPORT int ComboUI_RunExtraction(const ComboExtractCallbacks* c
             ImGui::Separator();
 
             if (phase == PICK) {
+                // A ROM dropped onto the window: route it by the header-only classify (same
+                // routing as the auto-scan above), replacing a prior selection for that game —
+                // a drop is an explicit user action. If no slot claims it, park it in the first
+                // unfilled slot so the "Not a valid ... ROM" feedback explains what happened.
+                if (!sDroppedRomPath.empty()) {
+                    std::string dropped = std::move(sDroppedRomPath);
+                    sDroppedRomPath.clear();
+                    if (fileDropMgr != nullptr) {
+                        fileDropMgr->ClearDroppedFile();
+                    }
+                    bool placed = false;
+                    for (auto& s : slots) {
+                        if (!s.needed) {
+                            continue;
+                        }
+                        ComboFnValidateRom check = s.classify ? s.classify : s.validate;
+                        if (check && check(dropped.c_str())) {
+                            s.path = dropped;
+                            s.valid = true;
+                            placed = true;
+                            break;
+                        }
+                    }
+                    if (!placed) {
+                        for (auto& s : slots) {
+                            if (s.needed && !s.valid) {
+                                s.path = dropped;
+                                s.valid = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+
                 ImGui::TextWrapped("ComboShip needs both an Ocarina of Time ROM and a Majora's Mask ROM. "
-                                   "Select each ROM below, then click Extract. Both are required.");
+                                   "Select each ROM below or drag and drop ROM files onto this window, "
+                                   "then click Extract. Both are required.");
+                if (!PickerAvailable()) {
+                    // TextDisabled doesn't wrap (ran off the panel), and the game font has no
+                    // em-dash glyph — so: wrapped text in the disabled color, ASCII only.
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+                    ImGui::TextWrapped("No file-picker helper found (install zenity or kdialog); "
+                                       "drag and drop your ROM files onto this window instead.");
+                    ImGui::PopStyleColor();
+                }
                 ImGui::Spacing();
 
                 for (int i = 0; i < 2; i++) {
@@ -217,12 +271,18 @@ extern "C" COMBO_EXPORT int ComboUI_RunExtraction(const ComboExtractCallbacks* c
                     } else {
                         ImGui::TextWrapped("%s", s.path.empty() ? "(no ROM selected)" : s.path.c_str());
                         ComboMenu_PushButton(theme);
+                        if (!PickerAvailable()) {
+                            ImGui::BeginDisabled();
+                        }
                         if (ImGui::Button(s.path.empty() ? "Browse..." : "Change")) {
                             std::string picked = PickRomFile();
                             if (!picked.empty()) {
                                 s.path = picked;
                                 s.valid = s.validate && s.validate(picked.c_str());
                             }
+                        }
+                        if (!PickerAvailable()) {
+                            ImGui::EndDisabled();
                         }
                         ComboMenu_PopButton();
                         ImGui::SameLine();
@@ -344,6 +404,12 @@ extern "C" COMBO_EXPORT int ComboUI_RunExtraction(const ComboExtractCallbacks* c
         gui->EndDraw();
         wnd->EndFrame();
     }
+
+    if (fileDropMgr != nullptr) {
+        fileDropMgr->UnregisterDropHandler(HandleRomDrop);
+        fileDropMgr->ClearDroppedFile();
+    }
+    sDroppedRomPath.clear();
 
     return result;
 }

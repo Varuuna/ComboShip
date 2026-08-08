@@ -62,6 +62,9 @@ target_include_directories(comboui PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/menu
     ${CMAKE_CURRENT_SOURCE_DIR}/../libultraship/include
+    # portable-file-dialogs.h for the non-Windows ROM picker (ComboExtractScreen.cpp) — the
+    # header soh's own extractor vendors, not an soh include: comboui stays soh-independent.
+    ${CMAKE_CURRENT_SOURCE_DIR}/../soh/soh/Extractor
 )
 target_link_libraries(comboui PRIVATE libultraship)
 add_dependencies(comboui libultraship)

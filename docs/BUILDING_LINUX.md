@@ -29,6 +29,10 @@ AppImage holding saves, config, mods and the game archives; set `SHIP_HOME` to
 put it somewhere else. Drop already-extracted `oot.o2r` / `mm.o2r` files in
 there to skip the extraction screen.
 
+On the ROM-setup screen you can drag and drop your ROMs onto the window, or
+click Browse — the file picker needs `zenity` or `kdialog` installed (virtually
+every desktop distro ships one).
+
 ## Building from source
 
 ### Dependencies (Ubuntu 24.04)

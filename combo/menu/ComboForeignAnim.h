@@ -12,9 +12,10 @@
  * Also ports the minimal AnimatedMaterial subset the stray-fairy texanims need. OOT has no
  * AnimatedMat system; MM's lives in mm/src/code/z_scene_proc.c. All five gStrayFairy*TexAnim
  * resources were inspected (mm.o2r): 2 entries each, BOTH type 4 (ColorChangeLagrange, prim+env
- * color, segments |1|+7=8 and |-2|+7=9, negative segment = end-of-list). So ONLY the type-4
- * handler (AnimatedMat_DrawColorNonLinearInterp + Scene_LagrangeInterp + AnimatedMat_SetColor) is
- * ported; any other entry type fails validation and falls back to the caller's sentinel.
+ * color, segments |1|+7=8 and |-2|+7=9, negative segment = end-of-list). Ported handlers: type 4
+ * (AnimatedMat_DrawColorNonLinearInterp + Scene_LagrangeInterp + AnimatedMat_SetColor), type 1
+ * (DualScroll) and type 2 (AnimatedMat_DrawColor, frame-indexed color — Eyegore's eye laser);
+ * any other entry type fails validation and falls back to the caller's sentinel.
  *
  * TU-GLUE HEADER (menu-extraction pattern, like combo/menu/ComboMenuDrawContent.h): include from
  * the HOST game's draw TU (soh/soh/Enhancements/randomizer/draw.cpp) AFTER the engine headers —
@@ -86,7 +87,7 @@ struct CfaColorParams { // AnimatedMatColorParams
 };
 struct CfaMatEntry { // AnimatedMaterial: array terminated by a NEGATIVE segment on the last entry
     int8_t segment;  // |segment| + 7 = real segment id
-    int16_t type;    // TextureAnimationParamsType; only 1 (DualScroll) + 4 (ColorChangeLagrange) are ported
+    int16_t type;    // TextureAnimationParamsType; only 1 (DualScroll), 2 (ColorChange), 4 (Lagrange) ported
     void* params;
 };
 struct CfaTexScrollEntry { // AnimatedMatTexScrollParams (DualScroll params: two of these)
@@ -94,11 +95,12 @@ struct CfaTexScrollEntry { // AnimatedMatTexScrollParams (DualScroll params: two
     uint8_t width, height;
 };
 constexpr int16_t kMatTypeTwoTexScroll = 1;
+constexpr int16_t kMatTypeColorChange = 2;
 constexpr int16_t kMatTypeColorLagrange = 4;
 constexpr int32_t kMaxMatEntries = 8; // sanity bound when walking the entry array
 constexpr int32_t kMaxKeyFrames = 50; // MM's handler uses fixed f32[50] tables — same bound
 
-// ---- Ported handler subset (z_scene_proc.c:226-363, type 4 only), parameterized on gfxCtx+step
+// ---- Ported handler subset (z_scene_proc.c:145-363, types 1/2/4), parameterized on gfxCtx+step
 // instead of MM's sMatAnim* globals; alphaRatio 1, XLU-only by design.
 
 inline float CfaLagrangeInterp(int32_t n, const float x[], const float fx[], float xp) {
@@ -194,6 +196,16 @@ inline void CfaDrawColorLagrange(PlayState* play, int32_t segment, const CfaColo
     CfaSetColorSegment(play, segment, &prim, (p->envColors != NULL) ? &env : NULL, colorOpa);
 }
 
+// AnimatedMat_DrawColor (type 2): key-frame color without interpolation — primColors is indexed
+// directly by frame (keyFrames/keyFrameCount are unused and may be absent; Eyegore's eye laser).
+inline void CfaDrawColorIndexed(PlayState* play, int32_t segment, const CfaColorParams* p, uint32_t step,
+                                bool colorOpa = false) {
+    int32_t curFrame = (int32_t)(step % p->keyFrameLength);
+    const CfaPrimColor* prim = &p->primColors[curFrame];
+    const CfaEnvColor* env = (p->envColors != NULL) ? &p->envColors[curFrame] : NULL;
+    CfaSetColorSegment(play, segment, prim, env, colorOpa);
+}
+
 // AnimatedMat_DrawTwoTexScroll (type 1): build the two-layer scroll DL and point `segment` at it on
 // the XLU stream (+ OPA when bindOpa, mirroring MM's flags=3 for get-item draws — the tear's item
 // body samples the segment on the OPA layer). Formula matches AnimatedMat_TwoLayerTexScroll.
@@ -223,6 +235,8 @@ inline void CfaDrawTexAnim(PlayState* play, const CfaMatEntry* mat, uint32_t ste
         int32_t segAbs = (seg < 0 ? -seg : seg) + 7;
         if (mat->type == kMatTypeTwoTexScroll) { // type pre-validated
             CfaDrawTwoTexScroll(play, segAbs, (const CfaTexScrollEntry*)mat->params, step, bindOpa);
+        } else if (mat->type == kMatTypeColorChange) {
+            CfaDrawColorIndexed(play, segAbs, (const CfaColorParams*)mat->params, step, colorOpa);
         } else {
             CfaDrawColorLagrange(play, segAbs, (const CfaColorParams*)mat->params, step, colorOpa);
         }
@@ -233,7 +247,7 @@ inline void CfaDrawTexAnim(PlayState* play, const CfaMatEntry* mat, uint32_t ste
     } while (seg >= 0 && ++guard < kMaxMatEntries);
 }
 
-// Validate at cache-build time that the loaded texanim only uses what we ported (type 4) and that
+// Validate at cache-build time that the loaded texanim only uses what we ported (types 1/2/4) and that
 // its tables fit the fixed-size interpolation buffers. Anything else => load failure => sentinel.
 inline bool CfaValidateTexAnim(const CfaMatEntry* mat) {
     if (mat == NULL || mat->segment == 0) {
@@ -245,6 +259,12 @@ inline bool CfaValidateTexAnim(const CfaMatEntry* mat) {
         seg = mat->segment;
         if (mat->type == kMatTypeTwoTexScroll) {
             if (mat->params == NULL) {
+                return false;
+            }
+        } else if (mat->type == kMatTypeColorChange) {
+            // frame-indexed: only keyFrameLength + primColors are read (keyFrames may be absent)
+            const CfaColorParams* p = (const CfaColorParams*)mat->params;
+            if (p == NULL || p->keyFrameLength == 0 || p->primColors == NULL) {
                 return false;
             }
         } else if (mat->type == kMatTypeColorLagrange) {

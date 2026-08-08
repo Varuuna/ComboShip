@@ -26,6 +26,12 @@
 #include <windows.h>
 #include <commdlg.h>
 #pragma comment(lib, "comdlg32") // GetOpenFileNameA — comboui doesn't otherwise link comdlg32
+#else
+// Native file picker via zenity/kdialog (Linux) or osascript (macOS). Vendored header, also
+// used by soh's own extractor (soh/soh/Extractor/Extract.cpp); include dir set in
+// combo/CMakeLists.txt.
+#include "portable-file-dialogs.h"
+#include <cstdlib>
 #endif
 
 using ComboRando::ComboMenu_PopButton;
@@ -63,8 +69,43 @@ std::string PickRomFile() {
     if (GetOpenFileNameA(&ofn)) {
         return std::string(file);
     }
-#endif
     return std::string();
+#else
+    // An AppImage run exports a bundle-scoped LD_LIBRARY_PATH that can break the host's
+    // zenity/kdialog (GTK/Qt); AppRun saves the host's original value in
+    // COMBO_HOST_LD_LIBRARY_PATH, so swap it in around the dialog spawn (pfd forks the helper
+    // in the ctor) and restore before blocking on the result. Unset outside an AppImage.
+    const char* hostLibPath = std::getenv("COMBO_HOST_LD_LIBRARY_PATH");
+    std::string savedLibPath;
+    bool swapped = false;
+    if (hostLibPath != nullptr) {
+        const char* current = std::getenv("LD_LIBRARY_PATH");
+        savedLibPath = current != nullptr ? current : "";
+        if (hostLibPath[0] != '\0') {
+            setenv("LD_LIBRARY_PATH", hostLibPath, 1);
+        } else {
+            unsetenv("LD_LIBRARY_PATH");
+        }
+        swapped = true;
+    }
+    pfd::open_file dlg("Select ROM", "", { "N64 ROMs (*.z64 *.n64 *.v64)", "*.z64 *.n64 *.v64", "All Files", "*" });
+    if (swapped) {
+        setenv("LD_LIBRARY_PATH", savedLibPath.c_str(), 1);
+    }
+    auto selection = dlg.result();
+    return selection.empty() ? std::string() : selection.front();
+#endif
+}
+
+// False only on a Linux system with none of pfd's dialog helpers (zenity/kdialog/...) installed;
+// the UI then disables Browse and points at drag & drop instead of a button that silently no-ops.
+bool PickerAvailable() {
+#ifdef _WIN32
+    return true;
+#else
+    static const bool sAvailable = pfd::settings::available();
+    return sAvailable;
+#endif
 }
 
 // Dropped-file hand-off from the gfx backend's event pump (via FileDropMgr) to the PICK loop
@@ -262,6 +303,10 @@ extern "C" COMBO_EXPORT int ComboUI_RunExtraction(const ComboExtractCallbacks* c
                 ImGui::TextWrapped("ComboShip needs both an Ocarina of Time ROM and a Majora's Mask ROM. "
                                    "Select each ROM below or drag and drop ROM files onto this window, "
                                    "then click Extract. Both are required.");
+                if (!PickerAvailable()) {
+                    ImGui::TextDisabled("No file-picker helper found (install zenity or kdialog) — "
+                                        "drag and drop your ROM files onto this window instead.");
+                }
                 ImGui::Spacing();
 
                 for (int i = 0; i < 2; i++) {
@@ -274,12 +319,18 @@ extern "C" COMBO_EXPORT int ComboUI_RunExtraction(const ComboExtractCallbacks* c
                     } else {
                         ImGui::TextWrapped("%s", s.path.empty() ? "(no ROM selected)" : s.path.c_str());
                         ComboMenu_PushButton(theme);
+                        if (!PickerAvailable()) {
+                            ImGui::BeginDisabled();
+                        }
                         if (ImGui::Button(s.path.empty() ? "Browse..." : "Change")) {
                             std::string picked = PickRomFile();
                             if (!picked.empty()) {
                                 s.path = picked;
                                 s.valid = s.validate && s.validate(picked.c_str());
                             }
+                        }
+                        if (!PickerAvailable()) {
+                            ImGui::EndDisabled();
                         }
                         ComboMenu_PopButton();
                         ImGui::SameLine();

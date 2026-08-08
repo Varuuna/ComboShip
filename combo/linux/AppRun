@@ -44,6 +44,10 @@ done
 
 # Bundled deps live in usr/lib (and libultraship.so in usr/bin). The built libraries
 # carry no usable RUNPATH outside the build tree, so resolve everything explicitly.
+# The host's original value is preserved for child processes the game spawns (the
+# zenity/kdialog ROM picker — see PickRomFile in combo/gui/ComboExtractScreen.cpp):
+# host tools can break when forced to load the bundle's libraries.
+export COMBO_HOST_LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
 export LD_LIBRARY_PATH="$BIN:$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 cd "$DATA" || exit 1

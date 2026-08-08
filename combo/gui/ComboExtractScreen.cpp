@@ -304,8 +304,12 @@ extern "C" COMBO_EXPORT int ComboUI_RunExtraction(const ComboExtractCallbacks* c
                                    "Select each ROM below or drag and drop ROM files onto this window, "
                                    "then click Extract. Both are required.");
                 if (!PickerAvailable()) {
-                    ImGui::TextDisabled("No file-picker helper found (install zenity or kdialog) — "
-                                        "drag and drop your ROM files onto this window instead.");
+                    // TextDisabled doesn't wrap (ran off the panel), and the game font has no
+                    // em-dash glyph — so: wrapped text in the disabled color, ASCII only.
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+                    ImGui::TextWrapped("No file-picker helper found (install zenity or kdialog); "
+                                       "drag and drop your ROM files onto this window instead.");
+                    ImGui::PopStyleColor();
                 }
                 ImGui::Spacing();
 

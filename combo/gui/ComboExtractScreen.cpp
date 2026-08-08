@@ -8,6 +8,7 @@
 // soh.dll / 2ship.dll via the function pointers in ComboExtractCallbacks; this file only renders.
 #include "ComboExtractScreen.h"
 #include "ComboExport.h"
+#include "ComboFilePicker.h"  // native Browse dialog (comdlg32 / pfd), shared with the settings-import screen
 #include "ComboWidgetStyle.h" // ComboShip port style: ComboMenu_ThemeColor / PushButton / PopButton
 
 #include <libultraship/libultraship.h>
@@ -21,18 +22,6 @@
 #include <algorithm>
 #include <cstdio>
 #include <cctype>
-
-#ifdef _WIN32
-#include <windows.h>
-#include <commdlg.h>
-#pragma comment(lib, "comdlg32") // GetOpenFileNameA — comboui doesn't otherwise link comdlg32
-#else
-// Native file picker via zenity/kdialog (Linux) or osascript (macOS). Vendored header, also
-// used by soh's own extractor (soh/soh/Extractor/Extract.cpp); include dir set in
-// combo/CMakeLists.txt.
-#include "portable-file-dialogs.h"
-#include <cstdlib>
-#endif
 
 using ComboRando::ComboMenu_PopButton;
 using ComboRando::ComboMenu_PushButton;
@@ -57,55 +46,14 @@ struct RomSlot {
 
 // Native open-file dialog filtered to N64 ROM extensions. Returns "" if cancelled.
 std::string PickRomFile() {
-#ifdef _WIN32
-    char file[MAX_PATH] = { 0 };
-    OPENFILENAMEA ofn = { 0 };
-    ofn.lStructSize = sizeof(ofn);
-    ofn.lpstrFilter = "N64 ROMs (*.z64;*.n64;*.v64)\0*.z64;*.n64;*.v64\0All Files (*.*)\0*.*\0";
-    ofn.lpstrFile = file;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.lpstrTitle = "Select ROM";
-    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-    if (GetOpenFileNameA(&ofn)) {
-        return std::string(file);
-    }
-    return std::string();
-#else
-    // An AppImage run exports a bundle-scoped LD_LIBRARY_PATH that can break the host's
-    // zenity/kdialog (GTK/Qt); AppRun saves the host's original value in
-    // COMBO_HOST_LD_LIBRARY_PATH, so swap it in around the dialog spawn (pfd forks the helper
-    // in the ctor) and restore before blocking on the result. Unset outside an AppImage.
-    const char* hostLibPath = std::getenv("COMBO_HOST_LD_LIBRARY_PATH");
-    std::string savedLibPath;
-    bool swapped = false;
-    if (hostLibPath != nullptr) {
-        const char* current = std::getenv("LD_LIBRARY_PATH");
-        savedLibPath = current != nullptr ? current : "";
-        if (hostLibPath[0] != '\0') {
-            setenv("LD_LIBRARY_PATH", hostLibPath, 1);
-        } else {
-            unsetenv("LD_LIBRARY_PATH");
-        }
-        swapped = true;
-    }
-    pfd::open_file dlg("Select ROM", "", { "N64 ROMs (*.z64 *.n64 *.v64)", "*.z64 *.n64 *.v64", "All Files", "*" });
-    if (swapped) {
-        setenv("LD_LIBRARY_PATH", savedLibPath.c_str(), 1);
-    }
-    auto selection = dlg.result();
-    return selection.empty() ? std::string() : selection.front();
-#endif
+    return ComboFilePicker::PickFile("Select ROM",
+                                     "N64 ROMs (*.z64;*.n64;*.v64)\0*.z64;*.n64;*.v64\0All Files (*.*)\0*.*\0",
+                                     { "N64 ROMs (*.z64 *.n64 *.v64)", "*.z64 *.n64 *.v64", "All Files", "*" });
 }
 
-// False only on a Linux system with none of pfd's dialog helpers (zenity/kdialog/...) installed;
-// the UI then disables Browse and points at drag & drop instead of a button that silently no-ops.
+// The UI disables Browse and points at drag & drop when no dialog helper exists (Linux only).
 bool PickerAvailable() {
-#ifdef _WIN32
-    return true;
-#else
-    static const bool sAvailable = pfd::settings::available();
-    return sAvailable;
-#endif
+    return ComboFilePicker::Available();
 }
 
 // Dropped-file hand-off from the gfx backend's event pump (via FileDropMgr) to the PICK loop

@@ -199,3 +199,18 @@ it just failed to produce it. The sibling `ResourceMgr_LoadTexOrDListByName` has
 unguarded deref but is left alone: no `Cfa*` path reaches it via `gSPSegmentLoadRes` today. The other
 ~11 unchecked `GetResourceByName` sites in `BenPort.cpp` are a vendored 2Ship pattern whose callers
 deref unconditionally, so guarding them would relocate the crash rather than fix it.
+
+## MM transition-actor ids re-normalized on scene load (Woodfall door fix) (2026-08-05)
+
+**Why:** MM's `play->transitionActors.list` aliases the cached LUS scene resource, so the negated
+"already spawned" ids written by `Actor_SpawnTransitionActors` persist across scene loads whenever a
+door's Destroy doesn't restore them. ComboShip's MM→OOT reload (Ctrl+R) cuts the frame loop
+without `Play_Destroy`, skipping every live door's restore, so a door left alive at handoff
+(e.g. Woodfall Temple room 0) never respawns for the rest of the process. `Door_Shutter`
+variants with `room = -1` leak the same way even in stock 2ship. SoH has carried the equivalent fix for
+years (`z_scene_otr.cpp`, `Scene_CommandTransitionActorList`); MM never received it.
+
+**`mm/2s2h/z_scene_2SH.cpp` (COMBO_BUILD-guarded — preserve on future mm merges unless upstreamed):**
+in `Scene_CommandTransiActorList`, `ABS()`-normalize every transition actor id before
+`MapDisp_InitTransitionActorData`. Same code as SoH's fix, wrapped in `#ifdef COMBO_BUILD` with a
+`// ComboShip:` comment.

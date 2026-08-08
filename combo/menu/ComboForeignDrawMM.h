@@ -213,9 +213,12 @@ inline const ComboForeignDrawInfoOOT* ComboResolveForeignDrawInfoOOT(RandoCheckI
 // Mirrors the segment hygiene in ComboForeignAnim.h.
 inline void MM_RestoreForeignSegs(const int32_t* segs, int32_t count) {
     GraphicsContext* gfxCtx = gPlayState->state.gfxCtx;
-    Gfx* empty = (Gfx*)GRAPH_ALLOC(gfxCtx, sizeof(Gfx));
+    // Array of ENDDLs: DLs may call through a bound segment at an index > 0 — see CfaEmptyDL.
+    Gfx* empty = (Gfx*)GRAPH_ALLOC(gfxCtx, 8 * sizeof(Gfx));
     Gfx* e = empty;
-    gSPEndDisplayList(e++);
+    for (int32_t iEmpty = 0; iEmpty < 8; iEmpty++) {
+        gSPEndDisplayList(e++);
+    }
     OPEN_DISPS(gfxCtx);
     for (int32_t i = 0; i < count; i++) {
         gSPSegment(POLY_OPA_DISP++, segs[i], (uintptr_t)empty);

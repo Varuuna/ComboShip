@@ -210,8 +210,8 @@ container, since there's no per-game `.sav` to copy).
 **Release-version save gate:** `COMBO_RELEASE_VERSION` (root `CMakeLists.txt`, manual — e.g. `0.1.1`)
 is the sole authority for combosave compatibility, enforced at the launcher container level, not in
 either game. It is compiled into the `ComboShip` target only. Every container write stamps
-`comboRelease`; on load, a container missing it or carrying a different string is renamed aside to a
-timestamped `.bak`, its slot recorded, and a fresh container created. OOT drains the recorded slots on
+`comboRelease`; on load, a container missing it or differing in `major.minor` (patch releases keep
+saves) is renamed aside to a timestamped `.bak`, its slot recorded, and a fresh container created. OOT drains the recorded slots on
 its main thread (`SOH_SetOutdatedSaveNotice` → `Combo_TakeEvictionNotice`) and shows an "Outdated
 ComboShip Save" popup — the launcher never touches ImGui (`Combo_ReadGameSave` may run off-thread). The
 old pin-derived `major.minor.patch` triple + MM git commit hash remain for the in-game banner/diagnostics
@@ -457,3 +457,35 @@ price of that; do not "DRY" them.
 produces PDBs for soh/2ship (via the unconditional `/DEBUG` in `mm/CMakeLists.txt`) but **not** for
 libultraship or ComboShip.exe — which is where the crash above actually faulted. PDBs must never ship
 (they are ~5x the download), but they should be generated and archived per tagged release.
+
+## Extraction-screen ROM drop: FileDropMgr early init + backend null-guards (2026-08-08)
+
+**Why:** dragging a ROM onto the extraction screen crashed on a null `this` in
+`FileDropMgr::SetDroppedFile` (reported on the Linux AppImage; reproduced with an injected
+`SDL_DROPFILE`, and the identical latent crash on Windows via `WM_DROPFILES`). Root cause:
+`SOH_InitWindowOnly()` is only the OTRGlobals ctor, but upstream creates the FileDropMgr later in
+`Initialize()` — so for the whole extraction screen (which runs between the two)
+`GetFileDropMgr()` returns null, and both gfx backends called `->SetDroppedFile()` on it
+unguarded. Dropping a ROM there is the natural first move a new player makes.
+
+**`libultraship/src/fast/backends/gfx_sdl2.cpp` + `gfx_dxgi.cpp` (COMBO_BUILD-fenced; upstream
+line preserved verbatim under `#else`):** null-guard around the `SetDroppedFile` call at both
+drop sites (`SDL_DROPFILE` / `WM_DROPFILES`).
+
+**`soh/soh/OTRGlobals.cpp` ctor (COMBO_BUILD-guarded):** `context->InitFileDropMgr()` after
+`InitConsole()`, so the manager exists during the extraction screen. `Initialize()`'s own later
+call is idempotent (`Context::InitFileDropMgr` returns early if one exists), so the full-boot
+path is unchanged.
+
+**combo-owned, no fence (`combo/gui/ComboExtractScreen.cpp`):** the screen registers a drop
+handler for its lifetime and routes dropped files into the OoT/MM slot via the same header-only
+`SOH_ClassifyRom` / `MM_ClassifyRom` callbacks the auto-scan uses — content decides, not
+filename; a drop that classifies for neither game parks in the first unfilled slot so the
+"Not a valid … ROM" line explains what happened. The handler returns true so FileDropMgr skips
+its "Unsupported file dropped" overlay.
+
+Verified end to end on Linux with an `LD_PRELOAD` shim pushing synthetic `SDL_DROPFILE` events:
+the pre-fix segfault reproduced on demand; post-fix, `oot.z64` routes to the OoT slot
+(`SOH_ClassifyRom` accepts, MM never consulted) and `mm.z64` to the MM slot (SOH rejects, then
+`MM_ClassifyRom` accepts). Also verified by hand on Windows: ROMs dragged onto the extraction
+screen route through the `WM_DROPFILES`/DXGI path into the correct slots.

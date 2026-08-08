@@ -645,7 +645,8 @@ static int32_t MM_FillEnemySoulAnim(RandoItemId id, CwItemAnimDrawInfo* out) {
             MM_AnimTexSeg(out, 8, gAlienEyeTex);
             MM_AnimSeg(out, CW_ANIM_SEG_EMPTY_DL, 0x0C); // Scene_SetRenderModeXlu(play, 0, 1)
             MM_AnimEnv(out, 255, 255, 255, 255);
-            out->texAnimPath = gAlienEmptyTexAnim;
+            // gAlienEmptyTexAnim is a type-6 Empty no-op even in MM; describing it only trips the
+            // consumer's texanim validation (sentinel rupee), so it is deliberately not carried.
             break;
         case RI_SOUL_ENEMY_ARMOS:
             MM_AnimEnv(out, 0, 0, 0, 255);

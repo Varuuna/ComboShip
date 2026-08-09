@@ -1208,3 +1208,17 @@ localisation would mean widening `fakeTrickName` everywhere it is consumed.
 
 **Known nit:** the fallback doubles punctuation (`Tingle''s Clock Town Map`). Upstream skips spaces
 but not apostrophes.
+
+## MM oracle: zeroed inventory read as "owns Ocarina" (2026-08-09)
+
+`Combo_MM_Rando_Reset` (`mm/2s2h/BenPort.cpp`) resets the headless oracle save with a whole-struct
+`memset(0)`. MM's `ITEM_OCARINA_OF_TIME` is item id **0** and `HAS_ITEM` is an equality compare
+(`INV_CONTENT(item) == item`), so a zeroed slot reads as "ocarina owned" — every song became playable
+from sphere 0 and the fill placed MM's ocarina arbitrarily late (player-reported unbeatable seed:
+Snowhead at sphere 10, ocarina at sphere 23). A real fresh save inits `inventory.items` to
+`ITEM_NONE` (0xFF, `z_sram_NES.c`). Masked whenever `RI_OCARINA` was a starting item (the default
+kit); exposed by `gRando.StartingItems: []`, which shuffles the kit into the pool. The
+`--playthrough` validator shares the same oracle, so it could not catch it.
+
+Fix: after the memset, re-init `inventory.items` (48 slots, items + masks) to `ITEM_NONE`, plus a
+one-time sweep asserting no inventory-slot item reads as owned on the empty context.

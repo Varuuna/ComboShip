@@ -3868,7 +3868,7 @@ void Player_ProcessItemButtons(Player* this, PlayState* play) {
             }
             // #endregion
 
-            if (btn <= EQUIP_SLOT_NONE) {
+            if (GameInteractor_Should(VB_UNEQUIP_MASK_NOT_ON_BUTTON, btn <= EQUIP_SLOT_NONE, this, &btn)) {
                 // #region 2S2H [Dpad] - need to convert between helditem value to actual item
                 ItemId maskItem;
                 if (IS_HELD_DPAD(this->unk_154)) {

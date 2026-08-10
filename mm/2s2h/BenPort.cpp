@@ -69,6 +69,7 @@ CrowdControl* CrowdControl::Instance;
 #include "2s2h/Enhancements/Enhancements.h"
 #include "2s2h/Enhancements/GfxPatcher/AuthenticGfxPatches.h"
 #include "2s2h/Enhancements/GfxPatcher/PlayerCustomFlipbooks.h"
+#include "2s2h/Enhancements/ModMenu/ModMenu.h"
 #include "2s2h/DeveloperTools/DebugConsole.h"
 #include "2s2h/Rando/Rando.h"
 #include "2s2h/Rando/Spoiler/Spoiler.h"
@@ -753,8 +754,11 @@ void OTRGlobals::Initialize() {
     context->InitFileDropMgr();
 
     // tell LUS to reserve 3 2S2H specific threads (Game, Audio, Save)
+<<<<<<< HEAD
     // ComboShip: default Alternate Assets OFF — combo ships no HD/alt pack, so upstream's ON just
     // spams per-frame probes. See docs/UPSTREAM_MERGES.md.
+=======
+>>>>>>> vendor-mm
     prevAltAssets = CVarGetInteger("gEnhancements.Mods.AlternateAssets", 0);
     context->GetResourceManager()->SetAltAssetsEnabled(prevAltAssets);
 
@@ -1116,6 +1120,7 @@ extern "C" void InitOTR(int argc, char* argv[]) {
     GameInteractor::Instance = new GameInteractor();
     AudioCollection::Instance = new AudioCollection();
     LoadGuiTextures();
+    ModMenu_LoadArchives();
     BenGui::SetupGuiElements();
     ShipInit::InitAll();
 #ifdef COMBO_BUILD
@@ -1563,14 +1568,15 @@ extern "C" void ResourceMgr_UnloadResource(const char* resName) {
     Ship::Context::GetRawInstance()->GetResourceManager()->UnloadResource(path);
 }
 
-static void ResourceMgr_UnloadOriginalWhenAltExists(const char* resName) {
+static void ResourceMgr_PreloadAltWhenItExists(const char* resName) {
     std::string path = resName;
     if (path.starts_with("__OTR__")) {
         path = path.substr(7);
     }
 
     if (ResourceMgr_IsAltAssetsEnabled() && ExtensionCache.contains(Ship::IResource::gAltAssetPrefix + path)) {
-        ResourceMgr_UnloadResource(path.c_str());
+        Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(Ship::IResource::gAltAssetPrefix + path,
+                                                                            true);
     }
 }
 
@@ -1710,7 +1716,7 @@ extern "C" void ResourceMgr_PushCurrentDirectory(char* path) {
 }
 
 extern "C" Gfx* ResourceMgr_LoadGfxByName(const char* path) {
-    ResourceMgr_UnloadOriginalWhenAltExists(path);
+    ResourceMgr_PreloadAltWhenItExists(path);
 
     auto res = std::static_pointer_cast<Fast::DisplayList>(GetResourceByName(path));
     return (Gfx*)&res->Instructions[0];
@@ -1786,6 +1792,10 @@ extern "C" void ResourceMgr_UnpatchGfxByName(const char* path, const char* patch
     if (originalGfx.contains(path) && originalGfx[path].contains(patchName)) {
         auto res = std::static_pointer_cast<Fast::DisplayList>(
             Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path));
+
+        if (res->GetInitData()->IsCustom) {
+            return;
+        }
 
         Gfx* gfx = (Gfx*)&res->Instructions[originalGfx[path][patchName].index];
         *gfx = originalGfx[path][patchName].instruction;
@@ -2454,7 +2464,7 @@ extern "C" int32_t OTRConvertHUDXToScreenX(int32_t v) {
 
     float hudScreenRatio = (hudWidth / 320.0f);
     float hudCoord = v * hudScreenRatio;
-    float gameOffset = (gameWidth - hudWidth) / 2;
+    float gameOffset = (int32_t(gameWidth) - hudWidth) / 2;
     float gameCoord = hudCoord + gameOffset;
     float gameScreenRatio = (320.0f / gameWidth);
     float screenScaledCoord = gameCoord * gameScreenRatio;

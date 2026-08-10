@@ -22,6 +22,18 @@ void ComboTracker::SyncAppearance() {
     CVarSetInteger("gTrackers.ItemTracker.IconSize", px);
     CVarSetFloat("gSettings.ItemTracker.Scale", std::clamp(px / 46.0f, 0.2f, 3.0f));
 
+    // Icon spacing: OOT native grid gap; MM pads its cells via a COMBO_BUILD seam so both grids
+    // share the same icon+gap pitch. Arrived after the first-run seed — latch separately so an
+    // existing OOT custom spacing is adopted rather than clobbered.
+    if (!CVarGetInteger("gCombo.Tracker.SpacingSeeded", 0)) {
+        CVarSetInteger("gCombo.Tracker.SpacingSeeded", 1);
+        CVarSetInteger("gCombo.Tracker.IconSpacing",
+                       CVarGetInteger("gTrackers.ItemTracker.IconSpacing", kDefaultIconSpacing));
+    }
+    int spacing = CVarGetInteger("gCombo.Tracker.IconSpacing", kDefaultIconSpacing);
+    CVarSetInteger("gTrackers.ItemTracker.IconSpacing", spacing);
+    CVarSetInteger("gSettings.ItemTracker.IconSpacing", spacing);
+
     // Opacity: MM has a float CVar; OOT dims via BgColor alpha (RGB preserved).
     float op = std::clamp(CVarGetFloat("gCombo.Tracker.Opacity", kDefaultOpacity), 0.0f, 1.0f);
     CVarSetFloat("gSettings.ItemTracker.Opacity", op);

@@ -600,6 +600,34 @@ void CheckTrackerHintRevealed(RandomizerHint hintKey) {
     }
 }
 
+#ifdef COMBO_BUILD
+// ComboShip: true when the loaded save's own flags prove this check was obtained. Conservative —
+// unmapped collection-check types return false so a genuine save-scum is never falsely promoted.
+static bool ComboCheckFlagObtained(const Rando::Location& loc) {
+    Rando::SpoilerCollectionCheck scc = loc.GetCollectionCheck();
+    switch (scc.type) {
+        case SPOILER_CHK_CHEST:
+            return (gSaveContext.sceneFlags[scc.scene].chest >> scc.flag) & 1;
+        case SPOILER_CHK_COLLECTABLE:
+            return (gSaveContext.sceneFlags[scc.scene].collect >> scc.flag) & 1;
+        case SPOILER_CHK_GOLD_SKULLTULA:
+            return (GET_GS_FLAGS(scc.scene) & scc.flag) != 0;
+        case SPOILER_CHK_EVENT_CHK_INF:
+            return Flags_GetEventChkInf(scc.flag) != 0;
+        case SPOILER_CHK_ITEM_GET_INF:
+            return Flags_GetItemGetInf(scc.flag) != 0;
+        case SPOILER_CHK_INF_TABLE:
+            return Flags_GetInfTable(scc.flag) != 0;
+        case SPOILER_CHK_RANDOMIZER_INF: {
+            RandomizerInf inf = OTRGlobals::Instance->gRandomizer->GetRandomizerInfFromCheck(loc.GetRandomizerCheck());
+            return inf != RAND_INF_MAX && Flags_GetRandomizerInf(inf);
+        }
+        default:
+            return false;
+    }
+}
+#endif
+
 void CheckTrackerLoadGame(int32_t fileNum) {
     if (IS_BOSS_RUSH) {
         return;
@@ -618,6 +646,16 @@ void CheckTrackerLoadGame(int32_t fileNum) {
 
         Rando::Location* entry2 = Rando::StaticData::GetLocation(rc);
         Rando::ItemLocation* loc = OTRGlobals::Instance->gRandoContext->GetItemLocation(rc);
+
+#ifdef COMBO_BUILD
+        // ComboShip: incremental tracker saves demote COLLECTED->SCUMMED on disk (upstream
+        // anti-save-scum) and a past save/load race could wipe statuses outright; when the loaded
+        // save's flags prove the check was obtained, promote to SAVED so counts stay truthful.
+        if (IS_RANDO && loc->GetCheckStatus() < RCSHOW_SAVED && !loc->GetIsSkipped() &&
+            OTRGlobals::Instance->gRandoContext->IsQuestOfLocationActive(rc) && ComboCheckFlagObtained(*entry2)) {
+            loc->SetCheckStatus(RCSHOW_SAVED);
+        }
+#endif
 
         checksByArea.find(entry2->GetArea())->second.push_back(entry2->GetRandomizerCheck());
         if (IsVisibleInCheckTracker(entry2->GetRandomizerCheck())) {
@@ -996,6 +1034,14 @@ void SaveTrackerData(SaveContext* saveContext, int sectionID, bool fullSave) {
             OTRGlobals::Instance->gRandoContext->GetItemLocation(i)->GetIsSkipped())
             checkCount.push_back(static_cast<RandomizerCheck>(i));
     }
+#ifdef COMBO_BUILD
+    // ComboShip tripwire: an all-UNCHECKED dump for a real rando file means some path wiped the
+    // live context before this (queued) save ran — it would persist an empty tracker section.
+    if (checkCount.empty() && saveContext->ship.quest.id == QUEST_RANDOMIZER) {
+        SPDLOG_WARN("SaveTrackerData: persisting EMPTY checkStatus for file {} (sectionID {}, fullSave {})",
+                    saveContext->fileNum, sectionID, fullSave);
+    }
+#endif
     SaveManager::Instance->SaveArray("checkStatus", checkCount.size(), [&](size_t i) {
         RandomizerCheck check = checkCount.at(i);
         RandomizerCheckStatus savedStatus =

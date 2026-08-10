@@ -144,3 +144,33 @@ on boot.
 
 **On future merges:** if upstream renames the tracker ImGui windows or the settings windows,
 update `combo/gui/ComboTrackerCommon.h` (`kKinds[].imguiWin`) and the inline-widget window names.
+
+## Tracker batch: spawn offset, icon parity, OOT check-tracker reset (2026-08-10)
+
+**Why:** (1) First-show placement latched a bad MM position (OOT's AlwaysAutoResize width isn't
+settled the frame both windows appear), so new configs opened the trackers stacked. (2) The two
+grids had different density: OOT draws icon + IconSpacing gaps, MM packed 46px cells edge-to-edge.
+(3) The OOT Check Tracker could permanently zero: a threaded trackerData save queued before a
+reload runs against the freshly recreated (all-UNCHECKED) gRandoContext and persists
+`"checkStatus": []`; separately, incremental saves demote COLLECTED->SCUMMED on disk and nothing
+ever promotes back (autosave is blocked for the whole Ocarina-without-Song-of-Time stretch).
+
+**Combo-owned:** `ComboTrackerSwap.cpp` placement waits for settled rects; `ComboTrackerBridge.*`
+adds canonical `gCombo.Tracker.IconSpacing` (separately seeded) and flips Draggable default to on;
+`ComboMenu.cpp` gets the shared "Icon spacing (px)" slider.
+
+**Vendored (`COMBO_BUILD`-guarded):**
+- `mm/.../ItemTracker/ItemTracker.cpp` — cell padded around the icon by
+  `gSettings.ItemTracker.IconSpacing` (bridge-mirrored) so both grids share icon+gap pitch;
+  count text anchored to the icon rect. Vanilla path unchanged (pad 0 / `#else`).
+- `soh/soh/SaveManager.cpp` — `Save_LoadFile`: `ThreadPoolWait()` before recreating gRandoContext
+  (reload paths reach here before OnExitGame's drain), and early-return keeping the current
+  context when the container has no OOT block (previously reset-then-bail left it all-unchecked).
+- `soh/.../randomizer_check_tracker.cpp` — `CheckTrackerLoadGame` promotes a persisted status to
+  SAVED when the loaded save's own flags prove the check was obtained (`ComboCheckFlagObtained`);
+  genuine save-scums stay SCUMMED (their flags are absent). Also self-heals already-wiped saves.
+  Tripwire WARN when persisting an empty checkStatus for a rando file.
+- `soh/soh/OTRGlobals.cpp` — `SOH_MarkForeignObtained` persists via full `SaveFile` (a foreign
+  check has no OOT flag to promote it back from SCUMMED).
+- `soh/.../SeedContext.cpp` — WARN tripwires in `ItemReset`/`ClearItemLocations` when called with
+  a save loaded (suspected mid-session wipe path; not yet root-caused).

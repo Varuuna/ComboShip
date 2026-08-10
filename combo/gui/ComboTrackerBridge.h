@@ -12,11 +12,13 @@
 namespace ComboTracker {
 
 // Canonical defaults, shared by the bridge and the Shared-panel widgets (single source; these
-// match vanilla OOT's tracker defaults, the reference look).
+// match vanilla OOT's tracker defaults, the reference look — except Draggable, on so first-time
+// players can immediately move the trackers).
 inline constexpr int kDefaultIconSize = 36;
+inline constexpr int kDefaultIconSpacing = 12;
 inline constexpr float kDefaultOpacity = 0.0f;
 inline constexpr int kDefaultWindowType = 0;
-inline constexpr int kDefaultDraggable = 0;
+inline constexpr int kDefaultDraggable = 1;
 inline constexpr int kDefaultCheckWindowType = 1; // TRACKER_WINDOW_WINDOW — OOT's check tracker default
 
 // Push all canonical gCombo.Tracker.* values into both games' CVars (seeding them from OOT on

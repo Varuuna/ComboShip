@@ -313,6 +313,15 @@ void DrawItemCounts(TrackerItemType itemType, u32 itemId, ImVec2 textureSize, fl
 bool DrawItemTrackerSlot(TrackerItemType itemType, u32 itemId, float scale, bool clickable) {
     ImVec2 currentPos = ImGui::GetCursorPos();
     ImVec2 cellSize(ITEM_TEXTURE_SIZE * scale, ITEM_TEXTURE_SIZE * scale);
+    ImVec2 iconSize = cellSize;
+#ifdef COMBO_BUILD
+    // ComboShip: pad the cell around the icon so the grid pitch matches OOT's icon+gap layout
+    // (bridge mirrors gCombo.Tracker.IconSpacing here).
+    int spacing = CVarGetInteger("gSettings.ItemTracker.IconSpacing", 0);
+    float pad = spacing > 0 ? (float)spacing : 0.0f;
+    cellSize.x += pad;
+    cellSize.y += pad;
+#endif
 
     TrackerImageObject imageObject = GetImageObject(itemType, itemId);
 
@@ -348,12 +357,12 @@ bool DrawItemTrackerSlot(TrackerItemType itemType, u32 itemId, float scale, bool
     float aspect = imageObject.textureDimensions.x / imageObject.textureDimensions.y;
 
     // fit to height
-    ImVec2 drawSize(cellSize.y * aspect, cellSize.y);
+    ImVec2 drawSize(iconSize.y * aspect, iconSize.y);
 
     // clamp if too wide
-    if (drawSize.x > cellSize.x) {
-        drawSize.x = cellSize.x;
-        drawSize.y = cellSize.x / aspect;
+    if (drawSize.x > iconSize.x) {
+        drawSize.x = iconSize.x;
+        drawSize.y = iconSize.x / aspect;
     }
 
     ImVec2 offset((cellSize.x - drawSize.x) * 0.5f, (cellSize.y - drawSize.y) * 0.5f);
@@ -401,7 +410,12 @@ bool DrawItemTrackerSlot(TrackerItemType itemType, u32 itemId, float scale, bool
     ImGuiLastItemData backup = g.LastItemData;
 
     if (CVarGetInteger("gSettings.ItemTracker.ItemCounts", 1)) {
+#ifdef COMBO_BUILD
+        // Anchor the count to the icon, not the padded cell.
+        DrawItemCounts(itemType, itemId, iconSize, scale, currentPos + ImVec2(pad * 0.5f, pad * 0.5f));
+#else
         DrawItemCounts(itemType, itemId, cellSize, scale, currentPos);
+#endif
     }
 
     // Restore last item data so drag/drop operations work correctly
@@ -420,6 +434,11 @@ void DrawItemTrackerGroup(TrackerGroup& trackerGroup) {
                       ? trackerGroup.scale
                       : CVarGetFloat("gSettings.ItemTracker.Scale", 1.0f);
 
+#ifdef COMBO_BUILD
+    // ComboShip: the seam's cell pad is the whole gap — zero the table's own CellPadding
+    // (locked in at BeginTable) so the grid pitch is exactly icon + IconSpacing.
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(0, 0));
+#endif
     if (ImGui::BeginTable(trackerGroup.name.c_str(), columns)) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
@@ -431,6 +450,9 @@ void DrawItemTrackerGroup(TrackerGroup& trackerGroup) {
         ImGui::PopStyleVar(2);
         ImGui::EndTable();
     }
+#ifdef COMBO_BUILD
+    ImGui::PopStyleVar();
+#endif
 }
 
 void ItemTrackerWindow::Draw() {

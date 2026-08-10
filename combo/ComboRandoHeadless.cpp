@@ -126,6 +126,8 @@ int main(int argc, char** argv) {
     auto SOH_GetForced = Sym<FnGetForced>(soh, "SOH_GetForcedPlacements");
     // OOT entrance shuffle (#90) — without this the validator checks a vanilla entrance graph.
     auto SOH_ShuffleEntrances = Sym<int (*)(uint64_t)>(soh, "SOH_ShuffleEntrancesForCombo");
+    auto SOH_DumpEntranceOverrides = Sym<FnDump>(soh, "SOH_DumpEntranceOverrides");
+    auto SOH_ApplyEntranceOverrides = Sym<int (*)(const char*)>(soh, "SOH_ApplyEntranceOverridesForCombo");
     auto MM_Restore = Sym<FnOracleVoid>(mm, "Combo_MM_Rando_Restore");
     auto SOH_DumpEnabledTricks = Sym<FnDump>(soh, "SOH_DumpEnabledTricks");
     auto SOH_DumpRandoHintData = Sym<FnDump>(soh, "SOH_DumpRandoHintData"); // cross-hint verification
@@ -179,6 +181,7 @@ int main(int argc, char** argv) {
 
         auto ootEnabledTricks =
             spoiler.value("oot", nlohmann::json::object()).value("enabledTricks", nlohmann::json::array());
+        auto ootEntrances = spoiler.value("entrances", nlohmann::json::object()).value("oot", nlohmann::json::array());
 
         // Prices are part of the seed: an unknown price can never be treated as buyable, so a spoiler
         // without them can't be validated honestly. Hard-fail rather than emit an optimistic verdict.
@@ -190,6 +193,7 @@ int main(int argc, char** argv) {
             return 2;
         }
 
+        bool entranceRestoreFailed = false; // set inside runPass; a wrong graph makes any verdict meaningless
         // One traversal pass. Forces real-logic evaluation (ignore the seed's No-Logic/Glitchless flag).
         // Tricks are set via SOH_SetEnabledTricks/SetAllTricks BEFORE SOH_Dump, whose SOH_PrepRandoContext
         // pushes them into the Context (Combo_ApplyEnabledTricks). SOH_Dump (+seed) sets the OOT/MM contexts
@@ -225,6 +229,22 @@ int main(int argc, char** argv) {
                     it.value() = 0;
             SOH_RestoreSettings(os.dump().c_str());
             SOH_PrepContext();
+            // The PrepContext above reset the OOT region graph to VANILLA wiring — not the graph the
+            // seed was filled against. Install the seed's recorded entrance layout (empty array =
+            // vanilla, still correct). Re-deriving via SOH_ShuffleEntrances is only a fallback for
+            // old spoilers without the array: its logic-validated accepts depend on the trick set, so
+            // the all-tricks pass could re-derive a DIFFERENT layout than generation.
+            if (SOH_ApplyEntranceOverrides) {
+                if (!SOH_ApplyEntranceOverrides(ootEntrances.dump().c_str())) {
+                    std::cerr << "[playthrough] entrance apply failed — verdict unreliable\n";
+                    entranceRestoreFailed = true;
+                }
+            } else if (!ootEntrances.empty()) {
+                std::cerr << "[playthrough] spoiler has entrances but soh.dll lacks the apply export — "
+                             "rebuild soh.dll; re-deriving (all-tricks pass may diverge)\n";
+                if (!SOH_ShuffleEntrances || !SOH_ShuffleEntrances(masterSeed))
+                    entranceRestoreFailed = true;
+            }
             // Spoiler prices are the seed's truth — they override the dumps' re-rolls in every oracle
             // reset (SOH) / query (MM), so wallet gates evaluate against what the player actually pays.
             SOH_SetCheckPrices(ootPrices.dump().c_str());
@@ -318,6 +338,10 @@ int main(int argc, char** argv) {
                   << " enabled trick(s))\n";
         nlohmann::json pt1 = nlohmann::json::array();
         auto r1 = runPass(false, &pt1);
+        if (entranceRestoreFailed) {
+            std::cerr << "[playthrough] could not restore the seed's entrance layout — no verdict\n";
+            return 2;
+        }
         if (r1.beatable) {
             if (int bad = affordabilityViolations(pt1)) {
                 std::cout << "[playthrough] RESULT: FAIL — beatable but " << bad
@@ -497,6 +521,17 @@ int main(int argc, char** argv) {
                                                     fillSpoiler.value("mm", nlohmann::json::object()), sohDump, mmDump,
                                                     masterSeed);
                     consolidated["foreign"] = ComboRando::BuildForeignArray(foreignArr, ootCheckAreas);
+                    // OOT entrance layout (parity with ComboShip.cpp's consolidated writer) — this is
+                    // what --playthrough installs into the region graph before walking.
+                    {
+                        nlohmann::json ootEnt = nlohmann::json::array();
+                        if (SOH_DumpEntranceOverrides) {
+                            try {
+                                ootEnt = nlohmann::json::parse(SOH_DumpEntranceOverrides());
+                            } catch (...) {}
+                        }
+                        consolidated["entrances"] = { { "oot", std::move(ootEnt) } };
+                    }
                     // Cross-hint generation (mirrors RunComboFill) — enables the headless determinism check.
                     consolidated["hints"] =
                         ComboRando::Generate(masterSeed, sohDump, sohHintDump, mmDump, consolidated["foreign"],

@@ -3825,6 +3825,27 @@ extern "C" __declspec(dllexport) const char* SOH_DumpEntranceOverrides(void) {
     return buf.c_str();
 }
 
+// ComboShip: install a recorded entrance layout (the spoiler's "entrances.oot" array) into the live
+// region graph. The validator can't re-derive it: ShuffleAllEntrances validates with logic, so a
+// different trick set (all-tricks pass) can accept a different layout than generation did.
+extern "C" __declspec(dllexport) int SOH_ApplyEntranceOverridesForCombo(const char* json) {
+    try {
+        auto ctx = OTRGlobals::Instance->gRandoContext;
+        EnsureOracleInit(); // same rationale as SOH_ShuffleEntrancesForCombo: a later lazy init would
+                            // RegionTable_Init the graph back to vanilla
+        nlohmann::json spoiler;
+        spoiler["entrances"] = nlohmann::json::parse(json ? json : "[]");
+        // ParseJson = UnshuffleAllEntrances + RegionTable_Init + ApplyEntranceOverrides + SetAreas,
+        // so an empty array correctly resets to the vanilla graph.
+        ctx->GetEntranceShuffler()->ParseJson(spoiler);
+        CreateWarpSongTexts();
+        return 1;
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[ComboShip] SOH_ApplyEntranceOverridesForCombo: {}", e.what());
+    } catch (...) { SPDLOG_ERROR("[ComboShip] SOH_ApplyEntranceOverridesForCombo: unknown exception"); }
+    return 0;
+}
+
 // ComboShip: coherent OOT rando dump for the combo generator. Runs the headless prep sequence
 // (GetLogic()->Reset, FinalizeSettings, RegionTable_Init, GenerateLocationPool) so ctx->allLocations
 // holds the real shuffled-check set for the current settings, then dumps those checks + their vanilla

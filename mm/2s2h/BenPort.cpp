@@ -3356,6 +3356,7 @@ static uint64_t sMM_OracleSavedRegionTime;
 // end of the whole fill. Without this flag the second Reset snapshots the already-zeroed context,
 // so Restore would write garbage (zeros) back into MM's live save after generation.
 static bool sMM_OracleActive = false;
+static bool sMM_OracleInventorySweepDone = false;
 using Rando::Logic::gCurrentRegionTime;
 
 // ComboShip (#61): cross-grant only set the trade item's obtained flag, leaving the shared trade
@@ -3753,6 +3754,19 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Reset(void) {
         sMM_OracleActive = true;
     }
     memset(&gSaveContext, 0, sizeof(SaveContext));
+    // Empty inventory slots are ITEM_NONE (0xFF), not 0: ITEM_OCARINA_OF_TIME is item id 0, so a
+    // zeroed slot makes HAS_ITEM (an equality compare) report the ocarina owned and every song playable.
+    memset(gSaveContext.save.saveInfo.inventory.items, ITEM_NONE, sizeof(gSaveContext.save.saveInfo.inventory.items));
+    if (!sMM_OracleInventorySweepDone) { // one-time guard against future zero-collision regressions
+        sMM_OracleInventorySweepDone = true;
+        for (auto& [id, item] : Rando::StaticData::Items) {
+            u8 itemId = item.itemId;
+            if (itemId != ITEM_NONE && itemId < ARRAY_COUNT(gItemSlots) && gItemSlots[itemId] != SLOT_NONE &&
+                INV_CONTENT(itemId) == itemId) {
+                SPDLOG_ERROR("MM oracle: empty context reports item {} owned; fill will over-reach", (int)itemId);
+            }
+        }
+    }
 
     // ComboShip: the reachability logic reads RANDO_SAVE_OPTIONS (randoSaveOptions) and gates on
     // IS_RANDO (saveType == SAVETYPE_RANDO). The memset above wiped both, and nothing else repopulates

@@ -325,6 +325,25 @@ void LoadAvailableWindows() {
         },
     });
 
+    // Ordered by the inventory slot each one shares, so the rows line up with the three trade slots
+    // the Inventory group shows.
+    itemTrackerGroupsAvailable.push_back(TrackerGroup{
+        .name = "Trade Items",
+        .columns = 5,
+        .scale = 1.0f,
+        .items = {
+            { TRACKER_ITEM_RANDO, RI_MOONS_TEAR },
+            { TRACKER_ITEM_RANDO, RI_DEED_LAND },
+            { TRACKER_ITEM_RANDO, RI_DEED_SWAMP },
+            { TRACKER_ITEM_RANDO, RI_DEED_MOUNTAIN },
+            { TRACKER_ITEM_RANDO, RI_DEED_OCEAN },
+            { TRACKER_ITEM_RANDO, RI_ROOM_KEY },
+            { TRACKER_ITEM_RANDO, RI_LETTER_TO_MAMA },
+            { TRACKER_ITEM_RANDO, RI_LETTER_TO_KAFEI },
+            { TRACKER_ITEM_RANDO, RI_PENDANT_OF_MEMORIES },
+        },
+    });
+
     itemTrackerGroupsAvailable.push_back(TrackerGroup{
         .name = "Tokens",
         .columns = 2,

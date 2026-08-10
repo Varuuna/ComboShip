@@ -124,6 +124,9 @@ static RegisterShipInitFunc initFunc([]() {
                                                                                             BETWEEN(TIME_NIGHT2_PM_10_00, TIME_NIGHT2_AM_05_00) ||
                                                                                             AFTER(TIME_NIGHT3_PM_10_00)))),
         },
+        .events = {
+            EVENT(RE_MAIL_LETTER_TO_KAFEI, Flags_GetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_KAFEI) && BEFORE(TIME_DAY2_AM_11_30)),
+        },
     };
     Regions[RR_CLOCK_TOWN_GREAT_FAIRY_FOUNTAIN] = RandoRegion{ .name = "Clock Town", .sceneId = SCENE_YOUSEI_IZUMI,
         .checks = {
@@ -149,10 +152,7 @@ static RegisterShipInitFunc initFunc([]() {
         },
         .exits = { //     TO                                         FROM
             EXIT(ENTRANCE(SOUTH_CLOCK_TOWN, 6),             ENTRANCE(LAUNDRY_POOL, 0), true),
-            EXIT(ENTRANCE(CURIOSITY_SHOP, 1),               ENTRANCE(LAUNDRY_POOL, 1), (Flags_GetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_KAFEI) && BETWEEN(TIME_DAY2_PM_02_00, TIME_NIGHT2_PM_10_00)) || (RANDO_EVENTS[RE_MEET_KAFEI] && BETWEEN(TIME_DAY3_PM_01_00, TIME_NIGHT3_PM_10_00))),
-        },
-        .events = {
-            EVENT(RE_MEET_KAFEI, Flags_GetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_KAFEI) && BETWEEN(TIME_DAY2_PM_02_00, TIME_NIGHT2_PM_10_00)),
+            EXIT(ENTRANCE(CURIOSITY_SHOP, 1),               ENTRANCE(LAUNDRY_POOL, 1), (RANDO_EVENTS[RE_MAIL_LETTER_TO_KAFEI] && BETWEEN(TIME_DAY2_PM_04_00, TIME_NIGHT2_PM_10_00)) || (RANDO_EVENTS[RE_MEET_KAFEI] && BETWEEN(TIME_DAY3_PM_01_00, TIME_NIGHT3_PM_10_00))),
         },
     };
     Regions[RR_CLOCK_TOWN_NORTH] = RandoRegion{ .sceneId = SCENE_BACKTOWN,
@@ -184,6 +184,7 @@ static RegisterShipInitFunc initFunc([]() {
             EXIT(ENTRANCE(DEKU_SCRUB_PLAYGROUND, 0),        ENTRANCE(NORTH_CLOCK_TOWN, 4), CAN_BE_DEKU),
         },
         .events = {
+            EVENT(RE_MAIL_LETTER_TO_KAFEI, Flags_GetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_KAFEI) && BEFORE(TIME_DAY2_AM_11_30)),
             EVENT(RE_ACCESS_PICTOGRAPH_TINGLE, HAS_ITEM(ITEM_PICTOGRAPH_BOX) && IS_DAY()),
             // Refer to z_en_suttari's damage table for more info. Damage effect 0xF stops him nonlethally, while 0xE kills.
             // FD sword beams can also kill him, but currently FD is not logically considered.
@@ -238,6 +239,9 @@ static RegisterShipInitFunc initFunc([]() {
         .connections = {
             CONNECTION(RR_MAX, true),
         },
+        .events = {
+            EVENT(RE_MAIL_LETTER_TO_KAFEI, Flags_GetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_KAFEI) && BEFORE(TIME_DAY2_AM_11_30)),
+        },
         .oneWayEntrances = {
             ENTRANCE(SOUTH_CLOCK_TOWN, 9), // From Song of Soaring
         }
@@ -257,18 +261,21 @@ static RegisterShipInitFunc initFunc([]() {
             EXIT(ENTRANCE(CURIOSITY_SHOP, 0),               ENTRANCE(WEST_CLOCK_TOWN, 4), BETWEEN(TIME_NIGHT1_PM_10_00, TIME_DAY2_AM_06_00) || BETWEEN(TIME_NIGHT2_PM_10_00, TIME_DAY3_AM_06_00) || AFTER(TIME_NIGHT3_PM_10_00)),
             EXIT(ENTRANCE(TRADING_POST, 0),                 ENTRANCE(WEST_CLOCK_TOWN, 5), true),
             EXIT(ENTRANCE(BOMB_SHOP, 0),                    ENTRANCE(WEST_CLOCK_TOWN, 6), true),
-            EXIT(ENTRANCE(POST_OFFICE, 0),                  ENTRANCE(WEST_CLOCK_TOWN, 7), BETWEEN(TIME_DAY1_PM_03_00, TIME_NIGHT1_AM_12_00) || (Flags_GetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_KAFEI) && BETWEEN(TIME_NIGHT2_PM_06_00, TIME_NIGHT2_AM_12_00)) || IS_NIGHT3()),
+            EXIT(ENTRANCE(POST_OFFICE, 0),                  ENTRANCE(WEST_CLOCK_TOWN, 7), BETWEEN(TIME_DAY1_PM_03_00, TIME_NIGHT1_AM_12_00) || (RANDO_EVENTS[RE_MAIL_LETTER_TO_KAFEI] && BETWEEN(TIME_NIGHT2_PM_06_00, TIME_NIGHT2_AM_12_00)) || IS_NIGHT3()),
             EXIT(ENTRANCE(LOTTERY_SHOP, 0),                 ENTRANCE(WEST_CLOCK_TOWN, 8), IS_DAY() || (BEFORE(TIME_NIGHT1_PM_11_00) || BETWEEN(TIME_NIGHT2_PM_06_00, TIME_NIGHT2_PM_11_00) || BETWEEN(TIME_NIGHT3_PM_06_00, TIME_NIGHT3_PM_11_00))),
         },
     };
     Regions[RR_CURIOSITY_SHOP_BACK] = RandoRegion{ .name = "Back", .sceneId = SCENE_AYASHIISHOP,
         .checks = {
-            CHECK(RC_KAFEIS_HIDEOUT_KEATON_MASK, BETWEEN(TIME_DAY3_AM_06_00, TIME_NIGHT3_PM_10_00)),
-            CHECK(RC_KAFEIS_HIDEOUT_LETTER_TO_MAMA, BETWEEN(TIME_DAY3_AM_06_00, TIME_NIGHT3_PM_10_00)),
-            CHECK(RC_KAFEIS_HIDEOUT_PENDANT_OF_MEMORIES, Flags_GetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_KAFEI) && BETWEEN(TIME_DAY2_PM_02_00, TIME_NIGHT2_PM_10_00)),
+            CHECK(RC_KAFEIS_HIDEOUT_KEATON_MASK, BETWEEN(TIME_DAY3_PM_01_00, TIME_NIGHT3_PM_10_00)),
+            CHECK(RC_KAFEIS_HIDEOUT_LETTER_TO_MAMA, BETWEEN(TIME_DAY3_PM_01_00, TIME_NIGHT3_PM_10_00)),
+            CHECK(RC_KAFEIS_HIDEOUT_PENDANT_OF_MEMORIES, RANDO_EVENTS[RE_MAIL_LETTER_TO_KAFEI] && BETWEEN(TIME_DAY2_PM_04_00, TIME_NIGHT2_PM_10_00)),
         },
         .exits = { //     TO                                         FROM
             EXIT(ENTRANCE(LAUNDRY_POOL, 1),                 ENTRANCE(CURIOSITY_SHOP, 1), true)
+        },
+        .events = {
+            EVENT(RE_MEET_KAFEI, RANDO_EVENTS[RE_MAIL_LETTER_TO_KAFEI] && BETWEEN(TIME_DAY2_PM_04_00, TIME_NIGHT2_PM_10_00)),
         },
         .timeStayRestrictions = {
             STAY(TIME_NIGHT2_PM_10_00, false),
@@ -302,7 +309,7 @@ static RegisterShipInitFunc initFunc([]() {
     };
     Regions[RR_INN] = RandoRegion{ .sceneId = SCENE_YADOYA,
         .checks = {
-            CHECK(RC_STOCK_POT_INN_COUPLES_MASK, HAS_ITEM(ITEM_MASK_KAFEIS_MASK) && Flags_GetRandoInf(RANDO_INF_OBTAINED_PENDANT_OF_MEMORIES) && RANDO_EVENTS[RE_RETRIEVE_SUN_MASK] && AFTER(TIME_NIGHT3_AM_04_00)),
+            CHECK(RC_STOCK_POT_INN_COUPLES_MASK, HAS_ITEM(ITEM_MASK_KAFEIS_MASK) && RANDO_EVENTS[RE_DELIVER_PENDANT] && RANDO_EVENTS[RE_RETRIEVE_SUN_MASK] && AFTER(TIME_NIGHT3_AM_04_00)),
             CHECK(RC_STOCK_POT_INN_GRANDMA_LONG_STORY, HAS_ITEM(ITEM_MASK_ALL_NIGHT) && 
                 ((BEFORE(TIME_DAY1_PM_04_00) && CLOCK_NIGHT1()) || BETWEEN(TIME_DAY2_AM_06_00, TIME_DAY2_PM_04_00) ||
                  (IS_DAY1() && (CLOCK_NIGHT1() || CLOCK_DAY2() || CLOCK_NIGHT2() || CLOCK_DAY3() || CLOCK_NIGHT3())) ||
@@ -333,7 +340,7 @@ static RegisterShipInitFunc initFunc([]() {
             EVENT(RE_ACCESS_BUGS, true),
             EVENT(RE_SETUP_MEET_ANJU, HAS_ITEM(ITEM_MASK_KAFEIS_MASK) && BETWEEN(TIME_DAY1_PM_01_45, TIME_NIGHT1_PM_09_00)),
             EVENT(RE_ANJU_MIDNIGHT_MEETING, RANDO_EVENTS[RE_SETUP_MEET_ANJU] && BETWEEN(TIME_NIGHT1_AM_12_00, TIME_DAY2_AM_06_00) && (Flags_GetRandoInf(RANDO_INF_OBTAINED_ROOM_KEY) || CAN_BE_DEKU)),
-            EVENT(RE_DELIVER_PENDANT, Flags_GetRandoInf(RANDO_INF_OBTAINED_PENDANT_OF_MEMORIES) && (BETWEEN(TIME_DAY2_AM_06_00, TIME_NIGHT2_PM_09_00) || BETWEEN(TIME_DAY3_AM_06_00, TIME_DAY3_AM_11_30))),
+            EVENT(RE_DELIVER_PENDANT, RANDO_EVENTS[RE_ANJU_MIDNIGHT_MEETING] && Flags_GetRandoInf(RANDO_INF_OBTAINED_PENDANT_OF_MEMORIES) && (BETWEEN(TIME_DAY2_AM_06_00, TIME_NIGHT2_PM_09_00) || BETWEEN(TIME_DAY3_AM_06_00, TIME_DAY3_AM_11_30))),
         },
         .timeStayRestrictions = {
             STAY(TIME_NIGHT1_PM_08_00, Flags_GetRandoInf(RANDO_INF_OBTAINED_ROOM_KEY)),
@@ -390,7 +397,7 @@ static RegisterShipInitFunc initFunc([]() {
     Regions[RR_POST_OFFICE] = RandoRegion{ .sceneId = SCENE_POSTHOUSE,
         .checks = {
             // TODO: Trick for doing without the Bunny Hood
-            CHECK(RC_CLOCK_TOWN_WEST_POSTMAN_MINIGAME, HAS_ITEM(ITEM_MASK_BUNNY) && (BETWEEN(TIME_DAY1_PM_03_00, TIME_NIGHT1_AM_12_00) || (Flags_GetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_KAFEI) && BETWEEN(TIME_NIGHT2_PM_06_00, TIME_NIGHT2_AM_12_00)))),
+            CHECK(RC_CLOCK_TOWN_WEST_POSTMAN_MINIGAME, HAS_ITEM(ITEM_MASK_BUNNY) && (BETWEEN(TIME_DAY1_PM_03_00, TIME_NIGHT1_AM_12_00) || (RANDO_EVENTS[RE_MAIL_LETTER_TO_KAFEI] && BETWEEN(TIME_NIGHT2_PM_06_00, TIME_NIGHT2_AM_12_00)))),
         },
         .exits = { //     TO                                         FROM
             EXIT(ENTRANCE(WEST_CLOCK_TOWN, 7),              ENTRANCE(POST_OFFICE, 0), true),

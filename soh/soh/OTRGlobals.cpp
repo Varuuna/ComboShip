@@ -10,6 +10,7 @@
 #include <vector>
 #include <chrono>
 #include <optional>
+#include <spdlog/common.h>
 #include <imgui.h>
 
 #include "ResourceManagerHelpers.h"
@@ -688,15 +689,15 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
                         std::string msg = "Archive for current ROM, " + archive + ", already exists.\nExtract again?";
                         SohGui::RegisterPopup("Confirm Re-extract", msg.c_str(), "Yes", "No", [&]() {
                             extractionTask = threadPool->submit_task([&]() -> void {
-                                extract.CallZapd(installPath, Ship::Context::GetAppDirectoryPath(appShortName),
-                                                 &extractCount, &totalExtract);
+                                extract.CallTorch(installPath, Ship::Context::GetAppDirectoryPath(appShortName),
+                                                  &extractCount, &totalExtract);
                                 extractCount = totalExtract = 0;
                             });
                         });
                     } else {
                         extractionTask = threadPool->submit_task([&]() -> void {
-                            extract.CallZapd(installPath, Ship::Context::GetAppDirectoryPath(appShortName),
-                                             &extractCount, &totalExtract);
+                            extract.CallTorch(installPath, Ship::Context::GetAppDirectoryPath(appShortName),
+                                              &extractCount, &totalExtract);
                             extractCount = totalExtract = 0;
                         });
                     }
@@ -750,8 +751,8 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
                             continue;
                         }
                         extractionTask = threadPool->submit_task([&]() -> void {
-                            extract.CallZapd(installPath, Ship::Context::GetAppDirectoryPath(appShortName),
-                                             &extractCount, &totalExtract);
+                            extract.CallTorch(installPath, Ship::Context::GetAppDirectoryPath(appShortName),
+                                              &extractCount, &totalExtract);
                             generatedIsMQ = extract.IsMasterQuest();
                             promptStep = PS_SECOND;
                             extractCount = 0;
@@ -768,8 +769,8 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
                                     extractStep = ES_VERIFY;
                                 } else {
                                     extractionTask = threadPool->submit_task([&]() -> void {
-                                        extract.CallZapd(installPath, Ship::Context::GetAppDirectoryPath(appShortName),
-                                                         &extractCount, &totalExtract);
+                                        extract.CallTorch(installPath, Ship::Context::GetAppDirectoryPath(appShortName),
+                                                          &extractCount, &totalExtract);
                                         extractStep = ES_VERIFY;
                                         extractCount = 0;
                                         totalExtract = 0;
@@ -846,7 +847,8 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
                     auto filename = std::filesystem::path(file).filename().string();
                     ImGui::Text("Extracting %s...%s", filename.c_str(),
                                 roundf(progress) == 100.0f ? " Done. Finishing up." : "");
-                    std::string overlay = extractCount > 0 ? fmt::format("{:.0f}%", progress) : "Starting Up";
+                    std::string overlay =
+                        extractCount > 0 ? spdlog::fmt_lib::format("{:.0f}%", progress) : "Starting Up";
                     ImGui::ProgressBar(progress / 100.0f, ImVec2(600.0f, 50.0f), overlay.c_str());
                     ImGui::EndPopup();
                 }
@@ -2265,7 +2267,7 @@ std::wstring StringToU16(const std::string& s) {
     size_t i = 0;
 
     while (i < s.size()) {
-        unsigned long uni;
+        unsigned long uni = '\1'; // skipped unless a valid encoding is matched below
         size_t nbytes = 0;
         bool error = false;
         unsigned char c = s[i++];

@@ -9,7 +9,11 @@
 #include <fast/Fast3dGui.h>
 #include <libultraship/bridge/consolevariablebridge.h>
 #include <ship/Context.h>
+<<<<<<< HEAD
 #include <ship/window/Window.h> // ComboShip: complete type for GetWindow()->GetGui()
+=======
+#include <spdlog/common.h>
+>>>>>>> vendor-soh
 
 extern "C" {
 #include "macros.h"
@@ -55,20 +59,20 @@ std::string convertDayTime(uint32_t dayTime) {
     uint32_t ss = static_cast<uint32_t>(static_cast<double>(dayTime) * (totalSeconds - 1) / 65535);
     uint32_t hh = ss / 3600;
     uint32_t mm = (ss % 3600) / 60;
-    return fmt::format("{:0>2}:{:0>2}", hh, mm);
+    return spdlog::fmt_lib::format("{:0>2}:{:0>2}", hh, mm);
 }
 
 std::string convertNaviTime(uint32_t value) {
     uint32_t totalSeconds = value / 20;
     uint32_t ss = totalSeconds % 60;
     uint32_t mm = totalSeconds / 60;
-    return fmt::format("{:0>2}:{:0>2}", mm, ss);
+    return spdlog::fmt_lib::format("{:0>2}:{:0>2}", mm, ss);
 }
 
 std::string formatHotWaterDisplay(uint32_t value) {
     uint32_t ss = value % 60;
     uint32_t mm = value / 60;
-    return fmt::format("{:0>2}:{:0>2}", mm, ss);
+    return spdlog::fmt_lib::format("{:0>2}:{:0>2}", mm, ss);
 }
 
 std::string formatTimeDisplay(uint64_t value) {
@@ -77,7 +81,7 @@ std::string formatTimeDisplay(uint64_t value) {
     uint64_t mm = (sec - hh * 3600) / 60;
     uint64_t ss = sec - hh * 3600 - mm * 60;
     uint64_t ds = value % 10;
-    return fmt::format("{}:{:0>2}:{:0>2}.{}", hh, mm, ss, ds);
+    return spdlog::fmt_lib::format("{}:{:0>2}:{:0>2}.{}", hh, mm, ss, ds);
 }
 
 static void TimeDisplayGetTimer(uint32_t timeID) {

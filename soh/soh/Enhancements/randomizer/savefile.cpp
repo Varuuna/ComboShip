@@ -2,6 +2,7 @@
 #include "soh/OTRGlobals.h"
 #include "soh/ResourceManagerHelpers.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
+#include "soh/Enhancements/randomizer/bean_patches.h"
 #include "soh/Enhancements/randomizer/logic.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
 
@@ -417,6 +418,12 @@ void SetStartingItems() {
         }
     }
 
+    if (Randomizer_GetSettingValue(RSK_SHUFFLE_SILVER) == RO_SHUFFLE_SILVER_STARTWITH) {
+        for (int rg = (int)RG_SHADOW_SILVER_BLADES; rg <= (int)RG_GANONS_CASTLE_MQ_SILVER_SHADOW; rg++) {
+            *Randomizer::SilverFieldFromSaveContext(&gSaveContext, (RandomizerGet)rg) = 10;
+        }
+    }
+
     if (Randomizer_GetSettingValue(RSK_BOSS_KEYSANITY) == RO_DUNGEON_ITEM_LOC_STARTWITH) {
         gSaveContext.inventory.dungeonItems[SCENE_FOREST_TEMPLE] |= 1; // Forest
         gSaveContext.inventory.dungeonItems[SCENE_FIRE_TEMPLE] |= 1;   // Fire
@@ -469,31 +476,18 @@ extern "C" void Randomizer_InitSaveFile() {
         }
         if (Randomizer_GetSettingValue(RSK_SKIP_PLANTING_BEANS)) {
             AMMO(ITEM_BEAN) = 0;
-            gSaveContext.sceneFlags[SCENE_DEATH_MOUNTAIN_CRATER].swch |= (1 << 3);
-            gSaveContext.sceneFlags[SCENE_DEATH_MOUNTAIN_TRAIL].swch |= (1 << 6);
-            gSaveContext.sceneFlags[SCENE_DESERT_COLOSSUS].swch |= (1 << 24);
-            gSaveContext.sceneFlags[SCENE_GERUDO_VALLEY].swch |= (1 << 3);
-            gSaveContext.sceneFlags[SCENE_GRAVEYARD].swch |= (1 << 3);
-            gSaveContext.sceneFlags[SCENE_KOKIRI_FOREST].swch |= (1 << 9);
-            gSaveContext.sceneFlags[SCENE_LAKE_HYLIA].swch |= (1 << 1);
-            gSaveContext.sceneFlags[SCENE_LOST_WOODS].swch |= (1 << 4) | (1 << 18);
-            gSaveContext.sceneFlags[SCENE_ZORAS_RIVER].swch |= (1 << 3);
+            for (const BeanPatch& patch : beanPatches) {
+                gSaveContext.sceneFlags[patch.scene].swch |= 1 << patch.swchFlag;
+            }
         } else {
             AMMO(ITEM_BEAN) = 10;
         }
     }
 
     if (Randomizer_GetSettingValue(RSK_SHUFFLE_BEAN_SOULS) == RO_GENERIC_OFF) {
-        Flags_SetRandomizerInf(RAND_INF_DEATH_MOUNTAIN_CRATER_BEAN_SOUL);
-        Flags_SetRandomizerInf(RAND_INF_DEATH_MOUNTAIN_TRAIL_BEAN_SOUL);
-        Flags_SetRandomizerInf(RAND_INF_DESERT_COLOSSUS_BEAN_SOUL);
-        Flags_SetRandomizerInf(RAND_INF_GERUDO_VALLEY_BEAN_SOUL);
-        Flags_SetRandomizerInf(RAND_INF_GRAVEYARD_BEAN_SOUL);
-        Flags_SetRandomizerInf(RAND_INF_KOKIRI_FOREST_BEAN_SOUL);
-        Flags_SetRandomizerInf(RAND_INF_LAKE_HYLIA_BEAN_SOUL);
-        Flags_SetRandomizerInf(RAND_INF_LOST_WOODS_BRIDGE_BEAN_SOUL);
-        Flags_SetRandomizerInf(RAND_INF_LOST_WOODS_BEAN_SOUL);
-        Flags_SetRandomizerInf(RAND_INF_ZORAS_RIVER_BEAN_SOUL);
+        for (const BeanPatch& patch : beanPatches) {
+            Flags_SetRandomizerInf(patch.soulRandInf);
+        }
     }
 
     if (Randomizer_GetSettingValue(RSK_SHUFFLE_OCARINA_BUTTONS) == RO_GENERIC_OFF) {

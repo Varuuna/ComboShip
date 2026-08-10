@@ -27,18 +27,24 @@ void Randomizer_DrawLadder(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawKneePads(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawJabberNut(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawOpenChest(PlayState* play, GetItemEntry* getItemEntry);
+void Randomizer_DrawSilverRupee(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawFishingPoleGI(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawSkeletonKey(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawMysteryItem(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawBombchuBag(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawOverworldKey(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawRocsFeather(PlayState* play, GetItemEntry* getItemEntry);
+<<<<<<< HEAD
 #ifdef COMBO_BUILD
 // ComboShip: render a foreign (MM-bound) check with the real MM item model via "@mm:" cross-RM
 // routing; falls back to the blue-rupee sentinel when the model can't be resolved. The check
 // identity rides in getItemEntry->comboForeignCheck.
 void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getItemEntry);
 #endif
+=======
+void Randomizer_DrawNutBag(PlayState* play, GetItemEntry* getItemEntry);
+void Randomizer_DrawStickBag(PlayState* play, GetItemEntry* getItemEntry);
+>>>>>>> vendor-soh
 
 #define GET_ITEM_MYSTERY                                                                                 \
     {                                                                                                    \

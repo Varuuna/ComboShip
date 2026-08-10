@@ -3097,7 +3097,9 @@ extern "C" __declspec(dllexport) void SOH_MarkForeignObtained(const char* checkN
     CheckTracker::RecalculateAllAreaTotals();
     CheckTracker::RecalculateAvailableChecks();
     if (SaveManager::Instance && gSaveContext.fileNum != 0xFF) {
-        SaveManager::Instance->SaveSection(gSaveContext.fileNum, SECTION_ID_TRACKER_DATA, true);
+        // Full save (not SaveSection): incremental tracker saves demote COLLECTED->SCUMMED on
+        // disk, and no OOT flag exists for a foreign-collected check to promote it back from.
+        SaveManager::Instance->SaveFile(gSaveContext.fileNum);
     }
     SPDLOG_INFO("[ComboShip] SOH_MarkForeignObtained: marked OOT check '{}' collected", checkName);
 }

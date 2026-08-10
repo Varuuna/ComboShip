@@ -25,6 +25,17 @@ extern "C" {
 #include <variables.h>
 }
 
+#ifdef COMBO_BUILD
+extern "C" PlayState* gPlayState;
+// ComboShip tripwire: a status wipe on the live context mid-game is the suspected cause of the
+// check tracker suddenly zeroing; log the path so a recurrence identifies its caller.
+static void ComboWarnIfLiveWipe(const char* who) {
+    if (gPlayState != nullptr && gSaveContext.fileNum != 0xFF) {
+        SPDLOG_WARN("{} while save {} is loaded - live check statuses wiped", who, gSaveContext.fileNum);
+    }
+}
+#endif
+
 namespace Rando {
 std::weak_ptr<Context> Context::mContext;
 
@@ -300,12 +311,18 @@ std::vector<RandomizerCheck> Context::GetLocations(const std::vector<RandomizerC
 }
 
 void Context::ClearItemLocations() {
+#ifdef COMBO_BUILD
+    ComboWarnIfLiveWipe("Context::ClearItemLocations");
+#endif
     for (size_t i = 0; i < itemLocationTable.size(); i++) {
         GetItemLocation(static_cast<RandomizerCheck>(i))->ResetVariables();
     }
 }
 
 void Context::ItemReset() {
+#ifdef COMBO_BUILD
+    ComboWarnIfLiveWipe("Context::ItemReset");
+#endif
     for (const RandomizerCheck il : allLocations) {
         GetItemLocation(il)->ResetVariables();
     }

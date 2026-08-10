@@ -165,6 +165,15 @@ void Config::SetBlock(const std::string& key, nlohmann::json block) {
                 } else if (gjson2->contains(dot)) {
                     gjson2 = &gjson2->at(dot);
                     curDot++;
+                } else {
+                    // ComboShip: create missing intermediate keys — the walk used to fall through
+                    // silently, dropping the whole write (e.g. CVars.gRando.StartingItems on a config
+                    // that never saved a gRando key). A non-object in the path keeps the old no-op.
+                    if (!gjson2->is_object()) {
+                        return;
+                    }
+                    gjson2 = &((*gjson2)[dot] = nlohmann::json::object());
+                    curDot++;
                 }
             }
         }

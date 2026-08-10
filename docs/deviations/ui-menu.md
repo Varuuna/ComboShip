@@ -255,3 +255,16 @@ refresh lives only in `Menu::DrawElement`, which never runs under comboui, so po
 (Audio Editor, Mod Menu) that draw via `MenuDrawItem` read a frozen disable flag.
 `mm/2s2h/BenGui/Menu.cpp` (`Menu::MenuDrawItem`, `COMBO_BUILD`-guarded) now refreshes the map once
 per ImGui frame. SoH needs no parity fix: its popout-drawn widgets have no disable-map preFuncs.
+
+## Config::SetBlock drops writes when intermediate keys are missing (2026-08-10)
+
+**Why:** `SetBlock`'s dot-walk only descended into keys that already existed — a missing
+intermediate (e.g. `CVars.gRando` on a config that never saved a gRando key) made the whole write a
+silent no-op. Surfaced as `MM_RestoreRandoSettings` failing to restore an empty
+`gRando.StartingItems: []` kit: `SetStartingItemsInConfig` never landed, exact-seed repro fell back
+to the default kit. (Related pre-existing quirk, handled by callers: nlohmann `flatten()` turns an
+empty array into null; `GetStartingItemsFromConfig` treats null as empty.)
+
+**Vendored:** `libultraship/src/ship/config/Config.cpp` (`SetBlock`) — create missing intermediate
+objects and descend; a non-object in the path keeps the old silent no-op (`ComboShip:` comment at
+site).

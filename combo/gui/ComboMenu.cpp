@@ -588,6 +588,11 @@ void DrawTrackerSharedPanel() {
             CVarSetInteger("gCombo.Tracker.IconSize", px);
             appearanceChanged = true;
         }
+        int spacing = CVarGetInteger("gCombo.Tracker.IconSpacing", ComboTracker::kDefaultIconSpacing);
+        if (ImGui::SliderInt("Icon spacing (px)", &spacing, 0, 50)) {
+            CVarSetInteger("gCombo.Tracker.IconSpacing", spacing);
+            appearanceChanged = true;
+        }
         float op = CVarGetFloat("gCombo.Tracker.Opacity", ComboTracker::kDefaultOpacity);
         if (ImGui::SliderFloat("Background opacity", &op, 0.0f, 1.0f, "%.2f")) {
             CVarSetFloat("gCombo.Tracker.Opacity", op);

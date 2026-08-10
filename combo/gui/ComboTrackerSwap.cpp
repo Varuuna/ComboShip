@@ -109,6 +109,12 @@ void PlaceMmWindowOnFirstShow(int kindIdx) {
     if (!oot) {
         return;
     }
+    // AlwaysAutoResize windows carry a placeholder rect through their first (hidden) sizing
+    // frames; placing from that puts MM inside OOT's eventual frame. Wait while OOT is actively
+    // sizing — a dormant OOT window (HideBackground) keeps its last measured rect and is fine.
+    if (oot->WasActive && oot->Hidden) {
+        return;
+    }
     ImGui::SetWindowPos(mm, ImVec2(oot->Pos.x + oot->Size.x + kFirstShowGapPx, oot->Pos.y), ImGuiCond_Always);
     CVarSetInteger(kind.mmPlacedCvar, 1);
     sLatched[kindIdx] = true;

@@ -1222,3 +1222,33 @@ kit); exposed by `gRando.StartingItems: []`, which shuffles the kit into the poo
 
 Fix: after the memset, re-init `inventory.items` (48 slots, items + masks) to `ITEM_NONE`, plus a
 one-time sweep asserting no inventory-slot item reads as owned on the empty context.
+
+## Container Matches Contents dresses foreign checks as the real item (issue #103, 2026-08-10)
+
+Both foreign sentinels are hard-typed junk (`itemTable[RG_COMBO_FOREIGN]` = `ITEM_CATEGORY_JUNK`,
+`RI_COMBO_FOREIGN` = `RITYPE_JUNK`), so every CMC surface — OOT chests + the Shuffle* containers, MM
+chests/grass/pots/barrels/crates — rendered every cross-game item as junk.
+
+**Seed schema:** `foreign[]` entries gain `category` — `CwCatName(p.item.cat)` stamped by the fill
+(the per-item `category` both dumps already emit in `pool[]`), carried by `BuildForeignArray` /
+`ForeignItem`. `CwCat::UNKNOWN` is omitted so consumers fall back to
+`advancement ? major : junk` (also the rule for pre-category seeds and plando imports, which cannot
+compute categories; the plando writer carries `category` over for unchanged rows like the disguise
+fields). Traps always classify **major** — OOT-native parity (`RG_ICE_TRAP` is MAJOR; a junk-looking
+container never gets opened, so the trap would never fire) — deliberately diverging from MM's native
+`RI_TRAP` = LESSER. `advancement`/`trap` are now emitted only when true (loaders already default
+false), and `checkArea` is no longer persisted: its only reader was `CrossHints.h::Generate`, which
+now derives the area from its own `ootChecks` table (same `sohHintDump` source, same
+empty-→checkName fallback, so hint text is unchanged).
+
+**OOT consumption:** `OOT_GetForeignCategory(rc)` (`hook_handlers.cpp`, per-rc cache invalidated by
+`g_ootForeignGen`); `GetFinalGIEntry` overrides `giEntry.getItemCategory` for the sentinel inside
+the existing `COMBO_BUILD` block — the table entry stays junk. MM-only `mask`/`strayFairy` map to
+MAJOR (no OOT textures). `Randomizer_AdjustItemCategory` early-returns for the sentinel so OOT's
+Skeleton Key cannot junk a foreign MM small key. The skip-animation classification in
+`RandomizerOnPlayerUpdateForRCQueueHandler` is intentionally untouched (animation gate ≠ container
+art).
+
+**MM consumption:** `Rando::GetItemTypeForCheck(itemId, checkId)` (`ConvertItem.cpp`) resolves the
+sentinel via `MM_LookupForeign` (category → `RITYPE_*`, same rules) and otherwise returns the old
+`Items[ConvertItem(...)].randoItemType`; the 8 CMC draw sites in `Rando/ActorBehavior/` now call it.

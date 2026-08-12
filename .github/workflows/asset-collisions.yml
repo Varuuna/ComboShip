@@ -1,0 +1,19 @@
+name: asset-collisions
+
+# Custom-asset collision gate (issue #97). Fast PR mirror of the CMake CheckAssetCollisions
+# target (which the Generate*Otr and combo targets depend on): the Windows build job is slow
+# and path-filtered, so without this a PR touching only the baseline could merge unchecked.
+
+on: [pull_request]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  asset-collisions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check custom asset trees for new path collisions
+        run: python3 scripts/check-asset-collisions.py

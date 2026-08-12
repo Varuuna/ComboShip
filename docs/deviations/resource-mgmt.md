@@ -177,7 +177,10 @@ mid-recipe, and `CfaDrawFlame` skipping only its flame DL (the flame is `flameSe
 so the model still draws).
 
 **The scope MUST stay narrow.** Both archives share one resource path namespace, so a HOST lookup
-performed under the FOREIGN RM does not fail loudly — it silently returns the WRONG asset. soh's
+performed under the FOREIGN RM does not fail loudly — it silently returns the WRONG asset. (The set
+of colliding paths is inventoried in `asset-collisions.json` and gated by
+`scripts/check-asset-collisions.py` — see the standing policy in
+[../UPSTREAM_MERGES.md](../UPSTREAM_MERGES.md).) soh's
 helper also mangles paths on MQ state, i.e. host state applied to a foreign archive. Wrapping
 `SkelAnime_Draw*`/`Matrix_*`/`OPEN_DISPS` would be worse than the original bug and buys nothing,
 since playback is already covered by the bracket.

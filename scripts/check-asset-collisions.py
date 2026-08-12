@@ -7,11 +7,12 @@ resolves to the wrong game's asset if a cross-game draw loses its @oot:/@mm:
 route marker. This script diffs the two tracked trees against the checked-in
 baseline (asset-collisions.json) and fails on NEW differing-content collisions
 or STALE baseline entries. Regenerate the baseline with --update.
+Content is compared by git blob OID (staged/committed bytes), so line-ending
+smudge can't skew results across platforms; stage new assets before running.
 See docs/UPSTREAM_MERGES.md "Standing policy: custom asset path collisions".
 """
 
 import argparse
-import hashlib
 import json
 import os
 import subprocess
@@ -25,23 +26,21 @@ BASELINE = "asset-collisions.json"
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def tracked_files(tree):
+def tracked_blobs(tree):
     # git ls-files, not a filesystem walk: soh/assets/custom/shaders/ is
     # untracked build-generated content that must not count.
     out = subprocess.run(
-        ["git", "ls-files", "-z", tree],
+        ["git", "ls-files", "-s", "-z", tree],
         cwd=REPO_ROOT, capture_output=True, check=True,
     ).stdout.decode("utf-8")
     prefix = tree + "/"
-    return {p[len(prefix):] for p in out.split("\0") if p}
-
-
-def sha256(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.digest()
+    blobs = {}
+    for entry in out.split("\0"):
+        if not entry:
+            continue
+        meta, path = entry.split("\t", 1)
+        blobs[path[len(prefix):]] = meta.split()[1]
+    return blobs
 
 
 def error(msg):
@@ -57,12 +56,10 @@ def main():
     args = parser.parse_args()
 
     try:
-        soh = {p: os.path.join(REPO_ROOT, TREES["soh"], p)
-               for p in tracked_files(TREES["soh"])}
-        for p in tracked_files(SOH_SHADER_SRC):
-            soh["shaders/" + p] = os.path.join(REPO_ROOT, SOH_SHADER_SRC, p)
-        mm = {p: os.path.join(REPO_ROOT, TREES["mm"], p)
-              for p in tracked_files(TREES["mm"])}
+        soh = tracked_blobs(TREES["soh"])
+        for p, oid in tracked_blobs(SOH_SHADER_SRC).items():
+            soh["shaders/" + p] = oid
+        mm = tracked_blobs(TREES["mm"])
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         if os.environ.get("GITHUB_ACTIONS"):
             error(f"git enumeration failed in CI: {e}")
@@ -71,7 +68,7 @@ def main():
         return 0
 
     shared = soh.keys() & mm.keys()
-    differing = sorted(p for p in shared if sha256(soh[p]) != sha256(mm[p]))
+    differing = sorted(p for p in shared if soh[p] != mm[p])
 
     baseline_path = os.path.join(REPO_ROOT, BASELINE)
     try:

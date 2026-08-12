@@ -3243,6 +3243,12 @@ bool Combo_OotIsForeground(void) {
     return sFn ? (sFn() == 0) : true;
 }
 
+// ComboShip (#127): OOT's pause state, read by comboui's dormant-tracker gate (a dormant game's own
+// pause state is stale, so the foreground game's is queried across the DLL boundary).
+extern "C" __declspec(dllexport) int SOH_IsPausedForCombo(void) {
+    return gPlayState != nullptr && gPlayState->pauseCtx.state > 0;
+}
+
 // ComboShip: Ctrl+R reset. Set when a reset should return the whole session to first-boot; read by
 // SOH_ResumeGame so OOT boots to the title sequence instead of resuming the dormant save.
 static bool sComboResetPending = false;

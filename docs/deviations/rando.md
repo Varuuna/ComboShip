@@ -578,14 +578,17 @@ quit/resume and MM's Song-of-Time cycles. Registered into both DLLs via the new 
 
 **Vendored boss seams (`COMBO_BUILD`-guarded — preserve on merges, ~13 lines each):**
 - `soh/src/overlays/actors/ovl_Boss_Ganon2/z_boss_ganon2.c` — death cutscene `case 20`: if not both
-  dead, warp to `ENTR_MARKET_DAY_OUTSIDE_HAPPY_MASK_SHOP` (child, no cutscene) instead of the Chamber
-  of the Sages credits. Reuses the existing MM→OOT portal arrival point (see title_setup.c).
+  dead, warp to `ENTR_TEMPLE_OF_TIME_WARP_PAD` (adult, no cutscene) instead of the Chamber of the
+  Sages credits. The pedestal is the guaranteed route to Child (the Master Sword is in hand after
+  Ganon) and from there to the Mask Shop portal.
 - `mm/src/overlays/actors/ovl_Boss_07/z_boss_07.c` — Majora's Wrath death: if not both dead, warp to
   `ENTRANCE(SOUTH_CLOCK_TOWN, 0)` (no cutscene) instead of the Termina Field `0xFFF7` credits.
 
-**Deviation from plan:** the OOT first-kill warp targets the Happy Mask Shop area (not Temple of Time)
-because the OOT→MM portal is the Happy Mask Shop, only reachable as child in the Market — adult Link at
-Temple of Time couldn't reach it.
+**Revised (2026-08-13, issue #137):** the first-kill warp originally targeted
+`ENTR_MARKET_DAY_OUTSIDE_HAPPY_MASK_SHOP` with `linkAgeOnLoad = 0` — but 0 is `LINK_AGE_ADULT`, so
+Link stayed adult and the adult scene layer (+2) landed him in Market Ruins with the Mask Shop
+boarded up. Now warps to the Temple of Time adult spawn instead of forcing child: the player must
+travel to Child via the pedestal anyway to reach the portal.
 
 **Playtest-pending:** both orders (Ganon-first and Majora-first); portal reachable after each warp;
 resume-after-first-kill keeps the flag; finale plays on the second kill.

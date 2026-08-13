@@ -18,9 +18,10 @@ Like [OOTMM](https://ootmm.com/), ComboShip shuffles items across *both* games a
 - Possibly looking into some more OOTMM features, but it's not a priority yet.
 - Possible Archipelago support as well, ideally through the existing SoH implementation
 
-## Any bugs?
+## Got issues?
 
-Probably many! Create an issue if you find any.
+Check out the (nightly build)[https://nightly.link/Varuuna/ComboShip/workflows/build-artifacts/develop/ComboShip-windows.zip] to see if your issue has already been fixed for an upcoming release.
+If you can still reproduce it, please create an issue.
 
 ## Building
 

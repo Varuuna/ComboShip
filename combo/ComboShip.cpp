@@ -1307,6 +1307,13 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         std::unordered_map<std::string, bool> ootAdv, mmAdv;
         auto ootNames = buildNameMap(sohDump, ootAdv);
         auto mmNames = buildNameMap(mmDump, mmAdv);
+
+        // ComboShip: OOT's curated ice-trap disguise set — carried into the apply payload (below) and
+        // the consolidated spoiler so a reload restores it instead of deriving one from placements.
+        nlohmann::json ootIceTrapModels = nlohmann::json::array();
+        try {
+            ootIceTrapModels = nlohmann::json::parse(sohDump).value("iceTrapModels", nlohmann::json::array());
+        } catch (...) {}
         for (auto& fm : foreignArr) {
             std::string itemGame = fm.value("itemGame", "");
             std::string itemName = fm.value("itemName", "");
@@ -1350,6 +1357,8 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
                 mmSpoiler[cn] = dn;
             }
         }
+        // Reserved apply-only key (ootSpoiler was copied above, so it stays a pure placement map).
+        ootApply["__iceTrapModels"] = ootIceTrapModels;
 
         // ComboShip: the gSaveContext-mutating apply (SOH_ApplyRandoPlacements) and the seed-hash set
         // MUST run on the main thread — the worker only computes. Stash their inputs for
@@ -1402,7 +1411,8 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         consolidated["oot"] = { { "settings", parseOrEmpty(SOH_DumpRandoSettings) },
                                 { "enabledTricks", parseOrEmpty(SOH_DumpEnabledTricks) },
                                 { "placements", ootSpoiler },
-                                { "prices", pricesOf(sohDump) } };
+                                { "prices", pricesOf(sohDump) },
+                                { "iceTrapModels", ootIceTrapModels } };
         consolidated["mm"] = { { "settings", parseOrEmpty(MM_DumpRandoSettings) },
                                { "placements", mmSpoiler },
                                { "prices", pricesOf(mmDump) } };

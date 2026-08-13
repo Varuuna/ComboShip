@@ -56,6 +56,14 @@ inline nlohmann::json ApplyPayloadFromConsolidated(const nlohmann::json& consoli
             apply[checkName] = sentinel;
         }
     }
+    // OOT's curated ice-trap disguise set rides along as a reserved key (absent on old spoilers, where
+    // the apply falls back to deriving one).
+    if (game == GAME_OOT) {
+        const nlohmann::json oot = consolidated.value("oot", nlohmann::json::object());
+        if (oot.contains("iceTrapModels")) {
+            apply["__iceTrapModels"] = oot["iceTrapModels"];
+        }
+    }
     return apply;
 }
 
@@ -160,6 +168,24 @@ inline std::unordered_map<std::string, ForeignItemMeta> ParseItemMeta(const std:
     return m;
 }
 
+// OOT's curated ice-trap disguise names from its dump ("iceTrapModels"). `present` = a usable (non-empty)
+// list; a stale dump (no field) or a failed prep (empty field) both fall back to the caller's own filter.
+inline std::set<std::string> ParseIceTrapModels(const std::string& dump, bool& present) {
+    std::set<std::string> out;
+    try {
+        auto d = nlohmann::json::parse(dump);
+        auto it = d.find("iceTrapModels");
+        if (it != d.end() && it->is_array()) {
+            for (const auto& n : *it) {
+                if (n.is_string())
+                    out.insert(n.get<std::string>());
+            }
+        }
+    } catch (...) {}
+    present = !out.empty();
+    return out;
+}
+
 // Give every foreign TRAP a disguise: a plausible progression item OF THE TRAP'S OWN GAME that this
 // seed actually placed (mirrors OOT's possibleIceTrapModels), plus a typo'd name for shop/hint text.
 // Deterministic: a dedicated LCG stream off masterSeed, sorted candidate sets, array order.
@@ -170,6 +196,11 @@ inline void AssignTrapDisguises(nlohmann::json& foreignArr, const nlohmann::json
     const auto ootMeta = ParseItemMeta(sohDump), mmMeta = ParseItemMeta(mmDump);
     if (ootMeta.empty() && mmMeta.empty())
         return;
+    // OOT candidates follow SoH's curated disguise list (issue #131: never a Triforce piece). The list
+    // holds representative names (Empty Bottle, ...) that no concrete placement matches, so those drop
+    // out of foreign candidacy too — a strict subset of native semantics, intended.
+    bool curatedPresent = false;
+    const std::set<std::string> curated = ParseIceTrapModels(sohDump, curatedPresent);
     std::set<std::string> ootCand, mmCand;
     auto scan = [&](const nlohmann::json& pl) {
         if (!pl.is_object())
@@ -178,8 +209,9 @@ inline void AssignTrapDisguises(nlohmann::json& foreignArr, const nlohmann::json
             if (!it.value().is_string())
                 continue;
             const std::string n = it.value().get<std::string>();
+            const bool ootOk = curatedPresent ? curated.count(n) != 0 : (n != "Triforce" && n != "Triforce Piece");
             auto o = ootMeta.find(n);
-            if (o != ootMeta.end() && o->second.advancement && !o->second.trap)
+            if (ootOk && o != ootMeta.end() && o->second.advancement && !o->second.trap)
                 ootCand.insert(n);
             auto m = mmMeta.find(n);
             if (m != mmMeta.end() && m->second.advancement && !m->second.trap)

@@ -3947,11 +3947,14 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
             RandomizerGet placed = ctx->GetItemLocation(rc)->GetPlacedRandomizerGet();
             if (placed != RG_NONE) {
                 const std::string& in = Rando::StaticData::RetrieveItem(placed).GetName().GetEnglish();
+                // `hintable` = native SetAsHintable state, captured here because oracle ItemResets wipe it.
+                // Confined fills (own-dungeon, rewards, min-set shops, excluded junk) leave it false.
                 if (!in.empty())
                     fixed.push_back({ { "check", name },
                                       { "item", in },
                                       { "advancement", comboIsAdv(placed) },
-                                      { "major", isMajor(placed) } });
+                                      { "major", isMajor(placed) },
+                                      { "hintable", ctx->GetItemLocation(rc)->IsHintable() } });
             } else {
                 // A real fillable check. GenerateLocationPool already decided what's shuffled and the
                 // meta markers (Link's Pocket, wincon) are skipped above, so emit regardless of vanilla
@@ -4314,6 +4317,20 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
         }
 #endif
         out["alwaysHintChecks"] = std::move(always);
+
+        // Checks the player already knows at start — native SetHintAccesible's two cases in
+        // CreateStoneHints (hints.cpp), mirrored 1:1 so stones never target them.
+        nlohmann::json startKnown = nlohmann::json::array();
+        auto pushStartKnown = [&](RandomizerCheck rc) {
+            Rando::Location* loc = Rando::StaticData::GetLocation(rc);
+            if (loc && !loc->GetName().empty())
+                startKnown.push_back(loc->GetName());
+        };
+        if (ctx->GetOption(RSK_STARTING_ZELDAS_LETTER) && !ctx->GetOption(RSK_SHUFFLE_ZELDAS_LETTER))
+            pushStartKnown(RC_SONG_FROM_IMPA);
+        if (ctx->GetOption(RSK_SELECTED_STARTING_AGE).Is(RO_AGE_ADULT) || !ctx->GetOption(RSK_SHUFFLE_MASTER_SWORD))
+            pushStartKnown(RC_TOT_MASTER_SWORD);
+        out["hintAccessibleChecks"] = std::move(startKnown);
 
         // Per-check hint text (every static check, not just this settings' shuffled subset — the
         // combo distributor decides which checks are hintable for its combined world).

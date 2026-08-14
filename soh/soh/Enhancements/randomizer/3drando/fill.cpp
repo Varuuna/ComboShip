@@ -1601,9 +1601,10 @@ void ComboFillConfined() {
         std::vector<RandomizerGet> maskShopKey =
             FilterAndEraseFromPool(itemPool, [](const RandomizerGet i) { return i == RG_MASK_SHOP_KEY; });
         if (!maskShopKey.empty()) {
-            maskShopKey = ComboFillPortalClosed(maskShopKey, ctx->allLocations, "Mask Shop Key");
+            // Hintable: this is a genuinely shuffled item, native would place it via the hintable free fill.
+            maskShopKey = ComboFillPortalClosed(maskShopKey, ctx->allLocations, "Mask Shop Key", true);
             if (!maskShopKey.empty())
-                AssumedFill(maskShopKey, ctx->allLocations);
+                AssumedFill(maskShopKey, ctx->allLocations, true);
         }
     }
     // Guard: Buy items are shop-only (placed above, never pooled); strip any that leak into itemPool.

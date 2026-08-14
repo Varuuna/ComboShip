@@ -1222,3 +1222,49 @@ kit); exposed by `gRando.StartingItems: []`, which shuffles the kit into the poo
 
 Fix: after the memset, re-init `inventory.items` (48 slots, items + masks) to `ITEM_NONE`, plus a
 one-time sweep asserting no inventory-slot item reads as owned on the empty context.
+
+## Hints never target non-shuffled placements (issue #132, 2026-08-14)
+
+**Why:** Native only hints locations that went through a shuffle fill (`ItemLocation::SetAsHintable`,
+enforced at `hints.cpp` `FilterHintability`). The combined fill merges each dump's `fixed[]` (confined)
+placements into the flat spoiler maps, and the cross-hint layer filtered only on `advancement` — so
+gossip stones hinted own-dungeon keys, dungeon rewards, min-set Buy items, excluded checks and MM's
+non-shuffled Boss Remains, and an area could turn "way of the hero" off its own confined boss key.
+
+**`soh/soh/OTRGlobals.cpp` (`SOH_DumpRandoStaticData`):** each `fixed[]` entry now emits
+`"hintable": GetItemLocation(rc)->IsHintable()` — captured here, right after `ComboFillConfined()`,
+because the oracle's per-query `ItemReset()` wipes the flag long before the hint dump runs.
+`SOH_DumpRandoHintData` additionally emits `"hintAccessibleChecks"`, mirroring `CreateStoneHints`'
+two `SetHintAccesible` cases (Song from Impa with Zelda's letter unshuffled; ToT Master Sword).
+
+**`soh/.../3drando/fill.cpp`:** the combo-only Mask Shop Key confinement now passes
+`setLocationsAsHintable = true` — it's a genuinely shuffled item that native would place hintable.
+
+**MM (`mm/2s2h/BenPort.cpp`):** the dump's `fixed[]` splits — confined pre-placements emit
+`"hintable": true` (`PreplaceConfinedItems` sets `shuffled = true`), the ComboShip Boss Remains block
+emits `false`. `MM_InitRandoSaveFile` also clears `shuffled` on every `RCTYPE_REMAINS` check when
+`RO_SHUFFLE_BOSS_REMAINS` is off (the spoiler apply stamps `shuffled = true` on all payload checks),
+restoring native state for MM's own stone draw, tracker, prices and the Saria hint. `randoItemId` is
+untouched — remains delivery resolves from it, never from `shuffled`.
+
+**Forced placements:** the fill spoiler now carries `startKnown` (forced checks, e.g. Link's Pocket
+— skipped by the dump's `fixed[]`, owned at start); CrossHints folds them into the same set, matching
+native's `RA_LINKS_POCKET` exclusion.
+
+**`combo/rando/CrossHints.h`:** `nonHintable` (both dumps' `fixed[]`, `"oot:"/"mm:" + check`) stamps
+`HintCandidate::hintable`. Candidates are kept either way — the Ganondorf/altar/always item lookups and
+`areaHasMajor` still need the FULL view; only the stone-draw sites filter: Song/Overworld/Dungeon and
+NamedItem/Random pools, MM's `gossipPool`, and always-hints (an excluded always-check is junk-filled
+non-hintably). WotH now needs a `hintable && required` check in the area; the foolish universe and the
+`areaHasMajor` signal stay unfiltered (native counts majors regardless of hintability). Start-known
+checks are pre-inserted into `usedCheckKeys` after the always block, matching native's ordering.
+
+**Absent flag = old DLL:** `hintable` defaults to true (previous behavior) and a dump with a non-empty
+`fixed[]` carrying no `hintable` key logs one warning naming the DLLs to rebuild. Hint TEXT for a given
+seed changes versus older builds (smaller pools -> different draws); placements are untouched and the
+same-seed byte-identity protocol still holds.
+
+**Known remaining gap (pre-existing):** native reserves its static-hint targets (`FindItemsAndMarkHinted`
+— the Light Arrows check, altar-named rewards) before stone hints, so stones never re-hint them; the
+combo distributor doesn't, and MM's cross `gossipPool` doesn't consult `usedCheckKeys` either — a stone
+may duplicate a static hint's target. Duplication only, never a non-shuffled target.

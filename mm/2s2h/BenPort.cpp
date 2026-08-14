@@ -2853,6 +2853,15 @@ extern "C" __declspec(dllexport) int MM_InitRandoSaveFile(int fileNum, const cha
 
         Rando::Spoiler::ApplyToSaveContext(spoiler);
 
+        // ComboShip: the apply stamps shuffled=true on every payload check incl. non-shuffled Remains;
+        // restore native state (delivery reads randoItemId, not shuffled) so stones/tracker skip them.
+        if (RANDO_SAVE_OPTIONS[RO_SHUFFLE_BOSS_REMAINS] == RO_GENERIC_NO) {
+            for (auto& [id, chk] : Rando::StaticData::Checks) {
+                if (chk.randoCheckType == RCTYPE_REMAINS)
+                    RANDO_SAVE_CHECKS[id].shuffled = false;
+            }
+        }
+
         // ComboShip: store the chosen starting items and bake them into inventory, like native
         // OnFileCreate. Force gPlayState=NULL so GrantStartingItems takes Item_Give's null-guarded
         // headless path (eager-MM-boot may leave a stale gPlayState); SaveManager flush below persists it.
@@ -3246,10 +3255,12 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         auto iit = Rando::StaticData::Items.find(RANDO_SAVE_CHECKS[id].randoItemId);
         if (iit == Rando::StaticData::Items.end() || !iit->second.spoilerName || iit->second.spoilerName[0] == '\0')
             continue;
-        // ComboShip: friendly check + item names for the normalized combo spoiler.
+        // ComboShip: friendly check + item names for the normalized combo spoiler. These are genuinely
+        // shuffled (PreplaceConfinedItems sets shuffled=true), so they stay hint targets.
         fixed.push_back({ { "check", Rando::StaticData::GetCheckDisplayName(id) },
                           { "item", Rando::StaticData::GetItemDisplayName(iit->first) },
-                          { "advancement", isAdvancement(iit->second) } });
+                          { "advancement", isAdvancement(iit->second) },
+                          { "hintable", true } });
     }
 
     // ComboShip: when boss remains aren't shuffled, GeneratePools drops RCTYPE_REMAINS checks entirely
@@ -3263,10 +3274,12 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
             auto iit = Rando::StaticData::Items.find(chk.randoItemId);
             if (iit == Rando::StaticData::Items.end() || !iit->second.spoilerName || iit->second.spoilerName[0] == '\0')
                 continue;
-            // ComboShip: friendly check + item names for the normalized combo spoiler.
+            // ComboShip: friendly check + item names for the normalized combo spoiler. Not shuffled, so
+            // hints must never target these (native never hints a non-shuffled check).
             fixed.push_back({ { "check", Rando::StaticData::GetCheckDisplayName(id) },
                               { "item", Rando::StaticData::GetItemDisplayName(iit->first) },
-                              { "advancement", true } });
+                              { "advancement", true },
+                              { "hintable", false } });
         }
     }
 

@@ -4,6 +4,9 @@
 #include "2s2h/ShipUtils.h"
 #include "2s2h/ShipInit.hpp"
 #include <cassert>
+#ifdef COMBO_BUILD
+#include "Rando/MiscBehavior/MiscBehavior.h" // ComboShip: MM_LookupForeign for foreign container art
+#endif
 
 // Copied from z_player.c, we could instead move this to a header file, idk
 typedef struct GetItemEntry {
@@ -799,4 +802,57 @@ RandoItemId Rando::ConvertItem(RandoItemId randoItemId, RandoCheckId randoCheckI
 
         return RI_JUNK;
     }
+}
+
+#ifdef COMBO_BUILD
+// ComboShip: foreign[].category -> MM container-art type. Unknown maps to RITYPE_MAJOR —
+// over-promising beats dressing a major item as junk.
+static RandoItemType ForeignTypeFromCategory(const std::string& category) {
+    if (category == "junk") {
+        return RITYPE_JUNK;
+    }
+    if (category == "lesser") {
+        return RITYPE_LESSER;
+    }
+    if (category == "health") {
+        return RITYPE_HEALTH;
+    }
+    if (category == "bossKey") {
+        return RITYPE_BOSS_KEY;
+    }
+    if (category == "smallKey") {
+        return RITYPE_SMALL_KEY;
+    }
+    if (category == "token") {
+        return RITYPE_SKULLTULA_TOKEN;
+    }
+    if (category == "mask") {
+        return RITYPE_MASK;
+    }
+    if (category == "strayFairy") {
+        return RITYPE_STRAY_FAIRY;
+    }
+    return RITYPE_MAJOR;
+}
+#endif
+
+RandoItemType Rando::GetItemTypeForCheck(RandoItemId randoItemId, RandoCheckId randoCheckId) {
+#ifdef COMBO_BUILD
+    // A foreign check's saved item is the hard-typed junk sentinel, so read the real item's category.
+    if (randoCheckId != RC_UNKNOWN && RANDO_SAVE_CHECKS[randoCheckId].randoItemId == RI_COMBO_FOREIGN) {
+        const ComboRando::ForeignItem* fi = Rando::MiscBehavior::MM_LookupForeign(randoCheckId);
+        if (fi != nullptr) {
+            // Foreign traps deliberately read MAJOR (junk/lesser containers get skipped, so the trap
+            // would never fire) even though native RI_TRAP is LESSER. Absent category -> importance.
+            if (fi->trap) {
+                return RITYPE_MAJOR;
+            }
+            if (fi->category.empty()) {
+                return fi->advancement ? RITYPE_MAJOR : RITYPE_JUNK;
+            }
+            return ForeignTypeFromCategory(fi->category);
+        }
+    }
+#endif
+    return Rando::StaticData::Items[Rando::ConvertItem(randoItemId, randoCheckId)].randoItemType;
 }

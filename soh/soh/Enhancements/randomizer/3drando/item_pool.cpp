@@ -692,7 +692,10 @@ void GenerateItemPool() {
         AddItemToPool(RG_GUARD_HOUSE_KEY, 2, 1, 1, 1);
         AddItemToPool(RG_MARKET_BAZAAR_KEY, 2, 1, 1, 1, false);
         AddItemToPool(RG_MARKET_POTION_SHOP_KEY, 2, 1, 1, 1, false);
-        AddItemToPool(RG_MASK_SHOP_KEY, 2, 1, 1, 1, false);
+        // ComboShip: (#133) start with the key instead of shuffling it
+        if (!ctx->GetOption(RSK_EXCLUDE_MASK_SHOP_KEY)) {
+            AddItemToPool(RG_MASK_SHOP_KEY, 2, 1, 1, 1, false);
+        }
         AddItemToPool(RG_MARKET_SHOOTING_GALLERY_KEY, 2, 1, 1, 1, false);
         AddItemToPool(RG_BOMBCHU_BOWLING_KEY, 2, 1, 1, 1, false);
         AddItemToPool(RG_TREASURE_CHEST_GAME_BUILDING_KEY, 2, 1, 1, 1, false);

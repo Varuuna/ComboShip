@@ -9,6 +9,7 @@
 // "foreign" array element:
 //   { "checkGame":"oot|mm", "checkName":"<friendly check name>", "itemGame":"oot|mm",
 //     "itemName":"<friendly item name>", "displayName":"<human name + (MM)/(OOT)>",
+//     optional: "advancement"/"trap" (only when true), "category" (native item category, drives CMC),
 //     optional trap disguise: "fakeItemName", "fakeDisplayName", "fakeTrickName" }
 //
 // Note: checkName/itemName are the friendly combo-spoiler names (bare, no suffix) — the home game
@@ -64,6 +65,9 @@ struct ForeignItem {
     std::string displayName;  // human string for the "sent"/"received" text
     bool advancement = false; // progression in its home game -> drives the held-up pickup animation
     bool trap = false;        // a trap in its home game -> fires on the FINDER, never cross-delivered
+    // Native item category name (junk/lesser/health/bossKey/smallKey/token/major/mask/strayFairy).
+    // Empty = absent (old seed or plando); consumers fall back to advancement.
+    std::string category;
     // Trap disguise (empty = none). The name/model shown until the check is collected; the GRANT
     // always uses itemName. fakeItemName lives in itemGame's namespace (feeds the draw producers).
     std::string fakeItemName;
@@ -218,11 +222,8 @@ inline void AssignTrapDisguises(nlohmann::json& foreignArr, const nlohmann::json
 
 // Tag a spoiler "foreign" array's displayNames with their home-game suffix for the consolidated file.
 // Every display surface (shops, hints, trackers, toasts) reads displayName, so tag once here.
-// ootCheckAreas (checkName -> OOT area name, from SOH_DumpRandoHintData's "checks" list) is optional;
-// when given, oot-side entries get a "checkArea" field for the combo hint layer's foolish-area logic.
-// MM-side entries omit it — MM's own dump carries its per-check "locationHints" (region names) instead.
-inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray,
-                                        const std::unordered_map<std::string, std::string>& ootCheckAreas = {}) {
+// advancement/trap/category are emitted only when meaningful; every loader defaults them.
+inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray) {
     nlohmann::json out = nlohmann::json::array();
     for (const auto& fm : foreignArray) {
         std::string checkGame = fm.value("checkGame", "");
@@ -240,21 +241,25 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray,
             return s;
         };
         std::string displayName = tag(fm.value("displayName", itemName));
-        nlohmann::json entry = { { "checkGame", checkGame },         { "checkName", checkName },
-                                 { "itemGame", itemGame },           { "itemName", itemName },
-                                 { "displayName", displayName },     { "advancement", fm.value("advancement", false) },
-                                 { "trap", fm.value("trap", false) } };
+        nlohmann::json entry = { { "checkGame", checkGame },
+                                 { "checkName", checkName },
+                                 { "itemGame", itemGame },
+                                 { "itemName", itemName },
+                                 { "displayName", displayName } };
+        if (fm.value("advancement", false))
+            entry["advancement"] = true;
+        if (fm.value("trap", false))
+            entry["trap"] = true;
+        // Native item category: drives the container-matches-contents look at a foreign check.
+        std::string category = fm.value("category", "");
+        if (!category.empty())
+            entry["category"] = category;
         // Trap disguise: fakeItemName stays bare (it's a grant-namespace key); the shown names get tagged.
         std::string fakeItemName = fm.value("fakeItemName", "");
         if (!fakeItemName.empty()) {
             entry["fakeItemName"] = fakeItemName;
             entry["fakeDisplayName"] = tag(fm.value("fakeDisplayName", fakeItemName));
             entry["fakeTrickName"] = tag(fm.value("fakeTrickName", fm.value("fakeDisplayName", fakeItemName)));
-        }
-        if (checkGame == "oot") {
-            auto it = ootCheckAreas.find(checkName);
-            if (it != ootCheckAreas.end())
-                entry["checkArea"] = it->second;
         }
         out.push_back(std::move(entry));
     }
@@ -333,6 +338,8 @@ inline std::unordered_map<std::string, ForeignItem> LoadForeignForGame(int slot,
             fi.advancement = fm.value("advancement", false);
             // Absent in pre-trap-flag saves -> false -> the item cross-delivers as before.
             fi.trap = fm.value("trap", false);
+            // Absent in pre-category saves -> empty -> consumers fall back to advancement.
+            fi.category = fm.value("category", "");
             // Absent in pre-disguise saves -> empty -> every consumer falls back to the true name.
             fi.fakeItemName = fm.value("fakeItemName", "");
             fi.fakeDisplayName = fm.value("fakeDisplayName", "");

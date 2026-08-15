@@ -7,6 +7,12 @@
 GetItemCategory Randomizer_AdjustItemCategory(GetItemEntry item) {
     GetItemCategory category = item.getItemCategory;
 
+    // ComboShip: a foreign check's category already describes the OTHER game's item, so none of the
+    // local-inventory downgrades below apply (they'd junk a foreign small key on our skeleton key).
+    if (item.modIndex == MOD_RANDOMIZER && item.getItemId == RG_COMBO_FOREIGN) {
+        return category;
+    }
+
     // Downgrade bombchus to lesser if the player already has bombchus
     if (INV_CONTENT(ITEM_BOMBCHU) == ITEM_BOMBCHU &&
         ((item.modIndex == MOD_RANDOMIZER && item.getItemId == RG_PROGRESSIVE_BOMBCHU_BAG) ||

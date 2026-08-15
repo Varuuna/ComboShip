@@ -1232,12 +1232,11 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     nlohmann::json playthroughJson = nlohmann::json::array(); // structured sphere playthrough (combined-fill only)
     ComboRando::RequirednessResult pareDownResult;            // cross-hint Phase 3 WotH/foolish classification
     // ComboShip: checkName -> OOT area, computed once from sohHintDump right after the winning attempt's
-    // dump (below) — reused by the pare-down call and the foreign-array enrichment after the fill loop,
-    // instead of re-parsing sohHintDump twice for the same map.
+    // dump (below) for the pare-down call.
     std::unordered_map<std::string, std::string> ootCheckAreasCache;
 
-    // ComboShip: checkName -> area/region string, from each game's own dump. Shared by the pare-down
-    // (foolish-area rollup) and the foreign-array enrichment after the fill loop.
+    // ComboShip: checkName -> area/region string, from each game's own dump, for the pare-down
+    // (foolish-area rollup).
     auto buildOotCheckAreas = [](const std::string& hintDumpJson) {
         std::unordered_map<std::string, std::string> out;
         try {
@@ -1535,9 +1534,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         consolidated["mm"] = { { "settings", parseOrEmpty(MM_DumpRandoSettings) },
                                { "placements", mmSpoiler },
                                { "prices", pricesOf(mmDump) } };
-        // ComboShip: checkName -> OOT area name (cross-hint Phase 2 schema; consumed in Phase 3) — reuses
-        // the same parse done above, right after sohHintDump was produced, instead of re-parsing it here.
-        auto foreignEnriched = ComboRando::BuildForeignArray(foreignArr, ootCheckAreasCache);
+        auto foreignEnriched = ComboRando::BuildForeignArray(foreignArr);
         consolidated["foreign"] = foreignEnriched;
         consolidated["playthrough"] = ComboRando::PlaythroughLines(playthroughJson);
         // ComboShip (#136): the goal is seed-bound — the runtime latch reads it back from the slot's

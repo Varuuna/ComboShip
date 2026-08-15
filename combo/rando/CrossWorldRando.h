@@ -211,18 +211,19 @@ constexpr int kMaxPrereqTries = 4; // Tier-1 repicks of just the portal prerequi
 // progress: optional thread-safe progress struct polled by the UI. May be nullptr.
 // forcedOotJson: OOT checks the dump can't carry (e.g. Link's Pocket). Each forced item is reserved
 // out of the cross pool, owned-from-start for logic, and appended to the OOT placements.
-inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson, const std::string& mmDumpJson,
-                                                 uint32_t masterSeed, const OracleFns& ootOracle,
-                                                 const OracleFns& mmOracle,
-                                                 ComboRando::ComboGenProgress* progress = nullptr,
-                                                 const std::string& forcedOotJson = "",
-                                                 OotAccess ootAccess = OotAccess::ALL_REACHABLE, CwGoal goal = {}) {
+// startingGame (#135): GAME_MM roots MM from the start instead of behind the portal; the portal
+// prerequisites are still derived, as the re-entry guarantee for a player who strays into OOT.
+inline CombinedFillResult CrossWorldCombinedFill(
+    const std::string& sohDumpJson, const std::string& mmDumpJson, uint32_t masterSeed, const OracleFns& ootOracle,
+    const OracleFns& mmOracle, ComboRando::ComboGenProgress* progress = nullptr, const std::string& forcedOotJson = "",
+    OotAccess ootAccess = OotAccess::ALL_REACHABLE, CwGoal goal = {}, GameId startingGame = GAME_OOT) {
     CombinedFillResult result;
     result.success = false;
 
     // Portal gate: NO_LOGIC deliberately skips it (an impossible seed is that mode's point). Any other
     // mode without the export would silently fill MM as sphere-0 reachable — the bug this gate fixes.
     const bool portalGated = ootAccess != OotAccess::NO_LOGIC;
+    const bool mmStart = startingGame == GAME_MM;
     if (portalGated && ootOracle.GetPortalOpen == nullptr) {
         result.error = "OOT oracle is missing Combo_SOH_Rando_GetPortalOpen — rebuild soh.dll (the OOT->MM "
                        "portal cannot be gated without it)";
@@ -304,6 +305,23 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                        "progression and refuses to balance the pool — rebuild soh.dll / 2ship.dll";
         std::cerr << "[ComboShip] CrossWorldCombinedFill: " << result.error << "\n";
         return result;
+    }
+    // #135: under an MM start the Mask Shop Key is forced start-with, so a confined placement of it in
+    // fixed[] means the force never reached OOT's settings. Warn only — A0 keeps the portal re-openable.
+    if (mmStart) {
+        bool lockedDoors = false;
+        try {
+            lockedDoors = nlohmann::json::parse(sohDumpJson)
+                              .value("accessibility", nlohmann::json::object())
+                              .value("lockOverworldDoors", false);
+        } catch (...) {}
+        const bool keyPlaced =
+            lockedDoors && std::any_of(lockedPlacements.begin(), lockedPlacements.end(), [](const CwPlacement& p) {
+                return p.item.game == GAME_OOT && p.item.name == "Mask Shop Key";
+            });
+        if (keyPlaced)
+            std::cerr << "[ComboShip] CrossWorldCombinedFill: WARNING — MM start with Lock Overworld Doors, but the "
+                         "Mask Shop Key was confined-placed (Exclude Mask Shop Key was not forced on)\n";
     }
 
     // Forced OOT placements (e.g. Link's Pocket): reserve each item out of the cross pool and treat
@@ -631,7 +649,8 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         mmOwned.insert(mmOwned.end(), mmForcedOwned.begin(), mmForcedOwned.end());
         std::vector<bool> credited(placements.size(), false);
         std::unordered_set<std::string> ootReachable, mmReachable;
-        bool portalOpen = !portalGated; // latched: once OOT can reach the portal it stays open
+        // Latched: once OOT can reach the portal it stays open. An MM start roots MM immediately (#135).
+        bool portalOpen = !portalGated || mmStart;
         for (;;) {
             ootReachable = queryReachable(ootOracle, ootOwned);
             // Read the portal off THIS OOT query, before any MM check is credited below — that ordering
@@ -1025,6 +1044,14 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                            " unreachable checks) — reroll for a new entrance layout";
             return result;
         }
+        // #135: MM start frees the OOT root, so mmAdvUnreachable can't catch a portal that A0's fallback
+        // paths left unopenable. Check directly: a strayed itemless player must always be able to walk back in.
+        if (mmStart && portalGated && !ootClosedFixpoint(placements, {}).portalOpen) {
+            lastPassError = "MM start: the OOT->MM portal is not re-openable from an empty OOT start";
+            std::cerr << "[ComboShip] CrossWorldCombinedFill: " << lastPassError << " (pass " << pass << ", "
+                      << passMs() << " ms) — retrying\n";
+            continue;
+        }
         if (ootAdvUnreachable > 0)
             std::cout << "[ComboShip] CrossWorldCombinedFill: " << ootAdvUnreachable
                       << " OOT advancement item(s) on unreachable checks — tolerated (relaxed OOT mode)\n";
@@ -1063,6 +1090,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     nlohmann::json spoiler;
     spoiler["masterSeed"] = masterSeed;
     spoiler["mode"] = "combined-logic assumed-fill";
+    spoiler["startingGame"] = mmStart ? "MM" : "OOT"; // #135
     // poolTrimmed/poolPadded let a shipped spoiler self-report that it came from a balanced fill.
     spoiler["fillStats"] = { { "advancementItems", static_cast<uint32_t>(advItems.size()) },
                              { "junkItems", static_cast<uint32_t>(junkItems.size()) },

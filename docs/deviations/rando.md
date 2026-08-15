@@ -1298,3 +1298,59 @@ markers instead — which is what identifies combo lines during upstream merges.
 
 **Portal gate unchanged.** Both options only relax constraints, and the gate is region-based
 (`RR_MARKET_MASK_SHOP` reachability) — see "Gate MM on the OOT→MM portal region (2026-07-26)".
+
+## Starting Game: OOT / MM / Random (#135) (2026-08-15)
+
+**What:** `gCombo.Rando.StartingGame` (0 = OOT, 1 = MM, 2 = Random) picks which game a new file boots
+into. An MM start spawns the player in South Clock Town — the same place the portal arrives at — via
+the existing launcher handoff: `Combo_OnOOTSaveInit` sets the slot's lastGame to MM, and
+`Combo_ResumeMMIfLastSavedThere` does the rest. Boot order is unchanged (OOT first, MM eager-booted).
+The resolved value is written to the spoiler as top-level `startingGame` ("OOT"/"MM") and is
+seed-bound; every read defaults to "OOT", so old spoilers, saves and plando files still load.
+
+**Random is resolved per generation attempt** from `ComboHash("startingGame:" + masterSeed) & 1`.
+ComboShip.cpp and ComboRandoHeadless.cpp each hold a copy of that derivation; the string must stay
+byte-identical or headless seeds stop reproducing in-game ones.
+
+**Forced settings.** `Context::FinalizeSettings` (`#ifdef COMBO_BUILD`, reading `gComboStartingGameMM`)
+forces, when the resolved start is MM:
+
+- `RSK_STARTING_AGE` → Child. The Clock Tower door lands the player outside the Happy Mask Shop, and a
+  child there can always walk back in.
+- `RSK_FOREST` Closed → Closed Deku (Closed Deku / Open untouched), so an itemless child who saved and
+  quit in OOT can always leave the forest and reach the Market.
+- `RSK_EXCLUDE_MASK_SHOP_KEY` ON when Lock Overworld Doors is on, and `RSK_EXCLUDE_MASK_SHOP_ENTRANCE`
+  ON when interior shuffle is on — the portal's own key/door must not sit behind the portal.
+
+Both force-branches are `else`-chained onto #134's force-clears, so parent-off still wins. As with
+`RSK_WINCON`, the spoiler's `oot.settings` blob records the player's CVars, not the forced values; the
+authoritative record is top-level `startingGame`.
+
+**UI.** `SOH_RefreshComboStartingGameUI` greys out those three options with the tooltip "Starting Game
+is Majora's Mask" — only under an *explicit* MM start. Under Random they stay editable and the force is
+silent when MM rolls. `HandleStartingAgeUI` owns `RSK_STARTING_AGE` in both directions (it re-applies
+the MM disable at its end), so the refresh can't undo its own unbeatable-config disable.
+
+**Fill.** `CrossWorldCombinedFill` takes `GameId startingGame`; the whole reachability change is
+`portalOpen = !portalGated || mmStart` in `reachableFixpoint`. MM's logic already roots at South Clock
+Town unconditionally — today's fill just suppresses that root until the portal opens. The OOT side
+still roots on OOT's own start-of-game regions; the transient "standing in the Market" state right
+after the Clock Tower door is deliberately not modelled (an under-approximation, so sound).
+
+The portal-prerequisite derivation and Phase A0 stay active under an MM start: there they are the
+*re-entry* guarantee, not the entry one. Because `mmAdvUnreachable` no longer catches a closed portal
+under an MM start, each pass additionally asserts `ootClosedFixpoint(placements, {}).portalOpen` — a
+player who strays into OOT with nothing must always be able to walk back in. RNG-free, one portal-closed
+fixpoint over the placements per pass, MM starts only. `ComboPlaythrough.h` mirrors the seed in
+`RunPlaythrough`, `PareDownPlaythrough` and `everPortalOpen`.
+
+**Fail policy.** Explicit MM that exhausts its attempts hard-fails, with an error naming the re-entry
+requirement and telling the player to loosen the OOT access settings. Random silently pins the
+remaining attempts to an OOT start after any failed attempt that resolved MM, and its last attempt
+always resolves OOT — Random can never hard-fail on an MM start.
+
+**Hints are unchanged (strict).** Recovery/witness items stay non-WotH under the strict counterfactual;
+keeping the seed escapable is generation's job, not the hint layer's.
+
+**Residual:** NO_LOGIC + MM start has no re-entry guarantee — that mode's point. No MM-side setter
+exists (nothing in MM reads the value); add one when a consumer appears.

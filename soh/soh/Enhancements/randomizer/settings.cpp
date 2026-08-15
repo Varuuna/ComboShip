@@ -15,6 +15,8 @@
 // ComboShip (#136): combo owns the win condition (combined Triforce goal), forced in FinalizeSettings.
 // A plain constant, not an #ifdef inside the OPT_CALLBACK macro arguments.
 extern "C" int gComboGoalHunt;
+// ComboShip (#135): 1 when the resolved starting game is MM, which forces age/forest/exclusions below.
+extern "C" int gComboStartingGameMM;
 static constexpr bool kComboOwnsWincon = true;
 #else
 static constexpr bool kComboOwnsWincon = false;
@@ -165,6 +167,12 @@ void Settings::HandleStartingAgeUI() {
     } else {
         mOptions[RSK_STARTING_AGE].Enable();
     }
+#ifdef COMBO_BUILD
+    // ComboShip (#135): an explicit MM start forces Child, so that disable outranks the rule above.
+    if (CVarGetInteger("gCombo.Rando.StartingGame", 0) == 1) {
+        mOptions[RSK_STARTING_AGE].Disable("Starting Game is Majora's Mask");
+    }
+#endif
 }
 
 void Settings::CreateOptions() {
@@ -2672,14 +2680,34 @@ void Context::FinalizeSettings(const std::set<RandomizerCheck>& excludedLocation
     // Ganon-skip and parks RG_TRIFORCE on the dump-excluded RC_WINCON); pieces must go anywhere.
     mOptions[RSK_WINCON].Set(gComboGoalHunt ? RO_WINCON_TRIFORCE_PIECES : RO_WINCON_DEFEAT_GANON);
     mOptions[RSK_TRIFORCE_HUNT_PIECES_LOCATION].Set(RO_TRIFORCE_HUNT_LOCATION_ANYWHERE);
+    // ComboShip (#135): an MM start must leave OOT enterable from nothing — the Clock Tower door lands
+    // an itemless child outside the Mask Shop, and an itemless child must be able to leave the forest.
+    if (gComboStartingGameMM) {
+        mOptions[RSK_STARTING_AGE].Set(RO_AGE_CHILD);
+        if (mOptions[RSK_FOREST].Is(RO_CLOSED_FOREST_ON)) {
+            mOptions[RSK_FOREST].Set(RO_CLOSED_FOREST_DEKU_ONLY);
+        }
+    }
 #endif
     // ComboShip: (#133/#134) sub-options are meaningless without their parents
     if (!mOptions[RSK_LOCK_OVERWORLD_DOORS]) {
         mOptions[RSK_EXCLUDE_MASK_SHOP_KEY].Set(RO_GENERIC_OFF);
     }
+#ifdef COMBO_BUILD
+    // ComboShip (#135): an MM start must not leave the portal's own key behind the portal.
+    else if (gComboStartingGameMM) {
+        mOptions[RSK_EXCLUDE_MASK_SHOP_KEY].Set(RO_GENERIC_ON);
+    }
+#endif
     if (mOptions[RSK_SHUFFLE_INTERIOR_ENTRANCES].Is(RO_INTERIOR_ENTRANCE_SHUFFLE_OFF)) {
         mOptions[RSK_EXCLUDE_MASK_SHOP_ENTRANCE].Set(RO_GENERIC_OFF);
     }
+#ifdef COMBO_BUILD
+    // ComboShip (#135): keep the Mask Shop entrance where the MM-start return route expects it.
+    else if (gComboStartingGameMM) {
+        mOptions[RSK_EXCLUDE_MASK_SHOP_ENTRANCE].Set(RO_GENERIC_ON);
+    }
+#endif
     // With certain access settings, the seed is only beatable if Starting Age is set to Child.
     if (mOptions[RSK_LOGIC_RULES].IsNot(RO_LOGIC_NO_LOGIC) &&
         ((mOptions[RSK_DOOR_OF_TIME].Is(RO_DOOROFTIME_CLOSED) && !mOptions[RSK_SHUFFLE_OCARINA]) ||

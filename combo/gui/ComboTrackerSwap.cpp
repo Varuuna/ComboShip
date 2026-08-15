@@ -2,6 +2,7 @@
 #include "ComboTrackerSwap.h"
 #include "ComboTrackerCommon.h"
 #include "ComboForeground.h"
+#include "ComboWidgetStyle.h"
 #include <libultraship/libultraship.h>
 #include <ship/resource/CrossRMRegistry.h>
 #include <imgui_internal.h> // FindWindowByName / SetWindowPos / ImGuiWindow rects
@@ -42,6 +43,34 @@ int OotActiveSlot() {
     }
 #endif
     return -1;
+}
+
+// Combined Triforce progress (#136): counts live in the two game DLLs, the goal in soh's copy of the
+// slot's seed. Returns false unless the loaded seed's goal is a hunt.
+bool ComboTriforceProgress(int& have, int& need) {
+#ifdef _WIN32
+    static int (*sOot)(void) = nullptr;
+    static int (*sMm)(void) = nullptr;
+    static int (*sGoal)(int*) = nullptr;
+    static bool sTried = false;
+    if (!sTried) {
+        sTried = true;
+        if (HMODULE soh = GetModuleHandleA("soh.dll")) {
+            sOot = (int (*)(void))GetProcAddress(soh, "SOH_GetTriforcePieceCount");
+            sGoal = (int (*)(int*))GetProcAddress(soh, "SOH_GetComboGoal");
+        }
+        if (HMODULE mm = GetModuleHandleA("2ship.dll")) {
+            sMm = (int (*)(void))GetProcAddress(mm, "MM_GetTriforcePieceCount");
+        }
+    }
+    if (!sOot || !sMm || !sGoal || !sGoal(&need) || need <= 0) {
+        return false;
+    }
+    have = sOot() + sMm();
+    return true;
+#else
+    return false;
+#endif
 }
 
 // A dormant MM draw can precede any MM visit, and until then nothing has loaded the slot's MM save
@@ -202,6 +231,26 @@ void SwapWindow::Draw() {
 
     for (int k = 0; k < ComboTracker::kSwapCount; ++k) {
         Reconcile(k);
+    }
+
+    // Combined Triforce progress (#136) — neither game's own tracker can show it (each counts only
+    // its own pieces). Draggable overlay; ImGui persists the position.
+    int have = 0, need = 0;
+    if (OotActiveSlot() >= 0 && CVarGetInteger("gCombo.Tracker.TriforceLine", 1) && ComboTriforceProgress(have, need)) {
+        // Themed like the combo menu's frames (ComboWidgetStyle) so the overlay matches the rest of the UI.
+        const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(theme.x, theme.y, theme.z, 0.45f));
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.0f, 0.0f, 0.0f, 0.3f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 3.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 6.0f));
+        if (ImGui::Begin("Combo Triforce", nullptr,
+                         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                             ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav)) {
+            ImGui::Text("Triforce: %d / %d", have, need);
+        }
+        ImGui::End();
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor(2);
     }
 
     // HideBackground peek: click-hold the visible tracker's body to also show the dormant game's

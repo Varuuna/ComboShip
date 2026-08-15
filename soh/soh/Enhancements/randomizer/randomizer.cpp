@@ -24,6 +24,7 @@
 #include "dungeon.h"
 #ifdef COMBO_BUILD
 #include "hook_handlers.h" // ComboShip: OOT_DeliverForeign for RG_COMBO_FOREIGN grant divert
+extern "C" void (*gComboTriforceProgress)(int game, int fileNum);
 #endif
 
 extern "C" {
@@ -1411,6 +1412,13 @@ extern "C" u16 Randomizer_Item_Give(PlayState* play, GetItemEntry giEntry) {
         case RG_TRIFORCE_PIECE:
             gSaveContext.ship.quest.data.randomizer.triforcePiecesCollected++;
             GameInteractor_SetTriforceHuntPieceGiven(true);
+#ifdef COMBO_BUILD
+            // ComboShip (#136): combo owns the goal — the launcher sums both games' counts. Covers
+            // dormant grants too (they also route through Randomizer_Item_Give).
+            if (gComboTriforceProgress != NULL) {
+                gComboTriforceProgress(0, gSaveContext.fileNum);
+            }
+#endif
             // Reward/win triggers (Ganon's Boss Key, Ganon's Soul, win condition) are evaluated by
             // CheckTriggers() on item receive, so Triforce Piece thresholds are handled there.
             break;

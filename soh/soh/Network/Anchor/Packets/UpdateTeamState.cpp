@@ -9,6 +9,7 @@
 #include "soh/Enhancements/randomizer/hook_handlers.h" // OOT_LookupForeign (foreign backfill)
 // Launcher cross-deliver seam for foreign-check backfill.
 extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName);
+extern "C" void (*gComboTriforceProgress)(int game, int fileNum);
 #endif
 
 extern "C" {
@@ -158,7 +159,17 @@ void Anchor::HandlePacket_UpdateTeamState(nlohmann::json payload) {
         gSaveContext.isDoubleDefenseAcquired = loadedData.isDoubleDefenseAcquired;
         gSaveContext.bgsFlag = loadedData.bgsFlag;
         gSaveContext.swordHealth = loadedData.swordHealth;
+#ifdef COMBO_BUILD
+        // ComboShip (#136): the wholesale ship.quest replace would regress the Triforce count against a
+        // stale peer; a resync may only ever add.
+        const uint8_t localTriforcePieces = gSaveContext.ship.quest.data.randomizer.triforcePiecesCollected;
+#endif
         gSaveContext.ship.quest = loadedData.ship.quest;
+#ifdef COMBO_BUILD
+        if (localTriforcePieces > gSaveContext.ship.quest.data.randomizer.triforcePiecesCollected) {
+            gSaveContext.ship.quest.data.randomizer.triforcePiecesCollected = localTriforcePieces;
+        }
+#endif
 
         for (int i = 0; i < 124; i++) {
             // ComboShip (bug 5): union scene flags — a stale peer must never clear a flag we've set.
@@ -382,6 +393,10 @@ void Anchor::HandlePacket_UpdateTeamState(nlohmann::json payload) {
             dormantDidApply = true; // let PumpDormant persist; no toast for a backgrounded apply
         } else if (ComboAnchor_ShouldToastResync()) {
             Notification::Emit({ .message = "Save updated from team" });
+        }
+        // ComboShip (#136): a teammate's pieces can cross the combined goal for us too — re-evaluate.
+        if (gComboTriforceProgress != NULL) {
+            gComboTriforceProgress(0, gSaveContext.fileNum);
         }
 #else
         Notification::Emit({

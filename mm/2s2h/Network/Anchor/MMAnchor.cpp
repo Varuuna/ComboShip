@@ -55,6 +55,7 @@ void (*gMMComboAnchorSend)(const char* json) = nullptr;
 // Issue #3: cross-game delivery seams, defined in BenPort.cpp and registered by the launcher. Route
 // a received cross-game item into the TARGET game's save, and mark the SOURCE check obtained.
 extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName);
+extern "C" void (*gMMComboTriforceProgress)(int game, int fileNum);
 extern "C" void (*gMMComboMarkForeignObtained)(int srcGame, const char* checkName);
 
 // ComboShip A6: launcher pump fn (set via MM_SetPumpDormant). The ACTIVE game calls it each frame so
@@ -825,6 +826,10 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     // Bug 5: saveInfo replace clobbers permanentSceneFlags[120] — snapshot to OR back after the assign.
     PermanentSceneFlags localPermSceneFlags[120];
     memcpy(localPermSceneFlags, gSaveContext.save.saveInfo.permanentSceneFlags, sizeof(localPermSceneFlags));
+#ifdef COMBO_BUILD
+    // #136: the shipSaveInfo replace would regress the Triforce count against a stale peer.
+    u16 localTriforcePieces = gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces;
+#endif
 
     // Restore bottle contents (unless Deku Princess).
     for (int i = 0; i < 6; i++) {
@@ -912,6 +917,11 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
         cur.unk_14 |= localPermSceneFlags[i].unk_14; // dungeon floors visited
         cur.rooms |= localPermSceneFlags[i].rooms;
     }
+#ifdef COMBO_BUILD
+    if (localTriforcePieces > gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces) {
+        gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces = localTriforcePieces;
+    }
+#endif
     // top-level cycleSceneFlags (Save, not saveInfo) is intentionally NOT touched — it must keep
     // resetting on Song of Time.
 
@@ -951,6 +961,11 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
         Rando::CheckTracker::OnFileLoad();
         Rando::ActorBehavior::OnFileLoad();
         ShipInit::Init("IS_RANDO");
+    }
+
+    // ComboShip (#136): a teammate's pieces can cross the combined goal for us too — re-evaluate.
+    if (gMMComboTriforceProgress != NULL) {
+        gMMComboTriforceProgress(1, gSaveContext.fileNum);
     }
 
     // Replay any packets queued on the server while we were away, through the normal incoming path.

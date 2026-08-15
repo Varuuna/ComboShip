@@ -79,6 +79,41 @@ inline OotAccess OotAccessFromDump(const std::string& sohDumpJson) {
     return OotAccess::ALL_REACHABLE;
 }
 
+// Combined win condition (#136). hunt=false is the default both-bosses goal; hunt=true wins on
+// `required` Triforce Pieces from EITHER game's pool. These are the friendly names both dumps emit.
+inline constexpr const char* kOotTriforcePiece = "Triforce Piece";
+inline constexpr const char* kMmTriforcePiece = "Piece of the Triforce";
+
+struct CwGoal {
+    bool hunt = false;
+    int required = 0;
+};
+
+inline bool CwIsTriforcePiece(GameId itemGame, const std::string& itemName) {
+    return itemName == (itemGame == GAME_OOT ? kOotTriforcePiece : kMmTriforcePiece);
+}
+
+// How many pieces the two settings-scoped pools actually hold. Logged loudly: the names above are
+// coupled to each game's item table, so a rename would otherwise silently drop that game's pieces.
+inline int CountPoolTriforcePieces(const std::string& sohDumpJson, const std::string& mmDumpJson) {
+    auto countIn = [](const std::string& dump, GameId g) {
+        int n = 0;
+        try {
+            auto d = nlohmann::json::parse(dump);
+            for (const auto& it : d.value("pool", nlohmann::json::array()))
+                n += CwIsTriforcePiece(g, it.value("name", std::string())) ? 1 : 0;
+        } catch (...) {}
+        return n;
+    };
+    const int oot = countIn(sohDumpJson, GAME_OOT);
+    const int mm = countIn(mmDumpJson, GAME_MM);
+    std::cout << "[ComboShip] Triforce Hunt: combined pool holds " << oot << " OOT + " << mm << " MM piece(s)\n";
+    if (oot == 0 || mm == 0)
+        std::cerr << "[ComboShip] Triforce Hunt: WARNING — one game contributes no pieces (slider at 0, or its "
+                     "piece item was renamed)\n";
+    return oot + mm;
+}
+
 // Reuses GameId from CrossForeign.h (GAME_OOT = 0, GAME_MM = 1)
 using Game = GameId;
 
@@ -181,7 +216,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                                                  const OracleFns& mmOracle,
                                                  ComboRando::ComboGenProgress* progress = nullptr,
                                                  const std::string& forcedOotJson = "",
-                                                 OotAccess ootAccess = OotAccess::ALL_REACHABLE) {
+                                                 OotAccess ootAccess = OotAccess::ALL_REACHABLE, CwGoal goal = {}) {
     CombinedFillResult result;
     result.success = false;
 
@@ -944,7 +979,19 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         // random item, could be unreachable). Names are the friendly forms the OOT/MM oracles return.
         const bool ootWin = ootFinal.count("Ganon") > 0;
         const bool mmWin = mmFinal.count("Moon Majora Pot 01") > 0;
-        bool goalOk = (ootAccess != OotAccess::BEATABLE_ONLY) || (ootWin && mmWin);
+        // Triforce Hunt (#136): the win is `required` pieces from either pool, so count the pieces
+        // sitting on reachable checks instead of the two boss markers.
+        int reachablePieces = 0;
+        if (goal.hunt) {
+            for (const auto& p : placements) {
+                if (CwIsTriforcePiece(p.item.game, p.item.name) &&
+                    (p.check.game == GAME_OOT ? ootFinal : mmFinal).count(p.check.name)) {
+                    ++reachablePieces;
+                }
+            }
+        }
+        bool goalOk = (ootAccess != OotAccess::BEATABLE_ONLY) ||
+                      (goal.hunt ? reachablePieces >= goal.required : (ootWin && mmWin));
         bool needRetry = mmAdvUnreachable > 0 || (ootAccess == OotAccess::ALL_REACHABLE && ootAdvUnreachable > 0) ||
                          (ootAccess == OotAccess::BEATABLE_ONLY && !goalOk);
         if (needRetry) {
@@ -952,8 +999,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
             // logic regression is self-diagnosing instead of a silent all-passes-fail.
             std::string goalStr = ootAccess != OotAccess::BEATABLE_ONLY ? ""
                                   : goalOk                              ? " goal=ok"
-                                           : " goal=UNBEATABLE(ganon=" + std::to_string(ootWin) +
-                                                 " majora=" + std::to_string(mmWin) + ")";
+                                  : goal.hunt ? " goal=UNBEATABLE(pieces=" + std::to_string(reachablePieces) + "/" +
+                                                    std::to_string(goal.required) + ")"
+                                              : " goal=UNBEATABLE(ganon=" + std::to_string(ootWin) +
+                                                    " majora=" + std::to_string(mmWin) + ")";
             lastPassError = "validation failed — mmAdvUnreachable=" + std::to_string(mmAdvUnreachable) +
                             " ootAdvUnreachable=" + std::to_string(ootAdvUnreachable) + goalStr +
                             (mmAdvUnreachable > 0 ? " (MM items stranded: the portal closed mid-fill)" : "");

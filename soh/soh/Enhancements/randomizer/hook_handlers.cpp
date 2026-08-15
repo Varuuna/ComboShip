@@ -286,10 +286,14 @@ void CheckTriggers() {
         randomizerQueuedChecks.push(RC_GANON_SOUL);
     }
 
+#ifndef COMBO_BUILD
+    // ComboShip (#136): the launcher owns the win condition (combined Triforce goal across both
+    // games), so OOT must not trigger its own ungated win here.
     if (MeetsWinconRequirements()) {
         SPDLOG_INFO("Queuing RC: RC_WINCON");
         randomizerQueuedChecks.push(RC_WINCON);
     }
+#endif
 }
 
 void RandomizerOnFlagSetHandler(int16_t flagType, int16_t flag) {

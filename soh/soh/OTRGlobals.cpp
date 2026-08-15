@@ -3121,6 +3121,57 @@ extern "C" int (*gComboFinalBossDefeated)(int game, int fileNum) = nullptr;
 extern "C" __declspec(dllexport) void SOH_SetFinalBossDefeatedCb(int (*cb)(int, int)) {
     gComboFinalBossDefeated = cb;
 }
+
+// ComboShip (#136): Triforce Hunt is ONE combined goal across both games, so the launcher owns it and
+// pushes it here. hunt=0 means the normal both-bosses goal; required is the combined piece count.
+extern "C" int gComboGoalHunt = 0;
+extern "C" int gComboGoalRequired = 0;
+extern "C" __declspec(dllexport) void SOH_SetComboGoal(int hunt, int required) {
+    gComboGoalHunt = hunt ? 1 : 0;
+    gComboGoalRequired = gComboGoalHunt ? required : 0;
+}
+// The goal currently in force (comboui reads it for the combined-progress readout). Returns hunt on/off.
+extern "C" __declspec(dllexport) int SOH_GetComboGoal(int* required) {
+    if (required != NULL) {
+        *required = gComboGoalRequired;
+    }
+    return gComboGoalHunt;
+}
+// Menu-authored goal CVars, read here because the launcher has no CVar access. Returns hunt on/off.
+extern "C" __declspec(dllexport) int SOH_ReadComboGoalCVars(int* required) {
+    const int hunt = CVarGetInteger("gCombo.Rando.TriforceHunt", 0) != 0 ? 1 : 0;
+    if (required != NULL) {
+        *required = hunt ? CVarGetInteger("gCombo.Rando.TriforceRequired", 15) : 0;
+    }
+    return hunt;
+}
+extern "C" __declspec(dllexport) int SOH_GetTriforcePieceCount(void) {
+    return gSaveContext.ship.quest.data.randomizer.triforcePiecesCollected;
+}
+// The OTHER game's piece count, so pickup messages/hints can show the combined progress.
+extern "C" int (*gComboOtherTriforceCount)(void) = nullptr;
+extern "C" __declspec(dllexport) void SOH_SetOtherTriforceCountCb(int (*cb)(void)) {
+    gComboOtherTriforceCount = cb;
+}
+// Poked after every piece grant (active or dormant); the launcher evaluates the combined total.
+extern "C" void (*gComboTriforceProgress)(int game, int fileNum) = nullptr;
+extern "C" __declspec(dllexport) void SOH_SetTriforceProgressCb(void (*cb)(int, int)) {
+    gComboTriforceProgress = cb;
+}
+// Goal reached: active = the native credits-warp flag; dormant = mark the file complete and persist.
+// The dormant save can throw, and the launcher calls this — no exception may cross the C-ABI boundary.
+extern "C" __declspec(dllexport) void SOH_TriggerTriforceCredits(int dormant) try {
+    if (dormant) {
+        gSaveContext.ship.stats.gameComplete = 1;
+        if (SaveManager::Instance && gSaveContext.fileNum >= 0 && gSaveContext.fileNum <= 2) {
+            SaveManager::Instance->SaveFile(gSaveContext.fileNum);
+        }
+        return;
+    }
+    GameInteractor_SetTriforceHuntCreditsWarpActive(true);
+} catch (const std::exception& e) {
+    SPDLOG_ERROR("[ComboShip] SOH_TriggerTriforceCredits threw: {}", e.what());
+} catch (...) { SPDLOG_ERROR("[ComboShip] SOH_TriggerTriforceCredits threw a non-std exception"); }
 #endif
 
 #ifdef COMBO_BUILD
@@ -4255,8 +4306,16 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
                 return { "RHT_WINCON_DUNGEONS_HINT", ctx->GetOption(RSK_WINCON_DUNGEON_COUNT).Get() };
             if (o.Is(RO_WINCON_TOKENS))
                 return { "RHT_WINCON_TOKENS_HINT", ctx->GetOption(RSK_WINCON_TOKEN_COUNT).Get() };
-            if (o.Is(RO_WINCON_TRIFORCE_PIECES))
+            if (o.Is(RO_WINCON_TRIFORCE_PIECES)) {
+#ifdef COMBO_BUILD
+                // ComboShip (#136): the goal spans both games; the native option only holds OOT's count.
+                return { "RHT_WINCON_TRIFORCE_PIECES_HINT",
+                         gComboGoalRequired > 0 ? gComboGoalRequired
+                                                : (int)ctx->GetOption(RSK_WINCON_TRIFORCE_COUNT).Get() };
+#else
                 return { "RHT_WINCON_TRIFORCE_PIECES_HINT", ctx->GetOption(RSK_WINCON_TRIFORCE_COUNT).Get() };
+#endif
+            }
             return { "", 0 };
         }();
         const char* doorOfTimeKey =

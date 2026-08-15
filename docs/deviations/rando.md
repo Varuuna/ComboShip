@@ -1252,3 +1252,49 @@ art).
 **MM consumption:** `Rando::GetItemTypeForCheck(itemId, checkId)` (`ConvertItem.cpp`) resolves the
 sentinel via `MM_LookupForeign` (category → `RITYPE_*`, same rules) and otherwise returns the old
 `Items[ConvertItem(...)].randoItemType`; the 8 CMC draw sites in `Rando/ActorBehavior/` now call it.
+
+## Mask Shop exclusion sub-options (#133/#134) (2026-08-15)
+
+**Why:** the Happy Mask Shop scene is the OOT→MM portal, so two stock shuffles gate cross-world
+routing: **Lock Overworld Doors** puts `RG_MASK_SHOP_KEY` in the pool, and **Interior Entrances** can
+move the portal behind an arbitrary door. Two default-off opt-outs let players keep the portal
+predictable: `RSK_EXCLUDE_MASK_SHOP_KEY` ("Exclude Mask Shop Key", CVar `ExcludeMaskShopKey`) and
+`RSK_EXCLUDE_MASK_SHOP_ENTRANCE` ("Exclude Mask Shop", CVar `ExcludeMaskShopEntrance`). Both are
+children of their parent setting, `defaultHidden` and revealed by the parent's callback.
+
+**Touches** (all `soh/soh/Enhancements/randomizer/`, marked `// ComboShip: (#133)` / `(#134)`):
+
+- `randomizerEnums/RandomizerSettingKey.h` — two keys before `RSK_MAX` (spoiler settings are
+  name-keyed, so appending is safe).
+- `option_descriptions.cpp` — one description each.
+- `settings.cpp` — option creation + parent Hide/Unhide callbacks (`RSK_LOCK_OVERWORLD_DOORS` gained
+  its first callback), menu groups (`RSG_MENU_SECTION_AREA_ACCESS`, `RSG_MENU_SECTION_ENTRANCES`, plus
+  legacy `RSG_OPEN`/`RSG_WORLD` for consistency), `FinalizeSettings` coupling, `RandomizeAllSettings`
+  skip-list.
+- `3drando/item_pool.cpp` — the `RG_MASK_SHOP_KEY` pool add is skipped when excluded.
+- `3drando/starting_inventory.cpp` — `AddItemToInventory(RG_MASK_SHOP_KEY)` so logic/oracle own it
+  from sphere 0; the market entrance condition collapses to child+day.
+- `savefile.cpp` — the matching runtime grant in `Randomizer_InitSaveFile`.
+- `entrance.cpp` — the mask-shop entrance is erased from the Interior pool.
+
+**`RAND_INF_MASK_SHOP_KEY_OBTAINED` only, not `RAND_INF_MASK_SHOP_UNLOCKED`.** `LockOverworldDoors.cpp`
+reads UNLOCKED for door state and KEY_OBTAINED for "have key". Granting only the latter keeps the door
+visibly locked until the player opens it once, matching how a found key behaves, and shows the key in
+the item tracker.
+
+**Erase ordering.** The `std::erase_if` sits *after* the `SpecialInterior` append (the mask shop is in
+the base Interior list, but this keeps the erase applying to the fully assembled pool) and *before* the
+decoupled reverse push, so the reverse entrance is never pushed either and decoupled mode needs no
+separate handling. Mixed pools are assembled later from these pools, so
+they inherit the exclusion. `CreateEntranceOverrides` skips unshuffled entrances, so no override is
+emitted and runtime keeps the identity mapping — no save/serialization change.
+
+**Coupling.** `Context::FinalizeSettings` force-clears each child when its parent is off, so a spoiler
+never claims an exclusion that had no effect; every consumer additionally `&&`s the parent.
+
+**No `#ifdef COMBO_BUILD`.** The neighbouring `RSK_MASK_SHOP_HINT` ifdef guards a *forced* deviation.
+These are default-off opt-ins that are coherent in vanilla SoH too, so they carry `// ComboShip:`
+markers instead — which is what identifies combo lines during upstream merges.
+
+**Portal gate unchanged.** Both options only relax constraints, and the gate is region-based
+(`RR_MARKET_MASK_SHOP` reachability) — see "Gate MM on the OOT→MM portal region (2026-07-26)".

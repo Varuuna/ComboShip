@@ -63,6 +63,11 @@ void GenerateStartingInventory() {
         AddItemToInventory(RG_GERUDO_MEMBERSHIP_CARD);
     }
 
+    // ComboShip: (#133)
+    if (ctx->GetOption(RSK_LOCK_OVERWORLD_DOORS) && ctx->GetOption(RSK_EXCLUDE_MASK_SHOP_KEY)) {
+        AddItemToInventory(RG_MASK_SHOP_KEY);
+    }
+
     // Starting Inventory Menu
     // Values are associated so that the count of items matches the index of
     // the option selected. If None is selected, the value will be zero and

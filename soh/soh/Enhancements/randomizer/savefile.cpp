@@ -543,6 +543,11 @@ extern "C" void Randomizer_InitSaveFile() {
         Flags_SetRandomizerInf(RAND_INF_FISHING_POLE_FOUND);
     }
 
+    // ComboShip: (#133) key-obtained only; door stays closed but openable
+    if (Randomizer_GetSettingValue(RSK_LOCK_OVERWORLD_DOORS) && Randomizer_GetSettingValue(RSK_EXCLUDE_MASK_SHOP_KEY)) {
+        Flags_SetRandomizerInf(RAND_INF_MASK_SHOP_KEY_OBTAINED);
+    }
+
     // Give Link's pocket item
     GiveLinksPocketItem();
 

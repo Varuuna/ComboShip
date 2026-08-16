@@ -1295,6 +1295,13 @@ int EntranceShuffler::ShuffleAllEntrances() {
             SohUtils::AppendVector(entrancePools[EntranceType::Interior],
                                    GetShuffleableEntrances(EntranceType::SpecialInterior));
         }
+        // ComboShip: (#134) keep the Happy Mask Shop (OOT->MM portal) entrance vanilla
+        if (ctx->GetOption(RSK_EXCLUDE_MASK_SHOP_ENTRANCE)) {
+            std::erase_if(entrancePools[EntranceType::Interior], [](const Entrance* entrance) {
+                return entrance->GetParentRegionKey() == RR_THE_MARKET &&
+                       entrance->GetConnectedRegionKey() == RR_MARKET_MASK_SHOP;
+            });
+        }
         if (ctx->GetOption(RSK_DECOUPLED_ENTRANCES)) {
             for (Entrance* entrance : entrancePools[EntranceType::Interior]) {
                 entrancePools[EntranceType::InteriorReverse].push_back(entrance->GetReverse());

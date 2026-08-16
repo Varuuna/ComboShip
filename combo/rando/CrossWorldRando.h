@@ -1082,13 +1082,18 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
             mmPlacements[p.check.name] = p.item.name;
         }
         if (p.check.game != p.item.game) {
-            foreignMarkers.push_back({ { "checkGame", p.check.game == GAME_OOT ? "oot" : "mm" },
-                                       { "checkName", p.check.name },
-                                       { "itemGame", p.item.game == GAME_OOT ? "oot" : "mm" },
-                                       { "itemName", p.item.name },
-                                       // Propagate advancement so foreign checks holding an important item
-                                       // still play the held-up pickup animation (else defaulted to junk).
-                                       { "advancement", p.item.advancement } });
+            nlohmann::json marker = { { "checkGame", p.check.game == GAME_OOT ? "oot" : "mm" },
+                                      { "checkName", p.check.name },
+                                      { "itemGame", p.item.game == GAME_OOT ? "oot" : "mm" },
+                                      { "itemName", p.item.name },
+                                      // Propagate advancement so foreign checks holding an important item
+                                      // still play the held-up pickup animation (else defaulted to junk).
+                                      { "advancement", p.item.advancement } };
+            // Native item category, so CMC/CSMC can dress the container as the real item instead of
+            // the junk sentinel. UNKNOWN is omitted so consumers use the advancement fallback.
+            if (p.item.cat != CwCat::UNKNOWN)
+                marker["category"] = CwCatName(p.item.cat);
+            foreignMarkers.push_back(std::move(marker));
         }
     }
 

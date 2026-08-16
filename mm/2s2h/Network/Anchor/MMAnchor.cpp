@@ -830,6 +830,13 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     // #136: the shipSaveInfo replace would regress the Triforce count against a stale peer.
     u16 localTriforcePieces = gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces;
 #endif
+    // Issue #130: randoInf (obtained trade items/souls/purchases) is monotonic — snapshot to OR back.
+    u16 localRandoInf[ARRAY_COUNT(gSaveContext.save.shipSaveInfo.rando.randoInf)];
+    memcpy(localRandoInf, gSaveContext.save.shipSaveInfo.rando.randoInf, sizeof(localRandoInf));
+    // Issue #130: trade slots hold the locally-selected deed/key/letter — a stale snapshot must not empty them.
+    u8 localTradeItems[3] = { gSaveContext.save.saveInfo.inventory.items[SLOT_TRADE_DEED],
+                              gSaveContext.save.saveInfo.inventory.items[SLOT_TRADE_KEY_MAMA],
+                              gSaveContext.save.saveInfo.inventory.items[SLOT_TRADE_COUPLE] };
 
     // Restore bottle contents (unless Deku Princess).
     for (int i = 0; i < 6; i++) {
@@ -879,9 +886,18 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     for (int i = 0; i < 100; i++) {
         gSaveContext.save.saveInfo.weekEventReg[i] |= localWeekEventReg[i];
     }
+    for (int i = 0; i < ARRAY_COUNT(gSaveContext.save.shipSaveInfo.rando.randoInf); i++) {
+        gSaveContext.save.shipSaveInfo.rando.randoInf[i] |= localRandoInf[i];
+    }
     for (int i = 0; i < 24; i++) {
         if (localMasks[i] != ITEM_NONE) {
             gSaveContext.save.saveInfo.inventory.items[24 + i] = localMasks[i];
+        }
+    }
+    const u8 tradeSlots[3] = { SLOT_TRADE_DEED, SLOT_TRADE_KEY_MAMA, SLOT_TRADE_COUPLE };
+    for (int i = 0; i < 3; i++) {
+        if (localTradeItems[i] != ITEM_NONE) {
+            gSaveContext.save.saveInfo.inventory.items[tradeSlots[i]] = localTradeItems[i];
         }
     }
     gSaveContext.save.saveInfo.inventory.questItems |= localQuestItems;

@@ -550,6 +550,10 @@ int main(int argc, char** argv) {
                     auto pricesOf = [](const std::string& dump) {
                         return nlohmann::json::parse(dump).value("prices", nlohmann::json::object());
                     };
+                    // OOT's curated ice-trap disguise set (parity with RunComboFill's writer).
+                    auto iceTrapModelsOf = [](const std::string& dump) {
+                        return nlohmann::json::parse(dump).value("iceTrapModels", nlohmann::json::array());
+                    };
                     nlohmann::json consolidated;
                     consolidated["fileType"] = "ComboShipRandomizer";
                     consolidated["seed"] = seed;
@@ -567,26 +571,18 @@ int main(int argc, char** argv) {
                                                                    ? nlohmann::json::parse(SOH_DumpEnabledTricks())
                                                                    : nlohmann::json::array() },
                                             { "placements", ootPl },
-                                            { "prices", pricesOf(sohDump) } };
+                                            { "prices", pricesOf(sohDump) },
+                                            { "iceTrapModels", iceTrapModelsOf(sohDump) } };
                     consolidated["mm"] = { { "settings", nlohmann::json::parse(MM_DumpSettings()) },
                                            { "placements", mmPl },
                                            { "prices", pricesOf(mmDump) } };
                     // ComboShip: enrich the foreign array exactly like RunComboFill (displayName game
-                    // suffix + oot checkArea) so the headless consolidated file matches the in-game one.
-                    std::unordered_map<std::string, std::string> ootCheckAreas;
-                    try {
-                        auto hd = nlohmann::json::parse(sohHintDump.empty() ? "{}" : sohHintDump);
-                        for (auto& c : hd.value("checks", nlohmann::json::array())) {
-                            std::string name = c.value("name", ""), area = c.value("area", "");
-                            if (!name.empty() && !area.empty())
-                                ootCheckAreas.emplace(std::move(name), std::move(area));
-                        }
-                    } catch (...) {}
+                    // suffix) so the headless consolidated file matches the in-game one.
                     auto foreignArr = fillSpoiler.value("foreign", nlohmann::json::array());
                     ComboRando::AssignTrapDisguises(foreignArr, fillSpoiler.value("oot", nlohmann::json::object()),
                                                     fillSpoiler.value("mm", nlohmann::json::object()), sohDump, mmDump,
                                                     masterSeed);
-                    consolidated["foreign"] = ComboRando::BuildForeignArray(foreignArr, ootCheckAreas);
+                    consolidated["foreign"] = ComboRando::BuildForeignArray(foreignArr);
                     // OOT entrance layout (parity with ComboShip.cpp's consolidated writer) — this is
                     // what --playthrough installs into the region graph before walking.
                     {

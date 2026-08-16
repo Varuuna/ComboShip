@@ -182,6 +182,16 @@ void Settings::CreateOptions() {
     OPT_U8(RSK_SLEEPING_WATERFALL, "Sleeping Waterfall", {"Closed", "Open"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("SleepingWaterfall"), mOptionDescriptions[RSK_SLEEPING_WATERFALL]);
     OPT_U8(RSK_JABU_OPEN, "Jabu-Jabu", {"Closed", "Open"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("JabuJabu"), mOptionDescriptions[RSK_JABU_OPEN]);
     OPT_BOOL(RSK_LOCK_OVERWORLD_DOORS, "Lock Overworld Doors", CVAR_RANDOMIZER_SETTING("LockOverworldDoors"), mOptionDescriptions[RSK_LOCK_OVERWORLD_DOORS]);
+    // ComboShip: (#133)
+    OPT_CALLBACK(RSK_LOCK_OVERWORLD_DOORS, {
+        if (CVarGetInteger(CVAR_RANDOMIZER_SETTING("LockOverworldDoors"), RO_GENERIC_OFF) == RO_GENERIC_OFF) {
+            mOptions[RSK_EXCLUDE_MASK_SHOP_KEY].Hide();
+        } else {
+            mOptions[RSK_EXCLUDE_MASK_SHOP_KEY].Unhide();
+        }
+    });
+    // ComboShip: (#133)
+    OPT_BOOL(RSK_EXCLUDE_MASK_SHOP_KEY, "Exclude Mask Shop Key", {"Off", "On"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("ExcludeMaskShopKey"), mOptionDescriptions[RSK_EXCLUDE_MASK_SHOP_KEY], WIDGET_CVAR_CHECKBOX, RO_GENERIC_OFF, true);
     OPT_U8(RSK_GERUDO_FORTRESS, "Fortress Carpenters", {"Normal", "Fast", "Free"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("FortressCarpenters"), mOptionDescriptions[RSK_GERUDO_FORTRESS]);
     OPT_CALLBACK(RSK_GERUDO_FORTRESS, {
         const uint8_t maxKeyringCount =
@@ -336,9 +346,18 @@ void Settings::CreateOptions() {
         } else {
             mOptions[RSK_MIX_INTERIOR_ENTRANCES].Unhide();
         }
+
+        // ComboShip: (#134)
+        if (CVarGetInteger(CVAR_RANDOMIZER_SETTING("ShuffleInteriorsEntrances"), RO_GENERIC_OFF) == RO_GENERIC_OFF) {
+            mOptions[RSK_EXCLUDE_MASK_SHOP_ENTRANCE].Hide();
+        } else {
+            mOptions[RSK_EXCLUDE_MASK_SHOP_ENTRANCE].Unhide();
+        }
         
         HandleStartingAgeUI();
     });
+    // ComboShip: (#134)
+    OPT_BOOL(RSK_EXCLUDE_MASK_SHOP_ENTRANCE, "Exclude Mask Shop", {"Off", "On"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("ExcludeMaskShopEntrance"), mOptionDescriptions[RSK_EXCLUDE_MASK_SHOP_ENTRANCE], WIDGET_CVAR_CHECKBOX, RO_GENERIC_OFF, true);
     OPT_BOOL(RSK_SHUFFLE_THIEVES_HIDEOUT_ENTRANCES, "Thieves' Hideout Entrances", CVAR_RANDOMIZER_SETTING("ShuffleThievesHideoutEntrances"), mOptionDescriptions[RSK_SHUFFLE_THIEVES_HIDEOUT_ENTRANCES]);
     OPT_CALLBACK(RSK_SHUFFLE_THIEVES_HIDEOUT_ENTRANCES, {
         HandleMixedEntrancePoolsUI();
@@ -1948,6 +1967,8 @@ void Settings::CreateOptions() {
                                   &mOptions[RSK_SLEEPING_WATERFALL],
                                   &mOptions[RSK_JABU_OPEN],
                                   &mOptions[RSK_LOCK_OVERWORLD_DOORS],
+                                  // ComboShip: (#133)
+                                  &mOptions[RSK_EXCLUDE_MASK_SHOP_KEY],
                                   &mOptions[RSK_GERUDO_FORTRESS],
                                   &mOptions[RSK_RAINBOW_BRIDGE],
                                   &mOptions[RSK_BRIDGE_OPTIONS],
@@ -1968,7 +1989,9 @@ void Settings::CreateOptions() {
         "Entrances",
         { &mOptions[RSK_SHUFFLE_DUNGEON_ENTRANCES], &mOptions[RSK_SHUFFLE_BOSS_ENTRANCES],
           &mOptions[RSK_SHUFFLE_GANONS_TOWER_ENTRANCE], &mOptions[RSK_SHUFFLE_OVERWORLD_ENTRANCES],
-          &mOptions[RSK_SHUFFLE_INTERIOR_ENTRANCES], &mOptions[RSK_SHUFFLE_THIEVES_HIDEOUT_ENTRANCES],
+          &mOptions[RSK_SHUFFLE_INTERIOR_ENTRANCES],
+          // ComboShip: (#134)
+          &mOptions[RSK_EXCLUDE_MASK_SHOP_ENTRANCE], &mOptions[RSK_SHUFFLE_THIEVES_HIDEOUT_ENTRANCES],
           &mOptions[RSK_SHUFFLE_GROTTO_ENTRANCES], &mOptions[RSK_SHUFFLE_OWL_DROPS], &mOptions[RSK_SHUFFLE_WARP_SONGS],
           &mOptions[RSK_SHUFFLE_OVERWORLD_SPAWNS], &mOptions[RSK_DECOUPLED_ENTRANCES],
           &mOptions[RSK_MIXED_ENTRANCE_POOLS], &mOptions[RSK_MIX_DUNGEON_ENTRANCES], &mOptions[RSK_MIX_BOSS_ENTRANCES],
@@ -2199,6 +2222,8 @@ void Settings::CreateOptions() {
                                                                &mOptions[RSK_SLEEPING_WATERFALL],
                                                                &mOptions[RSK_JABU_OPEN],
                                                                &mOptions[RSK_LOCK_OVERWORLD_DOORS],
+                                                               // ComboShip: (#133)
+                                                               &mOptions[RSK_EXCLUDE_MASK_SHOP_KEY],
                                                                &mOptions[RSK_GERUDO_FORTRESS],
                                                                &mOptions[RSK_RAINBOW_BRIDGE],
                                                                &mOptions[RSK_RAINBOW_BRIDGE_STONE_COUNT],
@@ -2220,6 +2245,8 @@ void Settings::CreateOptions() {
                                                                  &mOptions[RSK_SHUFFLE_GANONS_TOWER_ENTRANCE],
                                                                  &mOptions[RSK_SHUFFLE_OVERWORLD_ENTRANCES],
                                                                  &mOptions[RSK_SHUFFLE_INTERIOR_ENTRANCES],
+                                                                 // ComboShip: (#134)
+                                                                 &mOptions[RSK_EXCLUDE_MASK_SHOP_ENTRANCE],
                                                                  &mOptions[RSK_SHUFFLE_THIEVES_HIDEOUT_ENTRANCES],
                                                                  &mOptions[RSK_SHUFFLE_GROTTO_ENTRANCES],
                                                                  &mOptions[RSK_SHUFFLE_OWL_DROPS],
@@ -2646,6 +2673,13 @@ void Context::FinalizeSettings(const std::set<RandomizerCheck>& excludedLocation
     mOptions[RSK_WINCON].Set(gComboGoalHunt ? RO_WINCON_TRIFORCE_PIECES : RO_WINCON_DEFEAT_GANON);
     mOptions[RSK_TRIFORCE_HUNT_PIECES_LOCATION].Set(RO_TRIFORCE_HUNT_LOCATION_ANYWHERE);
 #endif
+    // ComboShip: (#133/#134) sub-options are meaningless without their parents
+    if (!mOptions[RSK_LOCK_OVERWORLD_DOORS]) {
+        mOptions[RSK_EXCLUDE_MASK_SHOP_KEY].Set(RO_GENERIC_OFF);
+    }
+    if (mOptions[RSK_SHUFFLE_INTERIOR_ENTRANCES].Is(RO_INTERIOR_ENTRANCE_SHUFFLE_OFF)) {
+        mOptions[RSK_EXCLUDE_MASK_SHOP_ENTRANCE].Set(RO_GENERIC_OFF);
+    }
     // With certain access settings, the seed is only beatable if Starting Age is set to Child.
     if (mOptions[RSK_LOGIC_RULES].IsNot(RO_LOGIC_NO_LOGIC) &&
         ((mOptions[RSK_DOOR_OF_TIME].Is(RO_DOOROFTIME_CLOSED) && !mOptions[RSK_SHUFFLE_OCARINA]) ||
@@ -3180,6 +3214,9 @@ void Settings::RandomizeAllSettings() {
             case RSK_STARTING_GERUDO_CARD:
             case RSK_STARTING_BIGGORON_SWORD:
             case RSK_STARTING_BUNNY_HOOD:
+            // ComboShip: (#133/#134) opt-outs, never randomized
+            case RSK_EXCLUDE_MASK_SHOP_KEY:
+            case RSK_EXCLUDE_MASK_SHOP_ENTRANCE:
                 continue;
             default:
                 break;

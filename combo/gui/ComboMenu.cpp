@@ -1044,7 +1044,8 @@ void PlandoSavePlay() {
     nlohmann::json ootPl = nlohmann::json::object();
     nlohmann::json mmPl = nlohmann::json::object();
     nlohmann::json foreignRaw = nlohmann::json::array();
-    // Trap disguises can't be recomputed here; carry them over for rows whose item is unchanged.
+    // Trap disguises and item categories can't be recomputed here; carry them over for rows whose
+    // item is unchanged.
     std::unordered_map<std::string, nlohmann::json> priorForeign;
     for (const auto& fm : j.value("foreign", nlohmann::json::array())) {
         priorForeign[fm.value("checkGame", "") + "|" + fm.value("checkName", "")] = fm;
@@ -1063,7 +1064,7 @@ void PlandoSavePlay() {
                                       { "advancement", r.advancement } };
             auto pf = priorForeign.find(cg + "|" + r.check);
             if (pf != priorForeign.end() && pf->second.value("itemName", "") == r.item) {
-                for (const char* k : { "fakeItemName", "fakeDisplayName", "fakeTrickName" })
+                for (const char* k : { "fakeItemName", "fakeDisplayName", "fakeTrickName", "category" })
                     if (pf->second.contains(k))
                         marker[k] = pf->second[k];
             }

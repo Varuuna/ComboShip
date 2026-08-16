@@ -3868,6 +3868,9 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
     nlohmann::json fixed = nlohmann::json::array();
     nlohmann::json items = nlohmann::json::array();
     nlohmann::json prices = nlohmann::json::object();
+    // ComboShip: SoH's curated ice-trap disguise set (native possibleIceTrapModels) — combo skips
+    // GenerateItemPool's fill, so the apply restores this instead of re-deriving from placed items.
+    nlohmann::json iceTrapModels = nlohmann::json::array();
     // ComboShip: OOT accessibility settings the combo fill honors per-game. Defaults = ALL_REACHABLE
     // (safe: unchanged fill behavior) if the prep throws before these are read.
     nlohmann::json accessibility = { { "noLogic", false },
@@ -3998,6 +4001,15 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
                 prices[loc->GetName()] = ctx->GetItemLocation(rc)->GetPrice();
         }
 
+        // ComboShip: ComboFillConfined ran GenerateItemPool, so possibleIceTrapModels now holds the
+        // native curated disguise set — export it (minus entries GetTrapName can't name, e.g. Chest
+        // Game keys, which would assert) so the apply gets native parity.
+        for (RandomizerGet rg : ctx->possibleIceTrapModels) {
+            const std::string& mn = Rando::StaticData::RetrieveItem(rg).GetName().GetEnglish();
+            if (!mn.empty() && Rando::Traps::CanBeTrapModel(rg))
+                iceTrapModels.push_back(mn);
+        }
+
         // ComboShip: accessibility settings the combo fill maps to an OotAccess mode (per-game relax).
         accessibility["noLogic"] = ctx->GetOption(RSK_LOGIC_RULES).Is(RO_LOGIC_NO_LOGIC);
         accessibility["allLocationsReachable"] = static_cast<bool>(ctx->GetOption(RSK_ALL_LOCATIONS_REACHABLE));
@@ -4077,8 +4089,13 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
     }
 
     cached = nlohmann::json{
-        { "checks", std::move(checks) }, { "pool", std::move(pool) },     { "fixed", std::move(fixed) },
-        { "items", std::move(items) },   { "prices", std::move(prices) }, { "accessibility", std::move(accessibility) }
+        { "checks", std::move(checks) },
+        { "pool", std::move(pool) },
+        { "fixed", std::move(fixed) },
+        { "items", std::move(items) },
+        { "prices", std::move(prices) },
+        { "iceTrapModels", std::move(iceTrapModels) },
+        { "accessibility", std::move(accessibility) }
     }.dump();
     return cached.c_str();
 }
@@ -4492,8 +4509,8 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
         ctx->ItemReset();
 #ifdef COMBO_BUILD
         // Combo skips GenerateItemPool (OOT's own fill), which is what normally fills the ice-trap
-        // disguise pool. Rebuild it from the items we actually place below, else every ice trap falls
-        // back to a bottle (empty-set draw).
+        // disguise pool. The payload carries the dump's curated set ("__iceTrapModels"); old seeds
+        // without it fall back to deriving one from the items we place below.
         ctx->possibleIceTrapModels.clear();
         // Combo also skips native Fill()'s HintReset() call — without it, a same-session regenerate
         // would see the PREVIOUS seed's hints still marked enabled and skip re-populating them.
@@ -4523,6 +4540,28 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
 #endif
 
         nlohmann::json placements = nlohmann::json::parse(json);
+#ifdef COMBO_BUILD
+        // ComboShip: reserved key carrying the dump's curated ice-trap disguise set (native parity —
+        // e.g. Triforce pieces are never a disguise). Erased so the placement loop never sees it.
+        if (auto modelsIt = placements.find("__iceTrapModels"); modelsIt != placements.end()) {
+            if (modelsIt->is_array()) {
+                for (const auto& mv : *modelsIt) {
+                    if (!mv.is_string())
+                        continue;
+                    const std::string mn = mv.get<std::string>();
+                    auto mIt = Rando::StaticData::itemNameToEnum.find(mn);
+                    if (mIt == Rando::StaticData::itemNameToEnum.end() || !Rando::Traps::CanBeTrapModel(mIt->second)) {
+                        SPDLOG_WARN("[ComboShip] SOH_ApplyRandoPlacements: invalid ice-trap model '{}'", mn);
+                        continue;
+                    }
+                    ctx->possibleIceTrapModels.insert(mIt->second);
+                }
+            }
+            placements.erase("__iceTrapModels");
+        }
+        // Empty result (empty/garbled list, e.g. a failed dump prep) falls back to deriving a pool below.
+        const bool haveCuratedModels = !ctx->possibleIceTrapModels.empty();
+#endif
         int placed = 0, skipped = 0;
         // ComboShip: cross-game name collisions are suffixed "(OOT)" in the consolidated spoiler; strip
         // our own suffix before resolving native OOT location/item names.
@@ -4558,7 +4597,10 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
             ctx->PlaceItemInLocation(rc, rg, false, false);
             ++placed;
 #ifdef COMBO_BUILD
-            if (rg != RG_ICE_TRAP && rg != RG_COMBO_FOREIGN && rg != RG_NONE && Rando::Traps::CanBeTrapModel(rg)) {
+            // Old seeds only (no curated set in the payload): derive a disguise pool from placed items.
+            // Triforce is excluded here — native never disguises a trap as one (issue #131).
+            if (!haveCuratedModels && rg != RG_ICE_TRAP && rg != RG_COMBO_FOREIGN && rg != RG_NONE &&
+                rg != RG_TRIFORCE && rg != RG_TRIFORCE_PIECE && Rando::Traps::CanBeTrapModel(rg)) {
                 ctx->possibleIceTrapModels.insert(rg); // candidate ice-trap disguise (only named items)
             }
 #endif

@@ -1053,6 +1053,13 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     spoiler["mmCount"] = static_cast<uint32_t>(mmPlacements.size());
     spoiler["mm"] = mmPlacements;
     spoiler["foreign"] = foreignMarkers;
+    // Forced placements (e.g. Link's Pocket) are owned at start, so hints must never target them —
+    // the dump's fixed[] skips forced checks, so the spoiler names them for CrossHints instead.
+    nlohmann::json startKnown = nlohmann::json::array();
+    for (const auto& fp : forcedPlacements)
+        startKnown.push_back(
+            { { "checkGame", fp.check.game == GAME_OOT ? "oot" : "mm" }, { "checkName", fp.check.name } });
+    spoiler["startKnown"] = std::move(startKnown);
 
     // --- Commit placements to oracles (for save consumption) ---
     for (const auto& p : placements) {

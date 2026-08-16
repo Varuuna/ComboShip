@@ -142,6 +142,11 @@ on boot.
   settings content are hidden in combo builds (`gWindows.ItemTracker`/`.CheckTracker` are derived
   from the combo master toggle every frame; the buttons would fight it).
 
+**Dormant "only while paused" (#127, 2026-08-12):** the in-tracker dormant bypasses stay (stale
+pause state); instead `Reconcile` hides a dormant tracker whose game is set to only-while-paused
+unless the FOREGROUND game is paused, via new `SOH_IsPausedForCombo` / `MM_IsPausedForCombo`
+exports (fail open = paused). Peek-hold still overrides.
+
 **On future merges:** if upstream renames the tracker ImGui windows or the settings windows,
 update `combo/gui/ComboTrackerCommon.h` (`kKinds[].imguiWin`) and the inline-widget window names.
 

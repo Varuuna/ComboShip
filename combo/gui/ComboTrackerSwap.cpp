@@ -1,6 +1,7 @@
 // combo/gui/ComboTrackerSwap.cpp — see ComboTrackerSwap.h for rationale.
 #include "ComboTrackerSwap.h"
 #include "ComboTrackerCommon.h"
+#include "ComboTrackerBridge.h" // canonical window-type defaults
 #include "ComboForeground.h"
 #include <libultraship/libultraship.h>
 #include <ship/resource/CrossRMRegistry.h>
@@ -70,6 +71,49 @@ void EnsureMmSaveLoadedForDormantDraw() {
 #endif
 }
 
+// Each game's own "only show while paused" setting, per tracker kind. OOT's is a no-op unless the
+// window type is floating (0) — upstream nests it that way; MM's is VisibilityMode 1.
+struct PausedOnly {
+    const char* ootCvar;
+    const char* ootWindowTypeCvar; // canonical combo CVar (the bridge mirrors it into OOT's)
+    int ootWindowTypeDefault;
+    const char* mmCvar;
+};
+constexpr PausedOnly kPausedOnly[ComboTracker::kSwapCount] = {
+    { "gTrackers.ItemTracker.ShowOnlyPaused", "gCombo.Tracker.WindowType", ComboTracker::kDefaultWindowType,
+      "gSettings.ItemTracker.VisibilityMode" },
+    { "gTrackers.CheckTracker.ShowOnlyPaused", "gCombo.CheckTracker.WindowType", ComboTracker::kDefaultCheckWindowType,
+      "gRando.CheckTracker.VisibilityMode" },
+};
+
+// True when the dormant game's tracker of this kind is set to only show while its game is paused.
+bool DormantPausedOnly(int kindIdx, int bg) {
+    const PausedOnly& p = kPausedOnly[kindIdx];
+    if (bg == 0) {
+        return CVarGetInteger(p.ootCvar, 0) != 0 && CVarGetInteger(p.ootWindowTypeCvar, p.ootWindowTypeDefault) == 0;
+    }
+    return CVarGetInteger(p.mmCvar, 0) == 1; // MM's button modes (2/3) stay always-show while dormant
+}
+
+// The foreground game's pause state, from its DLL (the dormant game's own is stale). Fails open
+// (paused) so a missing module/export degrades to the previous always-show behavior.
+bool ForegroundPaused(int fg) {
+#ifdef _WIN32
+    static int (*sFn[2])(void) = {};
+    static bool sTried[2] = {};
+    if (!sTried[fg]) {
+        sTried[fg] = true;
+        if (HMODULE h = GetModuleHandleA(fg == 0 ? "soh.dll" : "2ship.dll")) {
+            sFn[fg] = (int (*)(void))GetProcAddress(h, fg == 0 ? "SOH_IsPausedForCombo" : "MM_IsPausedForCombo");
+        }
+    }
+    if (sFn[fg]) {
+        return sFn[fg]() != 0;
+    }
+#endif
+    return true;
+}
+
 // Write the derived visibility only on change (SetTracker writes the CVar and Show/Hides the
 // GuiWindow; doing that unconditionally every frame would fight the games' own Draw gating).
 void ApplyDerived(const ComboTracker::Win& w, bool visible) {
@@ -130,7 +174,10 @@ void Reconcile(int kindIdx) {
     const bool hideBg = CVarGetInteger(kind.hideBgCvar, 0) != 0;
 
     bool wantFg = master;
-    bool wantBg = master && (!hideBg || sPeeks[kindIdx].held);
+    // A dormant tracker set to "only while paused" follows the FOREGROUND game's pause state (its
+    // own is stale); peek-hold still overrides.
+    const bool onlyPaused = DormantPausedOnly(kindIdx, bg);
+    bool wantBg = master && ((!hideBg && (!onlyPaused || ForegroundPaused(fg))) || sPeeks[kindIdx].held);
     // A dormant game's tracker needs its ResourceManager registered (icons) and, for dormant MM,
     // an active OOT save whose MM counterpart it can show — not the title/file-select screens.
     if (wantBg && !Ship::CrossRMRegistry::Get(bg == 0 ? "oot" : "mm")) {

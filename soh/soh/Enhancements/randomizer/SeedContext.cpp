@@ -26,6 +26,7 @@ extern "C" {
 }
 
 #ifdef COMBO_BUILD
+#include "soh/Enhancements/randomizer/hook_handlers.h" // ComboShip: OOT_GetForeignCategory
 extern "C" PlayState* gPlayState;
 // ComboShip tripwire: a status wipe on the live context mid-game is the suspected cause of the
 // check tracker suddenly zeroing; log the path so a recurrence identifies its caller.
@@ -409,6 +410,11 @@ GetItemEntry Context::GetFinalGIEntry(const RandomizerCheck rc, const bool check
     }
 #ifdef COMBO_BUILD
     giEntry.comboForeignCheck = rc; // ComboShip: see ItemTableTypes.h
+    // ComboShip: the sentinel is hard-typed junk; re-type it from the foreign item's own category so
+    // Container Matches Contents doesn't advertise every foreign check as junk.
+    if (itemLoc->GetPlacedRandomizerGet() == RG_COMBO_FOREIGN) {
+        giEntry.getItemCategory = OOT_GetForeignCategory(rc);
+    }
 #endif
     return giEntry;
 }

@@ -41,6 +41,9 @@ void Settings::CreateOptionDescriptions() {
                                          "Open - Jabu-Jabu's mouth opens without the need for a fish.";
     mOptionDescriptions[RSK_LOCK_OVERWORLD_DOORS] =
         "Add locks to all wooden overworld doors, requiring specific small keys to open them";
+    // ComboShip: (#133)
+    mOptionDescriptions[RSK_EXCLUDE_MASK_SHOP_KEY] =
+        "The Mask Shop Key is not shuffled; you start with it. The door stays closed until you open it.";
     mOptionDescriptions[RSK_STARTING_AGE] =
         "Choose which age Link will start as.\n\n"
         "Starting as adult means you start with the Master Sword in your inventory.\n"
@@ -168,6 +171,9 @@ void Settings::CreateOptionDescriptions() {
         "- Link's House\n"
         "- Temple of Time\n"
         "- Kakariko Potion Shop";
+    // ComboShip: (#134)
+    mOptionDescriptions[RSK_EXCLUDE_MASK_SHOP_ENTRANCE] =
+        "The Happy Mask Shop entrance is not shuffled and leads to the Mask Shop as in vanilla.";
     mOptionDescriptions[RSK_SHUFFLE_THIEVES_HIDEOUT_ENTRANCES] =
         "Shuffle the pool of entrances between Gerudo Fortress & Thieves' Hideout.";
     mOptionDescriptions[RSK_SHUFFLE_GROTTO_ENTRANCES] =

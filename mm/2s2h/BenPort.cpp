@@ -4175,6 +4175,12 @@ bool Combo_MmIsForeground(void) {
     return sFn ? (sFn() == 1) : true;
 }
 
+// ComboShip (#127): MM's pause state, read by comboui's dormant-tracker gate (see
+// SOH_IsPausedForCombo) — the dormant game's own pause state is stale.
+extern "C" __declspec(dllexport) int MM_IsPausedForCombo(void) {
+    return gPlayState != nullptr && gPlayState->pauseCtx.state > 0;
+}
+
 extern "C" __declspec(dllexport) int32_t MM_MenuEvalDisabled(int32_t i, const char** outReason) {
     ComboMenuContext::UseSharedImGuiContext();
     Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("mm"));

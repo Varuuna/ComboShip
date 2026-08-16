@@ -166,6 +166,25 @@ or protocol break (save fields we add, Anchor wire format) — the pins won't mo
 is the only knob that changes the version. (MAJOR also invalidates the ROM archives, forcing a full
 re-extract — reserve it for when that's actually warranted.)
 
+## Standing policy: custom asset path collisions are gated
+
+Both games pack `<game>/assets/custom` into their own archive (`soh.o2r` / `2ship.o2r`) under **one
+shared resource-path namespace**. A path present in both trees with different bytes is a loaded trap:
+a cross-game draw that loses its `@oot:`/`@mm:` route marker silently resolves the *other* game's
+asset — a plausible wrong mesh/texture, no error (issue #97; mechanism in
+[`deviations/resource-mgmt.md`](deviations/resource-mgmt.md)).
+
+`scripts/check-asset-collisions.py` diffs the two **tracked** trees against the checked-in baseline
+`asset-collisions.json` and fails on any new differing-content collision or stale baseline entry. It
+runs locally via the CMake `CheckAssetCollisions` target (a dependency of `GenerateSohOtr`,
+`Generate2ShipOtr`, and the `combo` meta target) and on PRs via `asset-collisions.yml`.
+
+Convention: **new custom assets that can be drawn cross-game get per-game-distinct paths.** A
+deliberate same-path-different-content addition must be baselined (`--update`) in the PR that
+introduces it, with the understanding that the asset must never be submitted cross-game without the
+route marker. Upstream merges are the main source of new collisions, so expect the gate to fire on
+merge PRs — treat each hit as a real review decision, not noise to baseline away.
+
 ---
 # Merge log
 

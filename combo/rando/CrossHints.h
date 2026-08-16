@@ -298,7 +298,10 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
         if (fm.value("checkGame", "") != "oot" || fm.value("itemGame", "") != "mm")
             continue;
         std::string itemName = fm.value("itemName", "");
-        std::string area = fm.value("checkArea", fm.value("checkName", ""));
+        std::string checkName = fm.value("checkName", "");
+        // Area from the hint dump's own per-check table (foreign[] no longer persists checkArea).
+        auto ca = ootChecks.find(checkName);
+        std::string area = (ca != ootChecks.end() && !ca->second.area.empty()) ? ca->second.area : checkName;
         if (!itemName.empty())
             mmItemLocations[itemName] = "in " + area + " (OOT)";
     }

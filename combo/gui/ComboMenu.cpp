@@ -29,9 +29,12 @@ namespace {
 typedef void (*FnTriggerGenerate)(void);
 typedef const ComboRando::ComboGenProgress* (*FnGetProgress)(void);
 typedef unsigned char (*FnIsOnFileSelect)(void);
+// (#135) re-applies the Starting Age / Mask Shop exclusion disables after the dropdown changes.
+typedef void (*FnRefreshStartingGameUI)(void);
 FnTriggerGenerate sTrigger = nullptr;
 FnGetProgress sGetProgress = nullptr;
 FnIsOnFileSelect sIsOnFileSelect = nullptr;
+FnRefreshStartingGameUI sRefreshStartingGameUI = nullptr;
 void ResolveComboGenSyms() {
 #ifdef _WIN32
     HMODULE h = GetModuleHandleA("soh.dll");
@@ -43,6 +46,8 @@ void ResolveComboGenSyms() {
         sGetProgress = (FnGetProgress)GetProcAddress(h, "SOH_GetComboGenProgress");
     if (!sIsOnFileSelect)
         sIsOnFileSelect = (FnIsOnFileSelect)GetProcAddress(h, "SOH_IsOnFileSelect");
+    if (!sRefreshStartingGameUI)
+        sRefreshStartingGameUI = (FnRefreshStartingGameUI)GetProcAddress(h, "SOH_RefreshComboStartingGameUI");
 #endif
 }
 
@@ -219,6 +224,17 @@ void ComboMenu::DrawElement() {
     auto ctx = Ship::Context::GetRawInstance();
     if (ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
         ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
+    }
+
+    // The soh-side option disables ride gCombo.Rando.StartingGame (#135); prime them once so they are
+    // greyed out even if the user opens the OOT settings without ever visiting the Generate panel.
+    static bool sStartingGameUIPrimed = false;
+    if (!sStartingGameUIPrimed) {
+        ResolveComboGenSyms();
+        if (sRefreshStartingGameUI) {
+            sRefreshStartingGameUI();
+            sStartingGameUIPrimed = true;
+        }
     }
 
     // Fullscreen overlay covering the viewport work area, matching the old port menu
@@ -1616,6 +1632,29 @@ void ComboMenu::DrawComboPanel() {
     } else {
         ImGui::TextDisabled("Beat Ganon and Majora to finish.");
     }
+    ImGui::Separator();
+
+    // Starting Game (#135): which game a new file boots into. Random is resolved per seed.
+    ImGui::SeparatorText("Starting Game");
+    static const char* kStartingGames[] = { "Ocarina of Time", "Majora's Mask", "Random" };
+    int startingGame = CVarGetInteger("gCombo.Rando.StartingGame", 0);
+    if (startingGame < 0 || startingGame > 2)
+        startingGame = 0;
+    ImGui::SetNextItemWidth(260.0f);
+    ComboRando::ComboMenu_PushCombobox(goalTheme);
+    if (ImGui::BeginCombo("##startinggame", kStartingGames[startingGame])) {
+        for (int i = 0; i < 3; ++i) {
+            if (ImGui::Selectable(kStartingGames[i], i == startingGame)) {
+                CVarSetInteger("gCombo.Rando.StartingGame", i);
+                if (sRefreshStartingGameUI)
+                    sRefreshStartingGameUI();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ComboRando::ComboMenu_PopCombobox();
+    ImGui::TextDisabled("Majora's Mask starts the file in South Clock Town. It forces Child age, an openable forest,\n"
+                        "and the Mask Shop key/entrance exclusions, so Ocarina of Time stays enterable from nothing.");
     ImGui::Separator();
 
     // Seed field -> shared CVar the generator reads (same source the native file-select

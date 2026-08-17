@@ -238,7 +238,7 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
                                               const std::unordered_map<std::string, std::string>& ootCheckAreas = {},
                                               const std::unordered_map<std::string, std::string>& mmCheckAreas = {},
                                               GoalPredicate goalReached = DefaultGanonMajoraGoal,
-                                              bool portalGated = true) {
+                                              bool portalGated = true, bool mmStart = false) {
     RequirednessResult result;
     auto placements = ParseSpoilerPlacements(spoilerJson, sohDumpJson, mmDumpJson);
 
@@ -259,8 +259,9 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
         std::vector<char> credited(placements.size(), 0);
         ReachSet ootReach, mmReach;
         bool won = false;
-        // Latched: MM stays open once OOT can reach the Happy Mask Shop. Ungated (NO_LOGIC) = open.
-        bool portalOpen = !portalGated;
+        // Latched: MM stays open once OOT can reach the Happy Mask Shop. Ungated (NO_LOGIC) = open,
+        // and an MM start (#135) roots MM from the beginning.
+        bool portalOpen = !portalGated || mmStart;
         for (;;) {
             auto ootQ = QueryReachableMemo(ootOracle, ootOwned, ootMemo);
             ootReach = ootQ.reach;
@@ -381,7 +382,7 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
                                         const OracleFns& mmOracle, const std::string& seedLabel, void (*mmRestore)(),
                                         nlohmann::json* playthroughOut = nullptr, const std::string& sohDumpJson = "",
                                         const std::string& mmDumpJson = "", bool portalGated = true,
-                                        bool progressionOnly = false, CwGoal goal = {}) {
+                                        bool progressionOnly = false, CwGoal goal = {}, bool mmStart = false) {
     static const char* kOotGanon = "Ganon";           // RC_GANON reachable = OOT beatable (see CrossWorldRando.h)
     static const char* kMmWin = "Moon Majora Pot 01"; // ComboShip: friendly form of RC_MOON_MAJORA_POT_01
 
@@ -407,8 +408,9 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
 
     int beatableSphere = -1;
     const int kMaxSpheres = 200;
-    // Latched: MM stays open once OOT can reach the Happy Mask Shop. Ungated (NO_LOGIC) = open.
-    bool portalOpen = !portalGated;
+    // Latched: MM stays open once OOT can reach the Happy Mask Shop. Ungated (NO_LOGIC) = open, and an
+    // MM start (#135) roots MM from the beginning.
+    bool portalOpen = !portalGated || mmStart;
     for (int sphere = 0; sphere < kMaxSpheres; ++sphere) {
         auto ootReach = queryReachable(ootOracle, ownedOot);
         // Portal bit belongs to the OOT query just made; read it before crediting any MM check.
@@ -474,7 +476,7 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
     for (auto& p : placements)
         (p.itemGame == GAME_OOT ? allOot : allMm).push_back(p.item);
     auto everReachOot = queryReachable(ootOracle, allOot);
-    bool everPortalOpen = OraclePortalOpen(ootOracle);
+    bool everPortalOpen = OraclePortalOpen(ootOracle) || mmStart;
     auto everReachMm = everPortalOpen ? queryReachable(mmOracle, allMm) : std::unordered_set<std::string>{};
     result.ganonReachable = everReachOot.count(kOotGanon) > 0;
     result.majoraReachable = everReachMm.count(kMmWin) > 0;

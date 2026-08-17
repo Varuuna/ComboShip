@@ -3145,6 +3145,34 @@ extern "C" __declspec(dllexport) int SOH_ReadComboGoalCVars(int* required) {
     }
     return hunt;
 }
+// ComboShip (#135): which game a new file starts in. The launcher resolves OOT/MM/Random per seed and
+// pushes the concrete value here; FinalizeSettings forces the settings an MM start needs.
+extern "C" int gComboStartingGameMM = 0;
+extern "C" __declspec(dllexport) void SOH_SetComboStartingGame(int mmStart) {
+    gComboStartingGameMM = mmStart ? 1 : 0;
+}
+// Menu-authored CVar (0 = OOT, 1 = MM, 2 = Random), read here because the launcher has no CVar access.
+extern "C" __declspec(dllexport) int SOH_ReadComboStartingGameCVar(void) {
+    return CVarGetInteger("gCombo.Rando.StartingGame", 0);
+}
+// An explicit MM start forces these three, so grey them out. Under Random they stay editable — the
+// force is silent when MM rolls. HandleStartingAgeUI owns RSK_STARTING_AGE in both directions.
+extern "C" __declspec(dllexport) void SOH_RefreshComboStartingGameUI(void) {
+    auto settings = Rando::Settings::GetInstance();
+    if (settings == nullptr) {
+        return;
+    }
+    settings->HandleStartingAgeUI();
+    const bool mmStart = CVarGetInteger("gCombo.Rando.StartingGame", 0) == 1;
+    for (const RandomizerSettingKey key : { RSK_EXCLUDE_MASK_SHOP_KEY, RSK_EXCLUDE_MASK_SHOP_ENTRANCE }) {
+        if (mmStart) {
+            settings->GetOption(key).Disable("Starting Game is Majora's Mask");
+        } else {
+            settings->GetOption(key).Enable();
+        }
+    }
+}
+
 extern "C" __declspec(dllexport) int SOH_GetTriforcePieceCount(void) {
     return gSaveContext.ship.quest.data.randomizer.triforcePiecesCollected;
 }

@@ -338,6 +338,12 @@ static std::filesystem::path ComboContainerPath(int fileNum) {
     return std::filesystem::path("Save") / ("file" + std::to_string(fileNum + 1) + ".combosav");
 }
 
+// Only the three real save slots have a container. Callbacks reached from a game's gSaveContext.fileNum
+// can carry 0xFF (no save loaded) or 0xFE (Boss Rush) — those must never create a phantom container.
+static bool ComboIsValidSlot(int fileNum) {
+    return fileNum >= 0 && fileNum <= 2;
+}
+
 // Save compat is gated on major.minor only: patch releases must never change save-affecting behavior.
 static std::string ComboReleaseMajorMinor(const std::string& v) {
     size_t dot = v.find('.');
@@ -616,6 +622,30 @@ static FnSetBossDefeatedCb SOH_SetFinalBossDefeatedCb = nullptr;
 static FnSetBossDefeatedCb MM_SetFinalBossDefeatedCb = nullptr;
 static bool g_comboCompletion[2] = { false, false };
 static int g_comboCompletionSlot = -1;
+
+// ComboShip (#136): Triforce Hunt is ONE combined goal — the launcher pushes it into both DLLs, sums
+// both counters on every piece grant/merge, and dispatches the ending itself.
+typedef void (*FnSetComboGoal)(int hunt, int required);
+typedef int (*FnReadComboGoalCVars)(int* required);
+typedef int (*FnGetTriforceCount)(void);
+typedef void (*FnTriggerTriforceCredits)(int dormant);
+typedef void (*FnSetTriforceProgressCb)(void (*)(int, int));
+typedef void (*FnSetOtherTriforceCountCb)(int (*)(void));
+static FnSetComboGoal SOH_SetComboGoal = nullptr;
+static FnSetComboGoal MM_SetComboGoal = nullptr;
+static FnReadComboGoalCVars SOH_ReadComboGoalCVars = nullptr;
+static FnGetTriforceCount SOH_GetTriforcePieceCount = nullptr;
+static FnGetTriforceCount MM_GetTriforcePieceCount = nullptr;
+static FnTriggerTriforceCredits SOH_TriggerTriforceCredits = nullptr;
+static FnTriggerTriforceCredits MM_TriggerTriforceCredits = nullptr;
+static FnSetTriforceProgressCb SOH_SetTriforceProgressCb = nullptr;
+static FnSetTriforceProgressCb MM_SetTriforceProgressCb = nullptr;
+static FnSetOtherTriforceCountCb SOH_SetOtherTriforceCountCb = nullptr;
+static FnSetOtherTriforceCountCb MM_SetOtherTriforceCountCb = nullptr;
+// Active goal for the loaded slot (0 required = the both-bosses goal) + the one-shot completion latch.
+static bool g_goalHunt = false;
+static int g_goalRequired = 0;
+static bool g_comboTriforceDone = false;
 
 namespace ComboAnchor {
 static std::thread sThread;
@@ -1002,11 +1032,38 @@ static void MarkForeignObtained(int srcGame, const char* checkName) {
 static void LoadComboCompletion(int slot) {
     g_comboCompletion[0] = g_comboCompletion[1] = false;
     g_comboCompletionSlot = slot;
-    std::lock_guard<std::mutex> lk(g_containerMutex);
-    auto& c = LoadOrCreateContainer(slot);
-    auto comp = c.value("combo", nlohmann::json::object()).value("completion", nlohmann::json::object());
-    g_comboCompletion[0] = comp.value("oot", false);
-    g_comboCompletion[1] = comp.value("mm", false);
+    g_comboTriforceDone = false;
+    g_goalHunt = false;
+    g_goalRequired = 0;
+    {
+        std::lock_guard<std::mutex> lk(g_containerMutex);
+        auto& c = LoadOrCreateContainer(slot);
+        auto combo = c.value("combo", nlohmann::json::object());
+        auto comp = combo.value("completion", nlohmann::json::object());
+        g_comboCompletion[0] = comp.value("oot", false);
+        g_comboCompletion[1] = comp.value("mm", false);
+        g_comboTriforceDone = comp.value("triforce", false);
+        // The goal is seed-bound: it rides the slot's baked combo.rando, not the live menu CVars.
+        auto goal = combo.value("rando", nlohmann::json::object()).value("goal", nlohmann::json::object());
+        g_goalHunt = goal.value("type", std::string("bosses")) == "triforceHunt";
+        g_goalRequired = g_goalHunt ? goal.value("requiredPieces", 0) : 0;
+    }
+    // Push outside the container lock — the DLL setters must never re-enter the sidecar.
+    if (SOH_SetComboGoal)
+        SOH_SetComboGoal(g_goalHunt ? 1 : 0, g_goalRequired);
+    if (MM_SetComboGoal)
+        MM_SetComboGoal(g_goalHunt ? 1 : 0, g_goalRequired);
+}
+
+// Generation pushes the MENU goal into both DLLs. If a slot is loaded, put its own (seed-bound) goal
+// back afterwards so the DLL-side globals keep describing the loaded seed.
+static void RestoreLoadedSlotGoal() {
+    if (g_comboCompletionSlot < 0)
+        return;
+    if (SOH_SetComboGoal)
+        SOH_SetComboGoal(g_goalHunt ? 1 : 0, g_goalRequired);
+    if (MM_SetComboGoal)
+        MM_SetComboGoal(g_goalHunt ? 1 : 0, g_goalRequired);
 }
 
 static void SaveComboCompletion(int slot) {
@@ -1014,13 +1071,14 @@ static void SaveComboCompletion(int slot) {
     auto& c = LoadOrCreateContainer(slot);
     c["combo"]["completion"]["oot"] = g_comboCompletion[0];
     c["combo"]["completion"]["mm"] = g_comboCompletion[1];
+    c["combo"]["completion"]["triforce"] = g_comboTriforceDone;
     FlushContainer(slot);
 }
 
 // Registered into both games: record THIS game's final-boss kill for its slot and return 1 iff BOTH
 // games' bosses are now dead. game/fileNum use the GameId convention (0=OOT, 1=MM).
 static int Combo_OnFinalBossDefeated(int game, int fileNum) {
-    if (game != 0 && game != 1)
+    if ((game != 0 && game != 1) || !ComboIsValidSlot(fileNum))
         return 0;
     if (fileNum != g_comboCompletionSlot)
         LoadComboCompletion(fileNum);
@@ -1034,6 +1092,42 @@ static int Combo_OnFinalBossDefeated(int game, int fileNum) {
     }
     return (g_comboCompletion[0] && g_comboCompletion[1]) ? 1 : 0;
 }
+
+// ComboShip (#136): each game's piece-count getter, handed to the OTHER game so its pickup messages
+// and hints can show combined progress.
+static int Combo_GetOotTriforceCount() {
+    return SOH_GetTriforcePieceCount ? SOH_GetTriforcePieceCount() : 0;
+}
+static int Combo_GetMmTriforceCount() {
+    return MM_GetTriforcePieceCount ? MM_GetTriforcePieceCount() : 0;
+}
+
+// Poked after every Triforce Piece grant (own or dormant) and every Anchor team-state merge: sums both
+// games' counters and, on the first crossing, latches completion and rolls the ending. game/fileNum use
+// the GameId convention (0 = OOT, 1 = MM). No exception may cross the C-ABI boundary.
+static void Combo_OnTriforceProgress(int game, int fileNum) try {
+    if ((game != 0 && game != 1) || !ComboIsValidSlot(fileNum))
+        return; // Anchor pokes carry fileNum 0xFF at the file-select — no slot, nothing to evaluate
+    if (fileNum != g_comboCompletionSlot)
+        LoadComboCompletion(fileNum);
+    if (!g_goalHunt || g_goalRequired <= 0 || g_comboTriforceDone)
+        return;
+    const int total = Combo_GetOotTriforceCount() + Combo_GetMmTriforceCount();
+    if (total < g_goalRequired)
+        return;
+    g_comboTriforceDone = true;
+    g_comboCompletion[0] = g_comboCompletion[1] = true;
+    SaveComboCompletion(fileNum);
+    const bool mmActive = ComboAnchor::sActiveGame.load() == 1;
+    std::cout << "[ComboShip] Triforce Hunt complete: " << total << "/" << g_goalRequired << " slot=" << fileNum
+              << " active=" << (mmActive ? "mm" : "oot") << std::endl;
+    if (SOH_TriggerTriforceCredits)
+        SOH_TriggerTriforceCredits(mmActive ? 1 : 0);
+    if (MM_TriggerTriforceCredits)
+        MM_TriggerTriforceCredits(mmActive ? 0 : 1);
+} catch (const std::exception& e) {
+    std::cerr << "[ComboShip] Combo_OnTriforceProgress threw: " << e.what() << std::endl;
+} catch (...) { std::cerr << "[ComboShip] Combo_OnTriforceProgress threw a non-std exception" << std::endl; }
 
 // Seed utilities — Ship_Hash/Ship_Random are not exported from libultraship, so implement inline.
 // FNV-1a 32-bit hash: deterministic string-to-uint32 used to derive the master seed.
@@ -1094,7 +1188,7 @@ static bool g_ComboReloadRestoreUserMM = false; // false for an explicit drop (s
 static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRando::OracleFns& ootOracle,
                                   const ComboRando::OracleFns& mmOracle, const std::string& seedLabel,
                                   nlohmann::json* playthroughOut = nullptr, const std::string& sohDump = "",
-                                  const std::string& mmDump = "");
+                                  const std::string& mmDump = "", ComboRando::CwGoal goal = {});
 
 // ComboShip: worker that runs the combined-logic fill (or no-logic fallback) on a background
 // thread, reports progress via the ComboGenProgress struct, and stashes placements.
@@ -1107,6 +1201,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             progress->running.store(false);
         }
         std::cerr << "[ComboShip] RunComboFill: " << msg << "\n";
+        RestoreLoadedSlotGoal(); // a bailed generation must not leave the menu goal in the DLLs
         g_GenerateBusy.store(false);
     };
 
@@ -1119,6 +1214,18 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         inputSeed = std::to_string(ComboRandRange(0, 1000000));
     const uint32_t baseSeed = ComboHash(inputSeed.c_str());
     uint32_t masterSeed = baseSeed;
+
+    // ComboShip (#136): the combo-owned goal. Read via soh.dll — the launcher has no CVar access.
+    ComboRando::CwGoal goal;
+    if (SOH_ReadComboGoalCVars) {
+        int required = 0;
+        goal.hunt = SOH_ReadComboGoalCVars(&required) != 0;
+        goal.required = goal.hunt ? required : 0;
+    }
+    if (goal.hunt && goal.required < 1) {
+        fail("Triforce Hunt needs at least 1 required piece");
+        return;
+    }
 
     std::string sohDump, mmDump, spoiler, lastFillError, sohHintDump;
     bool usedCombinedFill = false;
@@ -1178,12 +1285,27 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             SOH_SetComboRandoSeed(masterSeed);
         if (MM_SetComboRandoSeed)
             MM_SetComboRandoSeed(masterSeed);
+        // Must precede the dumps: OOT's FinalizeSettings and MM's GeneratePools shape their pools
+        // (wincon, Majora soul removal, piece count) from the goal.
+        if (SOH_SetComboGoal)
+            SOH_SetComboGoal(goal.hunt ? 1 : 0, goal.required);
+        if (MM_SetComboGoal)
+            MM_SetComboGoal(goal.hunt ? 1 : 0, goal.required);
 
         sohDump = SOH_DumpRandoStaticData();
         mmDump = MM_DumpRandoStaticData();
         if (sohDump.empty() || mmDump.empty()) {
             fail("empty static-data dump");
             return;
+        }
+        if (goal.hunt) {
+            const int pieces = ComboRando::CountPoolTriforcePieces(sohDump, mmDump);
+            if (pieces < goal.required) {
+                fail((std::string("Triforce Hunt needs ") + std::to_string(goal.required) + " pieces but only " +
+                      std::to_string(pieces) + " are in the combined pool — raise the OOT/MM piece sliders")
+                         .c_str());
+                return;
+            }
         }
         // ComboShip: OOT forced placements (Link's Pocket) the static dump can't carry. The fill
         // reserves these out of the cross pool and commits them so the check isn't left unplaced.
@@ -1219,7 +1341,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         // on the portal region via ootOracle.GetPortalOpen; NO_LOGIC bypasses it.
         ComboRando::OotAccess ootAccess = ComboRando::OotAccessFromDump(sohDump);
         auto result = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle, progress,
-                                                         forcedOot, ootAccess);
+                                                         forcedOot, ootAccess, goal);
 
         if (result.success) {
             spoiler = result.spoilerJson;
@@ -1237,14 +1359,20 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             // runs before WriteComboPlaythrough (which restores MM internally). Doesn't restore itself;
             // the WriteComboPlaythrough call below (or the loop's own restore) does that once. Skipped
             // entirely when no enabled hint surface consumes requiredness (empty result = all non-required).
-            if (ComboRando::NeedsRequirednessPareDown(sohHintDump, mmDump)) {
+            const bool noLogic = ootAccess == ComboRando::OotAccess::NO_LOGIC;
+            if (goal.hunt && noLogic) {
+                // Any piece substitutes for any other and OOT may be unbeatable by design, so nothing
+                // is meaningfully "required" — same compromise as MmOnlyMajoraGoal.
+                std::cout << "[ComboShip] RunComboFill: pare-down skipped (No Logic + Triforce Hunt)\n";
+            } else if (ComboRando::NeedsRequirednessPareDown(sohHintDump, mmDump)) {
                 // NO_LOGIC: gate requiredness on MM only (OOT may be unbeatable by design).
-                pareDownResult = ComboRando::PareDownPlaythrough(
-                    result.spoilerJson, ootOracle, mmOracle, nullptr, sohDump, mmDump, ootCheckAreasCache,
-                    buildMmCheckAreas(mmDump),
-                    ootAccess == ComboRando::OotAccess::NO_LOGIC ? ComboRando::MmOnlyMajoraGoal
-                                                                 : ComboRando::DefaultGanonMajoraGoal,
-                    ootAccess != ComboRando::OotAccess::NO_LOGIC);
+                pareDownResult =
+                    ComboRando::PareDownPlaythrough(result.spoilerJson, ootOracle, mmOracle, nullptr, sohDump, mmDump,
+                                                    ootCheckAreasCache, buildMmCheckAreas(mmDump),
+                                                    goal.hunt ? ComboRando::MakeTriforceHuntGoal(goal.required)
+                                                    : noLogic ? ComboRando::MmOnlyMajoraGoal
+                                                              : ComboRando::DefaultGanonMajoraGoal,
+                                                    !noLogic);
             } else {
                 std::cout << "[ComboShip] RunComboFill: pare-down skipped (no enabled hint surface needs "
                              "requiredness)\n";
@@ -1252,8 +1380,8 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             // ComboShip: write the sphere-by-sphere playthrough log. Replays reachability via the
             // oracles BEFORE SOH_ApplyRandoPlacements restores the live OOT context, so it can't
             // corrupt the generated seed. Restores MM itself.
-            WriteComboPlaythrough(result.spoilerJson, ootOracle, mmOracle, inputSeed, &playthroughJson, sohDump,
-                                  mmDump);
+            WriteComboPlaythrough(result.spoilerJson, ootOracle, mmOracle, inputSeed, &playthroughJson, sohDump, mmDump,
+                                  goal);
         } else {
             lastFillError = result.error;
             std::cout << "[ComboShip] RunComboFill: attempt " << (attempt + 1) << "/" << kFillAttempts
@@ -1419,6 +1547,10 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         auto foreignEnriched = ComboRando::BuildForeignArray(foreignArr);
         consolidated["foreign"] = foreignEnriched;
         consolidated["playthrough"] = ComboRando::PlaythroughLines(playthroughJson);
+        // ComboShip (#136): the goal is seed-bound — the runtime latch reads it back from the slot's
+        // baked combo.rando, never from the live menu CVars.
+        consolidated["goal"] = { { "type", goal.hunt ? "triforceHunt" : "bosses" },
+                                 { "requiredPieces", goal.required } };
         // ComboShip (#90): OOT entrance layout — informational, reload re-derives it from masterSeed.
         {
             nlohmann::json ootEnt = nlohmann::json::array();
@@ -1466,6 +1598,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         fail((std::string("post-fill exception: ") + e.what()).c_str());
         return;
     }
+    RestoreLoadedSlotGoal();
     g_GenerateBusy.store(false);
 }
 
@@ -1552,15 +1685,15 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
 // here). Called from the env-gated entry and from RunComboFill. See docs/deviations/rando.md.
 static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRando::OracleFns& ootOracle,
                                   const ComboRando::OracleFns& mmOracle, const std::string& seedLabel,
-                                  nlohmann::json* playthroughOut, const std::string& sohDump,
-                                  const std::string& mmDump) {
+                                  nlohmann::json* playthroughOut, const std::string& sohDump, const std::string& mmDump,
+                                  ComboRando::CwGoal goal) {
     // Thin wrapper over the shared traversal (combo/rando/ComboPlaythrough.h); passes this build's
     // MM oracle-restore pointer. A playthroughOut here means the spoiler's playthrough section, which
     // lists progression only; the text-log path and the headless validator keep every step.
     ComboRando::RunPlaythrough(spoilerJson, ootOracle, mmOracle, seedLabel, Combo_MM_Rando_Restore, playthroughOut,
                                sohDump, mmDump,
                                ComboRando::OotAccessFromDump(sohDump) != ComboRando::OotAccess::NO_LOGIC,
-                               /*progressionOnly*/ playthroughOut != nullptr);
+                               /*progressionOnly*/ playthroughOut != nullptr, goal);
 }
 
 // Env-gated entry: COMBO_PLAYTHROUGH=<seed> generates that seed headless, then writes its log.
@@ -1742,6 +1875,35 @@ static int Combo_OnReloadRequest(const char* path) {
         uint32_t masterSeed = j.value("masterSeed", 0u);
         ResetCrossItemDedupForSeed(masterSeed);
         uint32_t displaySeed = j.value("displaySeed", 0u);
+        // ComboShip (#136): push the seed's goal before anything re-derives OOT's settings-scoped pool
+        // or MM's — the forced wincon/hunt toggle decides what those pools contain.
+        {
+            auto g = j.value("goal", nlohmann::json::object());
+            const int hunt = g.value("type", std::string("bosses")) == "triforceHunt" ? 1 : 0;
+            const int required = hunt ? g.value("requiredPieces", 0) : 0;
+            if (SOH_SetComboGoal)
+                SOH_SetComboGoal(hunt, required);
+            if (MM_SetComboGoal)
+                MM_SetComboGoal(hunt, required);
+            // Log-only sanity check: a hand-edited/plandomized spoiler could ask for more pieces than it
+            // actually places, which is unwinnable. Loud, but the load still proceeds (the file is the
+            // player's own artifact and the rest of it may be perfectly fine).
+            if (hunt) {
+                int placed = 0;
+                for (const char* gk : { "oot", "mm" }) {
+                    const auto pl = j.value(gk, nlohmann::json::object()).value("placements", nlohmann::json::object());
+                    for (const auto& [chk, item] : pl.items()) {
+                        if (!item.is_string())
+                            continue;
+                        const std::string bare = ComboRando::StripGameSuffix(item.get<std::string>());
+                        placed += (bare == ComboRando::kOotTriforcePiece || bare == ComboRando::kMmTriforcePiece);
+                    }
+                }
+                if (placed < required)
+                    std::cerr << "[ComboShip] Reload: ERROR — seed needs " << required << " Triforce Pieces but only "
+                              << placed << " are placed; this seed cannot be completed\n";
+            }
+        }
         auto oot = j.value("oot", nlohmann::json::object());
         auto mm = j.value("mm", nlohmann::json::object());
         std::string ootSettings = oot.value("settings", nlohmann::json::object()).dump();
@@ -1867,8 +2029,13 @@ static void Combo_OnOOTSaveInit(int fileNum) {
             auto& c = LoadOrCreateContainer(fileNum);
             if (!seed.is_null())
                 c["combo"]["rando"] = seed;
+            // A rebaked slot is a NEW seed: a completed prior one must not instantly finish this hunt
+            // (or report both bosses already dead).
+            if (c.contains("combo") && c["combo"].is_object())
+                c["combo"].erase("completion");
             FlushContainer(fileNum);
         }
+        LoadComboCompletion(fileNum); // refresh the in-memory latch + push this seed's goal into both DLLs
         if (SOH_LoadComboRando)
             SOH_LoadComboRando(g_ConsolidatedJson.c_str());
         if (MM_LoadComboRando)
@@ -1942,12 +2109,16 @@ static void Combo_OnOOTSaveLoad(int fileNum) {
         }
     }
     if (!MM_LoadSaveForCombo || g_MmSaveInMemorySlot == fileNum) {
+        Combo_OnTriforceProgress(0, fileNum);
         Combo_ResumeMMIfLastSavedThere(fileNum);
         return;
     }
     std::cout << "[ComboShip] Loading MM save for OOT slot " << fileNum << " (tracker peek)" << std::endl;
     MM_LoadSaveForCombo(fileNum);
     g_MmSaveInMemorySlot = fileNum;
+    // Both counters are now live: catch a goal crossed while the game wasn't running (e.g. a teammate's
+    // pieces applied to a dormant save). Latched, so it can't roll credits twice.
+    Combo_OnTriforceProgress(0, fileNum);
     Combo_ResumeMMIfLastSavedThere(fileNum);
 }
 
@@ -2204,6 +2375,19 @@ int main(int argc, char** argv) {
     SOH_SetFinalBossDefeatedCb = (FnSetBossDefeatedCb)GetSym(sohModule, "SOH_SetFinalBossDefeatedCb");
     MM_SetFinalBossDefeatedCb = (FnSetBossDefeatedCb)GetSym(mmModule, "MM_SetFinalBossDefeatedCb");
 
+    // Combined Triforce Hunt goal seam (#136)
+    SOH_SetComboGoal = (FnSetComboGoal)GetSym(sohModule, "SOH_SetComboGoal");
+    MM_SetComboGoal = (FnSetComboGoal)GetSym(mmModule, "MM_SetComboGoal");
+    SOH_ReadComboGoalCVars = (FnReadComboGoalCVars)GetSym(sohModule, "SOH_ReadComboGoalCVars");
+    SOH_GetTriforcePieceCount = (FnGetTriforceCount)GetSym(sohModule, "SOH_GetTriforcePieceCount");
+    MM_GetTriforcePieceCount = (FnGetTriforceCount)GetSym(mmModule, "MM_GetTriforcePieceCount");
+    SOH_TriggerTriforceCredits = (FnTriggerTriforceCredits)GetSym(sohModule, "SOH_TriggerTriforceCredits");
+    MM_TriggerTriforceCredits = (FnTriggerTriforceCredits)GetSym(mmModule, "MM_TriggerTriforceCredits");
+    SOH_SetTriforceProgressCb = (FnSetTriforceProgressCb)GetSym(sohModule, "SOH_SetTriforceProgressCb");
+    MM_SetTriforceProgressCb = (FnSetTriforceProgressCb)GetSym(mmModule, "MM_SetTriforceProgressCb");
+    SOH_SetOtherTriforceCountCb = (FnSetOtherTriforceCountCb)GetSym(sohModule, "SOH_SetOtherTriforceCountCb");
+    MM_SetOtherTriforceCountCb = (FnSetOtherTriforceCountCb)GetSym(mmModule, "MM_SetOtherTriforceCountCb");
+
     // Oracle exports
     Combo_SOH_Rando_Reset = (FnOracleVoid)GetSym(sohModule, "Combo_SOH_Rando_Reset");
     Combo_SOH_Rando_SetOwnedItems = (FnOracleSetItems)GetSym(sohModule, "Combo_SOH_Rando_SetOwnedItems");
@@ -2393,6 +2577,15 @@ int main(int argc, char** argv) {
         SOH_SetFinalBossDefeatedCb(Combo_OnFinalBossDefeated);
     if (MM_SetFinalBossDefeatedCb)
         MM_SetFinalBossDefeatedCb(Combo_OnFinalBossDefeated);
+    // #136: combined Triforce goal — progress pokes in, each game reads the other's count out.
+    if (SOH_SetTriforceProgressCb)
+        SOH_SetTriforceProgressCb(Combo_OnTriforceProgress);
+    if (MM_SetTriforceProgressCb)
+        MM_SetTriforceProgressCb(Combo_OnTriforceProgress);
+    if (SOH_SetOtherTriforceCountCb)
+        SOH_SetOtherTriforceCountCb(Combo_GetMmTriforceCount);
+    if (MM_SetOtherTriforceCountCb)
+        MM_SetOtherTriforceCountCb(Combo_GetOotTriforceCount);
     if (SOH_SetCrossDeliver || MM_SetCrossDeliver) {
         std::cout << "[ComboShip] Cross-game item delivery seam registered." << std::endl;
     }

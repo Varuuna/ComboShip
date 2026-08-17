@@ -10,6 +10,8 @@ extern "C" {
 
 #ifdef COMBO_BUILD
 bool Rando::gComboDormantGive = false;
+// ComboShip (#136): launcher seam — poked after each Triforce Piece so combo can evaluate the goal.
+extern "C" void (*gMMComboTriforceProgress)(int game, int fileNum);
 #endif
 
 void Rando::GiveItem(RandoItemId randoItemId) {
@@ -133,11 +135,13 @@ void Rando::GiveItem(RandoItemId randoItemId) {
         case RI_TRIFORCE_PIECE_PREVIOUS:
             gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces++;
 #ifdef COMBO_BUILD
-            // ComboShip: dormant grant can't warp; count only, re-evaluated on MM activation.
-            if (Rando::gComboDormantGive) {
-                break;
+            // ComboShip (#136): combo owns the goal — the launcher sums both games' counts and decides.
+            // Works for dormant grants too; it dispatches the silent finalize instead of the ending.
+            if (gMMComboTriforceProgress != NULL) {
+                gMMComboTriforceProgress(1, gSaveContext.fileNum);
             }
-#endif
+            break;
+#else
             if (gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces ==
                 RANDO_SAVE_OPTIONS[RO_TRIFORCE_PIECES_REQUIRED]) {
                 // Blocks the ability to beat the game through killing Majora until all Triforce Pieces are found.
@@ -152,6 +156,7 @@ void Rando::GiveItem(RandoItemId randoItemId) {
                                        .transitionType = TRANS_TYPE_FADE_BLACK });
             }
             break;
+#endif
         // Technically these should never be used, but leaving them here just in case
         case RI_PROGRESSIVE_MAGIC:
         case RI_PROGRESSIVE_BOW:

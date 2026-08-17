@@ -2749,6 +2749,11 @@ extern "C" __declspec(dllexport) void MM_LoadSaveForCombo(int fileNum) {
 
 static void Combo_MM_ApplyCheckPrices();
 
+// ComboShip (#136): defined further down (MM_SetComboGoal). The save-building paths below force MM's
+// Triforce options from these — combo owns the goal and MM's own CVars are hidden in combo builds.
+extern "C" int gMMComboGoalHunt;
+extern "C" int gMMComboGoalRequired;
+
 // Combo master seed for MM's RNG, mirroring OOT's SOH_SetComboRandoSeed so confined placement
 // (PreplaceConfinedItems, via Ship_Random) is reproducible per seed.
 static uint64_t sMMComboRandoSeed = 0;
@@ -2814,6 +2819,13 @@ extern "C" __declspec(dllexport) int MM_InitRandoSaveFile(int fileNum, const cha
         nlohmann::json options = nlohmann::json::object();
         for (auto& [id, opt] : Rando::StaticData::Options) {
             options[opt.name] = (uint32_t)CVarGetInteger(opt.cvar, opt.defaultValue);
+        }
+        // ComboShip (#136): combo owns the goal and MM's own toggle is hidden, so the CVar loop above
+        // would save hunt=off — leaving Majora killable pre-completion and the tracker row missing.
+        options[Rando::StaticData::Options[RO_SHUFFLE_TRIFORCE_PIECES].name] =
+            (uint32_t)(gMMComboGoalHunt ? RO_GENERIC_YES : RO_GENERIC_NO);
+        if (gMMComboGoalHunt) {
+            options[Rando::StaticData::Options[RO_TRIFORCE_PIECES_REQUIRED].name] = (uint32_t)gMMComboGoalRequired;
         }
         spoiler["options"] = options;
         spoiler["startingItems"] = nlohmann::json::array();
@@ -3794,6 +3806,13 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Reset(void) {
         gSaveContext.save.shipSaveInfo.rando.randoSaveOptions[id] =
             (uint32_t)CVarGetInteger(opt.cvar, opt.defaultValue);
     }
+    // ComboShip (#136): combo owns the goal, so the hidden CVars above must not decide it here either.
+    gSaveContext.save.shipSaveInfo.rando.randoSaveOptions[RO_SHUFFLE_TRIFORCE_PIECES] =
+        gMMComboGoalHunt ? RO_GENERIC_YES : RO_GENERIC_NO;
+    if (gMMComboGoalHunt) {
+        gSaveContext.save.shipSaveInfo.rando.randoSaveOptions[RO_TRIFORCE_PIECES_REQUIRED] =
+            (uint32_t)gMMComboGoalRequired;
+    }
 
     // ComboShip: grant the seed's STARTING ITEMS into the oracle inventory. These aren't in the
     // shuffled pool (so SetOwnedItems never grants them), but logic depends on them: the default kit
@@ -3989,6 +4008,48 @@ extern "C" int (*gComboFinalBossDefeated)(int game, int fileNum) = nullptr;
 extern "C" __declspec(dllexport) void MM_SetFinalBossDefeatedCb(int (*cb)(int, int)) {
     gComboFinalBossDefeated = cb;
 }
+
+// ComboShip (#136): Triforce Hunt is ONE combined goal across both games, owned by the launcher.
+// hunt=0 means the normal both-bosses goal; required is the combined piece count.
+extern "C" int gMMComboGoalHunt = 0;
+extern "C" int gMMComboGoalRequired = 0;
+extern "C" __declspec(dllexport) void MM_SetComboGoal(int hunt, int required) {
+    gMMComboGoalHunt = hunt ? 1 : 0;
+    gMMComboGoalRequired = gMMComboGoalHunt ? required : 0;
+}
+extern "C" __declspec(dllexport) int MM_GetTriforcePieceCount(void) {
+    return gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces;
+}
+// The OTHER game's piece count, so pickup messages can show the combined progress.
+extern "C" int (*gMMComboOtherTriforceCount)(void) = nullptr;
+extern "C" __declspec(dllexport) void MM_SetOtherTriforceCountCb(int (*cb)(void)) {
+    gMMComboOtherTriforceCount = cb;
+}
+// Poked after every piece grant (active or dormant); the launcher evaluates the combined total.
+extern "C" void (*gMMComboTriforceProgress)(int game, int fileNum) = nullptr;
+extern "C" __declspec(dllexport) void MM_SetTriforceProgressCb(void (*cb)(int, int)) {
+    gMMComboTriforceProgress = cb;
+}
+// Goal reached: soul grant + completion hook run either way; only the active game gets the ending, a
+// dormant MM persists. The save can throw, and the launcher calls this — nothing may cross the C-ABI.
+extern "C" __declspec(dllexport) void MM_TriggerTriforceCredits(int dormant) try {
+    if (!Flags_GetRandoInf(RANDO_INF_OBTAINED_SOUL_OF_BOSS_MAJORA)) {
+        Rando::GiveItem(RI_SOUL_BOSS_MAJORA);
+    }
+    GameInteractor_ExecuteOnGameCompletion();
+    if (dormant) {
+        if (gSaveContext.fileNum != 0xFF) {
+            SaveManager_SaveCurrentForCombo();
+        }
+        return;
+    }
+    GameInteractor::Instance->events.emplace_back(GIEventTransition{ .entrance = ENTRANCE(TERMINA_FIELD, 0),
+                                                                     .cutsceneIndex = 0xFFF7,
+                                                                     .transitionTrigger = TRANS_TRIGGER_START,
+                                                                     .transitionType = TRANS_TYPE_FADE_BLACK });
+} catch (const std::exception& e) {
+    SPDLOG_ERROR("[ComboShip] MM_TriggerTriforceCredits threw: {}", e.what());
+} catch (...) { SPDLOG_ERROR("[ComboShip] MM_TriggerTriforceCredits threw a non-std exception"); }
 
 extern "C" __declspec(dllexport) const char* Combo_MM_Rando_GetReachableChecks(void) {
     static std::string buf;

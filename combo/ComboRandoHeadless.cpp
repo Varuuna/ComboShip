@@ -89,9 +89,13 @@ int main(int argc, char** argv) {
     std::string settingsFile; // consolidated spoiler to restore settings/tricks from (exact-seed repro)
     bool haveMasterSeed = false;
     uint32_t masterSeedArg = 0;
+    // #136: combined goal. Absent => read the menu CVars (matches in-game); 0 => force bosses.
+    int triforceRequiredArg = -1;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
-        if (a == "--seed" && i + 1 < argc)
+        if (a == "--triforce-required" && i + 1 < argc)
+            triforceRequiredArg = std::atoi(argv[++i]);
+        else if (a == "--seed" && i + 1 < argc)
             seed = argv[++i];
         else if (a == "--count" && i + 1 < argc)
             count = std::max(1, std::atoi(argv[++i]));
@@ -135,6 +139,10 @@ int main(int argc, char** argv) {
     auto SOH_SetAllTricks = Sym<FnVoidV>(soh, "SOH_SetAllTricks");
     auto SOH_SetCheckPrices = Sym<FnTakeStr>(soh, "SOH_SetCheckPrices");
     auto MM_SetCheckPrices = Sym<FnTakeStr>(mm, "MM_SetCheckPrices");
+    // #136: combined goal — must be pushed before every dump (it shapes both games' pools).
+    auto SOH_SetComboGoal = Sym<void (*)(int, int)>(soh, "SOH_SetComboGoal");
+    auto MM_SetComboGoal = Sym<void (*)(int, int)>(mm, "MM_SetComboGoal");
+    auto SOH_ReadComboGoalCVars = Sym<int (*)(int*)>(soh, "SOH_ReadComboGoalCVars");
 
     ComboRando::OracleFns oot{ Sym<FnOracleVoid>(soh, "Combo_SOH_Rando_Reset"),
                                Sym<FnOracleSetItems>(soh, "Combo_SOH_Rando_SetOwnedItems"),
@@ -178,6 +186,13 @@ int main(int argc, char** argv) {
         flat["foreign"] = spoiler.value("foreign", nlohmann::json::array());
         std::string label = SeedLabel(spoiler);
         uint32_t masterSeed = spoiler.value("masterSeed", 0u);
+        // #136: the seed's own goal drives both the traversal win test and the pool shaping below.
+        ComboRando::CwGoal goal;
+        {
+            auto g = spoiler.value("goal", nlohmann::json::object());
+            goal.hunt = g.value("type", std::string("bosses")) == "triforceHunt";
+            goal.required = goal.hunt ? g.value("requiredPieces", 0) : 0;
+        }
 
         auto ootEnabledTricks =
             spoiler.value("oot", nlohmann::json::object()).value("enabledTricks", nlohmann::json::array());
@@ -217,6 +232,10 @@ int main(int argc, char** argv) {
                 SOH_SetSeed(masterSeed);
             if (MM_SetSeed)
                 MM_SetSeed(masterSeed);
+            if (SOH_SetComboGoal)
+                SOH_SetComboGoal(goal.hunt ? 1 : 0, goal.required);
+            if (MM_SetComboGoal)
+                MM_SetComboGoal(goal.hunt ? 1 : 0, goal.required);
             // A real in-game save's placement map lists only SHUFFLED checks; non-shuffled items the
             // oracle still gates on (OOT vanilla shop items, MM boss remains when not shuffled) live in
             // the dump's fixed[]. Merge them in so those gates (e.g. MM RemainsCount for the Moon) resolve.
@@ -262,8 +281,8 @@ int main(int argc, char** argv) {
             mergeFixed(sohDump, "oot");
             mergeFixed(mmDump, "mm");
             return ComboRando::RunPlaythrough(passFlat.dump(), oot, mmO, label, MM_Restore, ptOut, sohDump, mmDump,
-                                              ComboRando::OotAccessFromDump(sohDump) !=
-                                                  ComboRando::OotAccess::NO_LOGIC);
+                                              ComboRando::OotAccessFromDump(sohDump) != ComboRando::OotAccess::NO_LOGIC,
+                                              /*progressionOnly*/ false, goal);
         };
 
         // Affordability canary: re-check every priced purchase in the walk against the wallets held
@@ -318,6 +337,10 @@ int main(int argc, char** argv) {
         };
         // Names the blocking win side from full-inventory reachability, so "stuck" is exact.
         auto blocked = [](const ComboRando::PlaythroughResult& r) -> const char* {
+            if (r.hunt)
+                return r.piecesReachable >= r.piecesRequired
+                           ? "enough Triforce Pieces are placed but the forward walk dead-ends (item cycle)"
+                           : "not enough Triforce Pieces are reachable";
             return (!r.ganonReachable && !r.majoraReachable) ? "neither Ganon nor Majora is reachable"
                    : !r.ganonReachable                       ? "Ganon (OOT) is unreachable"
                    : !r.majoraReachable
@@ -368,8 +391,16 @@ int main(int argc, char** argv) {
         // which retries on mmAdvUnreachable>0 — not gated on unreachableMm==0, ~1 MM junk check is always
         // under-modeled since the oracle evaluates MM with zeroed save options).
         if (ootNoLogic && r2.ganonReachable && r2.majoraReachable) {
-            std::cout << "[playthrough] RESULT: PASS (No Logic) — beatable: Ganon AND Majora both reachable "
-                         "with full inventory (forward-walk order N/A under No Logic).\n";
+            // Under a hunt both flags mirror the piece count, so name the pieces instead of the bosses.
+            if (r2.hunt) {
+                std::cout << "[playthrough] RESULT: PASS (No Logic) — beatable: " << r2.piecesReachable << "/"
+                          << r2.piecesRequired
+                          << " Triforce Pieces reachable with full inventory (forward-walk order N/A under No "
+                             "Logic).\n";
+            } else {
+                std::cout << "[playthrough] RESULT: PASS (No Logic) — beatable: Ganon AND Majora both reachable "
+                             "with full inventory (forward-walk order N/A under No Logic).\n";
+            }
             return 0;
         }
         if (ootNoLogic && r2.majoraReachable) {
@@ -406,8 +437,22 @@ int main(int argc, char** argv) {
             return 2;
         }
     }
+    // #136: goal resolution. --triforce-required wins; otherwise fall back to the menu CVars so a
+    // headless seed reproduces the in-game one.
+    ComboRando::CwGoal goal;
+    if (triforceRequiredArg >= 0) {
+        goal.hunt = triforceRequiredArg > 0;
+        goal.required = triforceRequiredArg;
+    } else if (SOH_ReadComboGoalCVars) {
+        int required = 0;
+        goal.hunt = SOH_ReadComboGoalCVars(&required) != 0;
+        goal.required = goal.hunt ? required : 0;
+    }
     std::cout << "[comborando] validating " << count << " seed(s) from "
-              << (haveMasterSeed ? "masterSeed " + std::to_string(masterSeedArg) : "'" + seed + "'") << "\n";
+              << (haveMasterSeed ? "masterSeed " + std::to_string(masterSeedArg) : "'" + seed + "'")
+              << (goal.hunt ? " (Triforce Hunt, " + std::to_string(goal.required) + " required)"
+                            : std::string(" (both bosses)"))
+              << "\n";
     int failures = 0;
     auto t0 = std::chrono::steady_clock::now();
     for (int i = 0; i < count; ++i) {
@@ -425,8 +470,21 @@ int main(int argc, char** argv) {
                 SOH_SetSeed(masterSeed);
             if (MM_SetSeed)
                 MM_SetSeed(masterSeed);
+            // Before the dumps: the goal shapes OOT's wincon placement and MM's hunt pool.
+            if (SOH_SetComboGoal)
+                SOH_SetComboGoal(goal.hunt ? 1 : 0, goal.required);
+            if (MM_SetComboGoal)
+                MM_SetComboGoal(goal.hunt ? 1 : 0, goal.required);
             sohDump = SOH_Dump();
             mmDump = MM_Dump();
+            if (goal.hunt) {
+                const int pieces = ComboRando::CountPoolTriforcePieces(sohDump, mmDump);
+                if (pieces < goal.required) {
+                    std::cerr << "[comborando] Triforce Hunt needs " << goal.required << " pieces but only " << pieces
+                              << " are in the combined pool — raise the OOT/MM piece sliders\n";
+                    return 2;
+                }
+            }
             std::string forced = SOH_GetForced ? SOH_GetForced(masterSeed) : "";
             // Same placement as RunComboFill: after the dump/forced read, before the fill, so logic
             // validates the shuffled world. No-op when the entrance options are off.
@@ -435,7 +493,8 @@ int main(int argc, char** argv) {
                 continue;
             }
             ComboRando::OotAccess ootAccess = ComboRando::OotAccessFromDump(sohDump);
-            r = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, oot, mmO, nullptr, forced, ootAccess);
+            r = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, oot, mmO, nullptr, forced, ootAccess,
+                                                   goal);
             if (r.success) {
                 // Cross-hint data (Phase 2/3 mirror of RunComboFill, incl. the same area maps so the
                 // WotH/Foolish rollup matches in-game): needs this attempt's still-live oracle session.
@@ -453,13 +512,18 @@ int main(int argc, char** argv) {
                     for (auto& [chk, region] : locHints.items())
                         mmAreas.emplace(chk, region.get<std::string>());
                 } catch (...) {}
-                if (ComboRando::NeedsRequirednessPareDown(sohHintDump, mmDump))
+                const bool noLogic = ootAccess == ComboRando::OotAccess::NO_LOGIC;
+                // A hunt under NO_LOGIC has no meaningful requiredness (see RunComboFill) — skip it.
+                if (goal.hunt && noLogic)
+                    std::cout << "[comborando]   pare-down skipped (No Logic + Triforce Hunt)\n";
+                else if (ComboRando::NeedsRequirednessPareDown(sohHintDump, mmDump))
                     // NO_LOGIC: gate requiredness on MM only (OOT may be unbeatable by design).
                     pareDownResult = ComboRando::PareDownPlaythrough(
                         r.spoilerJson, oot, mmO, nullptr, sohDump, mmDump, ootAreas, mmAreas,
-                        ootAccess == ComboRando::OotAccess::NO_LOGIC ? ComboRando::MmOnlyMajoraGoal
-                                                                     : ComboRando::DefaultGanonMajoraGoal,
-                        ootAccess != ComboRando::OotAccess::NO_LOGIC);
+                        goal.hunt ? ComboRando::MakeTriforceHuntGoal(goal.required)
+                        : noLogic ? ComboRando::MmOnlyMajoraGoal
+                                  : ComboRando::DefaultGanonMajoraGoal,
+                        !noLogic);
                 else
                     std::cout << "[comborando]   pare-down skipped (no enabled hint surface needs requiredness)\n";
             }
@@ -494,6 +558,8 @@ int main(int argc, char** argv) {
                     consolidated["fileType"] = "ComboShipRandomizer";
                     consolidated["seed"] = seed;
                     consolidated["masterSeed"] = masterSeed;
+                    consolidated["goal"] = { { "type", goal.hunt ? "triforceHunt" : "bosses" },
+                                             { "requiredPieces", goal.required } };
                     // ComboShip: suffix cross-game item-name collisions in the placements (parity with
                     // RunComboFill's consolidated writer) so the headless spoiler shows "(OOT)"/"(MM)".
                     nlohmann::json ootPl = fillSpoiler.value("oot", nlohmann::json::object());

@@ -16,6 +16,8 @@ extern "C" void MMAnchor_BroadcastCheckItem(int randoCheckId, int randoItemId);
 // routes a foreign item to the OTHER game's resident save NOW; MMAnchor_BroadcastCrossItem shares it
 // with networked teammates (no-op when Anchor is inactive).
 extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName);
+extern "C" int gMMComboGoalRequired;
+extern "C" int (*gMMComboOtherTriforceCount)(void);
 extern "C" void MMAnchor_BroadcastCrossItem(int targetGame, const char* itemName, const char* srcCheckName);
 #endif
 
@@ -202,11 +204,22 @@ void Rando::MiscBehavior::CheckQueue() {
                             randoItemId = Rando::CurrentJunkItem((RandoCheckId)CUSTOM_ITEM_PARAM);
                         }
                         if (randoItemId == RI_TRIFORCE_PIECE) {
+#ifdef COMBO_BUILD
+                            // ComboShip (#136): the goal counts BOTH games' pieces.
+                            const int comboPieces =
+                                gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces + 1 +
+                                (gMMComboOtherTriforceCount != NULL ? gMMComboOtherTriforceCount() : 0);
+                            if (gMMComboGoalRequired > 0 && comboPieces >= gMMComboGoalRequired) {
+                                prefix = "You";
+                                message = "completed the Triforce";
+                            }
+#else
                             if (gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces + 1 >=
                                 RANDO_SAVE_OPTIONS[RO_TRIFORCE_PIECES_REQUIRED]) {
                                 prefix = "You";
                                 message = "completed the Triforce";
                             }
+#endif
                             randoItemId = RI_TRIFORCE_PIECE_PREVIOUS;
                         }
 

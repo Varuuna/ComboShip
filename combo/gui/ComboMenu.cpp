@@ -936,6 +936,8 @@ void PlandoBuildItems() {
                 std::string n = it.value("name", std::string{});
                 if (n.empty() || !seen.insert(n).second)
                     continue;
+                if (g == ComboRando::GAME_OOT && n == "Triforce")
+                    continue; // OOT's win item: placing it would roll credits outside the combo goal
                 sPlando.items.push_back({ n, g, it.value("advancement", true), n + suf });
             }
         } catch (...) {}
@@ -1584,6 +1586,36 @@ void ComboMenu::DrawComboPanel() {
     ResolveComboGenSyms();
     ImGui::TextWrapped("Generate a cross-world randomizer seed spanning OOT and MM. "
                        "You must Generate before starting a new file.");
+    ImGui::Separator();
+
+    // Goal (#136): one combined win condition; each game's piece slider decides how many it contributes.
+    const ImVec4 goalTheme = ComboRando::ComboMenu_ThemeColor();
+    ImGui::SeparatorText("Goal");
+    bool hunt = CVarGetInteger("gCombo.Rando.TriforceHunt", 0) != 0;
+    ComboRando::ComboMenu_PushCheckbox(goalTheme);
+    if (ImGui::Checkbox("Triforce Hunt", &hunt)) {
+        CVarSetInteger("gCombo.Rando.TriforceHunt", hunt ? 1 : 0);
+    }
+    ComboRando::ComboMenu_PopCheckbox();
+    if (hunt) {
+        int required = CVarGetInteger("gCombo.Rando.TriforceRequired", 15);
+        ImGui::SetNextItemWidth(260.0f);
+        ComboRando::ComboMenu_PushInput(goalTheme);
+        if (ImGui::InputInt("Required pieces (both games)", &required)) {
+            CVarSetInteger("gCombo.Rando.TriforceRequired", required < 1 ? 1 : required);
+        }
+        ComboRando::ComboMenu_PopInput();
+        ImGui::TextDisabled("Collect this many pieces across OOT and MM to finish; bosses are optional.");
+        // The combined count is invisible to both games' own trackers, so combo draws its own line.
+        bool line = CVarGetInteger("gCombo.Tracker.TriforceLine", 1) != 0;
+        ComboRando::ComboMenu_PushCheckbox(goalTheme);
+        if (ImGui::Checkbox("Show combined Triforce counter", &line)) {
+            CVarSetInteger("gCombo.Tracker.TriforceLine", line ? 1 : 0);
+        }
+        ComboRando::ComboMenu_PopCheckbox();
+    } else {
+        ImGui::TextDisabled("Beat Ganon and Majora to finish.");
+    }
     ImGui::Separator();
 
     // Seed field -> shared CVar the generator reads (same source the native file-select

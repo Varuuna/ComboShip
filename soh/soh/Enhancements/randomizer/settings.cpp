@@ -11,6 +11,15 @@
 #include <ship/window/Window.h>
 #include <ship/window/gui/Gui.h>
 
+#ifdef COMBO_BUILD
+// ComboShip (#136): combo owns the win condition (combined Triforce goal), forced in FinalizeSettings.
+// A plain constant, not an #ifdef inside the OPT_CALLBACK macro arguments.
+extern "C" int gComboGoalHunt;
+static constexpr bool kComboOwnsWincon = true;
+#else
+static constexpr bool kComboOwnsWincon = false;
+#endif
+
 namespace Rando {
 std::shared_ptr<Settings> Settings::mInstance;
 
@@ -440,7 +449,8 @@ void Settings::CreateOptions() {
     OPT_U8(RSK_TRIFORCE_HUNT_PIECES_TOTAL, "Triforce Hunt Total Pieces", {NumOpts(0, 100)}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("TriforceHuntTotalPieces"), mOptionDescriptions[RSK_TRIFORCE_HUNT_PIECES_TOTAL], WIDGET_CVAR_SLIDER_INT, 0, false, nullptr, IMFLAG_NONE);
     OPT_CALLBACK(RSK_TRIFORCE_HUNT_PIECES_TOTAL, {
         const uint8_t triforceTotal = CVarGetInteger(CVAR_RANDOMIZER_SETTING("TriforceHuntTotalPieces"), 0);
-        if (triforceTotal == 0) {
+        // ComboShip: the cross-world fill can't honor a dungeon/overworld restriction — forced Anywhere.
+        if (triforceTotal == 0 || kComboOwnsWincon) {
             mOptions[RSK_TRIFORCE_HUNT_PIECES_LOCATION].Hide();
         } else {
             mOptions[RSK_TRIFORCE_HUNT_PIECES_LOCATION].Unhide();
@@ -1262,6 +1272,11 @@ void Settings::CreateOptions() {
         mOptions[RSK_WINCON_DUNGEON_COUNT].Hide();
         mOptions[RSK_WINCON_TOKEN_COUNT].Hide();
         mOptions[RSK_WINCON_TRIFORCE_COUNT].Hide();
+        // ComboShip: combo forces the wincon, so no sub-option is ever offered.
+        if (kComboOwnsWincon) {
+            mOptions[RSK_WINCON].Hide();
+            return;
+        }
         switch (CVarGetInteger(CVAR_RANDOMIZER_SETTING("ShuffleWincon"), RO_WINCON_DEFEAT_GANON)) {
             case RO_WINCON_STONES:
                 mOptions[RSK_WINCON_OPTIONS].Unhide();
@@ -2653,6 +2668,10 @@ void Context::FinalizeSettings(const std::set<RandomizerCheck>& excludedLocation
     // ComboShip: the Happy Mask Shop scene is the OOT->MM portal and never runs, so its hint can never
     // be read — leaving it on would silently burn a hint.
     mOptions[RSK_MASK_SHOP_HINT].Set(RO_GENERIC_OFF);
+    // ComboShip (#136): the launcher owns the goal. Hunt maps to the native Triforce wincon (keeps the
+    // Ganon-skip and parks RG_TRIFORCE on the dump-excluded RC_WINCON); pieces must go anywhere.
+    mOptions[RSK_WINCON].Set(gComboGoalHunt ? RO_WINCON_TRIFORCE_PIECES : RO_WINCON_DEFEAT_GANON);
+    mOptions[RSK_TRIFORCE_HUNT_PIECES_LOCATION].Set(RO_TRIFORCE_HUNT_LOCATION_ANYWHERE);
 #endif
     // ComboShip: (#133/#134) sub-options are meaningless without their parents
     if (!mOptions[RSK_LOCK_OVERWORLD_DOORS]) {

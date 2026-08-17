@@ -594,6 +594,10 @@ int main(int argc, char** argv) {
                     auto pricesOf = [](const std::string& dump) {
                         return nlohmann::json::parse(dump).value("prices", nlohmann::json::object());
                     };
+                    // OOT's curated ice-trap disguise set (parity with RunComboFill's writer).
+                    auto iceTrapModelsOf = [](const std::string& dump) {
+                        return nlohmann::json::parse(dump).value("iceTrapModels", nlohmann::json::array());
+                    };
                     nlohmann::json consolidated;
                     consolidated["fileType"] = "ComboShipRandomizer";
                     consolidated["seed"] = seed;
@@ -612,7 +616,8 @@ int main(int argc, char** argv) {
                                                                    ? nlohmann::json::parse(SOH_DumpEnabledTricks())
                                                                    : nlohmann::json::array() },
                                             { "placements", ootPl },
-                                            { "prices", pricesOf(sohDump) } };
+                                            { "prices", pricesOf(sohDump) },
+                                            { "iceTrapModels", iceTrapModelsOf(sohDump) } };
                     consolidated["mm"] = { { "settings", nlohmann::json::parse(MM_DumpSettings()) },
                                            { "placements", mmPl },
                                            { "prices", pricesOf(mmDump) } };

@@ -101,12 +101,16 @@ int main(int argc, char** argv) {
     uint32_t masterSeedArg = 0;
     // #136: combined goal. Absent => read the menu CVars (matches in-game); 0 => force bosses.
     int triforceRequiredArg = -1;
+    // #136: combined pool total. Absent (-1) => the menu CVar, or `required` when that is overridden.
+    int triforceTotalArg = -1;
     // #135: starting game. Absent (-1) => read the menu CVar, same as in-game.
     int startingGameArg = -1;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--triforce-required" && i + 1 < argc)
             triforceRequiredArg = std::atoi(argv[++i]);
+        else if (a == "--triforce-total" && i + 1 < argc)
+            triforceTotalArg = std::atoi(argv[++i]);
         else if (a == "--starting-game" && i + 1 < argc) {
             std::string v = argv[++i];
             startingGameArg = v == "oot" ? 0 : v == "mm" ? 1 : v == "random" ? 2 : -2;
@@ -159,9 +163,9 @@ int main(int argc, char** argv) {
     auto SOH_SetCheckPrices = Sym<FnTakeStr>(soh, "SOH_SetCheckPrices");
     auto MM_SetCheckPrices = Sym<FnTakeStr>(mm, "MM_SetCheckPrices");
     // #136: combined goal — must be pushed before every dump (it shapes both games' pools).
-    auto SOH_SetComboGoal = Sym<void (*)(int, int)>(soh, "SOH_SetComboGoal");
-    auto MM_SetComboGoal = Sym<void (*)(int, int)>(mm, "MM_SetComboGoal");
-    auto SOH_ReadComboGoalCVars = Sym<int (*)(int*)>(soh, "SOH_ReadComboGoalCVars");
+    auto SOH_SetComboGoal = Sym<void (*)(int, int, int)>(soh, "SOH_SetComboGoal");
+    auto MM_SetComboGoal = Sym<void (*)(int, int, int)>(mm, "MM_SetComboGoal");
+    auto SOH_ReadComboGoalCVars = Sym<int (*)(int*, int*)>(soh, "SOH_ReadComboGoalCVars");
     // #135: starting game — also pushed before every dump (it forces OOT's age/forest/exclusions).
     auto SOH_SetComboStartingGame = Sym<void (*)(int)>(soh, "SOH_SetComboStartingGame");
     auto SOH_ReadComboStartingGameCVar = Sym<int (*)(void)>(soh, "SOH_ReadComboStartingGameCVar");
@@ -214,6 +218,7 @@ int main(int argc, char** argv) {
             auto g = spoiler.value("goal", nlohmann::json::object());
             goal.hunt = g.value("type", std::string("bosses")) == "triforceHunt";
             goal.required = goal.hunt ? g.value("requiredPieces", 0) : 0;
+            goal.total = g.value("totalPieces", -1); // absent on seeds made before the combined total
         }
         // #135: the seed's starting game. Absent on old spoilers, which all started in OOT.
         const bool mmStart = spoiler.value("startingGame", std::string("OOT")) == "MM";
@@ -257,9 +262,9 @@ int main(int argc, char** argv) {
             if (MM_SetSeed)
                 MM_SetSeed(masterSeed);
             if (SOH_SetComboGoal)
-                SOH_SetComboGoal(goal.hunt ? 1 : 0, goal.required);
+                SOH_SetComboGoal(goal.hunt ? 1 : 0, goal.required, ComboRando::CwOotPieces(goal.total));
             if (MM_SetComboGoal)
-                MM_SetComboGoal(goal.hunt ? 1 : 0, goal.required);
+                MM_SetComboGoal(goal.hunt ? 1 : 0, goal.required, ComboRando::CwMmPieces(goal.total));
             if (SOH_SetComboStartingGame)
                 SOH_SetComboStartingGame(mmStart ? 1 : 0);
             // A real in-game save's placement map lists only SHUFFLED checks; non-shuffled items the
@@ -468,19 +473,25 @@ int main(int argc, char** argv) {
     ComboRando::CwGoal goal;
     if (triforceRequiredArg >= 0) {
         goal.hunt = triforceRequiredArg > 0;
-        goal.required = triforceRequiredArg;
+        goal.required = std::min(triforceRequiredArg, ComboRando::kMaxComboTriforcePieces);
+        // --triforce-total wins; else default the pool to exactly what the goal needs.
+        goal.total = std::max(triforceTotalArg, goal.required);
     } else if (SOH_ReadComboGoalCVars) {
-        int required = 0;
-        goal.hunt = SOH_ReadComboGoalCVars(&required) != 0;
+        int required = 0, total = -1;
+        goal.hunt = SOH_ReadComboGoalCVars(&required, &total) != 0;
         goal.required = goal.hunt ? required : 0;
+        goal.total = triforceTotalArg > 0 ? std::max(triforceTotalArg, goal.required) : total;
     }
+    // Same cap the DLLs apply per game, so the recorded totalPieces can't disagree with the pools.
+    goal.total = std::clamp(goal.total, goal.required, ComboRando::kMaxComboTriforcePieces);
     // #135: same fallback order — the flag wins, else the menu CVar.
     const int startCfg = startingGameArg >= 0            ? startingGameArg
                          : SOH_ReadComboStartingGameCVar ? SOH_ReadComboStartingGameCVar()
                                                          : 0;
     std::cout << "[comborando] validating " << count << " seed(s) from "
               << (haveMasterSeed ? "masterSeed " + std::to_string(masterSeedArg) : "'" + seed + "'")
-              << (goal.hunt ? " (Triforce Hunt, " + std::to_string(goal.required) + " required)"
+              << (goal.hunt ? " (Triforce Hunt, " + std::to_string(goal.required) + " of " +
+                                  std::to_string(goal.total) + " pieces)"
                             : std::string(" (both bosses)"))
               << (startCfg == 1   ? ", starting game MM"
                   : startCfg == 2 ? ", starting game random"
@@ -508,9 +519,9 @@ int main(int argc, char** argv) {
                 MM_SetSeed(masterSeed);
             // Before the dumps: the goal shapes OOT's wincon placement and MM's hunt pool.
             if (SOH_SetComboGoal)
-                SOH_SetComboGoal(goal.hunt ? 1 : 0, goal.required);
+                SOH_SetComboGoal(goal.hunt ? 1 : 0, goal.required, ComboRando::CwOotPieces(goal.total));
             if (MM_SetComboGoal)
-                MM_SetComboGoal(goal.hunt ? 1 : 0, goal.required);
+                MM_SetComboGoal(goal.hunt ? 1 : 0, goal.required, ComboRando::CwMmPieces(goal.total));
             // Same reason (#135): an MM start forces OOT's age/forest/exclusions.
             if (SOH_SetComboStartingGame)
                 SOH_SetComboStartingGame(mmStart ? 1 : 0);
@@ -520,7 +531,7 @@ int main(int argc, char** argv) {
                 const int pieces = ComboRando::CountPoolTriforcePieces(sohDump, mmDump);
                 if (pieces < goal.required) {
                     std::cerr << "[comborando] Triforce Hunt needs " << goal.required << " pieces but only " << pieces
-                              << " are in the combined pool — raise the OOT/MM piece sliders\n";
+                              << " are in the combined pool — raise --triforce-total / the Combo pool total\n";
                     return 2;
                 }
             }
@@ -603,7 +614,8 @@ int main(int argc, char** argv) {
                     consolidated["seed"] = seed;
                     consolidated["masterSeed"] = masterSeed;
                     consolidated["goal"] = { { "type", goal.hunt ? "triforceHunt" : "bosses" },
-                                             { "requiredPieces", goal.required } };
+                                             { "requiredPieces", goal.required },
+                                             { "totalPieces", goal.total } };
                     consolidated["startingGame"] = resolvedMmStart ? "MM" : "OOT"; // #135
                     // ComboShip: suffix cross-game item-name collisions in the placements (parity with
                     // RunComboFill's consolidated writer) so the headless spoiler shows "(OOT)"/"(MM)".

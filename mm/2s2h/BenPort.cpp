@@ -2753,6 +2753,7 @@ static void Combo_MM_ApplyCheckPrices();
 // Triforce options from these — combo owns the goal and MM's own CVars are hidden in combo builds.
 extern "C" int gMMComboGoalHunt;
 extern "C" int gMMComboGoalRequired;
+extern "C" int gMMComboGoalPieces;
 
 // Combo master seed for MM's RNG, mirroring OOT's SOH_SetComboRandoSeed so confined placement
 // (PreplaceConfinedItems, via Ship_Random) is reproducible per seed.
@@ -2826,6 +2827,10 @@ extern "C" __declspec(dllexport) int MM_InitRandoSaveFile(int fileNum, const cha
             (uint32_t)(gMMComboGoalHunt ? RO_GENERIC_YES : RO_GENERIC_NO);
         if (gMMComboGoalHunt) {
             options[Rando::StaticData::Options[RO_TRIFORCE_PIECES_REQUIRED].name] = (uint32_t)gMMComboGoalRequired;
+            // #136: MM's half of the combined total; -1 = old seed, keep the CVar.
+            if (gMMComboGoalPieces >= 0) {
+                options[Rando::StaticData::Options[RO_TRIFORCE_PIECES_MAX].name] = (uint32_t)gMMComboGoalPieces;
+            }
         }
         spoiler["options"] = options;
         spoiler["startingItems"] = nlohmann::json::array();
@@ -3812,6 +3817,11 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_Reset(void) {
     if (gMMComboGoalHunt) {
         gSaveContext.save.shipSaveInfo.rando.randoSaveOptions[RO_TRIFORCE_PIECES_REQUIRED] =
             (uint32_t)gMMComboGoalRequired;
+        // #136: MM's half of the combined total; -1 = old seed, keep the CVar.
+        if (gMMComboGoalPieces >= 0) {
+            gSaveContext.save.shipSaveInfo.rando.randoSaveOptions[RO_TRIFORCE_PIECES_MAX] =
+                (uint32_t)gMMComboGoalPieces;
+        }
     }
 
     // ComboShip: grant the seed's STARTING ITEMS into the oracle inventory. These aren't in the
@@ -4013,9 +4023,13 @@ extern "C" __declspec(dllexport) void MM_SetFinalBossDefeatedCb(int (*cb)(int, i
 // hunt=0 means the normal both-bosses goal; required is the combined piece count.
 extern "C" int gMMComboGoalHunt = 0;
 extern "C" int gMMComboGoalRequired = 0;
-extern "C" __declspec(dllexport) void MM_SetComboGoal(int hunt, int required) {
+// This game's share of the combined piece total, forced at every save-option build site.
+// -1 = unset (old seed), so MM's own slider decides.
+extern "C" int gMMComboGoalPieces = -1;
+extern "C" __declspec(dllexport) void MM_SetComboGoal(int hunt, int required, int pieces) {
     gMMComboGoalHunt = hunt ? 1 : 0;
     gMMComboGoalRequired = gMMComboGoalHunt ? required : 0;
+    gMMComboGoalPieces = pieces < 0 ? -1 : (pieces > 100 ? 100 : pieces); // same 0..100 cap as OOT's
 }
 extern "C" __declspec(dllexport) int MM_GetTriforcePieceCount(void) {
     return gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces;

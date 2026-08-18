@@ -1614,14 +1614,25 @@ void ComboMenu::DrawComboPanel() {
     }
     ComboRando::ComboMenu_PopCheckbox();
     if (hunt) {
-        int required = CVarGetInteger("gCombo.Rando.TriforceRequired", 15);
-        ImGui::SetNextItemWidth(260.0f);
+        const int kMaxPieces = ComboRando::kMaxComboTriforcePieces;
+        int required = std::clamp(CVarGetInteger("gCombo.Rando.TriforceRequired", 15), 1, kMaxPieces);
+        int total = std::clamp(CVarGetInteger("gCombo.Rando.TriforceTotal", 15), required, kMaxPieces);
         ComboRando::ComboMenu_PushInput(goalTheme);
+        ImGui::SetNextItemWidth(260.0f);
         if (ImGui::InputInt("Required pieces (both games)", &required)) {
-            CVarSetInteger("gCombo.Rando.TriforceRequired", required < 1 ? 1 : required);
+            required = std::clamp(required, 1, kMaxPieces);
+            CVarSetInteger("gCombo.Rando.TriforceRequired", required);
+            if (total < required) {
+                CVarSetInteger("gCombo.Rando.TriforceTotal", required); // total can never sit below required
+            }
+        }
+        ImGui::SetNextItemWidth(260.0f);
+        if (ImGui::InputInt("Pieces in the pool (both games)", &total)) {
+            CVarSetInteger("gCombo.Rando.TriforceTotal", std::clamp(total, required, kMaxPieces));
         }
         ComboRando::ComboMenu_PopInput();
         ImGui::TextDisabled("Collect this many pieces across OOT and MM to finish; bosses are optional.");
+        ImGui::TextDisabled("The pool total is split evenly between the two games (OOT takes the odd one).");
         // The combined count is invisible to both games' own trackers, so combo draws its own line.
         bool line = CVarGetInteger("gCombo.Tracker.TriforceLine", 1) != 0;
         ComboRando::ComboMenu_PushCheckbox(goalTheme);

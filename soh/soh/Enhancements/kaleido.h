@@ -123,17 +123,18 @@ class KaleidoEntryIconCountRequired final : public KaleidoEntryIcon {
      * @param flag flag to check for. An integer can be provided but enum values should be preferred
      * @param x x coordinate of the location to draw this relative to the parent matrix's origin.
      * @param y y coordinate of the location to draw this relative to the parent matrix's origin.
-     * @param watch a pointer to an integer value to watch. Update will check this value to update
+     * @param watch a pointer to the u8 counter to watch. Update will check this value to update
      * a local count variable.
      * @param required The amount of this collectible required to beat the seed. Set to 0 to not render.
      * @param total The amount of this collectible available in the seed. Set to 0 to not render.
      */
     KaleidoEntryIconCountRequired(const char* iconResourceName, int iconFormat, int iconSize, int iconWidth,
-                                  int iconHeight, Color_RGBA8 iconColor, int* watch, int required = 0, int total = 0);
+                                  int iconHeight, Color_RGBA8 iconColor, const u8* watch, int required = 0,
+                                  int total = 0);
     void Update(PlayState* play) override;
 
   private:
-    int* mWatch;
+    const u8* mWatch;
     int mRequired;
     int mTotal;
     int mCount;

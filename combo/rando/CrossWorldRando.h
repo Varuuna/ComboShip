@@ -87,7 +87,20 @@ inline constexpr const char* kMmTriforcePiece = "Piece of the Triforce";
 struct CwGoal {
     bool hunt = false;
     int required = 0;
+    int total = -1; // combined pieces placed; -1 = unset (seed predates the combo-owned total)
 };
+
+// Even split of the combined total across the two pools; OOT takes the odd piece. -1 passes through
+// so each game keeps its own slider (old seeds).
+inline int CwOotPieces(int total) {
+    return total < 0 ? -1 : total - total / 2;
+}
+inline int CwMmPieces(int total) {
+    return total < 0 ? -1 : total / 2;
+}
+// Ceiling on the combined total. OOT's pool can't absorb its half much past this (100/100 trips
+// item_pool.cpp's itemPool <= locCount assert); 50/50 is verified to generate.
+inline constexpr int kMaxComboTriforcePieces = 100;
 
 inline bool CwIsTriforcePiece(GameId itemGame, const std::string& itemName) {
     return itemName == (itemGame == GAME_OOT ? kOotTriforcePiece : kMmTriforcePiece);

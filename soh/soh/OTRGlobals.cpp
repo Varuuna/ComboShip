@@ -4798,6 +4798,12 @@ extern "C" __declspec(dllexport) int SOH_GetComboGenPercent(void) {
     return total > 0 ? static_cast<int>((100LL * placed) / total) : 0;
 }
 
+// Current generation phase (ComboGenProgress: 0 Idle, 1 Preparing, 2 Placing, 3 Finalizing), so the
+// C file-select can label the post-fill work instead of showing "Generating..." forever.
+extern "C" __declspec(dllexport) int SOH_GetComboGenPhase(void) {
+    return gComboProgressPtr ? gComboProgressPtr->phase.load() : 0;
+}
+
 extern "C" __declspec(dllexport) void SOH_SetOnComboFinalizeCallback(int (*cb)()) {
     gComboFinalizeCallback = cb;
 }

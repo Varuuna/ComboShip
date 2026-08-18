@@ -3126,9 +3126,13 @@ extern "C" __declspec(dllexport) void SOH_SetFinalBossDefeatedCb(int (*cb)(int, 
 // pushes it here. hunt=0 means the normal both-bosses goal; required is the combined piece count.
 extern "C" int gComboGoalHunt = 0;
 extern "C" int gComboGoalRequired = 0;
-extern "C" __declspec(dllexport) void SOH_SetComboGoal(int hunt, int required) {
+// This game's share of the combined piece total, forced in FinalizeSettings. -1 = unset (old seed),
+// so OOT's own slider decides. Clamped to the option's 0..100 range.
+extern "C" int gComboGoalPieces = -1;
+extern "C" __declspec(dllexport) void SOH_SetComboGoal(int hunt, int required, int pieces) {
     gComboGoalHunt = hunt ? 1 : 0;
     gComboGoalRequired = gComboGoalHunt ? required : 0;
+    gComboGoalPieces = pieces < 0 ? -1 : (pieces > 100 ? 100 : pieces);
 }
 // The goal currently in force (comboui reads it for the combined-progress readout). Returns hunt on/off.
 extern "C" __declspec(dllexport) int SOH_GetComboGoal(int* required) {
@@ -3138,10 +3142,18 @@ extern "C" __declspec(dllexport) int SOH_GetComboGoal(int* required) {
     return gComboGoalHunt;
 }
 // Menu-authored goal CVars, read here because the launcher has no CVar access. Returns hunt on/off.
-extern "C" __declspec(dllexport) int SOH_ReadComboGoalCVars(int* required) {
+extern "C" __declspec(dllexport) int SOH_ReadComboGoalCVars(int* required, int* total) {
     const int hunt = CVarGetInteger("gCombo.Rando.TriforceHunt", 0) != 0 ? 1 : 0;
+    int req = CVarGetInteger("gCombo.Rando.TriforceRequired", 15);
+    int tot = CVarGetInteger("gCombo.Rando.TriforceTotal", 15);
+    // 100 = CrossWorldRando.h kMaxComboTriforcePieces (past that OOT's half overflows its item pool).
+    req = std::clamp(req, 1, 100);
+    tot = std::clamp(tot, req, 100);
     if (required != NULL) {
-        *required = hunt ? CVarGetInteger("gCombo.Rando.TriforceRequired", 15) : 0;
+        *required = hunt ? req : 0;
+    }
+    if (total != NULL) {
+        *total = tot; // the hunt-off force to 0 pieces happens game-side, so report the raw total
     }
     return hunt;
 }
@@ -4360,16 +4372,8 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
                 return { "RHT_WINCON_DUNGEONS_HINT", ctx->GetOption(RSK_WINCON_DUNGEON_COUNT).Get() };
             if (o.Is(RO_WINCON_TOKENS))
                 return { "RHT_WINCON_TOKENS_HINT", ctx->GetOption(RSK_WINCON_TOKEN_COUNT).Get() };
-            if (o.Is(RO_WINCON_TRIFORCE_PIECES)) {
-#ifdef COMBO_BUILD
-                // ComboShip (#136): the goal spans both games; the native option only holds OOT's count.
-                return { "RHT_WINCON_TRIFORCE_PIECES_HINT",
-                         gComboGoalRequired > 0 ? gComboGoalRequired
-                                                : (int)ctx->GetOption(RSK_WINCON_TRIFORCE_COUNT).Get() };
-#else
+            if (o.Is(RO_WINCON_TRIFORCE_PIECES))
                 return { "RHT_WINCON_TRIFORCE_PIECES_HINT", ctx->GetOption(RSK_WINCON_TRIFORCE_COUNT).Get() };
-#endif
-            }
             return { "", 0 };
         }();
         const char* doorOfTimeKey =

@@ -4,9 +4,6 @@
 #include <spdlog/spdlog.h>
 #include "static_data.h"
 #include "rng.h"
-#ifdef COMBO_BUILD
-extern "C" int gComboGoalRequired;
-#endif
 
 namespace Rando {
 Hint::Hint() {
@@ -669,13 +666,8 @@ CustomMessage Hint::GetWinconText() {
         winconMessage.InsertNumber(ctx->GetOption(RSK_WINCON_TOKEN_COUNT).Get());
     } else if (ctx->GetOption(RSK_WINCON).Is(RO_WINCON_TRIFORCE_PIECES)) {
         winconMessage = StaticData::hintTextTable[RHT_WINCON_TRIFORCE_PIECES_HINT].GetHintMessage();
-#ifdef COMBO_BUILD
-        // ComboShip (#136): the goal spans both games; the native option only holds OOT's count.
-        winconMessage.InsertNumber(gComboGoalRequired > 0 ? gComboGoalRequired
-                                                          : ctx->GetOption(RSK_WINCON_TRIFORCE_COUNT).Get());
-#else
+        // ComboShip (#136): combo forces this option to the COMBINED required count (settings.cpp).
         winconMessage.InsertNumber(ctx->GetOption(RSK_WINCON_TRIFORCE_COUNT).Get());
-#endif
     }
     return winconMessage;
 }

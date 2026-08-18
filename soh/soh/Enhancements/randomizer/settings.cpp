@@ -15,11 +15,28 @@
 // ComboShip (#136): combo owns the win condition (combined Triforce goal), forced in FinalizeSettings.
 // A plain constant, not an #ifdef inside the OPT_CALLBACK macro arguments.
 extern "C" int gComboGoalHunt;
+// ComboShip (#136): the combined required count, and this game's share of the combo-owned piece
+// total (-1 = unset, i.e. a seed generated before combo owned it).
+extern "C" int gComboGoalRequired;
+extern "C" int gComboGoalPieces;
 // ComboShip (#135): 1 when the resolved starting game is MM, which forces age/forest/exclusions below.
 extern "C" int gComboStartingGameMM;
 static constexpr bool kComboOwnsWincon = true;
+// ComboShip (#136): OOT's half of the combo-owned pool, for the menu-side dependent-count ranges.
+// Mirrors CwOotPieces in combo/rando/CrossWorldRando.h — the two splits must stay identical.
+static uint8_t ComboOotTriforceTotal() {
+    if (CVarGetInteger("gCombo.Rando.TriforceHunt", 0) == 0) {
+        return 0;
+    }
+    int total = CVarGetInteger("gCombo.Rando.TriforceTotal", 15);
+    total = total < 1 ? 1 : (total > 100 ? 100 : total); // 100 = kMaxComboTriforcePieces
+    return static_cast<uint8_t>(total - total / 2);      // OOT takes the odd piece
+}
 #else
 static constexpr bool kComboOwnsWincon = false;
+static uint8_t ComboOotTriforceTotal() {
+    return 0; // never reached (kComboOwnsWincon is false), but the call site is a runtime if
+}
 #endif
 
 namespace Rando {
@@ -456,12 +473,18 @@ void Settings::CreateOptions() {
     // positive value adds that many Triforce Pieces to the pool and unlocks the pieces-location option.
     OPT_U8(RSK_TRIFORCE_HUNT_PIECES_TOTAL, "Triforce Hunt Total Pieces", {NumOpts(0, 100)}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("TriforceHuntTotalPieces"), mOptionDescriptions[RSK_TRIFORCE_HUNT_PIECES_TOTAL], WIDGET_CVAR_SLIDER_INT, 0, false, nullptr, IMFLAG_NONE);
     OPT_CALLBACK(RSK_TRIFORCE_HUNT_PIECES_TOTAL, {
-        const uint8_t triforceTotal = CVarGetInteger(CVAR_RANDOMIZER_SETTING("TriforceHuntTotalPieces"), 0);
+        uint8_t triforceTotal = CVarGetInteger(CVAR_RANDOMIZER_SETTING("TriforceHuntTotalPieces"), 0);
         // ComboShip: the cross-world fill can't honor a dungeon/overworld restriction — forced Anywhere.
         if (triforceTotal == 0 || kComboOwnsWincon) {
             mOptions[RSK_TRIFORCE_HUNT_PIECES_LOCATION].Hide();
         } else {
             mOptions[RSK_TRIFORCE_HUNT_PIECES_LOCATION].Unhide();
+        }
+        // ComboShip (#136): the combo menu owns the total, so hide this slider and range the dependent
+        // counts below against OOT's forced share instead of this (now dead) CVar.
+        if (kComboOwnsWincon) {
+            mOptions[RSK_TRIFORCE_HUNT_PIECES_TOTAL].Hide();
+            triforceTotal = ComboOotTriforceTotal();
         }
         if (mOptions[RSK_RAINBOW_BRIDGE_TRIFORCE_COUNT].GetOptionCount() != triforceTotal + 1) {
             mOptions[RSK_RAINBOW_BRIDGE_TRIFORCE_COUNT].ChangeOptions(NumOpts(0, triforceTotal));
@@ -2680,6 +2703,25 @@ void Context::FinalizeSettings(const std::set<RandomizerCheck>& excludedLocation
     // Ganon-skip and parks RG_TRIFORCE on the dump-excluded RC_WINCON); pieces must go anywhere.
     mOptions[RSK_WINCON].Set(gComboGoalHunt ? RO_WINCON_TRIFORCE_PIECES : RO_WINCON_DEFEAT_GANON);
     mOptions[RSK_TRIFORCE_HUNT_PIECES_LOCATION].Set(RO_TRIFORCE_HUNT_LOCATION_ANYWHERE);
+    // ComboShip (#136): the goal is combined, so the per-game triforce UI (kaleido, item tracker,
+    // altar hint) must show the COMBINED required count, not OOT's share. Safe to force: the native
+    // win trigger is COMBO_BUILD'd out (hook_handlers.cpp) and this only otherwise gates RC_WINCON,
+    // which the combo dump excludes.
+    mOptions[RSK_WINCON_TRIFORCE_COUNT].Set((uint8_t)gComboGoalRequired);
+    // OOT's half of the combined total (0 when the hunt is off, so a stale slider value can't leak
+    // pieces into a both-bosses pool). -1 = old seed, leave the slider alone.
+    if (gComboGoalPieces >= 0) {
+        const uint8_t ootPieces = gComboGoalHunt ? (uint8_t)gComboGoalPieces : (uint8_t)0;
+        mOptions[RSK_TRIFORCE_HUNT_PIECES_TOTAL].Set(ootPieces);
+        // The forced total bypasses RSK_TRIFORCE_HUNT_PIECES_TOTAL's callback, so mirror its clamp:
+        // these triggers count OOT-LOCAL pieces, and asking for more than OOT's pool holds is unwinnable.
+        for (const RandomizerSettingKey key :
+             { RSK_RAINBOW_BRIDGE_TRIFORCE_COUNT, RSK_GBK_TRIFORCE_COUNT, RSK_GANONS_SOUL_TRIFORCE_COUNT }) {
+            if (mOptions[key].Get() > ootPieces) {
+                mOptions[key].Set(ootPieces);
+            }
+        }
+    }
     // ComboShip (#135): an MM start must leave OOT enterable from nothing — the Clock Tower door lands
     // an itemless child outside the Mask Shop, and an itemless child must be able to leave the forest.
     if (gComboStartingGameMM) {

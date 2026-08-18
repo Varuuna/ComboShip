@@ -51,6 +51,18 @@ void ComboTracker::SyncAppearance() {
     CVarSetInteger("gTrackers.ItemTracker.Draggable", drag);
     CVarSetInteger("gSettings.ItemTracker.Draggable", drag);
 
+    // Only while paused: OOT has a bool (effective in floating mode only, upstream); MM expresses it
+    // as VisibilityMode 1 — its button modes (2/3) aren't reachable from the shared toggle.
+    // Arrived after the first-run seed — latch separately, adopting OOT's bool (MM's 2/3 don't map).
+    if (!CVarGetInteger("gCombo.Tracker.OnlyPausedSeeded", 0)) {
+        CVarSetInteger("gCombo.Tracker.OnlyPausedSeeded", 1);
+        CVarSetInteger("gCombo.Tracker.OnlyPaused",
+                       CVarGetInteger("gTrackers.ItemTracker.ShowOnlyPaused", kDefaultOnlyPaused));
+    }
+    int onlyPaused = CVarGetInteger("gCombo.Tracker.OnlyPaused", kDefaultOnlyPaused) != 0 ? 1 : 0;
+    CVarSetInteger("gTrackers.ItemTracker.ShowOnlyPaused", onlyPaused);
+    CVarSetInteger("gSettings.ItemTracker.VisibilityMode", onlyPaused);
+
     // Check Tracker window type (0 = floating overlay, 1 = window): OOT native; MM's tracker has
     // no native window-type CVar — its COMBO_BUILD seam reads the canonical CVar directly.
     if (!CVarGetInteger("gCombo.CheckTracker.Seeded", 0)) {

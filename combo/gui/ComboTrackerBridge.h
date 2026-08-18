@@ -19,6 +19,7 @@ inline constexpr int kDefaultIconSpacing = 12;
 inline constexpr float kDefaultOpacity = 0.0f;
 inline constexpr int kDefaultWindowType = 0;
 inline constexpr int kDefaultDraggable = 1;
+inline constexpr int kDefaultOnlyPaused = 0;
 inline constexpr int kDefaultCheckWindowType = 1; // TRACKER_WINDOW_WINDOW — OOT's check tracker default
 
 // Push all canonical gCombo.Tracker.* values into both games' CVars (seeding them from OOT on

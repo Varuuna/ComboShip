@@ -2715,8 +2715,8 @@ void Context::FinalizeSettings(const std::set<RandomizerCheck>& excludedLocation
         mOptions[RSK_TRIFORCE_HUNT_PIECES_TOTAL].Set(ootPieces);
         // The forced total bypasses RSK_TRIFORCE_HUNT_PIECES_TOTAL's callback, so mirror its clamp:
         // these triggers count OOT-LOCAL pieces, and asking for more than OOT's pool holds is unwinnable.
-        for (const RandomizerSettingKey key : { RSK_RAINBOW_BRIDGE_TRIFORCE_COUNT, RSK_GBK_TRIFORCE_COUNT,
-                                                RSK_GANONS_SOUL_TRIFORCE_COUNT }) {
+        for (const RandomizerSettingKey key :
+             { RSK_RAINBOW_BRIDGE_TRIFORCE_COUNT, RSK_GBK_TRIFORCE_COUNT, RSK_GANONS_SOUL_TRIFORCE_COUNT }) {
             if (mOptions[key].Get() > ootPieces) {
                 mOptions[key].Set(ootPieces);
             }

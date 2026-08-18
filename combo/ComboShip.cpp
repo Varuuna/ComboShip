@@ -1197,8 +1197,13 @@ static std::filesystem::path WriteComboSpoiler(const nlohmann::json& fileHash, c
 // ComboShip: mark a spoiler as the one a restart reloads. MAIN THREAD ONLY — this writes a CVar and
 // saves the config, and libultraship's ConsoleVariable map is unlocked (same race as the apply below).
 static void RememberComboSpoiler(const std::filesystem::path& path) {
-    if (SOH_SetComboSpoilerPath && !path.empty())
-        SOH_SetComboSpoilerPath(path.string().c_str());
+    if (!SOH_SetComboSpoilerPath || path.empty())
+        return;
+    // Absolute: WriteComboSpoiler returns a CWD-relative path, which stops resolving if the game is
+    // ever launched from another directory (shortcut, launcher, debugger).
+    std::error_code ec;
+    auto abs = std::filesystem::absolute(path, ec);
+    SOH_SetComboSpoilerPath((ec ? path : abs).string().c_str());
 }
 
 // ComboShip: a silent auto-reload must not let the pending seed's settings overwrite the user's
@@ -1411,7 +1416,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
                                                     goal.hunt ? ComboRando::MakeTriforceHuntGoal(goal.required)
                                                     : noLogic ? ComboRando::MmOnlyMajoraGoal
                                                               : ComboRando::DefaultGanonMajoraGoal,
-                                                    !noLogic, mmStart);
+                                                    !noLogic, mmStart, progress);
             } else {
                 std::cout << "[ComboShip] RunComboFill: pare-down skipped (no enabled hint surface needs "
                              "requiredness)\n";
@@ -1917,6 +1922,68 @@ static int Combo_PollFinalize() {
     return (g_ComboProgress.done.load() && !g_GenerateBusy.load()) ? 1 : 0;
 }
 
+// ComboShip: read a candidate consolidated seed file. True only if it opens, parses and is ours.
+static bool TryLoadComboSeedFile(const std::filesystem::path& p, nlohmann::json& out) {
+    std::ifstream in(p);
+    if (!in.is_open())
+        return false;
+    try {
+        nlohmann::json j;
+        in >> j;
+        if (j.value("fileType", std::string()) != "ComboShipRandomizer") {
+            std::cerr << "[ComboShip] reload: " << p.string() << " is not a ComboShip seed file\n";
+            return false;
+        }
+        out = std::move(j);
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "[ComboShip] reload: could not parse " << p.string() << ": " << e.what() << "\n";
+        return false;
+    }
+}
+
+// ComboShip: a stored-relative path (or one from a different CWD) also gets tried next to the exe.
+static std::filesystem::path ResolveComboSeedPath(const std::string& file) {
+    std::filesystem::path p(file);
+    std::error_code ec;
+    if (std::filesystem::exists(p, ec))
+        return p;
+#ifdef _WIN32
+    // Wide API: the ANSI variant mangles non-ASCII install paths (e.g. accented user names) to '?'.
+    wchar_t exe[MAX_PATH] = { 0 };
+    if (GetModuleFileNameW(nullptr, exe, MAX_PATH)) {
+        const auto dir = std::filesystem::path(exe).parent_path();
+        // A relative path re-rooted at the exe; a moved absolute one by name under the seed dir.
+        for (const auto& alt : { dir / p.relative_path(), dir / ComboRando::ConsolidatedDir() / p.filename() })
+            if (std::filesystem::exists(alt, ec))
+                return alt;
+    }
+#endif
+    return p;
+}
+
+// ComboShip: newest readable combo seed in the Randomizer dir — recovers an auto-load when the
+// remembered path is lost (e.g. a wiped CVar) while the seed files are still there.
+static std::filesystem::path FindNewestComboSeed(nlohmann::json& out) {
+    std::error_code ec;
+    std::vector<std::pair<std::filesystem::file_time_type, std::filesystem::path>> found;
+    for (const auto& dir :
+         { ComboRando::ConsolidatedDir(), ResolveComboSeedPath(ComboRando::ConsolidatedDir().string()) }) {
+        for (std::filesystem::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+            if (!it->is_regular_file(ec) || it->path().extension() != ".json")
+                continue;
+            found.emplace_back(std::filesystem::last_write_time(it->path(), ec), it->path());
+        }
+        if (!found.empty())
+            break;
+    }
+    std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+    for (const auto& [t, p] : found)
+        if (TryLoadComboSeedFile(p, out))
+            return p;
+    return {};
+}
+
 // ComboShip: reload a consolidated seed file (the remembered pending file when path is null/empty, or
 // a dropped file) and make it playable WITHOUT regenerating. Runs synchronously on the MAIN thread
 // (called from the file-select), so the gSaveContext-mutating apply is safe. Restores both games'
@@ -1924,29 +1991,59 @@ static int Combo_PollFinalize() {
 // placements, and keeps the consolidated JSON in memory so "Start Randomizer" writes the per-slot
 // file. Returns 1 on success. The hash string is recomputed from displaySeed for the per-slot name.
 static int Combo_OnReloadRequest(const char* path) {
-    if (g_GenerateBusy.load() || g_ComboPendingFinalize.load())
+    if (g_GenerateBusy.load() || g_ComboPendingFinalize.load()) {
+        std::cerr << "[ComboShip] reload: skipped — a generation is in flight\n";
         return 0; // a generation is in flight — don't race it
+    }
     // A null/empty path is the silent first-frame auto-reload; a non-empty path is an explicit drop
     // (a deliberate seed switch, so its settings are allowed to become the new persisted baseline).
     bool isSilentAutoLoad = !(path && path[0]);
     std::string file;
-    if (!isSilentAutoLoad) {
-        file = path;
-    } else if (SOH_GetComboSpoilerPath) {
-        const char* remembered = SOH_GetComboSpoilerPath();
-        if (remembered)
-            file = remembered;
-    }
-    if (file.empty())
-        return 0; // nothing generated yet on this install
-    std::ifstream in(file);
-    if (!in.is_open())
-        return 0;
+    nlohmann::json j;
+    // The resolve/scan below touches the filesystem and may throw (path conversion, bad_alloc); this
+    // runs under a C-ABI callback, so nothing may unwind past it.
     try {
-        nlohmann::json j;
-        in >> j;
-        if (j.value("fileType", std::string()) != "ComboShipRandomizer")
-            return 0;
+        if (!isSilentAutoLoad) {
+            // An explicit drop never falls back to another seed: a failed drop is a real error.
+            auto dropped = ResolveComboSeedPath(path);
+            if (!TryLoadComboSeedFile(dropped, j)) {
+                std::cerr << "[ComboShip] reload: dropped file '" << path << "' could not be loaded\n";
+                return 0;
+            }
+            file = dropped.string();
+        } else {
+            std::string remembered = SOH_GetComboSpoilerPath ? SOH_GetComboSpoilerPath() : "";
+            if (remembered.empty()) {
+                std::cerr << "[ComboShip] reload: no remembered seed path — scanning "
+                          << ComboRando::ConsolidatedDir().string() << "\n";
+            } else {
+                auto resolved = ResolveComboSeedPath(remembered);
+                if (TryLoadComboSeedFile(resolved, j))
+                    file = resolved.string();
+                else
+                    std::cerr << "[ComboShip] reload: remembered seed '" << remembered
+                              << "' is missing or unreadable — scanning " << ComboRando::ConsolidatedDir().string()
+                              << "\n";
+            }
+            if (file.empty()) {
+                auto recovered = FindNewestComboSeed(j);
+                if (recovered.empty()) {
+                    std::cerr << "[ComboShip] reload: no combo seed found to auto-load\n";
+                    return 0;
+                }
+                file = recovered.string();
+                std::cout << "[ComboShip] reload: recovered newest seed " << file << "\n";
+                RememberComboSpoiler(recovered); // repair the lost/stale remembered path
+            }
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "[ComboShip] reload: seed lookup failed: " << e.what() << "\n";
+        return 0;
+    } catch (...) {
+        std::cerr << "[ComboShip] reload: seed lookup failed: non-std exception\n";
+        return 0;
+    }
+    try {
         uint32_t masterSeed = j.value("masterSeed", 0u);
         ResetCrossItemDedupForSeed(masterSeed);
         uint32_t displaySeed = j.value("displaySeed", 0u);
@@ -2087,6 +2184,9 @@ static int Combo_OnReloadRequest(const char* path) {
         return 1;
     } catch (const std::exception& e) {
         std::cerr << "[ComboShip] reload failed: " << e.what() << "\n";
+        return 0;
+    } catch (...) {
+        std::cerr << "[ComboShip] reload failed: non-std exception\n";
         return 0;
     }
 }

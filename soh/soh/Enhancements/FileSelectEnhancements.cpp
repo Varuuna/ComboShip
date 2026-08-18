@@ -62,6 +62,17 @@ std::array<std::string, LANGUAGE_MAX> RandomizerSettingsMenuText[RSM_MAX] = {
       "\nou glissez un spoilerlog sur la fenêtre du jeu."
 #endif
     },
+#ifdef COMBO_BUILD
+    // ComboShip: post-fill phase of a combo generation (its own 0-100%).
+    {
+        // English
+        "Finalizing...",
+        // German
+        "Abschließen...",
+        // French
+        "Finalisation...",
+    },
+#endif
 };
 
 const char* SohFileSelect_GetSettingText(uint8_t optionIndex, uint8_t language) {

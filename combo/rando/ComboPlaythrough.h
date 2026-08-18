@@ -232,13 +232,15 @@ struct RequirednessResult {
 // goal => NOT required (foolish), else required (WotH). Tested individually (no monotonicity assumed),
 // restricted to the winning playthrough's checks. mmRestore resets the MM oracle snapshot afterward.
 // ootCheckAreas/mmCheckAreas (checkName -> area) roll results up into per-area classification.
+// progress (optional) is write-only reporting for the UI; it never influences the result.
 inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, const OracleFns& ootOracle,
                                               const OracleFns& mmOracle, void (*mmRestore)(),
                                               const std::string& sohDumpJson = "", const std::string& mmDumpJson = "",
                                               const std::unordered_map<std::string, std::string>& ootCheckAreas = {},
                                               const std::unordered_map<std::string, std::string>& mmCheckAreas = {},
                                               GoalPredicate goalReached = DefaultGanonMajoraGoal,
-                                              bool portalGated = true, bool mmStart = false) {
+                                              bool portalGated = true, bool mmStart = false,
+                                              ComboGenProgress* progress = nullptr) {
     RequirednessResult result;
     auto placements = ParseSpoilerPlacements(spoilerJson, sohDumpJson, mmDumpJson);
 
@@ -325,6 +327,11 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
             classified[i] = 1;
     }
     result.candidateCount = static_cast<int>(cand.size());
+    // The pare-down owns the "Finalizing" bar: restart placed/total over the candidate replays.
+    if (progress) {
+        progress->total.store(result.candidateCount);
+        progress->placed.store(0);
+    }
 
     // Per-item WotH (native IsBeatableWithout): blank exactly one candidate check and replay from
     // empty. Still wins -> not required; loses -> required. Definitionally correct, no monotonicity
@@ -332,6 +339,8 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
     for (size_t i : cand) {
         ++result.replayedCount;
         classified[i] = winsWithout({ i }, nullptr) ? 0 : 1;
+        if (progress)
+            progress->placed.fetch_add(1);
     }
 
     for (size_t pi : candAll) {

@@ -1082,8 +1082,10 @@ inline CombinedFillResult CrossWorldCombinedFill(
     }
 
     if (progress) {
-        progress->placed.store(progress->total.load()); // all placed
-        progress->phase.store(3);                       // Finalizing
+        progress->phase.store(3); // Finalizing
+        // Zero the bar: post-fill work (the pare-down) re-stores its own placed/total.
+        progress->placed.store(0);
+        progress->total.store(0);
     }
 
     // --- Build spoiler (same shape as the no-logic generator) ---

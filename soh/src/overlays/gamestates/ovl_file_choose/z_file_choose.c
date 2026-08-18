@@ -365,6 +365,11 @@ void DrawSeedHashSprites(FileChooseContext* this) {
 u8 generating;
 int retries = 0;
 bool fileSelectSpoilerFileLoaded = false;
+#ifdef COMBO_BUILD
+// ComboShip: one combo seed auto-reload attempt per file-select entry (file IO, so never per frame);
+// FileChoose_Init clears it so a failure or a save-load context reset gets another try on re-entry.
+static u8 sComboReloadTried = 0;
+#endif
 
 void FileChoose_UpdateRandomizer() {
     if (CVarGetInteger(CVAR_GENERAL("RandoGenerating"), 0) != 0 && generating == 0) {
@@ -397,13 +402,14 @@ void FileChoose_UpdateRandomizer() {
     // regenerating. A dropped combo spoiler (flagged by Rando_HandleSpoilerDrop) takes priority and
     // overrides the remembered pending seed; otherwise, on the first frame with nothing loaded, reload
     // the remembered pending seed (no-op if none).
-    static u8 sComboReloadTried = 0;
     const char* comboDrop = CVarGetString(CVAR_GENERAL("ComboDroppedFile"), "");
     if (!Ship_IsCStringEmpty(comboDrop)) {
         Sfx_PlaySfxCentered(SOH_RequestComboReload(comboDrop) ? NA_SE_SY_CORRECT_CHIME : NA_SE_SY_ERROR);
         CVarSetString(CVAR_GENERAL("ComboDroppedFile"), "");
         sComboReloadTried = 1;
     } else if (!sComboReloadTried && !Randomizer_IsSeedGenerated() && !Randomizer_IsSpoilerLoaded()) {
+        // Latch before the call so a failure can't retry every frame; a success needs no latch of its
+        // own — the seed-generated check above stops re-entry from reloading what's already loaded.
         sComboReloadTried = 1;
         SOH_RequestComboReload(NULL);
     }
@@ -1884,7 +1890,12 @@ void FileChoose_DrawWindowContents(GameState* thisx) {
 
         // Show text to indicate randomizer is being generated.
         if (generating) {
-            Interface_DrawTextLine(this->state.gfxCtx, SohFileSelect_GetSettingText(RSM_GENERATING, language), 70,
+            u8 comboLabel = RSM_GENERATING;
+#ifdef COMBO_BUILD
+            // ComboShip: phase 3 (post-fill work) gets its own label and percent.
+            comboLabel = (SOH_GetComboGenPhase() == 3) ? RSM_FINALIZING : RSM_GENERATING;
+#endif
+            Interface_DrawTextLine(this->state.gfxCtx, SohFileSelect_GetSettingText(comboLabel, language), 70,
                                    (80 + 64), 255, 255, 255, textAlpha, 0.8f, true);
 #ifdef COMBO_BUILD
             // ComboShip: live combo-generation progress (worker thread keeps the main loop running).
@@ -3162,6 +3173,9 @@ void FileChoose_Init(GameState* thisx) {
     this->questType[1] = MIN_QUEST;
     this->questType[2] = MIN_QUEST;
     fileSelectSpoilerFileLoaded = false;
+#ifdef COMBO_BUILD
+    sComboReloadTried = 0; // ComboShip: one combo auto-reload attempt per entry (see the flag's comment)
+#endif
     CVarSetInteger(CVAR_GENERAL("OnFileSelectNameEntry"), 0);
 
     SREG(30) = 1;

@@ -179,3 +179,51 @@ adds canonical `gCombo.Tracker.IconSpacing` (separately seeded) and flips Dragga
   check has no OOT flag to promote it back from SCUMMED).
 - `soh/.../SeedContext.cpp` — WARN tripwires in `ItemReset`/`ClearItemLocations` when called with
   a save loaded (suspected mid-session wipe path; not yet root-caused).
+
+## Item Tracker settings: flat layout, icon-size parity, shared paused-only (2026-08-18)
+
+**Why:** (1) MM's `ItemTrackerSettingsWindow::DrawElement` wrapped everything in auto-sized
+`BeginChild`s. Embedded inline in the combo Settings hub the outer child only gets the parent's
+leftover height, so the group Available/Active lists (and the reorder chevrons / per-group options)
+were unreachable even though the hub scrolls. (2) Both games still exposed their own icon
+size/spacing editors, which the bridge silently overwrites at the next `SyncAppearance`. (3) MM's
+split-window-group mode used the per-group `scale` *instead of* the global one, so MM icons jumped
+to their 46px base while OOT sat at the shared 36px.
+
+**Combo-owned:** `ComboMenu.cpp` — shared "Icon size" max widened 64 → 128 (covers OOT's old
+range), new "Only enable while paused" checkbox + a hint when the window type is Window.
+`ComboTrackerBridge.{h,cpp}` — canonical `gCombo.Tracker.OnlyPaused` (default 0) mirrored into
+`gTrackers.ItemTracker.ShowOnlyPaused` and `gSettings.ItemTracker.VisibilityMode` (0/1).
+
+**Vendored — guard-free (equivalent-or-better standalone):**
+- `mm/.../ItemTrackerSettings.cpp` — `DrawElement` / `DrawTrackerAvailableGroups` /
+  `DrawTrackerActiveGroups` lay out flat, like SoH's item-tracker settings: the outer, per-column
+  and per-list `BeginChild`s are gone, so content extends the parent and the *window* scrolls when
+  popped out. The two lists regained ID scoping via `PushID` (they were previously separated by
+  their child windows, and ImGui table cells do not scope IDs). The right-aligned group buttons
+  now use a cursor-relative helper — `SameLine(absolute_x)` is cell-relative while
+  `GetContentRegionMax()` is window-relative, so the old form would have flown off-screen in the
+  second table column. The dead `SetNextWindowSize` before the removed outer child went with it
+  (`BeginChildEx` always overrides it; the popout's size comes from its `GuiWindow` registration).
+- `mm/.../ItemTracker.cpp` — `DrawItemCounts` restores `SetWindowFontScale(1.0f)`; it is
+  window-wide state and leaked into every widget drawn after a counted icon.
+
+**Vendored (`COMBO_BUILD`-guarded):**
+- `mm/.../ItemTracker.cpp` — new `GetItemTrackerGroupScale()`; in combo the effective scale is
+  `global × group.scale`, making the per-group scale a relative multiplier (1.0 = parity with OOT).
+  Standalone keeps the either/or.
+- `mm/.../ItemTrackerSettings.cpp` — global `Scale` slider and `Visibility` combobox hidden (combo
+  owns both); per-group scale slider relabelled "Group scale (x global)" with a 0.05 step (0.5
+  steps would snap the bridge-derived 0.7826 to 0.5/1.0); the Available/Active preview grids draw
+  at `min(effective scale, 1.0)` instead of a hardcoded 1.0.
+- `soh/.../randomizer_item_tracker.cpp` — "Icon size"/"Icon margins" sliders and the "Only Enable
+  While Paused" checkbox hidden (all three are bridge-derived).
+
+**Residuals (accepted):**
+- MM's Button Toggle / Button Hold visibility modes (2/3) are unreachable in combo builds — the
+  shared toggle only expresses Always (0) and Only-on-pause (1), and `SyncAppearance` forces one of
+  those every sync.
+- OOT's `ShowOnlyPaused` is a no-op when the tracker window type is Window rather than Floating
+  (pre-existing upstream nesting); MM honors paused-only in both. The shared panel says so inline.
+- The per-group scale is still MM-only; OOT has no equivalent, so a non-1.0 group scale breaks
+  cross-game icon parity by design.

@@ -113,6 +113,13 @@ struct DragDropPayload {
 void DrawItemTrackerGroupPreview(TrackerGroup& group, bool addMode, int groupIndex) {
     static std::pair<TrackerItemType, u32> selectedItem = { TRACKER_ITEM_RANDO, 0 };
 
+    float previewScale = 1.0f;
+#ifdef COMBO_BUILD
+    // ComboShip: preview at the tracker's real icon size (combo's is below MM's 46px base), capped
+    // so a large group scale can't bloat the settings block.
+    previewScale = std::min(GetItemTrackerGroupScale(group), 1.0f);
+#endif
+
     if (ImGui::BeginChild(group.name.c_str(), ImVec2(0, 0),
                           ImGuiChildFlags_AlwaysAutoResize | ImGuiChildFlags_AutoResizeX |
                               ImGuiChildFlags_AutoResizeY)) {
@@ -125,7 +132,7 @@ void DrawItemTrackerGroupPreview(TrackerGroup& group, bool addMode, int groupInd
                 auto& [itemType, itemId] = group.items[itemIndex];
                 ImGui::TableNextColumn();
                 ImGui::PushID((int)itemIndex);
-                if (DrawItemTrackerSlot(itemType, itemId, 1.0f, true)) {
+                if (DrawItemTrackerSlot(itemType, itemId, previewScale, true)) {
                     if (addMode) {
                         selectedItem = { itemType, itemId };
                         ImGui::OpenPopup("AddToGroup");
@@ -148,7 +155,7 @@ void DrawItemTrackerGroupPreview(TrackerGroup& group, bool addMode, int groupInd
                     ImGui::SetDragDropPayload("TRACKER_ITEM", &payload, sizeof(DragDropPayload));
 
                     // Display preview while dragging
-                    DrawItemTrackerSlot(itemType, itemId, 0.5f, true);
+                    DrawItemTrackerSlot(itemType, itemId, previewScale * 0.5f, true);
                     ImGui::EndDragDropSource();
                 }
 
@@ -246,14 +253,23 @@ bool DrawTrackerWindowOptions(int32_t windowIndex, TrackerGroup& group) {
         SaveItemTrackerLayout();
     }
     if (CVarGetInteger("gSettings.ItemTracker.WindowGroup", 0)) {
+#ifdef COMBO_BUILD
+        // ComboShip: combo owns the global scale, so this one is a multiplier on top of it — finer
+        // step, since 0.5 steps would be a huge jump relative to the shared icon size.
+        const char* scaleFormat = "Group scale (x global): %.2f";
+        const float scaleStep = 0.05f;
+#else
+        const char* scaleFormat = "Scale: %.1f";
+        const float scaleStep = 0.5f;
+#endif
         if (UIWidgets::SliderFloat("Scale", &scale,
                                    UIWidgets::FloatSliderOptions()
                                        .Min(0.2f)
                                        .Max(3.0f)
                                        .DefaultValue(1.0f)
                                        .LabelPosition(UIWidgets::LabelPosition::None)
-                                       .Format("Scale: %.1f")
-                                       .Step(0.5f)
+                                       .Format(scaleFormat)
+                                       .Step(scaleStep)
                                        .Color(WIDGET_COLOR))) {
             group.scale = scale;
             SaveItemTrackerLayout();
@@ -533,11 +549,14 @@ void DrawTrackerOptions() {
                                 UIWidgets::ComboboxOptions()
                                     .ComponentAlignment(UIWidgets::ComponentAlignment::Right)
                                     .LabelPosition(UIWidgets::LabelPosition::Far));
+#ifndef COMBO_BUILD
+        // ComboShip: visibility is derived from the shared "Only enable while paused" toggle.
         UIWidgets::CVarCombobox("Visibility", CVAR_NAME_VISIBILITY_MODE, &sItemTrackerVisibilityModes,
                                 UIWidgets::ComboboxOptions()
                                     .DefaultIndex(ITEM_TRACKER_VISIBILITY_MODE_ALWAYS)
                                     .ComponentAlignment(UIWidgets::ComponentAlignment::Right)
                                     .LabelPosition(UIWidgets::LabelPosition::Far));
+#endif
         if (CVAR_VISIBILITY_MODE == ITEM_TRACKER_VISIBILITY_MODE_BUTTON_TOGGLE ||
             CVAR_VISIBILITY_MODE == ITEM_TRACKER_VISIBILITY_MODE_BUTTON_HOLD) {
             UIWidgets::CVarBtnSelector("Button Combination:", CVAR_NAME_VISIBILITY_BTN,
@@ -551,6 +570,8 @@ void DrawTrackerOptions() {
             SaveItemTrackerLayout();
         }
 
+#ifndef COMBO_BUILD
+        // ComboShip: the global scale is derived from the shared "Icon size" slider — hide this editor.
         if (!CVarGetInteger("gSettings.ItemTracker.WindowGroup", 0)) {
             UIWidgets::CVarSliderFloat("Scale", "gSettings.ItemTracker.Scale",
                                        UIWidgets::FloatSliderOptions()
@@ -562,6 +583,7 @@ void DrawTrackerOptions() {
                                            .Step(0.5f)
                                            .Color(WIDGET_COLOR));
         }
+#endif
 
         UIWidgets::CVarSliderFloat("Opacity", "gSettings.ItemTracker.Opacity",
                                    UIWidgets::FloatSliderOptions()
@@ -594,102 +616,101 @@ void DrawTrackerOptions() {
     }
 }
 
+// Right-align the next widget on the line just ended, given that line's start-of-line right edge.
+// (Cell-safe: SameLine(absolute_x) is relative to the cell, GetContentRegionMax() is not.)
+static void TrackerGroupRowAlignRight(float rowRightX, float widgetWidth) {
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(rowRightX - widgetWidth);
+}
+
 void DrawTrackerAvailableGroups() {
-    if (ImGui::BeginChild("Available Groups")) {
-        int groupIndex = 0;
-        for (auto& group : itemTrackerGroupsAvailable) {
-            ImGui::PushID(groupIndex);
-            ImGui::SeparatorText(group.name.c_str());
-            ImGui::SameLine(ImGui::GetContentRegionMax().x - (ImGui::CalcTextSize("aaa").x * 1.5f));
-            if (UIWidgets::Button(ICON_FA_PLUS, { .size = ImVec2(0, 0), .color = UIWidgets::Colors::Green })) {
-                itemTrackerGroups.push_back(group);
-                SaveItemTrackerLayout();
-            }
-            DrawItemTrackerGroupPreview(group, true, groupIndex);
-            ImGui::PopID();
-            groupIndex++;
+    ImGui::PushID("AvailableGroups"); // was a BeginChild; keeps this list's IDs distinct
+    int groupIndex = 0;
+    for (auto& group : itemTrackerGroupsAvailable) {
+        ImGui::PushID(groupIndex);
+        float rowRightX = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+        ImGui::SeparatorText(group.name.c_str());
+        TrackerGroupRowAlignRight(rowRightX, ImGui::CalcTextSize("aaa").x * 1.5f);
+        if (UIWidgets::Button(ICON_FA_PLUS, { .size = ImVec2(0, 0), .color = UIWidgets::Colors::Green })) {
+            itemTrackerGroups.push_back(group);
+            SaveItemTrackerLayout();
         }
+        DrawItemTrackerGroupPreview(group, true, groupIndex);
+        ImGui::PopID();
+        groupIndex++;
     }
-    ImGui::EndChild();
+    ImGui::PopID();
 }
 
 void DrawTrackerActiveGroups() {
-    if (ImGui::BeginChild("Active Groups")) {
-        int groupIndex = 0;
-        for (auto& group : itemTrackerGroups) {
-            ImGui::PushID(groupIndex);
-            ImGui::SeparatorText(group.name.c_str());
+    ImGui::PushID("ActiveGroups"); // was a BeginChild; keeps this list's IDs distinct
+    int groupIndex = 0;
+    for (auto& group : itemTrackerGroups) {
+        ImGui::PushID(groupIndex);
+        float rowRightX = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+        ImGui::SeparatorText(group.name.c_str());
 
-            ImGui::SameLine(ImGui::GetContentRegionMax().x - (ImGui::CalcTextSize("aaaaaaaaa").x * 1.5f));
-            if (UIWidgets::Button(ICON_FA_CHEVRON_UP, { .size = ImVec2(0, 0), .color = WIDGET_COLOR })) {
-                if (groupIndex > 0) {
-                    std::swap(itemTrackerGroups[groupIndex], itemTrackerGroups[groupIndex - 1]);
-                    SaveItemTrackerLayout();
-                }
+        TrackerGroupRowAlignRight(rowRightX, ImGui::CalcTextSize("aaaaaaaaa").x * 1.5f);
+        if (UIWidgets::Button(ICON_FA_CHEVRON_UP, { .size = ImVec2(0, 0), .color = WIDGET_COLOR })) {
+            if (groupIndex > 0) {
+                std::swap(itemTrackerGroups[groupIndex], itemTrackerGroups[groupIndex - 1]);
+                SaveItemTrackerLayout();
             }
-            ImGui::SameLine();
-            if (UIWidgets::Button(ICON_FA_CHEVRON_DOWN, { .size = ImVec2(0, 0), .color = WIDGET_COLOR })) {
-                if (groupIndex < static_cast<int>(itemTrackerGroups.size()) - 1) {
-                    std::swap(itemTrackerGroups[groupIndex], itemTrackerGroups[groupIndex + 1]);
-                    SaveItemTrackerLayout();
-                }
-            }
-            ImGui::SameLine();
-            if (UIWidgets::Button(ICON_FA_ELLIPSIS_H, { .size = ImVec2(0, 0), .color = UIWidgets::Colors::Gray })) {
-                ImGui::OpenPopup("GroupOptions");
-            }
-            ImGui::SetNextWindowSize(ImVec2(400, 0), ImGuiCond_Always);
-            ImGui::SetNextWindowPos(ImVec2(ImGui::GetItemRectMin().x - 400, ImGui::GetItemRectMin().y),
-                                    ImGuiCond_Always);
-            if (ImGui::BeginPopup("GroupOptions")) {
-                if (DrawTrackerWindowOptions(groupIndex, group)) {
-                    ImGui::CloseCurrentPopup();
-                }
-                ImGui::EndPopup();
-            }
-            DrawItemTrackerGroupPreview(group, false, groupIndex);
-            ImGui::PopID();
-            groupIndex++;
         }
+        ImGui::SameLine();
+        if (UIWidgets::Button(ICON_FA_CHEVRON_DOWN, { .size = ImVec2(0, 0), .color = WIDGET_COLOR })) {
+            if (groupIndex < static_cast<int>(itemTrackerGroups.size()) - 1) {
+                std::swap(itemTrackerGroups[groupIndex], itemTrackerGroups[groupIndex + 1]);
+                SaveItemTrackerLayout();
+            }
+        }
+        ImGui::SameLine();
+        if (UIWidgets::Button(ICON_FA_ELLIPSIS_H, { .size = ImVec2(0, 0), .color = UIWidgets::Colors::Gray })) {
+            ImGui::OpenPopup("GroupOptions");
+        }
+        ImGui::SetNextWindowSize(ImVec2(400, 0), ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImVec2(ImGui::GetItemRectMin().x - 400, ImGui::GetItemRectMin().y), ImGuiCond_Always);
+        if (ImGui::BeginPopup("GroupOptions")) {
+            if (DrawTrackerWindowOptions(groupIndex, group)) {
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+        DrawItemTrackerGroupPreview(group, false, groupIndex);
+        ImGui::PopID();
+        groupIndex++;
     }
-    ImGui::EndChild();
+    ImGui::PopID();
 }
 
+// Laid out flat (no auto-sized BeginChild wrappers, matching SoH's item-tracker settings): an
+// auto-sized child only gets the parent's leftover height, which hid the group lists when the
+// combo Settings hub embeds this inline. Popped out, the window itself scrolls.
 void ItemTrackerSettingsWindow::DrawElement() {
-    ImGui::SetNextWindowSize(ImVec2(733, 472), ImGuiCond_FirstUseEver);
-    if (ImGui::BeginChild("Item Tracker Settings")) {
-        DrawTrackerOptions();
+    DrawTrackerOptions();
 
-        UIWidgets::PushStyleTabs(WIDGET_COLOR);
-        if (ImGui::BeginTable("TrackerTabs", 2)) {
-            ImGui::TableNextColumn();
-            if (ImGui::BeginChild("TrackerChild")) {
-                if (ImGui::BeginTabBar("TrackerTabs")) {
-                    if (ImGui::BeginTabItem("Available Groups")) {
-                        DrawTrackerAvailableGroups();
-                        ImGui::EndTabItem();
-                    }
-                    ImGui::EndTabBar();
-                }
+    UIWidgets::PushStyleTabs(WIDGET_COLOR);
+    if (ImGui::BeginTable("TrackerTabs", 2)) {
+        ImGui::TableNextColumn();
+        if (ImGui::BeginTabBar("TrackerTabBar")) {
+            if (ImGui::BeginTabItem("Available Groups")) {
+                DrawTrackerAvailableGroups();
+                ImGui::EndTabItem();
             }
-            ImGui::EndChild();
-
-            ImGui::TableNextColumn();
-            if (ImGui::BeginChild("WindowChild")) {
-                if (ImGui::BeginTabBar("WindowTab")) {
-                    if (ImGui::BeginTabItem("Active Groups")) {
-                        DrawTrackerActiveGroups();
-                        ImGui::EndTabItem();
-                    }
-                    ImGui::EndTabBar();
-                }
-            }
-            ImGui::EndChild();
-            ImGui::EndTable();
+            ImGui::EndTabBar();
         }
-        UIWidgets::PopStyleTabs();
+
+        ImGui::TableNextColumn();
+        if (ImGui::BeginTabBar("WindowTab")) {
+            if (ImGui::BeginTabItem("Active Groups")) {
+                DrawTrackerActiveGroups();
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+        }
+        ImGui::EndTable();
     }
-    ImGui::EndChild();
+    UIWidgets::PopStyleTabs();
 }
 
 void ItemTrackerSettingsWindow::InitElement() {

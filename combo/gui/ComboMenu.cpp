@@ -600,7 +600,7 @@ void DrawTrackerSharedPanel() {
         bool appearanceChanged = false;
         int px = CVarGetInteger("gCombo.Tracker.IconSize", ComboTracker::kDefaultIconSize);
         ComboRando::ComboMenu_PushSlider(theme);
-        if (ImGui::SliderInt("Icon size (px)", &px, 16, 64)) {
+        if (ImGui::SliderInt("Icon size (px)", &px, 16, 128)) {
             CVarSetInteger("gCombo.Tracker.IconSize", px);
             appearanceChanged = true;
         }
@@ -632,7 +632,15 @@ void DrawTrackerSharedPanel() {
             CVarSetInteger("gCombo.Tracker.Draggable", dragB ? 1 : 0);
             appearanceChanged = true;
         }
+        bool pausedB = CVarGetInteger("gCombo.Tracker.OnlyPaused", ComboTracker::kDefaultOnlyPaused) != 0;
+        if (ImGui::Checkbox("Only enable while paused", &pausedB)) {
+            CVarSetInteger("gCombo.Tracker.OnlyPaused", pausedB ? 1 : 0);
+            appearanceChanged = true;
+        }
         ComboRando::ComboMenu_PopCheckbox();
+        if (pausedB && wt != 0) {
+            ImGui::TextDisabled("Ocarina of Time only honors this with the floating tracker.");
+        }
         if (appearanceChanged) {
             ComboTracker::SyncAppearance();
             changed = true;

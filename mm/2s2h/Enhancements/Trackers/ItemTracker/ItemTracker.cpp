@@ -308,6 +308,7 @@ void DrawItemCounts(TrackerItemType itemType, u32 itemId, ImVec2 textureSize, fl
     ImGui::SetCursorPos(textPos);
     ImGui::SetWindowFontScale(scale);
     ImGui::Text("%s", itemCount.c_str());
+    ImGui::SetWindowFontScale(1.0f); // ComboShip: window-wide state — don't leak it to later widgets.
 }
 
 bool DrawItemTrackerSlot(TrackerItemType itemType, u32 itemId, float scale, bool clickable) {
@@ -424,15 +425,25 @@ bool DrawItemTrackerSlot(TrackerItemType itemType, u32 itemId, float scale, bool
     return clicked;
 }
 
+// Effective icon scale for a group. In combo builds the global Scale is combo-owned (mirrored by
+// ComboTrackerBridge) and a group's own scale is a relative multiplier instead of a replacement.
+float GetItemTrackerGroupScale(const TrackerGroup& trackerGroup) {
+    float global = CVarGetFloat("gSettings.ItemTracker.Scale", 1.0f);
+    bool split = CVarGetInteger("gSettings.ItemTracker.WindowGroup", 0) != 0;
+#ifdef COMBO_BUILD
+    return split ? global * trackerGroup.scale : global;
+#else
+    return split ? trackerGroup.scale : global;
+#endif
+}
+
 void DrawItemTrackerGroup(TrackerGroup& trackerGroup) {
     int columns = trackerGroup.columns;
     if (trackerGroup.items.size() < trackerGroup.columns) {
         columns = trackerGroup.items.size();
     }
 
-    float scale = CVarGetInteger("gSettings.ItemTracker.WindowGroup", 0)
-                      ? trackerGroup.scale
-                      : CVarGetFloat("gSettings.ItemTracker.Scale", 1.0f);
+    float scale = GetItemTrackerGroupScale(trackerGroup);
 
 #ifdef COMBO_BUILD
     // ComboShip: the seam's cell pad is the whole gap — zero the table's own CellPadding

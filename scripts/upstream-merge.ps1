@@ -24,6 +24,10 @@
 .PARAMETER Only
     Restrict to one upstream key: libultraship | soh | mm.
 
+.PARAMETER Target
+    Merge up to this upstream commit instead of the branch tip (e.g. a release tag's SHA).
+    Requires -Only. Must be reachable from the tracked branch.
+
 .PARAMETER Depth
     Refetch depth for blob hydration (default 50). Increase if the fork is far behind the tip.
 
@@ -37,8 +41,11 @@ param(
     [switch]$Merge,
     [ValidateSet('libultraship', 'soh', 'mm')]
     [string]$Only,
+    [string]$Target,
     [int]$Depth = 50
 )
+
+if ($Target -and -not $Only) { throw '-Target requires -Only (it applies to a single upstream).' }
 
 $ErrorActionPreference = 'Stop'
 $repo = Resolve-Path (Join-Path $PSScriptRoot '..')
@@ -72,8 +79,13 @@ foreach ($key in $keys) {
     git fetch $remote $branch 2>&1 | Select-Object -Last 2 | ForEach-Object { "  $_" }
 
     $tip = (git rev-parse "$remote/$branch").Trim()
+    if ($Target) {
+        $tip = (git rev-parse "$Target^{commit}").Trim()
+        git merge-base --is-ancestor $tip "$remote/$branch"
+        if ($LASTEXITCODE -ne 0) { throw "-Target $Target is not reachable from $remote/$branch" }
+    }
     $merged = $u.mergedSha
-    Write-Host "  last-merged $merged  ->  tip $($tip.Substring(0,9))"
+    Write-Host "  last-merged $merged  ->  target $($tip.Substring(0,9))$(if (-not $Target) { ' (branch tip)' })"
 
     if ((git rev-parse $merged) -eq (git rev-parse $tip)) {
         Write-Host "  up to date, nothing new." -ForegroundColor Green

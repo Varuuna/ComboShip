@@ -3305,6 +3305,25 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         }
     }
 
+    // ComboShip: 5.0.0's per-house skulltula shuffle keeps 30-N tokens vanilla: GeneratePools marks
+    // them shuffled=true with their own token in the (discarded) local saveInfo and drops them from
+    // checkPool. Emit them as fixed so the oracle credits the tokens and the apply stamps them like
+    // native (shuffled=true, so they stay hintable, mirroring native).
+    if (saveInfo.randoSaveOptions[RO_SHUFFLE_GOLD_SKULLTULAS] == RO_GENERIC_YES) {
+        for (auto& [id, chk] : Rando::StaticData::Checks) {
+            if (chk.randoCheckType != RCTYPE_SKULL_TOKEN || !saveInfo.randoSaveChecks[id].shuffled ||
+                stillFillable.count(id))
+                continue;
+            auto iit = Rando::StaticData::Items.find(chk.randoItemId);
+            if (iit == Rando::StaticData::Items.end() || !iit->second.spoilerName || iit->second.spoilerName[0] == '\0')
+                continue;
+            fixed.push_back({ { "check", Rando::StaticData::GetCheckDisplayName(id) },
+                              { "item", Rando::StaticData::GetItemDisplayName(iit->first) },
+                              { "advancement", isAdvancement(iit->second) },
+                              { "hintable", true } });
+        }
+    }
+
     // Fillable checks -> checks[] (name only; pool[] feeds the items).
     for (RandoCheckId id : checkPool) {
         auto chkIt = Rando::StaticData::Checks.find(id);

@@ -2515,7 +2515,7 @@ s32 Player_OverrideLimbDrawGameplayCommon(PlayState* play, s32 limbIndex, Gfx** 
                     func_80125340();
                     func_80125318(pos, rot);
 
-                    if (bubble != NULL) {
+                    if (GameInteractor_Should(VB_DEKU_COMMON_HEAD_OVERRIDE_HELD_ACTOR, (bubble != NULL), bubble)) {
                         s32 requiredScopeTemp[2];
 
                         player->unk_AF0[0].x = 1.0f - (bubble->bubble.unk_144 * 0.03f);
@@ -2580,7 +2580,8 @@ s32 Player_OverrideLimbDrawGameplayCommon(PlayState* play, s32 limbIndex, Gfx** 
 
             rotX = player->upperLimbRot.x;
             if ((player->transformation == PLAYER_FORM_DEKU) && (player->stateFlags3 & PLAYER_STATE3_40)) {
-                if (player->heldActor != NULL) {
+                if (GameInteractor_Should(VB_DEKU_COMMON_UPPER_LIMB_OVERRIDE_HELD_ACTOR, (player->heldActor != NULL),
+                                          player->heldActor)) {
                     rotX += TRUNCF_BINANG(((EnArrow*)(player->heldActor))->bubble.unk_144 * -470.0f);
                 }
             }

@@ -3,6 +3,8 @@
 #include <libultraship/libultraship.h>
 
 #ifdef __cplusplus
+void ModMenu_LoadArchives();
+
 class ModMenuWindow : public Ship::GuiWindow {
   public:
     using GuiWindow::GuiWindow;

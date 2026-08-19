@@ -517,11 +517,6 @@ void EnKusaGrass_RandoDraw(Actor* actor, PlayState* play) {
 }
 
 void KeatonGrassRing_DrawWonderItemSparkle(EnKusa2* grassRingActor) {
-    static Vec3f sVelocity = { 0.0f, 1.2f, 0.0f };
-    static Vec3f sAccel = { 0.0f, -0.05f, 0.0f };
-    static Color_RGBA8 sPrimColor = { 255, 255, 255, 255 };
-    static Color_RGBA8 sEnvColor = { 255, 200, 64, 255 };
-
     if (gGameState->frames % 4 != 0) {
         return;
     }
@@ -531,13 +526,7 @@ void KeatonGrassRing_DrawWonderItemSparkle(EnKusa2* grassRingActor) {
         return;
     }
 
-    Vec3f pos = {
-        Rand_CenteredFloat(20.0f) + grassBush->actor.world.pos.x,
-        (Rand_ZeroOne() * 25.0f) + grassBush->actor.world.pos.y,
-        Rand_CenteredFloat(20.0f) + grassBush->actor.world.pos.z,
-    };
-
-    EffectSsKirakira_SpawnDispersed(gPlayState, &pos, &sVelocity, &sAccel, &sPrimColor, &sEnvColor, 1600, 16);
+    Rando::ActorBehavior::SpawnWonderItemSparkle(&grassBush->actor.world.pos);
 }
 
 void Rando::ActorBehavior::InitObjGrassBehavior() {

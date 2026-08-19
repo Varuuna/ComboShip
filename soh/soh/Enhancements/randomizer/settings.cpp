@@ -11,6 +11,34 @@
 #include <ship/window/Window.h>
 #include <ship/window/gui/Gui.h>
 
+#ifdef COMBO_BUILD
+// ComboShip (#136): combo owns the win condition (combined Triforce goal), forced in FinalizeSettings.
+// A plain constant, not an #ifdef inside the OPT_CALLBACK macro arguments.
+extern "C" int gComboGoalHunt;
+// ComboShip (#136): the combined required count, and this game's share of the combo-owned piece
+// total (-1 = unset, i.e. a seed generated before combo owned it).
+extern "C" int gComboGoalRequired;
+extern "C" int gComboGoalPieces;
+// ComboShip (#135): 1 when the resolved starting game is MM, which forces age/forest/exclusions below.
+extern "C" int gComboStartingGameMM;
+static constexpr bool kComboOwnsWincon = true;
+// ComboShip (#136): OOT's half of the combo-owned pool, for the menu-side dependent-count ranges.
+// Mirrors CwOotPieces in combo/rando/CrossWorldRando.h — the two splits must stay identical.
+static uint8_t ComboOotTriforceTotal() {
+    if (CVarGetInteger("gCombo.Rando.TriforceHunt", 0) == 0) {
+        return 0;
+    }
+    int total = CVarGetInteger("gCombo.Rando.TriforceTotal", 15);
+    total = total < 1 ? 1 : (total > 100 ? 100 : total); // 100 = kMaxComboTriforcePieces
+    return static_cast<uint8_t>(total - total / 2);      // OOT takes the odd piece
+}
+#else
+static constexpr bool kComboOwnsWincon = false;
+static uint8_t ComboOotTriforceTotal() {
+    return 0; // never reached (kComboOwnsWincon is false), but the call site is a runtime if
+}
+#endif
+
 namespace Rando {
 std::shared_ptr<Settings> Settings::mInstance;
 
@@ -156,6 +184,12 @@ void Settings::HandleStartingAgeUI() {
     } else {
         mOptions[RSK_STARTING_AGE].Enable();
     }
+#ifdef COMBO_BUILD
+    // ComboShip (#135): an explicit MM start forces Child, so that disable outranks the rule above.
+    if (CVarGetInteger("gCombo.Rando.StartingGame", 0) == 1) {
+        mOptions[RSK_STARTING_AGE].Disable("Starting Game is Majora's Mask");
+    }
+#endif
 }
 
 void Settings::CreateOptions() {
@@ -173,6 +207,16 @@ void Settings::CreateOptions() {
     OPT_U8(RSK_SLEEPING_WATERFALL, "Sleeping Waterfall", {"Closed", "Open"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("SleepingWaterfall"), mOptionDescriptions[RSK_SLEEPING_WATERFALL]);
     OPT_U8(RSK_JABU_OPEN, "Jabu-Jabu", {"Closed", "Open"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("JabuJabu"), mOptionDescriptions[RSK_JABU_OPEN]);
     OPT_BOOL(RSK_LOCK_OVERWORLD_DOORS, "Lock Overworld Doors", CVAR_RANDOMIZER_SETTING("LockOverworldDoors"), mOptionDescriptions[RSK_LOCK_OVERWORLD_DOORS]);
+    // ComboShip: (#133)
+    OPT_CALLBACK(RSK_LOCK_OVERWORLD_DOORS, {
+        if (CVarGetInteger(CVAR_RANDOMIZER_SETTING("LockOverworldDoors"), RO_GENERIC_OFF) == RO_GENERIC_OFF) {
+            mOptions[RSK_EXCLUDE_MASK_SHOP_KEY].Hide();
+        } else {
+            mOptions[RSK_EXCLUDE_MASK_SHOP_KEY].Unhide();
+        }
+    });
+    // ComboShip: (#133)
+    OPT_BOOL(RSK_EXCLUDE_MASK_SHOP_KEY, "Exclude Mask Shop Key", {"Off", "On"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("ExcludeMaskShopKey"), mOptionDescriptions[RSK_EXCLUDE_MASK_SHOP_KEY], WIDGET_CVAR_CHECKBOX, RO_GENERIC_OFF, true);
     OPT_U8(RSK_GERUDO_FORTRESS, "Fortress Carpenters", {"Normal", "Fast", "Free"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("FortressCarpenters"), mOptionDescriptions[RSK_GERUDO_FORTRESS]);
     OPT_CALLBACK(RSK_GERUDO_FORTRESS, {
         const uint8_t maxKeyringCount =
@@ -327,9 +371,18 @@ void Settings::CreateOptions() {
         } else {
             mOptions[RSK_MIX_INTERIOR_ENTRANCES].Unhide();
         }
+
+        // ComboShip: (#134)
+        if (CVarGetInteger(CVAR_RANDOMIZER_SETTING("ShuffleInteriorsEntrances"), RO_GENERIC_OFF) == RO_GENERIC_OFF) {
+            mOptions[RSK_EXCLUDE_MASK_SHOP_ENTRANCE].Hide();
+        } else {
+            mOptions[RSK_EXCLUDE_MASK_SHOP_ENTRANCE].Unhide();
+        }
         
         HandleStartingAgeUI();
     });
+    // ComboShip: (#134)
+    OPT_BOOL(RSK_EXCLUDE_MASK_SHOP_ENTRANCE, "Exclude Mask Shop", {"Off", "On"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("ExcludeMaskShopEntrance"), mOptionDescriptions[RSK_EXCLUDE_MASK_SHOP_ENTRANCE], WIDGET_CVAR_CHECKBOX, RO_GENERIC_OFF, true);
     OPT_BOOL(RSK_SHUFFLE_THIEVES_HIDEOUT_ENTRANCES, "Thieves' Hideout Entrances", CVAR_RANDOMIZER_SETTING("ShuffleThievesHideoutEntrances"), mOptionDescriptions[RSK_SHUFFLE_THIEVES_HIDEOUT_ENTRANCES]);
     OPT_CALLBACK(RSK_SHUFFLE_THIEVES_HIDEOUT_ENTRANCES, {
         HandleMixedEntrancePoolsUI();
@@ -420,11 +473,18 @@ void Settings::CreateOptions() {
     // positive value adds that many Triforce Pieces to the pool and unlocks the pieces-location option.
     OPT_U8(RSK_TRIFORCE_HUNT_PIECES_TOTAL, "Triforce Hunt Total Pieces", {NumOpts(0, 100)}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("TriforceHuntTotalPieces"), mOptionDescriptions[RSK_TRIFORCE_HUNT_PIECES_TOTAL], WIDGET_CVAR_SLIDER_INT, 0, false, nullptr, IMFLAG_NONE);
     OPT_CALLBACK(RSK_TRIFORCE_HUNT_PIECES_TOTAL, {
-        const uint8_t triforceTotal = CVarGetInteger(CVAR_RANDOMIZER_SETTING("TriforceHuntTotalPieces"), 0);
-        if (triforceTotal == 0) {
+        uint8_t triforceTotal = CVarGetInteger(CVAR_RANDOMIZER_SETTING("TriforceHuntTotalPieces"), 0);
+        // ComboShip: the cross-world fill can't honor a dungeon/overworld restriction — forced Anywhere.
+        if (triforceTotal == 0 || kComboOwnsWincon) {
             mOptions[RSK_TRIFORCE_HUNT_PIECES_LOCATION].Hide();
         } else {
             mOptions[RSK_TRIFORCE_HUNT_PIECES_LOCATION].Unhide();
+        }
+        // ComboShip (#136): the combo menu owns the total, so hide this slider and range the dependent
+        // counts below against OOT's forced share instead of this (now dead) CVar.
+        if (kComboOwnsWincon) {
+            mOptions[RSK_TRIFORCE_HUNT_PIECES_TOTAL].Hide();
+            triforceTotal = ComboOotTriforceTotal();
         }
         if (mOptions[RSK_RAINBOW_BRIDGE_TRIFORCE_COUNT].GetOptionCount() != triforceTotal + 1) {
             mOptions[RSK_RAINBOW_BRIDGE_TRIFORCE_COUNT].ChangeOptions(NumOpts(0, triforceTotal));
@@ -1243,6 +1303,11 @@ void Settings::CreateOptions() {
         mOptions[RSK_WINCON_DUNGEON_COUNT].Hide();
         mOptions[RSK_WINCON_TOKEN_COUNT].Hide();
         mOptions[RSK_WINCON_TRIFORCE_COUNT].Hide();
+        // ComboShip: combo forces the wincon, so no sub-option is ever offered.
+        if (kComboOwnsWincon) {
+            mOptions[RSK_WINCON].Hide();
+            return;
+        }
         switch (CVarGetInteger(CVAR_RANDOMIZER_SETTING("ShuffleWincon"), RO_WINCON_DEFEAT_GANON)) {
             case RO_WINCON_STONES:
                 mOptions[RSK_WINCON_OPTIONS].Unhide();
@@ -1933,6 +1998,8 @@ void Settings::CreateOptions() {
                                   &mOptions[RSK_SLEEPING_WATERFALL],
                                   &mOptions[RSK_JABU_OPEN],
                                   &mOptions[RSK_LOCK_OVERWORLD_DOORS],
+                                  // ComboShip: (#133)
+                                  &mOptions[RSK_EXCLUDE_MASK_SHOP_KEY],
                                   &mOptions[RSK_GERUDO_FORTRESS],
                                   &mOptions[RSK_RAINBOW_BRIDGE],
                                   &mOptions[RSK_BRIDGE_OPTIONS],
@@ -1953,7 +2020,9 @@ void Settings::CreateOptions() {
         "Entrances",
         { &mOptions[RSK_SHUFFLE_DUNGEON_ENTRANCES], &mOptions[RSK_SHUFFLE_BOSS_ENTRANCES],
           &mOptions[RSK_SHUFFLE_GANONS_TOWER_ENTRANCE], &mOptions[RSK_SHUFFLE_OVERWORLD_ENTRANCES],
-          &mOptions[RSK_SHUFFLE_INTERIOR_ENTRANCES], &mOptions[RSK_SHUFFLE_THIEVES_HIDEOUT_ENTRANCES],
+          &mOptions[RSK_SHUFFLE_INTERIOR_ENTRANCES],
+          // ComboShip: (#134)
+          &mOptions[RSK_EXCLUDE_MASK_SHOP_ENTRANCE], &mOptions[RSK_SHUFFLE_THIEVES_HIDEOUT_ENTRANCES],
           &mOptions[RSK_SHUFFLE_GROTTO_ENTRANCES], &mOptions[RSK_SHUFFLE_OWL_DROPS], &mOptions[RSK_SHUFFLE_WARP_SONGS],
           &mOptions[RSK_SHUFFLE_OVERWORLD_SPAWNS], &mOptions[RSK_DECOUPLED_ENTRANCES],
           &mOptions[RSK_MIXED_ENTRANCE_POOLS], &mOptions[RSK_MIX_DUNGEON_ENTRANCES], &mOptions[RSK_MIX_BOSS_ENTRANCES],
@@ -2184,6 +2253,8 @@ void Settings::CreateOptions() {
                                                                &mOptions[RSK_SLEEPING_WATERFALL],
                                                                &mOptions[RSK_JABU_OPEN],
                                                                &mOptions[RSK_LOCK_OVERWORLD_DOORS],
+                                                               // ComboShip: (#133)
+                                                               &mOptions[RSK_EXCLUDE_MASK_SHOP_KEY],
                                                                &mOptions[RSK_GERUDO_FORTRESS],
                                                                &mOptions[RSK_RAINBOW_BRIDGE],
                                                                &mOptions[RSK_RAINBOW_BRIDGE_STONE_COUNT],
@@ -2205,6 +2276,8 @@ void Settings::CreateOptions() {
                                                                  &mOptions[RSK_SHUFFLE_GANONS_TOWER_ENTRANCE],
                                                                  &mOptions[RSK_SHUFFLE_OVERWORLD_ENTRANCES],
                                                                  &mOptions[RSK_SHUFFLE_INTERIOR_ENTRANCES],
+                                                                 // ComboShip: (#134)
+                                                                 &mOptions[RSK_EXCLUDE_MASK_SHOP_ENTRANCE],
                                                                  &mOptions[RSK_SHUFFLE_THIEVES_HIDEOUT_ENTRANCES],
                                                                  &mOptions[RSK_SHUFFLE_GROTTO_ENTRANCES],
                                                                  &mOptions[RSK_SHUFFLE_OWL_DROPS],
@@ -2626,6 +2699,56 @@ void Context::FinalizeSettings(const std::set<RandomizerCheck>& excludedLocation
     // ComboShip: the Happy Mask Shop scene is the OOT->MM portal and never runs, so its hint can never
     // be read — leaving it on would silently burn a hint.
     mOptions[RSK_MASK_SHOP_HINT].Set(RO_GENERIC_OFF);
+    // ComboShip (#136): the launcher owns the goal. Hunt maps to the native Triforce wincon (keeps the
+    // Ganon-skip and parks RG_TRIFORCE on the dump-excluded RC_WINCON); pieces must go anywhere.
+    mOptions[RSK_WINCON].Set(gComboGoalHunt ? RO_WINCON_TRIFORCE_PIECES : RO_WINCON_DEFEAT_GANON);
+    mOptions[RSK_TRIFORCE_HUNT_PIECES_LOCATION].Set(RO_TRIFORCE_HUNT_LOCATION_ANYWHERE);
+    // ComboShip (#136): the goal is combined, so the per-game triforce UI (kaleido, item tracker,
+    // altar hint) must show the COMBINED required count, not OOT's share. Safe to force: the native
+    // win trigger is COMBO_BUILD'd out (hook_handlers.cpp) and this only otherwise gates RC_WINCON,
+    // which the combo dump excludes.
+    mOptions[RSK_WINCON_TRIFORCE_COUNT].Set((uint8_t)gComboGoalRequired);
+    // OOT's half of the combined total (0 when the hunt is off, so a stale slider value can't leak
+    // pieces into a both-bosses pool). -1 = old seed, leave the slider alone.
+    if (gComboGoalPieces >= 0) {
+        const uint8_t ootPieces = gComboGoalHunt ? (uint8_t)gComboGoalPieces : (uint8_t)0;
+        mOptions[RSK_TRIFORCE_HUNT_PIECES_TOTAL].Set(ootPieces);
+        // The forced total bypasses RSK_TRIFORCE_HUNT_PIECES_TOTAL's callback, so mirror its clamp:
+        // these triggers count OOT-LOCAL pieces, and asking for more than OOT's pool holds is unwinnable.
+        for (const RandomizerSettingKey key :
+             { RSK_RAINBOW_BRIDGE_TRIFORCE_COUNT, RSK_GBK_TRIFORCE_COUNT, RSK_GANONS_SOUL_TRIFORCE_COUNT }) {
+            if (mOptions[key].Get() > ootPieces) {
+                mOptions[key].Set(ootPieces);
+            }
+        }
+    }
+    // ComboShip (#135): an MM start must leave OOT enterable from nothing — the Clock Tower door lands
+    // an itemless child outside the Mask Shop, and an itemless child must be able to leave the forest.
+    if (gComboStartingGameMM) {
+        mOptions[RSK_STARTING_AGE].Set(RO_AGE_CHILD);
+        if (mOptions[RSK_FOREST].Is(RO_CLOSED_FOREST_ON)) {
+            mOptions[RSK_FOREST].Set(RO_CLOSED_FOREST_DEKU_ONLY);
+        }
+    }
+#endif
+    // ComboShip: (#133/#134) sub-options are meaningless without their parents
+    if (!mOptions[RSK_LOCK_OVERWORLD_DOORS]) {
+        mOptions[RSK_EXCLUDE_MASK_SHOP_KEY].Set(RO_GENERIC_OFF);
+    }
+#ifdef COMBO_BUILD
+    // ComboShip (#135): an MM start must not leave the portal's own key behind the portal.
+    else if (gComboStartingGameMM) {
+        mOptions[RSK_EXCLUDE_MASK_SHOP_KEY].Set(RO_GENERIC_ON);
+    }
+#endif
+    if (mOptions[RSK_SHUFFLE_INTERIOR_ENTRANCES].Is(RO_INTERIOR_ENTRANCE_SHUFFLE_OFF)) {
+        mOptions[RSK_EXCLUDE_MASK_SHOP_ENTRANCE].Set(RO_GENERIC_OFF);
+    }
+#ifdef COMBO_BUILD
+    // ComboShip (#135): keep the Mask Shop entrance where the MM-start return route expects it.
+    else if (gComboStartingGameMM) {
+        mOptions[RSK_EXCLUDE_MASK_SHOP_ENTRANCE].Set(RO_GENERIC_ON);
+    }
 #endif
     // With certain access settings, the seed is only beatable if Starting Age is set to Child.
     if (mOptions[RSK_LOGIC_RULES].IsNot(RO_LOGIC_NO_LOGIC) &&
@@ -3161,6 +3284,9 @@ void Settings::RandomizeAllSettings() {
             case RSK_STARTING_GERUDO_CARD:
             case RSK_STARTING_BIGGORON_SWORD:
             case RSK_STARTING_BUNNY_HOOD:
+            // ComboShip: (#133/#134) opt-outs, never randomized
+            case RSK_EXCLUDE_MASK_SHOP_KEY:
+            case RSK_EXCLUDE_MASK_SHOP_ENTRANCE:
                 continue;
             default:
                 break;

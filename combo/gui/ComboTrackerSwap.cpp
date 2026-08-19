@@ -1,7 +1,9 @@
 // combo/gui/ComboTrackerSwap.cpp — see ComboTrackerSwap.h for rationale.
 #include "ComboTrackerSwap.h"
 #include "ComboTrackerCommon.h"
+#include "ComboTrackerBridge.h" // canonical window-type defaults
 #include "ComboForeground.h"
+#include "ComboWidgetStyle.h"
 #include <libultraship/libultraship.h>
 #include <ship/resource/CrossRMRegistry.h>
 #include <imgui_internal.h> // FindWindowByName / SetWindowPos / ImGuiWindow rects
@@ -38,6 +40,26 @@ int OotActiveSlot() {
     return -1;
 }
 
+// Combined Triforce progress (#136): counts live in the two game DLLs, the goal in soh's copy of the
+// slot's seed. Returns false unless the loaded seed's goal is a hunt.
+bool ComboTriforceProgress(int& have, int& need) {
+    static int (*sOot)(void) = nullptr;
+    static int (*sMm)(void) = nullptr;
+    static int (*sGoal)(int*) = nullptr;
+    static bool sTried = false;
+    if (!sTried) {
+        sTried = true;
+        sOot = (int (*)(void))Combo_ResolveSym("soh", "SOH_GetTriforcePieceCount");
+        sGoal = (int (*)(int*))Combo_ResolveSym("soh", "SOH_GetComboGoal");
+        sMm = (int (*)(void))Combo_ResolveSym("2ship", "MM_GetTriforcePieceCount");
+    }
+    if (!sOot || !sMm || !sGoal || !sGoal(&need) || need <= 0) {
+        return false;
+    }
+    have = sOot() + sMm();
+    return true;
+}
+
 // A dormant MM draw can precede any MM visit, and until then nothing has loaded the slot's MM save
 // into MM's dormant gSaveContext (it holds boot defaults — the tracker would read all-blank). Load
 // it here, once per slot. Never after MM has been foreground: its live memory is newer than disk.
@@ -58,6 +80,46 @@ void EnsureMmSaveLoadedForDormantDraw() {
     }
     sLoadMmSave(slot);
     sLoadedSlot = slot;
+}
+
+// Each game's own "only show while paused" setting, per tracker kind. OOT's is a no-op unless the
+// window type is floating (0) — upstream nests it that way; MM's is VisibilityMode 1.
+struct PausedOnly {
+    const char* ootCvar;
+    const char* ootWindowTypeCvar; // canonical combo CVar (the bridge mirrors it into OOT's)
+    int ootWindowTypeDefault;
+    const char* mmCvar;
+};
+constexpr PausedOnly kPausedOnly[ComboTracker::kSwapCount] = {
+    { "gTrackers.ItemTracker.ShowOnlyPaused", "gCombo.Tracker.WindowType", ComboTracker::kDefaultWindowType,
+      "gSettings.ItemTracker.VisibilityMode" },
+    { "gTrackers.CheckTracker.ShowOnlyPaused", "gCombo.CheckTracker.WindowType", ComboTracker::kDefaultCheckWindowType,
+      "gRando.CheckTracker.VisibilityMode" },
+};
+
+// True when the dormant game's tracker of this kind is set to only show while its game is paused.
+bool DormantPausedOnly(int kindIdx, int bg) {
+    const PausedOnly& p = kPausedOnly[kindIdx];
+    if (bg == 0) {
+        return CVarGetInteger(p.ootCvar, 0) != 0 && CVarGetInteger(p.ootWindowTypeCvar, p.ootWindowTypeDefault) == 0;
+    }
+    return CVarGetInteger(p.mmCvar, 0) == 1; // MM's button modes (2/3) stay always-show while dormant
+}
+
+// The foreground game's pause state, from its DLL (the dormant game's own is stale). Fails open
+// (paused) so a missing module/export degrades to the previous always-show behavior.
+bool ForegroundPaused(int fg) {
+    static int (*sFn[2])(void) = {};
+    static bool sTried[2] = {};
+    if (!sTried[fg]) {
+        sTried[fg] = true;
+        sFn[fg] = (int (*)(void))Combo_ResolveSym(fg == 0 ? "soh" : "2ship",
+                                                  fg == 0 ? "SOH_IsPausedForCombo" : "MM_IsPausedForCombo");
+    }
+    if (sFn[fg]) {
+        return sFn[fg]() != 0;
+    }
+    return true;
 }
 
 // Write the derived visibility only on change (SetTracker writes the CVar and Show/Hides the
@@ -99,6 +161,12 @@ void PlaceMmWindowOnFirstShow(int kindIdx) {
     if (!oot) {
         return;
     }
+    // AlwaysAutoResize windows carry a placeholder rect through their first (hidden) sizing
+    // frames; placing from that puts MM inside OOT's eventual frame. Wait while OOT is actively
+    // sizing — a dormant OOT window (HideBackground) keeps its last measured rect and is fine.
+    if (oot->WasActive && oot->Hidden) {
+        return;
+    }
     ImGui::SetWindowPos(mm, ImVec2(oot->Pos.x + oot->Size.x + kFirstShowGapPx, oot->Pos.y), ImGuiCond_Always);
     CVarSetInteger(kind.mmPlacedCvar, 1);
     sLatched[kindIdx] = true;
@@ -114,7 +182,10 @@ void Reconcile(int kindIdx) {
     const bool hideBg = CVarGetInteger(kind.hideBgCvar, 0) != 0;
 
     bool wantFg = master;
-    bool wantBg = master && (!hideBg || sPeeks[kindIdx].held);
+    // A dormant tracker set to "only while paused" follows the FOREGROUND game's pause state (its
+    // own is stale); peek-hold still overrides.
+    const bool onlyPaused = DormantPausedOnly(kindIdx, bg);
+    bool wantBg = master && ((!hideBg && (!onlyPaused || ForegroundPaused(fg))) || sPeeks[kindIdx].held);
     // A dormant game's tracker needs its ResourceManager registered (icons) and, for dormant MM,
     // an active OOT save whose MM counterpart it can show — not the title/file-select screens.
     if (wantBg && !Ship::CrossRMRegistry::Get(bg == 0 ? "oot" : "mm")) {
@@ -186,6 +257,26 @@ void SwapWindow::Draw() {
 
     for (int k = 0; k < ComboTracker::kSwapCount; ++k) {
         Reconcile(k);
+    }
+
+    // Combined Triforce progress (#136) — neither game's own tracker can show it (each counts only
+    // its own pieces). Draggable overlay; ImGui persists the position.
+    int have = 0, need = 0;
+    if (OotActiveSlot() >= 0 && CVarGetInteger("gCombo.Tracker.TriforceLine", 1) && ComboTriforceProgress(have, need)) {
+        // Themed like the combo menu's frames (ComboWidgetStyle) so the overlay matches the rest of the UI.
+        const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(theme.x, theme.y, theme.z, 0.45f));
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.0f, 0.0f, 0.0f, 0.3f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 3.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 6.0f));
+        if (ImGui::Begin("Combo Triforce", nullptr,
+                         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                             ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav)) {
+            ImGui::Text("Triforce: %d / %d", have, need);
+        }
+        ImGui::End();
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor(2);
     }
 
     // HideBackground peek: click-hold the visible tracker's body to also show the dormant game's

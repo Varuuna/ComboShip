@@ -36,6 +36,7 @@ typedef struct {
 extern std::vector<TrackerGroup> itemTrackerGroups;
 extern bool DrawItemTrackerSlot(TrackerItemType itemType, u32 itemId, float scale, bool clickable);
 extern std::string GetItemTrackerItemName(TrackerItemType itemType, u32 itemId);
+extern float GetItemTrackerGroupScale(const TrackerGroup& trackerGroup);
 
 class ItemTrackerWindow : public Ship::GuiWindow {
   public:

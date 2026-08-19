@@ -666,6 +666,7 @@ CustomMessage Hint::GetWinconText() {
         winconMessage.InsertNumber(ctx->GetOption(RSK_WINCON_TOKEN_COUNT).Get());
     } else if (ctx->GetOption(RSK_WINCON).Is(RO_WINCON_TRIFORCE_PIECES)) {
         winconMessage = StaticData::hintTextTable[RHT_WINCON_TRIFORCE_PIECES_HINT].GetHintMessage();
+        // ComboShip (#136): combo forces this option to the COMBINED required count (settings.cpp).
         winconMessage.InsertNumber(ctx->GetOption(RSK_WINCON_TRIFORCE_COUNT).Get());
     }
     return winconMessage;

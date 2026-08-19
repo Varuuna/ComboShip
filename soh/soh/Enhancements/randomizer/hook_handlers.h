@@ -7,8 +7,12 @@
 #include <cstdint>
 #include "rando/CrossForeign.h"
 #include "soh/Enhancements/randomizer/randomizerTypes.h"
+#include "soh/Enhancements/item-tables/ItemTableTypes.h"
 // ComboShip: per-slot foreign-item lookup (defined in hook_handlers.cpp).
 const ComboRando::ForeignItem* OOT_LookupForeign(int slot, const std::string& checkName);
+// ComboShip: the foreign item's home-game container category, so Container Matches Contents doesn't
+// render every foreign check as the junk sentinel. Defined in hook_handlers.cpp.
+GetItemCategory OOT_GetForeignCategory(RandomizerCheck rc);
 // ComboShip: generation of the foreign map; bumped on every rebuild so draw caches can invalidate.
 uint64_t OOT_ForeignMapGen();
 // ComboShip: currently-queued get-item check (RC_UNKNOWN_CHECK if none) — fallback identity for

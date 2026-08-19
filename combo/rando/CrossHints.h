@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <iostream>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -125,6 +126,9 @@ struct HintCandidate {
     nlohmann::json itemHintMask;                        // trap disguise's hint entry (null = none)
     uint32_t weight = 1;
     bool required = false;
+    // Native ItemLocation::IsHintable: false for confined/non-shuffled placements, which stones must
+    // never target. Candidates stay in the list either way (full views below still need them).
+    bool hintable = true;
 };
 
 // Weighted category mirror of OOT's hintSettingTable (hints.cpp:153). junkWeight fills any stones
@@ -294,7 +298,10 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
         if (fm.value("checkGame", "") != "oot" || fm.value("itemGame", "") != "mm")
             continue;
         std::string itemName = fm.value("itemName", "");
-        std::string area = fm.value("checkArea", fm.value("checkName", ""));
+        std::string checkName = fm.value("checkName", "");
+        // Area from the hint dump's own per-check table (foreign[] no longer persists checkArea).
+        auto ca = ootChecks.find(checkName);
+        std::string area = (ca != ootChecks.end() && !ca->second.area.empty()) ? ca->second.area : checkName;
         if (!itemName.empty())
             mmItemLocations[itemName] = "in " + area + " (OOT)";
     }
@@ -308,6 +315,31 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
     for (size_t i = 0; i < placements.size(); ++i)
         if (placements[i].checkGame == GAME_OOT)
             ootPlacementIndex.emplace(placements[i].check, i);
+    // Non-hintable checks, from both dumps' fixed[] (confined placements that never went through a
+    // shuffle fill). Absent flag = pre-flag DLL -> everything hintable, i.e. the old behavior.
+    std::unordered_set<std::string> nonHintable;
+    auto loadNonHintable = [&](const char* prefix, const nlohmann::json& dump) {
+        const auto fixedArr = dump.value("fixed", nlohmann::json::array());
+        bool sawFlag = false;
+        for (auto& f : fixedArr) {
+            if (f.contains("hintable"))
+                sawFlag = true;
+            if (!f.value("hintable", true))
+                nonHintable.insert(prefix + f.value("check", std::string()));
+        }
+        if (!fixedArr.empty() && !sawFlag)
+            std::cerr << "[HINTS] " << (prefix[0] == 'o' ? "oot" : "mm")
+                      << " dump has no 'hintable' flag on fixed placements; hints may "
+                         "target non-shuffled checks - rebuild soh.dll/2ship.dll\n";
+    };
+    loadNonHintable("oot:", staticDump);
+    loadNonHintable("mm:", mmDump);
+    // Forced placements (spoiler startKnown, e.g. Link's Pocket) are owned at start — never hintable.
+    try {
+        for (auto& sk : nlohmann::json::parse(spoilerJson).value("startKnown", nlohmann::json::array()))
+            nonHintable.insert(sk.value("checkGame", "") + ":" + sk.value("checkName", ""));
+    } catch (...) {}
+
     std::vector<HintCandidate> candidates;
     candidates.reserve(placements.size());
     std::unordered_set<std::string> areaHasMajor; // native barren predicate: barren = no WotH + no major
@@ -322,6 +354,7 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
         std::string checkKey = (p.checkGame == GAME_OOT ? "oot:" : "mm:") + p.check;
         auto reqIt = pareDown.requiredByCheck.find(checkKey);
         c.required = reqIt != pareDown.requiredByCheck.end() && reqIt->second;
+        c.hintable = !nonHintable.count(checkKey);
         if (p.checkGame == GAME_OOT) {
             auto it = ootChecks.find(p.check);
             if (it != ootChecks.end()) {
@@ -347,11 +380,18 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
 
     // Required / foolish AREA pools (native's WotH/Foolish hint an area, not a specific item).
     // Unmapped MM checks roll up as "Unknown" — a useless hint target, so drop those keys.
+    // WotH counts only HINTABLE required checks (fill.cpp:767) — a confined boss key can't make its own
+    // area "way of the hero". areaHasMajor stays unfiltered (native barren counts majors regardless).
+    std::unordered_set<std::string> areaHasHintableRequired;
+    for (auto& c : candidates)
+        if (c.hintable && c.required && !c.areaKey.empty())
+            areaHasHintableRequired.insert(c.areaKey);
     std::vector<std::string> requiredAreas, foolishAreas;
-    for (auto& [key, hasRequired] : pareDown.areaHasRequired) {
+    for (auto& entry : pareDown.areaHasRequired) {
+        const std::string& key = entry.first;
         if (key.find("Unknown") != std::string::npos)
             continue;
-        if (hasRequired)
+        if (areaHasHintableRequired.count(key))
             requiredAreas.push_back(key);
         else if (!areaHasMajor.count(key)) // barren only if no WotH AND no major item (native parity)
             foolishAreas.push_back(key);
@@ -520,7 +560,8 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
                     break;
                 std::string checkName = an.get<std::string>();
                 std::string checkKey = "oot:" + checkName;
-                if (usedCheckKeys.count(checkKey))
+                // An EXCLUDED always-check is junk-filled non-hintably; native skips it (IsHintable).
+                if (usedCheckKeys.count(checkKey) || nonHintable.count(checkKey))
                     continue;
                 auto locIt = ootChecks.find(checkName);
                 auto plIt = ootPlacementIndex.find(checkName);
@@ -544,6 +585,11 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
                 usedCheckKeys.insert(checkKey);
             }
         }
+
+        // Start-known checks (native SetHintAccesible, e.g. Song from Impa): reserve them from the
+        // weighted loop only — always-hints stay unaffected, matching native's ordering.
+        for (auto& hn : hintDump.value("hintAccessibleChecks", nlohmann::json::array()))
+            usedCheckKeys.insert("oot:" + hn.get<std::string>());
 
         std::vector<DistCategory> dist = preset.cats; // mutable local copy (weights zeroed on exhaustion)
         while (totalStones > 0) {
@@ -587,9 +633,9 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
                 std::vector<std::string> keys(candidates.size());
                 for (size_t i = 0; i < candidates.size(); ++i) {
                     keys[i] = (candidates[i].checkGame == GAME_OOT ? "oot:" : "mm:") + candidates[i].checkName;
-                    bool eligible = (cat == "Song" && candidates[i].song) ||
-                                    (cat == "Overworld" && candidates[i].overworld) ||
-                                    (cat == "Dungeon" && candidates[i].dungeon);
+                    bool eligible = candidates[i].hintable && ((cat == "Song" && candidates[i].song) ||
+                                                               (cat == "Overworld" && candidates[i].overworld) ||
+                                                               (cat == "Dungeon" && candidates[i].dungeon));
                     if (eligible)
                         idxs.push_back(i);
                 }
@@ -617,7 +663,7 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
                 std::vector<std::string> keys(candidates.size());
                 for (size_t i = 0; i < candidates.size(); ++i) {
                     keys[i] = (candidates[i].checkGame == GAME_OOT ? "oot:" : "mm:") + candidates[i].checkName;
-                    if (cat == "Random" || candidates[i].required)
+                    if (candidates[i].hintable && (cat == "Random" || candidates[i].required))
                         idxs.push_back(i);
                 }
                 int pick = pickUnused(idxs, keys, usedCheckKeys);
@@ -664,7 +710,7 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
     // the checks MM's native stone draw can't see (MM checks, foreign-held or not, it already
     // covers itself). Weight mirrors requiredness so cross entries compete fairly (grill #3).
     for (auto& c : candidates) {
-        if (c.checkGame != GAME_OOT)
+        if (c.checkGame != GAME_OOT || !c.hintable) // non-shuffled OOT checks are never hint targets
             continue;
         Tri itemName = PickTemplate(c.itemHint, 2, rng, MaskOrNull(c.itemHintMask));
         Tri area = areaText(c.areaKey);

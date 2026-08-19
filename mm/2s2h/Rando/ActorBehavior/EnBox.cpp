@@ -52,8 +52,8 @@ void func_80837C78_override(PlayState* play, Player* player) {
 void EnBox_RandoPostLimbDraw(PlayState* play, s32 limbIndex, Gfx** dList, Vec3s* rot, Actor* actor, Gfx** gfx) {
     s32 pad;
     EnBox* enBox = (EnBox*)actor;
-    RandoItemId randoItemId = Rando::ConvertItem(RANDO_SAVE_CHECKS[ENBOX_RC].randoItemId, (RandoCheckId)ENBOX_RC);
-    RandoItemType randoItemType = Rando::StaticData::Items[randoItemId].randoItemType;
+    RandoItemType randoItemType =
+        Rando::GetItemTypeForCheck(RANDO_SAVE_CHECKS[ENBOX_RC].randoItemId, (RandoCheckId)ENBOX_RC);
     if (enBox->unk_1EC != 0 && actor->home.rot.z == 0) {
         actor->home.rot.z = randoItemType + 1;
     }

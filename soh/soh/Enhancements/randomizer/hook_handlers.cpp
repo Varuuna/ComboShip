@@ -287,10 +287,14 @@ void CheckTriggers() {
         randomizerQueuedChecks.push(RC_GANON_SOUL);
     }
 
+#ifndef COMBO_BUILD
+    // ComboShip (#136): the launcher owns the win condition (combined Triforce goal across both
+    // games), so OOT must not trigger its own ungated win here.
     if (MeetsWinconRequirements()) {
         SPDLOG_INFO("Queuing RC: RC_WINCON");
         randomizerQueuedChecks.push(RC_WINCON);
     }
+#endif
 }
 
 void RandomizerOnFlagSetHandler(int16_t flagType, int16_t flag) {
@@ -431,6 +435,67 @@ const ComboRando::ForeignItem* OOT_LookupForeign(int slot, const std::string& ch
     }
     auto it = g_ootForeignMap.find(checkName);
     return it == g_ootForeignMap.end() ? nullptr : &it->second;
+}
+
+// ComboShip: foreign[].category -> OOT container-art category. Unknown and MM-only (mask,
+// strayFairy) map to MAJOR — over-promising beats dressing a major item as junk.
+static GetItemCategory ForeignCategoryFromName(const std::string& name) {
+    if (name == "junk") {
+        return ITEM_CATEGORY_JUNK;
+    }
+    if (name == "lesser") {
+        return ITEM_CATEGORY_LESSER;
+    }
+    if (name == "health") {
+        return ITEM_CATEGORY_HEALTH;
+    }
+    if (name == "bossKey") {
+        return ITEM_CATEGORY_BOSS_KEY;
+    }
+    if (name == "smallKey") {
+        return ITEM_CATEGORY_SMALL_KEY;
+    }
+    if (name == "token") {
+        return ITEM_CATEGORY_SKULLTULA_TOKEN;
+    }
+    return ITEM_CATEGORY_MAJOR;
+}
+
+// ComboShip: category the foreign item would have at home, so Container Matches Contents dresses the
+// chest/pot/crate as the real item instead of the hard-typed junk sentinel. Cached per check.
+GetItemCategory OOT_GetForeignCategory(RandomizerCheck rc) {
+    static std::unordered_map<RandomizerCheck, GetItemCategory> cache;
+    static uint64_t cachedGen = (uint64_t)-1;
+    if (cachedGen != g_ootForeignGen) {
+        cache.clear();
+        cachedGen = g_ootForeignGen;
+    }
+    auto cached = cache.find(rc);
+    if (cached != cache.end())
+        return cached->second;
+
+    const ComboRando::ForeignItem* fi =
+        OOT_LookupForeign(gSaveContext.fileNum, Rando::StaticData::GetLocation(rc)->GetName());
+    // The lookup may have built the map (bumping the generation); adopt it so this entry survives.
+    if (cachedGen != g_ootForeignGen) {
+        cache.clear();
+        cachedGen = g_ootForeignGen;
+    }
+
+    // Traps are MAJOR for native parity (OOT ice traps are, disguised or not). An absent category
+    // (pre-category seed or plando import) falls back to importance.
+    GetItemCategory category = ITEM_CATEGORY_JUNK; // no entry -> the sentinel's own junk typing
+    if (fi != nullptr) {
+        if (fi->trap) {
+            category = ITEM_CATEGORY_MAJOR;
+        } else if (fi->category.empty()) {
+            category = fi->advancement ? ITEM_CATEGORY_MAJOR : ITEM_CATEGORY_JUNK;
+        } else {
+            category = ForeignCategoryFromName(fi->category);
+        }
+    }
+    cache.emplace(rc, category);
+    return category;
 }
 
 // ComboShip: expose the currently-queued check so Randomizer_DrawComboForeign (draw.cpp) can

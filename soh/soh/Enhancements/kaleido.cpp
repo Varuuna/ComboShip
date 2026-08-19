@@ -147,7 +147,7 @@ Kaleido::Kaleido() {
     if (ctx->GetOption(RSK_TRIFORCE_HUNT_PIECES_TOTAL).Get() > 0) {
         mEntries.push_back(std::make_shared<KaleidoEntryIconCountRequired>(
             gTriforcePieceTex, G_IM_FMT_RGBA, G_IM_SIZ_32b, 32, 32, Color_RGBA8{ 255, 255, 255, 255 },
-            reinterpret_cast<int*>(&gSaveContext.ship.quest.data.randomizer.triforcePiecesCollected),
+            &gSaveContext.ship.quest.data.randomizer.triforcePiecesCollected,
             ctx->GetOption(RSK_WINCON_TRIFORCE_COUNT).Get(), ctx->GetOption(RSK_TRIFORCE_HUNT_PIECES_TOTAL).Get()));
     }
     if (ctx->GetOption(RSK_SKELETON_KEY)) {
@@ -392,7 +392,7 @@ void KaleidoEntryIconFlag::Update(PlayState* play) {
 
 KaleidoEntryIconCountRequired::KaleidoEntryIconCountRequired(const char* iconResourceName, int iconFormat, int iconSize,
                                                              int iconWidth, int iconHeight, Color_RGBA8 iconColor,
-                                                             int* watch, int required, int total)
+                                                             const u8* watch, int required, int total)
     : KaleidoEntryIcon(iconResourceName, iconFormat, iconSize, iconWidth, iconHeight, iconColor), mWatch(watch),
       mRequired(required), mTotal(total) {
     mCount = *mWatch;

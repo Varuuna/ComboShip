@@ -142,5 +142,88 @@ on boot.
   settings content are hidden in combo builds (`gWindows.ItemTracker`/`.CheckTracker` are derived
   from the combo master toggle every frame; the buttons would fight it).
 
+**Dormant "only while paused" (#127, 2026-08-12):** the in-tracker dormant bypasses stay (stale
+pause state); instead `Reconcile` hides a dormant tracker whose game is set to only-while-paused
+unless the FOREGROUND game is paused, via new `SOH_IsPausedForCombo` / `MM_IsPausedForCombo`
+exports (fail open = paused). Peek-hold still overrides.
+
 **On future merges:** if upstream renames the tracker ImGui windows or the settings windows,
 update `combo/gui/ComboTrackerCommon.h` (`kKinds[].imguiWin`) and the inline-widget window names.
+
+## Tracker batch: spawn offset, icon parity, OOT check-tracker reset (2026-08-10)
+
+**Why:** (1) First-show placement latched a bad MM position (OOT's AlwaysAutoResize width isn't
+settled the frame both windows appear), so new configs opened the trackers stacked. (2) The two
+grids had different density: OOT draws icon + IconSpacing gaps, MM packed 46px cells edge-to-edge.
+(3) The OOT Check Tracker could permanently zero: a threaded trackerData save queued before a
+reload runs against the freshly recreated (all-UNCHECKED) gRandoContext and persists
+`"checkStatus": []`; separately, incremental saves demote COLLECTED->SCUMMED on disk and nothing
+ever promotes back (autosave is blocked for the whole Ocarina-without-Song-of-Time stretch).
+
+**Combo-owned:** `ComboTrackerSwap.cpp` placement waits for settled rects; `ComboTrackerBridge.*`
+adds canonical `gCombo.Tracker.IconSpacing` (separately seeded) and flips Draggable default to on;
+`ComboMenu.cpp` gets the shared "Icon spacing (px)" slider.
+
+**Vendored (`COMBO_BUILD`-guarded):**
+- `mm/.../ItemTracker/ItemTracker.cpp` — cell padded around the icon by
+  `gSettings.ItemTracker.IconSpacing` (bridge-mirrored) so both grids share icon+gap pitch;
+  count text anchored to the icon rect. Vanilla path unchanged (pad 0 / `#else`).
+- `soh/soh/SaveManager.cpp` — `Save_LoadFile`: `ThreadPoolWait()` before recreating gRandoContext
+  (reload paths reach here before OnExitGame's drain), and early-return keeping the current
+  context when the container has no OOT block (previously reset-then-bail left it all-unchecked).
+- `soh/.../randomizer_check_tracker.cpp` — `CheckTrackerLoadGame` promotes a persisted status to
+  SAVED when the loaded save's own flags prove the check was obtained (`ComboCheckFlagObtained`);
+  genuine save-scums stay SCUMMED (their flags are absent). Also self-heals already-wiped saves.
+  Tripwire WARN when persisting an empty checkStatus for a rando file.
+- `soh/soh/OTRGlobals.cpp` — `SOH_MarkForeignObtained` persists via full `SaveFile` (a foreign
+  check has no OOT flag to promote it back from SCUMMED).
+- `soh/.../SeedContext.cpp` — WARN tripwires in `ItemReset`/`ClearItemLocations` when called with
+  a save loaded (suspected mid-session wipe path; not yet root-caused).
+
+## Item Tracker settings: flat layout, icon-size parity, shared paused-only (2026-08-18)
+
+**Why:** (1) MM's `ItemTrackerSettingsWindow::DrawElement` wrapped everything in auto-sized
+`BeginChild`s. Embedded inline in the combo Settings hub the outer child only gets the parent's
+leftover height, so the group Available/Active lists (and the reorder chevrons / per-group options)
+were unreachable even though the hub scrolls. (2) Both games still exposed their own icon
+size/spacing editors, which the bridge silently overwrites at the next `SyncAppearance`. (3) MM's
+split-window-group mode used the per-group `scale` *instead of* the global one, so MM icons jumped
+to their 46px base while OOT sat at the shared 36px.
+
+**Combo-owned:** `ComboMenu.cpp` — shared "Icon size" max widened 64 → 128 (covers OOT's old
+range), new "Only enable while paused" checkbox + a hint when the window type is Window.
+`ComboTrackerBridge.{h,cpp}` — canonical `gCombo.Tracker.OnlyPaused` (default 0) mirrored into
+`gTrackers.ItemTracker.ShowOnlyPaused` and `gSettings.ItemTracker.VisibilityMode` (0/1).
+
+**Vendored — guard-free (equivalent-or-better standalone):**
+- `mm/.../ItemTrackerSettings.cpp` — `DrawElement` / `DrawTrackerAvailableGroups` /
+  `DrawTrackerActiveGroups` lay out flat, like SoH's item-tracker settings: the outer, per-column
+  and per-list `BeginChild`s are gone, so content extends the parent and the *window* scrolls when
+  popped out. The two lists regained ID scoping via `PushID` (they were previously separated by
+  their child windows, and ImGui table cells do not scope IDs). The right-aligned group buttons
+  now use a cursor-relative helper — `SameLine(absolute_x)` is cell-relative while
+  `GetContentRegionMax()` is window-relative, so the old form would have flown off-screen in the
+  second table column. The dead `SetNextWindowSize` before the removed outer child went with it
+  (`BeginChildEx` always overrides it; the popout's size comes from its `GuiWindow` registration).
+- `mm/.../ItemTracker.cpp` — `DrawItemCounts` restores `SetWindowFontScale(1.0f)`; it is
+  window-wide state and leaked into every widget drawn after a counted icon.
+
+**Vendored (`COMBO_BUILD`-guarded):**
+- `mm/.../ItemTracker.cpp` — new `GetItemTrackerGroupScale()`; in combo the effective scale is
+  `global × group.scale`, making the per-group scale a relative multiplier (1.0 = parity with OOT).
+  Standalone keeps the either/or.
+- `mm/.../ItemTrackerSettings.cpp` — global `Scale` slider and `Visibility` combobox hidden (combo
+  owns both); per-group scale slider relabelled "Group scale (x global)" with a 0.05 step (0.5
+  steps would snap the bridge-derived 0.7826 to 0.5/1.0); the Available/Active preview grids draw
+  at `min(effective scale, 1.0)` instead of a hardcoded 1.0.
+- `soh/.../randomizer_item_tracker.cpp` — "Icon size"/"Icon margins" sliders and the "Only Enable
+  While Paused" checkbox hidden (all three are bridge-derived).
+
+**Residuals (accepted):**
+- MM's Button Toggle / Button Hold visibility modes (2/3) are unreachable in combo builds — the
+  shared toggle only expresses Always (0) and Only-on-pause (1), and `SyncAppearance` forces one of
+  those every sync.
+- OOT's `ShowOnlyPaused` is a no-op when the tracker window type is Window rather than Floating
+  (pre-existing upstream nesting); MM honors paused-only in both. The shared panel says so inline.
+- The per-group scale is still MM-only; OOT has no equivalent, so a non-1.0 group scale breaks
+  cross-game icon parity by design.

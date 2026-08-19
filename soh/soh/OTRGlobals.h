@@ -134,6 +134,7 @@ void Randomizer_ShowRandomizerMenu();
 void SOH_TriggerComboGenerate(void);
 int SOH_PollComboFinalize(void);
 int SOH_GetComboGenPercent(void);
+int SOH_GetComboGenPhase(void);
 uint8_t SOH_IsOnFileSelect(void);
 // Open the combo menu on the Randomizer tab (file-select "Open Randomizer Settings").
 void SOH_OpenComboRandoSettings(void);

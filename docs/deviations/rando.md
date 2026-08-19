@@ -578,14 +578,17 @@ quit/resume and MM's Song-of-Time cycles. Registered into both DLLs via the new 
 
 **Vendored boss seams (`COMBO_BUILD`-guarded — preserve on merges, ~13 lines each):**
 - `soh/src/overlays/actors/ovl_Boss_Ganon2/z_boss_ganon2.c` — death cutscene `case 20`: if not both
-  dead, warp to `ENTR_MARKET_DAY_OUTSIDE_HAPPY_MASK_SHOP` (child, no cutscene) instead of the Chamber
-  of the Sages credits. Reuses the existing MM→OOT portal arrival point (see title_setup.c).
+  dead, warp to `ENTR_TEMPLE_OF_TIME_WARP_PAD` (adult, no cutscene) instead of the Chamber of the
+  Sages credits. The pedestal is the guaranteed route to Child (the Master Sword is in hand after
+  Ganon) and from there to the Mask Shop portal.
 - `mm/src/overlays/actors/ovl_Boss_07/z_boss_07.c` — Majora's Wrath death: if not both dead, warp to
   `ENTRANCE(SOUTH_CLOCK_TOWN, 0)` (no cutscene) instead of the Termina Field `0xFFF7` credits.
 
-**Deviation from plan:** the OOT first-kill warp targets the Happy Mask Shop area (not Temple of Time)
-because the OOT→MM portal is the Happy Mask Shop, only reachable as child in the Market — adult Link at
-Temple of Time couldn't reach it.
+**Revised (2026-08-13, issue #137):** the first-kill warp originally targeted
+`ENTR_MARKET_DAY_OUTSIDE_HAPPY_MASK_SHOP` with `linkAgeOnLoad = 0` — but 0 is `LINK_AGE_ADULT`, so
+Link stayed adult and the adult scene layer (+2) landed him in Market Ruins with the Mask Shop
+boarded up. Now warps to the Temple of Time adult spawn instead of forcing child: the player must
+travel to Child via the pedestal anyway to reach the portal.
 
 **Playtest-pending:** both orders (Ganon-first and Majora-first); portal reachable after each warp;
 resume-after-first-kill keeps the flag; finale plays on the second kill.
@@ -1208,3 +1211,195 @@ localisation would mean widening `fakeTrickName` everywhere it is consumed.
 
 **Known nit:** the fallback doubles punctuation (`Tingle''s Clock Town Map`). Upstream skips spaces
 but not apostrophes.
+
+## MM oracle: zeroed inventory read as "owns Ocarina" (2026-08-09)
+
+`Combo_MM_Rando_Reset` (`mm/2s2h/BenPort.cpp`) resets the headless oracle save with a whole-struct
+`memset(0)`. MM's `ITEM_OCARINA_OF_TIME` is item id **0** and `HAS_ITEM` is an equality compare
+(`INV_CONTENT(item) == item`), so a zeroed slot reads as "ocarina owned" — every song became playable
+from sphere 0 and the fill placed MM's ocarina arbitrarily late (player-reported unbeatable seed:
+Snowhead at sphere 10, ocarina at sphere 23). A real fresh save inits `inventory.items` to
+`ITEM_NONE` (0xFF, `z_sram_NES.c`). Masked whenever `RI_OCARINA` was a starting item (the default
+kit); exposed by `gRando.StartingItems: []`, which shuffles the kit into the pool. The
+`--playthrough` validator shares the same oracle, so it could not catch it.
+
+Fix: after the memset, re-init `inventory.items` (48 slots, items + masks) to `ITEM_NONE`, plus a
+one-time sweep asserting no inventory-slot item reads as owned on the empty context.
+
+## Hints never target non-shuffled placements (issue #132, 2026-08-14)
+
+**Why:** Native only hints locations that went through a shuffle fill (`ItemLocation::SetAsHintable`,
+enforced at `hints.cpp` `FilterHintability`). The combined fill merges each dump's `fixed[]` (confined)
+placements into the flat spoiler maps, and the cross-hint layer filtered only on `advancement` — so
+gossip stones hinted own-dungeon keys, dungeon rewards, min-set Buy items, excluded checks and MM's
+non-shuffled Boss Remains, and an area could turn "way of the hero" off its own confined boss key.
+
+**`soh/soh/OTRGlobals.cpp` (`SOH_DumpRandoStaticData`):** each `fixed[]` entry now emits
+`"hintable": GetItemLocation(rc)->IsHintable()` — captured here, right after `ComboFillConfined()`,
+because the oracle's per-query `ItemReset()` wipes the flag long before the hint dump runs.
+`SOH_DumpRandoHintData` additionally emits `"hintAccessibleChecks"`, mirroring `CreateStoneHints`'
+two `SetHintAccesible` cases (Song from Impa with Zelda's letter unshuffled; ToT Master Sword).
+
+**`soh/.../3drando/fill.cpp`:** the combo-only Mask Shop Key confinement now passes
+`setLocationsAsHintable = true` — it's a genuinely shuffled item that native would place hintable.
+
+**MM (`mm/2s2h/BenPort.cpp`):** the dump's `fixed[]` splits — confined pre-placements emit
+`"hintable": true` (`PreplaceConfinedItems` sets `shuffled = true`), the ComboShip Boss Remains block
+emits `false`. `MM_InitRandoSaveFile` also clears `shuffled` on every `RCTYPE_REMAINS` check when
+`RO_SHUFFLE_BOSS_REMAINS` is off (the spoiler apply stamps `shuffled = true` on all payload checks),
+restoring native state for MM's own stone draw, tracker, prices and the Saria hint. `randoItemId` is
+untouched — remains delivery resolves from it, never from `shuffled`.
+
+**Forced placements:** the fill spoiler now carries `startKnown` (forced checks, e.g. Link's Pocket
+— skipped by the dump's `fixed[]`, owned at start); CrossHints folds them into the same set, matching
+native's `RA_LINKS_POCKET` exclusion.
+
+**`combo/rando/CrossHints.h`:** `nonHintable` (both dumps' `fixed[]`, `"oot:"/"mm:" + check`) stamps
+`HintCandidate::hintable`. Candidates are kept either way — the Ganondorf/altar/always item lookups and
+`areaHasMajor` still need the FULL view; only the stone-draw sites filter: Song/Overworld/Dungeon and
+NamedItem/Random pools, MM's `gossipPool`, and always-hints (an excluded always-check is junk-filled
+non-hintably). WotH now needs a `hintable && required` check in the area; the foolish universe and the
+`areaHasMajor` signal stay unfiltered (native counts majors regardless of hintability). Start-known
+checks are pre-inserted into `usedCheckKeys` after the always block, matching native's ordering.
+
+**Absent flag = old DLL:** `hintable` defaults to true (previous behavior) and a dump with a non-empty
+`fixed[]` carrying no `hintable` key logs one warning naming the DLLs to rebuild. Hint TEXT for a given
+seed changes versus older builds (smaller pools -> different draws); placements are untouched and the
+same-seed byte-identity protocol still holds.
+
+**Known remaining gap (pre-existing):** native reserves its static-hint targets (`FindItemsAndMarkHinted`
+— the Light Arrows check, altar-named rewards) before stone hints, so stones never re-hint them; the
+combo distributor doesn't, and MM's cross `gossipPool` doesn't consult `usedCheckKeys` either — a stone
+may duplicate a static hint's target. Duplication only, never a non-shuffled target.
+
+## Container Matches Contents dresses foreign checks as the real item (issue #103, 2026-08-10)
+
+Both foreign sentinels are hard-typed junk (`itemTable[RG_COMBO_FOREIGN]` = `ITEM_CATEGORY_JUNK`,
+`RI_COMBO_FOREIGN` = `RITYPE_JUNK`), so every CMC surface — OOT chests + the Shuffle* containers, MM
+chests/grass/pots/barrels/crates — rendered every cross-game item as junk.
+
+**Seed schema:** `foreign[]` entries gain `category` — `CwCatName(p.item.cat)` stamped by the fill
+(the per-item `category` both dumps already emit in `pool[]`), carried by `BuildForeignArray` /
+`ForeignItem`. `CwCat::UNKNOWN` is omitted so consumers fall back to
+`advancement ? major : junk` (also the rule for pre-category seeds and plando imports, which cannot
+compute categories; the plando writer carries `category` over for unchanged rows like the disguise
+fields). Traps always classify **major** — OOT-native parity (`RG_ICE_TRAP` is MAJOR; a junk-looking
+container never gets opened, so the trap would never fire) — deliberately diverging from MM's native
+`RI_TRAP` = LESSER. `advancement`/`trap` are now emitted only when true (loaders already default
+false), and `checkArea` is no longer persisted: its only reader was `CrossHints.h::Generate`, which
+now derives the area from its own `ootChecks` table (same `sohHintDump` source, same
+empty-→checkName fallback, so hint text is unchanged).
+
+**OOT consumption:** `OOT_GetForeignCategory(rc)` (`hook_handlers.cpp`, per-rc cache invalidated by
+`g_ootForeignGen`); `GetFinalGIEntry` overrides `giEntry.getItemCategory` for the sentinel inside
+the existing `COMBO_BUILD` block — the table entry stays junk. MM-only `mask`/`strayFairy` map to
+MAJOR (no OOT textures). `Randomizer_AdjustItemCategory` early-returns for the sentinel so OOT's
+Skeleton Key cannot junk a foreign MM small key. The skip-animation classification in
+`RandomizerOnPlayerUpdateForRCQueueHandler` is intentionally untouched (animation gate ≠ container
+art).
+
+**MM consumption:** `Rando::GetItemTypeForCheck(itemId, checkId)` (`ConvertItem.cpp`) resolves the
+sentinel via `MM_LookupForeign` (category → `RITYPE_*`, same rules) and otherwise returns the old
+`Items[ConvertItem(...)].randoItemType`; the 8 CMC draw sites in `Rando/ActorBehavior/` now call it.
+
+## Mask Shop exclusion sub-options (#133/#134) (2026-08-15)
+
+**Why:** the Happy Mask Shop scene is the OOT→MM portal, so two stock shuffles gate cross-world
+routing: **Lock Overworld Doors** puts `RG_MASK_SHOP_KEY` in the pool, and **Interior Entrances** can
+move the portal behind an arbitrary door. Two default-off opt-outs let players keep the portal
+predictable: `RSK_EXCLUDE_MASK_SHOP_KEY` ("Exclude Mask Shop Key", CVar `ExcludeMaskShopKey`) and
+`RSK_EXCLUDE_MASK_SHOP_ENTRANCE` ("Exclude Mask Shop", CVar `ExcludeMaskShopEntrance`). Both are
+children of their parent setting, `defaultHidden` and revealed by the parent's callback.
+
+**Touches** (all `soh/soh/Enhancements/randomizer/`, marked `// ComboShip: (#133)` / `(#134)`):
+
+- `randomizerEnums/RandomizerSettingKey.h` — two keys before `RSK_MAX` (spoiler settings are
+  name-keyed, so appending is safe).
+- `option_descriptions.cpp` — one description each.
+- `settings.cpp` — option creation + parent Hide/Unhide callbacks (`RSK_LOCK_OVERWORLD_DOORS` gained
+  its first callback), menu groups (`RSG_MENU_SECTION_AREA_ACCESS`, `RSG_MENU_SECTION_ENTRANCES`, plus
+  legacy `RSG_OPEN`/`RSG_WORLD` for consistency), `FinalizeSettings` coupling, `RandomizeAllSettings`
+  skip-list.
+- `3drando/item_pool.cpp` — the `RG_MASK_SHOP_KEY` pool add is skipped when excluded.
+- `3drando/starting_inventory.cpp` — `AddItemToInventory(RG_MASK_SHOP_KEY)` so logic/oracle own it
+  from sphere 0; the market entrance condition collapses to child+day.
+- `savefile.cpp` — the matching runtime grant in `Randomizer_InitSaveFile`.
+- `entrance.cpp` — the mask-shop entrance is erased from the Interior pool.
+
+**`RAND_INF_MASK_SHOP_KEY_OBTAINED` only, not `RAND_INF_MASK_SHOP_UNLOCKED`.** `LockOverworldDoors.cpp`
+reads UNLOCKED for door state and KEY_OBTAINED for "have key". Granting only the latter keeps the door
+visibly locked until the player opens it once, matching how a found key behaves, and shows the key in
+the item tracker.
+
+**Erase ordering.** The `std::erase_if` sits *after* the `SpecialInterior` append (the mask shop is in
+the base Interior list, but this keeps the erase applying to the fully assembled pool) and *before* the
+decoupled reverse push, so the reverse entrance is never pushed either and decoupled mode needs no
+separate handling. Mixed pools are assembled later from these pools, so
+they inherit the exclusion. `CreateEntranceOverrides` skips unshuffled entrances, so no override is
+emitted and runtime keeps the identity mapping — no save/serialization change.
+
+**Coupling.** `Context::FinalizeSettings` force-clears each child when its parent is off, so a spoiler
+never claims an exclusion that had no effect; every consumer additionally `&&`s the parent.
+
+**No `#ifdef COMBO_BUILD`.** The neighbouring `RSK_MASK_SHOP_HINT` ifdef guards a *forced* deviation.
+These are default-off opt-ins that are coherent in vanilla SoH too, so they carry `// ComboShip:`
+markers instead — which is what identifies combo lines during upstream merges.
+
+**Portal gate unchanged.** Both options only relax constraints, and the gate is region-based
+(`RR_MARKET_MASK_SHOP` reachability) — see "Gate MM on the OOT→MM portal region (2026-07-26)".
+
+## Starting Game: OOT / MM / Random (#135) (2026-08-15)
+
+**What:** `gCombo.Rando.StartingGame` (0 = OOT, 1 = MM, 2 = Random) picks which game a new file boots
+into. An MM start spawns the player in South Clock Town — the same place the portal arrives at — via
+the existing launcher handoff: `Combo_OnOOTSaveInit` sets the slot's lastGame to MM, and
+`Combo_ResumeMMIfLastSavedThere` does the rest. Boot order is unchanged (OOT first, MM eager-booted).
+The resolved value is written to the spoiler as top-level `startingGame` ("OOT"/"MM") and is
+seed-bound; every read defaults to "OOT", so old spoilers, saves and plando files still load.
+
+**Random is resolved per generation attempt** from `ComboHash("startingGame:" + masterSeed) & 1`.
+ComboShip.cpp and ComboRandoHeadless.cpp each hold a copy of that derivation; the string must stay
+byte-identical or headless seeds stop reproducing in-game ones.
+
+**Forced settings.** `Context::FinalizeSettings` (`#ifdef COMBO_BUILD`, reading `gComboStartingGameMM`)
+forces, when the resolved start is MM:
+
+- `RSK_STARTING_AGE` → Child. The Clock Tower door lands the player outside the Happy Mask Shop, and a
+  child there can always walk back in.
+- `RSK_FOREST` Closed → Closed Deku (Closed Deku / Open untouched), so an itemless child who saved and
+  quit in OOT can always leave the forest and reach the Market.
+- `RSK_EXCLUDE_MASK_SHOP_KEY` ON when Lock Overworld Doors is on, and `RSK_EXCLUDE_MASK_SHOP_ENTRANCE`
+  ON when interior shuffle is on — the portal's own key/door must not sit behind the portal.
+
+Both force-branches are `else`-chained onto #134's force-clears, so parent-off still wins. As with
+`RSK_WINCON`, the spoiler's `oot.settings` blob records the player's CVars, not the forced values; the
+authoritative record is top-level `startingGame`.
+
+**UI.** `SOH_RefreshComboStartingGameUI` greys out those three options with the tooltip "Starting Game
+is Majora's Mask" — only under an *explicit* MM start. Under Random they stay editable and the force is
+silent when MM rolls. `HandleStartingAgeUI` owns `RSK_STARTING_AGE` in both directions (it re-applies
+the MM disable at its end), so the refresh can't undo its own unbeatable-config disable.
+
+**Fill.** `CrossWorldCombinedFill` takes `GameId startingGame`; the whole reachability change is
+`portalOpen = !portalGated || mmStart` in `reachableFixpoint`. MM's logic already roots at South Clock
+Town unconditionally — today's fill just suppresses that root until the portal opens. The OOT side
+still roots on OOT's own start-of-game regions; the transient "standing in the Market" state right
+after the Clock Tower door is deliberately not modelled (an under-approximation, so sound).
+
+The portal-prerequisite derivation and Phase A0 stay active under an MM start: there they are the
+*re-entry* guarantee, not the entry one. Because `mmAdvUnreachable` no longer catches a closed portal
+under an MM start, each pass additionally asserts `ootClosedFixpoint(placements, {}).portalOpen` — a
+player who strays into OOT with nothing must always be able to walk back in. RNG-free, one portal-closed
+fixpoint over the placements per pass, MM starts only. `ComboPlaythrough.h` mirrors the seed in
+`RunPlaythrough`, `PareDownPlaythrough` and `everPortalOpen`.
+
+**Fail policy.** Explicit MM that exhausts its attempts hard-fails, with an error naming the re-entry
+requirement and telling the player to loosen the OOT access settings. Random silently pins the
+remaining attempts to an OOT start after any failed attempt that resolved MM, and its last attempt
+always resolves OOT — Random can never hard-fail on an MM start.
+
+**Hints are unchanged (strict).** Recovery/witness items stay non-WotH under the strict counterfactual;
+keeping the seed escapable is generation's job, not the hint layer's.
+
+**Residual:** NO_LOGIC + MM start has no re-entry guarantee — that mode's point. No MM-side setter
+exists (nothing in MM reads the value); add one when a consumer appears.

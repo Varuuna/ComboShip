@@ -2107,10 +2107,13 @@ void ItemTrackerSettingsWindow::DrawElement() {
             if (CVarCheckbox("Enable Dragging", CVAR_TRACKER_ITEM("Draggable"), CheckboxOptions().Color(THEME_COLOR))) {
                 shouldUpdateVectors = true;
             }
+#ifndef COMBO_BUILD
+            // ComboShip: derived from the shared "Only enable while paused" toggle — hide this editor.
             if (CVarCheckbox("Only Enable While Paused", CVAR_TRACKER_ITEM("ShowOnlyPaused"),
                              CheckboxOptions().Color(THEME_COLOR))) {
                 shouldUpdateVectors = true;
             }
+#endif
             if (CVarCombobox("Display Mode", CVAR_TRACKER_ITEM("DisplayType.Main"), showMode,
                              ComboboxOptions()
                                  .DefaultIndex(TRACKER_DISPLAY_ALWAYS)
@@ -2140,10 +2143,13 @@ void ItemTrackerSettingsWindow::DrawElement() {
             }
         }
         ImGui::Separator();
+#ifndef COMBO_BUILD
+        // ComboShip: both are derived from the shared icon size/spacing sliders — hide these editors.
         CVarSliderInt("Icon size : %dpx", CVAR_TRACKER_ITEM("IconSize"),
                       IntSliderOptions().Min(25).Max(128).DefaultValue(36).Color(THEME_COLOR));
         CVarSliderInt("Icon margins : %dpx", CVAR_TRACKER_ITEM("IconSpacing"),
                       IntSliderOptions().Min(-5).Max(50).DefaultValue(12).Color(THEME_COLOR));
+#endif
         CVarSliderInt("Text size : %dpx", CVAR_TRACKER_ITEM("TextSize"),
                       IntSliderOptions().Min(1).Max(30).DefaultValue(13).Color(THEME_COLOR));
 

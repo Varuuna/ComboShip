@@ -7,11 +7,29 @@ extern "C" {
 #include "ShipUtils.h"
 }
 
+#ifdef COMBO_BUILD
+extern "C" int gMMComboGoalHunt;
+extern "C" int gMMComboGoalRequired;
+extern "C" int gMMComboGoalPieces;
+#endif
+
 namespace Rando {
 
 namespace Logic {
 
 void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool) {
+#ifdef COMBO_BUILD
+    // ComboShip (#136): the launcher owns the goal, so the hunt toggle follows it (the Majora soul-lock
+    // applies even at 0 MM pieces). REQUIRED is combined and display-only here — the win is combo's.
+    saveInfo.randoSaveOptions[RO_SHUFFLE_TRIFORCE_PIECES] = gMMComboGoalHunt ? RO_GENERIC_YES : RO_GENERIC_NO;
+    if (gMMComboGoalHunt) {
+        saveInfo.randoSaveOptions[RO_TRIFORCE_PIECES_REQUIRED] = (uint32_t)gMMComboGoalRequired;
+        // #136: MM's half of the combined total; -1 = old seed, keep the CVar.
+        if (gMMComboGoalPieces >= 0) {
+            saveInfo.randoSaveOptions[RO_TRIFORCE_PIECES_MAX] = (uint32_t)gMMComboGoalPieces;
+        }
+    }
+#endif
     std::vector<RandoItemId> startingItems = Rando::GetStartingItemsFromSave(saveInfo);
     std::vector<RandoItemId> computedStartingItems = Rando::GetComputedStartingItems(saveInfo);
     startingItems.insert(startingItems.end(), computedStartingItems.begin(), computedStartingItems.end());

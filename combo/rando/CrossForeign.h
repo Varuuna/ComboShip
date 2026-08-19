@@ -9,6 +9,7 @@
 // "foreign" array element:
 //   { "checkGame":"oot|mm", "checkName":"<friendly check name>", "itemGame":"oot|mm",
 //     "itemName":"<friendly item name>", "displayName":"<human name + (MM)/(OOT)>",
+//     optional: "advancement"/"trap" (only when true), "category" (native item category, drives CMC),
 //     optional trap disguise: "fakeItemName", "fakeDisplayName", "fakeTrickName" }
 //
 // Note: checkName/itemName are the friendly combo-spoiler names (bare, no suffix) — the home game
@@ -55,6 +56,14 @@ inline nlohmann::json ApplyPayloadFromConsolidated(const nlohmann::json& consoli
             apply[checkName] = sentinel;
         }
     }
+    // OOT's curated ice-trap disguise set rides along as a reserved key (absent on old spoilers, where
+    // the apply falls back to deriving one).
+    if (game == GAME_OOT) {
+        const nlohmann::json oot = consolidated.value("oot", nlohmann::json::object());
+        if (oot.contains("iceTrapModels")) {
+            apply["__iceTrapModels"] = oot["iceTrapModels"];
+        }
+    }
     return apply;
 }
 
@@ -64,6 +73,9 @@ struct ForeignItem {
     std::string displayName;  // human string for the "sent"/"received" text
     bool advancement = false; // progression in its home game -> drives the held-up pickup animation
     bool trap = false;        // a trap in its home game -> fires on the FINDER, never cross-delivered
+    // Native item category name (junk/lesser/health/bossKey/smallKey/token/major/mask/strayFairy).
+    // Empty = absent (old seed or plando); consumers fall back to advancement.
+    std::string category;
     // Trap disguise (empty = none). The name/model shown until the check is collected; the GRANT
     // always uses itemName. fakeItemName lives in itemGame's namespace (feeds the draw producers).
     std::string fakeItemName;
@@ -156,6 +168,24 @@ inline std::unordered_map<std::string, ForeignItemMeta> ParseItemMeta(const std:
     return m;
 }
 
+// OOT's curated ice-trap disguise names from its dump ("iceTrapModels"). `present` = a usable (non-empty)
+// list; a stale dump (no field) or a failed prep (empty field) both fall back to the caller's own filter.
+inline std::set<std::string> ParseIceTrapModels(const std::string& dump, bool& present) {
+    std::set<std::string> out;
+    try {
+        auto d = nlohmann::json::parse(dump);
+        auto it = d.find("iceTrapModels");
+        if (it != d.end() && it->is_array()) {
+            for (const auto& n : *it) {
+                if (n.is_string())
+                    out.insert(n.get<std::string>());
+            }
+        }
+    } catch (...) {}
+    present = !out.empty();
+    return out;
+}
+
 // Give every foreign TRAP a disguise: a plausible progression item OF THE TRAP'S OWN GAME that this
 // seed actually placed (mirrors OOT's possibleIceTrapModels), plus a typo'd name for shop/hint text.
 // Deterministic: a dedicated LCG stream off masterSeed, sorted candidate sets, array order.
@@ -166,6 +196,11 @@ inline void AssignTrapDisguises(nlohmann::json& foreignArr, const nlohmann::json
     const auto ootMeta = ParseItemMeta(sohDump), mmMeta = ParseItemMeta(mmDump);
     if (ootMeta.empty() && mmMeta.empty())
         return;
+    // OOT candidates follow SoH's curated disguise list (issue #131: never a Triforce piece). The list
+    // holds representative names (Empty Bottle, ...) that no concrete placement matches, so those drop
+    // out of foreign candidacy too — a strict subset of native semantics, intended.
+    bool curatedPresent = false;
+    const std::set<std::string> curated = ParseIceTrapModels(sohDump, curatedPresent);
     std::set<std::string> ootCand, mmCand;
     auto scan = [&](const nlohmann::json& pl) {
         if (!pl.is_object())
@@ -174,8 +209,9 @@ inline void AssignTrapDisguises(nlohmann::json& foreignArr, const nlohmann::json
             if (!it.value().is_string())
                 continue;
             const std::string n = it.value().get<std::string>();
+            const bool ootOk = curatedPresent ? curated.count(n) != 0 : (n != "Triforce" && n != "Triforce Piece");
             auto o = ootMeta.find(n);
-            if (o != ootMeta.end() && o->second.advancement && !o->second.trap)
+            if (ootOk && o != ootMeta.end() && o->second.advancement && !o->second.trap)
                 ootCand.insert(n);
             auto m = mmMeta.find(n);
             if (m != mmMeta.end() && m->second.advancement && !m->second.trap)
@@ -218,11 +254,8 @@ inline void AssignTrapDisguises(nlohmann::json& foreignArr, const nlohmann::json
 
 // Tag a spoiler "foreign" array's displayNames with their home-game suffix for the consolidated file.
 // Every display surface (shops, hints, trackers, toasts) reads displayName, so tag once here.
-// ootCheckAreas (checkName -> OOT area name, from SOH_DumpRandoHintData's "checks" list) is optional;
-// when given, oot-side entries get a "checkArea" field for the combo hint layer's foolish-area logic.
-// MM-side entries omit it — MM's own dump carries its per-check "locationHints" (region names) instead.
-inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray,
-                                        const std::unordered_map<std::string, std::string>& ootCheckAreas = {}) {
+// advancement/trap/category are emitted only when meaningful; every loader defaults them.
+inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray) {
     nlohmann::json out = nlohmann::json::array();
     for (const auto& fm : foreignArray) {
         std::string checkGame = fm.value("checkGame", "");
@@ -240,21 +273,25 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray,
             return s;
         };
         std::string displayName = tag(fm.value("displayName", itemName));
-        nlohmann::json entry = { { "checkGame", checkGame },         { "checkName", checkName },
-                                 { "itemGame", itemGame },           { "itemName", itemName },
-                                 { "displayName", displayName },     { "advancement", fm.value("advancement", false) },
-                                 { "trap", fm.value("trap", false) } };
+        nlohmann::json entry = { { "checkGame", checkGame },
+                                 { "checkName", checkName },
+                                 { "itemGame", itemGame },
+                                 { "itemName", itemName },
+                                 { "displayName", displayName } };
+        if (fm.value("advancement", false))
+            entry["advancement"] = true;
+        if (fm.value("trap", false))
+            entry["trap"] = true;
+        // Native item category: drives the container-matches-contents look at a foreign check.
+        std::string category = fm.value("category", "");
+        if (!category.empty())
+            entry["category"] = category;
         // Trap disguise: fakeItemName stays bare (it's a grant-namespace key); the shown names get tagged.
         std::string fakeItemName = fm.value("fakeItemName", "");
         if (!fakeItemName.empty()) {
             entry["fakeItemName"] = fakeItemName;
             entry["fakeDisplayName"] = tag(fm.value("fakeDisplayName", fakeItemName));
             entry["fakeTrickName"] = tag(fm.value("fakeTrickName", fm.value("fakeDisplayName", fakeItemName)));
-        }
-        if (checkGame == "oot") {
-            auto it = ootCheckAreas.find(checkName);
-            if (it != ootCheckAreas.end())
-                entry["checkArea"] = it->second;
         }
         out.push_back(std::move(entry));
     }
@@ -333,6 +370,8 @@ inline std::unordered_map<std::string, ForeignItem> LoadForeignForGame(int slot,
             fi.advancement = fm.value("advancement", false);
             // Absent in pre-trap-flag saves -> false -> the item cross-delivers as before.
             fi.trap = fm.value("trap", false);
+            // Absent in pre-category saves -> empty -> consumers fall back to advancement.
+            fi.category = fm.value("category", "");
             // Absent in pre-disguise saves -> empty -> every consumer falls back to the true name.
             fi.fakeItemName = fm.value("fakeItemName", "");
             fi.fakeDisplayName = fm.value("fakeDisplayName", "");

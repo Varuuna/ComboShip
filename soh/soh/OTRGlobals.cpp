@@ -3099,7 +3099,9 @@ extern "C" COMBO_EXPORT void SOH_MarkForeignObtained(const char* checkName) {
     CheckTracker::RecalculateAllAreaTotals();
     CheckTracker::RecalculateAvailableChecks();
     if (SaveManager::Instance && gSaveContext.fileNum != 0xFF) {
-        SaveManager::Instance->SaveSection(gSaveContext.fileNum, SECTION_ID_TRACKER_DATA, true);
+        // Full save (not SaveSection): incremental tracker saves demote COLLECTED->SCUMMED on
+        // disk, and no OOT flag exists for a foreign-collected check to promote it back from.
+        SaveManager::Instance->SaveFile(gSaveContext.fileNum);
     }
     SPDLOG_INFO("[ComboShip] SOH_MarkForeignObtained: marked OOT check '{}' collected", checkName);
 }
@@ -3121,6 +3123,97 @@ extern "C" int (*gComboFinalBossDefeated)(int game, int fileNum) = nullptr;
 extern "C" COMBO_EXPORT void SOH_SetFinalBossDefeatedCb(int (*cb)(int, int)) {
     gComboFinalBossDefeated = cb;
 }
+
+// ComboShip (#136): Triforce Hunt is ONE combined goal across both games, so the launcher owns it and
+// pushes it here. hunt=0 means the normal both-bosses goal; required is the combined piece count.
+extern "C" int gComboGoalHunt = 0;
+extern "C" int gComboGoalRequired = 0;
+// This game's share of the combined piece total, forced in FinalizeSettings. -1 = unset (old seed),
+// so OOT's own slider decides. Clamped to the option's 0..100 range.
+extern "C" int gComboGoalPieces = -1;
+extern "C" COMBO_EXPORT void SOH_SetComboGoal(int hunt, int required, int pieces) {
+    gComboGoalHunt = hunt ? 1 : 0;
+    gComboGoalRequired = gComboGoalHunt ? required : 0;
+    gComboGoalPieces = pieces < 0 ? -1 : (pieces > 100 ? 100 : pieces);
+}
+// The goal currently in force (comboui reads it for the combined-progress readout). Returns hunt on/off.
+extern "C" COMBO_EXPORT int SOH_GetComboGoal(int* required) {
+    if (required != NULL) {
+        *required = gComboGoalRequired;
+    }
+    return gComboGoalHunt;
+}
+// Menu-authored goal CVars, read here because the launcher has no CVar access. Returns hunt on/off.
+extern "C" COMBO_EXPORT int SOH_ReadComboGoalCVars(int* required, int* total) {
+    const int hunt = CVarGetInteger("gCombo.Rando.TriforceHunt", 0) != 0 ? 1 : 0;
+    int req = CVarGetInteger("gCombo.Rando.TriforceRequired", 15);
+    int tot = CVarGetInteger("gCombo.Rando.TriforceTotal", 15);
+    // 100 = CrossWorldRando.h kMaxComboTriforcePieces (past that OOT's half overflows its item pool).
+    req = std::clamp(req, 1, 100);
+    tot = std::clamp(tot, req, 100);
+    if (required != NULL) {
+        *required = hunt ? req : 0;
+    }
+    if (total != NULL) {
+        *total = tot; // the hunt-off force to 0 pieces happens game-side, so report the raw total
+    }
+    return hunt;
+}
+// ComboShip (#135): which game a new file starts in. The launcher resolves OOT/MM/Random per seed and
+// pushes the concrete value here; FinalizeSettings forces the settings an MM start needs.
+extern "C" int gComboStartingGameMM = 0;
+extern "C" COMBO_EXPORT void SOH_SetComboStartingGame(int mmStart) {
+    gComboStartingGameMM = mmStart ? 1 : 0;
+}
+// Menu-authored CVar (0 = OOT, 1 = MM, 2 = Random), read here because the launcher has no CVar access.
+extern "C" COMBO_EXPORT int SOH_ReadComboStartingGameCVar(void) {
+    return CVarGetInteger("gCombo.Rando.StartingGame", 0);
+}
+// An explicit MM start forces these three, so grey them out. Under Random they stay editable — the
+// force is silent when MM rolls. HandleStartingAgeUI owns RSK_STARTING_AGE in both directions.
+extern "C" COMBO_EXPORT void SOH_RefreshComboStartingGameUI(void) {
+    auto settings = Rando::Settings::GetInstance();
+    if (settings == nullptr) {
+        return;
+    }
+    settings->HandleStartingAgeUI();
+    const bool mmStart = CVarGetInteger("gCombo.Rando.StartingGame", 0) == 1;
+    for (const RandomizerSettingKey key : { RSK_EXCLUDE_MASK_SHOP_KEY, RSK_EXCLUDE_MASK_SHOP_ENTRANCE }) {
+        if (mmStart) {
+            settings->GetOption(key).Disable("Starting Game is Majora's Mask");
+        } else {
+            settings->GetOption(key).Enable();
+        }
+    }
+}
+
+extern "C" COMBO_EXPORT int SOH_GetTriforcePieceCount(void) {
+    return gSaveContext.ship.quest.data.randomizer.triforcePiecesCollected;
+}
+// The OTHER game's piece count, so pickup messages/hints can show the combined progress.
+extern "C" int (*gComboOtherTriforceCount)(void) = nullptr;
+extern "C" COMBO_EXPORT void SOH_SetOtherTriforceCountCb(int (*cb)(void)) {
+    gComboOtherTriforceCount = cb;
+}
+// Poked after every piece grant (active or dormant); the launcher evaluates the combined total.
+extern "C" void (*gComboTriforceProgress)(int game, int fileNum) = nullptr;
+extern "C" COMBO_EXPORT void SOH_SetTriforceProgressCb(void (*cb)(int, int)) {
+    gComboTriforceProgress = cb;
+}
+// Goal reached: active = the native credits-warp flag; dormant = mark the file complete and persist.
+// The dormant save can throw, and the launcher calls this — no exception may cross the C-ABI boundary.
+extern "C" COMBO_EXPORT void SOH_TriggerTriforceCredits(int dormant) try {
+    if (dormant) {
+        gSaveContext.ship.stats.gameComplete = 1;
+        if (SaveManager::Instance && gSaveContext.fileNum >= 0 && gSaveContext.fileNum <= 2) {
+            SaveManager::Instance->SaveFile(gSaveContext.fileNum);
+        }
+        return;
+    }
+    GameInteractor_SetTriforceHuntCreditsWarpActive(true);
+} catch (const std::exception& e) {
+    SPDLOG_ERROR("[ComboShip] SOH_TriggerTriforceCredits threw: {}", e.what());
+} catch (...) { SPDLOG_ERROR("[ComboShip] SOH_TriggerTriforceCredits threw a non-std exception"); }
 #endif
 
 #ifdef COMBO_BUILD
@@ -3240,6 +3333,12 @@ bool Combo_OotIsForeground(void) {
         sFn = (int (*)(void))Combo_ResolveSym("comboui", "ComboUI_GetForegroundGame");
     }
     return sFn ? (sFn() == 0) : true;
+}
+
+// ComboShip (#127): OOT's pause state, read by comboui's dormant-tracker gate (a dormant game's own
+// pause state is stale, so the foreground game's is queried across the DLL boundary).
+extern "C" COMBO_EXPORT int SOH_IsPausedForCombo(void) {
+    return gPlayState != nullptr && gPlayState->pauseCtx.state > 0;
 }
 
 // ComboShip: Ctrl+R reset. Set when a reset should return the whole session to first-boot; read by
@@ -3823,6 +3922,27 @@ extern "C" COMBO_EXPORT const char* SOH_DumpEntranceOverrides(void) {
     return buf.c_str();
 }
 
+// ComboShip: install a recorded entrance layout (the spoiler's "entrances.oot" array) into the live
+// region graph. The validator can't re-derive it: ShuffleAllEntrances validates with logic, so a
+// different trick set (all-tricks pass) can accept a different layout than generation did.
+extern "C" COMBO_EXPORT int SOH_ApplyEntranceOverridesForCombo(const char* json) {
+    try {
+        auto ctx = OTRGlobals::Instance->gRandoContext;
+        EnsureOracleInit(); // same rationale as SOH_ShuffleEntrancesForCombo: a later lazy init would
+                            // RegionTable_Init the graph back to vanilla
+        nlohmann::json spoiler;
+        spoiler["entrances"] = nlohmann::json::parse(json ? json : "[]");
+        // ParseJson = UnshuffleAllEntrances + RegionTable_Init + ApplyEntranceOverrides + SetAreas,
+        // so an empty array correctly resets to the vanilla graph.
+        ctx->GetEntranceShuffler()->ParseJson(spoiler);
+        CreateWarpSongTexts();
+        return 1;
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[ComboShip] SOH_ApplyEntranceOverridesForCombo: {}", e.what());
+    } catch (...) { SPDLOG_ERROR("[ComboShip] SOH_ApplyEntranceOverridesForCombo: unknown exception"); }
+    return 0;
+}
+
 // ComboShip: coherent OOT rando dump for the combo generator. Runs the headless prep sequence
 // (GetLogic()->Reset, FinalizeSettings, RegionTable_Init, GenerateLocationPool) so ctx->allLocations
 // holds the real shuffled-check set for the current settings, then dumps those checks + their vanilla
@@ -3837,6 +3957,9 @@ extern "C" COMBO_EXPORT const char* SOH_DumpRandoStaticData(void) {
     nlohmann::json fixed = nlohmann::json::array();
     nlohmann::json items = nlohmann::json::array();
     nlohmann::json prices = nlohmann::json::object();
+    // ComboShip: SoH's curated ice-trap disguise set (native possibleIceTrapModels) — combo skips
+    // GenerateItemPool's fill, so the apply restores this instead of re-deriving from placed items.
+    nlohmann::json iceTrapModels = nlohmann::json::array();
     // ComboShip: OOT accessibility settings the combo fill honors per-game. Defaults = ALL_REACHABLE
     // (safe: unchanged fill behavior) if the prep throws before these are read.
     nlohmann::json accessibility = { { "noLogic", false },
@@ -3922,11 +4045,14 @@ extern "C" COMBO_EXPORT const char* SOH_DumpRandoStaticData(void) {
             RandomizerGet placed = ctx->GetItemLocation(rc)->GetPlacedRandomizerGet();
             if (placed != RG_NONE) {
                 const std::string& in = Rando::StaticData::RetrieveItem(placed).GetName().GetEnglish();
+                // `hintable` = native SetAsHintable state, captured here because oracle ItemResets wipe it.
+                // Confined fills (own-dungeon, rewards, min-set shops, excluded junk) leave it false.
                 if (!in.empty())
                     fixed.push_back({ { "check", name },
                                       { "item", in },
                                       { "advancement", comboIsAdv(placed) },
-                                      { "major", isMajor(placed) } });
+                                      { "major", isMajor(placed) },
+                                      { "hintable", ctx->GetItemLocation(rc)->IsHintable() } });
             } else {
                 // A real fillable check. GenerateLocationPool already decided what's shuffled and the
                 // meta markers (Link's Pocket, wincon) are skipped above, so emit regardless of vanilla
@@ -3965,6 +4091,15 @@ extern "C" COMBO_EXPORT const char* SOH_DumpRandoStaticData(void) {
             auto t = loc->GetRCType();
             if (t == RCTYPE_SHOP || t == RCTYPE_SCRUB || t == RCTYPE_MERCHANT)
                 prices[loc->GetName()] = ctx->GetItemLocation(rc)->GetPrice();
+        }
+
+        // ComboShip: ComboFillConfined ran GenerateItemPool, so possibleIceTrapModels now holds the
+        // native curated disguise set — export it (minus entries GetTrapName can't name, e.g. Chest
+        // Game keys, which would assert) so the apply gets native parity.
+        for (RandomizerGet rg : ctx->possibleIceTrapModels) {
+            const std::string& mn = Rando::StaticData::RetrieveItem(rg).GetName().GetEnglish();
+            if (!mn.empty() && Rando::Traps::CanBeTrapModel(rg))
+                iceTrapModels.push_back(mn);
         }
 
         // ComboShip: accessibility settings the combo fill maps to an OotAccess mode (per-game relax).
@@ -4046,8 +4181,13 @@ extern "C" COMBO_EXPORT const char* SOH_DumpRandoStaticData(void) {
     }
 
     cached = nlohmann::json{
-        { "checks", std::move(checks) }, { "pool", std::move(pool) },     { "fixed", std::move(fixed) },
-        { "items", std::move(items) },   { "prices", std::move(prices) }, { "accessibility", std::move(accessibility) }
+        { "checks", std::move(checks) },
+        { "pool", std::move(pool) },
+        { "fixed", std::move(fixed) },
+        { "items", std::move(items) },
+        { "prices", std::move(prices) },
+        { "iceTrapModels", std::move(iceTrapModels) },
+        { "accessibility", std::move(accessibility) }
     }.dump();
     return cached.c_str();
 }
@@ -4290,6 +4430,20 @@ extern "C" COMBO_EXPORT const char* SOH_DumpRandoHintData(void) {
 #endif
         out["alwaysHintChecks"] = std::move(always);
 
+        // Checks the player already knows at start — native SetHintAccesible's two cases in
+        // CreateStoneHints (hints.cpp), mirrored 1:1 so stones never target them.
+        nlohmann::json startKnown = nlohmann::json::array();
+        auto pushStartKnown = [&](RandomizerCheck rc) {
+            Rando::Location* loc = Rando::StaticData::GetLocation(rc);
+            if (loc && !loc->GetName().empty())
+                startKnown.push_back(loc->GetName());
+        };
+        if (ctx->GetOption(RSK_STARTING_ZELDAS_LETTER) && !ctx->GetOption(RSK_SHUFFLE_ZELDAS_LETTER))
+            pushStartKnown(RC_SONG_FROM_IMPA);
+        if (ctx->GetOption(RSK_SELECTED_STARTING_AGE).Is(RO_AGE_ADULT) || !ctx->GetOption(RSK_SHUFFLE_MASTER_SWORD))
+            pushStartKnown(RC_TOT_MASTER_SWORD);
+        out["hintAccessibleChecks"] = std::move(startKnown);
+
         // Per-check hint text (every static check, not just this settings' shuffled subset — the
         // combo distributor decides which checks are hintable for its combined world).
         nlohmann::json checks = nlohmann::json::array();
@@ -4461,8 +4615,8 @@ extern "C" COMBO_EXPORT void SOH_ApplyRandoPlacements(const char* json) {
         ctx->ItemReset();
 #ifdef COMBO_BUILD
         // Combo skips GenerateItemPool (OOT's own fill), which is what normally fills the ice-trap
-        // disguise pool. Rebuild it from the items we actually place below, else every ice trap falls
-        // back to a bottle (empty-set draw).
+        // disguise pool. The payload carries the dump's curated set ("__iceTrapModels"); old seeds
+        // without it fall back to deriving one from the items we place below.
         ctx->possibleIceTrapModels.clear();
         // Combo also skips native Fill()'s HintReset() call — without it, a same-session regenerate
         // would see the PREVIOUS seed's hints still marked enabled and skip re-populating them.
@@ -4492,6 +4646,28 @@ extern "C" COMBO_EXPORT void SOH_ApplyRandoPlacements(const char* json) {
 #endif
 
         nlohmann::json placements = nlohmann::json::parse(json);
+#ifdef COMBO_BUILD
+        // ComboShip: reserved key carrying the dump's curated ice-trap disguise set (native parity —
+        // e.g. Triforce pieces are never a disguise). Erased so the placement loop never sees it.
+        if (auto modelsIt = placements.find("__iceTrapModels"); modelsIt != placements.end()) {
+            if (modelsIt->is_array()) {
+                for (const auto& mv : *modelsIt) {
+                    if (!mv.is_string())
+                        continue;
+                    const std::string mn = mv.get<std::string>();
+                    auto mIt = Rando::StaticData::itemNameToEnum.find(mn);
+                    if (mIt == Rando::StaticData::itemNameToEnum.end() || !Rando::Traps::CanBeTrapModel(mIt->second)) {
+                        SPDLOG_WARN("[ComboShip] SOH_ApplyRandoPlacements: invalid ice-trap model '{}'", mn);
+                        continue;
+                    }
+                    ctx->possibleIceTrapModels.insert(mIt->second);
+                }
+            }
+            placements.erase("__iceTrapModels");
+        }
+        // Empty result (empty/garbled list, e.g. a failed dump prep) falls back to deriving a pool below.
+        const bool haveCuratedModels = !ctx->possibleIceTrapModels.empty();
+#endif
         int placed = 0, skipped = 0;
         // ComboShip: cross-game name collisions are suffixed "(OOT)" in the consolidated spoiler; strip
         // our own suffix before resolving native OOT location/item names.
@@ -4527,7 +4703,10 @@ extern "C" COMBO_EXPORT void SOH_ApplyRandoPlacements(const char* json) {
             ctx->PlaceItemInLocation(rc, rg, false, false);
             ++placed;
 #ifdef COMBO_BUILD
-            if (rg != RG_ICE_TRAP && rg != RG_COMBO_FOREIGN && rg != RG_NONE && Rando::Traps::CanBeTrapModel(rg)) {
+            // Old seeds only (no curated set in the payload): derive a disguise pool from placed items.
+            // Triforce is excluded here — native never disguises a trap as one (issue #131).
+            if (!haveCuratedModels && rg != RG_ICE_TRAP && rg != RG_COMBO_FOREIGN && rg != RG_NONE &&
+                rg != RG_TRIFORCE && rg != RG_TRIFORCE_PIECE && Rando::Traps::CanBeTrapModel(rg)) {
                 ctx->possibleIceTrapModels.insert(rg); // candidate ice-trap disguise (only named items)
             }
 #endif
@@ -4615,6 +4794,12 @@ extern "C" COMBO_EXPORT int SOH_GetComboGenPercent(void) {
     int total = gComboProgressPtr->total.load();
     int placed = gComboProgressPtr->placed.load();
     return total > 0 ? static_cast<int>((100LL * placed) / total) : 0;
+}
+
+// Current generation phase (ComboGenProgress: 0 Idle, 1 Preparing, 2 Placing, 3 Finalizing), so the
+// C file-select can label the post-fill work instead of showing "Generating..." forever.
+extern "C" COMBO_EXPORT int SOH_GetComboGenPhase(void) {
+    return gComboProgressPtr ? gComboProgressPtr->phase.load() : 0;
 }
 
 extern "C" COMBO_EXPORT void SOH_SetOnComboFinalizeCallback(int (*cb)()) {

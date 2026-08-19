@@ -8,6 +8,8 @@
 //                                                  spoiler to saves/combo/comborando.spoiler.json (count 1)
 //   comborando.exe --playthrough <spoiler.json>    forward-traverse a finished seed to judge beatability
 //
+// --starting-game <oot|mm|random> overrides the menu's Starting Game CVar for generate mode (#135).
+//
 // Exact-seed repro (generate mode): --settings <consolidated.json> restores that seed's OOT/MM settings
 // and tricks, and --master-seed <n> uses n directly instead of hashing --seed. Together they reproduce a
 // reported seed's generation bit-for-bit, which plain --seed cannot.
@@ -61,6 +63,14 @@ uint32_t ComboHash(const std::string& s) {
     return h;
 }
 
+// #135: resolve the starting-game config (0 = OOT, 1 = MM, 2 = Random) for one attempt. Must stay
+// byte-identical to ComboShip.cpp's ResolveStartingGameMM, derivation string included.
+bool ResolveStartingGameMM(int cfg, uint32_t masterSeed) {
+    if (cfg == 2)
+        return (ComboHash("startingGame:" + std::to_string(masterSeed)) & 1u) != 0;
+    return cfg == 1;
+}
+
 // Same module-loading seam as ComboShip.cpp's LoadDll/GetSym (see there for the RTLD notes).
 #ifdef _WIN32
 typedef HMODULE DllHandle;
@@ -109,9 +119,26 @@ int main(int argc, char** argv) {
     std::string settingsFile; // consolidated spoiler to restore settings/tricks from (exact-seed repro)
     bool haveMasterSeed = false;
     uint32_t masterSeedArg = 0;
+    // #136: combined goal. Absent => read the menu CVars (matches in-game); 0 => force bosses.
+    int triforceRequiredArg = -1;
+    // #136: combined pool total. Absent (-1) => the menu CVar, or `required` when that is overridden.
+    int triforceTotalArg = -1;
+    // #135: starting game. Absent (-1) => read the menu CVar, same as in-game.
+    int startingGameArg = -1;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
-        if (a == "--seed" && i + 1 < argc)
+        if (a == "--triforce-required" && i + 1 < argc)
+            triforceRequiredArg = std::atoi(argv[++i]);
+        else if (a == "--triforce-total" && i + 1 < argc)
+            triforceTotalArg = std::atoi(argv[++i]);
+        else if (a == "--starting-game" && i + 1 < argc) {
+            std::string v = argv[++i];
+            startingGameArg = v == "oot" ? 0 : v == "mm" ? 1 : v == "random" ? 2 : -2;
+            if (startingGameArg == -2) {
+                std::cerr << "[comborando] --starting-game must be oot, mm or random (got '" << v << "')\n";
+                return 2;
+            }
+        } else if (a == "--seed" && i + 1 < argc)
             seed = argv[++i];
         else if (a == "--count" && i + 1 < argc)
             count = std::max(1, std::atoi(argv[++i]));
@@ -154,6 +181,8 @@ int main(int argc, char** argv) {
     auto SOH_GetForced = Sym<FnGetForced>(soh, "SOH_GetForcedPlacements");
     // OOT entrance shuffle (#90) — without this the validator checks a vanilla entrance graph.
     auto SOH_ShuffleEntrances = Sym<int (*)(uint64_t)>(soh, "SOH_ShuffleEntrancesForCombo");
+    auto SOH_DumpEntranceOverrides = Sym<FnDump>(soh, "SOH_DumpEntranceOverrides");
+    auto SOH_ApplyEntranceOverrides = Sym<int (*)(const char*)>(soh, "SOH_ApplyEntranceOverridesForCombo");
     auto MM_Restore = Sym<FnOracleVoid>(mm, "Combo_MM_Rando_Restore");
     auto SOH_DumpEnabledTricks = Sym<FnDump>(soh, "SOH_DumpEnabledTricks");
     auto SOH_DumpRandoHintData = Sym<FnDump>(soh, "SOH_DumpRandoHintData"); // cross-hint verification
@@ -161,6 +190,13 @@ int main(int argc, char** argv) {
     auto SOH_SetAllTricks = Sym<FnVoidV>(soh, "SOH_SetAllTricks");
     auto SOH_SetCheckPrices = Sym<FnTakeStr>(soh, "SOH_SetCheckPrices");
     auto MM_SetCheckPrices = Sym<FnTakeStr>(mm, "MM_SetCheckPrices");
+    // #136: combined goal — must be pushed before every dump (it shapes both games' pools).
+    auto SOH_SetComboGoal = Sym<void (*)(int, int, int)>(soh, "SOH_SetComboGoal");
+    auto MM_SetComboGoal = Sym<void (*)(int, int, int)>(mm, "MM_SetComboGoal");
+    auto SOH_ReadComboGoalCVars = Sym<int (*)(int*, int*)>(soh, "SOH_ReadComboGoalCVars");
+    // #135: starting game — also pushed before every dump (it forces OOT's age/forest/exclusions).
+    auto SOH_SetComboStartingGame = Sym<void (*)(int)>(soh, "SOH_SetComboStartingGame");
+    auto SOH_ReadComboStartingGameCVar = Sym<int (*)(void)>(soh, "SOH_ReadComboStartingGameCVar");
 
     ComboRando::OracleFns oot{ Sym<FnOracleVoid>(soh, "Combo_SOH_Rando_Reset"),
                                Sym<FnOracleSetItems>(soh, "Combo_SOH_Rando_SetOwnedItems"),
@@ -204,9 +240,20 @@ int main(int argc, char** argv) {
         flat["foreign"] = spoiler.value("foreign", nlohmann::json::array());
         std::string label = SeedLabel(spoiler);
         uint32_t masterSeed = spoiler.value("masterSeed", 0u);
+        // #136: the seed's own goal drives both the traversal win test and the pool shaping below.
+        ComboRando::CwGoal goal;
+        {
+            auto g = spoiler.value("goal", nlohmann::json::object());
+            goal.hunt = g.value("type", std::string("bosses")) == "triforceHunt";
+            goal.required = goal.hunt ? g.value("requiredPieces", 0) : 0;
+            goal.total = g.value("totalPieces", -1); // absent on seeds made before the combined total
+        }
+        // #135: the seed's starting game. Absent on old spoilers, which all started in OOT.
+        const bool mmStart = spoiler.value("startingGame", std::string("OOT")) == "MM";
 
         auto ootEnabledTricks =
             spoiler.value("oot", nlohmann::json::object()).value("enabledTricks", nlohmann::json::array());
+        auto ootEntrances = spoiler.value("entrances", nlohmann::json::object()).value("oot", nlohmann::json::array());
 
         // Prices are part of the seed: an unknown price can never be treated as buyable, so a spoiler
         // without them can't be validated honestly. Hard-fail rather than emit an optimistic verdict.
@@ -218,6 +265,7 @@ int main(int argc, char** argv) {
             return 2;
         }
 
+        bool entranceRestoreFailed = false; // set inside runPass; a wrong graph makes any verdict meaningless
         // One traversal pass. Forces real-logic evaluation (ignore the seed's No-Logic/Glitchless flag).
         // Tricks are set via SOH_SetEnabledTricks/SetAllTricks BEFORE SOH_Dump, whose SOH_PrepRandoContext
         // pushes them into the Context (Combo_ApplyEnabledTricks). SOH_Dump (+seed) sets the OOT/MM contexts
@@ -241,6 +289,12 @@ int main(int argc, char** argv) {
                 SOH_SetSeed(masterSeed);
             if (MM_SetSeed)
                 MM_SetSeed(masterSeed);
+            if (SOH_SetComboGoal)
+                SOH_SetComboGoal(goal.hunt ? 1 : 0, goal.required, ComboRando::CwOotPieces(goal.total));
+            if (MM_SetComboGoal)
+                MM_SetComboGoal(goal.hunt ? 1 : 0, goal.required, ComboRando::CwMmPieces(goal.total));
+            if (SOH_SetComboStartingGame)
+                SOH_SetComboStartingGame(mmStart ? 1 : 0);
             // A real in-game save's placement map lists only SHUFFLED checks; non-shuffled items the
             // oracle still gates on (OOT vanilla shop items, MM boss remains when not shuffled) live in
             // the dump's fixed[]. Merge them in so those gates (e.g. MM RemainsCount for the Moon) resolve.
@@ -253,6 +307,22 @@ int main(int argc, char** argv) {
                     it.value() = 0;
             SOH_RestoreSettings(os.dump().c_str());
             SOH_PrepContext();
+            // The PrepContext above reset the OOT region graph to VANILLA wiring — not the graph the
+            // seed was filled against. Install the seed's recorded entrance layout (empty array =
+            // vanilla, still correct). Re-deriving via SOH_ShuffleEntrances is only a fallback for
+            // old spoilers without the array: its logic-validated accepts depend on the trick set, so
+            // the all-tricks pass could re-derive a DIFFERENT layout than generation.
+            if (SOH_ApplyEntranceOverrides) {
+                if (!SOH_ApplyEntranceOverrides(ootEntrances.dump().c_str())) {
+                    std::cerr << "[playthrough] entrance apply failed — verdict unreliable\n";
+                    entranceRestoreFailed = true;
+                }
+            } else if (!ootEntrances.empty()) {
+                std::cerr << "[playthrough] spoiler has entrances but soh.dll lacks the apply export — "
+                             "rebuild soh.dll; re-deriving (all-tricks pass may diverge)\n";
+                if (!SOH_ShuffleEntrances || !SOH_ShuffleEntrances(masterSeed))
+                    entranceRestoreFailed = true;
+            }
             // Spoiler prices are the seed's truth — they override the dumps' re-rolls in every oracle
             // reset (SOH) / query (MM), so wallet gates evaluate against what the player actually pays.
             SOH_SetCheckPrices(ootPrices.dump().c_str());
@@ -270,8 +340,8 @@ int main(int argc, char** argv) {
             mergeFixed(sohDump, "oot");
             mergeFixed(mmDump, "mm");
             return ComboRando::RunPlaythrough(passFlat.dump(), oot, mmO, label, MM_Restore, ptOut, sohDump, mmDump,
-                                              ComboRando::OotAccessFromDump(sohDump) !=
-                                                  ComboRando::OotAccess::NO_LOGIC);
+                                              ComboRando::OotAccessFromDump(sohDump) != ComboRando::OotAccess::NO_LOGIC,
+                                              /*progressionOnly*/ false, goal, mmStart);
         };
 
         // Affordability canary: re-check every priced purchase in the walk against the wallets held
@@ -326,6 +396,10 @@ int main(int argc, char** argv) {
         };
         // Names the blocking win side from full-inventory reachability, so "stuck" is exact.
         auto blocked = [](const ComboRando::PlaythroughResult& r) -> const char* {
+            if (r.hunt)
+                return r.piecesReachable >= r.piecesRequired
+                           ? "enough Triforce Pieces are placed but the forward walk dead-ends (item cycle)"
+                           : "not enough Triforce Pieces are reachable";
             return (!r.ganonReachable && !r.majoraReachable) ? "neither Ganon nor Majora is reachable"
                    : !r.ganonReachable                       ? "Ganon (OOT) is unreachable"
                    : !r.majoraReachable
@@ -343,9 +417,13 @@ int main(int argc, char** argv) {
 
         // Pass 1 — the seed's own settings + enabled tricks: "can this player beat it?"
         std::cout << "[playthrough] seed '" << label << "' — Pass 1 (" << ootEnabledTricks.size()
-                  << " enabled trick(s))\n";
+                  << " enabled trick(s), starts in " << (mmStart ? "MM" : "OOT") << ")\n";
         nlohmann::json pt1 = nlohmann::json::array();
         auto r1 = runPass(false, &pt1);
+        if (entranceRestoreFailed) {
+            std::cerr << "[playthrough] could not restore the seed's entrance layout — no verdict\n";
+            return 2;
+        }
         if (r1.beatable) {
             if (int bad = affordabilityViolations(pt1)) {
                 std::cout << "[playthrough] RESULT: FAIL — beatable but " << bad
@@ -372,8 +450,16 @@ int main(int argc, char** argv) {
         // which retries on mmAdvUnreachable>0 — not gated on unreachableMm==0, ~1 MM junk check is always
         // under-modeled since the oracle evaluates MM with zeroed save options).
         if (ootNoLogic && r2.ganonReachable && r2.majoraReachable) {
-            std::cout << "[playthrough] RESULT: PASS (No Logic) — beatable: Ganon AND Majora both reachable "
-                         "with full inventory (forward-walk order N/A under No Logic).\n";
+            // Under a hunt both flags mirror the piece count, so name the pieces instead of the bosses.
+            if (r2.hunt) {
+                std::cout << "[playthrough] RESULT: PASS (No Logic) — beatable: " << r2.piecesReachable << "/"
+                          << r2.piecesRequired
+                          << " Triforce Pieces reachable with full inventory (forward-walk order N/A under No "
+                             "Logic).\n";
+            } else {
+                std::cout << "[playthrough] RESULT: PASS (No Logic) — beatable: Ganon AND Majora both reachable "
+                             "with full inventory (forward-walk order N/A under No Logic).\n";
+            }
             return 0;
         }
         if (ootNoLogic && r2.majoraReachable) {
@@ -410,8 +496,35 @@ int main(int argc, char** argv) {
             return 2;
         }
     }
+    // #136: goal resolution. --triforce-required wins; otherwise fall back to the menu CVars so a
+    // headless seed reproduces the in-game one.
+    ComboRando::CwGoal goal;
+    if (triforceRequiredArg >= 0) {
+        goal.hunt = triforceRequiredArg > 0;
+        goal.required = std::min(triforceRequiredArg, ComboRando::kMaxComboTriforcePieces);
+        // --triforce-total wins; else default the pool to exactly what the goal needs.
+        goal.total = std::max(triforceTotalArg, goal.required);
+    } else if (SOH_ReadComboGoalCVars) {
+        int required = 0, total = -1;
+        goal.hunt = SOH_ReadComboGoalCVars(&required, &total) != 0;
+        goal.required = goal.hunt ? required : 0;
+        goal.total = triforceTotalArg > 0 ? std::max(triforceTotalArg, goal.required) : total;
+    }
+    // Same cap the DLLs apply per game, so the recorded totalPieces can't disagree with the pools.
+    goal.total = std::clamp(goal.total, goal.required, ComboRando::kMaxComboTriforcePieces);
+    // #135: same fallback order — the flag wins, else the menu CVar.
+    const int startCfg = startingGameArg >= 0            ? startingGameArg
+                         : SOH_ReadComboStartingGameCVar ? SOH_ReadComboStartingGameCVar()
+                                                         : 0;
     std::cout << "[comborando] validating " << count << " seed(s) from "
-              << (haveMasterSeed ? "masterSeed " + std::to_string(masterSeedArg) : "'" + seed + "'") << "\n";
+              << (haveMasterSeed ? "masterSeed " + std::to_string(masterSeedArg) : "'" + seed + "'")
+              << (goal.hunt ? " (Triforce Hunt, " + std::to_string(goal.required) + " of " +
+                                  std::to_string(goal.total) + " pieces)"
+                            : std::string(" (both bosses)"))
+              << (startCfg == 1   ? ", starting game MM"
+                  : startCfg == 2 ? ", starting game random"
+                                  : "")
+              << "\n";
     int failures = 0;
     auto t0 = std::chrono::steady_clock::now();
     for (int i = 0; i < count; ++i) {
@@ -423,24 +536,47 @@ int main(int argc, char** argv) {
         // Whole-fill retries with re-derived seeds, identical to RunComboFill (GAP-4) so a headless
         // seed reproduces the in-game one even when early attempts fail (shared budget, same header).
         const int kFillAttempts = ComboRando::kFillAttempts;
+        bool pinStartOot = false, resolvedMmStart = false; // #135: Random falls back to OOT after a failure
         for (int attempt = 0; attempt < kFillAttempts; ++attempt) {
             masterSeed = base + attempt * 0x9E3779B9u;
+            const bool mmStart = !pinStartOot && !(startCfg == 2 && attempt + 1 == kFillAttempts) &&
+                                 ResolveStartingGameMM(startCfg, masterSeed);
             if (SOH_SetSeed)
                 SOH_SetSeed(masterSeed);
             if (MM_SetSeed)
                 MM_SetSeed(masterSeed);
+            // Before the dumps: the goal shapes OOT's wincon placement and MM's hunt pool.
+            if (SOH_SetComboGoal)
+                SOH_SetComboGoal(goal.hunt ? 1 : 0, goal.required, ComboRando::CwOotPieces(goal.total));
+            if (MM_SetComboGoal)
+                MM_SetComboGoal(goal.hunt ? 1 : 0, goal.required, ComboRando::CwMmPieces(goal.total));
+            // Same reason (#135): an MM start forces OOT's age/forest/exclusions.
+            if (SOH_SetComboStartingGame)
+                SOH_SetComboStartingGame(mmStart ? 1 : 0);
             sohDump = SOH_Dump();
             mmDump = MM_Dump();
+            if (goal.hunt) {
+                const int pieces = ComboRando::CountPoolTriforcePieces(sohDump, mmDump);
+                if (pieces < goal.required) {
+                    std::cerr << "[comborando] Triforce Hunt needs " << goal.required << " pieces but only " << pieces
+                              << " are in the combined pool — raise --triforce-total / the Combo pool total\n";
+                    return 2;
+                }
+            }
             std::string forced = SOH_GetForced ? SOH_GetForced(masterSeed) : "";
             // Same placement as RunComboFill: after the dump/forced read, before the fill, so logic
             // validates the shuffled world. No-op when the entrance options are off.
             if (SOH_ShuffleEntrances && !SOH_ShuffleEntrances(masterSeed)) {
                 std::cerr << "[comborando] seed " << masterSeed << ": entrance shuffle found no valid layout\n";
+                if (mmStart && startCfg == 2)
+                    pinStartOot = true;
                 continue;
             }
             ComboRando::OotAccess ootAccess = ComboRando::OotAccessFromDump(sohDump);
-            r = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, oot, mmO, nullptr, forced, ootAccess);
+            r = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, oot, mmO, nullptr, forced, ootAccess,
+                                                   goal, mmStart ? ComboRando::GAME_MM : ComboRando::GAME_OOT);
             if (r.success) {
+                resolvedMmStart = mmStart;
                 // Cross-hint data (Phase 2/3 mirror of RunComboFill, incl. the same area maps so the
                 // WotH/Foolish rollup matches in-game): needs this attempt's still-live oracle session.
                 sohHintDump = SOH_DumpRandoHintData ? SOH_DumpRandoHintData() : "";
@@ -457,13 +593,18 @@ int main(int argc, char** argv) {
                     for (auto& [chk, region] : locHints.items())
                         mmAreas.emplace(chk, region.get<std::string>());
                 } catch (...) {}
-                if (ComboRando::NeedsRequirednessPareDown(sohHintDump, mmDump))
+                const bool noLogic = ootAccess == ComboRando::OotAccess::NO_LOGIC;
+                // A hunt under NO_LOGIC has no meaningful requiredness (see RunComboFill) — skip it.
+                if (goal.hunt && noLogic)
+                    std::cout << "[comborando]   pare-down skipped (No Logic + Triforce Hunt)\n";
+                else if (ComboRando::NeedsRequirednessPareDown(sohHintDump, mmDump))
                     // NO_LOGIC: gate requiredness on MM only (OOT may be unbeatable by design).
                     pareDownResult = ComboRando::PareDownPlaythrough(
                         r.spoilerJson, oot, mmO, nullptr, sohDump, mmDump, ootAreas, mmAreas,
-                        ootAccess == ComboRando::OotAccess::NO_LOGIC ? ComboRando::MmOnlyMajoraGoal
-                                                                     : ComboRando::DefaultGanonMajoraGoal,
-                        ootAccess != ComboRando::OotAccess::NO_LOGIC);
+                        goal.hunt ? ComboRando::MakeTriforceHuntGoal(goal.required)
+                        : noLogic ? ComboRando::MmOnlyMajoraGoal
+                                  : ComboRando::DefaultGanonMajoraGoal,
+                        !noLogic, mmStart);
                 else
                     std::cout << "[comborando]   pare-down skipped (no enabled hint surface needs requiredness)\n";
             }
@@ -471,6 +612,8 @@ int main(int argc, char** argv) {
                 MM_Restore();
             if (r.success)
                 break;
+            if (mmStart && startCfg == 2)
+                pinStartOot = true;
             std::cerr << "[comborando]   attempt " << (attempt + 1) << "/" << kFillAttempts << " failed: " << r.error
                       << "\n";
         }
@@ -490,10 +633,18 @@ int main(int argc, char** argv) {
                     auto pricesOf = [](const std::string& dump) {
                         return nlohmann::json::parse(dump).value("prices", nlohmann::json::object());
                     };
+                    // OOT's curated ice-trap disguise set (parity with RunComboFill's writer).
+                    auto iceTrapModelsOf = [](const std::string& dump) {
+                        return nlohmann::json::parse(dump).value("iceTrapModels", nlohmann::json::array());
+                    };
                     nlohmann::json consolidated;
                     consolidated["fileType"] = "ComboShipRandomizer";
                     consolidated["seed"] = seed;
                     consolidated["masterSeed"] = masterSeed;
+                    consolidated["goal"] = { { "type", goal.hunt ? "triforceHunt" : "bosses" },
+                                             { "requiredPieces", goal.required },
+                                             { "totalPieces", goal.total } };
+                    consolidated["startingGame"] = resolvedMmStart ? "MM" : "OOT"; // #135
                     // ComboShip: suffix cross-game item-name collisions in the placements (parity with
                     // RunComboFill's consolidated writer) so the headless spoiler shows "(OOT)"/"(MM)".
                     nlohmann::json ootPl = fillSpoiler.value("oot", nlohmann::json::object());
@@ -505,26 +656,29 @@ int main(int argc, char** argv) {
                                                                    ? nlohmann::json::parse(SOH_DumpEnabledTricks())
                                                                    : nlohmann::json::array() },
                                             { "placements", ootPl },
-                                            { "prices", pricesOf(sohDump) } };
+                                            { "prices", pricesOf(sohDump) },
+                                            { "iceTrapModels", iceTrapModelsOf(sohDump) } };
                     consolidated["mm"] = { { "settings", nlohmann::json::parse(MM_DumpSettings()) },
                                            { "placements", mmPl },
                                            { "prices", pricesOf(mmDump) } };
                     // ComboShip: enrich the foreign array exactly like RunComboFill (displayName game
-                    // suffix + oot checkArea) so the headless consolidated file matches the in-game one.
-                    std::unordered_map<std::string, std::string> ootCheckAreas;
-                    try {
-                        auto hd = nlohmann::json::parse(sohHintDump.empty() ? "{}" : sohHintDump);
-                        for (auto& c : hd.value("checks", nlohmann::json::array())) {
-                            std::string name = c.value("name", ""), area = c.value("area", "");
-                            if (!name.empty() && !area.empty())
-                                ootCheckAreas.emplace(std::move(name), std::move(area));
-                        }
-                    } catch (...) {}
+                    // suffix) so the headless consolidated file matches the in-game one.
                     auto foreignArr = fillSpoiler.value("foreign", nlohmann::json::array());
                     ComboRando::AssignTrapDisguises(foreignArr, fillSpoiler.value("oot", nlohmann::json::object()),
                                                     fillSpoiler.value("mm", nlohmann::json::object()), sohDump, mmDump,
                                                     masterSeed);
-                    consolidated["foreign"] = ComboRando::BuildForeignArray(foreignArr, ootCheckAreas);
+                    consolidated["foreign"] = ComboRando::BuildForeignArray(foreignArr);
+                    // OOT entrance layout (parity with ComboShip.cpp's consolidated writer) — this is
+                    // what --playthrough installs into the region graph before walking.
+                    {
+                        nlohmann::json ootEnt = nlohmann::json::array();
+                        if (SOH_DumpEntranceOverrides) {
+                            try {
+                                ootEnt = nlohmann::json::parse(SOH_DumpEntranceOverrides());
+                            } catch (...) {}
+                        }
+                        consolidated["entrances"] = { { "oot", std::move(ootEnt) } };
+                    }
                     // Cross-hint generation (mirrors RunComboFill) — enables the headless determinism check.
                     consolidated["hints"] =
                         ComboRando::Generate(masterSeed, sohDump, sohHintDump, mmDump, consolidated["foreign"],

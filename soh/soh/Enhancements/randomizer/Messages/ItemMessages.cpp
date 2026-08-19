@@ -16,6 +16,8 @@
 #ifdef COMBO_BUILD
 #include "rando/CrossForeign.h"
 #include "soh/Enhancements/randomizer/hook_handlers.h"
+extern "C" int gComboGoalRequired;
+extern "C" int (*gComboOtherTriforceCount)(void);
 #endif
 
 #include <cstdarg>
@@ -31,6 +33,23 @@ extern PlayState* gPlayState;
 
 void BuildTriforcePieceMessage(CustomMessage& msg) {
     auto rando = OTRGlobals::Instance->gRandomizer;
+#ifdef COMBO_BUILD
+    // ComboShip (#136): the goal counts BOTH games' pieces, so the native per-trigger thresholds below
+    // would show the wrong numbers — report combined progress instead.
+    if (gComboGoalRequired > 0) {
+        const int combined = gSaveContext.ship.quest.data.randomizer.triforcePiecesCollected + 1 +
+                             (gComboOtherTriforceCount != NULL ? gComboOtherTriforceCount() : 0);
+        if (combined >= gComboGoalRequired) {
+            msg = { "You completed the %yTriforce%w! %gGG%w!", TODO_TRANSLATE, TODO_TRANSLATE };
+        } else {
+            msg = { "You found a %yTriforce Piece%w! %g[[current]]%w of %c[[d]]%w.", TODO_TRANSLATE, TODO_TRANSLATE };
+            msg.InsertNumber(gComboGoalRequired);
+        }
+        msg.Replace("[[current]]", std::to_string(combined));
+        msg.AutoFormat(ITEM_CUSTOM);
+        return;
+    }
+#endif
     uint8_t current = gSaveContext.ship.quest.data.randomizer.triforcePiecesCollected + 1;
     // if any settings are off, 0 them out here as a precaution
     uint8_t bridge = rando->GetRandoSettingValue(RSK_RAINBOW_BRIDGE) == RO_BRIDGE_TRIFORCE_PIECES

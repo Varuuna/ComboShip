@@ -2905,6 +2905,23 @@ extern "C" void Save_SaveGlobal(void) {
 }
 
 extern "C" void Save_LoadFile(void) {
+#ifdef COMBO_BUILD
+    // ComboShip (tracker wipe): drain queued threaded saves BEFORE recreating gRandoContext —
+    // SaveTrackerData reads the LIVE context from the pool thread, and reload paths (BetterSaveMenu
+    // Reset/Return-to-Spawn, portal return via title_setup.c) reach here before OnExitGame's
+    // ThreadPoolWait, so a queued save would persist an all-UNCHECKED "checkStatus".
+    SaveManager::Instance->ThreadPoolWait();
+    // Missing OOT block: LoadFile would return early AFTER the reset, leaving an all-unchecked
+    // context that the next save persists. Keep the current context instead.
+    if (gComboReadGameSave) {
+        const char* comboJson = gComboReadGameSave(ComboRando::GAME_OOT, gSaveContext.fileNum);
+        if (comboJson == nullptr || comboJson[0] == '\0') {
+            SPDLOG_ERROR("Save_LoadFile: no OOT save block for slot {} - keeping current rando context",
+                         gSaveContext.fileNum);
+            return;
+        }
+    }
+#endif
     // Handle vanilla context reset
     OTRGlobals::Instance->gRandoContext->GetLogic()->SetContext(nullptr);
     Rando::Settings::GetInstance()->ClearContext();

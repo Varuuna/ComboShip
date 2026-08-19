@@ -304,6 +304,14 @@ add_custom_target(combo ALL DEPENDS soh 2ship ComboShip)
 ################################################################################
 # Asset archive generation targets
 ################################################################################
+# ComboShip: gate on new custom-asset path collisions between the two games (issue #97).
+add_custom_target(
+    CheckAssetCollisions
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-asset-collisions.py
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "Checking custom asset trees for new path collisions...")
+add_dependencies(combo CheckAssetCollisions)
+
 add_custom_target(
     GenerateSohOtr
     COMMAND ${CMAKE_COMMAND} -E rm -f soh.o2r
@@ -314,7 +322,7 @@ add_custom_target(
     COMMAND ${CMAKE_COMMAND} -DSYSTEM_NAME=${CMAKE_SYSTEM_NAME} -DTARGET_DIR="$<TARGET_FILE_DIR:ZAPD>" -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DBINARY_DIR=${CMAKE_BINARY_DIR} -DONLYSOHOTR=On -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/copy-existing-otrs.cmake
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/soh
     COMMENT "Generating soh.o2r..."
-    DEPENDS ZAPD)
+    DEPENDS ZAPD CheckAssetCollisions)
 
 add_custom_target(
     Generate2ShipOtr
@@ -323,7 +331,7 @@ add_custom_target(
     COMMAND ${CMAKE_COMMAND} -DSYSTEM_NAME=${CMAKE_SYSTEM_NAME} -DTARGET_DIR="$<TARGET_FILE_DIR:ZAPD>" -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DBINARY_DIR=${CMAKE_BINARY_DIR} -DONLY2SHIPOTR=On -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/copy-existing-otrs.cmake
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/mm
     COMMENT "Generating 2ship.o2r..."
-    DEPENDS ZAPD)
+    DEPENDS ZAPD CheckAssetCollisions)
 
 ################################################################################
 # Installation and Packaging

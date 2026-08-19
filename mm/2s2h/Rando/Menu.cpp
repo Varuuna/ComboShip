@@ -585,6 +585,7 @@ static void DrawShufflesTab() {
                 CVarGetInteger(Rando::StaticData::Options[RO_STRAY_FAIRIES_MAX].cvar, STRAY_FAIRY_SCATTERED_TOTAL));
         }
     }
+#ifndef COMBO_BUILD // ComboShip (#136): combo owns the hunt toggle plus the combined required/total counts.
     CVarCheckbox("Triforce Hunt", Rando::StaticData::Options[RO_SHUFFLE_TRIFORCE_PIECES].cvar);
     ImGui::BeginDisabled(!CVarGetInteger(Rando::StaticData::Options[RO_SHUFFLE_TRIFORCE_PIECES].cvar, RO_GENERIC_OFF));
     CVarSliderInt(
@@ -612,8 +613,9 @@ static void DrawShufflesTab() {
                 CVarGetInteger(Rando::StaticData::Options[RO_TRIFORCE_PIECES_MAX].cvar, DEFAULT_TRIFORCE_PIECES_MAX));
         }
     }
-
     ImGui::EndDisabled();
+#endif
+
     ImGui::EndChild();
     ImGui::SameLine();
     ImGui::BeginChild("randoShufflesColumn2", ImVec2(columnWidth, halfHeight));

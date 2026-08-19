@@ -28,9 +28,12 @@ namespace {
 typedef void (*FnTriggerGenerate)(void);
 typedef const ComboRando::ComboGenProgress* (*FnGetProgress)(void);
 typedef unsigned char (*FnIsOnFileSelect)(void);
+// (#135) re-applies the Starting Age / Mask Shop exclusion disables after the dropdown changes.
+typedef void (*FnRefreshStartingGameUI)(void);
 FnTriggerGenerate sTrigger = nullptr;
 FnGetProgress sGetProgress = nullptr;
 FnIsOnFileSelect sIsOnFileSelect = nullptr;
+FnRefreshStartingGameUI sRefreshStartingGameUI = nullptr;
 void ResolveComboGenSyms() {
     if (!sTrigger)
         sTrigger = (FnTriggerGenerate)Combo_ResolveSym("soh", "SOH_TriggerComboGenerate");
@@ -38,6 +41,8 @@ void ResolveComboGenSyms() {
         sGetProgress = (FnGetProgress)Combo_ResolveSym("soh", "SOH_GetComboGenProgress");
     if (!sIsOnFileSelect)
         sIsOnFileSelect = (FnIsOnFileSelect)Combo_ResolveSym("soh", "SOH_IsOnFileSelect");
+    if (!sRefreshStartingGameUI)
+        sRefreshStartingGameUI = (FnRefreshStartingGameUI)Combo_ResolveSym("soh", "SOH_RefreshComboStartingGameUI");
 }
 
 // Bug 2: Anchor resync exports, one per game DLL — resolved the same way as the combo-gen syms
@@ -201,6 +206,17 @@ void ComboMenu::DrawElement() {
     auto ctx = Ship::Context::GetRawInstance();
     if (ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
         ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
+    }
+
+    // The soh-side option disables ride gCombo.Rando.StartingGame (#135); prime them once so they are
+    // greyed out even if the user opens the OOT settings without ever visiting the Generate panel.
+    static bool sStartingGameUIPrimed = false;
+    if (!sStartingGameUIPrimed) {
+        ResolveComboGenSyms();
+        if (sRefreshStartingGameUI) {
+            sRefreshStartingGameUI();
+            sStartingGameUIPrimed = true;
+        }
     }
 
     // Fullscreen overlay covering the viewport work area, matching the old port menu
@@ -566,8 +582,13 @@ void DrawTrackerSharedPanel() {
         bool appearanceChanged = false;
         int px = CVarGetInteger("gCombo.Tracker.IconSize", ComboTracker::kDefaultIconSize);
         ComboRando::ComboMenu_PushSlider(theme);
-        if (ImGui::SliderInt("Icon size (px)", &px, 16, 64)) {
+        if (ImGui::SliderInt("Icon size (px)", &px, 16, 128)) {
             CVarSetInteger("gCombo.Tracker.IconSize", px);
+            appearanceChanged = true;
+        }
+        int spacing = CVarGetInteger("gCombo.Tracker.IconSpacing", ComboTracker::kDefaultIconSpacing);
+        if (ImGui::SliderInt("Icon spacing (px)", &spacing, 0, 50)) {
+            CVarSetInteger("gCombo.Tracker.IconSpacing", spacing);
             appearanceChanged = true;
         }
         float op = CVarGetFloat("gCombo.Tracker.Opacity", ComboTracker::kDefaultOpacity);
@@ -593,7 +614,15 @@ void DrawTrackerSharedPanel() {
             CVarSetInteger("gCombo.Tracker.Draggable", dragB ? 1 : 0);
             appearanceChanged = true;
         }
+        bool pausedB = CVarGetInteger("gCombo.Tracker.OnlyPaused", ComboTracker::kDefaultOnlyPaused) != 0;
+        if (ImGui::Checkbox("Only enable while paused", &pausedB)) {
+            CVarSetInteger("gCombo.Tracker.OnlyPaused", pausedB ? 1 : 0);
+            appearanceChanged = true;
+        }
         ComboRando::ComboMenu_PopCheckbox();
+        if (pausedB && wt != 0) {
+            ImGui::TextDisabled("Ocarina of Time only honors this with the floating tracker.");
+        }
         if (appearanceChanged) {
             ComboTracker::SyncAppearance();
             changed = true;
@@ -913,6 +942,8 @@ void PlandoBuildItems() {
                 std::string n = it.value("name", std::string{});
                 if (n.empty() || !seen.insert(n).second)
                     continue;
+                if (g == ComboRando::GAME_OOT && n == "Triforce")
+                    continue; // OOT's win item: placing it would roll credits outside the combo goal
                 sPlando.items.push_back({ n, g, it.value("advancement", true), n + suf });
             }
         } catch (...) {}
@@ -1019,7 +1050,8 @@ void PlandoSavePlay() {
     nlohmann::json ootPl = nlohmann::json::object();
     nlohmann::json mmPl = nlohmann::json::object();
     nlohmann::json foreignRaw = nlohmann::json::array();
-    // Trap disguises can't be recomputed here; carry them over for rows whose item is unchanged.
+    // Trap disguises and item categories can't be recomputed here; carry them over for rows whose
+    // item is unchanged.
     std::unordered_map<std::string, nlohmann::json> priorForeign;
     for (const auto& fm : j.value("foreign", nlohmann::json::array())) {
         priorForeign[fm.value("checkGame", "") + "|" + fm.value("checkName", "")] = fm;
@@ -1038,7 +1070,7 @@ void PlandoSavePlay() {
                                       { "advancement", r.advancement } };
             auto pf = priorForeign.find(cg + "|" + r.check);
             if (pf != priorForeign.end() && pf->second.value("itemName", "") == r.item) {
-                for (const char* k : { "fakeItemName", "fakeDisplayName", "fakeTrickName" })
+                for (const char* k : { "fakeItemName", "fakeDisplayName", "fakeTrickName", "category" })
                     if (pf->second.contains(k))
                         marker[k] = pf->second[k];
             }
@@ -1560,6 +1592,70 @@ void ComboMenu::DrawComboPanel() {
     ResolveComboGenSyms();
     ImGui::TextWrapped("Generate a cross-world randomizer seed spanning OOT and MM. "
                        "You must Generate before starting a new file.");
+    ImGui::Separator();
+
+    // Goal (#136): one combined win condition; each game's piece slider decides how many it contributes.
+    const ImVec4 goalTheme = ComboRando::ComboMenu_ThemeColor();
+    ImGui::SeparatorText("Goal");
+    bool hunt = CVarGetInteger("gCombo.Rando.TriforceHunt", 0) != 0;
+    ComboRando::ComboMenu_PushCheckbox(goalTheme);
+    if (ImGui::Checkbox("Triforce Hunt", &hunt)) {
+        CVarSetInteger("gCombo.Rando.TriforceHunt", hunt ? 1 : 0);
+    }
+    ComboRando::ComboMenu_PopCheckbox();
+    if (hunt) {
+        const int kMaxPieces = ComboRando::kMaxComboTriforcePieces;
+        int required = std::clamp(CVarGetInteger("gCombo.Rando.TriforceRequired", 15), 1, kMaxPieces);
+        int total = std::clamp(CVarGetInteger("gCombo.Rando.TriforceTotal", 15), required, kMaxPieces);
+        ComboRando::ComboMenu_PushInput(goalTheme);
+        ImGui::SetNextItemWidth(260.0f);
+        if (ImGui::InputInt("Required pieces (both games)", &required)) {
+            required = std::clamp(required, 1, kMaxPieces);
+            CVarSetInteger("gCombo.Rando.TriforceRequired", required);
+            if (total < required) {
+                CVarSetInteger("gCombo.Rando.TriforceTotal", required); // total can never sit below required
+            }
+        }
+        ImGui::SetNextItemWidth(260.0f);
+        if (ImGui::InputInt("Pieces in the pool (both games)", &total)) {
+            CVarSetInteger("gCombo.Rando.TriforceTotal", std::clamp(total, required, kMaxPieces));
+        }
+        ComboRando::ComboMenu_PopInput();
+        ImGui::TextDisabled("Collect this many pieces across OOT and MM to finish; bosses are optional.");
+        ImGui::TextDisabled("The pool total is split evenly between the two games (OOT takes the odd one).");
+        // The combined count is invisible to both games' own trackers, so combo draws its own line.
+        bool line = CVarGetInteger("gCombo.Tracker.TriforceLine", 1) != 0;
+        ComboRando::ComboMenu_PushCheckbox(goalTheme);
+        if (ImGui::Checkbox("Show combined Triforce counter", &line)) {
+            CVarSetInteger("gCombo.Tracker.TriforceLine", line ? 1 : 0);
+        }
+        ComboRando::ComboMenu_PopCheckbox();
+    } else {
+        ImGui::TextDisabled("Beat Ganon and Majora to finish.");
+    }
+    ImGui::Separator();
+
+    // Starting Game (#135): which game a new file boots into. Random is resolved per seed.
+    ImGui::SeparatorText("Starting Game");
+    static const char* kStartingGames[] = { "Ocarina of Time", "Majora's Mask", "Random" };
+    int startingGame = CVarGetInteger("gCombo.Rando.StartingGame", 0);
+    if (startingGame < 0 || startingGame > 2)
+        startingGame = 0;
+    ImGui::SetNextItemWidth(260.0f);
+    ComboRando::ComboMenu_PushCombobox(goalTheme);
+    if (ImGui::BeginCombo("##startinggame", kStartingGames[startingGame])) {
+        for (int i = 0; i < 3; ++i) {
+            if (ImGui::Selectable(kStartingGames[i], i == startingGame)) {
+                CVarSetInteger("gCombo.Rando.StartingGame", i);
+                if (sRefreshStartingGameUI)
+                    sRefreshStartingGameUI();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ComboRando::ComboMenu_PopCombobox();
+    ImGui::TextDisabled("Majora's Mask starts the file in South Clock Town. It forces Child age, an openable forest,\n"
+                        "and the Mask Shop key/entrance exclusions, so Ocarina of Time stays enterable from nothing.");
     ImGui::Separator();
 
     // Seed field -> shared CVar the generator reads (same source the native file-select

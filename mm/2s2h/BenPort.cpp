@@ -2745,6 +2745,12 @@ extern "C" COMBO_EXPORT void MM_LoadSaveForCombo(int fileNum) {
 
 static void Combo_MM_ApplyCheckPrices();
 
+// ComboShip (#136): defined further down (MM_SetComboGoal). The save-building paths below force MM's
+// Triforce options from these — combo owns the goal and MM's own CVars are hidden in combo builds.
+extern "C" int gMMComboGoalHunt;
+extern "C" int gMMComboGoalRequired;
+extern "C" int gMMComboGoalPieces;
+
 // Combo master seed for MM's RNG, mirroring OOT's SOH_SetComboRandoSeed so confined placement
 // (PreplaceConfinedItems, via Ship_Random) is reproducible per seed.
 static uint64_t sMMComboRandoSeed = 0;
@@ -2811,6 +2817,17 @@ extern "C" COMBO_EXPORT int MM_InitRandoSaveFile(int fileNum, const char* placem
         for (auto& [id, opt] : Rando::StaticData::Options) {
             options[opt.name] = (uint32_t)CVarGetInteger(opt.cvar, opt.defaultValue);
         }
+        // ComboShip (#136): combo owns the goal and MM's own toggle is hidden, so the CVar loop above
+        // would save hunt=off — leaving Majora killable pre-completion and the tracker row missing.
+        options[Rando::StaticData::Options[RO_SHUFFLE_TRIFORCE_PIECES].name] =
+            (uint32_t)(gMMComboGoalHunt ? RO_GENERIC_YES : RO_GENERIC_NO);
+        if (gMMComboGoalHunt) {
+            options[Rando::StaticData::Options[RO_TRIFORCE_PIECES_REQUIRED].name] = (uint32_t)gMMComboGoalRequired;
+            // #136: MM's half of the combined total; -1 = old seed, keep the CVar.
+            if (gMMComboGoalPieces >= 0) {
+                options[Rando::StaticData::Options[RO_TRIFORCE_PIECES_MAX].name] = (uint32_t)gMMComboGoalPieces;
+            }
+        }
         spoiler["options"] = options;
         spoiler["startingItems"] = nlohmann::json::array();
         // ComboShip: mirror native OnFileCreate's use of the player's configured priority list.
@@ -2848,6 +2865,15 @@ extern "C" COMBO_EXPORT int MM_InitRandoSaveFile(int fileNum, const char* placem
         spoiler["checks"] = std::move(checks);
 
         Rando::Spoiler::ApplyToSaveContext(spoiler);
+
+        // ComboShip: the apply stamps shuffled=true on every payload check incl. non-shuffled Remains;
+        // restore native state (delivery reads randoItemId, not shuffled) so stones/tracker skip them.
+        if (RANDO_SAVE_OPTIONS[RO_SHUFFLE_BOSS_REMAINS] == RO_GENERIC_NO) {
+            for (auto& [id, chk] : Rando::StaticData::Checks) {
+                if (chk.randoCheckType == RCTYPE_REMAINS)
+                    RANDO_SAVE_CHECKS[id].shuffled = false;
+            }
+        }
 
         // ComboShip: store the chosen starting items and bake them into inventory, like native
         // OnFileCreate. Force gPlayState=NULL so GrantStartingItems takes Item_Give's null-guarded
@@ -3242,10 +3268,12 @@ extern "C" COMBO_EXPORT const char* MM_DumpRandoStaticData(void) {
         auto iit = Rando::StaticData::Items.find(RANDO_SAVE_CHECKS[id].randoItemId);
         if (iit == Rando::StaticData::Items.end() || !iit->second.spoilerName || iit->second.spoilerName[0] == '\0')
             continue;
-        // ComboShip: friendly check + item names for the normalized combo spoiler.
+        // ComboShip: friendly check + item names for the normalized combo spoiler. These are genuinely
+        // shuffled (PreplaceConfinedItems sets shuffled=true), so they stay hint targets.
         fixed.push_back({ { "check", Rando::StaticData::GetCheckDisplayName(id) },
                           { "item", Rando::StaticData::GetItemDisplayName(iit->first) },
-                          { "advancement", isAdvancement(iit->second) } });
+                          { "advancement", isAdvancement(iit->second) },
+                          { "hintable", true } });
     }
 
     // ComboShip: when boss remains aren't shuffled, GeneratePools drops RCTYPE_REMAINS checks entirely
@@ -3259,10 +3287,12 @@ extern "C" COMBO_EXPORT const char* MM_DumpRandoStaticData(void) {
             auto iit = Rando::StaticData::Items.find(chk.randoItemId);
             if (iit == Rando::StaticData::Items.end() || !iit->second.spoilerName || iit->second.spoilerName[0] == '\0')
                 continue;
-            // ComboShip: friendly check + item names for the normalized combo spoiler.
+            // ComboShip: friendly check + item names for the normalized combo spoiler. Not shuffled, so
+            // hints must never target these (native never hints a non-shuffled check).
             fixed.push_back({ { "check", Rando::StaticData::GetCheckDisplayName(id) },
                               { "item", Rando::StaticData::GetItemDisplayName(iit->first) },
-                              { "advancement", true } });
+                              { "advancement", true },
+                              { "hintable", false } });
         }
     }
 
@@ -3352,6 +3382,7 @@ static uint64_t sMM_OracleSavedRegionTime;
 // end of the whole fill. Without this flag the second Reset snapshots the already-zeroed context,
 // so Restore would write garbage (zeros) back into MM's live save after generation.
 static bool sMM_OracleActive = false;
+static bool sMM_OracleInventorySweepDone = false;
 using Rando::Logic::gCurrentRegionTime;
 
 // ComboShip (#61): cross-grant only set the trade item's obtained flag, leaving the shared trade
@@ -3749,6 +3780,19 @@ extern "C" COMBO_EXPORT void Combo_MM_Rando_Reset(void) {
         sMM_OracleActive = true;
     }
     memset(&gSaveContext, 0, sizeof(SaveContext));
+    // Empty inventory slots are ITEM_NONE (0xFF), not 0: ITEM_OCARINA_OF_TIME is item id 0, so a
+    // zeroed slot makes HAS_ITEM (an equality compare) report the ocarina owned and every song playable.
+    memset(gSaveContext.save.saveInfo.inventory.items, ITEM_NONE, sizeof(gSaveContext.save.saveInfo.inventory.items));
+    if (!sMM_OracleInventorySweepDone) { // one-time guard against future zero-collision regressions
+        sMM_OracleInventorySweepDone = true;
+        for (auto& [id, item] : Rando::StaticData::Items) {
+            u8 itemId = item.itemId;
+            if (itemId != ITEM_NONE && itemId < ARRAY_COUNT(gItemSlots) && gItemSlots[itemId] != SLOT_NONE &&
+                INV_CONTENT(itemId) == itemId) {
+                SPDLOG_ERROR("MM oracle: empty context reports item {} owned; fill will over-reach", (int)itemId);
+            }
+        }
+    }
 
     // ComboShip: the reachability logic reads RANDO_SAVE_OPTIONS (randoSaveOptions) and gates on
     // IS_RANDO (saveType == SAVETYPE_RANDO). The memset above wiped both, and nothing else repopulates
@@ -3762,6 +3806,18 @@ extern "C" COMBO_EXPORT void Combo_MM_Rando_Reset(void) {
     for (auto& [id, opt] : Rando::StaticData::Options) {
         gSaveContext.save.shipSaveInfo.rando.randoSaveOptions[id] =
             (uint32_t)CVarGetInteger(opt.cvar, opt.defaultValue);
+    }
+    // ComboShip (#136): combo owns the goal, so the hidden CVars above must not decide it here either.
+    gSaveContext.save.shipSaveInfo.rando.randoSaveOptions[RO_SHUFFLE_TRIFORCE_PIECES] =
+        gMMComboGoalHunt ? RO_GENERIC_YES : RO_GENERIC_NO;
+    if (gMMComboGoalHunt) {
+        gSaveContext.save.shipSaveInfo.rando.randoSaveOptions[RO_TRIFORCE_PIECES_REQUIRED] =
+            (uint32_t)gMMComboGoalRequired;
+        // #136: MM's half of the combined total; -1 = old seed, keep the CVar.
+        if (gMMComboGoalPieces >= 0) {
+            gSaveContext.save.shipSaveInfo.rando.randoSaveOptions[RO_TRIFORCE_PIECES_MAX] =
+                (uint32_t)gMMComboGoalPieces;
+        }
     }
 
     // ComboShip: grant the seed's STARTING ITEMS into the oracle inventory. These aren't in the
@@ -3959,6 +4015,52 @@ extern "C" COMBO_EXPORT void MM_SetFinalBossDefeatedCb(int (*cb)(int, int)) {
     gComboFinalBossDefeated = cb;
 }
 
+// ComboShip (#136): Triforce Hunt is ONE combined goal across both games, owned by the launcher.
+// hunt=0 means the normal both-bosses goal; required is the combined piece count.
+extern "C" int gMMComboGoalHunt = 0;
+extern "C" int gMMComboGoalRequired = 0;
+// This game's share of the combined piece total, forced at every save-option build site.
+// -1 = unset (old seed), so MM's own slider decides.
+extern "C" int gMMComboGoalPieces = -1;
+extern "C" COMBO_EXPORT void MM_SetComboGoal(int hunt, int required, int pieces) {
+    gMMComboGoalHunt = hunt ? 1 : 0;
+    gMMComboGoalRequired = gMMComboGoalHunt ? required : 0;
+    gMMComboGoalPieces = pieces < 0 ? -1 : (pieces > 100 ? 100 : pieces); // same 0..100 cap as OOT's
+}
+extern "C" COMBO_EXPORT int MM_GetTriforcePieceCount(void) {
+    return gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces;
+}
+// The OTHER game's piece count, so pickup messages can show the combined progress.
+extern "C" int (*gMMComboOtherTriforceCount)(void) = nullptr;
+extern "C" COMBO_EXPORT void MM_SetOtherTriforceCountCb(int (*cb)(void)) {
+    gMMComboOtherTriforceCount = cb;
+}
+// Poked after every piece grant (active or dormant); the launcher evaluates the combined total.
+extern "C" void (*gMMComboTriforceProgress)(int game, int fileNum) = nullptr;
+extern "C" COMBO_EXPORT void MM_SetTriforceProgressCb(void (*cb)(int, int)) {
+    gMMComboTriforceProgress = cb;
+}
+// Goal reached: soul grant + completion hook run either way; only the active game gets the ending, a
+// dormant MM persists. The save can throw, and the launcher calls this — nothing may cross the C-ABI.
+extern "C" COMBO_EXPORT void MM_TriggerTriforceCredits(int dormant) try {
+    if (!Flags_GetRandoInf(RANDO_INF_OBTAINED_SOUL_OF_BOSS_MAJORA)) {
+        Rando::GiveItem(RI_SOUL_BOSS_MAJORA);
+    }
+    GameInteractor_ExecuteOnGameCompletion();
+    if (dormant) {
+        if (gSaveContext.fileNum != 0xFF) {
+            SaveManager_SaveCurrentForCombo();
+        }
+        return;
+    }
+    GameInteractor::Instance->events.emplace_back(GIEventTransition{ .entrance = ENTRANCE(TERMINA_FIELD, 0),
+                                                                     .cutsceneIndex = 0xFFF7,
+                                                                     .transitionTrigger = TRANS_TRIGGER_START,
+                                                                     .transitionType = TRANS_TYPE_FADE_BLACK });
+} catch (const std::exception& e) {
+    SPDLOG_ERROR("[ComboShip] MM_TriggerTriforceCredits threw: {}", e.what());
+} catch (...) { SPDLOG_ERROR("[ComboShip] MM_TriggerTriforceCredits threw a non-std exception"); }
+
 extern "C" COMBO_EXPORT const char* Combo_MM_Rando_GetReachableChecks(void) {
     static std::string buf;
 
@@ -4141,6 +4243,12 @@ bool Combo_MmIsForeground(void) {
         sFn = (int (*)(void))Combo_ResolveSym("comboui", "ComboUI_GetForegroundGame");
     }
     return sFn ? (sFn() == 1) : true;
+}
+
+// ComboShip (#127): MM's pause state, read by comboui's dormant-tracker gate (see
+// SOH_IsPausedForCombo) — the dormant game's own pause state is stale.
+extern "C" COMBO_EXPORT int MM_IsPausedForCombo(void) {
+    return gPlayState != nullptr && gPlayState->pauseCtx.state > 0;
 }
 
 extern "C" COMBO_EXPORT int32_t MM_MenuEvalDisabled(int32_t i, const char** outReason) {

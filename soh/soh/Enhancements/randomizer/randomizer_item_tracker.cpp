@@ -1824,8 +1824,13 @@ void ItemTrackerInitFile(bool isDebug) {
 }
 
 void ItemTrackerSaveFile(SaveContext* saveContext, int sectionID, bool fullSave) {
+#ifdef COMBO_BUILD
+    // ComboShip (#165): notes live in combo.notes; scrub the legacy field so stale text stops round-tripping.
+    SaveManager::Instance->SaveData("personalNotes", "");
+#else
     SaveManager::Instance->SaveData("personalNotes",
                                     std::string(std::begin(itemTrackerNotes), std::end(itemTrackerNotes)).c_str());
+#endif
 }
 
 void ItemTrackerLoadFile() {
@@ -1906,16 +1911,23 @@ void ItemTrackerWindow::DrawElement() {
             (CVarGetInteger(CVAR_TRACKER_ITEM("DisplayType.TriforcePieces"), SECTION_DISPLAY_HIDDEN) ==
              SECTION_DISPLAY_MAIN_WINDOW) ||
             (CVarGetInteger(CVAR_TRACKER_ITEM("DisplayType.FishingPole"), SECTION_DISPLAY_EXTENDED_HIDDEN) ==
-             SECTION_DISPLAY_EXTENDED_MAIN_WINDOW) ||
-            (CVarGetInteger(CVAR_TRACKER_ITEM("DisplayType.Notes"), SECTION_DISPLAY_HIDDEN) ==
-             SECTION_DISPLAY_MAIN_WINDOW)) {
+             SECTION_DISPLAY_EXTENDED_MAIN_WINDOW)
+// ComboShip (#165): native notes replaced by the combo-owned cross-game Personal Notes window.
+#ifndef COMBO_BUILD
+            || (CVarGetInteger(CVAR_TRACKER_ITEM("DisplayType.Notes"), SECTION_DISPLAY_HIDDEN) ==
+                SECTION_DISPLAY_MAIN_WINDOW)
+#endif
+        ) {
             BeginFloatingWindows("Item Tracker");
             DrawItemsInRows(mainWindowItems, 6);
 
+// ComboShip (#165): native notes replaced by the combo-owned cross-game Personal Notes window.
+#ifndef COMBO_BUILD
             if (CVarGetInteger(CVAR_TRACKER_ITEM("DisplayType.Notes"), SECTION_DISPLAY_HIDDEN) ==
                 SECTION_DISPLAY_MAIN_WINDOW) {
                 DrawNotes();
             }
+#endif
             EndFloatingWindows();
         }
 
@@ -2034,6 +2046,8 @@ void ItemTrackerWindow::DrawElement() {
             EndFloatingWindows();
         }
 
+// ComboShip (#165): native notes replaced by the combo-owned cross-game Personal Notes window.
+#ifndef COMBO_BUILD
         if (CVarGetInteger(CVAR_TRACKER_ITEM("DisplayType.Notes"), SECTION_DISPLAY_HIDDEN) ==
                 SECTION_DISPLAY_SEPARATE &&
             (CVarGetInteger(CVAR_TRACKER_ITEM("WindowType"), TRACKER_WINDOW_FLOATING) == TRACKER_WINDOW_WINDOW ||
@@ -2045,6 +2059,7 @@ void ItemTrackerWindow::DrawElement() {
             DrawNotes(true);
             EndFloatingWindows();
         }
+#endif
 
         if (CVarGetInteger("gTrackers.ItemTracker.TotalChecks.DisplayType", SECTION_DISPLAY_MINIMAL_HIDDEN) ==
             SECTION_DISPLAY_MINIMAL_SEPARATE) {
@@ -2250,7 +2265,10 @@ void ItemTrackerSettingsWindow::DrawElement() {
             shouldUpdateVectors = true;
         }
 
+// ComboShip (#165): native notes replaced by the combo-owned cross-game Personal Notes window.
+#ifndef COMBO_BUILD
         SohGui::mSohMenu->MenuDrawItem(personalNotesWiget, 250, THEME_COLOR);
+#endif
         SohGui::mSohMenu->MenuDrawItem(hookshotIdentWidget, 250, THEME_COLOR);
         SohGui::mSohMenu->MenuDrawItem(openChestIdentWidget, 250, THEME_COLOR);
 
@@ -2437,6 +2455,8 @@ void RegisterItemTrackerWidgets() {
     SohGui::mSohMenu->AddSearchWidget(
         { fishingPoleTracking, "Randomizer", "Item Tracker", "General Settings", "icon" });
 
+// ComboShip (#165): native notes replaced by the combo-owned cross-game Personal Notes window.
+#ifndef COMBO_BUILD
     personalNotesWiget = { .name = "Personal notes", .type = WidgetType::WIDGET_CVAR_COMBOBOX };
     static const char* notesDisabledTooltip =
         "Disabled because tracker is set to floating and display combo is enabled.";
@@ -2450,6 +2470,7 @@ void RegisterItemTrackerWidgets() {
         .Callback([](WidgetInfo& info) { shouldUpdateVectors = true; });
     ;
     SohGui::mSohMenu->AddSearchWidget({ personalNotesWiget, "Randomizer", "Item Tracker", "General Settings" });
+#endif
 
     hookshotIdentWidget = { .name = "Show Hookshot Identifiers", .type = WidgetType::WIDGET_CVAR_CHECKBOX };
     hookshotIdentWidget.CVar(CVAR_TRACKER_ITEM("HookshotIdentifier"))

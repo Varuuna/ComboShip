@@ -974,6 +974,22 @@ void SohMenu::AddMenuRandomizer() {
         .WindowName("Hint Tracker Settings")
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Enables the separate Hint Tracker Settings Window."));
+#ifdef COMBO_BUILD
+    // ComboShip: embed the settings inline (see "Plandomizer Inline"); skipped while popped out.
+    AddWidget(path, "Hint Tracker Settings Inline", WIDGET_CUSTOM)
+        .RaceDisable(false)
+        .HideInSearch(true)
+        .CustomFunction([](WidgetInfo&) {
+            auto ctx = Ship::Context::GetRawInstance();
+            if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
+                return;
+            auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Hint Tracker Settings");
+            if (!win || win->IsVisible())
+                return;
+            win->Update();
+            win->DrawElement();
+        });
+#endif
 }
 
 } // namespace SohGui

@@ -544,12 +544,23 @@ void OOT_DeliverForeign(RandomizerCheck rc) {
     }
 }
 
+// ComboShip (#164): combo Hint Tracker reveal reporter, defined in OTRGlobals.cpp (it owns the
+// RandomizerHint -> combo hint-key map).
+void OOT_ComboHintRevealed(RandomizerHint hintKey);
+
 // ComboShip: launcher pushes the baked combo rando (foreign map + cross-hints) once per save-load.
 // Store the blob and rebuild the OOT foreign cache from it. Idempotent (pushed at bind and load).
 extern "C" __declspec(dllexport) void SOH_LoadComboRando(const char* json) {
     ComboRando::Combo_SetForeignJson(json);
     g_ootForeignMap = ComboRando::LoadForeignForGame(0, ComboRando::GAME_OOT);
     ++g_ootForeignGen; // invalidate the foreign-draw caches keyed on this
+    // ComboShip (#164): subscribe once — this is the earliest point a combo seed is known to be live,
+    // and the hook list must not collect a duplicate on each push.
+    static bool sHintRevealHooked = false;
+    if (!sHintRevealHooked) {
+        sHintRevealHooked = true;
+        GameInteractor::Instance->RegisterGameHook<GameInteractor::OnRandoHintRevealed>(OOT_ComboHintRevealed);
+    }
 }
 #endif
 

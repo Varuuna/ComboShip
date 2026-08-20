@@ -4037,6 +4037,13 @@ extern "C" void (*gMMComboMarkForeignObtained)(int srcGame, const char* checkNam
 extern "C" __declspec(dllexport) void MM_SetMarkForeignObtained(void (*cb)(int, const char*)) {
     gMMComboMarkForeignObtained = cb;
 }
+// ComboShip (#164): combo Hint Tracker reveal sink. kind: 0 = cross gossipPool pick (poolIndex),
+// 1 = native MM stone hint (key = check name, text = plain hint), 2 = NPC itemLocations hint (key = item).
+extern "C" void (*gMMComboHintReveal)(int fileNum, int kind, int poolIndex, const char* key,
+                                      const char* text) = nullptr;
+extern "C" __declspec(dllexport) void MM_SetComboHintRevealCb(void (*cb)(int, int, int, const char*, const char*)) {
+    gMMComboHintReveal = cb;
+}
 // ComboShip: end-gating seam (mirrors OOT). z_boss_07.c calls gComboFinalBossDefeated when Majora dies.
 extern "C" int (*gComboFinalBossDefeated)(int game, int fileNum) = nullptr;
 extern "C" __declspec(dllexport) void MM_SetFinalBossDefeatedCb(int (*cb)(int, int)) {

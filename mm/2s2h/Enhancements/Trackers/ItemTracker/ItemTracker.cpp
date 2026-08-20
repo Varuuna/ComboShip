@@ -591,6 +591,13 @@ comboSkipVisibilityGates:;
 #endif
     }
 
+#ifdef COMBO_BUILD
+    // ComboShip: padded cells own the whole grid pitch — the window's ItemSpacing between group
+    // tables would add a per-group vertical drift vs OOT's continuous grid.
+    if (!shouldWindowSplit) {
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+    }
+#endif
     uint32_t index = 0;
     for (auto& group : itemTrackerGroups) {
         if (group.items.empty()) {
@@ -624,6 +631,11 @@ comboSkipVisibilityGates:;
 
         index++;
     }
+#ifdef COMBO_BUILD
+    if (!shouldWindowSplit) {
+        ImGui::PopStyleVar();
+    }
+#endif
     if (!shouldWindowSplit) {
         ImGui::PopStyleColor(1);
         ImGui::End();

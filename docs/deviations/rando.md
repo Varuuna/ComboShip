@@ -1403,3 +1403,90 @@ keeping the seed escapable is generation's job, not the hint layer's.
 
 **Residual:** NO_LOGIC + MM start has no re-entry guarantee — that mode's point. No MM-side setter
 exists (nothing in MM reads the value); add one when a consumer appears.
+
+## Combo-owned unified Hint Tracker (#164) (2026-08-20)
+
+**Why:** the Hint Tracker arrived in the 2026-07-13 soh merge as vendored OOT-only code, reachable
+only from the OOT per-game tab. It is a poor fit for combo seeds even for OOT alone: combo injects
+every hint as a pre-rendered MESSAGE hint (`SOH_ApplyComboHints`), so native's Journal view,
+WotH/Foolish coloring and found-tracking are all dead. MM had no hint tracker at all. Replaced by a
+combo-owned window under Settings, directly below Check Tracker, covering both games.
+
+**No generator changes.** The tracker reads the seed's existing `hints` slice
+(`combo/rando/CrossHints.h`): `hints.oot[] {checkName, type, messages[{en,de,fr}]}` and
+`hints.mm {gossipPool[{weight,text}], itemLocations{item -> text}}`.
+
+**New files (no merge risk):** `combo/gui/ComboHintTracker.h`/`.cpp` — the `"Hint Tracker##Combo"`
+GuiWindow (the `##` tail keeps a distinct Gui-map/ImGui identity from OOT's native `"Hint Tracker"`)
+plus the Settings panel. It draws only from plain strings the launcher pushes — no ResourceManager or
+game-DLL dependency — so it renders under either foreground game with none of the dormant-draw
+machinery the icon trackers need. `ComboTracker::ForegroundPaused` was de-`static`ed out of
+`ComboTrackerSwap.cpp` so the window's OnlyPaused option reuses the same fail-open pause probe.
+
+**Read-state store.** `.combosav` gains `combo.hintsRead`:
+
+    "hintsRead": {
+      "oot":      ["__GANONDORF__", "__STONE__3", ...],   // combo checkName keys
+      "mmPool":   [0, 4, 7],                              // hints.mm.gossipPool indices
+      "mmNative": [{ "check": "...", "text": "..." }],     // MM's own stone hints
+      "mmNpc":    ["Great Fairy Sword", ...]              // hints.mm.itemLocations keys
+    }
+
+Absent means empty. Every bucket is set-semantics (insert-if-absent), so a hook that fires repeatedly
+per textbox is free, and `FlushContainer` only runs on an actual insert. `mmNative` dedupes on `check`
+alone (first write wins): a trap check's disguise name re-rolls per scene init, so comparing the whole
+`{check, text}` object would append a fresh entry — and flush the container — on every talk.
+`Combo_OnOOTSaveInit` erases `combo.hintsRead` unconditionally, not only on the rebake path: a slot
+whose container survived a delete path arrives with no pending seed, and the new file must not inherit
+the old one's read marks. `EraseComboContainer` pushes an empty slot -1 payload so a deleted slot's
+hints stop showing on the file-select screen. MM-native stone hints have no stable upfront list (they
+are composed at talk time from live save state), so they appear only as a "revealed" group built from
+`mmNative`.
+
+**Three new ABI points:**
+- `soh.dll` `SOH_SetComboHintRevealCb(void (*)(int fileNum, const char* comboKey))` — OOT's
+  `OnRandoHintRevealed` subscriber (registered once from `SOH_LoadComboRando`) maps the
+  `RandomizerHint` back to the combo `checkName` it was applied from and reports it. Non-combo hints
+  (native static hints, warp songs) and disabled hints are dropped.
+- `2ship.dll` `MM_SetComboHintRevealCb(void (*)(int fileNum, int kind, int poolIndex, const char* key,
+  const char* text))` — kind 0 = cross `gossipPool` pick (by index, from a new report-only out-param on
+  `EnGs.cpp GetRandomCheck`), 1 = native MM stone hint (key = combo-spoiler check name, plain text),
+  2 = NPC `itemLocations` hint (key = item friendly name, reported where
+  `Rando.cpp GetItemLocationHintName`'s COMBO_BUILD branch resolves). `SECOND_GS_MESSAGE` reports only
+  in the paid-and-shown branch. `DmStk.cpp`'s Skull Kid taunt now resolves the Oath-to-Order location
+  inside the branch that actually has a `{{location}}` placeholder — resolving it for the taunt marked
+  the hint read without the player ever seeing it. The out-param changes no draw logic and consumes no RNG, so the stone
+  draw stays byte-identical.
+- `comboui.dll` `ComboUI_SetHintTrackerData(int slot, const char* hintsJson, const char* readStateJson)`
+  — pushed at `Combo_OnOOTSaveInit` (after bake) and `Combo_OnOOTSaveLoad`, and re-pushed after every
+  reveal that actually inserted. Push-only; there is no comboui -> launcher direction, so manual
+  mark-read from the UI is a later phase. comboui copies both strings under a small mutex (the launcher
+  reuses its buffers and the reveal path runs on the reporting game's thread) and re-parses lazily on
+  the draw thread via a dirty flag; corrupt JSON degrades to "no seed loaded".
+
+**Shared hint resolver.** `SOH_ApplyComboHints`' resolution loop was extracted into
+`Combo_WalkComboHints(hints, isTaken, emit, ...)`, used by two callers. Apply runs it with `isTaken =
+ctx->GetHint(rh)->IsEnabled()` and records `RandomizerHint -> checkName` as it goes; the lazy replay
+(`Combo_EnsureHintKeyMap`) runs it with a claimed-set predicate over the pushed blob's hints slice.
+**The replay is the path that actually serves every real flow**: it is keyed on `OOT_ForeignMapGen()`,
+and `SOH_LoadComboRando` bumps that generation unconditionally after apply, so the first reveal of a
+session always rebuilds from the blob. Apply-side recording is only a narrow safety net for a process
+where the blob was never pushed. That makes the two walks staying one function load-bearing, not
+belt-and-braces: the sentinel (`__STONE__n`/`__TRIAL__…`/`__JUNK__n`) to physical-stone mapping
+depends on the claiming order. Both callers build into a local map and commit (map + generation stamp)
+only past a successful walk, so a throw logs and retries at the next reveal instead of latching an
+empty map. Worst case a wrong entry is marked read.
+
+**Native OOT Hint Tracker suppressed.** `"Hint Tracker"` is gone from the OOT per-game tab's rando
+allow-list (only Entrance Tracker remains), and `ComboUI_Register` forces
+`gOpenWindows.HintTracker`/`…Settings` to 0 and `Hide()`s both windows via the Gui map — a config that
+persisted `HintTracker=1` would otherwise keep showing a window with no reachable settings and no
+combo hint content. This closes the `docs/merges/2026-07-13.md` follow-up for that window pair.
+
+**New CVars:** `gCombo.HintTracker.{Enabled, WindowType, OnlyPaused, ShowUnrevealed, ShowJunk,
+HideRead}`. Unread entries render as `???` unless ShowUnrevealed; the search box only matches text the
+player is allowed to see.
+
+**Residuals:** MM's plain-text recomposition for a native stone hint may diverge cosmetically from the
+formatted in-game string (colors/line breaks are stripped); MM-native NPC hints outside the combo
+`itemLocations` path are not reported; there is no manual mark-read.

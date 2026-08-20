@@ -93,7 +93,9 @@ s32 GetNormalizedCost() {
 
 // outForeignText: ComboShip out-param — set when the pick lands on a cross-game (OOT) hint, which
 // has no RandoCheckId. Caller must display it directly instead of resolving a check/item name.
-RandoCheckId GetRandomCheck(bool repeatableOnlyObtained = false, std::string* outForeignText = nullptr) {
+// outForeignIndex: ComboShip (#164) report-only out-param — that hint's gossipPool index.
+RandoCheckId GetRandomCheck(bool repeatableOnlyObtained = false, std::string* outForeignText = nullptr,
+                            int* outForeignIndex = nullptr) {
     Player* player = GET_PLAYER(gPlayState);
     if (player->talkActor == nullptr || player->talkActor->id != ACTOR_EN_GS) {
         return RC_UNKNOWN;
@@ -172,11 +174,43 @@ RandoCheckId GetRandomCheck(bool repeatableOnlyObtained = false, std::string* ou
             if (outForeignText) {
                 *outForeignText = comboTexts[comboIdx];
             }
+            if (outForeignIndex) {
+                *outForeignIndex = (int)comboIdx;
+            }
             return RC_UNKNOWN;
         }
     }
     return weightedChecks.empty() ? RC_UNKNOWN : weightedChecks.back().first;
 }
+
+#ifdef COMBO_BUILD
+// ComboShip (#164): combo Hint Tracker reveal sink (the launcher registers it, see BenPort.cpp).
+extern "C" void (*gMMComboHintReveal)(int fileNum, int kind, int poolIndex, const char* key, const char* text);
+
+// Report a stone hint the game is about to display: a cross-game pool pick by index (kind 0), or a
+// native MM check by its combo-spoiler name (kind 1, plain text — no color codes). A trap check's
+// disguise name re-rolls per scene init, so the launcher dedupes kind 1 on the check name alone.
+static void ComboReportStoneHint(int poolIndex, RandoCheckId rc, bool showExact) {
+    if (gMMComboHintReveal == nullptr || gSaveContext.fileNum == 0xFF) {
+        return;
+    }
+    if (poolIndex >= 0) {
+        gMMComboHintReveal(gSaveContext.fileNum, 0, poolIndex, "", "");
+        return;
+    }
+    if (rc == RC_UNKNOWN) {
+        return;
+    }
+    const std::string& display = Rando::StaticData::GetCheckDisplayName(rc);
+    const std::string key = display.empty() ? Rando::StaticData::CheckNames[rc] : display;
+    const std::string text = Rando::StaticData::GetItemName(RANDO_SAVE_CHECKS[rc].randoItemId, true, rc) +
+                             " is hidden " + Rando::StaticData::GetLocationNameForHint(rc, showExact);
+    gMMComboHintReveal(gSaveContext.fileNum, 1, -1, key.c_str(), text.c_str());
+}
+#else
+static void ComboReportStoneHint(int, RandoCheckId, bool) {
+}
+#endif
 
 void Rando::ActorBehavior::InitEnGsBehavior() {
     bool shouldRegister =
@@ -195,7 +229,8 @@ void Rando::ActorBehavior::InitEnGsBehavior() {
 
         if (RANDO_SAVE_OPTIONS[RO_HINTS_GOSSIP_STONES]) {
             std::string foreignText; // ComboShip: set when the pick is a cross-game (OOT) hint
-            RandoCheckId randoCheckId = GetRandomCheck(false, &foreignText);
+            int foreignIndex = -1;   // ComboShip (#164): its gossipPool index, for the Hint Tracker
+            RandoCheckId randoCheckId = GetRandomCheck(false, &foreignText, &foreignIndex);
             if (randoCheckId == RC_UNKNOWN && foreignText.empty()) {
                 return;
             }
@@ -204,6 +239,7 @@ void Rando::ActorBehavior::InitEnGsBehavior() {
 
             if (!foreignText.empty()) {
                 entry.msg = "They say " + foreignText + ".";
+                ComboReportStoneHint(foreignIndex, RC_UNKNOWN, false);
             } else {
                 auto& saveCheck = RANDO_SAVE_CHECKS[randoCheckId];
 
@@ -218,6 +254,7 @@ void Rando::ActorBehavior::InitEnGsBehavior() {
                                        Rando::StaticData::GetItemName(saveCheck.randoItemId, true, randoCheckId));
                 CustomMessage::Replace(&entry.msg, "{{location}}",
                                        Rando::StaticData::GetLocationNameForHint(randoCheckId, showExact));
+                ComboReportStoneHint(-1, randoCheckId, showExact);
             }
 
             // Replace colors before line break calculation
@@ -271,6 +308,7 @@ void Rando::ActorBehavior::InitEnGsBehavior() {
 
                     gSaveContext.rupeeAccumulator -= cost;
                     cost *= 2;
+                    ComboReportStoneHint(-1, randoCheckId, true); // paid for, so it really displays
                 }
             } else {
                 entry.msg = "Foolish... Come back later when you have more sense.";

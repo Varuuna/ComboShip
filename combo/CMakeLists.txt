@@ -37,6 +37,7 @@ set(COMBOUI_SOURCES
     gui/ComboTrackerSwap.cpp
     gui/ComboAudioBridge.cpp
     gui/ComboAnchorRoomWindow.cpp
+    gui/ComboHintTracker.cpp
 )
 add_library(comboui SHARED ${COMBOUI_SOURCES})
 set_target_properties(comboui PROPERTIES PREFIX "")

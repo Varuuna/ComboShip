@@ -8,6 +8,7 @@
 #include "ComboTrackerCommon.h" // kKinds (HideBackground CVars for the tracker panels)
 #include "ComboTrackerSwap.h"
 #include "ComboAnchorRoomWindow.h"  // combo-native floating Anchor room window
+#include "ComboHintTracker.h"       // combo-owned unified Hint Tracker (#164)
 #include "rando/ComboPlaythrough.h" // plando: ParseSpoilerPlacements + Suffix/BuildForeignArray + slot paths
 #include <imgui.h>
 #include <libultraship/libultraship.h>         // CVar bridge (CVarGet/Set* incl. color) + color.h (Color_RGBA8)
@@ -463,6 +464,7 @@ struct HubEntry {
         COMBO_PLANDO,
         COMBO_TRACKER,
         COMBO_CHECK_TRACKER,
+        COMBO_HINT_TRACKER,
         COMBO_NETWORK
     } kind;
     const ComboRando::GameMenu* game = nullptr; // ENGINE/OOT_RANDO/MM_RANDO
@@ -1295,6 +1297,12 @@ void ComboMenu::DrawSharedPanel() {
         chk.group = "Settings";
         chk.kind = HubEntry::COMBO_CHECK_TRACKER;
         e.push_back(std::move(chk));
+        // Combo-owned Hint Tracker panel (#164): one window for both games' combo-generated hints.
+        HubEntry hnt;
+        hnt.label = "Hint Tracker";
+        hnt.group = "Settings";
+        hnt.kind = HubEntry::COMBO_HINT_TRACKER;
+        e.push_back(std::move(hnt));
         if (!e.empty())
             groups.push_back({ "Settings", std::move(e) });
         // Network group: the Anchor team-sync control (covers BOTH games) plus the Ship of Harkinian
@@ -1425,6 +1433,8 @@ void ComboMenu::DrawSharedPanel() {
         DrawTrackerSharedPanel();
     } else if (active->kind == HubEntry::COMBO_CHECK_TRACKER) {
         DrawCheckTrackerSharedPanel();
+    } else if (active->kind == HubEntry::COMBO_HINT_TRACKER) {
+        DrawHintTrackerSharedPanel();
     } else if (active->kind == HubEntry::COMBO_NETWORK) {
         DrawNetworkSharedPanel();
     } else {
@@ -1475,11 +1485,11 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
              strcmp(sidebar, "General") == 0)) {
             return false;
         }
-        // Rando settings live in Shared, Item/Check Tracker sidebars in the Shared tracker panels;
-        // only Entrance/Hint Tracker (OOT-only, no shared panel yet) remain here.
+        // Rando settings live in Shared, Item/Check/Hint Tracker sidebars in the Shared tracker panels
+        // (the combo Hint Tracker replaces OOT's native one); only Entrance Tracker remains here.
         const char* randoSec = isOot ? "Randomizer" : "Rando";
         if (section && strcmp(section, randoSec) == 0) {
-            return sidebar && (strcmp(sidebar, "Entrance Tracker") == 0 || strcmp(sidebar, "Hint Tracker") == 0);
+            return sidebar && strcmp(sidebar, "Entrance Tracker") == 0;
         }
         return true;
     };
@@ -1770,4 +1780,15 @@ extern "C" void ComboUI_Register(void)
 
     // Combo-native floating Anchor room window (toggled from the Anchor panel).
     ComboRando::RegisterAnchorRoomWindow();
+
+    // Combo-owned unified Hint Tracker (#164). OOT's native one is unreachable now that its sidebar is
+    // hidden, so force it shut here — a config that persisted gOpenWindows.HintTracker=1 would
+    // otherwise keep showing a window with no settings and no combo hint content.
+    ComboRando::RegisterHintTrackerWindow();
+    for (const auto& [cvar, name] : { std::pair{ "gOpenWindows.HintTracker", "Hint Tracker" },
+                                      std::pair{ "gOpenWindows.HintTrackerSettings", "Hint Tracker Settings" } }) {
+        CVarSetInteger(cvar, 0);
+        if (auto win = gui->GetGuiWindow(name))
+            win->Hide();
+    }
 }

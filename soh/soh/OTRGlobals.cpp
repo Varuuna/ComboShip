@@ -141,6 +141,9 @@
 #include "soh/ShipInit.hpp"
 #ifdef COMBO_BUILD
 #include "ComboMenuSharedContext.h" // ComboShip: shared per-DLL ImGui context helper (combo-owned)
+#include "rando/CrossForeign.h"     // ComboShip (#164): g_comboForeignJson for the hint-key map replay
+#include "soh/Enhancements/randomizer/hook_handlers.h" // ComboShip (#164): OOT_ForeignMapGen
+#include <functional>                                  // ComboShip (#164): shared hint-resolution callbacks
 #endif
 
 #ifdef _MSC_VER
@@ -4513,11 +4516,136 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
 // Set by the launcher just before SOH_ApplyRandoPlacements; back-compat default is "no" so an old
 // dropped seed file (generated before Phase 3) still gets the force-off vanilla-hint behavior.
 static bool sComboHintsPresent = false;
+
+// ComboShip (#164): RandomizerHint -> the combo checkName it was applied from, so a reveal can be
+// reported to the combo Hint Tracker (whose read state is keyed by combo key, not by RandomizerHint).
+static std::unordered_map<int, std::string> sComboHintKeys;
+static uint64_t sComboHintKeysGen = (uint64_t)-1; // OOT_ForeignMapGen() the map was built for
+
+// ComboShip: one resolution walk over a combo hints payload, shared by apply and by the lazy map
+// replay. `isTaken` reports an already-claimed hint slot; `emit` receives each resolution in claiming
+// order. Both callers MUST walk this identically or the sentinel -> stone mapping drifts.
+static void
+Combo_WalkComboHints(const nlohmann::json& hints, const std::function<bool(RandomizerHint)>& isTaken,
+                     const std::function<void(RandomizerHint, const std::string&, std::vector<CustomMessage>&)>& emit,
+                     int& applied, int& skipped) {
+    const std::vector<RandomizerCheck> stones = Rando::StaticData::GetGossipStoneLocations();
+    for (auto& entry : hints.value("oot", nlohmann::json::array())) {
+        std::string checkName = entry.value("checkName", "");
+        std::vector<CustomMessage> messages;
+        for (auto& m : entry.value("messages", nlohmann::json::array()))
+            messages.emplace_back(m.value("en", ""), m.value("de", ""), m.value("fr", ""));
+        if (messages.empty()) {
+            ++skipped;
+            continue;
+        }
+
+        RandomizerHint rh = RH_NONE;
+        if (checkName == "__GANONDORF__") {
+            rh = RH_GANONDORF_HINT;
+        } else if (checkName == "__ALTAR_CHILD__") {
+            rh = RH_ALTAR_CHILD;
+        } else if (checkName == "__ALTAR_ADULT__") {
+            rh = RH_ALTAR_ADULT;
+        } else if (checkName.rfind("__", 0) == 0) {
+            // "__STONE__N"/"__TRIAL__.../"__JUNK__...": CrossHints.h assigns these to an abstract
+            // stone SLOT (count only, not a specific check — combo doesn't pick which physical
+            // stone gets which content). Claim the next still-empty gossip-stone check for it.
+            for (RandomizerCheck rc : stones) {
+                RandomizerHint candidate = Rando::StaticData::gossipStoneCheckToHint.count(rc)
+                                               ? Rando::StaticData::gossipStoneCheckToHint[rc]
+                                               : RH_NONE;
+                if (candidate != RH_NONE && !isTaken(candidate)) {
+                    rh = candidate;
+                    break;
+                }
+            }
+            if (rh == RH_NONE) {
+                ++skipped;
+                continue;
+            }
+        } else {
+            auto rcIt = Rando::StaticData::locationNameToEnum.find(checkName);
+            if (rcIt == Rando::StaticData::locationNameToEnum.end() ||
+                !Rando::StaticData::gossipStoneCheckToHint.count(rcIt->second)) {
+                ++skipped;
+                continue;
+            }
+            rh = Rando::StaticData::gossipStoneCheckToHint[rcIt->second];
+        }
+        if (rh == RH_NONE || isTaken(rh)) {
+            ++skipped;
+            continue;
+        }
+        emit(rh, checkName, messages);
+        ++applied;
+    }
+}
+
+// ComboShip (#164): the launcher's combo Hint Tracker reveal sink.
+extern "C" void (*gComboHintReveal)(int fileNum, const char* comboKey) = nullptr;
+
+// Rebuild sComboHintKeys from the pushed seed blob when it doesn't match the live one. Covers every
+// load path where SOH_ApplyComboHints didn't run in this process; the shared walk keeps it drift-free.
+// Builds into a local and commits on success only — a half-built map must never latch as current-gen.
+static void Combo_EnsureHintKeyMap() {
+    const uint64_t gen = OOT_ForeignMapGen();
+    if (sComboHintKeysGen == gen) {
+        return;
+    }
+    std::unordered_map<int, std::string> built;
+    try {
+        nlohmann::json hints =
+            nlohmann::json::parse(ComboRando::g_comboForeignJson).value("hints", nlohmann::json::object());
+        int applied = 0, skipped = 0;
+        Combo_WalkComboHints(
+            hints, [&](RandomizerHint rh) { return built.count(rh) != 0; },
+            [&](RandomizerHint rh, const std::string& key, std::vector<CustomMessage>&) { built[rh] = key; }, applied,
+            skipped);
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[ComboShip] Combo_EnsureHintKeyMap: exception: {} (will retry next reveal)", e.what());
+        return;
+    } catch (...) {
+        SPDLOG_ERROR("[ComboShip] Combo_EnsureHintKeyMap: unknown exception (will retry next reveal)");
+        return;
+    }
+    sComboHintKeys = std::move(built);
+    sComboHintKeysGen = gen;
+}
+
+// ComboShip (#164): OnRandoHintRevealed subscriber (registered from SOH_LoadComboRando). The hook can
+// fire for disabled hints and for native/warp-song hints combo never wrote — both are dropped here.
+// Fires from C textbox code, so nothing may escape: the whole body is guarded.
+void OOT_ComboHintRevealed(RandomizerHint hintKey) try {
+    if (!gComboHintReveal || hintKey == RH_NONE) {
+        return;
+    }
+    auto ctx = OTRGlobals::Instance->gRandoContext;
+    if (!ctx || !ctx->GetHint(hintKey)->IsEnabled()) {
+        return;
+    }
+    Combo_EnsureHintKeyMap();
+    auto it = sComboHintKeys.find(hintKey);
+    if (it == sComboHintKeys.end()) {
+        return;
+    }
+    gComboHintReveal(gSaveContext.fileNum, it->second.c_str());
+} catch (const std::exception& e) {
+    SPDLOG_ERROR("[ComboShip] OOT_ComboHintRevealed: exception: {}", e.what());
+} catch (...) { SPDLOG_ERROR("[ComboShip] OOT_ComboHintRevealed: unknown exception"); }
 #endif
 
 extern "C" __declspec(dllexport) void SOH_SetComboHintsPresent(int present) {
 #ifdef COMBO_BUILD
     sComboHintsPresent = present != 0;
+#endif
+}
+
+extern "C" __declspec(dllexport) void SOH_SetComboHintRevealCb(void (*cb)(int, const char*)) {
+#ifdef COMBO_BUILD
+    gComboHintReveal = cb;
+#else
+    (void)cb;
 #endif
 }
 
@@ -4535,59 +4663,17 @@ extern "C" __declspec(dllexport) void SOH_ApplyComboHints(const char* json) {
         auto ctx = OTRGlobals::Instance->gRandoContext;
         nlohmann::json hints = nlohmann::json::parse(json);
         int applied = 0, skipped = 0;
-        for (auto& entry : hints.value("oot", nlohmann::json::array())) {
-            std::string checkName = entry.value("checkName", "");
-            std::vector<CustomMessage> messages;
-            for (auto& m : entry.value("messages", nlohmann::json::array()))
-                messages.emplace_back(m.value("en", ""), m.value("de", ""), m.value("fr", ""));
-            if (messages.empty()) {
-                ++skipped;
-                continue;
-            }
-
-            RandomizerHint rh = RH_NONE;
-            if (checkName == "__GANONDORF__") {
-                rh = RH_GANONDORF_HINT;
-            } else if (checkName == "__ALTAR_CHILD__") {
-                rh = RH_ALTAR_CHILD;
-            } else if (checkName == "__ALTAR_ADULT__") {
-                rh = RH_ALTAR_ADULT;
-            } else if (checkName.rfind("__", 0) == 0) {
-                // "__STONE__N"/"__TRIAL__.../"__JUNK__...": CrossHints.h assigns these to an abstract
-                // stone SLOT (count only, not a specific check — combo doesn't pick which physical
-                // stone gets which content). Claim the next still-empty gossip-stone check for it.
-                auto stones = Rando::StaticData::GetGossipStoneLocations();
-                RandomizerCheck freeStone = RC_UNKNOWN_CHECK;
-                for (RandomizerCheck rc : stones) {
-                    RandomizerHint candidate = Rando::StaticData::gossipStoneCheckToHint.count(rc)
-                                                   ? Rando::StaticData::gossipStoneCheckToHint[rc]
-                                                   : RH_NONE;
-                    if (candidate != RH_NONE && !ctx->GetHint(candidate)->IsEnabled()) {
-                        freeStone = rc;
-                        rh = candidate;
-                        break;
-                    }
-                }
-                if (freeStone == RC_UNKNOWN_CHECK) {
-                    ++skipped;
-                    continue;
-                }
-            } else {
-                auto rcIt = Rando::StaticData::locationNameToEnum.find(checkName);
-                if (rcIt == Rando::StaticData::locationNameToEnum.end() ||
-                    !Rando::StaticData::gossipStoneCheckToHint.count(rcIt->second)) {
-                    ++skipped;
-                    continue;
-                }
-                rh = Rando::StaticData::gossipStoneCheckToHint[rcIt->second];
-            }
-            if (rh == RH_NONE || ctx->GetHint(rh)->IsEnabled()) {
-                ++skipped;
-                continue;
-            }
-            ctx->AddHint(rh, Rando::Hint(rh, messages));
-            ++applied;
-        }
+        std::unordered_map<int, std::string> built;
+        Combo_WalkComboHints(
+            hints, [&](RandomizerHint rh) { return ctx->GetHint(rh)->IsEnabled(); },
+            [&](RandomizerHint rh, const std::string& checkName, std::vector<CustomMessage>& messages) {
+                ctx->AddHint(rh, Rando::Hint(rh, messages));
+                built[rh] = checkName;
+            },
+            applied, skipped);
+        // Committed only past the walk — a throw leaves the previous gen stamped so the lazy replay retries.
+        sComboHintKeys = std::move(built);
+        sComboHintKeysGen = OOT_ForeignMapGen();
 
         // Native fills whatever combo didn't pre-populate (altar/Biggoron/mask-shop/skulltula-count/
         // ganondorf-joke/etc static hints; each self-skips an already-enabled key) + warp song texts.

@@ -185,6 +185,22 @@ introduces it, with the understanding that the asset must never be submitted cro
 route marker. Upstream merges are the main source of new collisions, so expect the gate to fire on
 merge PRs — treat each hit as a real review decision, not noise to baseline away.
 
+## Standing policy: the `2ship-stable` branch
+
+`2ship-stable` is a long-lived branch whose vendored `mm/` is only ever updated to **official 2Ship
+release tags** (created 2026-08-19 at exactly 5.0.0 "Battler Alfa"). It is the clear stable
+reference — release functionality *and* release bugs — while `develop` keeps tracking upstream's
+develop branch (newer/experimental). No CI builds from it yet; build locally when needed.
+
+Per-release update procedure:
+
+- If the branch's mm pin is **behind** the new tag (the normal case): run the standard merge pass
+  with `scripts/upstream-merge.ps1 -Only mm -Target <tag-sha> -Merge` (plus the LUS bump the release
+  pins, see the coupling rule above).
+- Combo features come to the branch via merges from `develop` **only while develop's mm pin is at or
+  behind the release tag** — never merge a develop whose mm has moved past the tag, that would drag
+  post-release upstream code in. If develop is already past, cherry-pick or wait for the next release.
+
 ---
 # Merge log
 
@@ -192,6 +208,11 @@ Each merge pass gets its **own dated file** under [`merges/`](merges/) — one p
 file we had to touch after the mechanical 3-way merge and why. This keeps the per-merge required
 changes easy to track (and to diff against the recurring-deviation list below). Newest first:
 
+- [2026-08-19](merges/2026-08-19.md) — mm `ce4bf03ab` → `d35196ad7` (**exactly the 5.0.0 "Battler
+  Alfa" release tag**, seeding the new `2ship-stable` branch); libultraship `bbb565bd9` →
+  `7cb10226e` (the LUS 5.0.0 pins). soh untouched. Retired the AlternateAssets-default deviation
+  (upstream adopted it); re-applied the tracker icon-anchor and Triforce-Hunt-ownership deviations
+  onto upstream's rewritten item-count rendering and Check Pool/Item Pool menu tabs.
 - [2026-08-01](merges/2026-08-01.md) — libultraship `a3f1e102e` → `bbb565bd9`, **switching line from
   Kenix3 `main` to `port-maintenance`**; soh `2c5762a0f` → `5a57a0cbc`; mm `e3310fe1b` → `ce4bf03ab`.
   All three mutually compatible for the first time. Adopted #1103: LUS owns the `Context` via

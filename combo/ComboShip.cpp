@@ -269,6 +269,10 @@ static FnComboUIRegister ComboUI_RestoreTrackerIntent = nullptr;
 typedef void (*FnComboUISetRosterProvider)(const char* (*)());
 static FnComboUISetRosterProvider ComboUI_SetAnchorRosterProvider = nullptr;
 
+// ComboShip (#165): hand comboui the launcher-owned per-slot notes accessors (combo.notes).
+typedef void (*FnComboUISetNotesStore)(const char* (*)(int), void (*)(int, const char*));
+static FnComboUISetNotesStore ComboUI_SetNotesStore = nullptr;
+
 // ComboShip-owned unified ROM extraction (see ComboExtract.h). The split init lets us create the
 // shared window from soh.o2r before any ROM exists, run the extraction screen, then finish.
 static FnVoid SOH_InitWindowOnly = nullptr;
@@ -385,6 +389,15 @@ static nlohmann::json& LoadOrCreateContainer(int fileNum) {
             parsed = false;
         }
     }
+    // ComboShip (#165): one-time migrate SoH's per-save notes into combo.notes. Absent-key gate only,
+    // so a deliberately cleared combo note is never re-migrated.
+    if (parsed && !(j.contains("combo") && j["combo"].is_object() && j["combo"].contains("notes"))) {
+        try {
+            auto& pn = j.at("oot").at("sections").at("itemTrackerData").at("data").at("personalNotes");
+            if (pn.is_string() && !pn.get<std::string>().empty())
+                j["combo"]["notes"] = pn;
+        } catch (...) {} // oot section absent/null — nothing to migrate
+    }
     if (!parsed)
         j = nlohmann::json{ { "comboVersion", 1 }, { "comboRelease", COMBO_RELEASE_VERSION },
                             { "slot", fileNum },   { "oot", nullptr },
@@ -495,6 +508,46 @@ static int Combo_GetLastGame(int fileNum) {
     auto& c = LoadOrCreateContainer(fileNum);
     int g = c.value("combo", nlohmann::json::object()).value("lastGame", (int)ComboRando::GAME_OOT);
     return (g == ComboRando::GAME_MM) ? ComboRando::GAME_MM : ComboRando::GAME_OOT;
+}
+
+// ComboShip (#165): the slot's cross-game personal notes. One note per slot, editable from either
+// game. Returned in a thread_local buffer (same lifetime contract as Combo_ReadGameSave).
+static const char* Combo_GetNotes(int fileNum) {
+    thread_local std::string buf;
+    if (!ComboIsValidSlot(fileNum)) {
+        buf.clear();
+        return buf.c_str();
+    }
+    std::lock_guard<std::mutex> lk(g_containerMutex);
+    buf.clear();
+    // find()-based: never throws (comboui calls these by raw fn-ptr) and never copies combo.rando.
+    auto& c = LoadOrCreateContainer(fileNum);
+    auto combo = c.find("combo");
+    if (combo != c.end() && combo->is_object()) {
+        auto n = combo->find("notes");
+        if (n != combo->end() && n->is_string())
+            buf = n->get<std::string>();
+    }
+    return buf.c_str();
+}
+
+static void Combo_SetNotes(int fileNum, const char* text) {
+    if (!text || !ComboIsValidSlot(fileNum))
+        return;
+    std::lock_guard<std::mutex> lk(g_containerMutex);
+    auto& c = LoadOrCreateContainer(fileNum);
+    const std::string* cur = nullptr;
+    auto combo = c.find("combo");
+    if (combo != c.end() && combo->is_object()) {
+        auto n = combo->find("notes");
+        if (n != combo->end() && n->is_string())
+            cur = &n->get_ref<const std::string&>();
+    }
+    // Unchanged — don't rewrite the container on every debounce (absent/non-string compares as "").
+    if (cur ? *cur == text : !*text)
+        return;
+    c["combo"]["notes"] = text;
+    FlushContainer(fileNum);
 }
 
 // ComboShip (issue #1): erasing a slot from either game's file-select wipes BOTH saves — each game
@@ -2212,6 +2265,13 @@ static void Combo_OnOOTSaveInit(int fileNum) {
     // A new file starts in OOT. Explicit because not every delete path clears the container
     // (DeleteFileOnDeath calls DeleteZeldaFile directly), so a stale MM could otherwise survive here.
     Combo_SetLastGame(fileNum, ComboRando::GAME_OOT);
+    // ComboShip (#165): a fresh file starts with an empty personal note. Written, never erased — an
+    // absent key is the "never migrated" sentinel, so erasing could resurrect the old file's note.
+    {
+        std::lock_guard<std::mutex> lk(g_containerMutex);
+        LoadOrCreateContainer(fileNum)["combo"]["notes"] = "";
+        FlushContainer(fileNum);
+    }
     // ComboShip: bind the pending consolidated seed to this slot — bake it into the container's
     // combo.rando (self-contained), then push it into both DLLs so foreign data is live immediately.
     nlohmann::json seed;
@@ -2829,6 +2889,9 @@ int main(int argc, char** argv) {
             (FnComboUISetRosterProvider)GetSym(comboUIModule, "ComboUI_SetAnchorRosterProvider");
         if (ComboUI_SetAnchorRosterProvider)
             ComboUI_SetAnchorRosterProvider(&ComboAnchor::Combo_Anchor_GetRoster);
+        ComboUI_SetNotesStore = (FnComboUISetNotesStore)GetSym(comboUIModule, "ComboUI_SetNotesStore");
+        if (ComboUI_SetNotesStore)
+            ComboUI_SetNotesStore(&Combo_GetNotes, &Combo_SetNotes);
         if (ComboUI_Register) {
             ComboUI_Register();
             std::cout << "[ComboShip] comboui registered (unified menu installed)." << std::endl;

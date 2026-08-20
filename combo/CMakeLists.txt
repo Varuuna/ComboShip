@@ -37,9 +37,15 @@ set(COMBOUI_SOURCES
     gui/ComboTrackerSwap.cpp
     gui/ComboAudioBridge.cpp
     gui/ComboAnchorRoomWindow.cpp
+    gui/ComboNotesWindow.cpp
 )
 add_library(comboui SHARED ${COMBOUI_SOURCES})
 set_target_properties(comboui PROPERTIES PREFIX "")
+# ImGui's std::string InputText helper ships in the fetched tree but not in libultraship's ImGui
+# target. GetProperties re-exports imgui_SOURCE_DIR here (FetchContent ran in libultraship's scope).
+include(FetchContent)
+FetchContent_GetProperties(ImGui)
+target_sources(comboui PRIVATE ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp)
 # ComboShip: deploy comboui.dll directly into the shared runtime dir (x64/<config>),
 # matching how soh/2ship set their own RUNTIME_OUTPUT_DIRECTORY. Without this, a
 # per-target `--target comboui` build lands in build/x64/combo/<config> and never

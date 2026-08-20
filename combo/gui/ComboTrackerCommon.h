@@ -1,13 +1,36 @@
 // combo/gui/ComboTrackerCommon.h
 //
-// Tracker-window plumbing shared by ComboTrackerVisibility (foreground follow) and
-// ComboTrackerSwap (game swap): the CVar + Gui-map levers for the per-game tracker windows.
+// Tracker-window plumbing shared across comboui: the CVar + Gui-map levers for the per-game tracker
+// windows, plus the active-slot resolve every panel needs.
 
 #pragma once
 
 #include <libultraship/libultraship.h>
+#ifdef _WIN32
+#include <windows.h> // GetModuleHandleA/GetProcAddress (SOH_GetActiveFileNum)
+#endif
 
 namespace ComboTracker {
+
+// Active OOT save slot (0-2), or -1 at the title/file-select screens. The slot is combo-wide, so
+// every comboui caller shares this one latched resolve (inline statics are per-DLL, not per-TU).
+inline int OotActiveSlot() {
+#ifdef _WIN32
+    static int (*sGetFileNum)(void) = nullptr;
+    static bool sTried = false;
+    if (!sTried) {
+        sTried = true;
+        if (HMODULE soh = GetModuleHandleA("soh.dll")) {
+            sGetFileNum = (int (*)(void))GetProcAddress(soh, "SOH_GetActiveFileNum");
+        }
+    }
+    if (sGetFileNum) {
+        int slot = sGetFileNum();
+        return (slot >= 0 && slot <= 2) ? slot : -1;
+    }
+#endif
+    return -1;
+}
 
 struct Win {
     const char* cvar; // visibility CVar (source of truth; MM's CheckTracker reads it directly)

@@ -8,6 +8,7 @@
 #include "ComboTrackerCommon.h" // kKinds (HideBackground CVars for the tracker panels)
 #include "ComboTrackerSwap.h"
 #include "ComboAnchorRoomWindow.h"  // combo-native floating Anchor room window
+#include "ComboNotesWindow.h"       // combo-owned cross-game Personal Notes window
 #include "rando/ComboPlaythrough.h" // plando: ParseSpoilerPlacements + Suffix/BuildForeignArray + slot paths
 #include <imgui.h>
 #include <libultraship/libultraship.h>         // CVar bridge (CVarGet/Set* incl. color) + color.h (Color_RGBA8)
@@ -113,11 +114,9 @@ constexpr const char* SyncItemsAndFlags = "gRemote.Anchor.RoomSettings.SyncItems
 // that plays an edited consolidated spoiler back verbatim. Resolved like the combo-gen syms above.
 typedef const char* (*FnDump)(void);
 typedef int (*FnRequestReload)(const char*);
-typedef int (*FnGetActiveFileNum)(void);
 FnDump sSohDump = nullptr;
 FnDump sMmDump = nullptr;
 FnRequestReload sRequestReload = nullptr;
-FnGetActiveFileNum sGetActiveFileNum = nullptr;
 void ResolvePlandoSyms() {
 #ifdef _WIN32
     if (HMODULE h = GetModuleHandleA("soh.dll")) {
@@ -125,8 +124,6 @@ void ResolvePlandoSyms() {
             sSohDump = (FnDump)GetProcAddress(h, "SOH_DumpRandoStaticData");
         if (!sRequestReload)
             sRequestReload = (FnRequestReload)GetProcAddress(h, "SOH_RequestComboReload");
-        if (!sGetActiveFileNum)
-            sGetActiveFileNum = (FnGetActiveFileNum)GetProcAddress(h, "SOH_GetActiveFileNum");
     }
     if (HMODULE h = GetModuleHandleA("2ship.dll")) {
         if (!sMmDump)
@@ -646,6 +643,16 @@ void DrawTrackerSharedPanel() {
             changed = true;
         }
 
+        ImGui::SeparatorText("Personal Notes (both games)");
+        bool notes = ComboNotes::WindowShown();
+        ComboRando::ComboMenu_PushCheckbox(theme);
+        if (ImGui::Checkbox("Show Personal Notes window", &notes)) {
+            ComboNotes::SetWindowShown(notes);
+            changed = true;
+        }
+        ComboRando::ComboMenu_PopCheckbox();
+        ImGui::TextDisabled("One note per save slot, shared by both games.");
+
         ImGui::EndTable();
     }
 
@@ -993,7 +1000,7 @@ void PlandoLoad() {
         sPlando.loadedJson = readFile(sPlando.spoilerPaths[sPlando.spoilerSel]);
         srcLabel = std::filesystem::path(sPlando.spoilerPaths[sPlando.spoilerSel]).filename().string();
     } else {
-        int slot = sGetActiveFileNum ? sGetActiveFileNum() : -1;
+        int slot = ComboTracker::OotActiveSlot();
         if (slot >= 0) {
             try {
                 auto cj = nlohmann::json::parse(
@@ -1770,4 +1777,7 @@ extern "C" void ComboUI_Register(void)
 
     // Combo-native floating Anchor room window (toggled from the Anchor panel).
     ComboRando::RegisterAnchorRoomWindow();
+
+    // Combo-owned cross-game Personal Notes window (toggled from the Shared item tracker panel).
+    ComboNotes::RegisterWindow();
 }

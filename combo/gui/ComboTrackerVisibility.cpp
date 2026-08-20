@@ -13,6 +13,7 @@
 #include "ComboAudioBridge.h"          // ComboAudio::SyncAllToMM (on MM entry)
 #include "ComboTrackerCommon.h"        // kTrackers/SetTracker (shared with ComboTrackerSwap)
 #include "ComboTrackerBridge.h"        // ComboTracker::SyncAppearance (re-assert on transitions)
+#include "ComboNotesWindow.h"          // ComboNotes::FlushPending (persist notes across transitions)
 #ifdef _WIN32
 #include <windows.h> // GetModuleHandleA/GetProcAddress for the MM_ReloadControls entry point
 #endif
@@ -149,11 +150,16 @@ extern "C" __declspec(dllexport) void ComboUI_OnForegroundGame(int game) {
     // Re-assert shared tracker appearance (per-game edits made while dormant lose). A sticky swap
     // re-applies itself next frame via the swap window's reconcile.
     ComboTracker::SyncAppearance();
+
+    // ComboShip (#165): persist any pending note text at the transition.
+    ComboNotes::FlushPending();
 }
 
 // Launcher, just before shutdown: restore the backgrounded game's settings-window CVars so they
 // don't persist as "off" (main tracker CVars are derived and recomputed on next boot).
 extern "C" __declspec(dllexport) void ComboUI_RestoreTrackerIntent(void) {
+    // ComboShip (#165): the launcher calls this pre-shutdown, so a just-typed note still lands.
+    ComboNotes::FlushPending();
     // Only the background game's CVars are forced-hidden; the foreground game's live values already
     // reflect the user's latest toggles (a stale snapshot would clobber them).
     const int bg = sForegroundGame ^ 1;

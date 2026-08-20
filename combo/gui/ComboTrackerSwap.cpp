@@ -15,6 +15,7 @@ namespace {
 
 using ComboTracker::kKinds;
 using ComboTracker::kTrackers;
+using ComboTracker::OotActiveSlot;
 
 constexpr float kHoldSeconds = 0.5f;
 constexpr float kHoldDragCancelSqr = 5.0f * 5.0f; // px² of movement that turns a hold into a drag
@@ -26,25 +27,6 @@ struct Peek {
     bool held = false;      // hold fired; the dormant game's window shows until release
 };
 Peek sPeeks[ComboTracker::kSwapCount];
-
-// Active OOT save slot (0-2), or -1 at the title/file-select screens.
-int OotActiveSlot() {
-#ifdef _WIN32
-    static int (*sGetFileNum)(void) = nullptr;
-    static bool sTried = false;
-    if (!sTried) {
-        sTried = true;
-        if (HMODULE soh = GetModuleHandleA("soh.dll")) {
-            sGetFileNum = (int (*)(void))GetProcAddress(soh, "SOH_GetActiveFileNum");
-        }
-    }
-    if (sGetFileNum) {
-        int slot = sGetFileNum();
-        return (slot >= 0 && slot <= 2) ? slot : -1;
-    }
-#endif
-    return -1;
-}
 
 // Combined Triforce progress (#136): counts live in the two game DLLs, the goal in soh's copy of the
 // slot's seed. Returns false unless the loaded seed's goal is a hunt.

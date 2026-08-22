@@ -148,8 +148,8 @@ void BuildCarpetGuyMessage(uint16_t* textId, bool* loadFromMessageTable) {
 
 void BuildCarpetGuyFailToBuyMessage(uint16_t* textId, bool* loadFromMessageTable) {
     CustomMessage msg =
-        CustomMessage("I'm sorry I can't sell you these fine specimens, they need an %rexperienced owner%w.^"
-                      "Come back when you have had %gBombchus%w of your own.");
+        CustomMessage("I'm sorry, I can't sell you these fine specimens. They need an %rexperienced owner%w.^"
+                      "Come back when you have %gBombchus%w of your own.");
     msg.AutoFormat();
     msg.LoadIntoFont();
     *loadFromMessageTable = false;

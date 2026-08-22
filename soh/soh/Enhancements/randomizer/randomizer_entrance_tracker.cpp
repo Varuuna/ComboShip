@@ -575,7 +575,7 @@ void SortEntranceListByArea(EntranceOverride* entranceList, u8 byDest) {
 
                     if (curEntrance->reverseIndex == curOverride->index) {
                         entranceList[idx] = tempList[j];
-                        // "Remove" this entrance from the tempList by setting it's values to zero
+                        // "Remove" this entrance from the tempList by setting its values to zero
                         tempList[j] = emptyOverride;
                         idx++;
                         break;

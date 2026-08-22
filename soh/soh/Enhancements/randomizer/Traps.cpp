@@ -1118,7 +1118,7 @@ static void InitTrickNames() {
         // TODO_TRANSALTE
         { Text{ "Fortress of Winds Small Key", "Fortress of Winds Small Key", "Fortress of Winds Small Key" },
           Text{ "a ", "une ", "einen " } },
-        { Text{ "Thieve's Town Small Key", "Thieve's Town Small Key", "Thieve's Town Small Key" },
+        { Text{ "Thieves' Town Small Key", "Thieves' Town Small Key", "Thieves' Town Small Key" },
           Text{ "a ", "une ", "einen " } },
         { Text{ "Fortress Centrum Small Key", "Fortress Centrum Small Key", "Fortress Centrum Small Key" },
           Text{ "a ", "une ", "einen " } },
@@ -1216,7 +1216,7 @@ static void InitTrickNames() {
         // TODO_TRANSALTE
         { Text{ "Fortress of Winds Key Ring", "Fortress of Winds Key Ring", "Fortress of Winds Key Ring" },
           Text{ "the ", "le ", "den " } },
-        { Text{ "Thieve's Town Key Ring", "Thieve's Town Key Ring", "Thieve's Town Key Ring" },
+        { Text{ "Thieves' Town Key Ring", "Thieves' Town Key Ring", "Thieves' Town Key Ring" },
           Text{ "the ", "le ", "den " } },
         { Text{ "Fortress Centrum Key Ring", "Fortress Centrum Key Ring", "Fortress Centrum Key Ring" },
           Text{ "the ", "le ", "den " } },

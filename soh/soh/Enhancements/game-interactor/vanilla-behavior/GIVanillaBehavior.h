@@ -793,6 +793,14 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // varies
+    // ```
+    // #### `args`
+    // - `s32` (drop id)
+    VB_FLEX_DROP_AMMO,
+
+    // #### `result`
+    // ```c
     // true
     // ```
     // #### `args`

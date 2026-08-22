@@ -48,8 +48,6 @@ void BuildMerchantMessage(CustomMessage& msg, RandomizerCheck rc, bool mysteriou
         }
         itemName = CustomMessage(trickName);
         color = "%g";
-    } else if (inShop) {
-        itemName = CustomMessage(Rando::StaticData::RetrieveItem(rgid).GetName());
     } else {
 #ifdef COMBO_BUILD
         // ComboShip: a shop/merchant slot holding RG_COMBO_FOREIGN actually sells an MM item.
@@ -68,8 +66,12 @@ void BuildMerchantMessage(CustomMessage& msg, RandomizerCheck rc, bool mysteriou
             }
         }
 #endif
-        // Hint text brings its own article
-        itemName = Rando::StaticData::RetrieveItem(rgid).GetHint().GetHintMessage();
+        if (inShop) {
+            itemName = CustomMessage(Rando::StaticData::RetrieveItem(rgid).GetName());
+        } else {
+            // Hint text brings its own article
+            itemName = Rando::StaticData::RetrieveItem(rgid).GetHint().GetHintMessage();
+        }
     }
     msg.Replace("[[color]]", color);
     msg.InsertNames({ itemName, CustomMessage(std::to_string(location->GetPrice())) });

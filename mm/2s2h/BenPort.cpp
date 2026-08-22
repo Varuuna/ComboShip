@@ -2918,6 +2918,15 @@ extern "C" __declspec(dllexport) int MM_InitRandoSaveFile(int fileNum, const cha
         return -1;
     }
 
+    // ComboShip: combo never runs native OnFileCreate, whose tail is this hook's only fire site
+    // (OnFileCreate.cpp:220) — without it MM's cosmetic/audio "randomize on rando gen" never triggers.
+    // Fired post-apply and outside the try above so a subscriber throw can't void the placements.
+    try {
+        GameInteractor::Instance->ExecuteHooks<GameInteractor::OnRandoSeedGeneration>();
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[ComboShip] MM_InitRandoSaveFile: gen hook threw: {}", e.what());
+    } catch (...) { SPDLOG_ERROR("[ComboShip] MM_InitRandoSaveFile: gen hook threw a non-std exception"); }
+
     // Persist the rando save to the slot file.
     SaveManager_SaveCurrentForCombo();
     return 0;

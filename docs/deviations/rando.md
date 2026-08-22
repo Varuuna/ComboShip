@@ -1490,3 +1490,132 @@ player is allowed to see.
 **Residuals:** MM's plain-text recomposition for a native stone hint may diverge cosmetically from the
 formatted in-game string (colors/line breaks are stripped); MM-native NPC hints outside the combo
 `itemLocations` path are not reported; there is no manual mark-read.
+
+## Randomize cosmetics on combo generation + cross-game sync (#169) (2026-08-21)
+
+**Why:** both games offer "randomize all cosmetics when a randomizer seed is generated"
+(`gCosmetics.RandomizeCosmeticsGenModes` = On Rando Gen Only; MM's `gCosmetics.RandomizeOnSeedGen`),
+but combo owns generation and never reaches either game's vanilla fire site, so neither hook ran. The
+same gap silently disabled both Audio Editors' "randomize all on rando gen" — they consume the same
+two hooks, and they are the only other consumers, so firing the hooks fixes them too.
+
+**Vendored deltas (all inside existing combo-only functions):**
+
+- `soh/soh/OTRGlobals.cpp` — `SOH_ApplyRandoPlacements` now calls `ctx->SetSeed(sComboRandoSeed)` when
+  the launcher supplied a seed. Combo bypasses `Playthrough_Init`/spoiler-load, the only vanilla
+  `SetSeed` sites, so the ctx seed sat at 0 and every seed-derived feature degenerated: save
+  `finalSeed` was always 0, Anchor's roster seed-mismatch check compared 0 to 0, and the in-game
+  seeded derivations (EnemyRandomizer, ExtraTraps, MirroredWorld, Audio) were not per-seed at all.
+  Both the fresh-gen and the reload path call `SOH_SetComboRandoSeed(masterSeed)` before the apply, so
+  generator and reloader agree; the u64→u32 truncation is consistent across clients.
+- `soh/soh/OTRGlobals.cpp` — new export `SOH_FireGenerationCompleteHooks`, an RM-scoped
+  `ExecuteHooks<OnGenerationCompletion>()` (same `CrossRMRegistry::Get("oot")` pattern as
+  `SOH_MenuApplyCVarChange`; the cosmetic consumers patch OOT gfx). Vanilla fires this from the rando
+  worker thread — we fire from the main thread, which is strictly safer. The `ExecuteHooks` call is
+  wrapped in `try`/`catch(...)` with `SPDLOG_ERROR`, like the MM side: subscribers reach `std::map::at`
+  and allocate, and a throw must not unwind across the C ABI into `ComboShip.exe`.
+- `soh/soh/Enhancements/cosmetics/CosmeticsEditor.cpp` and `soh/soh/Enhancements/audio/AudioEditor.cpp` —
+  both seeded branches (`RandomizeColor`, `RandomizeGroup`) fold in the `Rando::Context` seed in one
+  strictly degenerate case: `!IS_RANDO && fileCreatedAt == 0`. Vanilla seeds from
+  `IS_RANDO ? GetSeed() : fileCreatedAt`, but combo fires the gen roll at file select where `IS_RANDO`
+  is false and no file is loaded, so both terms are 0 and every seed would get the *same* palette and
+  the *same* audio shuffle. With the `SetSeed` above in place the rolls are genuinely seed-derived and
+  reproduce identically on the generator and on every recipient. Vanilla is bit-for-bit unchanged in
+  every other case (any real save has a nonzero `fileCreatedAt`).
+- `mm/2s2h/BenPort.cpp` — `MM_InitRandoSaveFile` now fires `ExecuteHooks<OnRandoSeedGeneration>()`,
+  mirroring `OnFileCreate.cpp`'s tail (that function re-implements `OnFileCreate`'s body and had omitted
+  only this line). Deliberately placed *after* the placement `try`/`catch` and inside its own
+  `try`/`catch`: a throwing cosmetic/audio subscriber must not send the catch path off to rebuild the
+  slot as a placement-less vanilla save. `MM_InitRandoSaveFile` intentionally re-implements
+  `OnFileCreate`'s tail rather than calling it, so it must be re-audited whenever upstream changes
+  `OnFileCreate`; a shared-helper refactor was considered and declined precisely because the hook fire
+  has to sit outside the try/catch.
+- `mm/2s2h/Enhancements/Audio/AudioEditor.cpp` — `ReplayCurrentBGM` early-returns on
+  `NA_BGM_DISABLED`. MM's audio randomize-on-gen subscriber now runs while MM is dormant (combo fires
+  the hook during OOT's save init), where the active seq id is `0xFFFF`; the queued
+  `SEQCMD_PLAY_SEQUENCE` would index `gSequenceMap[0xFFFF]` and crash on MM's first frame after a
+  portal. Replaying a disabled BGM is meaningless in vanilla too, so the guard is behavior-neutral there.
+
+**Where combo fires them.** OOT: end of `Combo_FinalizeGenerate`, after `SOH_ApplyComboHints` and
+before the pending-settings bookkeeping. Also on the seed-**reload** path (`Combo_OnReloadRequest`,
+after the placement apply + seed hash): a client that merely loads a shared seed never runs
+`Combo_FinalizeGenerate`, so without this its OOT colors would never roll at all. Since the roll is
+seed-derived, the recipient reproduces the generator's colors exactly. MM: inside
+`MM_InitRandoSaveFile`, i.e. per rando save-file creation (fresh or reloaded seed) — exactly vanilla
+MM's semantics.
+
+**Once per seed, per machine.** The reload path runs on *every* boot (silent auto-load re-applies the
+remembered seed), so an unconditional fire there would re-roll on each launch and wipe cosmetic/audio
+edits the user made by hand. A persisted latch CVar (`gCombo.Rando.GenRollSeed`, a comma-separated list
+of master seeds as hex strings — the int CVar store is 32-bit) makes the roll happen once per seed:
+`ComboUI_ClaimGenRollSeed` returns 1 (and appends the seed) only when the seed is not already in the
+list, and `Combo_FireGenRollHooksOnce` fires on that. The list keeps the **last 8** seeds, not one slot:
+with a single slot, playing seed A, then B, then A again would re-roll A over the user's manual edits.
+Beyond 8 the oldest entry is pruned, so a very long rotation can cost one extra roll — the failure mode
+is a re-roll, never a lost seed. A claim also only happens when a subscriber is actually **enabled** to
+roll (OOT cosmetics mode == `RANDOMIZE_ON_RANDO_GEN_ONLY`, or `gAudioEditor.RandomizeAudioGenModes` ==
+the same); otherwise the default config's every-boot auto-load would silently burn each seed and turning
+the options on mid-seed would do nothing. A fresh generation passes `force=true`: it claims the seed
+(so subsequent loads leave manual edits alone) but fires regardless, which is vanilla's unconditional
+gen-only semantics. The fire is deliberately **not** coupled to the cosmetics sync gate — each hook
+subscriber gates on its own CVars, and a recipient who wants audio randomization but not cosmetic sync
+must still get its roll. `Combo_OnOOTSaveInit` calls the same helper just before the sync when the sync
+gate passes, which is what makes enabling the options plus sync mid-seed roll and sync fresh colors on
+the next file creation.
+
+**Sync Randomized Cosmetics** (`gCombo.Rando.SyncCosmetics`, default off, combo settings panel).
+`combo/gui/ComboCosmeticsSync.cpp` copies OOT's colors onto MM's semantically-shared elements after
+`MM_InitRandoSaveFile` returns 0 — MM has just rolled its own, so this overwrites it. OOT is the source
+of truth because its roll is seed-derived and MM's is not. It lives in comboui (not the launcher exe)
+because comboui already links libultraship, so the CVar API is called directly instead of through a
+hand-cast `GetProcAddress` shim; the launcher drives it through three exports,
+`ComboUI_SyncRandomizedCosmetics`, `ComboUI_CosmeticsSyncGateEnabled` (one predicate, so the gate's CVar
+reads are never duplicated) and `ComboUI_ClaimGenRollSeed` (the latch above). The CVar store is one
+shared instance across the exe and every DLL (shared `libultraship.dll`), so this is plain CVar
+reads/writes with no IPC. MM's `MM_MenuApplyCVarChange` comes from `ComboMenuModel`'s cached resolver,
+which retries until `2ship.dll` is loaded.
+
+- **Gate:** sync on AND OOT mode == `RANDOMIZE_ON_RANDO_GEN_ONLY` AND MM's `RandomizeOnSeedGen` == 1.
+  The File-Load modes deliberately don't count — they re-roll OOT *after* the sync and would drift the
+  games apart again. The UI note says so.
+- **Keys:** OOT `gCosmetics.<Id>.{Value,Changed,Locked,Rainbow}` vs MM `gCosmetic.<Id>.{Color,Changed,
+  Locked,Rainbow}`. The singular MM prefix is what keeps the two games' cosmetic keys from colliding —
+  do not "fix" it.
+- **Per-pair gate:** copy only when OOT `.Changed`==1 && MM `.Changed`==1 && MM `.Locked`==0. That covers
+  OOT's *advanced* rows (not randomized unless AdvancedMode, so they simply don't fire and MM keeps its
+  own color), MM's suppressed options (custom model override → randomize skipped → `Changed` stays 0),
+  and MM rows the user locked. A **locked OOT** row is deliberately still copied: it is a color the user
+  pinned, and sync's job is to make MM match it.
+- **Copy:** OOT RGB via `CVarGetColor24` with alpha 255 — every mapped MM option is `supportsAlpha=false`
+  and MM's draw path takes alpha from the caller, never from the CVar — plus `.Changed`=1, `.Rainbow`=0,
+  then `MM_MenuApplyCVarChange` on each written key, mirroring MM's own `CosmeticEditorRefreshElement`.
+  A **rainbow** OOT source has no fixed color to copy, so MM gets `.Rainbow`=1 instead and both keep
+  cycling (reachable when the user turned rainbow on for an *advanced* row, which the gen roll then never
+  overwrites).
+- **Drift tripwire:** each pair carries an `ootAdvanced` flag. When a non-advanced pair copies nothing
+  and its OOT row has neither `.Changed` nor `.Locked` (read with a `-1` sentinel), the id no longer
+  exists upstream — logged as a warning naming the pair. The warnings only fire when the run copied at
+  least one *other* pair: an upstream rename kills one mapping while the rest still copy, whereas an OOT
+  "Reset All" or a run where no roll happened kills all 16 non-advanced pairs and must stay silent.
+  Cheap, non-fatal, and the only signal we get that an upstream rename has silently broken a mapping.
+
+**Residuals:**
+
+- OOT's *advanced* rows are not rolled for default users, so their MM counterparts keep their own random
+  color. That includes the three arrow **Secondary** colors — a default user can get two-tone arrow
+  mismatches (OOT rolls the primaries only; MM's secondaries keep their independent roll). The spin
+  attack pairs are unaffected: OOT derives its advanced Primaries from the non-advanced Secondary roll.
+- Link's tunic is mapped Kokiri → all four MM forms on purpose. OOT's Goron/Zora tunic rolls are
+  equipment colors with no MM equivalent and are intentionally not mirrored.
+- `ctx->SetSeed` means OOT saves created from this version on persist a real `finalSeed`, while saves
+  made before it carry 0. Per project policy save compatibility across versions is not required, so
+  `COMBO_RELEASE_VERSION` is unchanged; the practical effect is that a pre-existing save and a new one
+  disagree on seeded features and can report an Anchor seed mismatch against each other.
+- The fire is the whole `OnGenerationCompletion` hook, so it also rolls OOT's Audio Editor "randomize
+  all on rando gen" (the hook's only other subscriber). That is intended — the same combo gap had
+  silently disabled it too.
+- The sync itself only ever runs from `Combo_OnOOTSaveInit`, so a seed loaded but never started keeps
+  MM's own colors until a slot is created.
+- A hand-edited seed file with no `masterSeed` key falls back to 0 consistently on every path (latch,
+  `SOH_SetComboRandoSeed`, the rolls), so all such seeds share one palette and one audio shuffle — the
+  pre-existing behavior of `SOH_SetComboRandoSeed(0)`, not a new deviation.

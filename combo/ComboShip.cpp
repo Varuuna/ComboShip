@@ -217,6 +217,9 @@ typedef void (*FnApplyHints)(const char*);
 typedef void (*FnSetHintsPresent)(int);
 static FnApplyHints SOH_ApplyComboHints = nullptr;
 static FnSetHintsPresent SOH_SetComboHintsPresent = nullptr;
+// #169: OOT's generation-completion hooks (cosmetics/audio randomize-on-gen) — combo's fill never
+// reaches the vanilla fire site, so the launcher fires them itself (see Combo_FireGenRollHooksOnce).
+static FnVoidArgless SOH_FireGenerationCompleteHooks = nullptr;
 // Reload/remember-seed: restore settings + run the pool prep before re-applying saved placements.
 typedef void (*FnVoidV)(void);
 typedef void (*FnTakeStr)(const char*);
@@ -281,6 +284,27 @@ typedef void (*FnSetHintRevealOot)(void (*)(int, const char*));
 static FnSetHintRevealOot SOH_SetComboHintRevealCb = nullptr;
 typedef void (*FnSetHintRevealMm)(void (*)(int, int, int, const char*, const char*));
 static FnSetHintRevealMm MM_SetComboHintRevealCb = nullptr;
+
+// ComboShip (#169): combo-owned OOT->MM cosmetic color sync (combo/gui/ComboCosmeticsSync.cpp). The
+// gate predicate is exported too, so the launcher never duplicates the CVar reads.
+static FnVoidArgless ComboUI_SyncRandomizedCosmetics = nullptr;
+typedef int (*FnComboUIGate)(void);
+static FnComboUIGate ComboUI_CosmeticsSyncGateEnabled = nullptr;
+// Per-seed latch for the gen-roll hooks (comboui owns it — the exe has no CVar API). 1 = not rolled yet.
+typedef int (*FnClaimGenRollSeed)(unsigned long long);
+static FnClaimGenRollSeed ComboUI_ClaimGenRollSeed = nullptr;
+
+// ComboShip (#169): fire OOT's generation-completion hooks at most once per seed per machine, so the
+// silent auto-load on every boot cannot re-roll over cosmetic/audio edits the user made by hand.
+// force = fresh generation: still claim the seed (so later loads of it leave manual edits alone) but
+// roll regardless, keeping vanilla's unconditional gen-only semantics.
+static void Combo_FireGenRollHooksOnce(uint64_t masterSeed, bool force = false) {
+    if (!SOH_FireGenerationCompleteHooks)
+        return;
+    const bool claimed = ComboUI_ClaimGenRollSeed && ComboUI_ClaimGenRollSeed(masterSeed);
+    if (claimed || force)
+        SOH_FireGenerationCompleteHooks();
+}
 
 // ComboShip-owned unified ROM extraction (see ComboExtract.h). The split init lets us create the
 // shared window from soh.o2r before any ROM exists, run the extraction screen, then finish.
@@ -626,6 +650,7 @@ static std::atomic<bool> g_ComboPendingFinalize{ false }; // worker succeeded, m
 static std::string g_FinalizeOotApply;
 static std::filesystem::path g_FinalizeSpoilerPath;
 static uint32_t g_FinalizeDisplaySeed = 0;
+static uint32_t g_FinalizeMasterSeed = 0; // #169: the gen-roll latch keys off the master seed, not the display hash
 // Consolidated spoiler JSON for the just-generated seed. The worker writes the pending file from it;
 // Combo_OnOOTSaveInit bakes it into the slot's container and pushes it into both DLLs at Start.
 static std::string g_ConsolidatedJson;
@@ -1718,6 +1743,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         uint32_t displaySeed = ComboHash((inputSeed + sohDump + mmDump).c_str());
         g_FinalizeOotApply = ootApply.dump();
         g_FinalizeDisplaySeed = displaySeed;
+        g_FinalizeMasterSeed = masterSeed;
 
         // ComboShip: file_hash = the 5 icon indexes the file-select shows, derived from displaySeed
         // exactly as OOT's GenerateHash (decimal padded to 10, five 2-digit pairs).
@@ -2072,6 +2098,9 @@ static void Combo_FinalizeGenerate() {
     g_FinalizeSpoilerPath.clear();
     if (hintsPresent && SOH_ApplyComboHints)
         SOH_ApplyComboHints(hints.dump().c_str());
+    // #169: a fresh generation always re-rolls (vanilla gen-only semantics), and claims the seed on
+    // the way through so later loads of THIS seed leave the user's manual edits alone.
+    Combo_FireGenRollHooksOnce(g_FinalizeMasterSeed, /*force=*/true);
     // A fresh generation's live MM CVars already ARE this seed's settings, so slot-bind must fall
     // through to reading them directly — clear any stale reload-restore state left by an unstarted
     // pending seed (else it would apply THAT seed's MM settings over this generation's placements).
@@ -2309,6 +2338,10 @@ static int Combo_OnReloadRequest(const char* path) {
             SOH_SetComboSeedHash(displaySeed);
         if (hintsPresent && SOH_ApplyComboHints)
             SOH_ApplyComboHints(j.value("hints", nlohmann::json::object()).dump().c_str());
+        // #169: a seed recipient never runs Combo_FinalizeGenerate, so roll here too — the ctx seed is
+        // set by now, so it reproduces the generator's colors exactly. Not sync-gated: each hook
+        // subscriber checks its own CVars, and the latch keeps this to once per seed.
+        Combo_FireGenRollHooksOnce(masterSeed);
 
         // Reproduction is done — put the user's OOT settings back so comboship.json (and the menu)
         // stay authoritative. An explicit drop instead keeps the seed's settings as the new baseline.
@@ -2433,6 +2466,14 @@ static void Combo_OnOOTSaveInit(int fileNum) {
         if (MM_InitRandoSaveFile(fileNum, mmPlacements.c_str(), playerName) != 0) {
             std::cerr << "[ComboShip] ERROR: MM rando save creation FAILED for slot " << fileNum
                       << " — this slot's MM save has no placements. Re-create it." << std::endl;
+        } else if (ComboUI_SyncRandomizedCosmetics) {
+            // #169: MM has just rolled its own cosmetics (generation hook inside the call above); with
+            // sync on, hand it OOT's colors instead so the shared elements match. Roll OOT first: the
+            // latch skipped it at load time if the options were off, so enabling them mid-seed still
+            // syncs this seed's fresh colors rather than whatever was persisted.
+            if (ComboUI_CosmeticsSyncGateEnabled && ComboUI_CosmeticsSyncGateEnabled())
+                Combo_FireGenRollHooksOnce(seed.value("masterSeed", 0u));
+            ComboUI_SyncRandomizedCosmetics();
         }
         // Silent auto-load: the save now has the seed's settings baked in — return the CVars to the
         // user's config. An explicit drop leaves the seed's settings as the new persisted baseline.
@@ -2680,6 +2721,7 @@ int main(int argc, char** argv) {
     SOH_DumpRandoHintData = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoHintData");
     SOH_ApplyComboHints = (FnApplyHints)GetSym(sohModule, "SOH_ApplyComboHints");
     SOH_SetComboHintsPresent = (FnSetHintsPresent)GetSym(sohModule, "SOH_SetComboHintsPresent");
+    SOH_FireGenerationCompleteHooks = (FnVoidArgless)GetSym(sohModule, "SOH_FireGenerationCompleteHooks");
     // #164: combo Hint Tracker reveal reporting.
     SOH_SetComboHintRevealCb = (FnSetHintRevealOot)GetSym(sohModule, "SOH_SetComboHintRevealCb");
     MM_SetComboHintRevealCb = (FnSetHintRevealMm)GetSym(mmModule, "MM_SetComboHintRevealCb");
@@ -3011,6 +3053,9 @@ int main(int argc, char** argv) {
         ComboUI_SetNotesStore = (FnComboUISetNotesStore)GetSym(comboUIModule, "ComboUI_SetNotesStore");
         if (ComboUI_SetNotesStore)
             ComboUI_SetNotesStore(&Combo_GetNotes, &Combo_SetNotes);
+        ComboUI_SyncRandomizedCosmetics = (FnVoidArgless)GetSym(comboUIModule, "ComboUI_SyncRandomizedCosmetics");
+        ComboUI_CosmeticsSyncGateEnabled = (FnComboUIGate)GetSym(comboUIModule, "ComboUI_CosmeticsSyncGateEnabled");
+        ComboUI_ClaimGenRollSeed = (FnClaimGenRollSeed)GetSym(comboUIModule, "ComboUI_ClaimGenRollSeed");
         if (ComboUI_Register) {
             ComboUI_Register();
             std::cout << "[ComboShip] comboui registered (unified menu installed)." << std::endl;

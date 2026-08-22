@@ -1693,6 +1693,19 @@ void ComboMenu::DrawComboPanel() {
                         "and the Mask Shop key/entrance exclusions, so Ocarina of Time stays enterable from nothing.");
     ImGui::Separator();
 
+    // Cosmetics (#169): each game randomizes on its own by default; sync makes MM take OOT's colors.
+    ImGui::SeparatorText("Cosmetics");
+    bool syncCosmetics = CVarGetInteger("gCombo.Rando.SyncCosmetics", 0) != 0;
+    ComboRando::ComboMenu_PushCheckbox(goalTheme);
+    if (ImGui::Checkbox("Sync Randomized Cosmetics", &syncCosmetics)) {
+        CVarSetInteger("gCombo.Rando.SyncCosmetics", syncCosmetics ? 1 : 0);
+    }
+    ComboRando::ComboMenu_PopCheckbox();
+    ImGui::TextDisabled("Applies only when BOTH games' \"randomize cosmetics on randomizer generation\" options are\n"
+                        "enabled. Shared elements (buttons, hearts, magic, minimap, Link's tunic, ...) take Ocarina\n"
+                        "of Time's colors in Majora's Mask.");
+    ImGui::Separator();
+
     // Seed field -> shared CVar the generator reads (same source the native file-select
     // "Generate a new seed" option uses).
     ImGui::SetNextItemWidth(260.0f);

@@ -3321,6 +3321,18 @@ extern "C" __declspec(dllexport) void SOH_MenuApplyCVarChange(const char* cvar) 
         ShipInit::Init(cvar);
 }
 
+// ComboShip: combo owns generation and never reaches GenerateRandomizerImgui, the only vanilla fire site
+// of this hook — so cosmetics/audio "randomize on rando gen" never ran. The launcher fires it instead.
+extern "C" __declspec(dllexport) void SOH_FireGenerationCompleteHooks(void) {
+    Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("oot")); // gfx patches load OOT resources
+    // Subscribers hit std::map::at and allocate; a throw must not unwind across the C ABI into the exe.
+    try {
+        GameInteractor::Instance->ExecuteHooks<GameInteractor::OnGenerationCompletion>();
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[ComboShip] SOH_FireGenerationCompleteHooks: gen hook threw: {}", e.what());
+    } catch (...) { SPDLOG_ERROR("[ComboShip] SOH_FireGenerationCompleteHooks: gen hook threw a non-std exception"); }
+}
+
 #ifdef COMBO_BUILD
 // ComboShip: true when OOT is the foreground game (queries comboui's ComboUI_GetForegroundGame, resolved
 // once). SohMenuDevTools uses it to gate OOT's live-world dev viewers — opening OOT's tab while MM is
@@ -4820,6 +4832,11 @@ extern "C" __declspec(dllexport) void SOH_ApplyRandoPlacements(const char* json)
         if (!sComboHintsPresent) {
             CreateChildAltarHint();
             CreateAdultAltarHint();
+        }
+        // ComboShip: combo bypasses Playthrough_Init, so the ctx seed stays 0 and every seed-derived
+        // feature (cosmetics/audio randomize-on-gen, save finalSeed, Anchor mismatch) degenerates.
+        if (sComboRandoSeedSet) {
+            ctx->SetSeed((uint32_t)sComboRandoSeed);
         }
 #endif
 

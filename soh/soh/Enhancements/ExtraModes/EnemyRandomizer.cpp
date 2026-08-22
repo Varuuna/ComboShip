@@ -19,7 +19,6 @@ extern "C" {
 #include "src/overlays/actors/ovl_En_Encount1/z_en_encount1.h"
 #include "src/overlays/actors/ovl_En_GeldB/z_en_geldb.h"
 #include "src/overlays/actors/ovl_En_Peehat/z_en_peehat.h"
-#include "src/overlays/actors/ovl_En_Rr/z_en_rr.h"
 #include "src/overlays/actors/ovl_En_Vali/z_en_vali.h"
 
 extern PlayState* gPlayState;
@@ -651,63 +650,6 @@ void CustomPeehatLarvaDestroy(Actor* thisx, PlayState* play) {
 
 void RegisterEnemyRandomizer() {
     COND_ID_HOOK(OnActorInit, ACTOR_EN_MB, ENEMY_RANDOMIZER_ENABLED, FixClubMoblinScale);
-
-    // prevent dark link from triggering a voidout
-    COND_VB_SHOULD(VB_TRIGGER_VOIDOUT, ENEMY_RANDOMIZER_ENABLED, {
-        Actor* actor = va_arg(args, Actor*);
-
-        if (*should == true && actor->category != ACTORCAT_PLAYER) {
-            // Improvement opportunity: Play sfx
-            *should = false;
-            Actor_Kill(actor);
-        }
-    });
-
-    // prevent dark link dealing fall damage to the player
-    COND_VB_SHOULD(VB_RECIEVE_FALL_DAMAGE, ENEMY_RANDOMIZER_ENABLED, {
-        Actor* actor = va_arg(args, Actor*);
-
-        if (actor->category != ACTORCAT_PLAYER) {
-            *should = false;
-        }
-    });
-
-    // prevent dark link from interfering with HESS/recoil/etc when at more than 100 away from him
-    COND_VB_SHOULD(VB_TORCH2_HANDLE_CLANKING, ENEMY_RANDOMIZER_ENABLED, {
-        Actor* darkLink = va_arg(args, Actor*);
-
-        if (darkLink->xzDistToPlayer > 100.0f) {
-            *should = false;
-        }
-    });
-
-    // prevent dark link from interfering with ice floors
-    COND_VB_SHOULD(VB_SET_STATIC_PREV_FLOOR_TYPE, ENEMY_RANDOMIZER_ENABLED, {
-        Player* playerOrDarkLink = va_arg(args, Player*);
-
-        if (playerOrDarkLink->actor.id != ACTOR_PLAYER) {
-            *should = false;
-        }
-    });
-
-    // prevent dark link from interfering with ice floors
-    COND_VB_SHOULD(VB_SET_STATIC_FLOOR_TYPE, ENEMY_RANDOMIZER_ENABLED, {
-        Player* playerOrDarkLink = va_arg(args, Player*);
-
-        if (playerOrDarkLink->actor.id != ACTOR_PLAYER) {
-            *should = false;
-        }
-    });
-
-    // prevent dark link from being grabbed by like likes and therefore grabbing the player
-    COND_VB_SHOULD(VB_LIKE_LIKE_GRAB_PLAYER, ENEMY_RANDOMIZER_ENABLED, {
-        EnRr* likeLike = va_arg(args, EnRr*);
-
-        if (!(likeLike->collider1.base.oc != NULL && likeLike->collider1.base.oc->category == ACTORCAT_PLAYER) &&
-            !(likeLike->collider2.base.oc != NULL && likeLike->collider2.base.oc->category == ACTORCAT_PLAYER)) {
-            *should = false;
-        }
-    });
 
     // Allow Random Gerudo Fighters (contain no keys) to spawn without any switch flags
     COND_VB_SHOULD(VB_GERUDO_FIGHTER_CONTINUE_WAITING, ENEMY_RANDOMIZER_ENABLED, {

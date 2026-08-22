@@ -19,7 +19,8 @@ void SaveManager_WriteSaveFile(const std::filesystem::path& fileName, nlohmann::
 void SaveManager_PersistSariaHintsAvailable();
 // ComboShip: cross-game save activation/persistence entry points
 void SaveManager_InitNewSaveForSlot(int mmFileNum, const unsigned char* ootName8 = nullptr);
-void SaveManager_LoadSaveFile(int mmFileNum);
+// 0 = loaded; negative = refuse MM entry (see the definition for the codes).
+int SaveManager_LoadSaveFile(int mmFileNum);
 void SaveManager_SaveCurrentForCombo();
 #else
 void SaveManager_SysFlashrom_WriteData(u8* addr, u32 pageNum, u32 pageCount);

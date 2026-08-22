@@ -175,7 +175,11 @@ static FnSetSaveCallback SOH_SetOnNewSaveCallback = nullptr;
 static FnSetSaveCallback SOH_SetOnLoadSaveCallback = nullptr;
 typedef void (*FnGetPlayerName)(unsigned char*);
 static FnGetPlayerName SOH_GetCurrentPlayerName = nullptr;
-static FnMMInitSave MM_LoadSaveForCombo = nullptr;
+// Nonzero = the slot's MM half is missing/broken; nothing was loaded (see SaveManager_LoadSaveFile).
+typedef int (*FnMMLoadSave)(int);
+static FnMMLoadSave MM_LoadSaveForCombo = nullptr;
+// Failure code behind a refused MM entry (return kind 3), for the OOT-side notice. Cleared on take.
+static FnInt MM_TakeComboLoadFailCode = nullptr;
 // #89 resume-into-MM: drop out of OOT's loop before it runs a Play frame / tell MM how it was entered.
 // SOH_IsOnFileSelect distinguishes a real file-select load from the OnLoadGame that TitleSetup fires
 // on the MM->OOT return (which must not bounce the player straight back into MM).
@@ -248,6 +252,9 @@ static FnSetCopyContainer SOH_SetCopyContainer = nullptr;
 // OOT polls this each frame (main thread) for slots whose container was backed up for a release mismatch.
 typedef void (*FnSetOutdatedSaveNotice)(int (*)());
 static FnSetOutdatedSaveNotice SOH_SetOutdatedSaveNotice = nullptr;
+// Same pattern for slots whose MM half was refused at the MM-entry seam (returns slot, writes the code).
+typedef void (*FnSetMMEntryFailNotice)(int (*)(int*));
+static FnSetMMEntryFailNotice SOH_SetMMEntryFailNotice = nullptr;
 
 // ComboShip: OOT forced placements (Link's Pocket etc.) the static dump can't carry — see
 // SOH_GetForcedPlacements. Seed-parameterized so the pick is deterministic per generated seed.
@@ -364,6 +371,8 @@ static std::map<int, nlohmann::json> g_containerCache;
 // Slots whose container was backed up for a COMBO_RELEASE_VERSION mismatch; guarded by g_containerMutex.
 // OOT drains it on the main thread (Combo_TakeEvictionNotice) to surface a popup.
 static std::vector<int> g_evictedSlots;
+// Slots whose MM half was refused at the MM-entry seam, as (slot, failure code); same drain pattern.
+static std::vector<std::pair<int, int>> g_mmEntryFailures;
 
 // Single place the foreground game changes, so every transition point notifies comboui consistently.
 static void Combo_SetForegroundGame(int game) {
@@ -471,6 +480,18 @@ static int Combo_TakeEvictionNotice() {
     int slot = g_evictedSlots.front();
     g_evictedSlots.erase(g_evictedSlots.begin());
     return slot;
+}
+
+// Same drain, for slots whose MM half MM refused to load. Returns the slot (-1 = none) + its failure code.
+static int Combo_TakeMMEntryFailure(int* outCode) {
+    std::lock_guard<std::mutex> lk(g_containerMutex);
+    if (g_mmEntryFailures.empty())
+        return -1;
+    auto entry = g_mmEntryFailures.front();
+    g_mmEntryFailures.erase(g_mmEntryFailures.begin());
+    if (outCode != nullptr)
+        *outCode = entry.second;
+    return entry.first;
 }
 
 static void EraseComboContainer(int slot) {
@@ -2526,8 +2547,11 @@ static void Combo_OnOOTSaveLoad(int fileNum) {
         return;
     }
     std::cout << "[ComboShip] Loading MM save for OOT slot " << fileNum << " (tracker peek)" << std::endl;
-    MM_LoadSaveForCombo(fileNum);
-    g_MmSaveInMemorySlot = fileNum;
+    // Read-only peek: on failure nothing was loaded, so the slot must NOT be marked resident — stale
+    // dormant memory would otherwise pose as this slot's save (and a dormant write would persist it).
+    if (MM_LoadSaveForCombo(fileNum) == 0) {
+        g_MmSaveInMemorySlot = fileNum;
+    }
     // Both counters are now live: catch a goal crossed while the game wasn't running (e.g. a teammate's
     // pieces applied to a dormant save). Latched, so it can't roll credits twice.
     Combo_OnTriforceProgress(0, fileNum);
@@ -2699,7 +2723,8 @@ int main(int argc, char** argv) {
     SOH_SetOnNewSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnNewSaveCallback");
     SOH_SetOnLoadSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnLoadSaveCallback");
     SOH_GetCurrentPlayerName = (FnGetPlayerName)GetSym(sohModule, "SOH_GetCurrentPlayerName");
-    MM_LoadSaveForCombo = (FnMMInitSave)GetSym(mmModule, "MM_LoadSaveForCombo");
+    MM_LoadSaveForCombo = (FnMMLoadSave)GetSym(mmModule, "MM_LoadSaveForCombo");
+    MM_TakeComboLoadFailCode = (FnInt)GetSym(mmModule, "MM_TakeComboLoadFailCode");
     SOH_ParkForComboMMResume = (FnVoid)GetSym(sohModule, "SOH_ParkForComboMMResume");
     MM_SetComboEntryIsResume = (FnMMInitSave)GetSym(mmModule, "MM_SetComboEntryIsResume");
     SOH_IsOnFileSelect = (FnIsOnFileSelect)GetSym(sohModule, "SOH_IsOnFileSelect");
@@ -2831,6 +2856,7 @@ int main(int argc, char** argv) {
     MM_LoadComboRando = (FnTakeStr)GetSym(mmModule, "MM_LoadComboRando");
     SOH_SetCopyContainer = (FnSetCopyContainer)GetSym(sohModule, "SOH_SetCopyContainer");
     SOH_SetOutdatedSaveNotice = (FnSetOutdatedSaveNotice)GetSym(sohModule, "SOH_SetOutdatedSaveNotice");
+    SOH_SetMMEntryFailNotice = (FnSetMMEntryFailNotice)GetSym(sohModule, "SOH_SetMMEntryFailNotice");
     SOH_SetDeleteForeignSave = (FnSetDeleteForeignSave)GetSym(sohModule, "SOH_SetDeleteForeignSave");
     MM_SetDeleteForeignSave = (FnSetDeleteForeignSave)GetSym(mmModule, "MM_SetDeleteForeignSave");
     SOH_DeleteSaveFile = (FnDeleteSaveFile)GetSym(sohModule, "SOH_DeleteSaveFile");
@@ -3169,6 +3195,9 @@ int main(int argc, char** argv) {
     // OOT owns the shared file-select; it polls for release-evicted slots and shows the outdated-save popup.
     if (SOH_SetOutdatedSaveNotice)
         SOH_SetOutdatedSaveNotice(&Combo_TakeEvictionNotice);
+    // Same seam for a refused MM entry — OOT is where the player lands afterwards.
+    if (SOH_SetMMEntryFailNotice)
+        SOH_SetMMEntryFailNotice(&Combo_TakeMMEntryFailure);
 
     // Cross-game erase seam (issue #1): erasing a save slot in either game wipes both saves.
     if (SOH_SetDeleteForeignSave)
@@ -3245,6 +3274,14 @@ int main(int argc, char** argv) {
                         // Session over: MM's dormant gSaveContext is post-quit state, so force the next
                         // save-load to re-read it from the container (else the tracker peek shows junk).
                         g_MmSaveInMemorySlot = -1;
+                        // Kind 3 = MM refused to load this slot's MM half. Point resume back at OOT so the
+                        // player isn't bounced into the same failure forever, and queue the OOT-side notice.
+                        if (g_mmReturnKind == 3) {
+                            Combo_SetLastGame(g_PendingMMFileNum, ComboRando::GAME_OOT);
+                            int code = MM_TakeComboLoadFailCode ? MM_TakeComboLoadFailCode() : 0;
+                            std::lock_guard<std::mutex> lk(g_containerMutex);
+                            g_mmEntryFailures.emplace_back(g_PendingMMFileNum, code);
+                        }
                     }
                 }
                 current = GAME_OOT;

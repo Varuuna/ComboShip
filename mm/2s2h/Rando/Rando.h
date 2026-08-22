@@ -15,6 +15,26 @@ namespace Rando {
 void Init();
 void DrawItem(RandoItemId randoItemId, RandoCheckId randoCheckId = RC_UNKNOWN, Actor* actor = nullptr);
 void GiveItem(RandoItemId randoItemId);
+// ComboShip: a small key lives in TWO counters — inventory.dungeonKeys and the rando mirror that
+// logic's KEY_COUNT reads — and both are -1 when fresh. Normalize each sentinel independently before
+// bumping, so a pre-existing desync heals instead of leaving the mirror permanently one behind.
+inline void AddSmallKey(s32 dungeonSceneIndex) {
+    s8& inventory = DUNGEON_KEY_COUNT(dungeonSceneIndex);
+    s8& mirror = gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[dungeonSceneIndex];
+    inventory = (s8)((inventory < 0 ? 0 : inventory) + 1);
+    mirror = (s8)((mirror < 0 ? 0 : mirror) + 1);
+}
+// ComboShip: Skeleton Key's per-dungeon small-key maxima, shared with the headless oracle give.
+struct SkeletonKeyCount {
+    s32 dungeonSceneIndex;
+    s8 count;
+};
+inline constexpr SkeletonKeyCount skeletonKeyCounts[] = {
+    { DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE, 1 },
+    { DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE, 3 },
+    { DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE, 1 },
+    { DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE, 4 },
+};
 #ifdef COMBO_BUILD
 // ComboShip: set while GiveItem delivers into a dormant MM save (gPlayState==NULL).
 extern bool gComboDormantGive;

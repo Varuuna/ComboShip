@@ -79,8 +79,9 @@ TrackerImageObject GetImageObject(TrackerItemType itemType, u32 itemId) {
     bool isSaveLoaded = gPlayState != NULL && gSaveContext.gameMode == GAMEMODE_NORMAL;
 #ifdef COMBO_BUILD
     // ComboShip peek: dormant MM has no play state, but the slot's save is loaded (see
-    // EnsureMmSaveLoadedForPeek / MM_LoadSaveForCombo) — use it for icon selection too.
-    isSaveLoaded = isSaveLoaded || (!Combo_MmIsForeground() && gSaveContext.fileNum >= 0);
+    // EnsureMmSaveLoadedForPeek / MM_LoadSaveForCombo) — use it for icon selection too. IS_RANDO is the
+    // real gate: a refused load parks fileNum at 0xFF, which is still >= 0, but clears saveType.
+    isSaveLoaded = isSaveLoaded || (!Combo_MmIsForeground() && IS_RANDO && gSaveContext.fileNum >= 0);
 #endif
     bool itemObtained = false;
     TrackerImageObject trackerImageObject = {

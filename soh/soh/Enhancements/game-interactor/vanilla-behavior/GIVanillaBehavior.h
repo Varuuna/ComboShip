@@ -1642,6 +1642,14 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // reflection[i].reflectionPoly != NULL
+    // ```
+    // #### `args`
+    // - `*MirRayShieldReflection`
+    VB_MIRRAY_DRAW_REFLECTION,
+
+    // #### `result`
+    // ```c
     // false
     // ```
     // #### `args`

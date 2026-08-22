@@ -1796,8 +1796,8 @@ std::vector<std::string> Rando::Traps::GetTrickNamesEnglish(uint16_t id) {
     }
     std::vector<std::string> out;
     if (id < RG_MAX) {
-        for (const Text& t : trickNameTable[id]) {
-            out.push_back(t.GetEnglish());
+        for (const TrickName& t : trickNameTable[id]) {
+            out.push_back(t.name.GetEnglish());
         }
     }
     return out;

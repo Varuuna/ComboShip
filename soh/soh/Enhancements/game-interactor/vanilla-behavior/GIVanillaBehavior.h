@@ -3027,7 +3027,7 @@ typedef enum {
 
     // #### `result`
     // ```c
-    // true
+    // varies
     // ```
     // #### `args`
     // - `*Actor`

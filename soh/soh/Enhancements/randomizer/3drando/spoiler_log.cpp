@@ -310,6 +310,9 @@ static void WriteAllLocations() {
                                             .GetEnglish();
                     jsonData["locations"][Rando::StaticData::GetLocation(location->GetRandomizerCheck())->GetName()]
                             ["trickName"] = ctx->overrides[location->GetRandomizerCheck()].GetTrickName().GetEnglish();
+                    jsonData["locations"][Rando::StaticData::GetLocation(location->GetRandomizerCheck())->GetName()]
+                            ["trickArticle"] =
+                                ctx->overrides[location->GetRandomizerCheck()].GetTrickArticle().GetEnglish();
                     break;
                 case 1:
                     jsonData["locations"][Rando::StaticData::GetLocation(location->GetRandomizerCheck())->GetName()]
@@ -319,6 +322,9 @@ static void WriteAllLocations() {
                                             .GetGerman();
                     jsonData["locations"][Rando::StaticData::GetLocation(location->GetRandomizerCheck())->GetName()]
                             ["trickName"] = ctx->overrides[location->GetRandomizerCheck()].GetTrickName().GetGerman();
+                    jsonData["locations"][Rando::StaticData::GetLocation(location->GetRandomizerCheck())->GetName()]
+                            ["trickArticle"] =
+                                ctx->overrides[location->GetRandomizerCheck()].GetTrickArticle().GetGerman();
                     break;
                 case 2:
                     jsonData["locations"][Rando::StaticData::GetLocation(location->GetRandomizerCheck())->GetName()]
@@ -328,6 +334,9 @@ static void WriteAllLocations() {
                                             .GetFrench();
                     jsonData["locations"][Rando::StaticData::GetLocation(location->GetRandomizerCheck())->GetName()]
                             ["trickName"] = ctx->overrides[location->GetRandomizerCheck()].GetTrickName().GetFrench();
+                    jsonData["locations"][Rando::StaticData::GetLocation(location->GetRandomizerCheck())->GetName()]
+                            ["trickArticle"] =
+                                ctx->overrides[location->GetRandomizerCheck()].GetTrickArticle().GetFrench();
                     break;
             }
         }

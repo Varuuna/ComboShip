@@ -208,6 +208,9 @@ Each merge pass gets its **own dated file** under [`merges/`](merges/) — one p
 file we had to touch after the mechanical 3-way merge and why. This keeps the per-merge required
 changes easy to track (and to diff against the recurring-deviation list below). Newest first:
 
+- [2026-08-22](merges/2026-08-22.md) — **not a merge pass**: 18 soh fix commits cherry-picked ahead
+  of the pin from the pending `5a57a0cbc` → `55b52a26a` range (PR #144); pin unchanged. Lists the
+  skipped-feature collateral dropped during conflict resolution.
 - [2026-08-19](merges/2026-08-19.md) — mm `ce4bf03ab` → `d35196ad7` (**exactly the 5.0.0 "Battler
   Alfa" release tag**, seeding the new `2ship-stable` branch); libultraship `bbb565bd9` →
   `7cb10226e` (the LUS 5.0.0 pins). soh untouched. Retired the AlternateAssets-default deviation

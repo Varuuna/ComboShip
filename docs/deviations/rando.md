@@ -1112,7 +1112,8 @@ ComboShip could reach that state two ways, both now closed:
   for the empty-placement early return.
 
 Tripwire: `Combo_LoadMMSaveFile` logs an error whenever a loaded MM save isn't `SAVETYPE_RANDO`.
-Already-broken saves are not repaired — re-create the file.
+Already-broken saves are not repaired — re-create the file. The legacy population from before this was
+caught is retired by the 0.3.0 container gate (see below).
 
 ### Residual key-loss gaps closed (2026-08-22)
 
@@ -1130,14 +1131,27 @@ every failure parks `gSaveContext.fileNum` at `0xFF` and clears `saveType`. Both
 (or zeroed vanilla BSS) into the failed slot; and since `fileNum` is signed and `0xFF` still passes the
 peek trackers' `>= 0` test, only the cleared `saveType` (→ `IS_RANDO` false) stops them from drawing the
 previous slot's save as this one — `ItemTracker`'s peek gate was missing that `IS_RANDO` term and now has
-it. On any nonzero code `title_setup.c` calls `Combo_AbortMMEntry()` and bounces to `ConsoleLogo_Init`: Play is never
-entered, MM is never persisted (gSaveContext holds init defaults — writing them *is* the poison), and the
-launcher gets return kind 3. Kind 3 clears `g_MmSaveInMemorySlot`, points `lastGame` back at OOT so resume
-can't loop into the failure, and queues an OOT-side popup naming the slot and the code (same drain pattern
-as the release-eviction notice). The dormant peek only marks a slot resident when the load returned 0.
+it. The dormant peek only marks a slot resident when the load returned 0, so it is strictly read-only and
+fail-closed: it never rebuilds, it just goes blank.
 `SaveManager_SysFlashrom_WriteData`'s owl branch also used to emit an `owlSave`-only section when its
 pre-read failed, which nothing could ever load again; under `COMBO_BUILD` it now seeds `newCycleSave` from
 the owl snapshot (resuming a little late beats a dead slot).
+
+**No rebuild, no repair, no blocked entry.** ComboShip never blocks MM entry *and* never repairs a save.
+There is deliberately nothing between those two: a missing or unloadable `mm` section means either the
+file was created with **no seed bound** — which `Combo_OnOOTSaveInit` already refuses loudly, writing no
+`mm` section at all — or the file is damaged. In both cases the load logs an error, the fail-closed
+sentinel above keeps stray writes and tracker draws off the slot, play proceeds, and the remedy is
+re-creating the file. `title_setup.c` therefore just calls `Combo_LoadMMSaveFile` and ignores the code;
+the return value's only consumers are that log and the dormant peek's success check.
+
+**Legacy broken saves are retired by the `0.3.0` container gate, not by runtime repair.**
+`LoadOrCreateContainer` backs up any container whose `comboRelease` differs in `major.minor` and starts
+fresh, so the pre-0.3.0 population poisoned by the old load-side auto-create is invalidated wholesale —
+there is no migration path for a save whose MM half was silently vanilla for an unknown stretch of play,
+and inventing one at runtime would only mask the bug. `SaveManager_InitNewSaveForSlot` does stamp
+`SAVETYPE_RANDO` before its write (it persists, and it is a combo-only function), so the legitimate
+creation path can never leave a vanilla MM save in the container even transiently.
 
 **Key-mirror safety net.** A small-key check left `shuffled == false` delivers through vanilla `Item_Give`
 (`z_parameter.c:4228`), which bumps `inventory.dungeonKeys` but not `rando.foundDungeonKeys`; the cycle

@@ -490,7 +490,7 @@ the pre-fix segfault reproduced on demand; post-fix, `oot.z64` routes to the OoT
 `MM_ClassifyRom` accepts). Also verified by hand on Windows: ROMs dragged onto the extraction
 screen route through the `WM_DROPFILES`/DXGI path into the correct slots.
 
-## Three more quit-to-MM-title seams + refused MM entry (2026-08-22)
+## Three more quit-to-MM-title seams (2026-08-22)
 
 Every path that reaches `TitleSetup_SetupTitleScreen` runs `Sram_InitNewSave()` (a `SAVETYPE_VANILLA`
 wipe) and then fires `OnSaveLoad`, which unregisters every `IS_RANDO` hook. The owl-save seam above
@@ -507,14 +507,7 @@ the return hook drives the handoff — so none of these sites may `STOP_GAMESTAT
   autosave is on). Transitively fixes `Ship_HandleConsoleCrashAsReset` and its callers. The
   `gGameState == nullptr` early return is kept.
 
-**Return kind 3 — refused MM entry.** `title_setup.c` now checks `Combo_LoadMMSaveFile`'s return code and,
-on failure, calls `Combo_AbortMMEntry(code)` + `SET_NEXT_GAMESTATE(ConsoleLogo_Init)` instead of entering
-Play. The existing `OnGameStateMainStart` hook consumes the pending flag, calls `SOH_SetComboBootToTitle`
-like the owl-save quit, and fires `gComboReturnCallback(3)`. It must **not** run
-`SaveManager_SaveCurrentForCombo` for this kind: `gSaveContext` holds init defaults at that point, so
-persisting would create exactly the poisoned vanilla save the refusal exists to prevent. The launcher
-treats kind 3 as session-over (`g_MmSaveInMemorySlot = -1`) *plus* `Combo_SetLastGame(slot, GAME_OOT)` so
-resume can't bounce into the same failure, then queues an OOT-side popup via the new
-`SOH_SetMMEntryFailNotice` seam (`MM_TakeComboLoadFailCode` supplies the code) — same launcher-records /
-OOT-draws-on-the-main-thread pattern as the release-eviction notice. See `rando.md` for the load-side
-policy and the failure codes.
+**MM entry is never refused.** The return kinds stay 0/1/2; there is deliberately no "entry failed" kind.
+Nor is it repaired: an unusable MM half is logged loudly, the fail-closed load sentinel keeps stray writes
+and tracker draws off the slot, and play proceeds — re-creating the file is the remedy, and the legacy
+population is retired by the 0.3.0 container gate. See `rando.md` for the load-side failure codes.

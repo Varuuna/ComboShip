@@ -187,10 +187,9 @@ extern int gComboEntryIsResume;
 void Combo_AdoptOOTGlobalOptions(void);
 // ComboShip (#89): owl save quits to OOT's title instead of MM's own file select.
 void Combo_RequestOwlSaveQuit(void);
-// Load an existing MM save from disk into gSaveContext (C-callable wrapper). 0 = ok, negative = refuse.
+// Load an existing MM save from disk into gSaveContext (C-callable wrapper). 0 = ok; negative = nothing
+// usable was loaded (logged; the load leaves the fail-closed sentinel behind and play still proceeds).
 int Combo_LoadMMSaveFile(int mmFileNum);
-// ComboShip: refuse MM entry for a missing/broken MM save — quits back to OOT's title with kind 3.
-void Combo_AbortMMEntry(int failCode);
 
 int32_t GetGIID(uint32_t itemID);
 #endif

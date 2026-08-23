@@ -218,6 +218,10 @@ void SaveManager_InitNewSaveForSlot(int mmFileNum, const unsigned char* ootName8
     SET_WEEKEVENTREG(WEEKEVENTREG_ENTERED_EAST_CLOCK_TOWN);
     SET_WEEKEVENTREG(WEEKEVENTREG_ENTERED_WEST_CLOCK_TOWN);
     SET_WEEKEVENTREG(WEEKEVENTREG_ENTERED_NORTH_CLOCK_TOWN);
+    // ComboShip: stamp RANDO before the write, not after. Every caller re-stamps it moments later, but
+    // this function PERSISTS, so leaving it VANILLA opened a window where the container briefly held a
+    // vanilla MM save, which silently disables every IS_RANDO hook. Combo has no vanilla mode.
+    gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_RANDO;
 #endif
     nlohmann::json j;
     j["newCycleSave"]["save"] = gSaveContext.save;
@@ -249,8 +253,9 @@ static int SaveManager_LoadFailedForCombo(int code) {
 }
 
 // ComboShip: loading never creates or persists. A missing/broken MM half used to be replaced with a
-// fresh SAVETYPE_VANILLA save, permanently poisoning the slot; now every failure returns a code and the
-// MM-entry seam refuses instead. 0 ok, -1 missing, -2 unreadable, -3 migrate, -4 no newCycleSave, -5 parse.
+// fresh SAVETYPE_VANILLA save, permanently poisoning the slot; now every failure just returns a code,
+// loudly. Nothing repairs the slot — re-create the file. 0 ok, -1 missing, -2 unreadable, -3 migrate,
+// -4 no newCycleSave, -5 parse.
 int SaveManager_LoadSaveFile(int mmFileNum) {
     std::string fileName = SaveManager_GetFileName(mmFileNum);
     nlohmann::json j;

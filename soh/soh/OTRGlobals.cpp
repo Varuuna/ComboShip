@@ -1633,8 +1633,6 @@ bool VerifyArchiveVersion(OTRVersion version) {
 extern "C" void (*gComboSceneSwitchCallback)(int fileNum);
 // Launcher poll: returns the next save slot backed up for a release mismatch, or -1 if none.
 extern "C" int (*gComboOutdatedSaveNotice)();
-// Launcher poll: returns the next slot whose MM half was refused (writes its failure code), or -1.
-extern "C" int (*gComboMMEntryFailNotice)(int*);
 
 // ComboShip: InitOTR is split so the launcher can create the shared window (which needs only the
 // bundled soh.o2r, not a ROM) BEFORE the ROM archives exist, run its own unified extraction screen,
@@ -1843,20 +1841,6 @@ static void Combo_FinishInit() {
             SohGui::RegisterPopup("Outdated ComboShip Save",
                                   "The save in slot " + std::to_string(slot + 1) +
                                       " was made by a different ComboShip version and has been backed up.");
-        }
-    });
-
-    // ComboShip: MM refused to load a slot's MM half, so MM entry was cancelled — say so here, since the
-    // player is dropped back into OOT. Never auto-recreated: that is what poisoned the slot before.
-    GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameFrameUpdate>([]() {
-        if (!gComboMMEntryFailNotice)
-            return;
-        int code = 0;
-        for (int slot; (slot = gComboMMEntryFailNotice(&code)) >= 0;) {
-            SohGui::RegisterPopup("Majora's Mask Save Unavailable",
-                                  "Slot " + std::to_string(slot + 1) + "'s MM save is missing or invalid (error " +
-                                      std::to_string(code) +
-                                      ") - MM entry was cancelled for this slot. Re-create the file to fix it.");
         }
     });
 #endif
@@ -2843,12 +2827,6 @@ extern "C" __declspec(dllexport) void SOH_SetOnLoadSaveCallback(void (*cb)(int f
 extern "C" int (*gComboOutdatedSaveNotice)() = nullptr;
 extern "C" __declspec(dllexport) void SOH_SetOutdatedSaveNotice(int (*fn)()) {
     gComboOutdatedSaveNotice = fn;
-}
-
-// ComboShip: same seam for a slot whose MM save MM refused to load — OOT is where the player lands.
-extern "C" int (*gComboMMEntryFailNotice)(int*) = nullptr;
-extern "C" __declspec(dllexport) void SOH_SetMMEntryFailNotice(int (*fn)(int*)) {
-    gComboMMEntryFailNotice = fn;
 }
 
 // ComboShip: Anchor transport seam. The persistent socket lives in ComboShip.exe; these exports

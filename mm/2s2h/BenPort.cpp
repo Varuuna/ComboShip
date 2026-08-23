@@ -147,8 +147,8 @@ extern "C"
     sComboTransitionActive = true;
 }
 
-// kind: 0 = portal (walked out the Clock Tower), 1 = Ctrl+R reset, 2 = owl-save quit, 3 = refused save
-// load. Only a portal return continues the session in OOT; the rest end it and boot OOT to its title.
+// kind: 0 = portal (walked out the Clock Tower), 1 = Ctrl+R reset, 2 = owl-save quit. Only a portal
+// return continues the session in OOT; the other two end it and boot OOT to its title.
 extern "C" void (*gComboReturnCallback)(int kind) = nullptr;
 extern "C" __declspec(dllexport) void MM_SetOnComboReturnCallback(void (*cb)(int kind)) {
     gComboReturnCallback = cb;
@@ -168,29 +168,12 @@ static bool sComboOwlSaveQuitPending = false;
 extern "C" void Combo_RequestOwlSaveQuit(void) {
     sComboOwlSaveQuitPending = true;
 }
-// ComboShip: this slot's MM save is missing or broken. Never recreate it — Play is never entered, MM is
-// never persisted (gSaveContext holds init defaults, writing them would create the poison), and the
-// launcher gets kind 3, which cancels MM entry for this attempt and pops a notice with the fail code.
-// Nothing is latched: a later attempt on the same slot refuses again with a fresh popup.
-static bool sComboLoadFailPending = false;
-static int sComboLoadFailCode = 0;
-extern "C" void Combo_AbortMMEntry(int failCode) {
-    sComboLoadFailPending = true;
-    sComboLoadFailCode = failCode != 0 ? failCode : -1;
-}
-extern "C" __declspec(dllexport) int MM_TakeComboLoadFailCode(void) {
-    int code = sComboLoadFailCode;
-    sComboLoadFailCode = 0;
-    return code;
-}
 // Drop any unconsumed return request. Called as MM is entered: one left over from the previous session
 // would immediately quit the new one.
 static void Combo_ClearReturnRequests(void) {
     sComboReturnPending = false;
     sComboResetReturnPending = false;
     sComboOwlSaveQuitPending = false;
-    sComboLoadFailPending = false;
-    sComboLoadFailCode = 0;
 }
 // MM's own ResourceManager, created at first boot and kept alive for the whole process. A combo
 // transition swaps the Context's active RM between MM's and OOT's, so each game keeps its archives +
@@ -1147,18 +1130,15 @@ extern "C" void InitOTR(int argc, char* argv[]) {
         }
     });
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameStateMainStart>([]() {
-        if (!sComboReturnPending && !sComboResetReturnPending && !sComboOwlSaveQuitPending && !sComboLoadFailPending)
+        if (!sComboReturnPending && !sComboResetReturnPending && !sComboOwlSaveQuitPending)
             return;
         const bool isReset = sComboResetReturnPending;
         const bool isOwlSaveQuit = sComboOwlSaveQuitPending;
-        const bool isLoadFail = sComboLoadFailPending;
         sComboReturnPending = false;
         sComboResetReturnPending = false;
         sComboOwlSaveQuitPending = false;
-        sComboLoadFailPending = false;
-        // An owl save quit lands on OOT's title, like Ctrl+R, rather than resuming OOT gameplay. A refused
-        // save load has no session to resume either.
-        if (isOwlSaveQuit || isLoadFail) {
+        // An owl save quit lands on OOT's title, like Ctrl+R, rather than resuming OOT gameplay.
+        if (isOwlSaveQuit) {
             static void (*sFn)(void) = nullptr;
             static bool sTried = false;
             if (!sTried) {
@@ -1171,13 +1151,12 @@ extern "C" void InitOTR(int argc, char* argv[]) {
         }
         // Portal return always persists MM; a reset persists only when autosave is enabled. Never
         // persist outside gameplay: the title/attract path wipes save first (Sram_InitNewSave). An owl
-        // save has already written itself through the flashrom seam. A refused load must never persist —
-        // gSaveContext holds init defaults, so writing them would create the poison we just refused.
-        if (!isOwlSaveQuit && !isLoadFail && (!isReset || CVarGetInteger("gEnhancements.Saving.Autosave", 0)) &&
+        // save has already written itself through the flashrom seam.
+        if (!isOwlSaveQuit && (!isReset || CVarGetInteger("gEnhancements.Saving.Autosave", 0)) &&
             gSaveContext.gameMode == GAMEMODE_NORMAL)
             SaveManager_SaveCurrentForCombo();
         if (gComboReturnCallback)
-            gComboReturnCallback(isLoadFail ? 3 : (isOwlSaveQuit ? 2 : (isReset ? 1 : 0)));
+            gComboReturnCallback(isOwlSaveQuit ? 2 : (isReset ? 1 : 0));
         if (auto fast3d = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow())) {
             fast3d->SetIsRunning(false);
         }
@@ -2641,7 +2620,8 @@ extern "C" void Combo_AdoptOOTGlobalOptions(void) {
 }
 
 // C-callable wrapper used by title_setup.c (which is a C file) to load a MM save from disk.
-// 0 = loaded; negative = the caller must refuse MM entry (SaveManager codes, plus -6 = not a rando save).
+// 0 = loaded a usable rando save; negative = nothing usable (SaveManager codes, plus -6 = loaded but not
+// a rando save). The caller REBUILDS on a negative code — it never refuses entry.
 extern "C" int Combo_LoadMMSaveFile(int mmFileNum) {
     int result = SaveManager_LoadSaveFile(mmFileNum);
     if (result != 0) {
@@ -2650,7 +2630,7 @@ extern "C" int Combo_LoadMMSaveFile(int mmFileNum) {
     // No vanilla mode in ComboShip: a non-rando save means the slot was created wrong, and every
     // IS_RANDO hook stays unregistered (COND_HOOK tests the condition once, at OnSaveLoad).
     if (gSaveContext.save.shipSaveInfo.saveType != SAVETYPE_RANDO) {
-        SPDLOG_ERROR("[ComboShip] MM save file{} is not SAVETYPE_RANDO — refusing MM entry", mmFileNum);
+        SPDLOG_ERROR("[ComboShip] MM save file{} is not SAVETYPE_RANDO — rebuilding a baseline", mmFileNum);
         return -6;
     }
     return 0;

@@ -19,7 +19,8 @@ void SaveManager_WriteSaveFile(const std::filesystem::path& fileName, nlohmann::
 void SaveManager_PersistSariaHintsAvailable();
 // ComboShip: cross-game save activation/persistence entry points
 void SaveManager_InitNewSaveForSlot(int mmFileNum, const unsigned char* ootName8 = nullptr);
-// 0 = loaded; negative = refuse MM entry (see the definition for the codes).
+// 0 = loaded; negative = nothing usable was loaded (codes at the definition). Never creates or persists:
+// a failure is logged and leaves the fail-closed sentinel behind, and play still proceeds.
 int SaveManager_LoadSaveFile(int mmFileNum);
 void SaveManager_SaveCurrentForCombo();
 #else

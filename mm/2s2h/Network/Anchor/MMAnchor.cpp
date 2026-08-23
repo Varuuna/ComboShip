@@ -866,8 +866,7 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     s8 localDungeonKeys[ARRAY_COUNT(gSaveContext.save.saveInfo.inventory.dungeonKeys)];
     memcpy(localDungeonKeys, gSaveContext.save.saveInfo.inventory.dungeonKeys, sizeof(localDungeonKeys));
     s8 localFoundDungeonKeys[ARRAY_COUNT(gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys)];
-    memcpy(localFoundDungeonKeys, gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys,
-           sizeof(localFoundDungeonKeys));
+    memcpy(localFoundDungeonKeys, gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys, sizeof(localFoundDungeonKeys));
     s8 localStrayFairies[ARRAY_COUNT(gSaveContext.save.saveInfo.inventory.strayFairies)];
     memcpy(localStrayFairies, gSaveContext.save.saveInfo.inventory.strayFairies, sizeof(localStrayFairies));
     u8 localDungeonItems[ARRAY_COUNT(gSaveContext.save.saveInfo.inventory.dungeonItems)];

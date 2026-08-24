@@ -648,7 +648,7 @@ void RegionTable_Init_ShadowTemple() {
         //Locations
         LOCATION(RC_SHADOW_TEMPLE_MQ_AFTER_WIND_ENEMY_CHEST,  logic->CanKillEnemy(RE_GIBDO) && logic->HasItem(RG_OPEN_CHEST)),
         LOCATION(RC_SHADOW_TEMPLE_MQ_AFTER_WIND_HIDDEN_CHEST, logic->HasExplosives() && (ctx->GetTrickOption(RT_LENS_SHADOW_MQ) || logic->CanUse(RG_LENS_OF_TRUTH)) && logic->HasItem(RG_OPEN_CHEST)),
-        //The various methods for this can be a bit specific, might be worthy of it's own trick when it becomes relevant with dungeon shortcut settings.
+        //The various methods for this can be a bit specific, might be worthy of its own trick when it becomes relevant with dungeon shortcut settings.
         LOCATION(RC_SHADOW_TEMPLE_MQ_GS_AFTER_WIND,           logic->HasExplosives() || (ctx->GetTrickOption(RT_VISIBLE_COLLISION) && logic->CanGetEnemyDrop(RE_GOLD_SKULLTULA))),
         LOCATION(RC_SHADOW_TEMPLE_MQ_BEFORE_BOAT_POT_1,       logic->CanBreakPots()),
         LOCATION(RC_SHADOW_TEMPLE_MQ_BEFORE_BOAT_POT_2,       logic->CanBreakPots()),

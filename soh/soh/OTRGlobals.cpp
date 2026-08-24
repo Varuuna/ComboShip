@@ -4954,11 +4954,6 @@ extern "C" __declspec(dllexport) uint64_t SOH_GetPlaytimeDeciseconds(void) {
     return (uint64_t)(gSaveContext.ship.stats.playTimer / 2 + gSaveContext.ship.stats.pauseTimer / 3);
 }
 
-// Unix ms of this run's first input, 0 before it happens. Combo takes the earlier of this and MM's.
-extern "C" __declspec(dllexport) uint64_t SOH_GetRtaStartMs(void) {
-    return gSaveContext.ship.stats.firstInput;
-}
-
 // Live OOT-only overlay rows, classified here so comboui hardcodes no vanilla enum values.
 // Returns 0 with the outputs untouched when there is no PlayState.
 // naviPhase 0=prepare 1=active 2=cooldown, naviTicks counts down at 20/s.

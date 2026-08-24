@@ -287,8 +287,8 @@ static FnSetHintRevealMm MM_SetComboHintRevealCb = nullptr;
 
 // ComboShip (#173): combo-owned overlay timers. MM's play time is wall clock between flushes, so it
 // must be paused/resumed across every game swap or the time spent in OOT lands in MM's save.
-typedef void (*FnComboUISetFinishedAt)(unsigned long long);
-static FnComboUISetFinishedAt ComboUI_SetComboFinishedAt = nullptr;
+typedef void (*FnComboUISetInt)(int);
+static FnComboUISetInt ComboUI_SetComboComplete = nullptr;
 static FnVoidArgless MM_ComboPausePlaytime = nullptr;
 static FnVoidArgless MM_ComboResumePlaytime = nullptr;
 
@@ -729,14 +729,6 @@ static FnSetBossDefeatedCb SOH_SetFinalBossDefeatedCb = nullptr;
 static FnSetBossDefeatedCb MM_SetFinalBossDefeatedCb = nullptr;
 static bool g_comboCompletion[2] = { false, false };
 static int g_comboCompletionSlot = -1;
-// ComboShip (#173): Unix ms the goal was met, latched once per slot. Freezes the timer overlay's
-// real-time row; 0 = the run is still going.
-static uint64_t g_comboFinishedAtMs = 0;
-
-static uint64_t ComboNowMs() {
-    using namespace std::chrono;
-    return (uint64_t)duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-}
 
 // ComboShip (#136): Triforce Hunt is ONE combined goal — the launcher pushes it into both DLLs, sums
 // both counters on every piece grant/merge, and dispatches the ending itself.
@@ -1167,7 +1159,6 @@ static void MarkForeignObtained(int srcGame, const char* checkName) {
 static void LoadComboCompletion(int slot) {
     g_comboCompletion[0] = g_comboCompletion[1] = false;
     g_comboCompletionSlot = slot;
-    g_comboFinishedAtMs = 0;
     g_comboTriforceDone = false;
     g_goalHunt = false;
     g_goalRequired = 0;
@@ -1181,7 +1172,6 @@ static void LoadComboCompletion(int slot) {
         g_comboCompletion[0] = comp.value("oot", false);
         g_comboCompletion[1] = comp.value("mm", false);
         g_comboTriforceDone = comp.value("triforce", false);
-        g_comboFinishedAtMs = comp.value("finishedAt", (uint64_t)0);
         // The goal is seed-bound: it rides the slot's baked combo.rando, not the live menu CVars.
         auto rando = combo.value("rando", nlohmann::json::object());
         auto goal = rando.value("goal", nlohmann::json::object());
@@ -1198,8 +1188,8 @@ static void LoadComboCompletion(int slot) {
         MM_SetComboGoal(g_goalHunt ? 1 : 0, g_goalRequired, ComboRando::CwMmPieces(g_goalTotal));
     if (SOH_SetComboStartingGame)
         SOH_SetComboStartingGame(g_startingGameMM ? 1 : 0);
-    if (ComboUI_SetComboFinishedAt)
-        ComboUI_SetComboFinishedAt(g_comboFinishedAtMs);
+    if (ComboUI_SetComboComplete)
+        ComboUI_SetComboComplete((g_comboCompletion[0] && g_comboCompletion[1]) ? 1 : 0);
 }
 
 // Generation pushes the MENU goal into both DLLs. If a slot is loaded, put its own (seed-bound) goal
@@ -1216,21 +1206,18 @@ static void RestoreLoadedSlotGoal() {
 }
 
 static void SaveComboCompletion(int slot) {
-    // #173: one latch point for both goal paths (both bosses / Triforce Hunt) — the run's finish time.
-    if (g_comboCompletion[0] && g_comboCompletion[1] && g_comboFinishedAtMs == 0)
-        g_comboFinishedAtMs = ComboNowMs();
     {
         std::lock_guard<std::mutex> lk(g_containerMutex);
         auto& c = LoadOrCreateContainer(slot);
         c["combo"]["completion"]["oot"] = g_comboCompletion[0];
         c["combo"]["completion"]["mm"] = g_comboCompletion[1];
         c["combo"]["completion"]["triforce"] = g_comboTriforceDone;
-        c["combo"]["completion"]["finishedAt"] = g_comboFinishedAtMs;
         FlushContainer(slot);
     }
-    // Push outside the container lock — comboui must never re-enter the sidecar.
-    if (ComboUI_SetComboFinishedAt)
-        ComboUI_SetComboFinishedAt(g_comboFinishedAtMs);
+    // #173: tints the timer overlay's total green. Pushed outside the container lock — comboui must
+    // never re-enter the sidecar.
+    if (ComboUI_SetComboComplete)
+        ComboUI_SetComboComplete((g_comboCompletion[0] && g_comboCompletion[1]) ? 1 : 0);
 }
 
 // ComboShip (#164): push the slot's hints slice + read state into comboui's Hint Tracker. Reads the
@@ -3085,7 +3072,7 @@ int main(int argc, char** argv) {
         ComboUI_SetAnchorRosterProvider =
             (FnComboUISetRosterProvider)GetSym(comboUIModule, "ComboUI_SetAnchorRosterProvider");
         ComboUI_SetHintTrackerData = (FnComboUISetHintTrackerData)GetSym(comboUIModule, "ComboUI_SetHintTrackerData");
-        ComboUI_SetComboFinishedAt = (FnComboUISetFinishedAt)GetSym(comboUIModule, "ComboUI_SetComboFinishedAt");
+        ComboUI_SetComboComplete = (FnComboUISetInt)GetSym(comboUIModule, "ComboUI_SetComboComplete");
         if (ComboUI_SetAnchorRosterProvider)
             ComboUI_SetAnchorRosterProvider(&ComboAnchor::Combo_Anchor_GetRoster);
         ComboUI_SetNotesStore = (FnComboUISetNotesStore)GetSym(comboUIModule, "ComboUI_SetNotesStore");

@@ -4333,12 +4333,6 @@ extern "C" __declspec(dllexport) uint64_t MM_GetPlaytimeMs(void) {
     return total;
 }
 
-// Unix ms this MM file was first loaded, 0 if never. Combo's real-time row starts at the earlier of
-// this and OOT's first input.
-extern "C" __declspec(dllexport) uint64_t MM_GetFileCreatedAtMs(void) {
-    return gSaveContext.save.shipSaveInfo.fileCreatedAt;
-}
-
 extern "C" __declspec(dllexport) int32_t MM_MenuEvalDisabled(int32_t i, const char** outReason) {
     ComboMenuContext::UseSharedImGuiContext();
     Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("mm"));

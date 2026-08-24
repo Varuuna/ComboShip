@@ -7,8 +7,11 @@
 // The total is the sum of each game's own play time (OOT's in-game timer + MM's filePlaytime), read
 // live through SOH_/MM_ exports. Exactly one side advances at a time, so the total keeps moving as
 // the player swaps. It tracks each game's live value, so a game whose in-memory save is re-read from
-// the container (a reset or owl-save quit out of MM) can step back to its last saved time. The
-// OOT-only rows (time of day, Navi, conditional) draw only while OOT is the foreground game.
+// the container can step back to its last saved time. The OOT-only rows (time of day, Navi,
+// conditional) draw only while OOT is the foreground game.
+//
+// There is deliberately no real-time (RTA) row: MM's GetUnixTimestamp truncates through `long`, so
+// its timestamps are not comparable with OOT's. See docs/deviations/ui-menu.md.
 #pragma once
 
 #include <ship/window/gui/GuiWindow.h>

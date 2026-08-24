@@ -11,7 +11,6 @@
 #include <ship/window/gui/IconsFontAwesome4.h>
 #include <algorithm>
 #include <atomic>
-#include <chrono>
 #include <cstdio>
 #include <memory>
 #include <string>
@@ -26,7 +25,6 @@ namespace {
 
 constexpr const char* kCvarEnabled = "gCombo.Timers.Enabled";
 constexpr const char* kCvarTotal = "gCombo.Timers.TotalPlayTime";
-constexpr const char* kCvarRealTime = "gCombo.Timers.RealTime";
 constexpr const char* kCvarPerGame = "gCombo.Timers.PerGame";
 constexpr const char* kCvarTimeOfDay = "gCombo.Timers.TimeOfDay";
 constexpr const char* kCvarNavi = "gCombo.Timers.Navi";
@@ -55,8 +53,8 @@ constexpr const char* kDigits[11] = { "DIGIT_0_TEXTURE", "DIGIT_1_TEXTURE", "DIG
                                       "DIGIT_4_TEXTURE", "DIGIT_5_TEXTURE", "DIGIT_6_TEXTURE", "DIGIT_7_TEXTURE",
                                       "DIGIT_8_TEXTURE", "DIGIT_9_TEXTURE", "COLON_TEXTURE" };
 
-// Set by the launcher when the combo goal is met; freezes the real-time row. 0 = still running.
-std::atomic<uint64_t> sFinishedAtMs{ 0 };
+// Set by the launcher when both games are beaten; tints the total green, like MM's own overlay.
+std::atomic<int> sRunComplete{ 0 };
 
 struct Row {
     const char* icon = nullptr;  // Fast3d texture key, or null to use label
@@ -71,10 +69,8 @@ float sScale = 1.0f;
 // Lazily resolved once per process; a missing symbol (stale DLL) just zeroes that game's half.
 struct GameFns {
     uint64_t (*ootPlaytimeDs)(void) = nullptr;
-    uint64_t (*ootRtaStartMs)(void) = nullptr;
     int (*ootOverlay)(uint32_t*, int32_t*, int32_t*, uint32_t*, int32_t*, int32_t*) = nullptr;
     uint64_t (*mmPlaytimeMs)(void) = nullptr;
-    uint64_t (*mmCreatedAtMs)(void) = nullptr;
 };
 
 const GameFns& Fns() {
@@ -85,13 +81,11 @@ const GameFns& Fns() {
 #ifdef _WIN32
         if (HMODULE soh = GetModuleHandleA("soh.dll")) {
             fns.ootPlaytimeDs = (uint64_t(*)(void))GetProcAddress(soh, "SOH_GetPlaytimeDeciseconds");
-            fns.ootRtaStartMs = (uint64_t(*)(void))GetProcAddress(soh, "SOH_GetRtaStartMs");
             fns.ootOverlay = (int (*)(uint32_t*, int32_t*, int32_t*, uint32_t*, int32_t*, int32_t*))GetProcAddress(
                 soh, "SOH_GetOverlayTimers");
         }
         if (HMODULE mm = GetModuleHandleA("2ship.dll")) {
             fns.mmPlaytimeMs = (uint64_t(*)(void))GetProcAddress(mm, "MM_GetPlaytimeMs");
-            fns.mmCreatedAtMs = (uint64_t(*)(void))GetProcAddress(mm, "MM_GetFileCreatedAtMs");
         }
 #endif
     }
@@ -104,11 +98,6 @@ std::shared_ptr<Fast::Fast3dGui> Gui3d() {
         return nullptr;
     }
     return std::dynamic_pointer_cast<Fast::Fast3dGui>(ctx->GetWindow()->GetGui());
-}
-
-uint64_t NowMs() {
-    using namespace std::chrono;
-    return (uint64_t)duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 }
 
 // H:MM:SS.d — same shape as OOT's formatTimeDisplay and MM's Ship_FormatTimeDisplay.
@@ -143,26 +132,10 @@ uint64_t CombinedDeciseconds(uint64_t* ootOut, uint64_t* mmOut) {
     return oot + mm;
 }
 
-// Real time across the whole run: earliest start either game recorded, frozen at the combo goal.
-uint64_t RealTimeDeciseconds() {
-    const GameFns& fns = Fns();
-    uint64_t a = fns.ootRtaStartMs ? fns.ootRtaStartMs() : 0;
-    uint64_t b = fns.mmCreatedAtMs ? fns.mmCreatedAtMs() : 0;
-    uint64_t start = (a && b) ? std::min(a, b) : (a ? a : b);
-    if (start == 0) {
-        return 0;
-    }
-    uint64_t end = sFinishedAtMs.load(std::memory_order_relaxed);
-    if (end == 0) {
-        end = NowMs();
-    }
-    return (end > start) ? (end - start) / 100 : 0;
-}
-
 void BuildRows() {
     sRows.clear();
 
-    const bool finished = sFinishedAtMs.load(std::memory_order_relaxed) != 0;
+    const bool finished = sRunComplete.load(std::memory_order_relaxed) != 0;
     uint64_t ootDs = 0;
     uint64_t mmDs = 0;
     const uint64_t totalDs = CombinedDeciseconds(&ootDs, &mmDs);
@@ -171,10 +144,6 @@ void BuildRows() {
     if (CVarGetInteger(kCvarTotal, 1) != 0) {
         FormatDeciseconds(totalDs, buf, sizeof(buf));
         AddRow("GAMEPLAY_TIMER", nullptr, finished ? kGreen : kWhite, buf);
-    }
-    if (CVarGetInteger(kCvarRealTime, 0) != 0) {
-        FormatDeciseconds(RealTimeDeciseconds(), buf, sizeof(buf));
-        AddRow(nullptr, "RTA", finished ? kGreen : kWhite, buf);
     }
     if (CVarGetInteger(kCvarPerGame, 0) != 0) {
         FormatDeciseconds(ootDs, buf, sizeof(buf));
@@ -298,7 +267,6 @@ void SeedFromNativeCvars() {
     const bool nativeShown = CVarGetInteger("gOpenWindows.TimeDisplayEnabled", 0) != 0 || mmMode != 0;
     CVarSetInteger(kCvarEnabled, nativeShown ? 1 : 0);
     CVarSetInteger(kCvarTotal, 1);
-    CVarSetInteger(kCvarRealTime, (CVarGetInteger("gGameplayStats.RTATiming", 0) != 0 || mmMode == 1) ? 1 : 0);
     CVarSetInteger(kCvarTimeOfDay, CVarGetInteger("gTimeDisplay.Timers.TimeofDay", 0));
     CVarSetInteger(kCvarNavi, CVarGetInteger("gTimeDisplay.Timers.NaviTimer", 0));
     CVarSetInteger(kCvarConditional, CVarGetInteger("gTimeDisplay.Timers.HotWater", 0));
@@ -416,11 +384,6 @@ void DrawTimersSharedPanel() {
             CVarSetInteger(kCvarTotal, total ? 1 : 0);
             changed = true;
         }
-        bool rta = CVarGetInteger(kCvarRealTime, 0) != 0;
-        if (ImGui::Checkbox("Real time", &rta)) {
-            CVarSetInteger(kCvarRealTime, rta ? 1 : 0);
-            changed = true;
-        }
         bool perGame = CVarGetInteger(kCvarPerGame, 0) != 0;
         if (ImGui::Checkbox("Per-game breakdown", &perGame)) {
             CVarSetInteger(kCvarPerGame, perGame ? 1 : 0);
@@ -467,8 +430,6 @@ void DrawTimersSharedPanel() {
         ImGui::EndTable();
     }
 
-    ImGui::TextDisabled("Real time runs from the first input in either game and stops when the goal is met.");
-
     if (changed) {
         if (auto ctx = Ship::Context::GetRawInstance(); ctx && ctx->GetWindow() && ctx->GetWindow()->GetGui()) {
             ctx->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
@@ -478,13 +439,12 @@ void DrawTimersSharedPanel() {
 
 } // namespace ComboRando
 
-// ComboShip: the launcher pushes the slot's goal-completion timestamp (Unix ms, 0 = not finished)
-// here on slot load and when the goal latches; it freezes the real-time row.
+// ComboShip: the launcher pushes whether both games are beaten, on slot load and when it latches.
 #ifdef _WIN32
-extern "C" __declspec(dllexport) void ComboUI_SetComboFinishedAt(unsigned long long finishedAtMs)
+extern "C" __declspec(dllexport) void ComboUI_SetComboComplete(int complete)
 #else
-extern "C" void ComboUI_SetComboFinishedAt(unsigned long long finishedAtMs)
+extern "C" void ComboUI_SetComboComplete(int complete)
 #endif
 {
-    ComboRando::sFinishedAtMs.store((uint64_t)finishedAtMs, std::memory_order_relaxed);
+    ComboRando::sRunComplete.store(complete, std::memory_order_relaxed);
 }

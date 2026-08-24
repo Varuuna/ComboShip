@@ -119,12 +119,23 @@ bool Menu::IsMenuPopped() {
 }
 
 UIWidgets::Colors Menu::GetMenuThemeColor() {
+#ifdef COMBO_BUILD
+    // ComboShip: every THEME_COLOR read funnels through here, and UpdateElement() re-reads the CVar
+    // unclamped — an out-of-range value would throw from ColorValues.at() across the DLL boundary.
+    return UIWidgets::ColorValues.contains(menuThemeIndex) ? menuThemeIndex : defaultThemeIndex;
+#else
     return menuThemeIndex;
+#endif
 }
 
 Menu::Menu(const std::string& cVar, const std::string& name, uint8_t searchSidebarIndex_,
            UIWidgets::Colors defaultThemeIndex_)
     : GuiWindow(cVar, name), searchSidebarIndex(searchSidebarIndex_), defaultThemeIndex(defaultThemeIndex_) {
+#ifdef COMBO_BUILD
+    // ComboShip: comboui owns the Gui menu slot, so UpdateElement() only runs once MM's tab is drawn.
+    // Seed the theme now so the always-drawn modal window starts in the user's colour, not garbage.
+    menuThemeIndex = static_cast<UIWidgets::Colors>(CVarGetInteger("gSettings.Menu.Theme", defaultThemeIndex_));
+#endif
 }
 
 void Menu::InitElement() {

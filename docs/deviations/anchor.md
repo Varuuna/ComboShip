@@ -257,3 +257,36 @@ Fixes, all `COMBO_BUILD`:
 - `soh/soh/Network/Anchor/DummyPlayer.cpp` + `mm/2s2h/Network/Anchor/DummyPlayer.cpp`: remote puppet
   name tags now use the client's Anchor color (`client.color`) instead of the dark default
   (`NameTagOptions.textColor` alpha 0).
+
+## MM team-state merge + deferred cycle-save broadcast (2026-08-22)
+
+**Why:** MM's `HandlePacket_UpdateTeamState` replaced `saveInfo`/`shipSaveInfo` wholesale where OOT
+max-merges (`soh/soh/Network/Anchor/Packets/UpdateTeamState.cpp:283-290`), so a resync could truncate
+Small Keys, Stray Fairies and dungeon items — and, worse, hand us the peer's `saveType`, flipping
+`IS_RANDO` and silently unregistering every rando hook (including the Song of Time key restore).
+Separately, MMAnchor broadcast from `AfterEndOfCycleSave`, which can run *before* the rando restore hook:
+`RegisteredGameHooks<H>::functions` is an `std::unordered_map`, so hook order is not registration order
+and no ordering-based fix is sound.
+
+Fixes, receiver-only, no wire change (`mm/2s2h/Network/Anchor/MMAnchor.{h,cpp}`):
+- **Two early drop-guards**, neither conditioned on `IS_RANDO` — the handler is also reached with
+  `isDormantApply == true` from `PumpDormant`, which persists immediately afterwards, so an `IS_RANDO`-gated
+  guard would have skipped exactly the dormant path. (1) Local save not `SAVETYPE_RANDO` → warn and return;
+  there is no vanilla mode in ComboShip, so that means nothing usable is loaded, and preserving that
+  `saveType` through the merge *is* the original key-eating bug. (2) No `rando` block in the incoming
+  `shipSaveInfo` → warn and return: a non-rando peer serializes a zeroed `rando` struct
+  (`BenJsonConversions.hpp`), which the wholesale assign would turn into an empty `RANDO_SAVE_CHECKS`.
+- **Local `saveType` preserved** alongside `fileCreatedAt` in the receiver-local restore block.
+- **Max/OR-merge** `inventory.dungeonKeys`, `inventory.strayFairies`, `rando.foundDungeonKeys` (all `s8`,
+  `-1` when fresh, so signed max handles the sentinel) and OR `inventory.dungeonItems` (u8 bitfield).
+  Accepted, per the OOT precedent: a stale peer resync can re-grant a locally-spent Small Key.
+- **Deferred broadcast**: `AfterEndOfCycleSave` sets `pendingCycleSaveBroadcast`; MMAnchor's existing
+  `OnGameStateUpdate` hook sends it. `GameState_Update` runs `main` (where `Sram_SaveEndOfCycle` and all
+  `AfterEndOfCycleSave` hooks complete synchronously) before `GameInteractor_ExecuteOnGameStateUpdate`
+  (`mm/src/code/game.c:151-168`), so the send still lands the same frame, strictly after every restore.
+  A quit on that same frame drops the send harmlessly — peers re-request on connect. `Deactivate()` clears
+  the flag so an unsent broadcast can't fire unsolicited on the next activation.
+
+`Rando::MiscBehavior::OnFileLoad()` is still deliberately absent from the post-merge re-init block: it
+calls `CheckQueueReset()`, which would drop queued in-flight grants. Preserving the local `saveType`
+keeps its already-registered hooks valid, so it is not needed.

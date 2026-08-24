@@ -65,7 +65,8 @@ void Setup_InitImpl(SetupState* this) {
         Combo_AdoptOOTGlobalOptions();
         // Set flashSaveAvailable so Sram_Alloc allocates saveBuf (normally set by the title screen).
         gSaveContext.flashSaveAvailable = true;
-        // Load the MM save that matches the OOT slot (OOT slot N → MM file N+1).
+        // Load the MM save that matches the OOT slot (OOT slot N → MM file N+1). ComboShip never blocks
+        // entry: a nonzero result is logged inside and leaves the fail-closed sentinel, and play proceeds.
         Combo_LoadMMSaveFile(gComboStartFileNum + 1);
         // South Clock Town is the default arrival for both portal entry and a resume. Only a resume
         // with Remember Save Location on returns to the stored spot (set by SavingEnhancements).

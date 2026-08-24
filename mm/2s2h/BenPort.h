@@ -189,6 +189,12 @@ void Combo_AdoptOOTGlobalOptions(void);
 void Combo_RequestOwlSaveQuit(void);
 // Load an existing MM save from disk into gSaveContext (C-callable wrapper).
 void Combo_LoadMMSaveFile(int mmFileNum);
+// ComboShip (#182): 1-based MM file whose owlSave blob is what gSaveContext descends from (-1 = none).
+extern int gComboOwlBlobSlot;
+// ComboShip (#182): mirrors Sram_OpenSave's owl branch; resolveEntrance = 0 keeps combo's arrival point.
+void Combo_ApplyOwlSaveOpen(s32 resolveEntrance);
+// ComboShip (#182): vanilla's "consume the owl save on continue" — promotes it, then drops the key.
+void Combo_MMDropOwlSaveBlob(void);
 
 int32_t GetGIID(uint32_t itemID);
 #endif

@@ -489,3 +489,57 @@ the pre-fix segfault reproduced on demand; post-fix, `oot.z64` routes to the OoT
 (`SOH_ClassifyRom` accepts, MM never consulted) and `mm.z64` to the MM slot (SOH rejects, then
 `MM_ClassifyRom` accepts). Also verified by hand on Windows: ROMs dragged onto the extraction
 screen route through the `WM_DROPFILES`/DXGI path into the correct slots.
+
+## MM owl saves on combo resume (issue #182, 2026-08-24)
+
+**Why:** ComboShip enters MM without a file select — `Setup_InitImpl`'s `COMBO_BUILD` block
+(`mm/src/code/title_setup.c`) hand-rolls a subset of `Sram_OpenSave` and loads through
+`SaveManager_LoadSaveFile`, which read only the `newCycleSave` key. Owl saves (owl statue, Pause Save,
+Autosave) are still written correctly into the sibling `owlSave` key, so both coexist and the resume
+always took the stale one — discarding everything since the last cycle save. Vanilla is fine:
+`Sram_OpenSave` picks the owl page when `fileSelect->isOwlSave[...]` is set, then consumes it.
+
+**The invariant:** *if `owlSave` exists, it is at least as new as `newCycleSave`.* Vanilla holds it
+with `VB_DELETE_OWL_SAVE` on continue plus the `DeleteOwlSave()` hooks on `BeforeEndOfCycleSave` /
+`BeforeMoonCrash`. Combo breaks it because `SaveManager_SaveCurrentForCombo` writes `newCycleSave` from
+11 call sites — four of them while MM is **dormant** and the player is in OOT (cross-item grants,
+Anchor, dormant Triforce credits).
+
+**Fix:** `gComboOwlBlobSlot` (`SaveManager.cpp`, declared in `BenPort.h`'s C-only region) records the
+slot whose owl blob `gSaveContext` descends from.
+
+- `SaveManager_LoadSaveFile` prefers `owlSave` when the key is present — a whole `SaveContext`, so it
+  restores the cycle extras (`eventInf`, bottle timers, `pictoPhotoI5`) that `newCycleSave` lacks.
+  Presence of the key is the discriminator; `save.isOwlSave` is **not** reliable, every owl writer
+  restores it in RAM afterwards. Stays a pure read — the dormant tracker peek shares this function.
+- `SaveManager_SaveCurrentForCombo` read-modify-writes: it **refreshes** the blob when the flag matches,
+  otherwise **erases** it. Never leaves it untouched — blanket preservation would let a dormant grant
+  write a newer `newCycleSave` behind a stale blob, and the granted item would vanish. The refresh
+  rewrites the **whole** `SaveContext`, the same shape the owl writer emits: refreshing only `["save"]`
+  would leave the blob's `eventInf` and bottle timers frozen while `save` moved on, a mix no vanilla
+  writer can produce (a bottle timer would then resume against a start time from an earlier process).
+- The new-cycle branch of `SaveManager_SysFlashrom_WriteData` preserves `owlSave`, so it gets the same
+  erase-unless-it-is-ours treatment. Reached by the game-over save prompt and by a pause save with
+  Pause Menu Save off — Song of Time and moon crash are already safe via `DeleteOwlSave`.
+- `MM_InvalidateOwlBlobSlot` clears the flag when the launcher replaces a slot's `mm` section behind
+  MM's back (`EraseComboContainer`, `Combo_CopyContainer`) — it cannot reach a DLL global otherwise.
+- A portal entry arrives in South Clock Town, which runs neither owl-arrival path, so `title_setup.c`
+  clears `save.isOwlSave` there. Left set it would persist into `newCycleSave` and keep owl-save write
+  timing armed for the whole session (a 2s stall and an `eventInf` wipe on every cycle reset).
+- `Combo_ApplyOwlSaveOpen` (`z_sram_NES.c`, next to `Sram_OpenSave` because `sOwlWarpEntrances` is
+  static there) mirrors the owl branch: pause entrance beats owl warp id, the `owlWarpId > OWL_WARP_MAX`
+  quirk is kept verbatim, post-temple swamp/mountain rewrites, scarecrow song.
+- `Combo_MMDropOwlSaveBlob` consumes the blob on continue. `func_80147314` can't be used — it needs
+  `sramCtx->saveBuf` and `gPlayState`, neither of which exists at `Setup_InitImpl`.
+
+**Entry kinds:** an owl blob wins on both, but only a resume follows it to where it was saved; a portal
+entry still arrives at South Clock Town.
+
+**Not a gap:** the combo block never zeroes `eventInf` or resets the timers the way `Sram_OpenSave`'s
+non-owl branch does — it doesn't need to. `Setup_InitImpl` calls `SaveContext_Init()`, which `memset`s
+all of `gSaveContext` on every MM entry. Vanilla only needs those resets because its file select
+re-uses a dirty `gSaveContext`.
+
+**Known hole, left alone:** with Autosave on and Pause Menu Save off, a pause save takes
+`Sram_SetFlashPagesDefault` into the new-cycle branch, which preserves `owlSave` — so a stale autosave
+blob shadows it until the next combo write. Vanilla 2S2H has the identical bug through its file select.

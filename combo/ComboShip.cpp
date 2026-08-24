@@ -176,6 +176,10 @@ static FnSetSaveCallback SOH_SetOnLoadSaveCallback = nullptr;
 typedef void (*FnGetPlayerName)(unsigned char*);
 static FnGetPlayerName SOH_GetCurrentPlayerName = nullptr;
 static FnMMInitSave MM_LoadSaveForCombo = nullptr;
+// ComboShip (#182): MM caches which slot's owl save its gSaveContext came from; tell it when the
+// launcher replaces a slot's mm section underneath it.
+typedef void (*FnMMInvalidateOwlBlob)(void);
+static FnMMInvalidateOwlBlob MM_InvalidateOwlBlobSlot = nullptr;
 // #89 resume-into-MM: drop out of OOT's loop before it runs a Play frame / tell MM how it was entered.
 // SOH_IsOnFileSelect distinguishes a real file-select load from the OnLoadGame that TitleSetup fires
 // on the MM->OOT return (which must not bounce the player straight back into MM).
@@ -484,6 +488,10 @@ static void EraseComboContainer(int slot) {
         std::error_code ec;
         std::filesystem::remove(ComboContainerPath(slot), ec);
     }
+    // ComboShip (#182): MM caches which slot's owl save its gSaveContext came from; the section it
+    // named is gone. Outside the lock — the DLL must never re-enter the container.
+    if (MM_InvalidateOwlBlobSlot)
+        MM_InvalidateOwlBlobSlot();
     // ComboShip (#164): clear the Hint Tracker outside the lock — its push path re-takes the mutex, and
     // the window would otherwise keep showing the deleted slot's hints on the file-select screen.
     if (ComboUI_SetHintTrackerData)
@@ -493,13 +501,18 @@ static void EraseComboContainer(int slot) {
 // Copy a whole slot (both games + baked rando) — OOT file-select "copy file". Registered into OOT
 // via SOH_SetCopyContainer; the .combosav has no per-game file to copy, so the launcher owns it.
 static void Combo_CopyContainer(int from, int to) {
-    std::lock_guard<std::mutex> lk(g_containerMutex);
-    nlohmann::json copy = LoadOrCreateContainer(from); // deep copy of the source container
-    copy["slot"] = to;
-    g_containerCache[to] = std::move(copy);
-    if (g_MmSaveInMemorySlot == to)
-        g_MmSaveInMemorySlot = -1; // the destination's MM save just changed under us
-    FlushContainer(to);
+    {
+        std::lock_guard<std::mutex> lk(g_containerMutex);
+        nlohmann::json copy = LoadOrCreateContainer(from); // deep copy of the source container
+        copy["slot"] = to;
+        g_containerCache[to] = std::move(copy);
+        if (g_MmSaveInMemorySlot == to)
+            g_MmSaveInMemorySlot = -1; // the destination's MM save just changed under us
+        FlushContainer(to);
+    }
+    // ComboShip (#182): the destination's owl save came from the donor, so MM's descent cache is wrong.
+    if (MM_InvalidateOwlBlobSlot)
+        MM_InvalidateOwlBlobSlot();
 }
 
 // Launcher-provided save IO, pushed into each DLL. game: 0=OOT,1=MM (GameId); fileNum 0-based.
@@ -2700,6 +2713,7 @@ int main(int argc, char** argv) {
     SOH_SetOnLoadSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnLoadSaveCallback");
     SOH_GetCurrentPlayerName = (FnGetPlayerName)GetSym(sohModule, "SOH_GetCurrentPlayerName");
     MM_LoadSaveForCombo = (FnMMInitSave)GetSym(mmModule, "MM_LoadSaveForCombo");
+    MM_InvalidateOwlBlobSlot = (FnMMInvalidateOwlBlob)GetSym(mmModule, "MM_InvalidateOwlBlobSlot");
     SOH_ParkForComboMMResume = (FnVoid)GetSym(sohModule, "SOH_ParkForComboMMResume");
     MM_SetComboEntryIsResume = (FnMMInitSave)GetSym(mmModule, "MM_SetComboEntryIsResume");
     SOH_IsOnFileSelect = (FnIsOnFileSelect)GetSym(sohModule, "SOH_IsOnFileSelect");

@@ -139,6 +139,7 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
 void ApplyGlitchlessLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool);
 void ApplyNearlyNoLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool);
 void ApplyNoLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool);
+bool StaysAtVanillaCheck(RandoItemId itemId, const RandoSaveInfo& saveInfo);
 bool IsItemAllowedAtCheck(RandoItemId itemId, RandoCheckId checkId);
 size_t SelectItemForCheck(const std::vector<RandoItemId>& itemPool, const std::vector<RandoCheckId>& checkPool,
                           RandoCheckId checkId);

@@ -13,19 +13,23 @@ extern PlayState* gPlayState;
  * Console lag frames make that mash humanly possible; the port never lags, so instead we re-queue
  * the promoted cutscene for up to two extra frames, keeping it consumable at realistic mash
  * speeds. Re-queueing goes through the normal request path, so cutscene priority arbitration is
- * unaffected.
+ * unaffected. bgCheckFlags and meleeWeaponState checks to identify hovering
  */
 void RegisterOcarinaDive() {
     COND_HOOK(OnGameStateMainStart, true, []() {
-        static s32 ageFrames = 0;
+        if (gPlayState != NULL) {
+            Player* player = GET_PLAYER(gPlayState);
+            static s32 ageFrames = 0;
 
-        s16 ocarinaCsId = (gPlayState != NULL) ? gPlayState->playerCsIds[PLAYER_CS_ID_ITEM_OCARINA] : CS_ID_NONE;
+            s16 ocarinaCsId = gPlayState->playerCsIds[PLAYER_CS_ID_ITEM_OCARINA];
 
-        if ((ocarinaCsId > CS_ID_NONE) && (CutsceneManager_IsNext(ocarinaCsId) > 0) && (ageFrames < 2)) {
-            ageFrames++;
-            CutsceneManager_Queue(ocarinaCsId);
-        } else {
-            ageFrames = 0;
+            if ((ocarinaCsId > CS_ID_NONE) && (CutsceneManager_IsNext(ocarinaCsId) > 0) && (ageFrames < 2) &&
+                ((player->actor.bgCheckFlags & BGCHECKFLAG_GROUND_TOUCH) && (player->meleeWeaponState == 1))) {
+                ageFrames++;
+                CutsceneManager_Queue(ocarinaCsId);
+            } else {
+                ageFrames = 0;
+            }
         }
     });
 }

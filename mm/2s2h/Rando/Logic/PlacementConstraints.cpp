@@ -25,7 +25,7 @@ int SceneIdToDungeon(SceneId sceneId) {
     }
 }
 
-int RandoItemIdToDungeon(RandoItemId itemId) {
+int DungeonItemToDungeon(RandoItemId itemId) {
     int dungeon = -1;
     switch (itemId) {
         case RI_WOODFALL_SMALL_KEY:
@@ -51,16 +51,46 @@ int RandoItemIdToDungeon(RandoItemId itemId) {
         default:
             return -1;
     }
+    return dungeon;
+}
+
+RandoOptionId DungeonItemPlacementOption(RandoItemId itemId) {
+    if (DungeonItemToDungeon(itemId) < 0 && itemId != RI_CLOCK_TOWN_STRAY_FAIRY) {
+        return RO_MAX;
+    }
     switch (Rando::StaticData::Items[itemId].randoItemType) {
         case RITYPE_SMALL_KEY:
-            return RANDO_SAVE_OPTIONS[RO_PLACEMENT_SMALL_KEYS] == RO_DUNGEON_ITEM_OWN_DUNGEON ? dungeon : -1;
+            return RO_PLACEMENT_SMALL_KEYS;
         case RITYPE_BOSS_KEY:
-            return RANDO_SAVE_OPTIONS[RO_PLACEMENT_BOSS_KEYS] == RO_DUNGEON_ITEM_OWN_DUNGEON ? dungeon : -1;
+            return RO_PLACEMENT_BOSS_KEYS;
         case RITYPE_STRAY_FAIRY:
-            return RANDO_SAVE_OPTIONS[RO_PLACEMENT_STRAY_FAIRIES] == RO_DUNGEON_ITEM_OWN_DUNGEON ? dungeon : -1;
+            return RO_PLACEMENT_STRAY_FAIRIES;
         default:
-            return -1;
+            return RO_MAX;
     }
+}
+
+bool StaysAtVanillaCheck(RandoItemId itemId, const RandoSaveInfo& saveInfo) {
+    RandoOptionId placementOption = DungeonItemPlacementOption(itemId);
+    if (placementOption == RO_MAX) {
+        return false;
+    }
+    switch (saveInfo.randoSaveOptions[placementOption]) {
+        case RO_DUNGEON_ITEM_VANILLA:
+            return true;
+        case RO_DUNGEON_ITEM_OWN_DUNGEON:
+            return DungeonItemToDungeon(itemId) < 0;
+        default:
+            return false;
+    }
+}
+
+int RandoItemIdToDungeon(RandoItemId itemId) {
+    RandoOptionId placementOption = DungeonItemPlacementOption(itemId);
+    if (placementOption == RO_MAX || RANDO_SAVE_OPTIONS[placementOption] != RO_DUNGEON_ITEM_OWN_DUNGEON) {
+        return -1;
+    }
+    return DungeonItemToDungeon(itemId);
 }
 
 bool IsItemAllowedAtCheck(RandoItemId itemId, RandoCheckId checkId) {

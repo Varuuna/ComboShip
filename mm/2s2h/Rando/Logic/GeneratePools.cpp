@@ -78,6 +78,12 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
                 continue;
             }
 
+            // dungeon items
+            if (StaysAtVanillaCheck(randoStaticCheck.randoItemId, saveInfo)) {
+                saveInfo.randoSaveChecks[randoCheckId].shuffled = true;
+                continue;
+            }
+
             if (randoStaticCheck.randoCheckType == RCTYPE_SKULL_TOKEN) {
                 if (saveInfo.randoSaveOptions[RO_SHUFFLE_GOLD_SKULLTULAS] == RO_GENERIC_NO) {
                     continue;

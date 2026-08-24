@@ -18,14 +18,15 @@ After every merge that touches either randomizer, re-walk the fill-parity checkl
 
 | Folder | Upstream repo | Branch we track | Maps to |
 |--------|---------------|-----------------|---------|
-| `libultraship` | `github.com/Kenix3/libultraship` | `main` | repo root |
+| `libultraship` | `github.com/Kenix3/libultraship` | `port-maintenance` (**not** `main` — see [policy](#standing-policy-libultraship-branch-kenix3-port-maintenance)) | repo root |
 | `soh` | `github.com/HarbourMasters/Shipwright` | `develop` | `soh/` subdir |
 | `mm` | `github.com/HarbourMasters/2ship2harkinian` | `develop` | `mm/` subdir |
 
 These three are **coupled**: `soh@develop` and `mm@develop` track libultraship as a submodule and
 already expect a recent libultraship (and its current header layout). Updating libultraship alone
-breaks the soh/mm builds (they `#include` libultraship by path). **Update all three together** to
-mutually-compatible upstream states.
+breaks the soh/mm builds (they `#include` libultraship by path). Aim for mutually-compatible upstream
+states, and where they land as separate PRs, **land libultraship first** — a soh/mm PR merged against
+an older engine breaks the build.
 
 ## The update mechanism (vendor-branch + grafted ancestry)
 
@@ -65,21 +66,24 @@ manual (it's judgement work). Three pieces:
   `vendor-*` branches at the current tips (parent = previous vendor tip), and prints the
   **conflict-surface report** (which of *our* customized files upstream touched). With `-Merge` it
   also runs the 3-way merges (`-c merge.renames=false` for mm), leaving conflicts for a human.
-- **CI** (`.github/workflows/upstream-merge.yml`, weekly + manual) — **auto-drafts the merge PR.**
-  Every run writes a Step Summary (up-to-date vs updates-found, so the result is never ambiguous).
-  When upstream has moved it reuses `upstream-merge.ps1` for the plumbing, runs the mechanical 3-way
-  merge on a stable `bot/upstream-merge` branch (**committing conflict markers** — the PR is labelled
-  `has-conflicts`), bumps `upstream-pins.json`, scaffolds `docs/merges/<date>.md`, and opens/updates a
-  **draft PR to `develop`**. You finish it on that branch: resolve markers, work the build-fix chain,
-  flesh out the merge log, then mark ready. The merge base is derived from `develop`'s own history
-  (the 2nd parent of the most recent `merge(<key>):` commit), so it's correct without relying on
-  pushed `vendor-*` branches. `build-artifacts.yml` / `clang-format.yml` are the PR gates.
+- **CI** (`.github/workflows/upstream-merge.yml`, weekly + manual) — **auto-opens the merge PRs, one
+  per upstream.** Every run writes a Step Summary (up-to-date vs updates-found, so the result is
+  never ambiguous). Each upstream that moved gets its own `bot/upstream-merge-<key>` branch and its
+  own PR to `develop`, carrying only that folder's merge (**conflict markers committed** — the PR is
+  labelled `has-conflicts`), only that key's `upstream-pins.json` bump, and its own
+  `docs/merges/<date>-<key>.md` scaffold. An upstream with nothing new gets no PR, and one whose PR
+  is already open is left untouched while its siblings proceed. You finish each on its branch:
+  resolve markers, work the build-fix chain, flesh out the merge log.
+  `build-artifacts.yml` / `clang-format.yml` / `conflict-markers` are the PR gates.
+  - **Merge the libultraship PR first** — soh/mm `#include` libultraship by path (see the coupling
+    note above). Nothing enforces it mechanically; the soh/mm PR bodies say so, and each PR in a
+    pass links its siblings.
   - **Secret:** set `UPSTREAM_PR_PAT` (a fine-grained PAT with **contents + pull-requests: write**) so
-    the drafted PR triggers the build/format gates — a PR opened by the default `GITHUB_TOKEN` does
+    the opened PRs trigger the build/format gates — a PR opened by the default `GITHUB_TOKEN` does
     **not** trigger other workflows. Without it the PR is still created; push any commit to the branch
     (or close/reopen) to kick the gates.
   - Running the local `scripts/upstream-merge.ps1` by hand still works exactly as before — use it when
-    you'd rather drive the pass locally instead of finishing the bot's draft.
+    you'd rather drive the pass locally instead of finishing the bot's PRs.
 
 ## Standing policy: libultraship branch (Kenix3 `port-maintenance`)
 
@@ -204,9 +208,10 @@ Per-release update procedure:
 ---
 # Merge log
 
-Each merge pass gets its **own dated file** under [`merges/`](merges/) — one per pull, listing every
-file we had to touch after the mechanical 3-way merge and why. This keeps the per-merge required
-changes easy to track (and to diff against the recurring-deviation list below). Newest first:
+Each merge gets its **own dated file** under [`merges/`](merges/) — `<YYYY-MM-DD>-<upstream>.md`,
+since CI now pulls each upstream in its own PR — listing every file we had to touch after the
+mechanical 3-way merge and why. This keeps the per-merge required changes easy to track (and to diff
+against the recurring-deviation list below). Newest first:
 
 - [2026-08-19](merges/2026-08-19.md) — mm `ce4bf03ab` → `d35196ad7` (**exactly the 5.0.0 "Battler
   Alfa" release tag**, seeding the new `2ship-stable` branch); libultraship `bbb565bd9` →
@@ -243,7 +248,10 @@ changes easy to track (and to diff against the recurring-deviation list below). 
 - [2026-06-03](merges/2026-06-03-initial-merge.md) — the initial three-way merge + first-launch
   runtime fixes.
 
-When you finish a pass, add a new `merges/<YYYY-MM-DD>.md` and link it here.
+When you finish a pass, link its `merges/<YYYY-MM-DD>-<upstream>.md` here (CI scaffolds the file; the
+entries above pre-date the per-upstream split and keep their plain-date names). Add the bullet in
+**one** PR of a pass — three PRs each inserting a line at the top of this list is an add/add conflict
+for whichever lands second. The bot deliberately never touches this index.
 
 # Preserved ComboShip deviations
 

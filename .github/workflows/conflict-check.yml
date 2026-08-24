@@ -1,7 +1,7 @@
 name: conflict-markers
 
 # Fast, explicit gate: fails a PR that contains committed merge-conflict markers. The upstream-merge
-# workflow deliberately COMMITS conflict markers into its draft PR (so the PR is always a complete unit),
+# workflow deliberately COMMITS conflict markers into its PRs (so each PR is always a complete unit),
 # which git/GitHub then see as ordinary text — the PR shows "no conflicts / ready to merge" even though it
 # must NOT be merged. This check is the clear, named signal that says exactly what is wrong, and where.
 # Make it a REQUIRED status check on develop so GitHub blocks the merge button. See docs/UPSTREAM_MERGES.md.

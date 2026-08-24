@@ -6,10 +6,11 @@ same ZAPD binary, so anything upstream gates on a `GAME_MM` / `GAME_OOT` compile
 runtime decision here.
 
 Both are tracked in `upstream-pins.json` with `"manual": true`, meaning the automation deliberately
-skips them: neither `scripts/upstream-merge.ps1` nor `.github/workflows/upstream-merge.yml` steps 2a-2c
-can merge them (both use a hardcoded `libultraship`/`soh`/`mm` list, and the script needs a
-`vendor-<key>` branch). The workflow's detect step filters on that flag — without it, a new extractor
-commit would raise `any_new` forever and open a bogus merge PR every week.
+skips them: neither `scripts/upstream-merge.ps1` nor the `merge` job of
+`.github/workflows/upstream-merge.yml` can merge them (both use a hardcoded
+`libultraship`/`soh`/`mm` list, and the script needs a `vendor-<key>` branch). The workflow's detect
+job filters on that flag — without it, a new extractor commit would show as moved forever and open a
+bogus merge PR every week.
 
 Bump them by hand: fetch `up-zapd` / `up-otrx`, apply upstream's own
 `<oldPin>..<newPin>` diff over the vendored tree, then re-run CMake configure so the

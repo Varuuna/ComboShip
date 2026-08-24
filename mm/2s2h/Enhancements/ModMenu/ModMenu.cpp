@@ -25,7 +25,13 @@ extern std::shared_ptr<BenMenu> mBenMenu;
 static WidgetInfo enableModsWidget;
 static WidgetInfo tabHotkeyWidget;
 
+// ComboShip: OOT owns gSettings.EnabledMods and prunes every name missing from ./mods/soh, so one
+// shared key means each game wipes the other's list every boot. Sibling leaf, never a child.
+#ifdef COMBO_BUILD
+#define CVAR_ENABLED_MODS_NAME "gSettings.EnabledModsMM"
+#else
 #define CVAR_ENABLED_MODS_NAME "gSettings.EnabledMods"
+#endif
 #define CVAR_ENABLED_MODS_DEFAULT ""
 #define CVAR_ENABLED_MODS_VALUE CVarGetString(CVAR_ENABLED_MODS_NAME, CVAR_ENABLED_MODS_DEFAULT)
 
@@ -220,6 +226,11 @@ void DrawMods(bool enabled) {
 
     for (size_t i = selectedModFiles.size() - 1; i != SIZE_MAX; i--) {
         std::string file = selectedModFiles[i];
+        // A file deleted mid-session stays listed but unmapped; skip it, at() would throw.
+        auto pathIt = filePaths.find(file);
+        if (pathIt == filePaths.end()) {
+            continue;
+        }
         if (enabled) {
             ImGui::BeginGroup();
         }
@@ -264,7 +275,7 @@ void DrawMods(bool enabled) {
             }
         }
 
-        DrawModInfo(filePaths.at(file).filename().generic_string());
+        DrawModInfo(pathIt->second.filename().generic_string());
         if (enabled) {
             ImGui::EndGroup();
             ModsHandleDragAndDrop(selectedModFiles, i, file);
@@ -324,6 +335,17 @@ void ModMenuWindow::DrawElement() {
                                       AfterModChange();
                                   });
         }
+#ifdef COMBO_BUILD
+        // ComboShip: save the order without closing — "Apply & Close" takes both games down with it.
+        ImGui::SameLine();
+        if (UIWidgets::Button("Apply", UIWidgets::ButtonOptions()
+                                           .Size(UIWidgets::Sizes::Inline)
+                                           .Color(THEME_COLOR)
+                                           .Tooltip("Saves the mod order now; takes effect on next launch."))) {
+            SetEnabledModsCVarValue();
+            editing = false;
+        }
+#endif
         ImGui::SameLine();
         if (UIWidgets::Button("Apply & Close",
                               UIWidgets::ButtonOptions().Size(UIWidgets::Sizes::Inline).Color(THEME_COLOR))) {

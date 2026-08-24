@@ -737,6 +737,9 @@ void BenMenu::AddSettings() {
             });
         })
         .Options(ButtonOptions().Tooltip("Displays a test notification."));
+#ifndef COMBO_BUILD
+    // ComboShip (#173): combo owns the timer overlay. The menu search ignores the sidebar allow-list,
+    // so leaving these here would let a search for "timer" re-open the native window.
     path.column = SECTION_COLUMN_2;
     AddWidget(path, "In-Game Timer", WIDGET_SEPARATOR_TEXT);
     AddWidget(path, "Display", WIDGET_CVAR_COMBOBOX)
@@ -766,6 +769,7 @@ void BenMenu::AddSettings() {
                      .DefaultValue(1.0f)
                      .Format("%.1f")
                      .Step(0.1f));
+#endif
 
     path.column = SECTION_COLUMN_1;
     path.sidebarName = "Presets";

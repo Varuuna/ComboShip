@@ -2106,6 +2106,9 @@ void SohMenu::AddMenuEnhancements() {
         });
 #endif
 
+#ifndef COMBO_BUILD
+    // ComboShip (#173): combo owns the timer overlay, so this section is gone. The menu search
+    // ignores the sidebar allow-list, so leaving it here would let "timer" re-open the native window.
     // Timers
     path.sidebarName = "Timers";
     AddSidebarEntry("Enhancements", path.sidebarName, 3);
@@ -2129,6 +2132,7 @@ void SohMenu::AddMenuEnhancements() {
             .CVar(timer.timeEnable)
             .Callback([](WidgetInfo& info) { TimeDisplayUpdateDisplayOptions(); });
     }
+#endif
 }
 
 } // namespace SohGui

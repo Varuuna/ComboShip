@@ -268,3 +268,40 @@ empty array into null; `GetStartingItemsFromConfig` treats null as empty.)
 **Vendored:** `libultraship/src/ship/config/Config.cpp` (`SetBlock`) — create missing intermediate
 objects and descend; a non-object in the path keeps the old silent no-op (`ComboShip:` comment at
 site).
+
+## Combo-owned overlay timers (issue #173, 2026-08-24)
+
+**Why:** OOT's "Additional Timers" and MM's "Display Overlay" each showed only their own game's play
+time, so a combo run never had a number covering the whole run. MM also had a live bug: its play time
+is wall clock between flushes (`filePlaytime += now - lastTimeLog`) and `lastTimeLog` was never
+advanced when combo swapped away, so hours spent in OOT were folded into MM's save at its next flush.
+
+**Combo-owned:** `combo/gui/ComboTimersWindow.{h,cpp}` — window `Timers##Combo`, CVars `gCombo.Timers.*`,
+settings under ComboShip Settings → Timers. The total is `OOT playTimer/2 + pauseTimer/3` (deciseconds)
+plus MM's `filePlaytime/100`; both already live in the `.combosav`, and exactly one advances at a time.
+The real-time row starts at the earlier of OOT's `firstInput` / MM's `fileCreatedAt` and freezes at
+`combo.completion.finishedAt` (new key, latched in `SaveComboCompletion`). Time of day / Navi /
+conditional draw only while OOT is foreground. `Combo_SetForegroundGame` pauses and resumes MM's
+accumulator across every swap.
+
+**Vendored (all `COMBO_BUILD`-guarded):**
+- `soh/soh/OTRGlobals.cpp` — `SOH_GetPlaytimeDeciseconds`, `SOH_GetRtaStartMs`, `SOH_GetOverlayTimers`
+  (classification stays in soh so comboui hardcodes no vanilla enum values).
+- `mm/2s2h/BenPort.cpp` — `MM_GetPlaytimeMs`, `MM_GetFileCreatedAtMs`, `MM_ComboPausePlaytime`,
+  `MM_ComboResumePlaytime` + a running latch. The advance is implemented locally rather than calling
+  `SavingEnhancements_AdvancePlaytime` so `SavingEnhancements.cpp` stays untouched. The
+  `lastTimeLog != 0` guard matters because `z_sram_NES.c` zeroes it on a new file — treating 0 as a
+  timestamp would add a whole Unix epoch (~57 years).
+- `soh/soh/SohGui/SohMenuEnhancements.cpp` and `mm/2s2h/BenGui/BenMenu.cpp` — the native timer menu
+  entries are `#ifndef COMBO_BUILD`. A sidebar allow-list is not enough: `ComboMenu::DrawSearchResults`
+  walks both games' menu models unfiltered, so a search for "timer" would re-open the native window.
+
+**Do not remove** the `TimeDisplayWindow` registration at `soh/soh/SohGui/SohGui.cpp:203` — its
+`InitElement` is what loads the digit and icon textures the combo overlay draws with. Only its draw
+is suppressed.
+
+**Residuals:** a run already finished before this change has no `finishedAt`, so its real-time row
+keeps running until the next completion save. The pause only flushes into memory — nothing persists
+MM's save on the way out — so time played in MM without an owl/auto save is lost when the slot's MM
+blob is re-read (reset or owl-save quit, `g_MmSaveInMemorySlot = -1`), and the total steps back to
+MM's last saved value. Same as vanilla 2ship.

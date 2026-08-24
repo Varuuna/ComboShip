@@ -1,4 +1,5 @@
 #include "item_location.h"
+#include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "SeedContext.h"
 #include "logic.h"
 #include "rng.h"
@@ -91,7 +92,7 @@ RandomizerArea ItemLocation::GetFirstArea() const {
 RandomizerArea ItemLocation::GetRandomArea() const {
     if (areas.empty()) {
         SPDLOG_DEBUG("Attempted to get random area of location with no areas: ");
-        SPDLOG_DEBUG(Rando::StaticData::GetLocation(rc)->GetName());
+        SPDLOG_DEBUG("{}", Rando::StaticData::GetLocation(rc)->GetName());
         assert(false);
         return RA_NONE;
     } else {

@@ -17,6 +17,9 @@ on:
       - 'CMake/**'
       - 'OTRExporter/**'
       - 'ZAPDTR/**'
+      # A build input (CMakeLists.txt reads it for the version/save gate), and it keeps the gate from
+      # skipping an upstream-merge PR whose diff is only the pin bump + merge log.
+      - 'upstream-pins.json'
       - '.github/workflows/build.yml'
       - '.github/workflows/build-artifacts.yml'
   push:

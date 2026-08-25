@@ -10,6 +10,7 @@
 #include "ComboAnchorRoomWindow.h"  // combo-native floating Anchor room window
 #include "ComboNotesWindow.h"       // combo-owned cross-game Personal Notes window
 #include "ComboHintTracker.h"       // combo-owned unified Hint Tracker (#164)
+#include "ComboTimersWindow.h"      // combo-owned overlay timers (#173)
 #include "rando/ComboPlaythrough.h" // plando: ParseSpoilerPlacements + Suffix/BuildForeignArray + slot paths
 #include <imgui.h>
 #include <libultraship/libultraship.h>         // CVar bridge (CVarGet/Set* incl. color) + color.h (Color_RGBA8)
@@ -462,6 +463,7 @@ struct HubEntry {
         COMBO_TRACKER,
         COMBO_CHECK_TRACKER,
         COMBO_HINT_TRACKER,
+        COMBO_TIMERS,
         COMBO_NETWORK
     } kind;
     const ComboRando::GameMenu* game = nullptr; // ENGINE/OOT_RANDO/MM_RANDO
@@ -1310,6 +1312,12 @@ void ComboMenu::DrawSharedPanel() {
         hnt.group = "Settings";
         hnt.kind = HubEntry::COMBO_HINT_TRACKER;
         e.push_back(std::move(hnt));
+        // Combo-owned overlay timers (#173): one play-time overlay spanning both games.
+        HubEntry tmr;
+        tmr.label = "Timers";
+        tmr.group = "Settings";
+        tmr.kind = HubEntry::COMBO_TIMERS;
+        e.push_back(std::move(tmr));
         if (!e.empty())
             groups.push_back({ "Settings", std::move(e) });
         // Network group: the Anchor team-sync control (covers BOTH games) plus the Ship of Harkinian
@@ -1442,6 +1450,8 @@ void ComboMenu::DrawSharedPanel() {
         DrawCheckTrackerSharedPanel();
     } else if (active->kind == HubEntry::COMBO_HINT_TRACKER) {
         DrawHintTrackerSharedPanel();
+    } else if (active->kind == HubEntry::COMBO_TIMERS) {
+        DrawTimersSharedPanel();
     } else if (active->kind == HubEntry::COMBO_NETWORK) {
         DrawNetworkSharedPanel();
     } else {
@@ -1810,6 +1820,16 @@ extern "C" void ComboUI_Register(void)
     ComboRando::RegisterHintTrackerWindow();
     for (const auto& [cvar, name] : { std::pair{ "gOpenWindows.HintTracker", "Hint Tracker" },
                                       std::pair{ "gOpenWindows.HintTrackerSettings", "Hint Tracker Settings" } }) {
+        CVarSetInteger(cvar, 0);
+        if (auto win = gui->GetGuiWindow(name))
+            win->Hide();
+    }
+
+    // Combo-owned overlay timers (#173). Both games' overlays are retired. MM's window is not
+    // registered yet, so only its CVar can be cleared here; the combo window re-asserts each frame.
+    ComboRando::RegisterTimersWindow();
+    for (const auto& [cvar, name] : { std::pair{ "gOpenWindows.TimeDisplayEnabled", "Additional Timers" },
+                                      std::pair{ "gWindows.DisplayOverlay", "Display Overlay" } }) {
         CVarSetInteger(cvar, 0);
         if (auto win = gui->GetGuiWindow(name))
             win->Hide();

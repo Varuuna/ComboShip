@@ -178,6 +178,10 @@ static FnGetPlayerName SOH_GetCurrentPlayerName = nullptr;
 // Nonzero = the slot's MM half is missing/broken; nothing was loaded (see SaveManager_LoadSaveFile).
 typedef int (*FnMMLoadSave)(int);
 static FnMMLoadSave MM_LoadSaveForCombo = nullptr;
+// ComboShip (#182): MM caches which slot's owl save its gSaveContext came from; tell it when the
+// launcher replaces a slot's mm section underneath it.
+typedef void (*FnMMInvalidateOwlBlob)(void);
+static FnMMInvalidateOwlBlob MM_InvalidateOwlBlobSlot = nullptr;
 // #89 resume-into-MM: drop out of OOT's loop before it runs a Play frame / tell MM how it was entered.
 // SOH_IsOnFileSelect distinguishes a real file-select load from the OnLoadGame that TitleSetup fires
 // on the MM->OOT return (which must not bounce the player straight back into MM).
@@ -287,6 +291,13 @@ static FnSetHintRevealOot SOH_SetComboHintRevealCb = nullptr;
 typedef void (*FnSetHintRevealMm)(void (*)(int, int, int, const char*, const char*));
 static FnSetHintRevealMm MM_SetComboHintRevealCb = nullptr;
 
+// ComboShip (#173): combo-owned overlay timers. MM's play time is wall clock between flushes, so it
+// must be paused/resumed across every game swap or the time spent in OOT lands in MM's save.
+typedef void (*FnComboUISetInt)(int);
+static FnComboUISetInt ComboUI_SetComboComplete = nullptr;
+static FnVoidArgless MM_ComboPausePlaytime = nullptr;
+static FnVoidArgless MM_ComboResumePlaytime = nullptr;
+
 // ComboShip (#169): combo-owned OOT->MM cosmetic color sync (combo/gui/ComboCosmeticsSync.cpp). The
 // gate predicate is exported too, so the launcher never duplicates the CVar reads.
 static FnVoidArgless ComboUI_SyncRandomizedCosmetics = nullptr;
@@ -369,6 +380,13 @@ static std::vector<int> g_evictedSlots;
 
 // Single place the foreground game changes, so every transition point notifies comboui consistently.
 static void Combo_SetForegroundGame(int game) {
+    // #173: MM only accrues play time while it is foreground. OOT owns the foreground at startup.
+    static int sPrevGame = ComboRando::GAME_OOT;
+    if (sPrevGame == ComboRando::GAME_MM && MM_ComboPausePlaytime)
+        MM_ComboPausePlaytime();
+    if (game == ComboRando::GAME_MM && MM_ComboResumePlaytime)
+        MM_ComboResumePlaytime();
+    sPrevGame = game;
     if (ComboUI_OnForegroundGame)
         ComboUI_OnForegroundGame(game);
 }
@@ -486,6 +504,10 @@ static void EraseComboContainer(int slot) {
         std::error_code ec;
         std::filesystem::remove(ComboContainerPath(slot), ec);
     }
+    // ComboShip (#182): MM caches which slot's owl save its gSaveContext came from; the section it
+    // named is gone. Outside the lock — the DLL must never re-enter the container.
+    if (MM_InvalidateOwlBlobSlot)
+        MM_InvalidateOwlBlobSlot();
     // ComboShip (#164): clear the Hint Tracker outside the lock — its push path re-takes the mutex, and
     // the window would otherwise keep showing the deleted slot's hints on the file-select screen.
     if (ComboUI_SetHintTrackerData)
@@ -495,13 +517,18 @@ static void EraseComboContainer(int slot) {
 // Copy a whole slot (both games + baked rando) — OOT file-select "copy file". Registered into OOT
 // via SOH_SetCopyContainer; the .combosav has no per-game file to copy, so the launcher owns it.
 static void Combo_CopyContainer(int from, int to) {
-    std::lock_guard<std::mutex> lk(g_containerMutex);
-    nlohmann::json copy = LoadOrCreateContainer(from); // deep copy of the source container
-    copy["slot"] = to;
-    g_containerCache[to] = std::move(copy);
-    if (g_MmSaveInMemorySlot == to)
-        g_MmSaveInMemorySlot = -1; // the destination's MM save just changed under us
-    FlushContainer(to);
+    {
+        std::lock_guard<std::mutex> lk(g_containerMutex);
+        nlohmann::json copy = LoadOrCreateContainer(from); // deep copy of the source container
+        copy["slot"] = to;
+        g_containerCache[to] = std::move(copy);
+        if (g_MmSaveInMemorySlot == to)
+            g_MmSaveInMemorySlot = -1; // the destination's MM save just changed under us
+        FlushContainer(to);
+    }
+    // ComboShip (#182): the destination's owl save came from the donor, so MM's descent cache is wrong.
+    if (MM_InvalidateOwlBlobSlot)
+        MM_InvalidateOwlBlobSlot();
 }
 
 // Launcher-provided save IO, pushed into each DLL. game: 0=OOT,1=MM (GameId); fileNum 0-based.
@@ -1190,6 +1217,8 @@ static void LoadComboCompletion(int slot) {
         MM_SetComboGoal(g_goalHunt ? 1 : 0, g_goalRequired, ComboRando::CwMmPieces(g_goalTotal));
     if (SOH_SetComboStartingGame)
         SOH_SetComboStartingGame(g_startingGameMM ? 1 : 0);
+    if (ComboUI_SetComboComplete)
+        ComboUI_SetComboComplete((g_comboCompletion[0] && g_comboCompletion[1]) ? 1 : 0);
 }
 
 // Generation pushes the MENU goal into both DLLs. If a slot is loaded, put its own (seed-bound) goal
@@ -1206,12 +1235,18 @@ static void RestoreLoadedSlotGoal() {
 }
 
 static void SaveComboCompletion(int slot) {
-    std::lock_guard<std::mutex> lk(g_containerMutex);
-    auto& c = LoadOrCreateContainer(slot);
-    c["combo"]["completion"]["oot"] = g_comboCompletion[0];
-    c["combo"]["completion"]["mm"] = g_comboCompletion[1];
-    c["combo"]["completion"]["triforce"] = g_comboTriforceDone;
-    FlushContainer(slot);
+    {
+        std::lock_guard<std::mutex> lk(g_containerMutex);
+        auto& c = LoadOrCreateContainer(slot);
+        c["combo"]["completion"]["oot"] = g_comboCompletion[0];
+        c["combo"]["completion"]["mm"] = g_comboCompletion[1];
+        c["combo"]["completion"]["triforce"] = g_comboTriforceDone;
+        FlushContainer(slot);
+    }
+    // #173: tints the timer overlay's total green. Pushed outside the container lock — comboui must
+    // never re-enter the sidecar.
+    if (ComboUI_SetComboComplete)
+        ComboUI_SetComboComplete((g_comboCompletion[0] && g_comboCompletion[1]) ? 1 : 0);
 }
 
 // ComboShip (#164): push the slot's hints slice + read state into comboui's Hint Tracker. Reads the
@@ -2719,6 +2754,7 @@ int main(int argc, char** argv) {
     SOH_SetOnLoadSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnLoadSaveCallback");
     SOH_GetCurrentPlayerName = (FnGetPlayerName)GetSym(sohModule, "SOH_GetCurrentPlayerName");
     MM_LoadSaveForCombo = (FnMMLoadSave)GetSym(mmModule, "MM_LoadSaveForCombo");
+    MM_InvalidateOwlBlobSlot = (FnMMInvalidateOwlBlob)GetSym(mmModule, "MM_InvalidateOwlBlobSlot");
     SOH_ParkForComboMMResume = (FnVoid)GetSym(sohModule, "SOH_ParkForComboMMResume");
     MM_SetComboEntryIsResume = (FnMMInitSave)GetSym(mmModule, "MM_SetComboEntryIsResume");
     SOH_IsOnFileSelect = (FnIsOnFileSelect)GetSym(sohModule, "SOH_IsOnFileSelect");
@@ -2816,6 +2852,8 @@ int main(int argc, char** argv) {
     SOH_ReadComboGoalCVars = (FnReadComboGoalCVars)GetSym(sohModule, "SOH_ReadComboGoalCVars");
     SOH_GetTriforcePieceCount = (FnGetTriforceCount)GetSym(sohModule, "SOH_GetTriforcePieceCount");
     MM_GetTriforcePieceCount = (FnGetTriforceCount)GetSym(mmModule, "MM_GetTriforcePieceCount");
+    MM_ComboPausePlaytime = (FnVoidArgless)GetSym(mmModule, "MM_ComboPausePlaytime");
+    MM_ComboResumePlaytime = (FnVoidArgless)GetSym(mmModule, "MM_ComboResumePlaytime");
     SOH_TriggerTriforceCredits = (FnTriggerTriforceCredits)GetSym(sohModule, "SOH_TriggerTriforceCredits");
     MM_TriggerTriforceCredits = (FnTriggerTriforceCredits)GetSym(mmModule, "MM_TriggerTriforceCredits");
     SOH_SetTriforceProgressCb = (FnSetTriforceProgressCb)GetSym(sohModule, "SOH_SetTriforceProgressCb");
@@ -3067,6 +3105,7 @@ int main(int argc, char** argv) {
         ComboUI_SetAnchorRosterProvider =
             (FnComboUISetRosterProvider)GetSym(comboUIModule, "ComboUI_SetAnchorRosterProvider");
         ComboUI_SetHintTrackerData = (FnComboUISetHintTrackerData)GetSym(comboUIModule, "ComboUI_SetHintTrackerData");
+        ComboUI_SetComboComplete = (FnComboUISetInt)GetSym(comboUIModule, "ComboUI_SetComboComplete");
         if (ComboUI_SetAnchorRosterProvider)
             ComboUI_SetAnchorRosterProvider(&ComboAnchor::Combo_Anchor_GetRoster);
         ComboUI_SetNotesStore = (FnComboUISetNotesStore)GetSym(comboUIModule, "ComboUI_SetNotesStore");

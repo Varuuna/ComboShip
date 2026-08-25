@@ -39,6 +39,7 @@ set(COMBOUI_SOURCES
     gui/ComboAnchorRoomWindow.cpp
     gui/ComboNotesWindow.cpp
     gui/ComboHintTracker.cpp
+    gui/ComboTimersWindow.cpp
     gui/ComboCosmeticsSync.cpp
 )
 add_library(comboui SHARED ${COMBOUI_SOURCES})

@@ -1442,6 +1442,37 @@ void Sram_OpenSave(FileSelectState* fileSelect, SramContext* sramCtx) {
     }
 }
 
+#ifdef COMBO_BUILD
+// ComboShip (#182): combo enters MM without a file select, so Sram_OpenSave never runs. Mirror its owl
+// branch for the blob title_setup.c loaded. Lives here because sOwlWarpEntrances is static to this file.
+// resolveEntrance = 0 on a portal entry, where combo owns the arrival point (South Clock Town).
+void Combo_ApplyOwlSaveOpen(s32 resolveEntrance) {
+    if (resolveEntrance) {
+        // A pause save's entrance wins over the owl statue it was written at.
+        if (gSaveContext.save.shipSaveInfo.pauseSaveEntrance != -1) {
+            gSaveContext.save.entrance = gSaveContext.save.shipSaveInfo.pauseSaveEntrance;
+        } else if (gSaveContext.save.owlWarpId > OWL_WARP_MAX) {
+            gSaveContext.save.entrance = 0; // upstream quirk: the extra West Clock Town statue is out of range
+        } else {
+            gSaveContext.save.entrance = sOwlWarpEntrances[(void)0, gSaveContext.save.owlWarpId];
+        }
+
+        if ((gSaveContext.save.entrance == ENTRANCE(SOUTHERN_SWAMP_POISONED, 10)) &&
+            CHECK_WEEKEVENTREG(WEEKEVENTREG_CLEARED_WOODFALL_TEMPLE)) {
+            gSaveContext.save.entrance = ENTRANCE(SOUTHERN_SWAMP_CLEARED, 10);
+        } else if ((gSaveContext.save.entrance == ENTRANCE(MOUNTAIN_VILLAGE_WINTER, 8)) &&
+                   CHECK_WEEKEVENTREG(WEEKEVENTREG_CLEARED_SNOWHEAD_TEMPLE)) {
+            gSaveContext.save.entrance = ENTRANCE(MOUNTAIN_VILLAGE_SPRING, 8);
+        }
+    }
+
+    if (gSaveContext.save.saveInfo.scarecrowSpawnSongSet) {
+        memcpy(gScarecrowSpawnSongPtr, gSaveContext.save.saveInfo.scarecrowSpawnSong,
+               sizeof(gSaveContext.save.saveInfo.scarecrowSpawnSong));
+    }
+}
+#endif
+
 // Similar to func_80145698, but accounts for owl saves?
 void func_8014546C(SramContext* sramCtx) {
     s32 i;

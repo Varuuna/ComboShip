@@ -60,6 +60,8 @@ void Setup_InitImpl(SetupState* this) {
     Setup_InitRegs();
 
 #ifdef COMBO_BUILD
+    s32 loadedOwlSave;
+
     if (gComboStartFileNum >= 0) {
         // Sram_LoadGlobalOptions above found no global.json in combo, so take OOT's settings.
         Combo_AdoptOOTGlobalOptions();
@@ -68,10 +70,21 @@ void Setup_InitImpl(SetupState* this) {
         // Load the MM save that matches the OOT slot (OOT slot N → MM file N+1). ComboShip never blocks
         // entry: a nonzero result is logged inside and leaves the fail-closed sentinel, and play proceeds.
         Combo_LoadMMSaveFile(gComboStartFileNum + 1);
-        // South Clock Town is the default arrival for both portal entry and a resume. Only a resume
-        // with Remember Save Location on returns to the stored spot (set by SavingEnhancements).
-        if (gComboEntryIsResume && CVarGetInteger("gEnhancements.Saving.RememberSaveLocation", 0) &&
-            gSaveContext.save.shipSaveInfo.pauseSaveEntrance != -1) {
+        // ComboShip (#182): an owl save is the newest state whenever it exists, so it wins on both
+        // entry kinds — but only a resume follows it to where it was saved.
+        loadedOwlSave = (gComboOwlBlobSlot == gComboStartFileNum + 1);
+        if (loadedOwlSave) {
+            Combo_ApplyOwlSaveOpen(gComboEntryIsResume);
+            if (!gComboEntryIsResume) {
+                // Arriving in South Clock Town runs neither owl-arrival path, so clear isOwlSave here
+                // or it sticks — and then owl-save write timing stays armed for the whole session.
+                gSaveContext.save.isOwlSave = false;
+                gSaveContext.save.entrance = ENTRANCE(SOUTH_CLOCK_TOWN, 0);
+            }
+        } else if (gComboEntryIsResume && CVarGetInteger("gEnhancements.Saving.RememberSaveLocation", 0) &&
+                   gSaveContext.save.shipSaveInfo.pauseSaveEntrance != -1) {
+            // South Clock Town is the default arrival for both portal entry and a resume. Only a resume
+            // with Remember Save Location on returns to the stored spot (set by SavingEnhancements).
             gSaveContext.save.entrance = gSaveContext.save.shipSaveInfo.pauseSaveEntrance;
         } else {
             gSaveContext.save.entrance = ENTRANCE(SOUTH_CLOCK_TOWN, 0);
@@ -94,6 +107,12 @@ void Setup_InitImpl(SetupState* this) {
         // and re-runs ShipInit::Init("IS_RANDO"). COND_* macros are unregister-then-register, so it's
         // idempotent. Without it the combo force-spawn loads a rando save whose behaviors never activate.
         GameInteractor_ExecuteOnSaveLoad(gSaveContext.fileNum);
+
+        // ComboShip (#182): consume the owl save like Sram_OpenSave does, so it can't shadow the newer
+        // state we just continued into. Vetoed for Persistent Owl Saves and for pause/auto saves.
+        if (loadedOwlSave && GameInteractor_Should(VB_DELETE_OWL_SAVE, true)) {
+            Combo_MMDropOwlSaveBlob();
+        }
 
         gComboStartFileNum = -1;
         STOP_GAMESTATE(&this->state);

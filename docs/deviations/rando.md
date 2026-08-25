@@ -1112,7 +1112,80 @@ ComboShip could reach that state two ways, both now closed:
   for the empty-placement early return.
 
 Tripwire: `Combo_LoadMMSaveFile` logs an error whenever a loaded MM save isn't `SAVETYPE_RANDO`.
-Already-broken saves are not repaired — re-create the file.
+Already-broken saves are not repaired — re-create the file. The legacy population from before this was
+caught is retired by the 0.3.0 container gate (see below).
+
+### Residual key-loss gaps closed (2026-08-22)
+
+The 2026-07-31 pass covered every *creation* path. A re-audit found four more ways the same symptom
+(Song of Time eating Small Keys) still reached players.
+
+**Loading never creates or persists.** `SaveManager_LoadSaveFile` used to build *and write* a fresh
+`SAVETYPE_VANILLA` save whenever the container had no `mm` section — reachable from the read-only dormant
+peek (`Combo_OnOOTSaveLoad` → `MM_LoadSaveForCombo`), which permanently poisoned the slot. That block is
+gone. The function now returns a code (`0` ok, `-1` missing, `-2` unreadable, `-3` migrate, `-4` no
+`newCycleSave`, `-5` parse throw), `Combo_LoadMMSaveFile` adds `-6` for a non-`SAVETYPE_RANDO` save, and
+every failure parks `gSaveContext.fileNum` at `0xFF` and clears `saveType`. Both halves of that matter:
+`0xFF` is the "no save" sentinel `Combo_MM_GiveDormantResolved`, `MM_MarkForeignObtained` and MMAnchor's
+`PumpDormant` all test, so a stray write lands *nowhere* rather than persisting the previous slot's save
+(or zeroed vanilla BSS) into the failed slot; and since `fileNum` is signed and `0xFF` still passes the
+peek trackers' `>= 0` test, only the cleared `saveType` (→ `IS_RANDO` false) stops them from drawing the
+previous slot's save as this one — `ItemTracker`'s peek gate was missing that `IS_RANDO` term and now has
+it. The dormant peek only marks a slot resident when the load returned 0, so it is strictly read-only and
+fail-closed: it never rebuilds, it just goes blank.
+`SaveManager_SysFlashrom_WriteData`'s owl branch also used to emit an `owlSave`-only section when its
+pre-read failed, which nothing could ever load again; under `COMBO_BUILD` it now seeds `newCycleSave` from
+the owl snapshot (resuming a little late beats a dead slot).
+
+**No rebuild, no repair, no blocked entry.** ComboShip never blocks MM entry *and* never repairs a save.
+There is deliberately nothing between those two: a missing or unloadable `mm` section means either the
+file was created with **no seed bound** — which `Combo_OnOOTSaveInit` already refuses loudly, writing no
+`mm` section at all — or the file is damaged. In both cases the load logs an error, the fail-closed
+sentinel above keeps stray writes and tracker draws off the slot, play proceeds, and the remedy is
+re-creating the file. `title_setup.c` therefore just calls `Combo_LoadMMSaveFile` and ignores the code;
+the return value's only consumers are that log and the dormant peek's success check.
+
+**Legacy broken saves are retired by the `0.3.0` container gate, not by runtime repair.**
+`LoadOrCreateContainer` backs up any container whose `comboRelease` differs in `major.minor` and starts
+fresh, so the pre-0.3.0 population poisoned by the old load-side auto-create is invalidated wholesale —
+there is no migration path for a save whose MM half was silently vanilla for an unknown stretch of play,
+and inventing one at runtime would only mask the bug. `SaveManager_InitNewSaveForSlot` does stamp
+`SAVETYPE_RANDO` before its write (it persists, and it is a combo-only function), so the legitimate
+creation path can never leave a vanilla MM save in the container even transiently.
+
+**Key-mirror safety net.** A small-key check left `shuffled == false` delivers through vanilla `Item_Give`
+(`z_parameter.c:4228`), which bumps `inventory.dungeonKeys` but not `rando.foundDungeonKeys`; the cycle
+restore then truncates keys down to the stale mirror. A `COND_ID_HOOK(OnItemGive, ITEM_KEY_SMALL, IS_RANDO)`
+registered in `Rando::MiscBehavior::OnFileLoad()` (so it re-registers per `OnSaveLoad`, honoring the
+`COND_*` re-sample invariant) raises the mirror to the inventory count. It gates on
+`Map_IsInDungeonOrBossScene` because outside a dungeon `gSaveContext.mapIndex` is the overworld minimap
+index, which aliases key indices. Idempotent, monotonic, and a no-op after a rando grant. The two paths
+that could produce such a check are now loud rather than silent: `MM_InitRandoSaveFile` counts unknown
+checks/items and substitutes junk for an unknown *item* (keeping the check shuffled, so its vanilla key can
+never take the vanilla path), and `Spoiler/Apply.cpp` forces `shuffled = true` + `RI_JUNK` when an absent
+check's vanilla item is `RITYPE_SMALL_KEY`. Small keys are always shuffled in MM rando, so that is a
+provable anomaly — every other absent check keeps its legitimate vanilla revert.
+
+**Skeleton Key self-heals.** `Rando::GiveItem`'s `RI_SKELETON_KEY` case gated the mirror write on the
+*inventory* count, so it could not repair a desync. It now raises both counters independently to
+`max(current, N)` from a shared table (`Rando::skeletonKeyCounts`) — never lowering either, healing `-1`
+sentinels and drift in both directions. The headless oracle (`GiveItemForOracle`) had no
+`RI_SKELETON_KEY` case at all, so key-gated regions stayed unreachable during fill; it now shares the same
+table, and its four `RI_*_SMALL_KEY` cases normalize the mirror sentinel before bumping instead of a bare
+`++`. Consequence: newly generated skeleton-key seeds may place differently now that fill reachability is
+correct. Stored seeds re-apply saved placements and are unaffected.
+
+**Three edits are deliberately un-guarded**, because each is behavior-neutral upstream rather than a
+combo deviation: the `z_sram_NES.c:1279` moon-crash `memcpy` now targets `gSaveContext.save` like the
+sibling read two lines up (`save` is `SaveContext`'s first member, so the bytes landed identically
+before); `GiveItem.cpp`'s `RI_SKELETON_KEY` rewrite and the four `RI_*_SMALL_KEY` cases only ever raise
+counters that vanilla MM rando already intended to be equal; and `Rando.h`'s `skeletonKeyCounts` table
+plus `Rando::AddSmallKey()` are pure factoring of constants and arithmetic that already existed inline.
+
+**Anchor.** See `anchor.md` — MM's `HandlePacket_UpdateTeamState` wholesale-replaced `saveInfo`/
+`shipSaveInfo` (including `saveType` and the key counters), and the cycle-save broadcast could outrun the
+restore hook. Hook execution order is *not* registration order (`RegisteredGameHooks<H>::functions` is an
+`std::unordered_map`), so the fix defers the broadcast rather than ordering the hooks.
 
 ## Per-seed spoiler names + shop-only prices (2026-07-31)
 

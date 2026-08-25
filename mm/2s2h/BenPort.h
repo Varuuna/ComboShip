@@ -187,8 +187,9 @@ extern int gComboEntryIsResume;
 void Combo_AdoptOOTGlobalOptions(void);
 // ComboShip (#89): owl save quits to OOT's title instead of MM's own file select.
 void Combo_RequestOwlSaveQuit(void);
-// Load an existing MM save from disk into gSaveContext (C-callable wrapper).
-void Combo_LoadMMSaveFile(int mmFileNum);
+// Load an existing MM save from disk into gSaveContext (C-callable wrapper). 0 = ok; negative = nothing
+// usable was loaded (logged; the load leaves the fail-closed sentinel behind and play still proceeds).
+int Combo_LoadMMSaveFile(int mmFileNum);
 // ComboShip (#182): 1-based MM file whose owlSave blob is what gSaveContext descends from (-1 = none).
 extern int gComboOwlBlobSlot;
 // ComboShip (#182): mirrors Sram_OpenSave's owl branch; resolveEntrance = 0 keeps combo's arrival point.

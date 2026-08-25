@@ -86,6 +86,8 @@ void MMAnchor::Activate() {
 
 void MMAnchor::Deactivate() {
     isActive = false;
+    // Drop an unsent cycle-save broadcast: it would otherwise fire unsolicited on the next activation.
+    pendingCycleSaveBroadcast = false;
     SPDLOG_INFO("[MMAnchor] deactivated");
 }
 
@@ -148,6 +150,12 @@ void MMAnchor::RegisterHooks() {
             if (gMMComboPumpDormant) {
                 gMMComboPumpDormant();
             }
+            // GameState_Update runs main (where Sram_SaveEndOfCycle and every AfterEndOfCycleSave hook
+            // complete) before this hook, so the deferred send lands the same frame, after the restore.
+            if (pendingCycleSaveBroadcast && gPlayState != nullptr) {
+                pendingCycleSaveBroadcast = false;
+                SendPacket_UpdateTeamState(CVarGetString(kCvarTeamId, "default"));
+            }
         }
     });
 
@@ -159,7 +167,9 @@ void MMAnchor::RegisterHooks() {
     });
     GameInteractor::Instance->RegisterGameHook<GameInteractor::AfterEndOfCycleSave>([this]() {
         if (isActive && gPlayState != nullptr) {
-            SendPacket_UpdateTeamState(CVarGetString(kCvarTeamId, "default"));
+            // Defer: the rando key/check restore is another AfterEndOfCycleSave hook and may not have run
+            // yet. Losing this on a same-frame quit is harmless — peers re-request on connect.
+            pendingCycleSaveBroadcast = true;
         }
     });
 }
@@ -788,9 +798,23 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     if (!payload["state"].contains("shipSaveInfo")) {
         return; // soh-shaped team state; from_json(Save) would throw
     }
+    // ComboShip: both guards must hold on the dormant path too (PumpDormant persists right after), so
+    // neither may be conditioned on IS_RANDO. No vanilla mode here: a non-rando local save means nothing
+    // usable is loaded, and preserving that saveType through the merge is the original key-eating bug.
+    if (!IS_RANDO) {
+        SPDLOG_WARN("[MMAnchor] dropping team state: local save is not SAVETYPE_RANDO");
+        return;
+    }
+    // A non-rando peer serializes a zeroed rando struct, and the wholesale shipSaveInfo assign below
+    // would wipe every RANDO_SAVE_CHECKS entry. No merge can recover that.
+    if (!payload["state"]["shipSaveInfo"].contains("rando")) {
+        SPDLOG_WARN("[MMAnchor] dropping team state with no rando block (peer is not in a rando save)");
+        return;
+    }
 
     // Unpack the compact rando check array back into the shape from_json(Save) expects.
-    if (IS_RANDO && payload["state"]["shipSaveInfo"].contains("rando")) {
+    // Both conditions are guaranteed by the guards above.
+    {
         auto stuff =
             payload["state"]["shipSaveInfo"]["rando"]["randoSaveChecksCopy"].get<std::vector<std::vector<s32>>>();
         for (int i = 0; i < RC_MAX; i++) {
@@ -837,6 +861,16 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     u8 localTradeItems[3] = { gSaveContext.save.saveInfo.inventory.items[SLOT_TRADE_DEED],
                               gSaveContext.save.saveInfo.inventory.items[SLOT_TRADE_KEY_MAMA],
                               gSaveContext.save.saveInfo.inventory.items[SLOT_TRADE_COUPLE] };
+    // ComboShip: key/fairy/dungeon-item counters are monotonic too — a stale peer (or one mid-Song-of-Time,
+    // whose keys are momentarily zero) would otherwise truncate ours. -1 is the fresh sentinel; signed max.
+    s8 localDungeonKeys[ARRAY_COUNT(gSaveContext.save.saveInfo.inventory.dungeonKeys)];
+    memcpy(localDungeonKeys, gSaveContext.save.saveInfo.inventory.dungeonKeys, sizeof(localDungeonKeys));
+    s8 localFoundDungeonKeys[ARRAY_COUNT(gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys)];
+    memcpy(localFoundDungeonKeys, gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys, sizeof(localFoundDungeonKeys));
+    s8 localStrayFairies[ARRAY_COUNT(gSaveContext.save.saveInfo.inventory.strayFairies)];
+    memcpy(localStrayFairies, gSaveContext.save.saveInfo.inventory.strayFairies, sizeof(localStrayFairies));
+    u8 localDungeonItems[ARRAY_COUNT(gSaveContext.save.saveInfo.inventory.dungeonItems)];
+    memcpy(localDungeonItems, gSaveContext.save.saveInfo.inventory.dungeonItems, sizeof(localDungeonItems));
 
     // Restore bottle contents (unless Deku Princess).
     for (int i = 0; i < 6; i++) {
@@ -855,6 +889,9 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     // Restore receiver-local fields that shouldn't be synced.
     loadedData.saveInfo.checksum = gSaveContext.save.saveInfo.checksum;
     loadedData.shipSaveInfo.fileCreatedAt = gSaveContext.save.shipSaveInfo.fileCreatedAt;
+    // ComboShip: taking a peer's saveType would flip IS_RANDO and silently unregister every rando hook.
+    // Safe to preserve unconditionally: the guard above already refused a non-rando local save.
+    loadedData.shipSaveInfo.saveType = gSaveContext.save.shipSaveInfo.saveType;
     memcpy(loadedData.saveInfo.playerData.newf, gSaveContext.save.saveInfo.playerData.newf,
            sizeof(loadedData.saveInfo.playerData.newf));
     memcpy(&loadedData.shipSaveInfo.dpadEquips, &gSaveContext.save.shipSaveInfo.dpadEquips,
@@ -933,6 +970,26 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
         cur.unk_14 |= localPermSceneFlags[i].unk_14; // dungeon floors visited
         cur.rooms |= localPermSceneFlags[i].rooms;
     }
+    // Max/OR-merge the key + fairy + dungeon-item counters back (OOT precedent: UpdateTeamState.cpp).
+    // Accepted: a stale peer resync can re-grant a locally-spent small key.
+    for (int i = 0; i < ARRAY_COUNT(localDungeonKeys); i++) {
+        if (localDungeonKeys[i] > gSaveContext.save.saveInfo.inventory.dungeonKeys[i]) {
+            gSaveContext.save.saveInfo.inventory.dungeonKeys[i] = localDungeonKeys[i];
+        }
+    }
+    for (int i = 0; i < ARRAY_COUNT(localFoundDungeonKeys); i++) {
+        if (localFoundDungeonKeys[i] > gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[i]) {
+            gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[i] = localFoundDungeonKeys[i];
+        }
+    }
+    for (int i = 0; i < ARRAY_COUNT(localStrayFairies); i++) {
+        if (localStrayFairies[i] > gSaveContext.save.saveInfo.inventory.strayFairies[i]) {
+            gSaveContext.save.saveInfo.inventory.strayFairies[i] = localStrayFairies[i];
+        }
+    }
+    for (int i = 0; i < ARRAY_COUNT(localDungeonItems); i++) {
+        gSaveContext.save.saveInfo.inventory.dungeonItems[i] |= localDungeonItems[i];
+    }
 #ifdef COMBO_BUILD
     if (localTriforcePieces > gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces) {
         gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces = localTriforcePieces;
@@ -974,6 +1031,8 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
                 .message = "Save updated from team",
             });
         }
+        // Rando::MiscBehavior::OnFileLoad() is deliberately NOT called: it runs CheckQueueReset(), which
+        // would drop in-flight grants. Preserving the local saveType above keeps its hooks valid anyway.
         Rando::CheckTracker::OnFileLoad();
         Rando::ActorBehavior::OnFileLoad();
         ShipInit::Init("IS_RANDO");

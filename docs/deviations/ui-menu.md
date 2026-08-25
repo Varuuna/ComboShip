@@ -268,3 +268,72 @@ empty array into null; `GetStartingItemsFromConfig` treats null as empty.)
 **Vendored:** `libultraship/src/ship/config/Config.cpp` (`SetBlock`) — create missing intermediate
 objects and descend; a non-object in the path keeps the old silent no-op (`ComboShip:` comment at
 site).
+
+## Mod ordering never survived a restart (2026-08-24)
+
+**Why:** two independent defects, both combo-only.
+
+(a) Both mod menus stored the user's mod order in the SAME CVar, `gSettings.EnabledMods` — soh via
+`CVAR_SETTING("EnabledMods")`, MM via a hardcoded literal, and `CVAR_PREFIX_SETTING` is `gSettings`
+in both games. In combo MM reuses OOT's Context and skips `InitConsoleVariables()`, so
+ConsoleVariables is shared. `UpdateModFiles(init=true)` erases every listed name it can't find in
+*its own* mods dir and rewrites the key; OOT scans `./mods/soh`, MM scans `./mods/2ship`, so each
+wiped the other's names. OOT boots first and MM writes last, so after every launch the key held only
+MM's mods (or `""`, since `./mods/2ship` is auto-created even when empty) and the order was rebuilt
+path-sorted on the next boot. Same shared key also crashed OOT's Mod Menu: Edit -> Cancel re-reads
+the CVar without pruning (`init == false`), then `DrawMods` hit `filePaths.at()` on an MM name.
+
+(b) MM's `BenModalWindow` registered as `"Modal Window"`, which OOT already owns, so
+`Gui::AddGuiWindow` rejected it and it was never drawn. MM's Mod Menu "Clear List" and "Apply &
+Close" queue into a `BenModals` global vector that only that window drains — both buttons did nothing
+at all, so an MM order could never be saved.
+
+**Vendored (additive, `COMBO_BUILD`-guarded unless noted):**
+- `mm/2s2h/Enhancements/ModMenu/ModMenu.cpp` — MM's key becomes `gSettings.EnabledModsMM`. A SIBLING
+  leaf, never a child: `gSettings.EnabledMods.MM` would put a leaf and a subtree at one path, the
+  failure behind `CVAR_LINK_VOICE_FREQ_MULTIPLIER`. Since `Config::TryUnflatten` now logs instead of
+  throwing, that would silently drop every config write rather than crash.
+- `mm/2s2h/BenGui/BenGui.cpp` — `"Modal Window" COMBO_MM_TRACKER_SUFFIX`. Nothing resolves MM's modal
+  by name (MM uses the `BenGui::mModalWindow` static), and the visibility CVars already differed
+  (`gWindows.ModalWindow` vs OOT's `gOpenWindows.ModalWindow`).
+- `mm/2s2h/BenGui/Menu.cpp` — seed `menuThemeIndex` in the ctor (mirroring
+  `soh/soh/SohGui/Menu.cpp`) **and** clamp it in `GetMenuThemeColor()`. Required: registering the
+  modal makes it draw every frame from the Gui loop, and `THEME_COLOR` resolves to a member that only
+  `UpdateElement()` sets — which under comboui runs only once MM's tab is drawn — so `ColorValues.at()`
+  would throw out of 2ship.dll across the DLL boundary. The ctor seed alone is not enough:
+  `MM_MenuDrawCustom` calls `Update()`, which re-reads the CVar unclamped, so the clamp belongs at the
+  `GetMenuThemeColor()` funnel where every `THEME_COLOR` read passes. Also fixes a live crash for
+  anyone with `gWindows.InputViewerSettings=1` (`InputViewerSettingsWindow::DrawElement` uses
+  `THEME_COLOR`; `InputViewer::DrawElement` does not).
+- `mm/2s2h/BenGui/BenModals.cpp` — `ImGuiPopupFlags_NoOpenOverExistingPopup` plus a `PushID("MM")`
+  scope. Neither modal window calls `Begin()`, so both open at popup level 0 and hash their popup ids
+  against the same window. Both games use the exact titles "Clear List" and "Apply & Close", so
+  without the `PushID` MM would draw its message and buttons into OOT's popup with colliding button
+  ids — one click could run the other game's callback. The flag is the level tie-break: it is
+  one-way (OOT's `OpenPopup` stays unflagged), so OOT wins and MM retries next frame.
+- `soh/soh/Enhancements/mod_menu.cpp` + `mm/.../ModMenu.cpp` — a plain "Apply" that writes the CVar
+  and leaves edit mode without closing. `SetEnabledModsCVarValue` already calls
+  `SaveConsoleVariablesNextFrame()`, so no explicit `Save()`; "Apply & Close" needs its own only
+  because it closes before the next frame. Upstream's "Apply & Close" is unchanged, and in combo it
+  takes both games down.
+- Both mod menus, **not** guarded — a `filePaths.find()` skip at the top of `DrawMods`' loop. A
+  genuine upstream bug (a file deleted mid-session throws out of the inline-menu draw path, and
+  neither `SOH_MenuDrawCustom` nor `MM_MenuDrawCustom` has a try/catch); correct in standalone too,
+  and an `#ifdef` around one `continue` would be worse than the line. The doc entry is the only
+  record, since the line carries no `ComboShip:` marker — re-check it after upstream merges.
+
+**Residuals, accepted:** OOT's Presets "Settings" block bulk-clears the whole `gSettings` subtree, so
+an OOT settings-preset apply clears both mod lists — benign, they rebuild from disk. The
+`GetMenuThemeColor()` clamp covers every `THEME_COLOR` read, but a dozen MM sites read
+`gSettings.Menu.Theme` directly with `CVarGetInteger` and stay unclamped; soh's `Menu` is unclamped
+throughout, unchanged here because OOT's modal was always registered. If a game's mods dir doesn't
+exist, `UpdateModFiles` skips its whole body and leaves the list unpruned and unwritten. When a mod
+file vanishes mid-session the skipped row leaves the up/down arrows working on raw vector indices, so
+a swap with a skipped neighbour changes the list without changing what is drawn (and a shift-range
+selection can pick up the invisible name) — cosmetic, in an already-degraded state.
+
+**On future merges:** the theme seeding relies on soh's and MM's `UIWidgets::Colors` enums and
+`ColorValues` maps being identical (`soh/soh/SohGui/UIWidgetOptions.hpp` vs
+`mm/2s2h/BenGui/UIWidgets.hpp`) because `gSettings.Menu.Theme` is shared. If a merge diverges them,
+the shared key becomes unsafe. Also re-check the `Modal Window` suffix and the "Apply" button if
+upstream reworks the mod menu.

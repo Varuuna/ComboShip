@@ -1276,7 +1276,8 @@ void Sram_ResetSaveFromMoonCrash(SramContext* sramCtx) {
             sramCtx->saveBuf,
             gFlashSaveStartPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER + FLASH_SAVE_BACKUP_OFFSET],
             gFlashSaveNumPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER + FLASH_SAVE_BACKUP_OFFSET]);
-        memcpy(&gSaveContext, sramCtx->saveBuf, sizeof(Save));
+        // ComboShip: the backup read fills the save, not the whole SaveContext (matches :1273).
+        memcpy(&gSaveContext.save, sramCtx->saveBuf, sizeof(Save));
     }
     gSaveContext.save.cutsceneIndex = cutsceneIndex;
 

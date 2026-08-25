@@ -67,7 +67,8 @@ void Setup_InitImpl(SetupState* this) {
         Combo_AdoptOOTGlobalOptions();
         // Set flashSaveAvailable so Sram_Alloc allocates saveBuf (normally set by the title screen).
         gSaveContext.flashSaveAvailable = true;
-        // Load the MM save that matches the OOT slot (OOT slot N → MM file N+1).
+        // Load the MM save that matches the OOT slot (OOT slot N → MM file N+1). ComboShip never blocks
+        // entry: a nonzero result is logged inside and leaves the fail-closed sentinel, and play proceeds.
         Combo_LoadMMSaveFile(gComboStartFileNum + 1);
         // ComboShip (#182): an owl save is the newest state whenever it exists, so it wins on both
         // entry kinds — but only a resume follows it to where it was saved.

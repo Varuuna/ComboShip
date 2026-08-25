@@ -490,6 +490,28 @@ the pre-fix segfault reproduced on demand; post-fix, `oot.z64` routes to the OoT
 `MM_ClassifyRom` accepts). Also verified by hand on Windows: ROMs dragged onto the extraction
 screen route through the `WM_DROPFILES`/DXGI path into the correct slots.
 
+## Three more quit-to-MM-title seams (2026-08-22)
+
+Every path that reaches `TitleSetup_SetupTitleScreen` runs `Sram_InitNewSave()` (a `SAVETYPE_VANILLA`
+wipe) and then fires `OnSaveLoad`, which unregisters every `IS_RANDO` hook. The owl-save seam above
+covered one such path; three others were still unguarded, and all now route through the existing return
+hooks instead. Neither `Combo_RequestOwlSaveQuit()` nor `MM_RequestComboReturn()` stops the gamestate —
+the return hook drives the handoff — so none of these sites may `STOP_GAMESTATE`.
+
+- `z_kaleido_scope_NES.c` **save-prompt state 6** → `Combo_RequestOwlSaveQuit()`. Dead code in this tree;
+  guarded defensively so it cannot resurface as a save wipe.
+- `z_kaleido_scope_NES.c` **game-over Continue → "No"** → `Combo_RequestOwlSaveQuit()`. Vanilla discards
+  unsaved progress here too, so the semantics match. Both sites already set `pauseCtx->state =
+  PAUSE_STATE_OFF` first, so the branch cannot re-fire.
+- `DebugConsole.cpp` **`reset`** → `MM_RequestComboReturn()` (Ctrl+R semantics: persists only when
+  autosave is on). Transitively fixes `Ship_HandleConsoleCrashAsReset` and its callers. The
+  `gGameState == nullptr` early return is kept.
+
+**MM entry is never refused.** The return kinds stay 0/1/2; there is deliberately no "entry failed" kind.
+Nor is it repaired: an unusable MM half is logged loudly, the fail-closed load sentinel keeps stray writes
+and tracker draws off the slot, and play proceeds — re-creating the file is the remedy, and the legacy
+population is retired by the 0.3.0 container gate. See `rando.md` for the load-side failure codes.
+
 ## MM owl saves on combo resume (issue #182, 2026-08-24)
 
 **Why:** ComboShip enters MM without a file select — `Setup_InitImpl`'s `COMBO_BUILD` block
@@ -512,6 +534,8 @@ slot whose owl blob `gSaveContext` descends from.
   restores the cycle extras (`eventInf`, bottle timers, `pictoPhotoI5`) that `newCycleSave` lacks.
   Presence of the key is the discriminator; `save.isOwlSave` is **not** reliable, every owl writer
   restores it in RAM afterwards. Stays a pure read — the dormant tracker peek shares this function.
+  Its owl branches return the load-failure codes like every other page: a slot with neither key, or an
+  unparseable `owlSave` and no `newCycleSave`, is `-4` (fail-closed sentinel; entry still proceeds).
 - `SaveManager_SaveCurrentForCombo` read-modify-writes: it **refreshes** the blob when the flag matches,
   otherwise **erases** it. Never leaves it untouched — blanket preservation would let a dormant grant
   write a newer `newCycleSave` behind a stale blob, and the granted item would vanish. The refresh
@@ -543,3 +567,4 @@ re-uses a dirty `gSaveContext`.
 **Known hole, left alone:** with Autosave on and Pause Menu Save off, a pause save takes
 `Sram_SetFlashPagesDefault` into the new-cycle branch, which preserves `owlSave` — so a stale autosave
 blob shadows it until the next combo write. Vanilla 2S2H has the identical bug through its file select.
+

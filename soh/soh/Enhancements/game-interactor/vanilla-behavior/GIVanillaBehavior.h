@@ -462,7 +462,7 @@ typedef enum {
 
     // #### `result`
     // ```c
-    // this->hookshotSlotFull != 0
+    // this->hookshotSlotFull
     // ```
     // #### `args`
     // - None
@@ -790,6 +790,14 @@ typedef enum {
     // #### `args`
     // - None
     VB_FLASH_SCREEN_FOR_FINISHING_BLOW,
+
+    // #### `result`
+    // ```c
+    // varies
+    // ```
+    // #### `args`
+    // - `s32` (drop id)
+    VB_FLEX_DROP_AMMO,
 
     // #### `result`
     // ```c
@@ -1631,6 +1639,14 @@ typedef enum {
     // #### `args`
     // - `*EnMd`
     VB_MIDO_SPAWN,
+
+    // #### `result`
+    // ```c
+    // reflection[i].reflectionPoly != NULL
+    // ```
+    // #### `args`
+    // - `*MirRayShieldReflection`
+    VB_MIRRAY_DRAW_REFLECTION,
 
     // #### `result`
     // ```c
@@ -3027,7 +3043,7 @@ typedef enum {
 
     // #### `result`
     // ```c
-    // true
+    // varies
     // ```
     // #### `args`
     // - `*Actor`
@@ -3118,14 +3134,6 @@ typedef enum {
     // #### `args`
     // - None
     VB_DRAW_2D_BACKGROUND,
-
-    // #### `result`
-    // ```c
-    // CVarGetInteger(CVAR_ENHANCEMENT("3DSceneRender"), 0)
-    // ```
-    // #### `args`
-    // - None
-    VB_LOAD_SKYBOX,
 
     // true
     // ```

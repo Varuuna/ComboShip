@@ -4317,6 +4317,43 @@ extern "C" __declspec(dllexport) int MM_IsPausedForCombo(void) {
     return gPlayState != nullptr && gPlayState->pauseCtx.state > 0;
 }
 
+// ComboShip (#173): MM's play time is wall clock between flushes, so without these the hours spent in
+// OOT get folded into filePlaytime at MM's next save. The launcher pauses/resumes on every swap.
+static bool sComboPlaytimeRunning = false;
+
+// Flushes the running interval into filePlaytime and stops counting. lastTimeLog == 0 means "never
+// marked" (new file, z_sram_NES.c) and must not be treated as a timestamp — it would add ~57 years.
+extern "C" __declspec(dllexport) void MM_ComboPausePlaytime(void) {
+    if (sComboPlaytimeRunning && gSaveContext.shipSaveContext.lastTimeLog != 0 &&
+        gSaveContext.save.shipSaveInfo.fileCompletedAt == 0) {
+        uint64_t now = GetUnixTimestamp();
+        if (now > gSaveContext.shipSaveContext.lastTimeLog) { // a backwards clock step would wrap
+            gSaveContext.save.shipSaveInfo.filePlaytime += now - gSaveContext.shipSaveContext.lastTimeLog;
+        }
+        gSaveContext.shipSaveContext.lastTimeLog = now;
+    }
+    sComboPlaytimeRunning = false;
+}
+
+extern "C" __declspec(dllexport) void MM_ComboResumePlaytime(void) {
+    gSaveContext.shipSaveContext.lastTimeLog = GetUnixTimestamp();
+    sComboPlaytimeRunning = true;
+}
+
+// MM's half of the combo total, in ms. The live interval is added only while MM is the foreground
+// game — otherwise the value would free-run on wall clock while MM is dormant.
+extern "C" __declspec(dllexport) uint64_t MM_GetPlaytimeMs(void) {
+    uint64_t total = gSaveContext.save.shipSaveInfo.filePlaytime;
+    if (sComboPlaytimeRunning && gSaveContext.shipSaveContext.lastTimeLog != 0 &&
+        gSaveContext.save.shipSaveInfo.fileCompletedAt == 0) {
+        uint64_t now = GetUnixTimestamp();
+        if (now > gSaveContext.shipSaveContext.lastTimeLog) {
+            total += now - gSaveContext.shipSaveContext.lastTimeLog;
+        }
+    }
+    return total;
+}
+
 extern "C" __declspec(dllexport) int32_t MM_MenuEvalDisabled(int32_t i, const char** outReason) {
     ComboMenuContext::UseSharedImGuiContext();
     Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("mm"));

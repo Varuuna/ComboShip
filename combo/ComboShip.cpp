@@ -287,6 +287,13 @@ static FnSetHintRevealOot SOH_SetComboHintRevealCb = nullptr;
 typedef void (*FnSetHintRevealMm)(void (*)(int, int, int, const char*, const char*));
 static FnSetHintRevealMm MM_SetComboHintRevealCb = nullptr;
 
+// ComboShip (#173): combo-owned overlay timers. MM's play time is wall clock between flushes, so it
+// must be paused/resumed across every game swap or the time spent in OOT lands in MM's save.
+typedef void (*FnComboUISetInt)(int);
+static FnComboUISetInt ComboUI_SetComboComplete = nullptr;
+static FnVoidArgless MM_ComboPausePlaytime = nullptr;
+static FnVoidArgless MM_ComboResumePlaytime = nullptr;
+
 // ComboShip (#169): combo-owned OOT->MM cosmetic color sync (combo/gui/ComboCosmeticsSync.cpp). The
 // gate predicate is exported too, so the launcher never duplicates the CVar reads.
 static FnVoidArgless ComboUI_SyncRandomizedCosmetics = nullptr;
@@ -369,6 +376,13 @@ static std::vector<int> g_evictedSlots;
 
 // Single place the foreground game changes, so every transition point notifies comboui consistently.
 static void Combo_SetForegroundGame(int game) {
+    // #173: MM only accrues play time while it is foreground. OOT owns the foreground at startup.
+    static int sPrevGame = ComboRando::GAME_OOT;
+    if (sPrevGame == ComboRando::GAME_MM && MM_ComboPausePlaytime)
+        MM_ComboPausePlaytime();
+    if (game == ComboRando::GAME_MM && MM_ComboResumePlaytime)
+        MM_ComboResumePlaytime();
+    sPrevGame = game;
     if (ComboUI_OnForegroundGame)
         ComboUI_OnForegroundGame(game);
 }
@@ -1176,6 +1190,8 @@ static void LoadComboCompletion(int slot) {
         MM_SetComboGoal(g_goalHunt ? 1 : 0, g_goalRequired, ComboRando::CwMmPieces(g_goalTotal));
     if (SOH_SetComboStartingGame)
         SOH_SetComboStartingGame(g_startingGameMM ? 1 : 0);
+    if (ComboUI_SetComboComplete)
+        ComboUI_SetComboComplete((g_comboCompletion[0] && g_comboCompletion[1]) ? 1 : 0);
 }
 
 // Generation pushes the MENU goal into both DLLs. If a slot is loaded, put its own (seed-bound) goal
@@ -1192,12 +1208,18 @@ static void RestoreLoadedSlotGoal() {
 }
 
 static void SaveComboCompletion(int slot) {
-    std::lock_guard<std::mutex> lk(g_containerMutex);
-    auto& c = LoadOrCreateContainer(slot);
-    c["combo"]["completion"]["oot"] = g_comboCompletion[0];
-    c["combo"]["completion"]["mm"] = g_comboCompletion[1];
-    c["combo"]["completion"]["triforce"] = g_comboTriforceDone;
-    FlushContainer(slot);
+    {
+        std::lock_guard<std::mutex> lk(g_containerMutex);
+        auto& c = LoadOrCreateContainer(slot);
+        c["combo"]["completion"]["oot"] = g_comboCompletion[0];
+        c["combo"]["completion"]["mm"] = g_comboCompletion[1];
+        c["combo"]["completion"]["triforce"] = g_comboTriforceDone;
+        FlushContainer(slot);
+    }
+    // #173: tints the timer overlay's total green. Pushed outside the container lock — comboui must
+    // never re-enter the sidecar.
+    if (ComboUI_SetComboComplete)
+        ComboUI_SetComboComplete((g_comboCompletion[0] && g_comboCompletion[1]) ? 1 : 0);
 }
 
 // ComboShip (#164): push the slot's hints slice + read state into comboui's Hint Tracker. Reads the
@@ -2802,6 +2824,8 @@ int main(int argc, char** argv) {
     SOH_ReadComboGoalCVars = (FnReadComboGoalCVars)GetSym(sohModule, "SOH_ReadComboGoalCVars");
     SOH_GetTriforcePieceCount = (FnGetTriforceCount)GetSym(sohModule, "SOH_GetTriforcePieceCount");
     MM_GetTriforcePieceCount = (FnGetTriforceCount)GetSym(mmModule, "MM_GetTriforcePieceCount");
+    MM_ComboPausePlaytime = (FnVoidArgless)GetSym(mmModule, "MM_ComboPausePlaytime");
+    MM_ComboResumePlaytime = (FnVoidArgless)GetSym(mmModule, "MM_ComboResumePlaytime");
     SOH_TriggerTriforceCredits = (FnTriggerTriforceCredits)GetSym(sohModule, "SOH_TriggerTriforceCredits");
     MM_TriggerTriforceCredits = (FnTriggerTriforceCredits)GetSym(mmModule, "MM_TriggerTriforceCredits");
     SOH_SetTriforceProgressCb = (FnSetTriforceProgressCb)GetSym(sohModule, "SOH_SetTriforceProgressCb");
@@ -3053,6 +3077,7 @@ int main(int argc, char** argv) {
         ComboUI_SetAnchorRosterProvider =
             (FnComboUISetRosterProvider)GetSym(comboUIModule, "ComboUI_SetAnchorRosterProvider");
         ComboUI_SetHintTrackerData = (FnComboUISetHintTrackerData)GetSym(comboUIModule, "ComboUI_SetHintTrackerData");
+        ComboUI_SetComboComplete = (FnComboUISetInt)GetSym(comboUIModule, "ComboUI_SetComboComplete");
         if (ComboUI_SetAnchorRosterProvider)
             ComboUI_SetAnchorRosterProvider(&ComboAnchor::Combo_Anchor_GetRoster);
         ComboUI_SetNotesStore = (FnComboUISetNotesStore)GetSym(comboUIModule, "ComboUI_SetNotesStore");

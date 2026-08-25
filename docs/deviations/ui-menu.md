@@ -337,3 +337,56 @@ selection can pick up the invisible name) — cosmetic, in an already-degraded s
 `mm/2s2h/BenGui/UIWidgets.hpp`) because `gSettings.Menu.Theme` is shared. If a merge diverges them,
 the shared key becomes unsafe. Also re-check the `Modal Window` suffix and the "Apply" button if
 upstream reworks the mod menu.
+
+## Combo-owned overlay timers (issue #173, 2026-08-24)
+
+**Why:** OOT's "Additional Timers" and MM's "Display Overlay" each showed only their own game's play
+time, so a combo run never had a number covering the whole run. MM also had a live bug: its play time
+is wall clock between flushes (`filePlaytime += now - lastTimeLog`) and `lastTimeLog` was never
+advanced when combo swapped away, so hours spent in OOT were folded into MM's save at its next flush.
+
+**Combo-owned:** `combo/gui/ComboTimersWindow.{h,cpp}` — window `Timers##Combo`, CVars `gCombo.Timers.*`,
+settings under ComboShip Settings → Timers. The total is `OOT playTimer/2 + pauseTimer/3` (deciseconds)
+plus MM's `filePlaytime/100`; both already live in the `.combosav`, and exactly one advances at a time.
+Time of day / Navi / conditional draw only while OOT is foreground. `Combo_SetForegroundGame` pauses
+and resumes MM's accumulator across every swap. The total tints green once both games are beaten
+(`ComboUI_SetComboComplete`, pushed from the existing `combo.completion` flags — no new save key).
+
+**No real-time (RTA) row, deliberately.** MM's `GetUnixTimestamp` (`mm/2s2h/BenPort.cpp`) assigns
+`millis.count()` to a `long`, which is 32-bit on Windows, so every MM timestamp is truncated modulo
+2^32 — `fileCreatedAt` lands around 8.6e8 where soh's untruncated ms is around 1.79e12. MM's own
+timestamps stay self-consistent (differences survive the truncation until it wraps, every ~49.7 days),
+so this is invisible inside 2Ship, but it makes MM and OOT timestamps incomparable. A first attempt at
+an RTA row took `min(OOT firstInput, MM fileCreatedAt)` and displayed 496307 hours. **Never compare a
+soh timestamp with an MM one** without fixing the truncation first.
+
+**Vendored (all `COMBO_BUILD`-guarded):**
+- `soh/soh/OTRGlobals.cpp` — `SOH_GetPlaytimeDeciseconds`, `SOH_GetOverlayTimers` (classification
+  stays in soh so comboui hardcodes no vanilla enum values).
+- `mm/2s2h/BenPort.cpp` — `MM_GetPlaytimeMs`, `MM_ComboPausePlaytime`,
+  `MM_ComboResumePlaytime` + a running latch. The advance is implemented locally rather than calling
+  `SavingEnhancements_AdvancePlaytime` so `SavingEnhancements.cpp` stays untouched. The
+  `lastTimeLog != 0` guard matters because `z_sram_NES.c` zeroes it on a new file — treating 0 as a
+  timestamp would add a whole Unix epoch (~57 years).
+- `soh/soh/SohGui/SohMenuEnhancements.cpp` and `mm/2s2h/BenGui/BenMenu.cpp` — the native timer menu
+  entries are `#ifndef COMBO_BUILD`. A sidebar allow-list is not enough: `ComboMenu::DrawSearchResults`
+  walks both games' menu models unfiltered, so a search for "timer" would re-open the native window.
+
+**Do not remove** the `TimeDisplayWindow` registration at `soh/soh/SohGui/SohGui.cpp:203` — its
+`InitElement` is what loads the digit and icon textures the combo overlay draws with. Only its draw
+is suppressed.
+
+**Residuals:** the pause only flushes into memory — nothing persists MM's save on the way out — so
+time played in MM without an owl/auto save is lost when the slot's MM blob is re-read (reset or
+owl-save quit, `g_MmSaveInMemorySlot = -1`), and the total steps back to MM's last saved value. Same
+as vanilla 2ship.
+
+**Separate bug found while playtesting this, NOT fixed here:** MM's play time reads 0 after an owl
+save because `SaveManager_LoadSaveFile` (`mm/2s2h/SaveManager/SaveManager.cpp`) reads only the
+`newCycleSave` key and never `owlSave`. ComboShip's resume shortcut (`mm/src/code/title_setup.c`,
+`COMBO_BUILD` block) goes through that function instead of vanilla's `Sram_OpenSave`, which picks the
+owl page when `isOwlSave` is set and then deletes it on continue (`VB_DELETE_OWL_SAVE`). So an owl
+save's whole state — not just play time — is discarded on a combo resume. Note that a new-cycle save
+deliberately preserves `owlSave`, so a read-priority fix alone would let a stale owl save shadow a
+newer cycle save; the delete-on-continue half is required too.
+

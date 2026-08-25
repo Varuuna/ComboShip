@@ -511,3 +511,85 @@ the return hook drives the handoff — so none of these sites may `STOP_GAMESTAT
 Nor is it repaired: an unusable MM half is logged loudly, the fail-closed load sentinel keeps stray writes
 and tracker draws off the slot, and play proceeds — re-creating the file is the remedy, and the legacy
 population is retired by the 0.3.0 container gate. See `rando.md` for the load-side failure codes.
+
+## Flash-save tables indexed with a raw or sentinel `fileNum` (issue #184, 2026-08-26)
+
+**Why:** MM addresses save storage through the `gFlashSave*` / `gFlashOwlSave*` lookup tables in
+`z_sram_NES.c`, whose correct index is `fileNum * FLASH_SAVE_MAIN_MULTIPLIER` (+
+`FLASH_SAVE_BACKUP_OFFSET` for the backup row) — each slot owns two consecutive rows. Two kaleido
+sites dropped the multiplier, so the index still resolved to a *valid but wrong* row: slot 2 wrote
+`file1backup.json` (which `SaveManager_WriteSaveFile` drops under `COMBO_BUILD`, so the save vanished)
+and slot 3 wrote `file2.json`, i.e. slot 2's `mm` section. Upstream's backup write is real, so only a
+ComboShip build loses the write. Separately, four sites indexed with `gSaveContext.fileNum` without
+testing the `0xFF` "no slot" sentinel, reading 255 or 510 entries past 14- and 6-entry arrays. That
+usually just fails the `SaveManager_GetFlashSaveFromPages` reverse lookup and drops the write, but if
+the garbage happens to alias a real (startPage, numPages) pair it resolves a valid `FlashSave` and
+overwrites another slot's `mm` section — deterministic per build, so it can flip on any unrelated
+`.data` change.
+
+ComboShip reaches `0xFF` deliberately: `SaveManager_LoadFailedForCombo` sets it whenever a
+container's `mm` half fails to load, because a failed half is never refused and never repaired — play
+proceeds (see the entry above). `gSaveContext.flashSaveAvailable` is true in that session, so the
+existing `!flashSaveAvailable` guards do not cover it; the `fileNum` test is the only thing that can.
+Playing the Song of Time was enough to hit it: `Sram_SaveEndOfCycle` fires `BeforeEndOfCycleSave` →
+`DeleteOwlSave` → `func_80147314(0xFF)` → two synchronous writes off `gFlashOwlSaveStartPages[510]` on
+a six-entry array. Upstream 2S2H is exposed too (map select and BootToWarpPoint both play with
+`fileNum == 0xFF`), which is why the sibling guards are already commented "Don't let them save if they
+are in debug save" — so these are correctness fixes, not deviations, and none is fenced.
+
+**`mm/src/code/z_sram_NES.c` (unguarded, `// ComboShip:`):** a `fileNum != 0xFF` test around the
+storage access only — never the function entry — in `Sram_SaveSpecialEnterClockTown`,
+`Sram_SaveSpecialNewDay`, `Sram_ResetSaveFromMoonCrash`, and `func_80147314` (which tests its
+`fileNum` argument, so one guard covers both callers). The in-memory transitions these functions
+perform first all still run: the `isFirstCycle`/`isOwlSave` sets, `Sram_SaveEndOfCycle`, the `newf`
+zero-and-restore dance, and the cycle-flag and timer resets. All four use synchronous writes and never
+touch `sramCtx->status`, so skipping leaves only a stale `curPage`/`numPages` that nothing reads while
+`status` is 0 — no save state machine can observe the skip. `Sram_ResetSaveFromMoonCrash` is a
+read/restore rather than a write, so its post-guard invariant is stated explicitly: the live save is
+left exactly as it was and no restore is attempted, since there is nothing to restore from. That
+replaces the old behaviour, where both reads failed and the function still copied the zeroed buffer
+over `gSaveContext.save` — blanking the player's items, hearts and masks in RAM.
+
+**`mm/src/overlays/kaleido_scope/ovl_kaleido_scope/z_kaleido_scope_NES.c` (unguarded,
+`// ComboShip:`):** the missing multiplier on the pause-menu save (Pause Menu Save off) and on the
+game-over "Save" prompt, plus a `fileNum == 255` term added to the game-over prompt's existing
+`!flashSaveAvailable` condition — its pause-save sibling already had that test, this one did not.
+Extending that condition rather than nesting a new `if` routes the skip to `PAUSE_STATE_GAMEOVER_8` —
+the exact state the pre-existing `!flashSaveAvailable` skip already used, so the guard introduces no
+new state. `GAMEOVER_7` would be wrong: it polls `sramCtx->status`, which a skipped write leaves at 0.
+Note that `GAMEOVER_8` does draw the "Saved!" banner (`gPauseSaveConfirmationENGTex`, and
+`GAMEOVER_7` is drawn nowhere), so a no-slot game over claims a save it never made — an upstream quirk
+inherited here, shared with the `!flashSaveAvailable` path and `PAUSE_SAVEPROMPT_STATE_5`, not
+something this guard introduces. Both
+branches are unreachable in this tree — the pause save prompt is only entered behind
+`VB_SAVE_ON_B_BUTTON_IN_PAUSE_MENU`, whose sole hook requires the very CVar the buggy branch tests as
+off, and the game-over prompt needs `GAMEOVER_INACTIVE`, which `z_game_over.c` clears on the frame it
+starts the sequence. Fixed anyway so they cannot resurface as a cross-slot write. Both calls re-wrap
+under clang-format; the formatter was run, nothing was hand-wrapped.
+
+**`combo/ComboShip.cpp` (combo-owned, no fence):** `Combo_ReadGameSave` and `Combo_WriteGameSave` now
+early-out on `!ComboIsValidSlot(fileNum)` like every other container callback. They were the only two
+that skipped it, despite `ComboIsValidSlot`'s own comment saying callbacks reached from a game's
+`gSaveContext.fileNum` must never create a phantom container. With `fileNum == 0xFF`,
+`SaveManager_SaveCurrentForCombo` targeted `file256.json` → slot 255 → a real
+`Save/file256.combosav` on disk; two MM callers reached it unguarded (`BenPort.cpp`'s portal-return
+persist and `CheckQueue.cpp`'s per-check save), while every other caller already tested the sentinel.
+Guarding the boundary closes all of them, present and future, so neither MM caller needed touching.
+
+**Declined residuals.** `Sram_OpenSave`'s `0xFF` branch never assigns `phi_t1`, which then feeds a
+`memcpy` length twice — real, but dead code: its only caller assigns 0-2 one line earlier and combo
+never enters MM file select, and any fix would have to invent the intended index. `func_80147414`
+only ever receives file-select indices, never `gSaveContext.fileNum`. The backup write in
+`func_80147314` uses `gFlashOwlSaveNumPages[...MAIN_MULTIPLIER]` without `+ FLASH_SAVE_BACKUP_OFFSET`
+(upstream's own `//!` note flags it) — a no-op, since both entries are `0x80`, and an upstream
+decomp-accuracy question. The guards test `0xFF` equality rather than a `FILE_NUM_MAX` range, matching
+the six pre-existing sibling guards in `z_message.c`, `MoonCrashSave.cpp` and the pause-save prompt:
+`0xFE` only exists inside a three-statement window in `WarpPoint.cpp` and `0xFEDC` is commented out in
+`z_title.c`, so neither is observable by a save path, and the one place that does want a range check is
+the launcher boundary, where `ComboIsValidSlot` already is one. No assert was added: the obvious
+candidate — checking in `Sram_StartWriteToFlashDefault` that `curPage` matches `gSaveContext.fileNum` —
+would false-fire, because file-select copy/erase/nameset legitimately call it for `copyDestFileIndex`,
+`selectedFileIndex` and the SRAM header. The dead kaleido branches were left in place rather than
+removed, matching the quit-to-title seams above. Also noticed but not touched: the comment at
+`BenPort.cpp`'s `Combo_LoadMMSaveFile` claims the caller rebuilds on a negative code — `title_setup.c`
+discards the return and rebuilds nothing. Not sent upstream.

@@ -1261,23 +1261,28 @@ void Sram_ResetSaveFromMoonCrash(SramContext* sramCtx) {
     s32 i;
     s32 cutsceneIndex = gSaveContext.save.cutsceneIndex;
 
-    memset(sramCtx->saveBuf, 0, SAVE_BUFFER_SIZE);
+    // ComboShip: 0xFF means no slot is loaded (MM debug save, or a .combosav mm half that failed to
+    // load). It has no row in the page tables, so read nothing and leave the live save alone.
+    if (gSaveContext.fileNum != 0xFF) {
+        memset(sramCtx->saveBuf, 0, SAVE_BUFFER_SIZE);
 
-    if (SysFlashrom_ReadData(sramCtx->saveBuf, gFlashSaveStartPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER],
-                             gFlashSaveNumPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER]) != 0) {
-        SysFlashrom_ReadData(
-            sramCtx->saveBuf,
-            gFlashSaveStartPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER + FLASH_SAVE_BACKUP_OFFSET],
-            gFlashSaveNumPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER + FLASH_SAVE_BACKUP_OFFSET]);
-    }
-    memcpy(&gSaveContext.save, sramCtx->saveBuf, sizeof(Save));
-    if (CHECK_NEWF(gSaveContext.save.saveInfo.playerData.newf)) {
-        SysFlashrom_ReadData(
-            sramCtx->saveBuf,
-            gFlashSaveStartPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER + FLASH_SAVE_BACKUP_OFFSET],
-            gFlashSaveNumPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER + FLASH_SAVE_BACKUP_OFFSET]);
-        // ComboShip: the backup read fills the save, not the whole SaveContext (matches :1273).
+        if (SysFlashrom_ReadData(sramCtx->saveBuf,
+                                 gFlashSaveStartPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER],
+                                 gFlashSaveNumPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER]) != 0) {
+            SysFlashrom_ReadData(
+                sramCtx->saveBuf,
+                gFlashSaveStartPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER + FLASH_SAVE_BACKUP_OFFSET],
+                gFlashSaveNumPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER + FLASH_SAVE_BACKUP_OFFSET]);
+        }
         memcpy(&gSaveContext.save, sramCtx->saveBuf, sizeof(Save));
+        if (CHECK_NEWF(gSaveContext.save.saveInfo.playerData.newf)) {
+            SysFlashrom_ReadData(
+                sramCtx->saveBuf,
+                gFlashSaveStartPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER + FLASH_SAVE_BACKUP_OFFSET],
+                gFlashSaveNumPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER + FLASH_SAVE_BACKUP_OFFSET]);
+            // ComboShip: the backup read fills the save, not the whole SaveContext (matches the read above).
+            memcpy(&gSaveContext.save, sramCtx->saveBuf, sizeof(Save));
+        }
     }
     gSaveContext.save.cutsceneIndex = cutsceneIndex;
 
@@ -2069,8 +2074,12 @@ void Sram_SaveSpecialEnterClockTown(PlayState* play) {
     // 2S2H [Enhancement] Store playtime before saving
     SavingEnhancements_AdvancePlaytime();
     func_80145698(sramCtx);
-    SysFlashrom_WriteDataSync(sramCtx->saveBuf, gFlashSaveStartPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER],
-                              gFlashSpecialSaveNumPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER]);
+    // ComboShip: no slot loaded, so skip the write (see Sram_ResetSaveFromMoonCrash).
+    if (gSaveContext.fileNum != 0xFF) {
+        SysFlashrom_WriteDataSync(sramCtx->saveBuf,
+                                  gFlashSaveStartPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER],
+                                  gFlashSpecialSaveNumPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER]);
+    }
 }
 
 /**
@@ -2091,9 +2100,12 @@ void Sram_SaveSpecialNewDay(PlayState* play) {
     gSaveContext.save.day = day;
     gSaveContext.save.time = time;
     gSaveContext.save.cutsceneIndex = cutsceneIndex;
-    SysFlashrom_WriteDataSync(play->sramCtx.saveBuf,
-                              gFlashSaveStartPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER],
-                              gFlashSaveNumPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER]);
+    // ComboShip: no slot loaded, so skip the write (see Sram_ResetSaveFromMoonCrash).
+    if (gSaveContext.fileNum != 0xFF) {
+        SysFlashrom_WriteDataSync(play->sramCtx.saveBuf,
+                                  gFlashSaveStartPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER],
+                                  gFlashSaveNumPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER]);
+    }
 }
 
 void Sram_SetFlashPagesDefault(SramContext* sramCtx, u32 curPage, u32 numPages) {
@@ -2187,12 +2199,15 @@ void func_80147314(SramContext* sramCtx, s32 fileNum) {
     gSaveContext.save.saveInfo.checksum = Sram_CalcChecksum(&gSaveContext, offsetof(SaveContext, fileNum));
 
     memcpy(sramCtx->saveBuf, &gSaveContext, offsetof(SaveContext, fileNum));
-    Sram_SyncWriteToFlash(sramCtx, gFlashOwlSaveStartPages[fileNum * FLASH_SAVE_MAIN_MULTIPLIER],
-                          gFlashOwlSaveNumPages[fileNum * FLASH_SAVE_MAIN_MULTIPLIER]);
-    //! Note: should be `gFlashOwlSaveNumPages[fileNum * FLASH_SAVE_MAIN_MULTIPLIER + FLASH_SAVE_BACKUP_OFFSET]`?
-    Sram_SyncWriteToFlash(sramCtx,
-                          gFlashOwlSaveStartPages[fileNum * FLASH_SAVE_MAIN_MULTIPLIER + FLASH_SAVE_BACKUP_OFFSET],
-                          gFlashOwlSaveNumPages[fileNum * FLASH_SAVE_MAIN_MULTIPLIER]);
+    // ComboShip: no slot loaded, so skip the write (see Sram_ResetSaveFromMoonCrash).
+    if (fileNum != 0xFF) {
+        Sram_SyncWriteToFlash(sramCtx, gFlashOwlSaveStartPages[fileNum * FLASH_SAVE_MAIN_MULTIPLIER],
+                              gFlashOwlSaveNumPages[fileNum * FLASH_SAVE_MAIN_MULTIPLIER]);
+        //! Note: should be `gFlashOwlSaveNumPages[fileNum * FLASH_SAVE_MAIN_MULTIPLIER + FLASH_SAVE_BACKUP_OFFSET]`?
+        Sram_SyncWriteToFlash(sramCtx,
+                              gFlashOwlSaveStartPages[fileNum * FLASH_SAVE_MAIN_MULTIPLIER + FLASH_SAVE_BACKUP_OFFSET],
+                              gFlashOwlSaveNumPages[fileNum * FLASH_SAVE_MAIN_MULTIPLIER]);
+    }
 
     gSaveContext.save.isOwlSave = true;
 

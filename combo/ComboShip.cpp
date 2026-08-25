@@ -507,6 +507,9 @@ static void Combo_CopyContainer(int from, int to) {
 // Launcher-provided save IO, pushed into each DLL. game: 0=OOT,1=MM (GameId); fileNum 0-based.
 // Returns the section JSON in a thread_local buffer (OOT may read off the main thread), "" if absent.
 static const char* Combo_ReadGameSave(int game, int fileNum) {
+    // No container exists for a sentinel fileNum - see ComboIsValidSlot.
+    if (!ComboIsValidSlot(fileNum))
+        return "";
     thread_local std::string buf;
     std::lock_guard<std::mutex> lk(g_containerMutex);
     auto& c = LoadOrCreateContainer(fileNum);
@@ -521,6 +524,17 @@ static const char* Combo_ReadGameSave(int game, int fileNum) {
 static void Combo_WriteGameSave(int game, int fileNum, const char* json) {
     if (!json)
         return;
+    // Same guard as the read: a sentinel fileNum must never create a phantom container. Say so once —
+    // the session this fires in drops every save, and the load failure may be hours back in the log.
+    if (!ComboIsValidSlot(fileNum)) {
+        static bool warned = false;
+        if (!warned) {
+            warned = true;
+            std::cerr << "[ComboShip] dropping save write for game " << game << ": no slot loaded (fileNum " << fileNum
+                      << ")" << std::endl;
+        }
+        return;
+    }
     std::lock_guard<std::mutex> lk(g_containerMutex);
     auto& c = LoadOrCreateContainer(fileNum);
     const char* key = (game == ComboRando::GAME_OOT) ? "oot" : "mm";

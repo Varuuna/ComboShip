@@ -218,6 +218,10 @@ void SaveManager_InitNewSaveForSlot(int mmFileNum, const unsigned char* ootName8
     SET_WEEKEVENTREG(WEEKEVENTREG_ENTERED_EAST_CLOCK_TOWN);
     SET_WEEKEVENTREG(WEEKEVENTREG_ENTERED_WEST_CLOCK_TOWN);
     SET_WEEKEVENTREG(WEEKEVENTREG_ENTERED_NORTH_CLOCK_TOWN);
+    // ComboShip: stamp RANDO before the write, not after. Every caller re-stamps it moments later, but
+    // this function PERSISTS, so leaving it VANILLA opened a window where the container briefly held a
+    // vanilla MM save, which silently disables every IS_RANDO hook. Combo has no vanilla mode.
+    gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_RANDO;
 #endif
     nlohmann::json j;
     j["newCycleSave"]["save"] = gSaveContext.save;
@@ -237,7 +241,22 @@ void SaveManager_SaveCurrentForCombo() {
 
 int SaveManager_ReadSaveFile(const std::filesystem::path& fileName, nlohmann::json& j);
 
-void SaveManager_LoadSaveFile(int mmFileNum) {
+// ComboShip: nothing usable was loaded, so leave gSaveContext pointing at NO slot. 0xFF is the "no save"
+// sentinel every dormant writer tests (Combo_MM_GiveDormantResolved, MM_MarkForeignObtained, MMAnchor's
+// PumpDormant), so a stray write lands nowhere instead of persisting the PREVIOUS slot's save — or
+// zeroed vanilla BSS — into the failed slot. Clearing saveType makes IS_RANDO false for the same reason:
+// the peek trackers must not keep drawing the previous slot's save as if it were this one.
+static int SaveManager_LoadFailedForCombo(int code) {
+    gSaveContext.fileNum = 0xFF;
+    gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_VANILLA;
+    return code;
+}
+
+// ComboShip: loading never creates or persists. A missing/broken MM half used to be replaced with a
+// fresh SAVETYPE_VANILLA save, permanently poisoning the slot; now every failure just returns a code,
+// loudly. Nothing repairs the slot — re-create the file. 0 ok, -1 missing, -2 unreadable, -3 migrate,
+// -4 no newCycleSave, -5 parse.
+int SaveManager_LoadSaveFile(int mmFileNum) {
     std::string fileName = SaveManager_GetFileName(mmFileNum);
     nlohmann::json j;
     int result = SaveManager_ReadSaveFile(fileName, j);
@@ -250,22 +269,17 @@ void SaveManager_LoadSaveFile(int mmFileNum) {
                 std::filesystem::absolute(savesFolderPath).string());
 #endif
     if (result != 0) {
-        // No MM save yet for this slot (e.g. the OOT->MM new-save callback never fired because the
-        // player loaded an existing OOT save rather than creating one). Create and persist a fresh
-        // MM save now so the transition runs on a valid, saved file instead of an uninitialized one.
-        SPDLOG_WARN("[ComboShip] MM save file {} missing; creating a new one", fileName);
-        SaveManager_InitNewSaveForSlot(mmFileNum);
-        gSaveContext.fileNum = (s16)(mmFileNum - 1);
-        return;
+        SPDLOG_ERROR("[ComboShip] MM save file {} missing or unreadable (read result={})", fileName, result);
+        return SaveManager_LoadFailedForCombo(result); // ReadSaveFile only returns 0/-1/-2
     }
     result = SaveManager_MigrateSave(j);
     if (result != 0) {
         SPDLOG_ERROR("[ComboShip] Failed to migrate MM save file: {}", fileName);
-        return;
+        return SaveManager_LoadFailedForCombo(-3);
     }
     if (!j.contains("newCycleSave")) {
         SPDLOG_ERROR("[ComboShip] MM save file missing newCycleSave: {}", fileName);
-        return;
+        return SaveManager_LoadFailedForCombo(-4);
     }
     try {
         Save save = j["newCycleSave"]["save"];
@@ -275,7 +289,12 @@ void SaveManager_LoadSaveFile(int mmFileNum) {
         gSaveContext.fileNum = (s16)(mmFileNum - 1);
     } catch (nlohmann::json::exception& je) {
         SPDLOG_ERROR("[ComboShip] Failed to parse MM save: {}", je.what());
-    } catch (...) { SPDLOG_ERROR("[ComboShip] Failed to parse MM save"); }
+        return SaveManager_LoadFailedForCombo(-5);
+    } catch (...) {
+        SPDLOG_ERROR("[ComboShip] Failed to parse MM save");
+        return SaveManager_LoadFailedForCombo(-5);
+    }
+    return 0;
 }
 
 void SaveManager_DeleteSaveFile(const std::filesystem::path& fileName) {
@@ -305,7 +324,7 @@ void SaveManager_DeleteSaveFile(const std::filesystem::path& fileName) {
 int SaveManager_ReadSaveFile(const std::filesystem::path& fileName, nlohmann::json& j) {
 #ifdef COMBO_BUILD
     // ComboShip: read the main per-slot section from the .combosav container; "" -> same code as the
-    // file-missing path below (feeds LoadSaveFile's "missing -> init fresh" fallback).
+    // file-missing path below, which makes LoadSaveFile refuse the slot (it never creates one).
     if (gComboReadGameSave) {
         bool isBackup, isGlobal;
         int n = SaveManager_ClassifySaveFile(fileName, isBackup, isGlobal);
@@ -679,6 +698,17 @@ extern "C" void SaveManager_SysFlashrom_WriteData(u8* saveBuffer, u32 pageNum, u
 
             if (IS_VALID_FILE(saveContext.save)) {
                 j["owlSave"] = saveContext;
+#ifdef COMBO_BUILD
+                // ComboShip: if the pre-read failed, this would write an owlSave-only section, which the
+                // load path can only refuse. Seed newCycleSave from the owl snapshot — resumed a little
+                // late beats a dead slot. Guarded: upstream's file select reads owl-only files legitimately.
+                if (!j.contains("newCycleSave")) {
+                    SPDLOG_ERROR("[ComboShip] owl save for {} had no new cycle save to preserve; seeding one from the "
+                                 "owl snapshot",
+                                 fileName);
+                    j["newCycleSave"]["save"] = saveContext.save;
+                }
+#endif
                 j["version"] = CURRENT_SAVE_VERSION;
                 j["type"] = "2S2H_SAVE";
 

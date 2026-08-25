@@ -1028,7 +1028,7 @@ bool Logic::CanKillEnemy(RandomizerEnemy enemy, EnemyDistance distance, bool wal
         case RE_BEAMOS:
             return HasExplosives();
         case RE_PURPLE_LEEVER:
-            // dies on it's own, so this is the conditions to spawn it (killing 10 normal leevers)
+            // dies on its own, so this is the conditions to spawn it (killing 10 normal leevers)
             // Sticks and Ice arrows work but will need ammo capacity logic
             // other methods can damage them but not kill them, and they run when hit, making them impractical
             return CanUse(RG_MASTER_SWORD) || CanUse(RG_BIGGORON_SWORD);
@@ -1285,7 +1285,7 @@ bool Logic::WaterRisingTargetTo3FCentral() {
             HasExplosives() && CanUse(RG_HOVER_BOOTS));
 }
 
-/* Water level has 7 events that govern it's logic.
+/* Water level has 7 events that govern its logic.
  * LOGIC_WATER_LOW, LOGIC_WATER_MIDDLE say that the player for sure can set the water to this level
  * the COULD varients of these 2, as well as LOGIC_WATER_HIGH instead check for if using those emblems would be possible
  * if the player had a specific water level and ZL
@@ -2699,7 +2699,11 @@ int8_t Logic::GetSmallKeyCount(SceneID sceneId) {
         return FindTotalSmallKeys(mSaveContext, SCENE_THIEVES_HIDEOUT, &DoorFlags);
     }
 
-    return Rando::Context::GetInstance()->GetDungeons()->GetDungeonFromScene(sceneId)->GetTotalSmallKeys(mSaveContext);
+    if (auto* dungeon = Rando::Context::GetInstance()->GetDungeons()->GetDungeonFromScene(sceneId)) {
+        return dungeon->GetTotalSmallKeys(mSaveContext);
+    }
+
+    return FindTotalSmallKeys(mSaveContext, sceneId, nullptr);
 }
 
 void Logic::SetSmallKeyCount(uint32_t dungeonIndex, uint8_t count) {

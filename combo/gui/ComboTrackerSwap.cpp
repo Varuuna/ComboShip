@@ -64,12 +64,12 @@ void EnsureMmSaveLoadedForDormantDraw() {
     if (ComboUI::MmEverForeground()) {
         return;
     }
-    static void (*sLoadMmSave)(int) = nullptr;
+    static int (*sLoadMmSave)(int) = nullptr;
     static bool sTried = false;
     if (!sTried) {
         sTried = true;
         if (HMODULE mm = GetModuleHandleA("2ship.dll")) {
-            sLoadMmSave = (void (*)(int))GetProcAddress(mm, "MM_LoadSaveForCombo");
+            sLoadMmSave = (int (*)(int))GetProcAddress(mm, "MM_LoadSaveForCombo");
         }
     }
     static int sLoadedSlot = -1;
@@ -77,6 +77,9 @@ void EnsureMmSaveLoadedForDormantDraw() {
     if (!sLoadMmSave || slot < 0 || slot == sLoadedSlot) {
         return;
     }
+    // Nonzero = nothing loaded (missing/broken MM half); it parks fileNum at 0xFF and clears saveType, so
+    // the trackers go blank instead of showing the previous slot's save. Latch the slot anyway: retrying
+    // every draw would re-read the container and spam the log.
     sLoadMmSave(slot);
     sLoadedSlot = slot;
 #endif

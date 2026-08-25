@@ -4114,8 +4114,8 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoStaticData(void) {
         }
 
         // ComboShip: ComboFillConfined ran GenerateItemPool, so possibleIceTrapModels now holds the
-        // native curated disguise set — export it (minus entries GetTrapName can't name, e.g. Chest
-        // Game keys, which would assert) so the apply gets native parity.
+        // native curated disguise set — export it (minus any entries GetTrapName can't name, which
+        // would assert) so the apply gets native parity.
         for (RandomizerGet rg : ctx->possibleIceTrapModels) {
             const std::string& mn = Rando::StaticData::RetrieveItem(rg).GetName().GetEnglish();
             if (!mn.empty() && Rando::Traps::CanBeTrapModel(rg))

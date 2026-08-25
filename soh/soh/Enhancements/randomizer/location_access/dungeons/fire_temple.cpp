@@ -1031,7 +1031,7 @@ void RegionTable_Init_FireTemple() {
     }, {
         //Exits
         //The dropdown here is unusual in that it hits 1 of 3 locations: RR_FIRE_TEMPLE_MQ_2_FIRE_WALLS_LOWER, RR_FIRE_TEMPLE_MQ_2_FIRE_WALLS_UPPER_DOOR, and RR_FIRE_TEMPLE_MQ_2_FIRE_WALLS_SWITCH
-        //Using this dropdown is in N64 logic elsewhere, but not here, probably because it requires good foreknowlege to determine where to land
+        //Using this dropdown is in N64 logic elsewhere, but not here, probably because it requires good foreknowledge to determine where to land
         ENTRANCE(RR_FIRE_TEMPLE_MQ_2_FIRE_WALLS_LOWER,      logic->TakeDamage()),
         ENTRANCE(RR_FIRE_TEMPLE_MQ_2_FIRE_WALLS_UPPER_DOOR, logic->TakeDamage()),
         ENTRANCE(RR_FIRE_TEMPLE_MQ_2_FIRE_WALLS_SWITCH,     logic->TakeDamage()),

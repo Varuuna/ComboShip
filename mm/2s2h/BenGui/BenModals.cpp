@@ -29,8 +29,19 @@ void BenModalWindow::Draw() {
 void BenModalWindow::DrawElement() {
     if (modals.size() > 0) {
         BenModal curModal = modals.at(0);
+#ifdef COMBO_BUILD
+        // ComboShip: neither modal window calls Begin(), so both hash popup ids against the same
+        // window — OOT uses these exact titles too, and MM would draw into OOT's popup.
+        ImGui::PushID("MM");
+#endif
         if (!ImGui::IsPopupOpen(curModal.title_.c_str())) {
+#ifdef COMBO_BUILD
+            // ComboShip: OOT's modal shares this popup level and re-opens every frame; without this
+            // it would evict ours mid-frame. One-way tie-break: OOT wins, we retry next frame.
+            ImGui::OpenPopup(curModal.title_.c_str(), ImGuiPopupFlags_NoOpenOverExistingPopup);
+#else
             ImGui::OpenPopup(curModal.title_.c_str());
+#endif
         }
         if (closePopup) {
             ImGui::CloseCurrentPopup();
@@ -66,6 +77,9 @@ void BenModalWindow::DrawElement() {
             }
             ImGui::EndPopup();
         }
+#ifdef COMBO_BUILD
+        ImGui::PopID();
+#endif
     }
 }
 

@@ -1,11 +1,15 @@
-name: Upstream merge (PR)
+name: Upstream merge (PRs)
 
-# Weekly (+ manual) sync of the three vendored upstreams (libultraship / soh / mm).
-# Always reports up-to-date vs updates-found in the run's Step Summary. When upstream has moved it
-# AUTO-OPENS a PR against develop: runs the mechanical 3-way merge (reusing scripts/upstream-merge.ps1
-# for the git plumbing), COMMITS conflict markers (PR flagged `has-conflicts`), bumps upstream-pins.json,
-# and scaffolds docs/merges/<date>.md. The semantic conflict resolution + build-fix chain is finished by
-# a human on the `bot/upstream-merge` branch — the build gate fails until then. See docs/UPSTREAM_MERGES.md.
+# Weekly (+ manual) sync of the three vendored upstreams (libultraship / soh / mm). Always reports
+# up-to-date vs updates-found in the run's Step Summary. Every upstream that moved gets its OWN PR
+# against develop on its own `bot/upstream-merge-<key>` branch: the mechanical 3-way merge (reusing
+# scripts/upstream-merge.ps1 for the git plumbing), conflict markers COMMITTED (PR flagged
+# `has-conflicts`), that key's pin bumped, and docs/merges/<date>-<key>.md scaffolded. An upstream
+# with nothing new gets no PR. The semantic conflict resolution + build-fix chain is finished by a
+# human on the branch — the build gate fails until then.
+#
+# soh/mm `#include` libultraship by path, so the libultraship PR must merge FIRST; their bodies say
+# so when it is open. See docs/UPSTREAM_MERGES.md.
 
 on:
   schedule:
@@ -15,21 +19,27 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  issues: write            # addLabels on the PR
+  issues: write            # addLabels on the PRs
+
+# A manual run overlapping the cron would have two runs force-pushing the same bot branches.
+concurrency:
+  group: upstream-merge
+  cancel-in-progress: false
 
 jobs:
-  merge:
+  # Always runs: reports every upstream, then decides which ones get a PR this pass.
+  detect:
     runs-on: ubuntu-latest
+    outputs:
+      keys: ${{ steps.plan.outputs.keys }}     # moved AND not already covered by an open PR
+      stale: ${{ steps.report.outputs.stale }} # up to date — cleanup closes their old PR/branch
+      date: ${{ steps.report.outputs.date }}
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: develop     # PRs target develop; don't inherit whatever the schedule's default ref is
           fetch-depth: 0   # full history: keeps prior vendor/upstream objects local for the pins diffs
-          # PAT so the opened PR triggers build-artifacts.yml / clang-format.yml (a PR opened by the
-          # default GITHUB_TOKEN does NOT trigger other workflows). Falls back to GITHUB_TOKEN if unset
-          # (PR is still created; a maintainer push then triggers the build). See docs/UPSTREAM_MERGES.md.
-          token: ${{ secrets.UPSTREAM_PR_PAT || github.token }}
 
-      # 1. Detect new upstream commits + build the changelog / conflict-surface report. Always runs.
       - name: Detect updates + changelog
         id: report
         shell: bash
@@ -38,30 +48,46 @@ jobs:
         run: |
           set -euo pipefail
           git config gc.auto 0
-          REPORT_FILE="$RUNNER_TEMP/upstream-report.md"
-          : > "$REPORT_FILE"
-          ANY_NEW=0
+
+          # Each PR bumps only its own key's 2 pin lines, which is why the sibling PRs never collide
+          # on this file. That holds only while jq round-trips it byte-for-byte — assert it, rather
+          # than silently producing three whole-file rewrites.
+          jq . upstream-pins.json | diff -q upstream-pins.json - \
+            || { echo "::error::jq does not round-trip upstream-pins.json byte-for-byte — per-key pin bumps would conflict across the PRs"; exit 1; }
+
+          REPORTS="$RUNNER_TEMP/reports"; mkdir -p "$REPORTS"
+          SUMMARY="$RUNNER_TEMP/summary.md"; : > "$SUMMARY"
+          MOVED=(); STALE=(); declare -A TIP=()
 
           # key|remote-url|branch|prefix|subtree|mergedSha   (subtree empty => repo root maps to prefix)
-          # manual:true entries (the shared extractors) are bumped by hand — steps 2a-2c only handle
-          # libultraship/soh/mm, so reporting them here would raise any_new forever and open a bogus PR.
-          jq -r '.upstreams | to_entries[] | select(.value.manual != true) | "\(.key)|\(.value.remote)|\(.value.branch)|\(.value.prefix)|\(.value.subtree)|\(.value.mergedSha)"' upstream-pins.json |
-          while IFS='|' read -r key url branch prefix subtree merged; do
+          # manual:true entries (the shared extractors) are bumped by hand — the merge job only handles
+          # libultraship/soh/mm, so reporting them here would raise a PR forever.
+          # Read into an array first: a `jq | while` pipe puts the loop in a subshell, so nothing it
+          # collects survives (the old version had to re-derive its flag by grepping the report back).
+          mapfile -t rows < <(jq -r '.upstreams | to_entries[] | select(.value.manual != true) | "\(.key)|\(.value.remote)|\(.value.branch)|\(.value.prefix)|\(.value.subtree)|\(.value.mergedSha)"' upstream-pins.json)
+
+          for row in "${rows[@]}"; do
+            IFS='|' read -r key url branch prefix subtree merged <<< "$row"
             echo "::group::$key"
             git remote add "up-$key" "$url" 2>/dev/null || true
             git -c remote.up-$key.promisor=true fetch --filter=blob:none --no-tags "up-$key" "$branch"
             tip=$(git rev-parse FETCH_HEAD)
+            TIP[$key]=$tip
 
             if [ "$(git rev-parse "$merged")" = "$tip" ]; then
-              echo "- **$key**: up to date (\`$merged\`)" >> "$REPORT_FILE"
+              STALE+=("$key")
+              echo "- **$key**: up to date (\`$merged\`)" >> "$SUMMARY"
               echo "::endgroup::"; continue
             fi
-            ANY_NEW=1
+            MOVED+=("$key")
 
+            short=$(git rev-parse --short=9 "$tip")
             count=$(git rev-list --count --first-parent "$merged..$tip")
+            echo "- **$key**: $count new merges → \`$short\`" >> "$SUMMARY"
+
+            # One report file per upstream: it becomes that PR's body and its merge-log scaffold.
             {
-              echo ""
-              echo "### $key — \`$merged\` → \`$(git rev-parse --short=9 $tip)\` ($count merges)"
+              echo "### $key — \`$merged\` → \`$short\` ($count merges)"
               echo ""
               echo '<details><summary>new commits</summary>'
               echo ""
@@ -69,7 +95,7 @@ jobs:
               git log --oneline --first-parent "$merged..$tip" | head -100
               echo '```'
               echo '</details>'
-            } >> "$REPORT_FILE"
+            } > "$REPORTS/$key.md"
 
             # Conflict surface = our customized files INTERSECT upstream-changed files.
             if [ -n "$subtree" ]; then
@@ -86,32 +112,28 @@ jobs:
               echo ""
               if [ -n "$surface" ]; then echo '```'; echo "$surface"; echo '```'
               else echo "_none — should auto-merge clean_"; fi
-            } >> "$REPORT_FILE"
+            } >> "$REPORTS/$key.md"
             echo "::endgroup::"
           done
 
-          # The while-loop runs in a subshell (pipe), so re-derive ANY_NEW from the report contents.
-          if grep -q '^### ' "$REPORT_FILE"; then ANY_NEW=1; fi
-
-          # When soh moved, cross-check the libultraship commit soh pins (its git submodule) against the
-          # one we vendor. We track Kenix3 `main`; soh tracks the diverged `port-maintenance`, which carries
-          # fixes we need AND the #1103 Context-destructor change we deliberately skip. Surface the delta so
-          # cherry-picks happen up front instead of via a cryptic /WX build failure. See docs/UPSTREAM_MERGES.md.
-          if grep -q '^### soh ' "$REPORT_FILE"; then
-            git remote add up-soh "$(jq -r '.upstreams.soh.remote' upstream-pins.json)" 2>/dev/null || true
-            git -c remote.up-soh.promisor=true fetch --filter=blob:none --no-tags up-soh \
-              "$(jq -r '.upstreams.soh.branch' upstream-pins.json)" 2>/dev/null || true
-            soh_tip=$(git rev-parse FETCH_HEAD)
-            lus_expected=$(git ls-tree "$soh_tip" libultraship 2>/dev/null | awk '{print $3}' || true)
+          # When soh moved, cross-check the libultraship commit soh pins (its git submodule) against
+          # the one we vendor. Both track Kenix3 `port-maintenance`, so a mismatch is a pin LAG, not a
+          # line divergence — but soh code in this range may need a LUS fix we don't have yet. Surface
+          # the delta so cherry-picks (or a pin bump) happen up front instead of via a cryptic /WX
+          # build failure. Lands in the soh PR only. See docs/UPSTREAM_MERGES.md.
+          if [ -n "${TIP[soh]:-}" ] && [ -f "$REPORTS/soh.md" ]; then
+            lus_expected=$(git ls-tree "${TIP[soh]}" libultraship 2>/dev/null | awk '{print $3}' || true)
             lus_ours=$(jq -r '.upstreams.libultraship.mergedSha' upstream-pins.json)
             if [ -n "$lus_expected" ] && [ "${lus_expected:0:9}" != "${lus_ours:0:9}" ]; then
               {
                 echo ""
-                echo "### ⚠️ libultraship pin: soh expects a different LUS"
+                echo "### ⚠️ libultraship pin lag: soh expects a newer LUS"
                 echo ""
-                echo "soh pins libultraship \`${lus_expected:0:9}\`; ComboShip vendors \`${lus_ours}\` (Kenix3 \`main\`)."
-                echo "soh tracks the diverged \`port-maintenance\` branch. **Cherry-pick the fixes you need** into"
-                echo "\`libultraship/\` — do NOT blanket-switch (e.g. #1103 Context destructor is intentionally skipped):"
+                echo "soh pins libultraship \`${lus_expected:0:9}\`; ComboShip vendors \`${lus_ours}\`."
+                echo "Both are on Kenix3 \`port-maintenance\`, so this is a pin lag, not a line divergence —"
+                echo "but soh code in this range may need a LUS fix we do not have. Either **cherry-pick the"
+                echo "fixes you need** into \`libultraship/\` or **advance our libultraship pin** to cover them."
+                echo "We never adopt soh's submodule pin wholesale."
                 echo ""
                 echo "<https://github.com/Kenix3/libultraship/compare/${lus_ours}...${lus_expected}>"
                 echo ""
@@ -123,210 +145,325 @@ jobs:
                   || echo "(compare unavailable — open the link above)"
                 echo '```'
                 echo '</details>'
-              } >> "$REPORT_FILE"
+              } >> "$REPORTS/soh.md"
             fi
           fi
 
-          echo "any_new=$ANY_NEW" >> "$GITHUB_OUTPUT"
-          echo "report_path=$REPORT_FILE" >> "$GITHUB_OUTPUT"
+          # `jq -n '$ARGS.positional'` renders an empty array as [] — which is what gates the merge job.
+          echo "moved=$(jq -cn '$ARGS.positional' --args "${MOVED[@]}")" >> "$GITHUB_OUTPUT"
+          echo "stale=$(jq -cn '$ARGS.positional' --args "${STALE[@]}")" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
 
           # Always make the result unambiguous on the run's summary page.
           {
-            if [ "$ANY_NEW" = "0" ]; then echo "## ✅ Upstream check — all three up to date"; \
-            else echo "## 🔔 Upstream updates found — opening PR to develop"; fi
+            if [ ${#MOVED[@]} -eq 0 ]; then echo "## ✅ Upstream check — all three up to date"; \
+            else echo "## 🔔 Upstream updates found — opening one PR per upstream"; fi
             echo ""
-            cat "$REPORT_FILE"
+            cat "$SUMMARY"
+            for k in "${MOVED[@]}"; do echo ""; cat "$REPORTS/$k.md"; done
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # 2-guard. Never clobber in-progress work: if a PR is already open, leave the branch alone.
-      # (Pins on develop stay old until the PR merges, so any_new stays 1 across weekly re-runs.)
-      - name: Check for in-progress PR
-        id: guard
-        if: steps.report.outputs.any_new == '1'
+      # Never clobber in-progress work: an upstream whose PR is already open is dropped from this
+      # pass. Its siblings still proceed. (Pins on develop stay old until a PR merges, so a dropped
+      # key keeps showing as moved on later runs.)
+      - name: Drop upstreams with a PR already open
+        id: plan
         uses: actions/github-script@v8
+        env:
+          MOVED: ${{ steps.report.outputs.moved }}
         with:
-          # PAT so pulls.create is allowed — GITHUB_TOKEN is blocked from creating PRs.
-          github-token: ${{ secrets.UPSTREAM_PR_PAT || github.token }}
           script: |
             const { owner, repo } = context.repo;
-            const existing = await github.rest.pulls.list({
-              owner, repo, state: 'open', head: `${owner}:bot/upstream-merge`
-            });
-            const exists = existing.data.length > 0;
-            core.setOutput('pr_exists', String(exists));
-            if (exists) {
-              const n = existing.data[0].number;
-              core.notice(`PR #${n} already open — leaving it untouched. Close it to regenerate a fresh one.`);
-              await core.summary.addRaw(`\n> ℹ️ PR #${n} is already open — left untouched. New upstream commits may have landed since it was opened; close it (and delete the branch) to regenerate.\n`).write();
+            const todo = [];
+            for (const key of JSON.parse(process.env.MOVED)) {
+              const open = await github.rest.pulls.list({
+                owner, repo, state: 'open', head: `${owner}:bot/upstream-merge-${key}`
+              });
+              if (open.data.length) {
+                const n = open.data[0].number;
+                core.notice(`${key}: PR #${n} already open — leaving it untouched.`);
+                await core.summary.addRaw(`\n> ℹ️ **${key}**: PR #${n} is already open — left untouched. New upstream commits may have landed since; close it (and delete the branch) to regenerate.\n`).write();
+              } else {
+                todo.push(key);
+              }
             }
+            core.setOutput('keys', JSON.stringify(todo));
 
-      # 2a. Prepare the PR branch + per-folder merge bases (synthesized from upstream-pins.json).
-      - name: Prepare branch + merge bases
-        if: steps.report.outputs.any_new == '1' && steps.guard.outputs.pr_exists != 'true'
+      # The summary is the whole point of the weekly run, so never leave the page blank: the detect
+      # step writes it last, and anything that trips before then (the pins assert, a fetch) lands here.
+      - name: Note detection failure on the summary
+        if: failure()
+        shell: bash
+        run: echo "## ⛔ Upstream check failed before it could report — see the job log" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload per-upstream reports
+        if: steps.plan.outputs.keys != '[]'
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-reports
+          path: ${{ runner.temp }}/reports
+          if-no-files-found: error
+
+  # One leg per upstream that moved: its own branch, its own bookkeeping commit, its own PR.
+  merge:
+    needs: detect
+    if: needs.detect.outputs.keys != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      # max-parallel 1 keeps the documented libultraship -> soh -> mm order (detect emits keys in
+      # upstream-pins.json order), which also means the libultraship PR already exists by the time
+      # the soh/mm legs write their "merge that one first" note.
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        key: ${{ fromJSON(needs.detect.outputs.keys) }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: develop
+          fetch-depth: 0
+          # PAT so the opened PR triggers build-artifacts.yml / clang-format.yml (a PR opened by the
+          # default GITHUB_TOKEN does NOT trigger other workflows). Falls back to GITHUB_TOKEN if
+          # unset (PR is still created; a maintainer push then triggers the build).
+          token: ${{ secrets.UPSTREAM_PR_PAT || github.token }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: upstream-reports
+          path: ${{ runner.temp }}/reports
+
+      # Prepare this upstream's branch + the merge base. The base is synthesized from
+      # upstream-pins.json, NOT from develop's merge commits: pins are file content so they survive a
+      # squash-merged PR; merge commits don't (the 2026-07-13 run derived a stale pre-squash base and
+      # re-conflicted upstream ranges merged weeks earlier).
+      - name: Fetch upstream + synthesize merge base
         shell: bash
         run: |
           set -euo pipefail
+          git config gc.auto 0
           git config user.name  'comboship-bot'
           git config user.email 'comboship-bot@users.noreply.github.com'
-          git switch -C bot/upstream-merge
+
+          key='${{ matrix.key }}'
+          # Remote names must match scripts/upstream-merge.ps1's $remotes map, or the engine adds a
+          # second remote for the same URL in the next step.
+          case "$key" in
+            libultraship) remote=up-lus ;;
+            soh)          remote=up-soh ;;
+            mm)           remote=up-mm  ;;
+            *) echo "::error::unknown upstream key '$key'"; exit 1 ;;
+          esac
+          branch=$(jq -r ".upstreams.\"$key\".branch"   upstream-pins.json)
+          prefix=$(jq -r ".upstreams.\"$key\".prefix"   upstream-pins.json)
+          subtree=$(jq -r ".upstreams.\"$key\".subtree" upstream-pins.json)
+          merged=$(jq -r ".upstreams.\"$key\".mergedSha" upstream-pins.json)
+          url=$(jq -r ".upstreams.\"$key\".remote"      upstream-pins.json)
+
+          # This job has its own checkout, so none of the detect job's fetched objects are here — and
+          # the base below needs the upstream tree at mergedSha. Same remote setup the engine uses.
+          if ! git remote | grep -qx "$remote"; then
+            git remote add --no-tags -t "$branch" "$remote" "$url"
+            git config "remote.$remote.promisor" true
+            git config "remote.$remote.partialclonefilter" 'blob:none'
+          fi
+          git fetch "$remote" "$branch"
 
           # vendor-<key> starts at a base commit whose tree = upstream at the last-merged SHA grafted
-          # under our prefix (same mktree construction scripts/upstream-merge.ps1 uses for tips). The
-          # base is synthesized from upstream-pins.json, NOT from develop's merge commits: pins are file
-          # content so they survive a squash-merged PR; merge commits don't (the 2026-07-13 run derived
-          # a stale pre-squash base and re-conflicted upstream ranges merged weeks earlier).
-          for key in libultraship soh mm; do
-            prefix=$(jq -r ".upstreams.\"$key\".prefix"  upstream-pins.json)
-            subtree=$(jq -r ".upstreams.\"$key\".subtree" upstream-pins.json)
-            merged=$(jq -r ".upstreams.\"$key\".mergedSha" upstream-pins.json)
-            if [ -n "$subtree" ]; then treeRef="$merged:$subtree"; else treeRef="$merged^{tree}"; fi
-            sub=$(git rev-parse --verify "$treeRef")   # upstream objects were fetched in step 1
-            baseTree=$(printf '040000 tree %s\t%s\n' "$sub" "$prefix" | git mktree)
-            base=$(git commit-tree "$baseTree" -m "vendor base: $key $merged")
-            git branch -f "vendor-${key}" "$base"
-            echo "vendor-${key} base = $(git rev-parse --short=9 "$base") (upstream $merged)"
-          done
+          # under our prefix (the same mktree construction the engine uses for tips).
+          if [ -n "$subtree" ]; then treeRef="$merged:$subtree"; else treeRef="$merged^{tree}"; fi
+          sub=$(git rev-parse --verify "$treeRef")
+          baseTree=$(printf '040000 tree %s\t%s\n' "$sub" "$prefix" | git mktree)
+          base=$(git commit-tree "$baseTree" -m "vendor base: $key $merged")
+          git branch -f "vendor-$key" "$base"
+          echo "vendor-$key base = $(git rev-parse --short=9 "$base") (upstream $merged)"
 
-      # 2b. Reuse the local merge engine for the hard git plumbing: fetch + blob-hydrate + rebuild the
-      #     vendor-<key> branches to the new upstream tips. NO -Merge (the merge/commit policy is below).
-      - name: Rebuild vendor branches
-        if: steps.report.outputs.any_new == '1' && steps.guard.outputs.pr_exists != 'true'
+          git switch -C "bot/upstream-merge-$key"
+
+          {
+            echo "U_BASE=$(git rev-parse HEAD)"   # develop's tip, before this leg's commits
+            echo "U_KEY=$key"
+            echo "U_REMOTE=$remote"
+            echo "U_BRANCH=$branch"
+            echo "U_PREFIX=$prefix"
+            echo "U_MERGED=$merged"
+          } >> "$GITHUB_ENV"
+
+      # Reuse the local merge engine for the hard git plumbing: blob-hydrate + rebuild vendor-<key>
+      # to the new upstream tip. NO -Merge (the merge/commit policy is below).
+      - name: Rebuild vendor branch
         shell: pwsh
         run: |
           # Guard: PS 7.4 treats native-command stderr as terminating under ErrorActionPreference=Stop;
           # git writes progress to stderr. Keep the engine's own behavior identical to a local run.
           $PSNativeCommandUseErrorActionPreference = $false
-          ./scripts/upstream-merge.ps1 -Depth 1000
+          ./scripts/upstream-merge.ps1 -Only '${{ matrix.key }}' -Depth 1000
 
-      # 2c. Mechanical 3-way merge (order: libultraship → soh → mm), one commit per folder, via
-      #     merge-tree with the pins-derived base passed explicitly (develop's ancestry is irrelevant,
-      #     so squash-merged PRs can't stale it). Conflict markers land in the committed tree so the PR
-      #     is always a complete unit; the human resolves them on the branch.
+      # Mechanical 3-way merge via merge-tree with the pins-derived base passed explicitly (develop's
+      # ancestry is irrelevant, so squash-merged PRs can't stale it). Conflict markers land in the
+      # committed tree so the PR is always a complete unit; the human resolves them on the branch.
       - name: Merge + bookkeeping
         id: merge
-        if: steps.report.outputs.any_new == '1' && steps.guard.outputs.pr_exists != 'true'
         shell: bash
+        env:
+          DATE: ${{ needs.detect.outputs.date }}
         run: |
           set -euo pipefail
-          DATE=$(date -u +%F)
-          CONFLICTS_FILE="$RUNNER_TEMP/conflicts.txt"
-          : > "$CONFLICTS_FILE"
-          HAD_CONFLICTS=0
-          declare -A REMOTE=( [libultraship]=up-lus [soh]=up-soh [mm]=up-mm )
-          declare -A NEWSHA=()
+          tip=$(git rev-parse "$U_REMOTE/$U_BRANCH")
+          new=$(git rev-parse --short=9 "$tip")
 
-          # One merge commit per changed folder (order matters: libultraship -> soh -> mm).
-          for key in libultraship soh mm; do
-            branch=$(jq -r ".upstreams.\"$key\".branch" upstream-pins.json)
-            old=$(jq -r ".upstreams.\"$key\".mergedSha" upstream-pins.json)
-            prefix=$(jq -r ".upstreams.\"$key\".prefix" upstream-pins.json)
-            tip=$(git rev-parse "${REMOTE[$key]}/$branch")
-            new=$(git rev-parse --short=9 "$tip")
-            if [ "$(git rev-parse "$old")" = "$tip" ]; then continue; fi   # nothing new for this folder
-            NEWSHA[$key]=$new
+          # Explicit-base 3-way merge. The base = the synthesized vendor commit from the previous step
+          # (parent of the rebuilt vendor tip). renames=false for ALL folders — rename detection is
+          # what spliced soh chest materials into mm assets (#50 and 2026-07-13). On conflicts
+          # merge-tree still writes a full tree (markers baked in) and exits 1 — exactly the
+          # commit-the-markers policy; any other exit is a real error.
+          base=$(git rev-parse "vendor-$U_KEY^")
+          set +e
+          out=$(git -c merge.renames=false merge-tree --write-tree --name-only \
+                  --merge-base="$base" HEAD "vendor-$U_KEY")
+          status=$?
+          set -e
+          tree=${out%%$'\n'*}   # first line; not `| head -1`, which SIGPIPEs a big $out under pipefail
+          if [ "$status" -gt 1 ] || [ -z "$tree" ]; then
+            echo "::error::merge-tree failed for $U_KEY (exit $status)"
+            printf '%s\n' "$out"
+            exit 1
+          fi
 
-            # Explicit-base 3-way merge. The base = the synthesized vendor commit from step 2a (parent
-            # of the rebuilt vendor tip). renames=false for ALL folders — rename detection is what
-            # spliced soh chest materials into mm assets (#50 and 2026-07-13). On conflicts merge-tree
-            # still writes a full tree (markers baked in) and exits 1 — exactly the commit-the-markers
-            # policy; any other exit is a real error.
-            base=$(git rev-parse "vendor-$key^")
-            set +e
-            out=$(git -c merge.renames=false merge-tree --write-tree --name-only \
-                    --merge-base="$base" HEAD "vendor-$key")
-            status=$?
-            set -e
-            tree=$(printf '%s\n' "$out" | head -n1)
-            if [ "$status" -gt 1 ] || [ -z "$tree" ]; then
-              echo "::error::merge-tree failed for $key (exit $status)"
-              printf '%s\n' "$out"
-              exit 1
-            fi
+          commit=$(git commit-tree "$tree" -p HEAD -p "vendor-$U_KEY" \
+                     -m "merge($U_KEY): $U_BRANCH $U_MERGED -> $new")
+          git reset --hard "$commit"
 
-            msg="merge($key): $branch $old -> $new"
-            commit=$(git commit-tree "$tree" -p HEAD -p "vendor-$key" -m "$msg")
-            git reset --hard "$commit"
+          # Tripwire: the merge must never touch files outside this upstream's own prefix —
+          # cross-folder writes are the asset-splice signature (mm assets corrupted by the soh merge,
+          # twice). It is also what keeps the sibling PRs from overlapping.
+          stray=$(git diff --name-only HEAD^ HEAD | grep -v "^$U_PREFIX/" || true)
+          if [ -n "$stray" ]; then
+            echo "::error::$U_KEY merge touched files outside $U_PREFIX/ — aborting"
+            echo "$stray"
+            exit 1
+          fi
 
-            # Tripwire: a folder's merge must never touch files outside its own prefix — cross-folder
-            # writes are the asset-splice signature (mm assets corrupted by the soh merge, twice).
-            stray=$(git diff --name-only HEAD^ HEAD | grep -v "^$prefix/" || true)
-            if [ -n "$stray" ]; then
-              echo "::error::$key merge touched files outside $prefix/ — aborting"
-              echo "$stray"
-              exit 1
-            fi
+          # An upstream tip can move without changing our mapped prefix at all (soh/mm map a subtree,
+          # so a root-only upstream commit is invisible here; libultraship did it at fca3b034bd when
+          # we'd already hand-ported the range). The pin bump alone still shifts the derived build
+          # version, so say so on the PR instead of leaving a diff with no code.
+          empty=0
+          git diff --quiet HEAD^ HEAD && empty=1
 
-            if [ "$status" -eq 1 ]; then
-              {
-                echo "## $key"
-                # merge-tree output: line 1 = tree OID, then conflicted paths until the blank line
-                # that separates them from the informational messages.
-                printf '%s\n' "$out" | awk 'NR>1 { if ($0 == "") exit; print }' | sort -u
-              } >> "$CONFLICTS_FILE"
-              HAD_CONFLICTS=1
-              echo "  $key: CONFLICTS committed as markers"
-            else
-              echo "  $key: clean"
-            fi
-          done
+          CONFLICTS_FILE="$RUNNER_TEMP/conflicts.txt"; : > "$CONFLICTS_FILE"
+          if [ "$status" -eq 1 ]; then
+            # merge-tree output: line 1 = tree OID, then conflicted paths until the blank line that
+            # separates them from the informational messages.
+            awk 'NR>1 { if ($0 == "") exit; print }' <<< "$out" | sort -u > "$CONFLICTS_FILE"
+            echo "  $U_KEY: CONFLICTS committed as markers"
+          else
+            echo "  $U_KEY: clean"
+          fi
 
-          # Bump pins for the folders that moved (after the merges, so it lands in one bookkeeping commit).
-          for key in "${!NEWSHA[@]}"; do
-            tmp=$(mktemp)
-            jq --arg k "$key" --arg sha "${NEWSHA[$key]}" --arg d "$DATE" \
-               '.upstreams[$k].mergedSha=$sha | .upstreams[$k].mergedDate=$d' \
-               upstream-pins.json > "$tmp" && mv "$tmp" upstream-pins.json
-          done
+          # Bump this key's pin only. jq is format-idempotent on this file, so the diff is 2 lines in
+          # its own region — sibling PRs never collide here.
+          tmp=$(mktemp)
+          jq --arg k "$U_KEY" --arg sha "$new" --arg d "$DATE" \
+             '.upstreams[$k].mergedSha=$sha | .upstreams[$k].mergedDate=$d' \
+             upstream-pins.json > "$tmp" && mv "$tmp" upstream-pins.json
 
-          # Scaffold the merge log from the changelog for the human to flesh out.
+          # Per-upstream merge log: a shared docs/merges/<date>.md would be an add/add conflict for
+          # whichever sibling PR merges second. Suffix on collision so re-merging the same upstream
+          # on the same day can't truncate the log a human already wrote and landed.
           mkdir -p docs/merges
+          log="docs/merges/$DATE-$U_KEY.md"; n=2
+          while [ -e "$log" ]; do log="docs/merges/$DATE-$U_KEY-$n.md"; n=$((n+1)); done
           {
-            echo "# Upstream merge — $DATE"
+            echo "# Upstream merge — $U_KEY — $DATE"
             echo ""
-            echo "> Auto-generated by \`upstream-merge.yml\`. Fill in the per-folder post-merge changes"
-            echo "> (build-fix chain, COMBO_BUILD guards, runtime fixes) before merging, then link this"
-            echo "> file from docs/UPSTREAM_MERGES.md. See that doc for the policy."
+            echo "> Auto-generated by \`upstream-merge.yml\`. Fill in the post-merge changes (build-fix"
+            echo "> chain, COMBO_BUILD guards, runtime fixes) before merging, then link this file from"
+            echo "> docs/UPSTREAM_MERGES.md. See that doc for the policy."
             echo ""
-            cat "${{ steps.report.outputs.report_path }}"
-          } > "docs/merges/$DATE.md"
+            cat "$RUNNER_TEMP/reports/$U_KEY.md"
+          } > "$log"
 
           git add -A
-          git commit -m "chore(upstream): bump pins + merge log $DATE"
-          git push --force origin HEAD:bot/upstream-merge
+          git commit -m "chore(upstream): bump $U_KEY pin + merge log $DATE"
 
-          echo "had_conflicts=$HAD_CONFLICTS" >> "$GITHUB_OUTPUT"
-          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+          # The force-push regenerates the branch from scratch, so refuse if the remote tip carries
+          # anything a human wrote. --force-with-lease can't help (we hold no lease for a branch we
+          # never fetched), and the open-PR guard misses a branch whose PR was closed by hand.
+          if git fetch --no-tags origin "bot/upstream-merge-$U_KEY" 2>/dev/null; then
+            authors=$(git log --format=%an FETCH_HEAD --not "$U_BASE" | sort -u)
+            if [ -n "$(printf '%s\n' "$authors" | grep -v '^comboship-bot$' || true)" ]; then
+              echo "::error::bot/upstream-merge-$U_KEY has non-bot commits ahead of develop — refusing to force-push over them"
+              printf '%s\n' "$authors"
+              exit 1
+            fi
+          fi
+          git push --force origin "HEAD:bot/upstream-merge-$U_KEY"
+
+          if [ "$status" -eq 1 ]; then echo "had_conflicts=1" >> "$GITHUB_OUTPUT"
+          else echo "had_conflicts=0" >> "$GITHUB_OUTPUT"; fi
           echo "conflicts_path=$CONFLICTS_FILE" >> "$GITHUB_OUTPUT"
+          echo "empty=$empty" >> "$GITHUB_OUTPUT"
+          echo "new=$new" >> "$GITHUB_OUTPUT"
 
-      # 2d. Create or update the PR.
       - name: Open/update PR
-        if: steps.report.outputs.any_new == '1' && steps.guard.outputs.pr_exists != 'true'
         uses: actions/github-script@v8
         env:
-          REPORT_PATH: ${{ steps.report.outputs.report_path }}
+          KEY: ${{ matrix.key }}
+          DATE: ${{ needs.detect.outputs.date }}
+          REPORTS: ${{ runner.temp }}/reports
           CONFLICTS_PATH: ${{ steps.merge.outputs.conflicts_path }}
           HAD_CONFLICTS: ${{ steps.merge.outputs.had_conflicts }}
-          DATE: ${{ steps.merge.outputs.date }}
+          EMPTY: ${{ steps.merge.outputs.empty }}
+          NEW_SHA: ${{ steps.merge.outputs.new }}
+          KEYS: ${{ needs.detect.outputs.keys }}
         with:
           # PAT so pulls.create is allowed — GITHUB_TOKEN is blocked from creating PRs.
           github-token: ${{ secrets.UPSTREAM_PR_PAT || github.token }}
           script: |
             const fs = require('fs');
             const { owner, repo } = context.repo;
-            const head = 'bot/upstream-merge';
-            const title = `Upstream merge → ${process.env.DATE}`;
+            const key = process.env.KEY;
+            const head = `bot/upstream-merge-${key}`;
+            const title = `Upstream merge: ${key} → ${process.env.DATE}`;
 
-            let body = fs.readFileSync(process.env.REPORT_PATH, 'utf8');
+            let body = fs.readFileSync(`${process.env.REPORTS}/${key}.md`, 'utf8');
+
             if (process.env.HAD_CONFLICTS === '1') {
               let conf = '';
               try { conf = fs.readFileSync(process.env.CONFLICTS_PATH, 'utf8'); } catch (e) {}
-              body = '> **Conflicts committed as markers** — resolve them on the `bot/upstream-merge` '
+              body = '> **Conflicts committed as markers** — resolve them on the `' + head + '` '
                    + 'branch (keep COMBO_BUILD blocks; see docs/UPSTREAM_MERGES.md). The required '
                    + '`conflict-markers` check stays red, and lists each `file:line`, until they are gone.\n\n'
                    + '<details><summary>conflicted files</summary>\n\n```\n' + conf + '```\n</details>\n\n'
                    + body;
             }
-            body += '\n\n---\n_Auto-generated by upstream-merge.yml. Pins + merge-log scaffold are already committed._';
+
+            if (process.env.EMPTY === '1') {
+              body = `> **Bookkeeping only** — \`${key}\` moved to \`${process.env.NEW_SHA}\` but the `
+                   + 'merge changed no files under our mapped prefix (we already carry the range, or '
+                   + 'upstream only touched paths outside it). The pin bump still shifts the derived '
+                   + 'build version, so the port archives need regenerating — see docs/UPSTREAM_MERGES.md.\n\n'
+                   + body;
+            }
+
+            // soh/mm `#include` libultraship by path (docs/UPSTREAM_MERGES.md), so its PR lands first.
+            if (key !== 'libultraship') {
+              const lus = await github.rest.pulls.list({
+                owner, repo, state: 'open', head: `${owner}:bot/upstream-merge-libultraship`
+              });
+              if (lus.data.length) {
+                body = `> ⚠️ **Merge #${lus.data[0].number} (libultraship) first** — \`${key}/\` `
+                     + '`#include`s libultraship by path, so it expects the newer engine.\n\n' + body;
+              } else if (JSON.parse(process.env.KEYS).includes('libultraship')) {
+                // libultraship moved this pass but has no PR — its leg failed. Still warn: this
+                // branch expects the newer engine, so landing it alone can break the build.
+                body = '> ⚠️ **libultraship also moved this pass but its PR was not opened** (that leg '
+                     + `failed — see the run log). \`${key}/\` \`#include\`s libultraship by path, so `
+                     + 'land the engine bump before this.\n\n' + body;
+              }
+            }
+
+            body += '\n\n---\n_Auto-generated by upstream-merge.yml. Pin bump + merge-log scaffold are already committed._';
 
             const existing = await github.rest.pulls.list({
               owner, repo, state: 'open', head: `${owner}:${head}`
@@ -359,22 +496,88 @@ jobs:
             }
             core.notice(`PR #${number} ready: ${title}`);
 
-      # 3. Nothing new: tidy up any stale bot PR/branch so it doesn't linger after a finished merge.
-      - name: Close stale PR (up to date)
-        if: steps.report.outputs.any_new == '0'
-        uses: actions/github-script@v8
+  # Point this pass's PRs at each other, so resolving one shows what else is in flight.
+  crosslink:
+    needs: [detect, merge]
+    # !cancelled() rather than always(): run even when a leg failed (its siblings still have PRs),
+    # but not when detect failed — its empty `keys` output would pass a `!= '[]'` test.
+    if: ${{ !cancelled() && needs.detect.result == 'success' && needs.detect.outputs.keys != '[]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v8
         with:
-          # PAT so pulls.create is allowed — GITHUB_TOKEN is blocked from creating PRs.
           github-token: ${{ secrets.UPSTREAM_PR_PAT || github.token }}
           script: |
             const { owner, repo } = context.repo;
-            const head = 'bot/upstream-merge';
-            const existing = await github.rest.pulls.list({
-              owner, repo, state: 'open', head: `${owner}:${head}`
+            const open = await github.paginate(github.rest.pulls.list, {
+              owner, repo, state: 'open', per_page: 100
             });
-            for (const pr of existing.data) {
-              await github.rest.pulls.update({ owner, repo, pull_number: pr.number, state: 'closed' });
+            const bots = open.filter(p => p.head.ref.startsWith('bot/upstream-merge-'));
+            if (bots.length < 2) return;
+
+            // Rewrite a marked block rather than appending, so weekly re-runs don't stack copies.
+            const START = '<!-- siblings -->', END = '<!-- /siblings -->';
+            const re = new RegExp(`${START}[\\s\\S]*?${END}`);
+            for (const pr of bots) {
+              const others = bots.filter(o => o.number !== pr.number).map(o =>
+                `- #${o.number} — \`${o.head.ref.replace('bot/upstream-merge-', '')}\``).join('\n');
+              const block = `${START}\n**Other open upstream-merge PRs:**\n${others}\n${END}`;
+              const old = pr.body || '';
+              const body = re.test(old) ? old.replace(re, block) : `${old}\n\n${block}`;
+              if (body !== old) {
+                await github.rest.pulls.update({ owner, repo, pull_number: pr.number, body });
+              }
             }
-            try {
-              await github.rest.git.deleteRef({ owner, repo, ref: `heads/${head}` });
-            } catch (e) { /* branch already gone */ }
+
+  # Tidy up upstreams with nothing new, so a finished merge's PR/branch doesn't linger.
+  cleanup:
+    needs: detect
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v8
+        env:
+          STALE: ${{ needs.detect.outputs.stale }}
+        with:
+          github-token: ${{ secrets.UPSTREAM_PR_PAT || github.token }}
+          script: |
+            const { owner, repo } = context.repo;
+            // The pre-split 'bot/upstream-merge' branch is deliberately NOT swept here: it can hold
+            // an in-flight PR, and "stale" is not evidence that its work landed. Delete it by hand.
+            const stale = JSON.parse(process.env.STALE || '[]');
+
+            for (const key of stale) {
+              const head = `bot/upstream-merge-${key}`;
+
+              // An up-to-date pin does not prove this branch's work landed — someone may have merged
+              // that upstream by hand on develop while the bot branch still carried hand-resolved
+              // conflicts. Only discard a branch whose unlanded commits are all the bot's own.
+              let regenerable = true;
+              try {
+                const cmp = await github.rest.repos.compareCommitsWithBasehead({
+                  owner, repo, basehead: `develop...${head}`
+                });
+                const human = cmp.data.commits.filter(c =>
+                  c.commit.author.name !== 'comboship-bot' && c.author?.login !== 'comboship-bot');
+                if (human.length) {
+                  regenerable = false;
+                  core.warning(`${key}: ${head} has ${human.length} non-bot commit(s) ahead of develop — leaving it alone.`);
+                  await core.summary.addRaw(`\n> ⚠️ \`${key}\` is up to date, but \`${head}\` carries hand-written commits that are not on develop — review and delete it yourself.\n`).write();
+                }
+              } catch (e) {
+                if (e.status === 404) continue;   // branch already gone
+                throw e;
+              }
+              if (!regenerable) continue;
+
+              const open = await github.rest.pulls.list({
+                owner, repo, state: 'open', head: `${owner}:${head}`
+              });
+              for (const pr of open.data) {
+                await github.rest.pulls.update({ owner, repo, pull_number: pr.number, state: 'closed' });
+                core.notice(`closed stale PR #${pr.number} (${head})`);
+              }
+              try {
+                await github.rest.git.deleteRef({ owner, repo, ref: `heads/${head}` });
+              } catch (e) { /* branch already gone */ }
+            }

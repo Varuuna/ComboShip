@@ -157,5 +157,5 @@ if ($Merge) {
     }
 }
 
-Write-Host "`nDone. After committing all merges: (1) add docs/merges/<YYYY-MM-DD>.md with the per-folder" -ForegroundColor Cyan
+Write-Host "`nDone. After committing all merges: (1) add docs/merges/<YYYY-MM-DD>-<upstream>.md with the" -ForegroundColor Cyan
 Write-Host "post-merge changes and link it from docs/UPSTREAM_MERGES.md, (2) update upstream-pins.json mergedSha/mergedDate." -ForegroundColor Cyan

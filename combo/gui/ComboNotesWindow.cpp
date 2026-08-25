@@ -1,6 +1,5 @@
 // combo/gui/ComboNotesWindow.cpp — see ComboNotesWindow.h
 #include "ComboNotesWindow.h"
-#include "ComboWidgetStyle.h"   // themed input styling (comboui cannot call the games' UIWidgets)
 #include "ComboTrackerCommon.h" // ComboTracker::OotActiveSlot + SetTracker
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>     // InputTextMultiline over a std::string (vendored with ImGui)
@@ -69,10 +68,9 @@ void ComboNotesWindow::Draw() {
 }
 
 void ComboNotesWindow::DrawElement() {
-    ComboRando::ComboMenu_PushInput(ComboRando::ComboMenu_ThemeColor());
+    // No style push: upstream soh DrawNotes leaves the notes box at ImGui's default frame colors (#186).
     bool edited = ImGui::InputTextMultiline("##ComboNotes", &sBuf, ImVec2(-FLT_MIN, ImGui::GetContentRegionAvail().y),
                                             ImGuiInputTextFlags_AllowTabInput);
-    ComboRando::ComboMenu_PopInput();
 
     if (edited) {
         sDirty = true;

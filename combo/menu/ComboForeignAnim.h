@@ -301,6 +301,39 @@ struct CfaTexAnimEntry {
     const CfaMatEntry* mat = nullptr;
 };
 
+struct CfaStaticTexAnim {
+    bool ok = false;
+    std::shared_ptr<Ship::IResource> res; // held so the resource stays alive in the RM cache
+    const CfaMatEntry* mat = nullptr;
+};
+
+// Hoisted out of their functions so CfaClearCaches can clear them. The shared_ptrs point
+// at FOREIGN-game resources: their control blocks and IResource vtables live in the OTHER game's
+// DLL. Left populated, these maps die in THIS DLL's static destructors — after the launcher has
+// already FreeLibrary'd the foreign DLL — and ~shared_ptr dispatches _Destroy() through an unmapped
+// vtable. See docs/deviations/boot-shutdown.md.
+inline std::unordered_map<std::string, CfaSkelEntry> sCfaSkelCache;
+inline std::unordered_map<std::string, CfaTexAnimEntry> sCfaTexAnimCache;
+inline std::unordered_map<std::string, CfaStaticTexAnim> sCfaStaticTexAnimCache;
+
+// Module-local cache clear, registered as a CrossRMRegistry teardown listener the first time a
+// cache is touched (CfaEnsureTeardownHook below): ANY RM unregister — both games' DeinitOTR, which
+// run before every FreeLibrary — empties the caches, so the borrowed refs structurally cannot
+// outlive the owning DLL. Listeners stay registered and re-fire on the second Unregister, which
+// just clears empty maps.
+inline void CfaClearCaches() {
+    sCfaSkelCache.clear();
+    sCfaTexAnimCache.clear();
+    sCfaStaticTexAnimCache.clear();
+}
+
+// Register-once guard. Lazy on purpose: it runs from the cache-miss paths, so a module that never
+// draws a foreign item never registers (and its empty caches need no teardown).
+inline void CfaEnsureTeardownHook() {
+    static bool sRegistered = (Ship::CrossRMRegistry::RegisterTeardownListener(&CfaClearCaches), true);
+    (void)sRegistered;
+}
+
 // The foreign game whose limb DLs the in-flight DrawFlex is submitting (single-threaded draw).
 inline const char* sCfaCurrentGame = nullptr;
 
@@ -650,15 +683,14 @@ inline int32_t ComboForeignAnim_Draw(const CwItemAnimDrawInfo* info, const char*
         return 0; // owning game not resident: bail before any Gfx is emitted
     }
 
-    static std::unordered_map<std::string, CfaSkelEntry> sSkelCache;
-    static std::unordered_map<std::string, CfaTexAnimEntry> sTexAnimCache;
+    CfaEnsureTeardownHook();
 
     // -- skeleton + animation (keyed by skel+anim; all variants sharing a pair share one instance,
     //    so like MM's single-instance approach all on-screen copies animate in unison) --
     std::string skelKey = std::string(info->skelPath) + "|" + info->animPath;
-    auto skelIt = sSkelCache.find(skelKey);
-    if (skelIt == sSkelCache.end()) {
-        skelIt = sSkelCache.emplace(skelKey, CfaSkelEntry{}).first;
+    auto skelIt = sCfaSkelCache.find(skelKey);
+    if (skelIt == sCfaSkelCache.end()) {
+        skelIt = sCfaSkelCache.emplace(skelKey, CfaSkelEntry{}).first;
         CfaSkelEntry& e = skelIt->second;
         if (auto rm = Ship::CrossRMRegistry::Get(game)) {
             // The foreign game's Skeleton/Animation factories nested-load their limbs/tables via
@@ -705,9 +737,9 @@ inline int32_t ComboForeignAnim_Draw(const CwItemAnimDrawInfo* info, const char*
     // -- texanim (keyed by texAnimPath; the per-area coloring lives here) --
     CfaTexAnimEntry* texAnim = nullptr;
     if (info->texAnimPath != NULL) {
-        auto taIt = sTexAnimCache.find(info->texAnimPath);
-        if (taIt == sTexAnimCache.end()) {
-            taIt = sTexAnimCache.emplace(info->texAnimPath, CfaTexAnimEntry{}).first;
+        auto taIt = sCfaTexAnimCache.find(info->texAnimPath);
+        if (taIt == sCfaTexAnimCache.end()) {
+            taIt = sCfaTexAnimCache.emplace(info->texAnimPath, CfaTexAnimEntry{}).first;
             CfaTexAnimEntry& e = taIt->second;
             if (auto rm = Ship::CrossRMRegistry::Get(game)) {
                 // Scoped like the skel/anim load: today's validated types don't nested-load, but
@@ -882,15 +914,11 @@ inline bool ComboForeignTexAnim_Run(PlayState* play, const char* game, const cha
     if (play == NULL || game == NULL || texAnimPath == NULL) {
         return false;
     }
-    struct CfaStaticTexAnim {
-        bool ok = false;
-        std::shared_ptr<Ship::IResource> res; // held so the resource stays alive in the RM cache
-        const CfaMatEntry* mat = nullptr;
-    };
-    static std::unordered_map<std::string, CfaStaticTexAnim> sCache; // one attempt per path, then cached
-    auto it = sCache.find(texAnimPath);
-    if (it == sCache.end()) {
-        it = sCache.emplace(texAnimPath, CfaStaticTexAnim{}).first;
+    CfaEnsureTeardownHook();
+    // one attempt per path, then cached
+    auto it = sCfaStaticTexAnimCache.find(texAnimPath);
+    if (it == sCfaStaticTexAnimCache.end()) {
+        it = sCfaStaticTexAnimCache.emplace(texAnimPath, CfaStaticTexAnim{}).first;
         CfaStaticTexAnim& e = it->second;
         if (auto rm = Ship::CrossRMRegistry::Get(game)) {
             Ship::ResourceManagerScope rmScope(rm); // as above: scope the load, not the draw

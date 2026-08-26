@@ -61,6 +61,7 @@ std::unordered_map<int32_t, const char*> dungeonItemPlacementOptions = {
     { RO_DUNGEON_ITEM_ANYWHERE, "Anywhere" },
     { RO_DUNGEON_ITEM_OWN_DUNGEON, "Own Dungeon" },
     { RO_DUNGEON_ITEM_START_WITH, "Start With" },
+    { RO_DUNGEON_ITEM_VANILLA, "Vanilla" },
 };
 
 // clang-format off
@@ -616,6 +617,12 @@ static void DrawGeneralTab() {
         "Container Style Matches Contents", "gRando.CSMC",
         UIWidgets::CheckboxOptions().Tooltip("This will make the contents of a container match the container itself. "
                                              "Eg chests, pots, crates, grass, etc."));
+
+    UIWidgets::CVarCheckbox(
+        "Unique Key Models", "gRando.UniqueKeyModels",
+        UIWidgets::CheckboxOptions().DefaultValue(true).Tooltip(
+            "This will make Small Keys and Boss Keys have unique models depending on their corresponding dungeon."));
+
     UIWidgets::CVarCombobox(
         "Junk Items", "gRando.JunkItems", &junkItemsOptions,
         UIWidgets::ComboboxOptions()
@@ -1117,6 +1124,8 @@ static void DrawItemPoolTab() {
             "Where each dungeon's small keys may be placed.\n\n"
             "Anywhere - Small keys can be found anywhere in the world.\n\n"
             "Own Dungeon - Each dungeon's small keys are only found within that dungeon.\n\n"
+            "Vanilla - Small keys stay on the checks that hold them in the vanilla game, and none are added to "
+            "the item pool.\n\n"
             "Start With - You begin with every dungeon's small keys, and none are added to the item pool."));
     UIWidgets::CVarCombobox(
         "Boss Keys", Rando::StaticData::Options[RO_PLACEMENT_BOSS_KEYS].cvar, &dungeonItemPlacementOptions,
@@ -1124,27 +1133,41 @@ static void DrawItemPoolTab() {
             "Where each dungeon's boss key may be placed.\n\n"
             "Anywhere - Boss keys can be found anywhere in the world.\n\n"
             "Own Dungeon - Each dungeon's boss key is only found within that dungeon.\n\n"
+            "Vanilla - Boss keys stay on the checks that hold them in the vanilla game, and none are added to "
+            "the item pool.\n\n"
             "Start With - You begin with every dungeon's boss key, and none are added to the item pool."));
-    UIWidgets::CVarCombobox(
+    bool strayFairyPlacementChanged = UIWidgets::CVarCombobox(
         "Stray Fairies", Rando::StaticData::Options[RO_PLACEMENT_STRAY_FAIRIES].cvar, &dungeonItemPlacementOptions,
         UIWidgets::ComboboxOptions().Tooltip(
-            "Where each dungeon's Stray Fairies may be placed. The Clock Town Stray Fairy is unaffected.\n\n"
-            "Anywhere - Stray Fairies can be found anywhere in the world.\n\n"
-            "Own Dungeon - Each dungeon's Stray Fairies are only found within that dungeon.\n\n"
-            "Start With - You begin with every dungeon's Stray Fairies, and none are added to the item pool."));
-    if (CVarGetInteger(Rando::StaticData::Options[RO_PLACEMENT_STRAY_FAIRIES].cvar, RO_DUNGEON_ITEM_ANYWHERE) !=
-        RO_DUNGEON_ITEM_START_WITH) {
-        CVarSliderInt(
-            "Required Stray Fairies", Rando::StaticData::Options[RO_STRAY_FAIRIES_REQUIRED].cvar,
-            IntSliderOptions()
-                .Tooltip("Minimum Stray Fairies needed to obtain the corresponding Great Fairy check.\n"
-                         "Does not affect the Clock Town fairy.")
-                .LabelPosition(UIWidgets::LabelPosition::None)
-                .Min(1)
-                .Format("%d Fairies Required")
-                .Max(CVarGetInteger(Rando::StaticData::Options[RO_STRAY_FAIRIES_MAX].cvar, STRAY_FAIRY_SCATTERED_TOTAL))
-                .DefaultValue(STRAY_FAIRY_SCATTERED_TOTAL));
-        if (CVarSliderInt("Stray Fairies in Pool", Rando::StaticData::Options[RO_STRAY_FAIRIES_MAX].cvar,
+            "Where each dungeon's Stray Fairies may be placed.\n\n"
+            "Anywhere - Stray Fairies can be found anywhere in the world. The Clock Town Stray Fairy joins the "
+            "item pool with them.\n\n"
+            "Own Dungeon - Each dungeon's Stray Fairies are only found within that dungeon. The Clock Town Stray "
+            "Fairy is vanilla.\n\n"
+            "Vanilla - Stray Fairies stay on the checks that hold them in the vanilla game, and none are added to "
+            "the item pool.\n\n"
+            "Start With - You begin with every Stray Fairy, and none are added to the item pool."));
+    int32_t strayFairyPlacement =
+        CVarGetInteger(Rando::StaticData::Options[RO_PLACEMENT_STRAY_FAIRIES].cvar, RO_DUNGEON_ITEM_ANYWHERE);
+    if (strayFairyPlacementChanged && strayFairyPlacement != RO_DUNGEON_ITEM_VANILLA) {
+        ClampRequiredToMax(RO_STRAY_FAIRIES_REQUIRED, RO_STRAY_FAIRIES_MAX, STRAY_FAIRY_SCATTERED_TOTAL);
+    }
+    if (strayFairyPlacement != RO_DUNGEON_ITEM_START_WITH) {
+        int32_t strayFairiesAvailable =
+            strayFairyPlacement == RO_DUNGEON_ITEM_VANILLA
+                ? STRAY_FAIRY_SCATTERED_TOTAL
+                : CVarGetInteger(Rando::StaticData::Options[RO_STRAY_FAIRIES_MAX].cvar, STRAY_FAIRY_SCATTERED_TOTAL);
+        CVarSliderInt("Required Stray Fairies", Rando::StaticData::Options[RO_STRAY_FAIRIES_REQUIRED].cvar,
+                      IntSliderOptions()
+                          .Tooltip("Minimum Stray Fairies needed to obtain the corresponding Great Fairy check.\n"
+                                   "Does not affect the Clock Town fairy.")
+                          .LabelPosition(UIWidgets::LabelPosition::None)
+                          .Min(1)
+                          .Format("%d Fairies Required")
+                          .Max(strayFairiesAvailable)
+                          .DefaultValue(STRAY_FAIRY_SCATTERED_TOTAL));
+        if (strayFairyPlacement != RO_DUNGEON_ITEM_VANILLA &&
+            CVarSliderInt("Stray Fairies in Pool", Rando::StaticData::Options[RO_STRAY_FAIRIES_MAX].cvar,
                           IntSliderOptions()
                               .Tooltip("Maximum Stray Fairies that can appear in the item pool, per dungeon.")
                               .LabelPosition(UIWidgets::LabelPosition::None)

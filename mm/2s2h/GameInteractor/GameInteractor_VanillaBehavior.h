@@ -89,6 +89,14 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // true
+    // ```
+    // #### `args`
+    // - `s32` (sDistortionRequest.type)
+    VB_APPLY_SCREEN_DISTORTION,
+
+    // #### `result`
+    // ```c
     // !play->interfaceCtx.perfectLettersOn
     // ```
     // #### `args`

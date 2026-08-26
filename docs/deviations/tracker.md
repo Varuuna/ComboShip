@@ -227,3 +227,43 @@ range), new "Only enable while paused" checkbox + a hint when the window type is
   (pre-existing upstream nesting); MM honors paused-only in both. The shared panel says so inline.
 - The per-group scale is still MM-only; OOT has no equivalent, so a non-1.0 group scale breaks
   cross-game icon parity by design.
+
+## Cross-game Personal Notes (issue #165)
+
+**Why:** SoH's item-tracker notes live in the OOT save's `itemTrackerData` section, so a note taken
+in OOT was invisible in MM and the MM-side tracker had no notes at all. Worse, the notes widget is
+reachable during the dormant-game peek, and its save path (`SaveSection(gSaveContext.fileNum, ...)`)
+would flush a stale OOT saveBlock while MM held the foreground. The note is per *slot*, not per game,
+so the launcher — the owner of the merged container — is the right place for it.
+
+**Vendored (`COMBO_BUILD`-guarded, all in `soh/.../randomizer_item_tracker.cpp`):**
+- The `DisplayType.Notes` clause in the main-window OR-condition (`ItemTrackerWindow::DrawElement`).
+- The main-window `DrawNotes()` call.
+- The separate "Personal Notes" floating-window block.
+- The `personalNotesWiget` `MenuDrawItem` call in `ItemTrackerSettingsWindow::DrawElement`.
+- The `personalNotesWiget` definition + `AddSearchWidget` registration.
+- `ItemTrackerSaveFile` writes an empty `personalNotes` (nothing in a combo build can edit or clear
+  the loaded buffer, so the pre-migration text would otherwise round-trip forever).
+
+`DrawNotes`, `itemTrackerNotes`, and the `itemTrackerData` load/init functions are untouched: the
+section keeps round-tripping so a combo container can be migrated (and standalone SoH is unaffected).
+Migration runs at container load, before any save could scrub the legacy field.
+
+**Combo-owned:**
+- `combo/gui/ComboNotesWindow.{h,cpp}` — `ComboNotesWindow` (registered in `ComboUI_Register`,
+  visibility CVar `gCombo.Tracker.NotesWindow`, ImGui identity `Personal Notes##Combo`). Buffer is a
+  `std::string` edited through the vendored `misc/cpp/imgui_stdlib` overload (compiled into comboui)
+  — never an `ImVector` (see `boot-shutdown.md`). Hidden entirely when no save is loaded. Toggled
+  from Shared > Item Tracker.
+- `combo/ComboShip.cpp` — `Combo_GetNotes`/`Combo_SetNotes` over `combo.notes` (find()-based so the
+  raw-fn-ptr calls can't throw and never deep-copy `combo.rando`; unchanged-value short-circuit so
+  the debounce doesn't rewrite the container); `LoadOrCreateContainer` one-time migration of
+  `oot.sections.itemTrackerData.data.personalNotes` into `combo.notes`, gated on the key being
+  *absent* so a deliberately cleared note is never resurrected; `Combo_OnOOTSaveInit` writes an empty
+  `combo.notes` so a fresh file starts blank (written, never erased — erasing would re-arm the
+  migration gate; outside the seed branch, so it runs even when seed parsing fails).
+- Seam: `ComboUI_SetNotesStore(getter, setter)`, resolved next to `ComboUI_SetAnchorRosterProvider`.
+- Flush points: window close, slot change, `IsItemDeactivatedAfterEdit`, a 2s wall-clock debounce
+  (SoH's 40-idle-frame equivalent), `ComboUI_OnForegroundGame` (OOT<->MM switch), and
+  `ComboUI_RestoreTrackerIntent` (launcher pre-shutdown). Every reload of the buffer flushes first,
+  so the pending text always belongs to `sDirtySlot`.

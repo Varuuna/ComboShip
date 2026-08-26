@@ -7,8 +7,8 @@
       "branch": "port-maintenance",
       "prefix": "libultraship",
       "subtree": "",
-      "mergedSha": "bbb565bd9",
-      "mergedDate": "2026-08-01"
+      "mergedSha": "7cb10226e",
+      "mergedDate": "2026-08-19"
     },
     "soh": {
       "remote": "https://github.com/HarbourMasters/Shipwright.git",
@@ -23,12 +23,12 @@
       "branch": "develop",
       "prefix": "mm",
       "subtree": "mm",
-      "mergedSha": "ce4bf03ab",
-      "mergedDate": "2026-08-01"
+      "mergedSha": "d35196ad7",
+      "mergedDate": "2026-08-19"
     },
     "ZAPDTR": {
       "manual": true,
-      "_note": "Bumped by hand: neither scripts/upstream-merge.ps1 nor upstream-merge.yml steps 2a-2c handle these (both use a hardcoded libultraship/soh/mm list). manual:true keeps the workflow's detect step from reporting them. Shared by both games; soh and mm both still pin the older ee3397a36.",
+      "_note": "Bumped by hand: neither scripts/upstream-merge.ps1 nor upstream-merge.yml's merge job handles these (both use a hardcoded libultraship/soh/mm list). manual:true keeps the workflow's detect job from reporting them. Shared by both games; soh and mm both still pin the older ee3397a36.",
       "remote": "https://github.com/HarbourMasters/ZAPDTR.git",
       "branch": "develop",
       "prefix": "ZAPDTR",

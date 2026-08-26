@@ -146,6 +146,9 @@ class MMAnchor {
 
     bool hooksRegistered = false;
     bool shouldRefreshActors = false;
+    // Deferred to OnGameStateUpdate: broadcasting from AfterEndOfCycleSave can beat the rando restore
+    // hook (hook order is an unordered_map, not registration order) and push zeroed keys to peers.
+    bool pendingCycleSaveBroadcast = false;
     std::queue<nlohmann::json> incomingQueue;
     std::mutex incomingMutex;
 };

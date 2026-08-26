@@ -1112,7 +1112,80 @@ ComboShip could reach that state two ways, both now closed:
   for the empty-placement early return.
 
 Tripwire: `Combo_LoadMMSaveFile` logs an error whenever a loaded MM save isn't `SAVETYPE_RANDO`.
-Already-broken saves are not repaired — re-create the file.
+Already-broken saves are not repaired — re-create the file. The legacy population from before this was
+caught is retired by the 0.3.0 container gate (see below).
+
+### Residual key-loss gaps closed (2026-08-22)
+
+The 2026-07-31 pass covered every *creation* path. A re-audit found four more ways the same symptom
+(Song of Time eating Small Keys) still reached players.
+
+**Loading never creates or persists.** `SaveManager_LoadSaveFile` used to build *and write* a fresh
+`SAVETYPE_VANILLA` save whenever the container had no `mm` section — reachable from the read-only dormant
+peek (`Combo_OnOOTSaveLoad` → `MM_LoadSaveForCombo`), which permanently poisoned the slot. That block is
+gone. The function now returns a code (`0` ok, `-1` missing, `-2` unreadable, `-3` migrate, `-4` no
+`newCycleSave`, `-5` parse throw), `Combo_LoadMMSaveFile` adds `-6` for a non-`SAVETYPE_RANDO` save, and
+every failure parks `gSaveContext.fileNum` at `0xFF` and clears `saveType`. Both halves of that matter:
+`0xFF` is the "no save" sentinel `Combo_MM_GiveDormantResolved`, `MM_MarkForeignObtained` and MMAnchor's
+`PumpDormant` all test, so a stray write lands *nowhere* rather than persisting the previous slot's save
+(or zeroed vanilla BSS) into the failed slot; and since `fileNum` is signed and `0xFF` still passes the
+peek trackers' `>= 0` test, only the cleared `saveType` (→ `IS_RANDO` false) stops them from drawing the
+previous slot's save as this one — `ItemTracker`'s peek gate was missing that `IS_RANDO` term and now has
+it. The dormant peek only marks a slot resident when the load returned 0, so it is strictly read-only and
+fail-closed: it never rebuilds, it just goes blank.
+`SaveManager_SysFlashrom_WriteData`'s owl branch also used to emit an `owlSave`-only section when its
+pre-read failed, which nothing could ever load again; under `COMBO_BUILD` it now seeds `newCycleSave` from
+the owl snapshot (resuming a little late beats a dead slot).
+
+**No rebuild, no repair, no blocked entry.** ComboShip never blocks MM entry *and* never repairs a save.
+There is deliberately nothing between those two: a missing or unloadable `mm` section means either the
+file was created with **no seed bound** — which `Combo_OnOOTSaveInit` already refuses loudly, writing no
+`mm` section at all — or the file is damaged. In both cases the load logs an error, the fail-closed
+sentinel above keeps stray writes and tracker draws off the slot, play proceeds, and the remedy is
+re-creating the file. `title_setup.c` therefore just calls `Combo_LoadMMSaveFile` and ignores the code;
+the return value's only consumers are that log and the dormant peek's success check.
+
+**Legacy broken saves are retired by the `0.3.0` container gate, not by runtime repair.**
+`LoadOrCreateContainer` backs up any container whose `comboRelease` differs in `major.minor` and starts
+fresh, so the pre-0.3.0 population poisoned by the old load-side auto-create is invalidated wholesale —
+there is no migration path for a save whose MM half was silently vanilla for an unknown stretch of play,
+and inventing one at runtime would only mask the bug. `SaveManager_InitNewSaveForSlot` does stamp
+`SAVETYPE_RANDO` before its write (it persists, and it is a combo-only function), so the legitimate
+creation path can never leave a vanilla MM save in the container even transiently.
+
+**Key-mirror safety net.** A small-key check left `shuffled == false` delivers through vanilla `Item_Give`
+(`z_parameter.c:4228`), which bumps `inventory.dungeonKeys` but not `rando.foundDungeonKeys`; the cycle
+restore then truncates keys down to the stale mirror. A `COND_ID_HOOK(OnItemGive, ITEM_KEY_SMALL, IS_RANDO)`
+registered in `Rando::MiscBehavior::OnFileLoad()` (so it re-registers per `OnSaveLoad`, honoring the
+`COND_*` re-sample invariant) raises the mirror to the inventory count. It gates on
+`Map_IsInDungeonOrBossScene` because outside a dungeon `gSaveContext.mapIndex` is the overworld minimap
+index, which aliases key indices. Idempotent, monotonic, and a no-op after a rando grant. The two paths
+that could produce such a check are now loud rather than silent: `MM_InitRandoSaveFile` counts unknown
+checks/items and substitutes junk for an unknown *item* (keeping the check shuffled, so its vanilla key can
+never take the vanilla path), and `Spoiler/Apply.cpp` forces `shuffled = true` + `RI_JUNK` when an absent
+check's vanilla item is `RITYPE_SMALL_KEY`. Small keys are always shuffled in MM rando, so that is a
+provable anomaly — every other absent check keeps its legitimate vanilla revert.
+
+**Skeleton Key self-heals.** `Rando::GiveItem`'s `RI_SKELETON_KEY` case gated the mirror write on the
+*inventory* count, so it could not repair a desync. It now raises both counters independently to
+`max(current, N)` from a shared table (`Rando::skeletonKeyCounts`) — never lowering either, healing `-1`
+sentinels and drift in both directions. The headless oracle (`GiveItemForOracle`) had no
+`RI_SKELETON_KEY` case at all, so key-gated regions stayed unreachable during fill; it now shares the same
+table, and its four `RI_*_SMALL_KEY` cases normalize the mirror sentinel before bumping instead of a bare
+`++`. Consequence: newly generated skeleton-key seeds may place differently now that fill reachability is
+correct. Stored seeds re-apply saved placements and are unaffected.
+
+**Three edits are deliberately un-guarded**, because each is behavior-neutral upstream rather than a
+combo deviation: the `z_sram_NES.c:1279` moon-crash `memcpy` now targets `gSaveContext.save` like the
+sibling read two lines up (`save` is `SaveContext`'s first member, so the bytes landed identically
+before); `GiveItem.cpp`'s `RI_SKELETON_KEY` rewrite and the four `RI_*_SMALL_KEY` cases only ever raise
+counters that vanilla MM rando already intended to be equal; and `Rando.h`'s `skeletonKeyCounts` table
+plus `Rando::AddSmallKey()` are pure factoring of constants and arithmetic that already existed inline.
+
+**Anchor.** See `anchor.md` — MM's `HandlePacket_UpdateTeamState` wholesale-replaced `saveInfo`/
+`shipSaveInfo` (including `saveType` and the key counters), and the cycle-save broadcast could outrun the
+restore hook. Hook execution order is *not* registration order (`RegisteredGameHooks<H>::functions` is an
+`std::unordered_map`), so the fix defers the broadcast rather than ordering the hooks.
 
 ## Per-seed spoiler names + shop-only prices (2026-07-31)
 
@@ -1403,3 +1476,219 @@ keeping the seed escapable is generation's job, not the hint layer's.
 
 **Residual:** NO_LOGIC + MM start has no re-entry guarantee — that mode's point. No MM-side setter
 exists (nothing in MM reads the value); add one when a consumer appears.
+
+## Combo-owned unified Hint Tracker (#164) (2026-08-20)
+
+**Why:** the Hint Tracker arrived in the 2026-07-13 soh merge as vendored OOT-only code, reachable
+only from the OOT per-game tab. It is a poor fit for combo seeds even for OOT alone: combo injects
+every hint as a pre-rendered MESSAGE hint (`SOH_ApplyComboHints`), so native's Journal view,
+WotH/Foolish coloring and found-tracking are all dead. MM had no hint tracker at all. Replaced by a
+combo-owned window under Settings, directly below Check Tracker, covering both games.
+
+**No generator changes.** The tracker reads the seed's existing `hints` slice
+(`combo/rando/CrossHints.h`): `hints.oot[] {checkName, type, messages[{en,de,fr}]}` and
+`hints.mm {gossipPool[{weight,text}], itemLocations{item -> text}}`.
+
+**New files (no merge risk):** `combo/gui/ComboHintTracker.h`/`.cpp` — the `"Hint Tracker##Combo"`
+GuiWindow (the `##` tail keeps a distinct Gui-map/ImGui identity from OOT's native `"Hint Tracker"`)
+plus the Settings panel. It draws only from plain strings the launcher pushes — no ResourceManager or
+game-DLL dependency — so it renders under either foreground game with none of the dormant-draw
+machinery the icon trackers need. `ComboTracker::ForegroundPaused` was de-`static`ed out of
+`ComboTrackerSwap.cpp` so the window's OnlyPaused option reuses the same fail-open pause probe.
+
+**Read-state store.** `.combosav` gains `combo.hintsRead`:
+
+    "hintsRead": {
+      "oot":      ["__GANONDORF__", "__STONE__3", ...],   // combo checkName keys
+      "mmPool":   [0, 4, 7],                              // hints.mm.gossipPool indices
+      "mmNative": [{ "check": "...", "text": "..." }],     // MM's own stone hints
+      "mmNpc":    ["Great Fairy Sword", ...]              // hints.mm.itemLocations keys
+    }
+
+Absent means empty. Every bucket is set-semantics (insert-if-absent), so a hook that fires repeatedly
+per textbox is free, and `FlushContainer` only runs on an actual insert. `mmNative` dedupes on `check`
+alone (first write wins): a trap check's disguise name re-rolls per scene init, so comparing the whole
+`{check, text}` object would append a fresh entry — and flush the container — on every talk.
+`Combo_OnOOTSaveInit` erases `combo.hintsRead` unconditionally, not only on the rebake path: a slot
+whose container survived a delete path arrives with no pending seed, and the new file must not inherit
+the old one's read marks. `EraseComboContainer` pushes an empty slot -1 payload so a deleted slot's
+hints stop showing on the file-select screen. MM-native stone hints have no stable upfront list (they
+are composed at talk time from live save state), so they appear only as a "revealed" group built from
+`mmNative`.
+
+**Three new ABI points:**
+- `soh.dll` `SOH_SetComboHintRevealCb(void (*)(int fileNum, const char* comboKey))` — OOT's
+  `OnRandoHintRevealed` subscriber (registered once from `SOH_LoadComboRando`) maps the
+  `RandomizerHint` back to the combo `checkName` it was applied from and reports it. Non-combo hints
+  (native static hints, warp songs) and disabled hints are dropped.
+- `2ship.dll` `MM_SetComboHintRevealCb(void (*)(int fileNum, int kind, int poolIndex, const char* key,
+  const char* text))` — kind 0 = cross `gossipPool` pick (by index, from a new report-only out-param on
+  `EnGs.cpp GetRandomCheck`), 1 = native MM stone hint (key = combo-spoiler check name, plain text),
+  2 = NPC `itemLocations` hint (key = item friendly name, reported where
+  `Rando.cpp GetItemLocationHintName`'s COMBO_BUILD branch resolves). `SECOND_GS_MESSAGE` reports only
+  in the paid-and-shown branch. `DmStk.cpp`'s Skull Kid taunt now resolves the Oath-to-Order location
+  inside the branch that actually has a `{{location}}` placeholder — resolving it for the taunt marked
+  the hint read without the player ever seeing it. The out-param changes no draw logic and consumes no RNG, so the stone
+  draw stays byte-identical.
+- `comboui.dll` `ComboUI_SetHintTrackerData(int slot, const char* hintsJson, const char* readStateJson)`
+  — pushed at `Combo_OnOOTSaveInit` (after bake) and `Combo_OnOOTSaveLoad`, and re-pushed after every
+  reveal that actually inserted. Push-only; there is no comboui -> launcher direction, so manual
+  mark-read from the UI is a later phase. comboui copies both strings under a small mutex (the launcher
+  reuses its buffers and the reveal path runs on the reporting game's thread) and re-parses lazily on
+  the draw thread via a dirty flag; corrupt JSON degrades to "no seed loaded".
+
+**Shared hint resolver.** `SOH_ApplyComboHints`' resolution loop was extracted into
+`Combo_WalkComboHints(hints, isTaken, emit, ...)`, used by two callers. Apply runs it with `isTaken =
+ctx->GetHint(rh)->IsEnabled()` and records `RandomizerHint -> checkName` as it goes; the lazy replay
+(`Combo_EnsureHintKeyMap`) runs it with a claimed-set predicate over the pushed blob's hints slice.
+**The replay is the path that actually serves every real flow**: it is keyed on `OOT_ForeignMapGen()`,
+and `SOH_LoadComboRando` bumps that generation unconditionally after apply, so the first reveal of a
+session always rebuilds from the blob. Apply-side recording is only a narrow safety net for a process
+where the blob was never pushed. That makes the two walks staying one function load-bearing, not
+belt-and-braces: the sentinel (`__STONE__n`/`__TRIAL__…`/`__JUNK__n`) to physical-stone mapping
+depends on the claiming order. Both callers build into a local map and commit (map + generation stamp)
+only past a successful walk, so a throw logs and retries at the next reveal instead of latching an
+empty map. Worst case a wrong entry is marked read.
+
+**Native OOT Hint Tracker suppressed.** `"Hint Tracker"` is gone from the OOT per-game tab's rando
+allow-list (only Entrance Tracker remains), and `ComboUI_Register` forces
+`gOpenWindows.HintTracker`/`…Settings` to 0 and `Hide()`s both windows via the Gui map — a config that
+persisted `HintTracker=1` would otherwise keep showing a window with no reachable settings and no
+combo hint content. This closes the `docs/merges/2026-07-13.md` follow-up for that window pair.
+
+**New CVars:** `gCombo.HintTracker.{Enabled, WindowType, OnlyPaused, ShowUnrevealed, ShowJunk,
+HideRead}`. Unread entries render as `???` unless ShowUnrevealed; the search box only matches text the
+player is allowed to see.
+
+**Residuals:** MM's plain-text recomposition for a native stone hint may diverge cosmetically from the
+formatted in-game string (colors/line breaks are stripped); MM-native NPC hints outside the combo
+`itemLocations` path are not reported; there is no manual mark-read.
+
+## Randomize cosmetics on combo generation + cross-game sync (#169) (2026-08-21)
+
+**Why:** both games offer "randomize all cosmetics when a randomizer seed is generated"
+(`gCosmetics.RandomizeCosmeticsGenModes` = On Rando Gen Only; MM's `gCosmetics.RandomizeOnSeedGen`),
+but combo owns generation and never reaches either game's vanilla fire site, so neither hook ran. The
+same gap silently disabled both Audio Editors' "randomize all on rando gen" — they consume the same
+two hooks, and they are the only other consumers, so firing the hooks fixes them too.
+
+**Vendored deltas (all inside existing combo-only functions):**
+
+- `soh/soh/OTRGlobals.cpp` — `SOH_ApplyRandoPlacements` now calls `ctx->SetSeed(sComboRandoSeed)` when
+  the launcher supplied a seed. Combo bypasses `Playthrough_Init`/spoiler-load, the only vanilla
+  `SetSeed` sites, so the ctx seed sat at 0 and every seed-derived feature degenerated: save
+  `finalSeed` was always 0, Anchor's roster seed-mismatch check compared 0 to 0, and the in-game
+  seeded derivations (EnemyRandomizer, ExtraTraps, MirroredWorld, Audio) were not per-seed at all.
+  Both the fresh-gen and the reload path call `SOH_SetComboRandoSeed(masterSeed)` before the apply, so
+  generator and reloader agree; the u64→u32 truncation is consistent across clients.
+- `soh/soh/OTRGlobals.cpp` — new export `SOH_FireGenerationCompleteHooks`, an RM-scoped
+  `ExecuteHooks<OnGenerationCompletion>()` (same `CrossRMRegistry::Get("oot")` pattern as
+  `SOH_MenuApplyCVarChange`; the cosmetic consumers patch OOT gfx). Vanilla fires this from the rando
+  worker thread — we fire from the main thread, which is strictly safer. The `ExecuteHooks` call is
+  wrapped in `try`/`catch(...)` with `SPDLOG_ERROR`, like the MM side: subscribers reach `std::map::at`
+  and allocate, and a throw must not unwind across the C ABI into `ComboShip.exe`.
+- `soh/soh/Enhancements/cosmetics/CosmeticsEditor.cpp` and `soh/soh/Enhancements/audio/AudioEditor.cpp` —
+  both seeded branches (`RandomizeColor`, `RandomizeGroup`) fold in the `Rando::Context` seed in one
+  strictly degenerate case: `!IS_RANDO && fileCreatedAt == 0`. Vanilla seeds from
+  `IS_RANDO ? GetSeed() : fileCreatedAt`, but combo fires the gen roll at file select where `IS_RANDO`
+  is false and no file is loaded, so both terms are 0 and every seed would get the *same* palette and
+  the *same* audio shuffle. With the `SetSeed` above in place the rolls are genuinely seed-derived and
+  reproduce identically on the generator and on every recipient. Vanilla is bit-for-bit unchanged in
+  every other case (any real save has a nonzero `fileCreatedAt`).
+- `mm/2s2h/BenPort.cpp` — `MM_InitRandoSaveFile` now fires `ExecuteHooks<OnRandoSeedGeneration>()`,
+  mirroring `OnFileCreate.cpp`'s tail (that function re-implements `OnFileCreate`'s body and had omitted
+  only this line). Deliberately placed *after* the placement `try`/`catch` and inside its own
+  `try`/`catch`: a throwing cosmetic/audio subscriber must not send the catch path off to rebuild the
+  slot as a placement-less vanilla save. `MM_InitRandoSaveFile` intentionally re-implements
+  `OnFileCreate`'s tail rather than calling it, so it must be re-audited whenever upstream changes
+  `OnFileCreate`; a shared-helper refactor was considered and declined precisely because the hook fire
+  has to sit outside the try/catch.
+- `mm/2s2h/Enhancements/Audio/AudioEditor.cpp` — `ReplayCurrentBGM` early-returns on
+  `NA_BGM_DISABLED`. MM's audio randomize-on-gen subscriber now runs while MM is dormant (combo fires
+  the hook during OOT's save init), where the active seq id is `0xFFFF`; the queued
+  `SEQCMD_PLAY_SEQUENCE` would index `gSequenceMap[0xFFFF]` and crash on MM's first frame after a
+  portal. Replaying a disabled BGM is meaningless in vanilla too, so the guard is behavior-neutral there.
+
+**Where combo fires them.** OOT: end of `Combo_FinalizeGenerate`, after `SOH_ApplyComboHints` and
+before the pending-settings bookkeeping. Also on the seed-**reload** path (`Combo_OnReloadRequest`,
+after the placement apply + seed hash): a client that merely loads a shared seed never runs
+`Combo_FinalizeGenerate`, so without this its OOT colors would never roll at all. Since the roll is
+seed-derived, the recipient reproduces the generator's colors exactly. MM: inside
+`MM_InitRandoSaveFile`, i.e. per rando save-file creation (fresh or reloaded seed) — exactly vanilla
+MM's semantics.
+
+**Once per seed, per machine.** The reload path runs on *every* boot (silent auto-load re-applies the
+remembered seed), so an unconditional fire there would re-roll on each launch and wipe cosmetic/audio
+edits the user made by hand. A persisted latch CVar (`gCombo.Rando.GenRollSeed`, a comma-separated list
+of master seeds as hex strings — the int CVar store is 32-bit) makes the roll happen once per seed:
+`ComboUI_ClaimGenRollSeed` returns 1 (and appends the seed) only when the seed is not already in the
+list, and `Combo_FireGenRollHooksOnce` fires on that. The list keeps the **last 8** seeds, not one slot:
+with a single slot, playing seed A, then B, then A again would re-roll A over the user's manual edits.
+Beyond 8 the oldest entry is pruned, so a very long rotation can cost one extra roll — the failure mode
+is a re-roll, never a lost seed. A claim also only happens when a subscriber is actually **enabled** to
+roll (OOT cosmetics mode == `RANDOMIZE_ON_RANDO_GEN_ONLY`, or `gAudioEditor.RandomizeAudioGenModes` ==
+the same); otherwise the default config's every-boot auto-load would silently burn each seed and turning
+the options on mid-seed would do nothing. A fresh generation passes `force=true`: it claims the seed
+(so subsequent loads leave manual edits alone) but fires regardless, which is vanilla's unconditional
+gen-only semantics. The fire is deliberately **not** coupled to the cosmetics sync gate — each hook
+subscriber gates on its own CVars, and a recipient who wants audio randomization but not cosmetic sync
+must still get its roll. `Combo_OnOOTSaveInit` calls the same helper just before the sync when the sync
+gate passes, which is what makes enabling the options plus sync mid-seed roll and sync fresh colors on
+the next file creation.
+
+**Sync Randomized Cosmetics** (`gCombo.Rando.SyncCosmetics`, default off, combo settings panel).
+`combo/gui/ComboCosmeticsSync.cpp` copies OOT's colors onto MM's semantically-shared elements after
+`MM_InitRandoSaveFile` returns 0 — MM has just rolled its own, so this overwrites it. OOT is the source
+of truth because its roll is seed-derived and MM's is not. It lives in comboui (not the launcher exe)
+because comboui already links libultraship, so the CVar API is called directly instead of through a
+hand-cast `GetProcAddress` shim; the launcher drives it through three exports,
+`ComboUI_SyncRandomizedCosmetics`, `ComboUI_CosmeticsSyncGateEnabled` (one predicate, so the gate's CVar
+reads are never duplicated) and `ComboUI_ClaimGenRollSeed` (the latch above). The CVar store is one
+shared instance across the exe and every DLL (shared `libultraship.dll`), so this is plain CVar
+reads/writes with no IPC. MM's `MM_MenuApplyCVarChange` comes from `ComboMenuModel`'s cached resolver,
+which retries until `2ship.dll` is loaded.
+
+- **Gate:** sync on AND OOT mode == `RANDOMIZE_ON_RANDO_GEN_ONLY` AND MM's `RandomizeOnSeedGen` == 1.
+  The File-Load modes deliberately don't count — they re-roll OOT *after* the sync and would drift the
+  games apart again. The UI note says so.
+- **Keys:** OOT `gCosmetics.<Id>.{Value,Changed,Locked,Rainbow}` vs MM `gCosmetic.<Id>.{Color,Changed,
+  Locked,Rainbow}`. The singular MM prefix is what keeps the two games' cosmetic keys from colliding —
+  do not "fix" it.
+- **Per-pair gate:** copy only when OOT `.Changed`==1 && MM `.Changed`==1 && MM `.Locked`==0. That covers
+  OOT's *advanced* rows (not randomized unless AdvancedMode, so they simply don't fire and MM keeps its
+  own color), MM's suppressed options (custom model override → randomize skipped → `Changed` stays 0),
+  and MM rows the user locked. A **locked OOT** row is deliberately still copied: it is a color the user
+  pinned, and sync's job is to make MM match it.
+- **Copy:** OOT RGB via `CVarGetColor24` with alpha 255 — every mapped MM option is `supportsAlpha=false`
+  and MM's draw path takes alpha from the caller, never from the CVar — plus `.Changed`=1, `.Rainbow`=0,
+  then `MM_MenuApplyCVarChange` on each written key, mirroring MM's own `CosmeticEditorRefreshElement`.
+  A **rainbow** OOT source has no fixed color to copy, so MM gets `.Rainbow`=1 instead and both keep
+  cycling (reachable when the user turned rainbow on for an *advanced* row, which the gen roll then never
+  overwrites).
+- **Drift tripwire:** each pair carries an `ootAdvanced` flag. When a non-advanced pair copies nothing
+  and its OOT row has neither `.Changed` nor `.Locked` (read with a `-1` sentinel), the id no longer
+  exists upstream — logged as a warning naming the pair. The warnings only fire when the run copied at
+  least one *other* pair: an upstream rename kills one mapping while the rest still copy, whereas an OOT
+  "Reset All" or a run where no roll happened kills all 16 non-advanced pairs and must stay silent.
+  Cheap, non-fatal, and the only signal we get that an upstream rename has silently broken a mapping.
+
+**Residuals:**
+
+- OOT's *advanced* rows are not rolled for default users, so their MM counterparts keep their own random
+  color. That includes the three arrow **Secondary** colors — a default user can get two-tone arrow
+  mismatches (OOT rolls the primaries only; MM's secondaries keep their independent roll). The spin
+  attack pairs are unaffected: OOT derives its advanced Primaries from the non-advanced Secondary roll.
+- Link's tunic is mapped Kokiri → all four MM forms on purpose. OOT's Goron/Zora tunic rolls are
+  equipment colors with no MM equivalent and are intentionally not mirrored.
+- `ctx->SetSeed` means OOT saves created from this version on persist a real `finalSeed`, while saves
+  made before it carry 0. Per project policy save compatibility across versions is not required, so
+  `COMBO_RELEASE_VERSION` is unchanged; the practical effect is that a pre-existing save and a new one
+  disagree on seeded features and can report an Anchor seed mismatch against each other.
+- The fire is the whole `OnGenerationCompletion` hook, so it also rolls OOT's Audio Editor "randomize
+  all on rando gen" (the hook's only other subscriber). That is intended — the same combo gap had
+  silently disabled it too.
+- The sync itself only ever runs from `Combo_OnOOTSaveInit`, so a seed loaded but never started keeps
+  MM's own colors until a slot is created.
+- A hand-edited seed file with no `masterSeed` key falls back to 0 consistently on every path (latch,
+  `SOH_SetComboRandoSeed`, the rolls), so all such seeds share one palette and one audio shuffle — the
+  pre-existing behavior of `SOH_SetComboRandoSeed(0)`, not a new deviation.

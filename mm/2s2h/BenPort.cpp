@@ -71,6 +71,7 @@ CrowdControl* CrowdControl::Instance;
 #include "2s2h/Enhancements/Enhancements.h"
 #include "2s2h/Enhancements/GfxPatcher/AuthenticGfxPatches.h"
 #include "2s2h/Enhancements/GfxPatcher/PlayerCustomFlipbooks.h"
+#include "2s2h/Enhancements/ModMenu/ModMenu.h"
 #include "2s2h/DeveloperTools/DebugConsole.h"
 #include "2s2h/Rando/Rando.h"
 #include "2s2h/Rando/Spoiler/Spoiler.h"
@@ -751,8 +752,6 @@ void OTRGlobals::Initialize() {
     context->InitFileDropMgr();
 
     // tell LUS to reserve 3 2S2H specific threads (Game, Audio, Save)
-    // ComboShip: default Alternate Assets OFF — combo ships no HD/alt pack, so upstream's ON just
-    // spams per-frame probes. See docs/UPSTREAM_MERGES.md.
     prevAltAssets = CVarGetInteger("gEnhancements.Mods.AlternateAssets", 0);
     context->GetResourceManager()->SetAltAssetsEnabled(prevAltAssets);
 
@@ -1114,6 +1113,7 @@ extern "C" void InitOTR(int argc, char* argv[]) {
     GameInteractor::Instance = new GameInteractor();
     AudioCollection::Instance = new AudioCollection();
     LoadGuiTextures();
+    ModMenu_LoadArchives();
     BenGui::SetupGuiElements();
     ShipInit::InitAll();
 #ifdef COMBO_BUILD
@@ -1560,14 +1560,15 @@ extern "C" void ResourceMgr_UnloadResource(const char* resName) {
     Ship::Context::GetRawInstance()->GetResourceManager()->UnloadResource(path);
 }
 
-static void ResourceMgr_UnloadOriginalWhenAltExists(const char* resName) {
+static void ResourceMgr_PreloadAltWhenItExists(const char* resName) {
     std::string path = resName;
     if (path.starts_with("__OTR__")) {
         path = path.substr(7);
     }
 
     if (ResourceMgr_IsAltAssetsEnabled() && ExtensionCache.contains(Ship::IResource::gAltAssetPrefix + path)) {
-        ResourceMgr_UnloadResource(path.c_str());
+        Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(Ship::IResource::gAltAssetPrefix + path,
+                                                                            true);
     }
 }
 
@@ -1707,7 +1708,7 @@ extern "C" void ResourceMgr_PushCurrentDirectory(char* path) {
 }
 
 extern "C" Gfx* ResourceMgr_LoadGfxByName(const char* path) {
-    ResourceMgr_UnloadOriginalWhenAltExists(path);
+    ResourceMgr_PreloadAltWhenItExists(path);
 
     auto res = std::static_pointer_cast<Fast::DisplayList>(GetResourceByName(path));
     return (Gfx*)&res->Instructions[0];
@@ -1783,6 +1784,10 @@ extern "C" void ResourceMgr_UnpatchGfxByName(const char* path, const char* patch
     if (originalGfx.contains(path) && originalGfx[path].contains(patchName)) {
         auto res = std::static_pointer_cast<Fast::DisplayList>(
             Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path));
+
+        if (res->GetInitData()->IsCustom) {
+            return;
+        }
 
         Gfx* gfx = (Gfx*)&res->Instructions[originalGfx[path][patchName].index];
         *gfx = originalGfx[path][patchName].instruction;
@@ -2451,7 +2456,7 @@ extern "C" int32_t OTRConvertHUDXToScreenX(int32_t v) {
 
     float hudScreenRatio = (hudWidth / 320.0f);
     float hudCoord = v * hudScreenRatio;
-    float gameOffset = (gameWidth - hudWidth) / 2;
+    float gameOffset = (int32_t(gameWidth) - hudWidth) / 2;
     float gameCoord = hudCoord + gameOffset;
     float gameScreenRatio = (320.0f / gameWidth);
     float screenScaledCoord = gameCoord * gameScreenRatio;
@@ -2611,14 +2616,20 @@ extern "C" void Combo_AdoptOOTGlobalOptions(void) {
 }
 
 // C-callable wrapper used by title_setup.c (which is a C file) to load a MM save from disk.
-extern "C" void Combo_LoadMMSaveFile(int mmFileNum) {
-    SaveManager_LoadSaveFile(mmFileNum);
+// 0 = loaded a usable rando save; negative = nothing usable (SaveManager codes, plus -6 = loaded but not
+// a rando save). The caller REBUILDS on a negative code — it never refuses entry.
+extern "C" int Combo_LoadMMSaveFile(int mmFileNum) {
+    int result = SaveManager_LoadSaveFile(mmFileNum);
+    if (result != 0) {
+        return result;
+    }
     // No vanilla mode in ComboShip: a non-rando save means the slot was created wrong, and every
     // IS_RANDO hook stays unregistered (COND_HOOK tests the condition once, at OnSaveLoad).
     if (gSaveContext.save.shipSaveInfo.saveType != SAVETYPE_RANDO) {
-        SPDLOG_ERROR("[ComboShip] MM save file{} is not SAVETYPE_RANDO — rando behavior is disabled for this slot",
-                     mmFileNum);
+        SPDLOG_ERROR("[ComboShip] MM save file{} is not SAVETYPE_RANDO — rebuilding a baseline", mmFileNum);
+        return -6;
     }
+    return 0;
 }
 
 extern "C" void MM_RunMain(void);
@@ -2738,9 +2749,9 @@ extern "C" COMBO_EXPORT void MM_ResumeGame(int fileNum) {
 
 // ComboShip: bring the MM save for the given OOT slot (0-indexed) into MM's dormant gSaveContext, so
 // the tracker peek shows real items before MM is visited this session. Same headless load path
-// title_setup.c runs on resume (no gPlayState needed).
-extern "C" COMBO_EXPORT void MM_LoadSaveForCombo(int fileNum) {
-    Combo_LoadMMSaveFile(fileNum + 1); // shares the saveType tripwire
+// title_setup.c runs on resume (no gPlayState needed). Nonzero = nothing usable was loaded.
+extern "C" COMBO_EXPORT int MM_LoadSaveForCombo(int fileNum) {
+    return Combo_LoadMMSaveFile(fileNum + 1); // shares the saveType tripwire
 }
 
 static void Combo_MM_ApplyCheckPrices();
@@ -2844,11 +2855,14 @@ extern "C" COMBO_EXPORT int MM_InitRandoSaveFile(int fileNum, const char* placem
         };
         nlohmann::json checks = nlohmann::json::object();
         nlohmann::json rawPlacements = nlohmann::json::parse(placementJson); // bind before .items() (no dangling temp)
+        int unknownChecks = 0;
+        int unknownItems = 0;
         for (auto& [friendlyCheck, val] : rawPlacements.items()) {
             if (!val.is_string())
                 continue;
             RandoCheckId cid = Rando::StaticData::GetCheckIdFromDisplayName(stripMM(friendlyCheck).c_str());
             if (cid == RC_UNKNOWN) {
+                unknownChecks++;
                 SPDLOG_WARN("[ComboShip] MM_InitRandoSaveFile: unknown check '{}'", friendlyCheck);
                 continue;
             }
@@ -2857,10 +2871,18 @@ extern "C" COMBO_EXPORT int MM_InitRandoSaveFile(int fileNum, const char* placem
             if (iid == RI_UNKNOWN)
                 iid = Rando::StaticData::GetItemIdFromName(v.c_str()); // foreign sentinel / raw RI_
             if (iid == RI_UNKNOWN) {
+                unknownItems++;
                 SPDLOG_WARN("[ComboShip] MM_InitRandoSaveFile: unknown item '{}' at '{}'", v, friendlyCheck);
-                continue;
+                // Substitute junk rather than dropping the check: an omitted check reverts to its vanilla
+                // item, and a vanilla small key would take the vanilla give path and desync the key mirror.
+                iid = RI_JUNK;
             }
             checks[Rando::StaticData::Checks[cid].name] = Rando::StaticData::Items[iid].spoilerName;
+        }
+        if (unknownChecks != 0 || unknownItems != 0) {
+            SPDLOG_ERROR("[ComboShip] MM_InitRandoSaveFile: placement payload had {} unknown checks (dropped) and "
+                         "{} unknown items (junked) for slot {}",
+                         unknownChecks, unknownItems, fileNum);
         }
         spoiler["checks"] = std::move(checks);
 
@@ -2908,6 +2930,15 @@ extern "C" COMBO_EXPORT int MM_InitRandoSaveFile(int fileNum, const char* placem
         SaveManager_SaveCurrentForCombo();
         return -1;
     }
+
+    // ComboShip: combo never runs native OnFileCreate, whose tail is this hook's only fire site
+    // (OnFileCreate.cpp:220) — without it MM's cosmetic/audio "randomize on rando gen" never triggers.
+    // Fired post-apply and outside the try above so a subscriber throw can't void the placements.
+    try {
+        GameInteractor::Instance->ExecuteHooks<GameInteractor::OnRandoSeedGeneration>();
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("[ComboShip] MM_InitRandoSaveFile: gen hook threw: {}", e.what());
+    } catch (...) { SPDLOG_ERROR("[ComboShip] MM_InitRandoSaveFile: gen hook threw a non-std exception"); }
 
     // Persist the rando save to the slot file.
     SaveManager_SaveCurrentForCombo();
@@ -3296,6 +3327,25 @@ extern "C" COMBO_EXPORT const char* MM_DumpRandoStaticData(void) {
         }
     }
 
+    // ComboShip: 5.0.0's per-house skulltula shuffle keeps 30-N tokens vanilla: GeneratePools marks
+    // them shuffled=true with their own token in the (discarded) local saveInfo and drops them from
+    // checkPool. Emit them as fixed so the oracle credits the tokens and the apply stamps them like
+    // native (shuffled=true, so they stay hintable, mirroring native).
+    if (saveInfo.randoSaveOptions[RO_SHUFFLE_GOLD_SKULLTULAS] == RO_GENERIC_YES) {
+        for (auto& [id, chk] : Rando::StaticData::Checks) {
+            if (chk.randoCheckType != RCTYPE_SKULL_TOKEN || !saveInfo.randoSaveChecks[id].shuffled ||
+                stillFillable.count(id))
+                continue;
+            auto iit = Rando::StaticData::Items.find(chk.randoItemId);
+            if (iit == Rando::StaticData::Items.end() || !iit->second.spoilerName || iit->second.spoilerName[0] == '\0')
+                continue;
+            fixed.push_back({ { "check", Rando::StaticData::GetCheckDisplayName(id) },
+                              { "item", Rando::StaticData::GetItemDisplayName(iit->first) },
+                              { "advancement", isAdvancement(iit->second) },
+                              { "hintable", true } });
+        }
+    }
+
     // Fillable checks -> checks[] (name only; pool[] feeds the items).
     for (RandoCheckId id : checkPool) {
         auto chkIt = Rando::StaticData::Checks.find(id);
@@ -3524,24 +3574,28 @@ static void GiveItemForOracle(RandoItemId ri) {
         // (DUNGEON_KEY_COUNT), so bump both like the real GiveItem — else every KEY_COUNT gate stays 0 and
         // key-locked dungeon rooms (Stone Tower/Snowhead/Great Bay deep) are unreachable.
         case RI_WOODFALL_SMALL_KEY:
-            DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE) =
-                std::max(0, (int)DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE)) + 1;
-            gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE]++;
+            Rando::AddSmallKey(DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE);
             break;
         case RI_SNOWHEAD_SMALL_KEY:
-            DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE) =
-                std::max(0, (int)DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE)) + 1;
-            gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE]++;
+            Rando::AddSmallKey(DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE);
             break;
         case RI_GREAT_BAY_SMALL_KEY:
-            DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE) =
-                std::max(0, (int)DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE)) + 1;
-            gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE]++;
+            Rando::AddSmallKey(DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE);
             break;
         case RI_STONE_TOWER_SMALL_KEY:
-            DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE) =
-                std::max(0, (int)DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE)) + 1;
-            gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE]++;
+            Rando::AddSmallKey(DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE);
+            break;
+        // ComboShip: the oracle had no Skeleton Key case at all, so key-gated regions stayed unreachable
+        // during fill. Same raise-both-counters body as Rando::GiveItem.
+        case RI_SKELETON_KEY:
+            for (auto& k : Rando::skeletonKeyCounts) {
+                if (DUNGEON_KEY_COUNT(k.dungeonSceneIndex) < k.count) {
+                    DUNGEON_KEY_COUNT(k.dungeonSceneIndex) = k.count;
+                }
+                if (gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[k.dungeonSceneIndex] < k.count) {
+                    gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[k.dungeonSceneIndex] = k.count;
+                }
+            }
             break;
 
         // Stray fairies
@@ -4009,6 +4063,13 @@ extern "C" void (*gMMComboMarkForeignObtained)(int srcGame, const char* checkNam
 extern "C" COMBO_EXPORT void MM_SetMarkForeignObtained(void (*cb)(int, const char*)) {
     gMMComboMarkForeignObtained = cb;
 }
+// ComboShip (#164): combo Hint Tracker reveal sink. kind: 0 = cross gossipPool pick (poolIndex),
+// 1 = native MM stone hint (key = check name, text = plain hint), 2 = NPC itemLocations hint (key = item).
+extern "C" void (*gMMComboHintReveal)(int fileNum, int kind, int poolIndex, const char* key,
+                                      const char* text) = nullptr;
+extern "C" COMBO_EXPORT void MM_SetComboHintRevealCb(void (*cb)(int, int, int, const char*, const char*)) {
+    gMMComboHintReveal = cb;
+}
 // ComboShip: end-gating seam (mirrors OOT). z_boss_07.c calls gComboFinalBossDefeated when Majora dies.
 extern "C" int (*gComboFinalBossDefeated)(int game, int fileNum) = nullptr;
 extern "C" COMBO_EXPORT void MM_SetFinalBossDefeatedCb(int (*cb)(int, int)) {
@@ -4249,6 +4310,43 @@ bool Combo_MmIsForeground(void) {
 // SOH_IsPausedForCombo) — the dormant game's own pause state is stale.
 extern "C" COMBO_EXPORT int MM_IsPausedForCombo(void) {
     return gPlayState != nullptr && gPlayState->pauseCtx.state > 0;
+}
+
+// ComboShip (#173): MM's play time is wall clock between flushes, so without these the hours spent in
+// OOT get folded into filePlaytime at MM's next save. The launcher pauses/resumes on every swap.
+static bool sComboPlaytimeRunning = false;
+
+// Flushes the running interval into filePlaytime and stops counting. lastTimeLog == 0 means "never
+// marked" (new file, z_sram_NES.c) and must not be treated as a timestamp — it would add ~57 years.
+extern "C" COMBO_EXPORT void MM_ComboPausePlaytime(void) {
+    if (sComboPlaytimeRunning && gSaveContext.shipSaveContext.lastTimeLog != 0 &&
+        gSaveContext.save.shipSaveInfo.fileCompletedAt == 0) {
+        uint64_t now = GetUnixTimestamp();
+        if (now > gSaveContext.shipSaveContext.lastTimeLog) { // a backwards clock step would wrap
+            gSaveContext.save.shipSaveInfo.filePlaytime += now - gSaveContext.shipSaveContext.lastTimeLog;
+        }
+        gSaveContext.shipSaveContext.lastTimeLog = now;
+    }
+    sComboPlaytimeRunning = false;
+}
+
+extern "C" COMBO_EXPORT void MM_ComboResumePlaytime(void) {
+    gSaveContext.shipSaveContext.lastTimeLog = GetUnixTimestamp();
+    sComboPlaytimeRunning = true;
+}
+
+// MM's half of the combo total, in ms. The live interval is added only while MM is the foreground
+// game — otherwise the value would free-run on wall clock while MM is dormant.
+extern "C" COMBO_EXPORT uint64_t MM_GetPlaytimeMs(void) {
+    uint64_t total = gSaveContext.save.shipSaveInfo.filePlaytime;
+    if (sComboPlaytimeRunning && gSaveContext.shipSaveContext.lastTimeLog != 0 &&
+        gSaveContext.save.shipSaveInfo.fileCompletedAt == 0) {
+        uint64_t now = GetUnixTimestamp();
+        if (now > gSaveContext.shipSaveContext.lastTimeLog) {
+            total += now - gSaveContext.shipSaveContext.lastTimeLog;
+        }
+    }
+    return total;
 }
 
 extern "C" COMBO_EXPORT int32_t MM_MenuEvalDisabled(int32_t i, const char** outReason) {

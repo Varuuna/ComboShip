@@ -9,6 +9,9 @@
 #include "ComboTrackerCommon.h" // kKinds (HideBackground CVars for the tracker panels)
 #include "ComboTrackerSwap.h"
 #include "ComboAnchorRoomWindow.h"  // combo-native floating Anchor room window
+#include "ComboNotesWindow.h"       // combo-owned cross-game Personal Notes window
+#include "ComboHintTracker.h"       // combo-owned unified Hint Tracker (#164)
+#include "ComboTimersWindow.h"      // combo-owned overlay timers (#173)
 #include "rando/ComboPlaythrough.h" // plando: ParseSpoilerPlacements + Suffix/BuildForeignArray + slot paths
 #include <imgui.h>
 #include <libultraship/libultraship.h>         // CVar bridge (CVarGet/Set* incl. color) + color.h (Color_RGBA8)
@@ -101,18 +104,14 @@ constexpr const char* SyncItemsAndFlags = "gRemote.Anchor.RoomSettings.SyncItems
 // that plays an edited consolidated spoiler back verbatim. Resolved like the combo-gen syms above.
 typedef const char* (*FnDump)(void);
 typedef int (*FnRequestReload)(const char*);
-typedef int (*FnGetActiveFileNum)(void);
 FnDump sSohDump = nullptr;
 FnDump sMmDump = nullptr;
 FnRequestReload sRequestReload = nullptr;
-FnGetActiveFileNum sGetActiveFileNum = nullptr;
 void ResolvePlandoSyms() {
     if (!sSohDump)
         sSohDump = (FnDump)Combo_ResolveSym("soh", "SOH_DumpRandoStaticData");
     if (!sRequestReload)
         sRequestReload = (FnRequestReload)Combo_ResolveSym("soh", "SOH_RequestComboReload");
-    if (!sGetActiveFileNum)
-        sGetActiveFileNum = (FnGetActiveFileNum)Combo_ResolveSym("soh", "SOH_GetActiveFileNum");
     if (!sMmDump)
         sMmDump = (FnDump)Combo_ResolveSym("2ship", "MM_DumpRandoStaticData");
 }
@@ -445,6 +444,8 @@ struct HubEntry {
         COMBO_PLANDO,
         COMBO_TRACKER,
         COMBO_CHECK_TRACKER,
+        COMBO_HINT_TRACKER,
+        COMBO_TIMERS,
         COMBO_NETWORK
     } kind;
     const ComboRando::GameMenu* game = nullptr; // ENGINE/OOT_RANDO/MM_RANDO
@@ -627,6 +628,16 @@ void DrawTrackerSharedPanel() {
             ComboTracker::SyncAppearance();
             changed = true;
         }
+
+        ImGui::SeparatorText("Personal Notes (both games)");
+        bool notes = ComboNotes::WindowShown();
+        ComboRando::ComboMenu_PushCheckbox(theme);
+        if (ImGui::Checkbox("Show Personal Notes window", &notes)) {
+            ComboNotes::SetWindowShown(notes);
+            changed = true;
+        }
+        ComboRando::ComboMenu_PopCheckbox();
+        ImGui::TextDisabled("One note per save slot, shared by both games.");
 
         ImGui::EndTable();
     }
@@ -975,7 +986,7 @@ void PlandoLoad() {
         sPlando.loadedJson = readFile(sPlando.spoilerPaths[sPlando.spoilerSel]);
         srcLabel = std::filesystem::path(sPlando.spoilerPaths[sPlando.spoilerSel]).filename().string();
     } else {
-        int slot = sGetActiveFileNum ? sGetActiveFileNum() : -1;
+        int slot = ComboTracker::OotActiveSlot();
         if (slot >= 0) {
             try {
                 auto cj = nlohmann::json::parse(
@@ -1277,6 +1288,18 @@ void ComboMenu::DrawSharedPanel() {
         chk.group = "Settings";
         chk.kind = HubEntry::COMBO_CHECK_TRACKER;
         e.push_back(std::move(chk));
+        // Combo-owned Hint Tracker panel (#164): one window for both games' combo-generated hints.
+        HubEntry hnt;
+        hnt.label = "Hint Tracker";
+        hnt.group = "Settings";
+        hnt.kind = HubEntry::COMBO_HINT_TRACKER;
+        e.push_back(std::move(hnt));
+        // Combo-owned overlay timers (#173): one play-time overlay spanning both games.
+        HubEntry tmr;
+        tmr.label = "Timers";
+        tmr.group = "Settings";
+        tmr.kind = HubEntry::COMBO_TIMERS;
+        e.push_back(std::move(tmr));
         if (!e.empty())
             groups.push_back({ "Settings", std::move(e) });
         // Network group: the Anchor team-sync control (covers BOTH games) plus the Ship of Harkinian
@@ -1407,6 +1430,10 @@ void ComboMenu::DrawSharedPanel() {
         DrawTrackerSharedPanel();
     } else if (active->kind == HubEntry::COMBO_CHECK_TRACKER) {
         DrawCheckTrackerSharedPanel();
+    } else if (active->kind == HubEntry::COMBO_HINT_TRACKER) {
+        DrawHintTrackerSharedPanel();
+    } else if (active->kind == HubEntry::COMBO_TIMERS) {
+        DrawTimersSharedPanel();
     } else if (active->kind == HubEntry::COMBO_NETWORK) {
         DrawNetworkSharedPanel();
     } else {
@@ -1457,11 +1484,11 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
              strcmp(sidebar, "General") == 0)) {
             return false;
         }
-        // Rando settings live in Shared, Item/Check Tracker sidebars in the Shared tracker panels;
-        // only Entrance/Hint Tracker (OOT-only, no shared panel yet) remain here.
+        // Rando settings live in Shared, Item/Check/Hint Tracker sidebars in the Shared tracker panels
+        // (the combo Hint Tracker replaces OOT's native one); only Entrance Tracker remains here.
         const char* randoSec = isOot ? "Randomizer" : "Rando";
         if (section && strcmp(section, randoSec) == 0) {
-            return sidebar && (strcmp(sidebar, "Entrance Tracker") == 0 || strcmp(sidebar, "Hint Tracker") == 0);
+            return sidebar && strcmp(sidebar, "Entrance Tracker") == 0;
         }
         return true;
     };
@@ -1658,6 +1685,19 @@ void ComboMenu::DrawComboPanel() {
                         "and the Mask Shop key/entrance exclusions, so Ocarina of Time stays enterable from nothing.");
     ImGui::Separator();
 
+    // Cosmetics (#169): each game randomizes on its own by default; sync makes MM take OOT's colors.
+    ImGui::SeparatorText("Cosmetics");
+    bool syncCosmetics = CVarGetInteger("gCombo.Rando.SyncCosmetics", 0) != 0;
+    ComboRando::ComboMenu_PushCheckbox(goalTheme);
+    if (ImGui::Checkbox("Sync Randomized Cosmetics", &syncCosmetics)) {
+        CVarSetInteger("gCombo.Rando.SyncCosmetics", syncCosmetics ? 1 : 0);
+    }
+    ComboRando::ComboMenu_PopCheckbox();
+    ImGui::TextDisabled("Applies only when BOTH games' \"randomize cosmetics on randomizer generation\" options are\n"
+                        "enabled. Shared elements (buttons, hearts, magic, minimap, Link's tunic, ...) take Ocarina\n"
+                        "of Time's colors in Majora's Mask.");
+    ImGui::Separator();
+
     // Seed field -> shared CVar the generator reads (same source the native file-select
     // "Generate a new seed" option uses).
     ImGui::SetNextItemWidth(260.0f);
@@ -1747,4 +1787,28 @@ extern "C" COMBO_EXPORT void ComboUI_Register(void) {
 
     // Combo-native floating Anchor room window (toggled from the Anchor panel).
     ComboRando::RegisterAnchorRoomWindow();
+
+    // Combo-owned cross-game Personal Notes window (toggled from the Shared item tracker panel).
+    ComboNotes::RegisterWindow();
+
+    // Combo-owned unified Hint Tracker (#164). OOT's native one is unreachable now that its sidebar is
+    // hidden, so force it shut here — a config that persisted gOpenWindows.HintTracker=1 would
+    // otherwise keep showing a window with no settings and no combo hint content.
+    ComboRando::RegisterHintTrackerWindow();
+    for (const auto& [cvar, name] : { std::pair{ "gOpenWindows.HintTracker", "Hint Tracker" },
+                                      std::pair{ "gOpenWindows.HintTrackerSettings", "Hint Tracker Settings" } }) {
+        CVarSetInteger(cvar, 0);
+        if (auto win = gui->GetGuiWindow(name))
+            win->Hide();
+    }
+
+    // Combo-owned overlay timers (#173). Both games' overlays are retired. MM's window is not
+    // registered yet, so only its CVar can be cleared here; the combo window re-asserts each frame.
+    ComboRando::RegisterTimersWindow();
+    for (const auto& [cvar, name] : { std::pair{ "gOpenWindows.TimeDisplayEnabled", "Additional Timers" },
+                                      std::pair{ "gWindows.DisplayOverlay", "Display Overlay" } }) {
+        CVarSetInteger(cvar, 0);
+        if (auto win = gui->GetGuiWindow(name))
+            win->Hide();
+    }
 }

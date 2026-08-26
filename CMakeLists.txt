@@ -13,7 +13,7 @@ set(COMBO_EPOCH 1)  # ← bump for ComboShip-owned breaks / o2r-forcing releases
 
 # Manual release identity; SOLE authority for combosave compat (gated in combo/ComboShip.cpp).
 # See docs/UPSTREAM_MERGES.md for the bump rule.
-set(COMBO_RELEASE_VERSION "0.2.1" CACHE STRING "ComboShip release version (manual; gates combosave compat)" FORCE)
+set(COMBO_RELEASE_VERSION "0.3.0" CACHE STRING "ComboShip release version (manual; gates combosave compat)" FORCE)
 
 set(COMBO_PINS "${CMAKE_CURRENT_SOURCE_DIR}/upstream-pins.json")
 # Reconfigure whenever the pins change so the derived version stays in sync.

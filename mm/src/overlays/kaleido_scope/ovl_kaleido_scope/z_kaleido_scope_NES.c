@@ -3715,8 +3715,15 @@ void KaleidoScope_Update(PlayState* play) {
                             R_PAUSE_BG_PRERENDER_STATE = PAUSE_BG_PRERENDER_UNK4;
                             Object_LoadAll(&play->objectCtx);
                             BgCheck_InitCollisionHeaders(&play->colCtx, play);
+#ifdef COMBO_BUILD
+                            // ComboShip: MM's title path wipes the save (Sram_InitNewSave) and combo can't
+                            // enter its file select — quit to OOT instead. Unreachable in this tree; guarded
+                            // defensively so it can't resurface as a save wipe.
+                            Combo_RequestOwlSaveQuit();
+#else
                             STOP_GAMESTATE(&play->state);
                             SET_NEXT_GAMESTATE(&play->state, TitleSetup_Init, sizeof(TitleSetupState));
+#endif
                             Audio_MuteAllSeqExceptSystemAndOcarina(20);
                             gSaveContext.seqId = NA_BGM_DISABLED;
                             gSaveContext.ambienceId = AMBIENCE_ID_DISABLED;
@@ -3960,8 +3967,14 @@ void KaleidoScope_Update(PlayState* play) {
                         gSaveContext.save.saveInfo.playerData.magicLevel = 0;
                         gSaveContext.save.saveInfo.playerData.magic = 0;
                     } else { // PAUSE_PROMPT_NO
+#ifdef COMBO_BUILD
+                        // ComboShip: same as the owl-save quit — MM's title path wipes the save. Vanilla
+                        // discards unsaved progress here too, so the semantics match.
+                        Combo_RequestOwlSaveQuit();
+#else
                         STOP_GAMESTATE(&play->state);
                         SET_NEXT_GAMESTATE(&play->state, TitleSetup_Init, sizeof(TitleSetupState));
+#endif
                     }
                 }
             }

@@ -13,6 +13,7 @@ namespace {
 
 using ComboTracker::kKinds;
 using ComboTracker::kTrackers;
+using ComboTracker::OotActiveSlot;
 
 constexpr float kHoldSeconds = 0.5f;
 constexpr float kHoldDragCancelSqr = 5.0f * 5.0f; // px² of movement that turns a hold into a drag
@@ -24,21 +25,6 @@ struct Peek {
     bool held = false;      // hold fired; the dormant game's window shows until release
 };
 Peek sPeeks[ComboTracker::kSwapCount];
-
-// Active OOT save slot (0-2), or -1 at the title/file-select screens.
-int OotActiveSlot() {
-    static int (*sGetFileNum)(void) = nullptr;
-    static bool sTried = false;
-    if (!sTried) {
-        sTried = true;
-        sGetFileNum = (int (*)(void))Combo_ResolveSym("soh", "SOH_GetActiveFileNum");
-    }
-    if (sGetFileNum) {
-        int slot = sGetFileNum();
-        return (slot >= 0 && slot <= 2) ? slot : -1;
-    }
-    return -1;
-}
 
 // Combined Triforce progress (#136): counts live in the two game DLLs, the goal in soh's copy of the
 // slot's seed. Returns false unless the loaded seed's goal is a hunt.
@@ -67,17 +53,20 @@ void EnsureMmSaveLoadedForDormantDraw() {
     if (ComboUI::MmEverForeground()) {
         return;
     }
-    static void (*sLoadMmSave)(int) = nullptr;
+    static int (*sLoadMmSave)(int) = nullptr;
     static bool sTried = false;
     if (!sTried) {
         sTried = true;
-        sLoadMmSave = (void (*)(int))Combo_ResolveSym("2ship", "MM_LoadSaveForCombo");
+        sLoadMmSave = (int (*)(int))Combo_ResolveSym("2ship", "MM_LoadSaveForCombo");
     }
     static int sLoadedSlot = -1;
     int slot = OotActiveSlot();
     if (!sLoadMmSave || slot < 0 || slot == sLoadedSlot) {
         return;
     }
+    // Nonzero = nothing loaded (missing/broken MM half); it parks fileNum at 0xFF and clears saveType, so
+    // the trackers go blank instead of showing the previous slot's save. Latch the slot anyway: retrying
+    // every draw would re-read the container and spam the log.
     sLoadMmSave(slot);
     sLoadedSlot = slot;
 }
@@ -104,22 +93,6 @@ bool DormantPausedOnly(int kindIdx, int bg) {
         return CVarGetInteger(p.ootCvar, 0) != 0 && CVarGetInteger(p.ootWindowTypeCvar, p.ootWindowTypeDefault) == 0;
     }
     return CVarGetInteger(p.mmCvar, 0) == 1; // MM's button modes (2/3) stay always-show while dormant
-}
-
-// The foreground game's pause state, from its DLL (the dormant game's own is stale). Fails open
-// (paused) so a missing module/export degrades to the previous always-show behavior.
-bool ForegroundPaused(int fg) {
-    static int (*sFn[2])(void) = {};
-    static bool sTried[2] = {};
-    if (!sTried[fg]) {
-        sTried[fg] = true;
-        sFn[fg] = (int (*)(void))Combo_ResolveSym(fg == 0 ? "soh" : "2ship",
-                                                  fg == 0 ? "SOH_IsPausedForCombo" : "MM_IsPausedForCombo");
-    }
-    if (sFn[fg]) {
-        return sFn[fg]() != 0;
-    }
-    return true;
 }
 
 // Write the derived visibility only on change (SetTracker writes the CVar and Show/Hides the
@@ -185,7 +158,7 @@ void Reconcile(int kindIdx) {
     // A dormant tracker set to "only while paused" follows the FOREGROUND game's pause state (its
     // own is stale); peek-hold still overrides.
     const bool onlyPaused = DormantPausedOnly(kindIdx, bg);
-    bool wantBg = master && ((!hideBg && (!onlyPaused || ForegroundPaused(fg))) || sPeeks[kindIdx].held);
+    bool wantBg = master && ((!hideBg && (!onlyPaused || ComboTracker::ForegroundPaused(fg))) || sPeeks[kindIdx].held);
     // A dormant game's tracker needs its ResourceManager registered (icons) and, for dormant MM,
     // an active OOT save whose MM counterpart it can show — not the title/file-select screens.
     if (wantBg && !Ship::CrossRMRegistry::Get(bg == 0 ? "oot" : "mm")) {
@@ -345,6 +318,23 @@ void SwapWindow::Draw() {
 }
 
 } // namespace
+
+bool ComboTracker::ForegroundPaused(int fg) {
+    static int (*sFn[2])(void) = {};
+    static bool sTried[2] = {};
+    if (fg != 0 && fg != 1) {
+        return true;
+    }
+    if (!sTried[fg]) {
+        sTried[fg] = true;
+        sFn[fg] = (int (*)(void))Combo_ResolveSym(fg == 0 ? "soh" : "2ship",
+                                                  fg == 0 ? "SOH_IsPausedForCombo" : "MM_IsPausedForCombo");
+    }
+    if (sFn[fg]) {
+        return sFn[fg]() != 0;
+    }
+    return true;
+}
 
 bool ComboTracker::GetMasterVisible(int tracker) {
     return CVarGetInteger(kKinds[tracker].enabledCvar, 0) != 0;

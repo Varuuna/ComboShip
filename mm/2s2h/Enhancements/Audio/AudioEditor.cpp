@@ -35,6 +35,7 @@ static WidgetInfo voicePitch;
 static WidgetInfo voicePitchEnable;
 static WidgetInfo randoMusicOnSceneChange;
 static WidgetInfo randomAudioOnSeedGen;
+static WidgetInfo useSongCategories;
 
 namespace AudioPreview {
 
@@ -167,6 +168,13 @@ size_t AuthenticCountBySequenceType(SeqType type) {
 // which will lookup the proper override, or reset back to vanilla
 void ReplayCurrentBGM() {
     u16 curSeqId = AudioSeq_GetActiveSeqId(SEQ_PLAYER_BGM_MAIN);
+#ifdef COMBO_BUILD
+    // ComboShip: nothing to replay when no BGM is playing (e.g. MM dormant while combo generates) —
+    // queueing NA_BGM_DISABLED would index gSequenceMap[0xFFFF] on the next frame.
+    if (curSeqId == NA_BGM_DISABLED) {
+        return;
+    }
+#endif
     // TODO: replace with Audio_StartSeq when the macro is shared
     // The fade time and audio player flags will always be 0 in the case of replaying the BGM, so they are not set here
     // AudioSeq_QueueSeqCmd(0x00000000 | curSeqId);
@@ -187,7 +195,8 @@ void UpdateCurrentBGM(u16 seqKey, SeqType seqType) {
 }
 
 void RandomizeGroup(SeqType type) {
-    std::vector<u16> values;
+    bool useCategories = CVarGetInteger("gAudioEditor.UseSongCategories", 0);
+    std::vector<std::shared_ptr<SequenceReplacement>> uncategorized;
 
     // An empty IncludedSequences set means that the AudioEditor window has never been drawn
     if (AudioCollection::Instance->GetIncludedSequences().empty()) {
@@ -195,42 +204,133 @@ void RandomizeGroup(SeqType type) {
     }
 
     // use a while loop to add duplicates if we don't have enough included sequences
-    while (values.size() < AudioCollection::Instance->CountSequencesByType(type)) {
-        size_t initialSize = values.size();
+    while (uncategorized.size() < AudioCollection::Instance->CountSequencesByType(type)) {
+        size_t initialSize = uncategorized.size();
         for (const auto& seqData : AudioCollection::Instance->GetIncludedSequences()) {
-            if (seqData->category & type && seqData->canBeUsedAsReplacement) {
-                values.push_back(seqData->sequenceId);
+            if (seqData->type & type && seqData->canBeUsedAsReplacement) {
+                SequenceReplacement rep = { seqData, false };
+                uncategorized.push_back(std::make_shared<SequenceReplacement>(rep));
             }
         }
 
         // if we didn't add any new values, return early to prevent an infinite loop
-        if (values.size() == initialSize) {
+        if (uncategorized.size() == initialSize) {
             return;
         }
     }
 
-    if (values.empty()) {
+    if (uncategorized.empty()) {
         return;
     }
+
     std::random_device rd;
     std::mt19937 g(rd());
+    std::shuffle(uncategorized.begin(), uncategorized.end(), g);
 
-    std::shuffle(values.begin(), values.end(), g);
+    std::map<int, std::vector<std::shared_ptr<SequenceReplacement>>> seqPools = {};
+    std::map<int, std::vector<std::shared_ptr<SequenceReplacement>>> seqIdPools = {};
+    std::vector<int> includedCategories;
+    if (useCategories) {
+        // If this group matches *any* fanfare groups
+        if (type & SEQ_BGM_CUSTOM_FANFARE) {
+            includedCategories = { SEQ_CAT_FAN_GETITEM, SEQ_CAT_FAN_GAMEOVER, SEQ_CAT_FAN_CLEAR,
+                                   SEQ_CAT_ID_REPLACEMENT };
+        } else {
+            includedCategories = {
+                SEQ_CAT_FIELD,  SEQ_CAT_TOWN, SEQ_CAT_DUNGEON, SEQ_CAT_INDOOR, SEQ_CAT_MINIGAME,
+                SEQ_CAT_ACTION, SEQ_CAT_CALM, SEQ_CAT_BOSS,    SEQ_CAT_TITLE,  SEQ_CAT_ID_REPLACEMENT
+            };
+        }
+        for (auto& category : includedCategories) {
+            seqPools.insert({ category, std::vector<std::shared_ptr<SequenceReplacement>>{} });
+        }
+        // Sort into vectors by component categories
+        for (auto& rep : uncategorized) {
+            const int filter = rep->seq->categoryFlags;
+            std::shared_ptr<std::vector<int>> seqIdReps = rep->seq->seqIdReplacements;
+            // Check for sequence specific replacements
+            if (seqIdReps != nullptr) {
+                for (auto& seqId : *seqIdReps) {
+                    if (!seqIdPools.contains(seqId)) {
+                        seqIdPools.insert({ seqId, std::vector<std::shared_ptr<SequenceReplacement>>{} });
+                    }
+                    seqIdPools[seqId].push_back(rep);
+                }
+            }
+            // Check for generic categories
+            if (filter != SEQ_CAT_NONE) {
+                int compositeCategory = SEQ_CAT_NONE;
+                for (auto& category : includedCategories) {
+                    if (filter & category) {
+                        seqPools[category].push_back(rep);
+                        // All applicable categories have been seen.
+                        if ((compositeCategory |= category) == filter) {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Checking through a permutation of the categories allows for a sequence slot to pull from any component category,
+    // instead of just the first in numerical order.
+    std::shuffle(includedCategories.begin(), includedCategories.end(), g);
+    std::vector<int>::iterator randomCategory = includedCategories.begin();
     for (const auto& [seqId, seqData] : AudioCollection::Instance->GetAllSequences()) {
         const std::string cvarKey = AudioCollection::Instance->GetCvarKey(seqData.sfxKey);
         const std::string cvarLockKey = AudioCollection::Instance->GetCvarLockKey(seqData.sfxKey);
         // don't randomize locked entries
-        if ((seqData.category & type) && CVarGetInteger(cvarLockKey.c_str(), 0) == 0) {
+        if ((seqData.type & type) && CVarGetInteger(cvarLockKey.c_str(), 0) == 0) {
             // Only save authentic sequence CVars
-            if ((((seqData.category & SEQ_BGM_CUSTOM) || seqData.category == SEQ_FANFARE) &&
+            if ((((seqData.type & SEQ_BGM_CUSTOM) || seqData.type == SEQ_FANFARE) &&
                  seqData.sequenceId >= MAX_AUTHENTIC_SEQID) ||
                 seqData.canBeReplaced == false) {
                 continue;
             }
-            if (!values.empty()) {
-                const int randomValue = values.back();
+            int targetFilter = seqData.categoryFlags;
+            if (seqIdPools.contains(seqId) && !seqIdPools[seqId].empty()) {
+                // Category selection now checks for sequences targeting specific seqIds.
+                // There's probably a better way to do this, though.
+                targetFilter |= SEQ_CAT_ID_REPLACEMENT;
+                seqPools[SEQ_CAT_ID_REPLACEMENT] = seqIdPools[seqId];
+            }
+            std::vector<std::shared_ptr<SequenceReplacement>>* chosenSeqPool = nullptr;
+            // If category matching is disabled, always use the uncategorized pool.
+            if (!useCategories) {
+                chosenSeqPool = &uncategorized;
+            }
+            // Used to check if every applicable category has been seen.
+            int compositeCategory = SEQ_CAT_NONE;
+            // Even if a sequence pool has been selected, it could've been emptied by the end of the loop. Double check.
+            while (!uncategorized.empty() && (chosenSeqPool == nullptr || chosenSeqPool->empty())) {
+                int currentCategory, matchFlag = SEQ_CAT_NONE;
+                // Stop looking for a valid category after all applicable ones have been seen, or when one is found.
+                while (compositeCategory != targetFilter && (!matchFlag || seqPools[currentCategory].empty())) {
+                    if (randomCategory == includedCategories.end()) {
+                        std::shuffle(includedCategories.begin(), includedCategories.end(), g);
+                        randomCategory = includedCategories.begin();
+                    }
+                    currentCategory = *randomCategory++;
+                    matchFlag = targetFilter & currentCategory;
+                    compositeCategory |= matchFlag;
+                }
+                // A valid, matching category was found.
+                if (matchFlag && !seqPools[currentCategory].empty()) {
+                    chosenSeqPool = &seqPools[currentCategory];
+                } else {
+                    chosenSeqPool = &uncategorized;
+                }
+                // Remove trailing replacement entries that were already used in other pools.
+                while (!chosenSeqPool->empty() && chosenSeqPool->back()->hasBeenUsed) {
+                    chosenSeqPool->pop_back();
+                }
+            }
+            if (chosenSeqPool != nullptr && !chosenSeqPool->empty()) {
+                SequenceReplacement& rep = *chosenSeqPool->back();
+                const int randomValue = rep.seq->sequenceId;
                 CVarSetInteger(cvarKey.c_str(), randomValue);
-                values.pop_back();
+                rep.hasBeenUsed = true;
+                chosenSeqPool->pop_back();
             }
         }
     }
@@ -238,9 +338,9 @@ void RandomizeGroup(SeqType type) {
 
 void ResetGroup(const std::map<u16, SequenceInfo>& map, SeqType type) {
     for (const auto& [defaultValue, seqData] : map) {
-        if (seqData.category == type) {
+        if (seqData.type == type) {
             // Only save authentic sequence CVars
-            if (seqData.category == SEQ_FANFARE && defaultValue >= MAX_AUTHENTIC_SEQID) {
+            if (seqData.type == SEQ_FANFARE && defaultValue >= MAX_AUTHENTIC_SEQID) {
                 continue;
             }
             const std::string cvarKey = AudioCollection::Instance->GetCvarKey(seqData.sfxKey);
@@ -254,9 +354,9 @@ void ResetGroup(const std::map<u16, SequenceInfo>& map, SeqType type) {
 
 void LockGroup(const std::map<u16, SequenceInfo>& map, SeqType type) {
     for (const auto& [defaultValue, seqData] : map) {
-        if (seqData.category == type) {
+        if (seqData.type == type) {
             // Only save authentic sequence CVars
-            if (seqData.category == SEQ_FANFARE && defaultValue >= MAX_AUTHENTIC_SEQID) {
+            if (seqData.type == SEQ_FANFARE && defaultValue >= MAX_AUTHENTIC_SEQID) {
                 continue;
             }
             const std::string cvarKey = AudioCollection::Instance->GetCvarKey(seqData.sfxKey);
@@ -268,9 +368,9 @@ void LockGroup(const std::map<u16, SequenceInfo>& map, SeqType type) {
 
 void UnlockGroup(const std::map<u16, SequenceInfo>& map, SeqType type) {
     for (const auto& [defaultValue, seqData] : map) {
-        if (seqData.category == type) {
+        if (seqData.type == type) {
             // Only save authentic sequence CVars
-            if (seqData.category == SEQ_FANFARE && defaultValue >= MAX_AUTHENTIC_SEQID) {
+            if (seqData.type == SEQ_FANFARE && defaultValue >= MAX_AUTHENTIC_SEQID) {
                 continue;
             }
             const std::string cvarKey = AudioCollection::Instance->GetCvarKey(seqData.sfxKey);
@@ -363,17 +463,17 @@ void Draw_SfxTab(const std::string& tabId, SeqType type) {
     // Cache valid replacements for this group
     std::unordered_map<u16, const char*> baseFilteredMap;
     for (const auto& [value, seqData] : map) {
-        if ((seqData.category & type) && seqData.canBeUsedAsReplacement) {
+        if ((seqData.type & type) && seqData.canBeUsedAsReplacement) {
             baseFilteredMap[value] = seqData.label.c_str();
         }
     }
 
     for (const auto& [defaultValue, seqData] : map) {
-        if (~(seqData.category) & type) {
+        if (~(seqData.type) & type) {
             continue;
         }
         // Do not display custom sequences in the list
-        if ((((seqData.category & SEQ_BGM_CUSTOM) || seqData.category == SEQ_BGM_CUSTOM_FANFARE) &&
+        if ((((seqData.type & SEQ_BGM_CUSTOM) || seqData.type == SEQ_BGM_CUSTOM_FANFARE) &&
              defaultValue >= MAX_AUTHENTIC_SEQID) ||
             seqData.canBeReplaced == false) {
             continue;
@@ -404,7 +504,7 @@ void Draw_SfxTab(const std::string& tabId, SeqType type) {
         // Ensures they remain visible in the dropdown.
         if (!baseFilteredMap.contains(initialValue) && map.contains(initialValue)) {
             const auto& currentSeqData = map.at(initialValue);
-            if (currentSeqData.category & type) {
+            if (currentSeqData.type & type) {
                 tempMap = baseFilteredMap;
                 tempMap[initialValue] = currentSeqData.label.c_str();
                 mapToUse = &tempMap;
@@ -434,7 +534,7 @@ void Draw_SfxTab(const std::string& tabId, SeqType type) {
             CVarClear(cvarKey.c_str());
             CVarClear(cvarLockKey.c_str());
             Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
-            UpdateCurrentBGM(defaultValue, seqData.category);
+            UpdateCurrentBGM(defaultValue, seqData.type);
         }
         UIWidgets::Tooltip("Reset to default");
         ImGui::SameLine();
@@ -442,7 +542,7 @@ void Draw_SfxTab(const std::string& tabId, SeqType type) {
         if (ImGui::Button(randomizeButton.c_str())) {
             std::vector<SequenceInfo*> validSequences = {};
             for (const auto seqInfo : AudioCollection::Instance->GetIncludedSequences()) {
-                if (seqInfo->category & type) {
+                if (seqInfo->type & type) {
                     validSequences.push_back(seqInfo);
                 }
             }
@@ -609,6 +709,7 @@ void AudioEditor::DrawElement() {
                 BenGui::mBenMenu->MenuDrawItem(randoMusicOnSceneChange, ImGui::GetContentRegionAvail().x, THEME_COLOR);
                 BenGui::mBenMenu->MenuDrawItem(randomAudioOnSeedGen, ImGui::GetContentRegionAvail().x, THEME_COLOR);
                 BenGui::mBenMenu->MenuDrawItem(displaySeqName, ImGui::GetContentRegionAvail().x, THEME_COLOR);
+                BenGui::mBenMenu->MenuDrawItem(useSongCategories, ImGui::GetContentRegionAvail().x, THEME_COLOR);
                 BenGui::mBenMenu->MenuDrawItem(ovlDuration, ImGui::GetContentRegionAvail().x, THEME_COLOR);
                 BenGui::mBenMenu->MenuDrawItem(voicePitchEnable, ImGui::GetContentRegionAvail().x, THEME_COLOR);
                 BenGui::mBenMenu->MenuDrawItem(voicePitch, ImGui::GetContentRegionAvail().x, THEME_COLOR);
@@ -683,7 +784,7 @@ void AudioEditor::DrawElement() {
             UIWidgets::PushStyleButton(THEME_COLOR);
             if (ImGui::Button("Exclude All")) {
                 for (auto seqInfo : AudioCollection::Instance->GetIncludedSequences()) {
-                    if (sequenceSearch.PassFilter(seqInfo->label.c_str()) && showType[seqInfo->category]) {
+                    if (sequenceSearch.PassFilter(seqInfo->label.c_str()) && showType[seqInfo->type]) {
                         seqsToExclude.insert(seqInfo);
                     }
                 }
@@ -691,7 +792,7 @@ void AudioEditor::DrawElement() {
             ImGui::SameLine();
             if (ImGui::Button("Include All")) {
                 for (auto seqInfo : AudioCollection::Instance->GetExcludedSequences()) {
-                    if (sequenceSearch.PassFilter(seqInfo->label.c_str()) && showType[seqInfo->category]) {
+                    if (sequenceSearch.PassFilter(seqInfo->label.c_str()) && showType[seqInfo->type]) {
                         seqsToInclude.insert(seqInfo);
                     }
                 }
@@ -760,15 +861,15 @@ void AudioEditor::DrawElement() {
                 ImGui::BeginChild("ChildIncludedSequences", ImVec2(0, -8));
                 UIWidgets::PushStyleButton(THEME_COLOR, ImVec2(10.0f, 6.0f));
                 for (auto seqInfo : AudioCollection::Instance->GetIncludedSequences()) {
-                    if (sequenceSearch.PassFilter(seqInfo->label.c_str()) && showType[seqInfo->category]) {
+                    if (sequenceSearch.PassFilter(seqInfo->label.c_str()) && showType[seqInfo->type]) {
                         ImGui::PushID(seqInfo->sfxKey.c_str());
                         if (ImGui::Button(std::string(ICON_FA_TIMES "##" + seqInfo->sfxKey).c_str())) {
                             seqsToExclude.insert(seqInfo);
                         }
                         ImGui::SameLine();
-                        DrawPreviewButton(seqInfo->sequenceId, seqInfo->sfxKey, seqInfo->category);
+                        DrawPreviewButton(seqInfo->sequenceId, seqInfo->sfxKey, seqInfo->type);
                         ImGui::SameLine();
-                        DrawTypeChip(seqInfo->category);
+                        DrawTypeChip(seqInfo->type);
                         ImGui::SameLine();
                         ImGui::Text("%s", seqInfo->label.c_str());
                         ImGui::PopID();
@@ -788,15 +889,15 @@ void AudioEditor::DrawElement() {
                 ImGui::BeginChild("ChildExcludedSequences", ImVec2(0, -8));
                 UIWidgets::PushStyleButton(THEME_COLOR, ImVec2(10.0f, 6.0f));
                 for (auto seqInfo : AudioCollection::Instance->GetExcludedSequences()) {
-                    if (sequenceSearch.PassFilter(seqInfo->label.c_str()) && showType[seqInfo->category]) {
+                    if (sequenceSearch.PassFilter(seqInfo->label.c_str()) && showType[seqInfo->type]) {
                         ImGui::PushID(seqInfo->sfxKey.c_str());
                         if (ImGui::Button(std::string(ICON_FA_PLUS "##" + seqInfo->sfxKey).c_str())) {
                             seqsToInclude.insert(seqInfo);
                         }
                         ImGui::SameLine();
-                        DrawPreviewButton(seqInfo->sequenceId, seqInfo->sfxKey, seqInfo->category);
+                        DrawPreviewButton(seqInfo->sequenceId, seqInfo->sfxKey, seqInfo->type);
                         ImGui::SameLine();
-                        DrawTypeChip(seqInfo->category);
+                        DrawTypeChip(seqInfo->type);
                         ImGui::SameLine();
                         ImGui::Text("%s", seqInfo->label.c_str());
                         ImGui::PopID();
@@ -939,6 +1040,14 @@ void RegisterAudioWidgets() {
                               "sequence "
                               "is loaded to the main sequence player (does not apply to fanfares or enemy BGM)."));
     AddAudioSearchWidget(displaySeqName);
+
+    useSongCategories = { .name = "Use Song Categories", .type = WidgetType::WIDGET_CVAR_CHECKBOX };
+    useSongCategories.CVar(CVAR_AUDIO("UseSongCategories"))
+        .Options(CheckboxOptions()
+                     .Color(THEME_COLOR)
+                     .Tooltip("Tries to better match replaced sequences using categories, instead of any background "
+                              "sequence being a valid replacement for any other background sequence."));
+    AddAudioSearchWidget(useSongCategories);
 
     ovlDuration = { .name = "Overlay Duration: %d seconds", .type = WidgetType::WIDGET_CVAR_SLIDER_INT };
     ovlDuration.CVar(CVAR_AUDIO("SeqNameNotificationDuration"))

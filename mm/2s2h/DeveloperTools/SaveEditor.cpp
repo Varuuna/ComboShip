@@ -1818,10 +1818,9 @@ void DrawRegEditorTab() {
     ImGui::EndChild();
 }
 
-const char* flagEditorSections[] = {
-    "currentSceneFlags", "weekEventReg",        "eventInf",        "scenesVisible",
-    "owlActivation",     "permanentSceneFlags", "cycleSceneFlags", "randoInf",
-};
+const char* flagEditorSections[] = { "currentSceneFlags", "weekEventReg",  "eventInf",
+                                     "scenesVisible",     "owlActivation", "permanentSceneFlags",
+                                     "cycleSceneFlags",   "randoInf",      "collectedHearts" };
 
 void DrawFlagsTab() {
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 3.0f);
@@ -2293,6 +2292,74 @@ void DrawFlagsTab() {
                 ImGui::SameLine(ImGui::CalcTextSize("000").x + ImGui::GetStyle().ItemSpacing.x);
                 UIWidgets::DrawFlagTableArray16(flagTables.at(RANDO_INF), i,
                                                 gSaveContext.save.shipSaveInfo.rando.randoInf[i]);
+                ImGui::PopID();
+            }
+            break;
+        case HEART_FLAGS:
+            if (gPlayState == NULL) {
+                ImGui::Text("Play state is NULL, cannot display flags");
+                break;
+            }
+            if (IS_RANDO) {
+                ImGui::Text("Flags are not relevant to rando");
+                break;
+            }
+            for (size_t i = 0; i < heartFlags.size(); ++i) {
+                const auto& heartFlag = heartFlags[i];
+                bool collected;
+                uint16_t flag = heartFlag.flag;
+                std::string label;
+
+                if (gPlayState->sceneId == heartFlag.scene) {
+                    switch (heartFlag.flagType) {
+                        case WEEK_EVENT_REG:
+                            collected = CHECK_WEEKEVENTREG(flag);
+                            label = fmt::format("weekEventReg | {:02}_{:02X}", flag >> 8, flag & 0xFF);
+                            break;
+                        case FLAG_CYCL_SCENE_COLLECTIBLE:
+                            collected = Flags_GetCollectible(gPlayState, flag);
+                            label = fmt::format("currentSceneFlags | Collectible[0] | 0x{:02X}", flag);
+                            break;
+                        case FLAG_CYCL_SCENE_CHEST:
+                            collected = Flags_GetTreasure(gPlayState, flag);
+                            label = fmt::format("currentSceneFlags | Chest | 0x{:02X}", flag);
+                            break;
+                        case FLAG_CYCL_SCENE_SWITCH:
+                            collected = Flags_GetSwitch(gPlayState, flag);
+                            label = fmt::format("currentSceneFlags | Switch[0] | 0x{:02X}", flag);
+                            break;
+                    }
+                } else {
+                    switch (heartFlag.flagType) {
+                        case WEEK_EVENT_REG:
+                            collected = CHECK_WEEKEVENTREG(flag);
+                            label = fmt::format("weekEventReg | {:02}_{:02X}", flag >> 8, flag & 0xFF);
+                            break;
+                        case FLAG_CYCL_SCENE_COLLECTIBLE:
+                            collected = gSaveContext.cycleSceneFlags[heartFlag.scene].collectible & (1 << flag);
+                            label = fmt::format("cycleSceneFlags | {} | Collectible | 0x{:02X}",
+                                                sceneList.at(heartFlag.scene), flag);
+                            break;
+                        case FLAG_CYCL_SCENE_CHEST:
+                            collected = gSaveContext.cycleSceneFlags[heartFlag.scene].chest & (1 << flag);
+                            label = fmt::format("cycleSceneFlags | {} | Chest | 0x{:02X}",
+                                                sceneList.at(heartFlag.scene), flag);
+                            break;
+                        case FLAG_CYCL_SCENE_SWITCH:
+                            collected = gSaveContext.cycleSceneFlags[heartFlag.scene].switch0 & (1 << flag);
+                            label = fmt::format("cycleSceneFlags | {} | Switch0 | 0x{:02X}",
+                                                sceneList.at(heartFlag.scene), flag);
+                            break;
+                    }
+                }
+
+                ImGui::PushID(i);
+                ImGui::BeginDisabled();
+                ImGui::Checkbox(heartFlag.description.c_str(), &collected);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    ImGui::SetTooltip("%s", label.c_str());
+                }
+                ImGui::EndDisabled();
                 ImGui::PopID();
             }
             break;

@@ -268,3 +268,125 @@ empty array into null; `GetStartingItemsFromConfig` treats null as empty.)
 **Vendored:** `libultraship/src/ship/config/Config.cpp` (`SetBlock`) — create missing intermediate
 objects and descend; a non-object in the path keeps the old silent no-op (`ComboShip:` comment at
 site).
+
+## Mod ordering never survived a restart (2026-08-24)
+
+**Why:** two independent defects, both combo-only.
+
+(a) Both mod menus stored the user's mod order in the SAME CVar, `gSettings.EnabledMods` — soh via
+`CVAR_SETTING("EnabledMods")`, MM via a hardcoded literal, and `CVAR_PREFIX_SETTING` is `gSettings`
+in both games. In combo MM reuses OOT's Context and skips `InitConsoleVariables()`, so
+ConsoleVariables is shared. `UpdateModFiles(init=true)` erases every listed name it can't find in
+*its own* mods dir and rewrites the key; OOT scans `./mods/soh`, MM scans `./mods/2ship`, so each
+wiped the other's names. OOT boots first and MM writes last, so after every launch the key held only
+MM's mods (or `""`, since `./mods/2ship` is auto-created even when empty) and the order was rebuilt
+path-sorted on the next boot. Same shared key also crashed OOT's Mod Menu: Edit -> Cancel re-reads
+the CVar without pruning (`init == false`), then `DrawMods` hit `filePaths.at()` on an MM name.
+
+(b) MM's `BenModalWindow` registered as `"Modal Window"`, which OOT already owns, so
+`Gui::AddGuiWindow` rejected it and it was never drawn. MM's Mod Menu "Clear List" and "Apply &
+Close" queue into a `BenModals` global vector that only that window drains — both buttons did nothing
+at all, so an MM order could never be saved.
+
+**Vendored (additive, `COMBO_BUILD`-guarded unless noted):**
+- `mm/2s2h/Enhancements/ModMenu/ModMenu.cpp` — MM's key becomes `gSettings.EnabledModsMM`. A SIBLING
+  leaf, never a child: `gSettings.EnabledMods.MM` would put a leaf and a subtree at one path, the
+  failure behind `CVAR_LINK_VOICE_FREQ_MULTIPLIER`. Since `Config::TryUnflatten` now logs instead of
+  throwing, that would silently drop every config write rather than crash.
+- `mm/2s2h/BenGui/BenGui.cpp` — `"Modal Window" COMBO_MM_TRACKER_SUFFIX`. Nothing resolves MM's modal
+  by name (MM uses the `BenGui::mModalWindow` static), and the visibility CVars already differed
+  (`gWindows.ModalWindow` vs OOT's `gOpenWindows.ModalWindow`).
+- `mm/2s2h/BenGui/Menu.cpp` — seed `menuThemeIndex` in the ctor (mirroring
+  `soh/soh/SohGui/Menu.cpp`) **and** clamp it in `GetMenuThemeColor()`. Required: registering the
+  modal makes it draw every frame from the Gui loop, and `THEME_COLOR` resolves to a member that only
+  `UpdateElement()` sets — which under comboui runs only once MM's tab is drawn — so `ColorValues.at()`
+  would throw out of 2ship.dll across the DLL boundary. The ctor seed alone is not enough:
+  `MM_MenuDrawCustom` calls `Update()`, which re-reads the CVar unclamped, so the clamp belongs at the
+  `GetMenuThemeColor()` funnel where every `THEME_COLOR` read passes. Also fixes a live crash for
+  anyone with `gWindows.InputViewerSettings=1` (`InputViewerSettingsWindow::DrawElement` uses
+  `THEME_COLOR`; `InputViewer::DrawElement` does not).
+- `mm/2s2h/BenGui/BenModals.cpp` — `ImGuiPopupFlags_NoOpenOverExistingPopup` plus a `PushID("MM")`
+  scope. Neither modal window calls `Begin()`, so both open at popup level 0 and hash their popup ids
+  against the same window. Both games use the exact titles "Clear List" and "Apply & Close", so
+  without the `PushID` MM would draw its message and buttons into OOT's popup with colliding button
+  ids — one click could run the other game's callback. The flag is the level tie-break: it is
+  one-way (OOT's `OpenPopup` stays unflagged), so OOT wins and MM retries next frame.
+- `soh/soh/Enhancements/mod_menu.cpp` + `mm/.../ModMenu.cpp` — a plain "Apply" that writes the CVar
+  and leaves edit mode without closing. `SetEnabledModsCVarValue` already calls
+  `SaveConsoleVariablesNextFrame()`, so no explicit `Save()`; "Apply & Close" needs its own only
+  because it closes before the next frame. Upstream's "Apply & Close" is unchanged, and in combo it
+  takes both games down.
+- Both mod menus, **not** guarded — a `filePaths.find()` skip at the top of `DrawMods`' loop. A
+  genuine upstream bug (a file deleted mid-session throws out of the inline-menu draw path, and
+  neither `SOH_MenuDrawCustom` nor `MM_MenuDrawCustom` has a try/catch); correct in standalone too,
+  and an `#ifdef` around one `continue` would be worse than the line. The doc entry is the only
+  record, since the line carries no `ComboShip:` marker — re-check it after upstream merges.
+
+**Residuals, accepted:** OOT's Presets "Settings" block bulk-clears the whole `gSettings` subtree, so
+an OOT settings-preset apply clears both mod lists — benign, they rebuild from disk. The
+`GetMenuThemeColor()` clamp covers every `THEME_COLOR` read, but a dozen MM sites read
+`gSettings.Menu.Theme` directly with `CVarGetInteger` and stay unclamped; soh's `Menu` is unclamped
+throughout, unchanged here because OOT's modal was always registered. If a game's mods dir doesn't
+exist, `UpdateModFiles` skips its whole body and leaves the list unpruned and unwritten. When a mod
+file vanishes mid-session the skipped row leaves the up/down arrows working on raw vector indices, so
+a swap with a skipped neighbour changes the list without changing what is drawn (and a shift-range
+selection can pick up the invisible name) — cosmetic, in an already-degraded state.
+
+**On future merges:** the theme seeding relies on soh's and MM's `UIWidgets::Colors` enums and
+`ColorValues` maps being identical (`soh/soh/SohGui/UIWidgetOptions.hpp` vs
+`mm/2s2h/BenGui/UIWidgets.hpp`) because `gSettings.Menu.Theme` is shared. If a merge diverges them,
+the shared key becomes unsafe. Also re-check the `Modal Window` suffix and the "Apply" button if
+upstream reworks the mod menu.
+
+## Combo-owned overlay timers (issue #173, 2026-08-24)
+
+**Why:** OOT's "Additional Timers" and MM's "Display Overlay" each showed only their own game's play
+time, so a combo run never had a number covering the whole run. MM also had a live bug: its play time
+is wall clock between flushes (`filePlaytime += now - lastTimeLog`) and `lastTimeLog` was never
+advanced when combo swapped away, so hours spent in OOT were folded into MM's save at its next flush.
+
+**Combo-owned:** `combo/gui/ComboTimersWindow.{h,cpp}` — window `Timers##Combo`, CVars `gCombo.Timers.*`,
+settings under ComboShip Settings → Timers. The total is `OOT playTimer/2 + pauseTimer/3` (deciseconds)
+plus MM's `filePlaytime/100`; both already live in the `.combosav`, and exactly one advances at a time.
+Time of day / Navi / conditional draw only while OOT is foreground. `Combo_SetForegroundGame` pauses
+and resumes MM's accumulator across every swap. The total tints green once both games are beaten
+(`ComboUI_SetComboComplete`, pushed from the existing `combo.completion` flags — no new save key).
+
+**No real-time (RTA) row, deliberately.** MM's `GetUnixTimestamp` (`mm/2s2h/BenPort.cpp`) assigns
+`millis.count()` to a `long`, which is 32-bit on Windows, so every MM timestamp is truncated modulo
+2^32 — `fileCreatedAt` lands around 8.6e8 where soh's untruncated ms is around 1.79e12. MM's own
+timestamps stay self-consistent (differences survive the truncation until it wraps, every ~49.7 days),
+so this is invisible inside 2Ship, but it makes MM and OOT timestamps incomparable. A first attempt at
+an RTA row took `min(OOT firstInput, MM fileCreatedAt)` and displayed 496307 hours. **Never compare a
+soh timestamp with an MM one** without fixing the truncation first.
+
+**Vendored (all `COMBO_BUILD`-guarded):**
+- `soh/soh/OTRGlobals.cpp` — `SOH_GetPlaytimeDeciseconds`, `SOH_GetOverlayTimers` (classification
+  stays in soh so comboui hardcodes no vanilla enum values).
+- `mm/2s2h/BenPort.cpp` — `MM_GetPlaytimeMs`, `MM_ComboPausePlaytime`,
+  `MM_ComboResumePlaytime` + a running latch. The advance is implemented locally rather than calling
+  `SavingEnhancements_AdvancePlaytime` so `SavingEnhancements.cpp` stays untouched. The
+  `lastTimeLog != 0` guard matters because `z_sram_NES.c` zeroes it on a new file — treating 0 as a
+  timestamp would add a whole Unix epoch (~57 years).
+- `soh/soh/SohGui/SohMenuEnhancements.cpp` and `mm/2s2h/BenGui/BenMenu.cpp` — the native timer menu
+  entries are `#ifndef COMBO_BUILD`. A sidebar allow-list is not enough: `ComboMenu::DrawSearchResults`
+  walks both games' menu models unfiltered, so a search for "timer" would re-open the native window.
+
+**Do not remove** the `TimeDisplayWindow` registration at `soh/soh/SohGui/SohGui.cpp:203` — its
+`InitElement` is what loads the digit and icon textures the combo overlay draws with. Only its draw
+is suppressed.
+
+**Residuals:** the pause only flushes into memory — nothing persists MM's save on the way out — so
+time played in MM without an owl/auto save is lost when the slot's MM blob is re-read (reset or
+owl-save quit, `g_MmSaveInMemorySlot = -1`), and the total steps back to MM's last saved value. Same
+as vanilla 2ship.
+
+**Separate bug found while playtesting this, NOT fixed here:** MM's play time reads 0 after an owl
+save because `SaveManager_LoadSaveFile` (`mm/2s2h/SaveManager/SaveManager.cpp`) reads only the
+`newCycleSave` key and never `owlSave`. ComboShip's resume shortcut (`mm/src/code/title_setup.c`,
+`COMBO_BUILD` block) goes through that function instead of vanilla's `Sram_OpenSave`, which picks the
+owl page when `isOwlSave` is set and then deletes it on continue (`VB_DELETE_OWL_SAVE`). So an owl
+save's whole state — not just play time — is discarded on a combo resume. Note that a new-cycle save
+deliberately preserves `owlSave`, so a read-priority fix alone would let a stale owl save shadow a
+newer cycle save; the delete-on-continue half is required too.
+

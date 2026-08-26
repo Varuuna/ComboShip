@@ -506,7 +506,7 @@ void ResetPositionAll() {
 
 int hue = 0;
 
-// Runs every frame to update rainbow hue, a potential future optimization is to only run this a once or twice a second
+// Runs every frame to update rainbow hue, a potential future optimization is to only run this once or twice a second
 // and increase the speed of the rainbow hue rotation.
 void CosmeticsUpdateTick() {
     int index = 0;
@@ -2098,6 +2098,13 @@ void RandomizeColor(CosmeticOption& cosmeticOption, bool manual = true) {
                                  cosmeticOption.defaultColor.b + cosmeticOption.defaultColor.a +
                                  (IS_RANDO ? Rando::Context::GetInstance()->GetSeed()
                                            : static_cast<uint32_t>(gSaveContext.ship.stats.fileCreatedAt));
+#ifdef COMBO_BUILD
+            // ComboShip: combo fires gen rolls at file select where IS_RANDO is false and no file is
+            // loaded; fold in the combo seed only there, so rolls stay seed-derived instead of constant.
+            if (!IS_RANDO && gSaveContext.ship.stats.fileCreatedAt == 0) {
+                finalSeed += Rando::Context::GetInstance()->GetSeed();
+            }
+#endif
 
             randomState = &local_seed_state;
             ShipUtils::RandInit(finalSeed, randomState);

@@ -10,6 +10,7 @@
 #include "2s2h/ShipUtils.h"
 #include "2s2h/DeveloperTools/SaveEditor.h" // initSafeItemsForInventorySlot / safeItemsForInventorySlot
 #include <spdlog/fmt/fmt.h>
+#include <algorithm>
 
 #ifdef COMBO_BUILD
 #include "ComboMenuSharedContext.h"        // ComboShip: per-DLL ImGui context helper (combo-owned)
@@ -44,12 +45,43 @@ extern std::shared_ptr<ItemTrackerWindow> mItemTrackerWindow;
 std::vector<TrackerGroup> itemTrackerGroups;
 static bool sItemTrackerBtnState = false;
 
+static bool IsTradeItemObtained(RandoItemId randoItemId) {
+    ItemId itemId = Rando::StaticData::Items[randoItemId].itemId;
+    if (INV_CONTENT(itemId) == itemId) {
+        return true;
+    }
+
+    switch (randoItemId) {
+        case RI_MOONS_TEAR:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_MOONS_TEAR);
+        case RI_DEED_LAND:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_DEED_LAND);
+        case RI_DEED_SWAMP:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_DEED_SWAMP);
+        case RI_DEED_MOUNTAIN:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_DEED_MOUNTAIN);
+        case RI_DEED_OCEAN:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_DEED_OCEAN);
+        case RI_ROOM_KEY:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_ROOM_KEY);
+        case RI_LETTER_TO_MAMA:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_MAMA);
+        case RI_LETTER_TO_KAFEI:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_KAFEI);
+        case RI_PENDANT_OF_MEMORIES:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_PENDANT_OF_MEMORIES);
+        default:
+            return false;
+    }
+}
+
 TrackerImageObject GetImageObject(TrackerItemType itemType, u32 itemId) {
     bool isSaveLoaded = gPlayState != NULL && gSaveContext.gameMode == GAMEMODE_NORMAL;
 #ifdef COMBO_BUILD
     // ComboShip peek: dormant MM has no play state, but the slot's save is loaded (see
-    // EnsureMmSaveLoadedForPeek / MM_LoadSaveForCombo) — use it for icon selection too.
-    isSaveLoaded = isSaveLoaded || (!Combo_MmIsForeground() && gSaveContext.fileNum >= 0);
+    // EnsureMmSaveLoadedForPeek / MM_LoadSaveForCombo) — use it for icon selection too. IS_RANDO is the
+    // real gate: a refused load parks fileNum at 0xFF, which is still >= 0, but clears saveType.
+    isSaveLoaded = isSaveLoaded || (!Combo_MmIsForeground() && IS_RANDO && gSaveContext.fileNum >= 0);
 #endif
     bool itemObtained = false;
     TrackerImageObject trackerImageObject = {
@@ -100,6 +132,17 @@ TrackerImageObject GetImageObject(TrackerItemType itemType, u32 itemId) {
                 } break;
                 case RI_SONG_SARIA: {
                     itemObtained = gSaveContext.save.shipSaveInfo.rando.sariaHintsAvailable > 0;
+                } break;
+                case RI_MOONS_TEAR:
+                case RI_DEED_LAND:
+                case RI_DEED_SWAMP:
+                case RI_DEED_MOUNTAIN:
+                case RI_DEED_OCEAN:
+                case RI_ROOM_KEY:
+                case RI_LETTER_TO_MAMA:
+                case RI_LETTER_TO_KAFEI:
+                case RI_PENDANT_OF_MEMORIES: {
+                    itemObtained = IsTradeItemObtained(randoItemId);
                 } break;
                 default: {
                     itemObtained = !Rando::IsItemObtainable(randoItemId);
@@ -295,24 +338,43 @@ std::string GetItemCounts(TrackerItemType itemType, u32 itemId) {
     return countStr;
 }
 
-void DrawItemCounts(TrackerItemType itemType, u32 itemId, ImVec2 textureSize, float scale, ImVec2 currentPos) {
+// Choose a different font for the font size otherwise it gets scaled and blurry.
+static ImFont* GetItemCountFont(float fontSize) {
+    if (fontSize >= 22.0f) {
+        return OTRGlobals::Instance->fontMonoLargest;
+    }
+    if (fontSize >= 18.0f) {
+        return OTRGlobals::Instance->fontMonoLarger;
+    }
+    return OTRGlobals::Instance->fontMono;
+}
+
+void DrawItemCounts(TrackerItemType itemType, u32 itemId, ImVec2 cellMin, ImVec2 cellSize, float scale) {
     std::string itemCount = GetItemCounts(itemType, itemId);
 
     if (itemCount.empty()) {
         return;
     }
-    ImVec2 textSize = ImGui::CalcTextSize(itemCount.c_str());
 
-    ImVec2 textPos =
-        ImVec2(currentPos.x + textureSize.x - textSize.x - 2.0f, currentPos.y + textureSize.y - textSize.y - 2.0f);
-    ImGui::SetCursorPos(textPos);
-    ImGui::SetWindowFontScale(scale);
-    ImGui::Text("%s", itemCount.c_str());
-    ImGui::SetWindowFontScale(1.0f); // ComboShip: window-wide state — don't leak it to later widgets.
+    float fontSize = std::max(cellSize.x * 0.44f, 12.0f) * ImGui::GetIO().FontGlobalScale;
+    ImFont* font = GetItemCountFont(fontSize);
+    ImVec2 textSize = font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, itemCount.c_str());
+
+    float pad = 2.0f * scale;
+    ImVec2 textPos(cellMin.x + cellSize.x - textSize.x - pad, cellMin.y + cellSize.y - textSize.y - pad);
+
+    static const ImVec2 outlineDirections[] = { { -1, -1 }, { 0, -1 }, { 1, -1 }, { -1, 0 },
+                                                { 1, 0 },   { -1, 1 }, { 0, 1 },  { 1, 1 } };
+
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    float outline = std::max(1.0f, fontSize / 12.0f);
+    for (const ImVec2& direction : outlineDirections) {
+        drawList->AddText(font, fontSize, textPos + direction * outline, IM_COL32(0, 0, 0, 255), itemCount.c_str());
+    }
+    drawList->AddText(font, fontSize, textPos, IM_COL32(255, 255, 255, 255), itemCount.c_str());
 }
 
 bool DrawItemTrackerSlot(TrackerItemType itemType, u32 itemId, float scale, bool clickable) {
-    ImVec2 currentPos = ImGui::GetCursorPos();
     ImVec2 cellSize(ITEM_TEXTURE_SIZE * scale, ITEM_TEXTURE_SIZE * scale);
     ImVec2 iconSize = cellSize;
 #ifdef COMBO_BUILD
@@ -406,21 +468,14 @@ bool DrawItemTrackerSlot(TrackerItemType itemType, u32 itemId, float scale, bool
         UIWidgets::Tooltip(itemName.c_str());
     }
 
-    // Save last item data before drawing counts (which uses ImGui::Text and changes last item)
-    ImGuiContext& g = *ImGui::GetCurrentContext();
-    ImGuiLastItemData backup = g.LastItemData;
-
     if (CVarGetInteger("gSettings.ItemTracker.ItemCounts", 1)) {
 #ifdef COMBO_BUILD
         // Anchor the count to the icon, not the padded cell.
-        DrawItemCounts(itemType, itemId, iconSize, scale, currentPos + ImVec2(pad * 0.5f, pad * 0.5f));
+        DrawItemCounts(itemType, itemId, p0 + ImVec2(pad * 0.5f, pad * 0.5f), iconSize, scale);
 #else
-        DrawItemCounts(itemType, itemId, cellSize, scale, currentPos);
+        DrawItemCounts(itemType, itemId, p0, cellSize, scale);
 #endif
     }
-
-    // Restore last item data so drag/drop operations work correctly
-    g.LastItemData = backup;
 
     return clicked;
 }
@@ -537,6 +592,13 @@ comboSkipVisibilityGates:;
 #endif
     }
 
+#ifdef COMBO_BUILD
+    // ComboShip: padded cells own the whole grid pitch — the window's ItemSpacing between group
+    // tables would add a per-group vertical drift vs OOT's continuous grid.
+    if (!shouldWindowSplit) {
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+    }
+#endif
     uint32_t index = 0;
     for (auto& group : itemTrackerGroups) {
         if (group.items.empty()) {
@@ -570,6 +632,11 @@ comboSkipVisibilityGates:;
 
         index++;
     }
+#ifdef COMBO_BUILD
+    if (!shouldWindowSplit) {
+        ImGui::PopStyleVar();
+    }
+#endif
     if (!shouldWindowSplit) {
         ImGui::PopStyleColor(1);
         ImGui::End();

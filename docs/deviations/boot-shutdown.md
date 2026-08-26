@@ -154,6 +154,39 @@ join) dies while everything is mapped, then installs a lus-owned null-sink defau
 late `SPDLOG_*` call stays safe; `luslog()` also null-guards `default_logger_raw()`. Must live in
 lus code — the registry singleton is per-module.
 
+## Foreign-anim caches: cross-DLL shared_ptr teardown (5th X-close crash class, 2026-08-25)
+
+Quitting after a session that DREW at least one foreign MM item model in OOT crashed post-`main()`
+(only the late-crash log showed it). `combo/menu/ComboForeignAnim.h` cached foreign resources in
+function-local statics (`sSkelCache`/`sTexAnimCache`/`sCache`) holding `shared_ptr<Ship::IResource>`
+loaded through the FOREIGN game's RM — so in soh.dll's copy the control blocks and IResource vtables
+live in 2ship.dll (its factories `make_shared` them). The launcher frees 2ship.dll before soh.dll,
+so when soh's static dtors destroyed the caches, `_Ref_count_base::_Decref`'s virtual `_Destroy()`
+dispatched through an unmapped vtable (AV at the `call` through the control-block vtable). Same
+class as the spdlog-registry crash above — a cross-module vtable outliving `FreeLibrary` — held by
+combo-owned code this time.
+
+Fixed entirely in combo-owned code, tied to the registry so no deinit call site can forget it: the
+three caches are hoisted to header scope, and the first cache touch registers a module-local clear
+(`CfaClearCaches`) as a `CrossRMRegistry` teardown listener (`RegisterTeardownListener`, new —
+exported automatically by the generated lus .def). Every `Unregister` — i.e. both games'
+`DeinitOTR`, which run before any `FreeDll` — fires ALL listeners before dropping the RM, so each
+module releases its cross-module refs while every game DLL is still mapped; the second Unregister
+re-fires them onto already-empty maps. Listeners are raw fn pointers into the game DLLs, valid
+because `Unregister` only ever runs during deinit; they fire outside the registry lock (a released
+resource's destructor may re-enter `Get()`). No vendored-file churn.
+
+Diagnosis note: the player's soh.dll was still MAPPED at process exit (its static dtors ran under
+`LdrShutdownProcess`, not at `FreeDll`), i.e. something holds an extra loader ref on soh.dll — prime
+suspect is the statically-linked SDL's `WH_KEYBOARD_LL` hook (`WIN_UpdateKeyboardHook`, the DLL's
+only `SetWindowsHookExW` site), unconfirmed. Immaterial to this fix — the FreeDll order (2ship
+before soh) crashes either way — but it means soh.dll static dtors can ALWAYS run at process exit:
+never let them depend on another game DLL. Frames were recovered without PDBs by downloading the
+matching nightly `ComboShip-windows` artifact, adding the logged displacements to the export RVAs
+(`SOH_NotifyComboReturn`/`SOH_RunGameLoop`), and `objdump -d --start-address` at each RVA; the
+log's unresolved frames sit BELOW the lowest export RVA (dbghelp's nearest-export synthesis fails
+there), which also pins the module base (64K-aligned) and thus the crash PC's RVA.
+
 ## Cross-game erase: deleting a slot wipes both OOT and MM saves (issue #1, 2026-06-19)
 
 **Why:** a ComboShip save *slot* (file 1/2/3) is one combined OOT+MM playthrough, but each game's

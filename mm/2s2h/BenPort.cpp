@@ -1,6 +1,8 @@
 #include "BenPort.h"
+#ifdef COMBO_BUILD
 #include "ComboExport.h"
 #include "ComboResolve.h"
+#endif
 #include <iostream>
 #include <algorithm>
 #include <filesystem>

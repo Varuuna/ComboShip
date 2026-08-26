@@ -1,6 +1,8 @@
 ﻿#include "soh/OTRGlobals.h"
 #include "soh/ResourceManagerHelpers.h"
+#ifdef COMBO_BUILD
 #include "ComboExport.h"
+#endif
 #include "soh/Enhancements/enhancementTypes.h"
 #include "soh/Enhancements/custom-message/CustomMessageTypes.h"
 #include "soh/Enhancements/randomizer/randomizerTypes.h"

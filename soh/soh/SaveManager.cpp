@@ -1,5 +1,7 @@
 #include "SaveManager.h"
+#ifdef COMBO_BUILD
 #include "ComboExport.h"
+#endif
 #include "OTRGlobals.h"
 #include "Enhancements/game-interactor/GameInteractor.h"
 #include "Enhancements/randomizer/SeedContext.h"

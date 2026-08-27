@@ -64,6 +64,9 @@ struct ComboForeignDrawInfoOOT {
     int32_t layerPrimMask = 0;
     int32_t layerEnvMask = 0;
     const char* dls[CW_DRAW_MAX_DLISTS] = { nullptr }; // interned "__OTR__@oot:..." routed paths
+    // OOT's own setup DL for each stream (raw Gfx* in soh.dll), or null for our 25 Opa/Xlu.
+    const void* setupDlOpa = nullptr;
+    const void* setupDlXlu = nullptr;
     // ComboShip: animated class (no static DL row — OOT boss souls' real skeletons). When animOk,
     // anim describes the item and ComboForeignAnim_Draw renders it; paths point at soh.dll statics.
     bool animOk = false;
@@ -146,6 +149,8 @@ inline ComboForeignResolveOOT ComboFillForeignDrawInfoOOT(RandoCheckId rc, Combo
     info.count = n;
     info.xluStart = raw.xluStartIndex;
     info.scale = raw.scale;
+    info.setupDlOpa = raw.setupDlOpa;
+    info.setupDlXlu = raw.setupDlXlu;
     info.hasEnvColor = raw.hasEnvColor != 0;
     info.drawKind = raw.drawKind;
     info.stateDependent = raw.stateDependent != 0;
@@ -244,7 +249,14 @@ inline void MM_DrawForeignSimple(const ComboForeignDrawInfoOOT* info) {
         Matrix_Scale(info->scale, info->scale, info->scale, MTXMODE_APPLY);
     }
     if (xs > 0) {
-        Gfx_SetupDL25_Opa(gfxCtx);
+        // OOT's own setup when the row uses one other than 25 (masks/bombchu/medallions = 26, which
+        // is 1-CYCLE without fog). Under MM's 2-cycle 25 those lists' duplicated second cycle wins
+        // and samples TEXEL1 — whatever tile MM last bound — instead of the item's own texture.
+        if (info->setupDlOpa != nullptr) {
+            gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->setupDlOpa);
+        } else {
+            Gfx_SetupDL25_Opa(gfxCtx);
+        }
         MM_FOREIGN_PIN_OPA();
         MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
         if (info->hasEnvColor) {
@@ -255,7 +267,11 @@ inline void MM_DrawForeignSimple(const ComboForeignDrawInfoOOT* info) {
         }
     }
     if (xs < n) {
-        Gfx_SetupDL25_Xlu(gfxCtx);
+        if (info->setupDlXlu != nullptr) { // sold-out sign / compass glass: setup 5, not 25
+            gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->setupDlXlu);
+        } else {
+            Gfx_SetupDL25_Xlu(gfxCtx);
+        }
         MM_FOREIGN_PIN_XLU();
         MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
         if (info->hasEnvColor) {
@@ -601,15 +617,19 @@ inline void MM_DrawForeignBossSoul(const ComboForeignDrawInfoOOT* info) {
 }
 
 // Per-DL prim/env colored layers: the rando map/compass/small-key/boss-key/key-ring/jabber-nut/
-// bombchu-bag/overworld-key funcs, which only differ in which DLs they tint and with what. OOT's
-// 26Opa funcs are approximated as 25Opa (same convention as GetItem_GetDrawTableEntry).
+// bombchu-bag/overworld-key funcs, which only differ in which DLs they tint and with what. Rows
+// authored for another setup (26 Opa, 5 Xlu) carry it in the recipe and it is submitted below.
 inline void MM_DrawForeignColorLayers(const ComboForeignDrawInfoOOT* info) {
     int32_t n = info->count;
     int32_t xs = (info->xluStart < 0 || info->xluStart > n) ? n : info->xluStart;
     GraphicsContext* gfxCtx = gPlayState->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
     if (xs > 0) {
-        Gfx_SetupDL25_Opa(gfxCtx);
+        if (info->setupDlOpa != nullptr) { // Jabber Nut / Bombchu Bag: 26 Opa, 1-cycle
+            gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->setupDlOpa);
+        } else {
+            Gfx_SetupDL25_Opa(gfxCtx);
+        }
         MM_FOREIGN_PIN_OPA();
         MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
         for (int32_t i = 0; i < xs; i++) {
@@ -625,7 +645,11 @@ inline void MM_DrawForeignColorLayers(const ComboForeignDrawInfoOOT* info) {
         }
     }
     if (xs < n) {
-        Gfx_SetupDL25_Xlu(gfxCtx);
+        if (info->setupDlXlu != nullptr) { // compass glass: 5 Xlu
+            gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->setupDlXlu);
+        } else {
+            Gfx_SetupDL25_Xlu(gfxCtx);
+        }
         MM_FOREIGN_PIN_XLU();
         MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
         for (int32_t i = xs; i < n; i++) {

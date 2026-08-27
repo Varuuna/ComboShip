@@ -129,6 +129,13 @@ typedef struct {
     /* ComboShip: CW_DRAW_KIND_OPS payload. */
     int32_t opCount;
     CwDrawOp ops[CW_DRAW_MAX_OPS];
+
+    /* ComboShip: the owner's setup DL for each stream (raw Gfx* in the owner's module — state-only
+     * commands, no resource refs), or NULL for the consumer's own 25 Opa/Xlu. Items authored for a
+     * different setup (OOT's 26 = 1-cycle, no fog) render through the wrong combiner under 25: the
+     * dead second cycle wins and samples TEXEL1, i.e. whatever tile the HOST last left bound. */
+    const void* setupDlOpa;
+    const void* setupDlXlu;
 } CwItemDrawInfo;
 
 /* Returns 1 and fills out on success; 0 if the item is unknown/undrawable; CW_DRAW_NOT_READY if the

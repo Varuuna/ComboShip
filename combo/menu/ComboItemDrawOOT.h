@@ -57,6 +57,10 @@ extern Color_RGB8 MapOrCompassColor[10];
 extern "C" s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale,
                                          s32* outDrawKind, uint8_t* outColors);
 
+// Which setup DL the row's func emits (NULL = plain 25). The consumer must submit the same one.
+extern "C" void GetItem_GetDrawSetupDLs(s32 drawId, void** outOpa, void** outXlu);
+extern "C" void* GetItem_GetSetupDL(s32 index); // by index, for the bespoke Randomizer_Draw* funcs
+
 // --- CW_DRAW_KIND_COLOR_LAYERS helpers: attach a prim/env color to one display list slot.
 static void CwLayerPrim(CwItemDrawInfo* out, int32_t i, Color_RGB8 c) {
     out->layerPrimColor[i][0] = c.r;
@@ -131,6 +135,7 @@ static int32_t OOT_DescribeCustomDraw(RandomizerGet rg, CwItemDrawInfo* out) {
     // Compasses: prim+half-env body (OPA) + glass (XLU) (Randomizer_DrawCompass).
     if (rg >= RG_DEKU_TREE_COMPASS && rg <= RG_ICE_CAVERN_COMPASS) {
         Color_RGB8 c = MapOrCompassColor[rg - RG_DEKU_TREE_COMPASS];
+        out->setupDlXlu = GetItem_GetSetupDL(SETUPDL_5); // the glass layer, as Randomizer_DrawCompass does
         out->drawKind = CW_DRAW_KIND_COLOR_LAYERS;
         out->dlistCount = 2;
         out->xluStartIndex = 1;
@@ -262,6 +267,7 @@ static int32_t OOT_DescribeCustomDraw(RandomizerGet rg, CwItemDrawInfo* out) {
         };
         int slot = rg - RG_SPEAK_DEKU;
         bool generic = CVarGetInteger(CVAR_RANDOMIZER_ENHANCEMENT("GenericJabberNutModel"), 0) != 0;
+        out->setupDlOpa = GetItem_GetSetupDL(SETUPDL_26); // Randomizer_DrawJabberNut uses 26Opa
         out->drawKind = CW_DRAW_KIND_COLOR_LAYERS;
         out->dlistCount = 1;
         out->xluStartIndex = -1;
@@ -323,8 +329,11 @@ static int32_t OOT_DescribeCustomDraw(RandomizerGet rg, CwItemDrawInfo* out) {
         // RG_BOMBCHU_20 only draws the bag when the bombchu-bag option is on (DrawBombchuBagInLogic).
         if (rg == RG_BOMBCHU_20 &&
             OTRGlobals::Instance->gRandoContext->GetOption(RSK_BOMBCHU_BAG).Is(RO_BOMBCHU_BAG_NONE)) {
-            return CwSimple(out, gGiBombchuDL, false, 0.0f);
+            CwSimple(out, gGiBombchuDL, false, 0.0f);
+            out->setupDlOpa = GetItem_GetSetupDL(SETUPDL_26); // Randomizer_DrawBombchuBag uses 26Opa
+            return 1;
         }
+        out->setupDlOpa = GetItem_GetSetupDL(SETUPDL_26);
         out->drawKind = CW_DRAW_KIND_COLOR_LAYERS;
         out->dlistCount = 2;
         out->xluStartIndex = -1;
@@ -443,6 +452,13 @@ static int32_t OOT_FillItemDrawInfo(RandomizerGet rg, CwItemDrawInfo* out) {
     for (int32_t i = 0; i < n; i++) {
         out->dlists[i] = (const char*)dls[i];
     }
+    // Rows drawn under a setup other than 25 (masks/bombchu/medallions = 26 Opa, sold-out/compass
+    // = 5 Xlu): carry it so the consumer submits the same GPU state, not its own 25.
+    void* setupOpa = nullptr;
+    void* setupXlu = nullptr;
+    GetItem_GetDrawSetupDLs((s32)gi.gid, &setupOpa, &setupXlu);
+    out->setupDlOpa = setupOpa;
+    out->setupDlXlu = setupXlu;
     return 1;
 }
 

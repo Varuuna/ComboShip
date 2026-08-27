@@ -68,6 +68,9 @@
 extern "C" s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale,
                                          s32* outXluSeg8TexScroll, s32* outDrawKind);
 
+// Which setup DL the row's func emits (NULL = plain 25). The consumer must submit the same one.
+extern "C" void GetItem_GetDrawSetupDLs(s32 drawId, void** outOpa, void** outXlu);
+
 // --- CW_DRAW_KIND_OPS emitters. Bounds-checked; an overflowing recipe is truncated, never written
 // out of range (the consumer just draws fewer layers).
 static CwDrawOp* MM_Op(CwItemDrawInfo* out, int32_t op) {
@@ -888,6 +891,13 @@ static int32_t MM_FillItemDrawInfo(RandoItemId id, CwItemDrawInfo* out) {
     for (int32_t i = 0; i < n; i++) {
         out->dlists[i] = (const char*)dls[i];
     }
+    // Rows drawn under a setup other than 25 (bombchu = 23 Opa, compass glass = 5 Xlu): carry it so
+    // the consumer submits the same GPU state, not its own 25.
+    void* setupOpa = nullptr;
+    void* setupXlu = nullptr;
+    GetItem_GetDrawSetupDLs((s32)it->second.drawId, &setupOpa, &setupXlu);
+    out->setupDlOpa = setupOpa;
+    out->setupDlXlu = setupXlu;
     // ComboShip: some MM item bodies sample an animated segment-8 material their draw func binds via
     // AnimatedMat_Draw (Moon's Tear, fairy bottle). z_draw.c can't carry that across, so report the
     // texanim resource for the consumer to replicate (ComboForeignTexAnim_Run). Matched by DL string

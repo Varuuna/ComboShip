@@ -30,9 +30,9 @@ struct CwFillHooks {
 
 enum class CwPrologue {
     Ok,
-    EmptyDump,      // a game returned no static data — unrecoverable
-    TriforceShort,  // pool holds fewer pieces than the hunt requires — unrecoverable
-    ShuffleFailed,  // no valid entrance layout for this seed — caller rerolls
+    EmptyDump,     // a game returned no static data — unrecoverable
+    TriforceShort, // pool holds fewer pieces than the hunt requires — unrecoverable
+    ShuffleFailed, // no valid entrance layout for this seed — caller rerolls
 };
 
 struct CwPrologueOut {

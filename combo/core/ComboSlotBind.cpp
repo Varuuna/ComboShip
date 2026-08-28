@@ -95,7 +95,6 @@ void Combo_OnOOTSaveInit(int fileNum) {
     g_MmSaveInMemorySlot = fileNum;
 }
 
-
 // ComboShip: OOT loaded a save (file select / warp). Bring the matching MM save into MM's dormant
 // memory so the combo tracker peek shows real MM items before MM is visited. Skipped when that
 // slot's MM save is already live in memory — reloading from disk would clobber newer progress.

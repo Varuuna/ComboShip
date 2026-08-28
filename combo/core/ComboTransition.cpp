@@ -14,7 +14,6 @@ int g_MmSaveInMemorySlot = -1;
 int g_PendingMMFileNum = -1;
 bool g_pendingOOTReturn = false;
 
-
 // Single place the foreground game changes, so every transition point notifies comboui consistently.
 void Combo_SetForegroundGame(int game) {
     // #173: MM only accrues play time while it is foreground. OOT owns the foreground at startup.

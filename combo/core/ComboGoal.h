@@ -2,7 +2,6 @@
 // plus the endings each game reports into. See docs/deviations/rando.md.
 #pragma once
 
-
 extern bool g_comboCompletion[2];
 extern int g_comboCompletionSlot;
 extern bool g_goalHunt;

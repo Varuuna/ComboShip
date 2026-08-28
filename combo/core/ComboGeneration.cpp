@@ -44,8 +44,6 @@ int ComboRandRange(int minV, int maxV) {
     return minV + (range > 0 ? static_cast<int>(s % static_cast<uint32_t>(range)) : 0);
 }
 
-
-
 // ComboShip: write a seed's spoiler under its own hash-icon name. Returns the path (empty on failure).
 // Worker-safe: pointing the CVar at it is a separate main-thread step (RememberComboSpoiler).
 std::filesystem::path WriteComboSpoiler(const nlohmann::json& fileHash, const std::string& json) {
@@ -76,9 +74,9 @@ void RememberComboSpoiler(const std::filesystem::path& path) {
 // Forward decl: defined later, called from RunComboFill on every successful in-game generation.
 // playthroughOut (optional) receives the structured sphere playthrough for the consolidated file.
 void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRando::OracleFns& ootOracle,
-                                  const ComboRando::OracleFns& mmOracle, const std::string& seedLabel,
-                                  nlohmann::json* playthroughOut = nullptr, const std::string& sohDump = "",
-                                  const std::string& mmDump = "", ComboRando::CwGoal goal = {}, bool mmStart = false);
+                           const ComboRando::OracleFns& mmOracle, const std::string& seedLabel,
+                           nlohmann::json* playthroughOut = nullptr, const std::string& sohDump = "",
+                           const std::string& mmDump = "", ComboRando::CwGoal goal = {}, bool mmStart = false);
 
 // The launcher's export pointers as fill hooks; comborando builds the same table from its own.
 static CwFillHooks ComboLauncherFillHooks() {
@@ -601,9 +599,9 @@ int RunComboGenTest(int numSeeds, uint32_t seedBase) {
 // log to saves/combo/slot0.playthrough.txt. Restores the MM oracle snapshot at the end (drives MM
 // here). Called from the env-gated entry and from RunComboFill. See docs/deviations/rando.md.
 void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRando::OracleFns& ootOracle,
-                                  const ComboRando::OracleFns& mmOracle, const std::string& seedLabel,
-                                  nlohmann::json* playthroughOut, const std::string& sohDump, const std::string& mmDump,
-                                  ComboRando::CwGoal goal, bool mmStart) {
+                           const ComboRando::OracleFns& mmOracle, const std::string& seedLabel,
+                           nlohmann::json* playthroughOut, const std::string& sohDump, const std::string& mmDump,
+                           ComboRando::CwGoal goal, bool mmStart) {
     // Thin wrapper over the shared traversal (combo/rando/ComboPlaythrough.h); passes this build's
     // MM oracle-restore pointer. A playthroughOut here means the spoiler's playthrough section, which
     // lists progression only; the text-log path and the headless validator keep every step.

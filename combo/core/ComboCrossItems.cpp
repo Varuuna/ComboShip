@@ -18,7 +18,6 @@ static uint32_t sCrossItemDedupSeed = 0;          // scoped per-seed (ResetCross
 // Reset runs on the generation worker; deliver runs on the game thread — both mutate the set.
 static std::mutex sAppliedCrossChecksMutex;
 
-
 // Clears the dedup set whenever the active seed changes (regen/new-file), so a check name reused
 // across seeds isn't silently dropped as a stale "already delivered" duplicate.
 void ResetCrossItemDedupForSeed(uint32_t seed) {

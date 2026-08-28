@@ -21,8 +21,7 @@ void Combo_PushHintTrackerData(int slot) {
 
 // Persist one reveal and re-push the read state. Runs on the reporting game's thread; the container
 // write is locked inside ComboInsertHintRead and the comboui push happens after it returns.
-void Combo_RecordHintRead(int fileNum, const char* bucket, const nlohmann::json& value,
-                                 const char* matchField) {
+void Combo_RecordHintRead(int fileNum, const char* bucket, const nlohmann::json& value, const char* matchField) {
     if (ComboInsertHintRead(fileNum, bucket, value, matchField))
         Combo_PushHintTrackerData(fileNum);
 }

@@ -75,7 +75,7 @@ extern FnDumpData SOH_DumpRandoStaticData;
 extern FnDumpData MM_DumpRandoStaticData;
 extern FnDumpData SOH_DumpRandoSettings; // {cvar:value} OOT rando settings snapshot
 extern FnDumpData SOH_DumpEnabledTricks; // [NameTag,...] the player's enabled OOT tricks
-extern FnDumpData MM_DumpRandoSettings; // {cvar:value} MM rando settings snapshot
+extern FnDumpData MM_DumpRandoSettings;  // {cvar:value} MM rando settings snapshot
 extern FnDumpData SOH_DumpRandoHintData; // OOT hint text/options schema (cross-hint Phase 2)
 // ComboShip: cross-hint Phase 3 — apply combo-generated hints + tell OOT whether this seed has any.
 typedef void (*FnApplyHints)(const char*);
@@ -164,7 +164,6 @@ extern FnComboUIGate ComboUI_CosmeticsSyncGateEnabled;
 // Per-seed latch for the gen-roll hooks (comboui owns it — the exe has no CVar API). 1 = not rolled yet.
 typedef int (*FnClaimGenRollSeed)(unsigned long long);
 extern FnClaimGenRollSeed ComboUI_ClaimGenRollSeed;
-
 
 // ComboShip-owned unified ROM extraction (see ComboExtract.h). The split init lets us create the
 // shared window from soh.o2r before any ROM exists, run the extraction screen, then finish.

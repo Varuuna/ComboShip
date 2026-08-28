@@ -4,7 +4,7 @@
 #include <iostream>
 
 #include "core/ComboPlatform.h" // GetModuleFileNameW / MAX_PATH
-#include "rando/CrossForeign.h"  // ComboRando::ConsolidatedDir
+#include "rando/CrossForeign.h" // ComboRando::ConsolidatedDir
 
 // ComboShip: read a candidate consolidated seed file. True only if it opens, parses and is ours.
 bool TryLoadComboSeedFile(const std::filesystem::path& p, nlohmann::json& out) {

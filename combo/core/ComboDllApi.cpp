@@ -145,7 +145,6 @@ void ComboResolveGameExports(DllHandle sohModule, DllHandle mmModule) {
     SOH_Init = (FnVoid)GetSym(sohModule, "SOH_Init");
     SOH_RunMain = (FnRunMain)GetSym(sohModule, "SOH_RunMain");
 
-
     // Resolve 2ship.dll exports
     MM_InitArchives = (FnVoid)GetSym(mmModule, "MM_InitArchives");
     SOH_SetOnNewSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnNewSaveCallback");

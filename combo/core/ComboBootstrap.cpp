@@ -18,11 +18,6 @@ bool MMRomArchiveExists() {
     return std::filesystem::exists("mm.o2r") || std::filesystem::exists("mm.zip") || std::filesystem::exists("mm.otr");
 }
 
-// Any MM archive at all (used for general "is MM set up" check)
-bool MMArchivesExist() {
-    return MMRomArchiveExists() || std::filesystem::exists("2ship.o2r");
-}
-
 // ComboShip (issue 24): the combined config. Absent => fresh install => offer settings import.
 bool ComboConfigExists() {
     return std::filesystem::exists("comboship.json");

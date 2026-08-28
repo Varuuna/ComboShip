@@ -2,8 +2,7 @@
 //
 // Boot flow:
 //   1. Load soh.dll + 2ship.dll and resolve exported functions
-//   2. Ensure OOT archives exist (extract via SOH_Extract if missing)
-//   3. Ensure MM archives exist (extract via MM_Extract if missing)
+//   2. Ensure both ROM archives exist, running comboui's extraction screen if not
 //   4. SOH_Init()    — OOT context + resource manager + window
 //   5. SOH_RunMain() — blocks until OOT exits
 //   6. MM_RunGame()  — MM reuses context/window via sComboTransitionActive (if triggered)

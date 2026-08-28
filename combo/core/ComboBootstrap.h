@@ -7,7 +7,6 @@
 
 bool OOTArchivesExist();
 bool MMRomArchiveExists();
-bool MMArchivesExist();
 bool ComboConfigExists();
 bool LoadJsonObject(const std::string& path, nlohmann::json& out);
 void DeepMerge(nlohmann::json& base, const nlohmann::json& overlay);

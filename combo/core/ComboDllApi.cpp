@@ -1,11 +1,8 @@
 #include "core/ComboDllApi.h"
 
 FnVoid SOH_Init = nullptr;
-FnExtract SOH_Extract = nullptr;
 FnRunMain SOH_RunMain = nullptr;
 FnVoid MM_InitArchives = nullptr;
-FnExtract MM_Extract = nullptr;
-FnInt MM_ArchiveCount = nullptr;
 FnSetSaveCallback SOH_SetOnNewSaveCallback = nullptr;
 FnSetSaveCallback SOH_SetOnLoadSaveCallback = nullptr;
 FnGetPlayerName SOH_GetCurrentPlayerName = nullptr;
@@ -94,7 +91,6 @@ FnSetDeleteForeignSave SOH_SetDeleteForeignSave = nullptr;
 FnSetDeleteForeignSave MM_SetDeleteForeignSave = nullptr;
 FnDeleteSaveFile SOH_DeleteSaveFile = nullptr;
 FnDeleteSaveFile MM_DeleteSaveFile = nullptr;
-FnSetGenerateCb SOH_SetOnComboGenerateCallback = nullptr;
 FnApplyPlacements SOH_ApplyRandoPlacements = nullptr;
 FnMMInitRandoSave MM_InitRandoSaveFile = nullptr;
 FnSetComboRandoSeed SOH_SetComboRandoSeed = nullptr;
@@ -148,13 +144,10 @@ void ComboResolveGameExports(DllHandle sohModule, DllHandle mmModule) {
     // Resolve soh.dll exports
     SOH_Init = (FnVoid)GetSym(sohModule, "SOH_Init");
     SOH_RunMain = (FnRunMain)GetSym(sohModule, "SOH_RunMain");
-    SOH_Extract = (FnExtract)GetSym(sohModule, "SOH_Extract");
 
 
     // Resolve 2ship.dll exports
     MM_InitArchives = (FnVoid)GetSym(mmModule, "MM_InitArchives");
-    MM_Extract = (FnExtract)GetSym(mmModule, "MM_Extract");
-    MM_ArchiveCount = (FnInt)GetSym(mmModule, "MM_ArchiveCount");
     SOH_SetOnNewSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnNewSaveCallback");
     SOH_SetOnLoadSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnLoadSaveCallback");
     SOH_GetCurrentPlayerName = (FnGetPlayerName)GetSym(sohModule, "SOH_GetCurrentPlayerName");
@@ -194,7 +187,6 @@ void ComboResolveGameExports(DllHandle sohModule, DllHandle mmModule) {
     SOH_SetComboSpoilerPath = (FnTakeStr)GetSym(sohModule, "SOH_SetComboSpoilerPath");
     SOH_GetComboSpoilerPath = (FnDumpData)GetSym(sohModule, "SOH_GetComboSpoilerPath");
     MM_InitRandoSaveFile = (FnMMInitRandoSave)GetSym(mmModule, "MM_InitRandoSaveFile");
-    SOH_SetOnComboGenerateCallback = (FnSetGenerateCb)GetSym(sohModule, "SOH_SetOnComboGenerateCallback");
     SOH_ApplyRandoPlacements = (FnApplyPlacements)GetSym(sohModule, "SOH_ApplyRandoPlacements");
     SOH_GetForcedPlacements = (FnGetForced)GetSym(sohModule, "SOH_GetForcedPlacements");
     SOH_SetComboRandoSeed = (FnSetComboRandoSeed)GetSym(sohModule, "SOH_SetComboRandoSeed");

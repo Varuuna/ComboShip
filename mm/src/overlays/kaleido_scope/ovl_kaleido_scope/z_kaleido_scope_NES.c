@@ -3604,8 +3604,11 @@ void KaleidoScope_Update(PlayState* play) {
                                     gSaveContext.save.isOwlSave = currentOwlSaveState;
                                     SavingEnhancements_ClearSaveEntranceInfo();
                                 } else {
-                                    Sram_SetFlashPagesDefault(sramCtx, gFlashSaveStartPages[gSaveContext.fileNum],
-                                                              gFlashSaveNumPages[gSaveContext.fileNum]);
+                                    // ComboShip: without the multiplier this indexed another slot's pages.
+                                    Sram_SetFlashPagesDefault(
+                                        sramCtx,
+                                        gFlashSaveStartPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER],
+                                        gFlashSaveNumPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER]);
                                     Sram_StartWriteToFlashDefault(sramCtx);
                                 }
                                 pauseCtx->savePromptState = PAUSE_SAVEPROMPT_STATE_4;
@@ -3886,11 +3889,14 @@ void KaleidoScope_Update(PlayState* play) {
                     gSaveContext.save.saveInfo.playerData.savedSceneId = play->sceneId;
                     gSaveContext.save.saveInfo.playerData.health = 0x30;
                     func_8014546C(sramCtx);
-                    if (!gSaveContext.flashSaveAvailable) {
+                    // ComboShip: no slot loaded, so don't save - same as the pause-save prompt above.
+                    if (!gSaveContext.flashSaveAvailable || gSaveContext.fileNum == 255) {
                         pauseCtx->state = PAUSE_STATE_GAMEOVER_8;
                     } else {
-                        Sram_SetFlashPagesDefault(sramCtx, gFlashSaveStartPages[gSaveContext.fileNum],
-                                                  gFlashSaveNumPages[gSaveContext.fileNum]);
+                        // ComboShip: without the multiplier this indexed another slot's pages.
+                        Sram_SetFlashPagesDefault(
+                            sramCtx, gFlashSaveStartPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER],
+                            gFlashSaveNumPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER]);
                         Sram_StartWriteToFlashDefault(sramCtx);
                         pauseCtx->state = PAUSE_STATE_GAMEOVER_7;
                     }

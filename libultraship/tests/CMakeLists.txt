@@ -27,6 +27,8 @@ add_executable(lus_tests
     resource_manager_scope_tests.cpp
     combo_menu_export_tests.cpp
     combo_seed_math_tests.cpp
+    combo_container_tests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../combo/core/ComboContainer.cpp
 )
 
 if(ENABLE_SCRIPTING)
@@ -53,8 +55,13 @@ target_compile_definitions(lus_tests PRIVATE SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_OF
 # core/ is on the path for the same reason — the seed derivations are header-only and shared with
 # comborando, so they can be pinned here without linking the launcher.
 target_include_directories(lus_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../combo
     ${CMAKE_CURRENT_SOURCE_DIR}/../../combo/menu
     ${CMAKE_CURRENT_SOURCE_DIR}/../../combo/core)
+
+# ComboContainer.cpp compiles into the test target because it references no DLL export — the same
+# property that stops it calling one under its mutex. It does need the save-compat gate's version.
+target_compile_definitions(lus_tests PRIVATE COMBO_RELEASE_VERSION="${COMBO_RELEASE_VERSION}")
 
 include(GoogleTest)
 gtest_discover_tests(lus_tests)

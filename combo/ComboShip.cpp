@@ -42,6 +42,9 @@
 #include "core/ComboSeedFile.h"
 #include "core/ComboBootstrap.h"
 #include "core/ComboAnchorNet.h"
+#include "core/ComboCrossItems.h"
+#include "core/ComboGoal.h"
+#include "core/ComboHintReveal.h"
 
 // OOT slot whose MM save is live in MM's dormant memory (-1 = none). Guards Combo_OnOOTSaveLoad
 // against reloading stale disk state over MM's in-memory progress after round trips.
@@ -130,254 +133,18 @@ static uint32_t g_FinalizeMasterSeed = 0; // #169: the gen-roll latch keys off t
 // Combo_OnOOTSaveInit bakes it into the slot's container and pushes it into both DLLs at Start.
 static std::string g_ConsolidatedJson;
 
-static bool g_comboCompletion[2] = { false, false };
-static int g_comboCompletionSlot = -1;
-// Active goal for the loaded slot (0 required = the both-bosses goal) + the one-shot completion latch.
-static bool g_goalHunt = false;
-static int g_goalRequired = 0;
-static int g_goalTotal = -1; // combined pieces the seed places; -1 = seed predates the combo-owned total
-static bool g_comboTriforceDone = false;
-// Starting game of the LOADED slot (seed-bound, like g_goalHunt).
-static bool g_startingGameMM = false;
 
 
-// Cross-game delivery dispatcher (issue #3). Registered into BOTH DLLs; invoked by the collector
-// game's foreign-check detection (local) and the active game's Anchor receive handler (network).
-// Grants into the TARGET game's resident save via its save-only export (target is usually the
-// dormant game, so its save isn't mutating underneath us). See docs/deviations/rando.md.
-static std::set<std::string> sAppliedCrossChecks; // dedup: the same wire packet can reach both DLLs
-static uint32_t sCrossItemDedupSeed = 0;          // scoped per-seed (ResetCrossItemDedupForSeed)
-// Reset runs on the generation worker; deliver runs on the game thread — both mutate the set.
-static std::mutex sAppliedCrossChecksMutex;
 
-// Clears the dedup set whenever the active seed changes (regen/new-file), so a check name reused
-// across seeds isn't silently dropped as a stale "already delivered" duplicate.
-static void ResetCrossItemDedupForSeed(uint32_t seed) {
-    std::lock_guard<std::mutex> lock(sAppliedCrossChecksMutex);
-    if (seed != sCrossItemDedupSeed) {
-        sAppliedCrossChecks.clear();
-        sCrossItemDedupSeed = seed;
-    }
-}
 
-// ComboShip (#136): defined below; the cross-grant re-evaluates the combined goal (see DeliverCrossItem).
-static void Combo_OnTriforceProgress(int game, int fileNum);
 
-static void DeliverCrossItem(int targetGame, const char* itemName, const char* srcCheckName) {
-    if (srcCheckName && srcCheckName[0] != '\0') {
-        std::lock_guard<std::mutex> lock(sAppliedCrossChecksMutex);
-        if (!sAppliedCrossChecks.insert(srcCheckName).second) {
-            return; // already delivered for this check
-        }
-    }
-    if (targetGame == 1) {
-        if (MM_GrantCrossItem)
-            MM_GrantCrossItem(itemName);
-    } else {
-        if (SOH_GrantCrossItem)
-            SOH_GrantCrossItem(itemName);
-    }
-    // ComboShip (#136): the grant's own poke carries the TARGET game's fileNum, which is unbound (0xFF)
-    // whenever that game is dormant, so it gets dropped. Re-poke here — the single choke point every
-    // cross-grant (local collection in either game, Anchor receive, resync backfill) passes through —
-    // with the launcher's loaded slot. Latched in Combo_OnTriforceProgress, so extra pokes are free.
-    if (itemName && ComboRando::CwIsTriforcePiece((ComboRando::GameId)targetGame, itemName)) {
-        Combo_OnTriforceProgress(targetGame, g_comboCompletionSlot);
-    }
-}
 
-// A6: invoked each frame BY the active game (via the registered pump seam). Applies queued
-// save-affecting co-op packets to the DORMANT game on the caller's (game) thread, so a teammate's
-// collection registers in the dormant game's save live instead of only on next entry.
-static void PumpDormant() {
-    // Finding 4: drain the on-connect resync here (game thread), once per connect.
-    if (ComboAnchor::TakeResyncPending()) {
-        if (SOH_Anchor_RequestResync)
-            SOH_Anchor_RequestResync();
-        if (MM_Anchor_RequestResync)
-            MM_Anchor_RequestResync();
-    }
-    if (ComboAnchor::ActiveGame() == 1) {
-        if (SOH_Anchor_PumpDormant)
-            SOH_Anchor_PumpDormant(); // MM foreground -> apply to dormant OOT
-    } else {
-        if (MM_Anchor_PumpDormant)
-            MM_Anchor_PumpDormant(); // OOT foreground -> apply to dormant MM
-    }
-}
 
-// Network-receive idempotency: mark the SOURCE check obtained in the source game so this client
-// won't later physically collect the same check and double-deliver. Save-only; persists.
-static void MarkForeignObtained(int srcGame, const char* checkName) {
-    if (srcGame == 1) {
-        if (MM_MarkForeignObtained)
-            MM_MarkForeignObtained(checkName);
-    } else {
-        if (SOH_MarkForeignObtained)
-            SOH_MarkForeignObtained(checkName);
-    }
-}
 
-// Per-slot completion lives in the merged container's combo.completion object. Works in non-rando
-// play too. Read on save-load, rewritten on each final-boss kill.
-static void LoadComboCompletion(int slot) {
-    g_comboCompletion[0] = g_comboCompletion[1] = false;
-    g_comboCompletionSlot = slot;
-    g_comboTriforceDone = false;
-    g_goalHunt = false;
-    g_goalRequired = 0;
-    g_goalTotal = -1;
-    g_startingGameMM = false;
-    const ComboSlotGoalState st = ComboReadGoalState(slot);
-    g_comboCompletion[0] = st.ootDone;
-    g_comboCompletion[1] = st.mmDone;
-    g_comboTriforceDone = st.triforceDone;
-    g_goalHunt = st.hunt;
-    g_goalRequired = st.required;
-    g_goalTotal = st.total;
-    g_startingGameMM = st.startingGameMM;
-    // Push outside the container lock — the DLL setters must never re-enter the sidecar.
-    if (SOH_SetComboGoal)
-        SOH_SetComboGoal(g_goalHunt ? 1 : 0, g_goalRequired, ComboRando::CwOotPieces(g_goalTotal));
-    if (MM_SetComboGoal)
-        MM_SetComboGoal(g_goalHunt ? 1 : 0, g_goalRequired, ComboRando::CwMmPieces(g_goalTotal));
-    if (SOH_SetComboStartingGame)
-        SOH_SetComboStartingGame(g_startingGameMM ? 1 : 0);
-    if (ComboUI_SetComboComplete)
-        ComboUI_SetComboComplete((g_comboCompletion[0] && g_comboCompletion[1]) ? 1 : 0);
-}
 
-// Generation pushes the MENU goal into both DLLs. If a slot is loaded, put its own (seed-bound) goal
-// back afterwards so the DLL-side globals keep describing the loaded seed.
-static void RestoreLoadedSlotGoal() {
-    if (g_comboCompletionSlot < 0)
-        return;
-    if (SOH_SetComboGoal)
-        SOH_SetComboGoal(g_goalHunt ? 1 : 0, g_goalRequired, ComboRando::CwOotPieces(g_goalTotal));
-    if (MM_SetComboGoal)
-        MM_SetComboGoal(g_goalHunt ? 1 : 0, g_goalRequired, ComboRando::CwMmPieces(g_goalTotal));
-    if (SOH_SetComboStartingGame)
-        SOH_SetComboStartingGame(g_startingGameMM ? 1 : 0);
-}
 
-static void SaveComboCompletion(int slot) {
-    ComboWriteCompletion(slot, g_comboCompletion[0], g_comboCompletion[1], g_comboTriforceDone);
-    // #173: tints the timer overlay's total green. Pushed outside the container lock — comboui must
-    // never re-enter the sidecar.
-    if (ComboUI_SetComboComplete)
-        ComboUI_SetComboComplete((g_comboCompletion[0] && g_comboCompletion[1]) ? 1 : 0);
-}
 
-// ComboShip (#164): push the slot's hints slice + read state into comboui's Hint Tracker. Reads the
-// container under the mutex, then calls out with it released (the DLL setters must never re-enter it).
-static void Combo_PushHintTrackerData(int slot) {
-    if (!ComboUI_SetHintTrackerData)
-        return;
-    if (!ComboIsValidSlot(slot)) {
-        ComboUI_SetHintTrackerData(-1, "", "");
-        return;
-    }
-    const ComboHintSlice slice = ComboReadHintSlice(slot);
-    ComboUI_SetHintTrackerData(slot, slice.hints.c_str(), slice.read.c_str());
-}
 
-// Persist one reveal and re-push the read state. Runs on the reporting game's thread; the container
-// write is locked inside ComboInsertHintRead and the comboui push happens after it returns.
-static void Combo_RecordHintRead(int fileNum, const char* bucket, const nlohmann::json& value,
-                                 const char* matchField = nullptr) {
-    if (ComboInsertHintRead(fileNum, bucket, value, matchField))
-        Combo_PushHintTrackerData(fileNum);
-}
-
-// OOT reported a revealed hint (keyed by the combo checkName it was applied from). OnRandoHintRevealed
-// can fire repeatedly per textbox — the set-semantics insert makes that free.
-static void Combo_OnOotHintRevealed(int fileNum, const char* comboKey) try {
-    if (!ComboIsValidSlot(fileNum) || !comboKey || comboKey[0] == '\0')
-        return;
-    Combo_RecordHintRead(fileNum, "oot", std::string(comboKey));
-} catch (const std::exception& e) {
-    std::cerr << "[ComboShip] Combo_OnOotHintRevealed threw: " << e.what() << std::endl;
-} catch (...) { std::cerr << "[ComboShip] Combo_OnOotHintRevealed threw a non-std exception" << std::endl; }
-
-// MM reported a revealed hint. kind: 0 = cross gossipPool pick (poolIndex), 1 = native MM stone hint
-// (no upfront list, so the tracker shows these as a revealed-only group), 2 = NPC itemLocations hint.
-static void Combo_OnMmHintRevealed(int fileNum, int kind, int poolIndex, const char* key, const char* text) try {
-    if (!ComboIsValidSlot(fileNum))
-        return;
-    switch (kind) {
-        case 0:
-            if (poolIndex >= 0)
-                Combo_RecordHintRead(fileNum, "mmPool", poolIndex);
-            return;
-        case 1:
-            if (key && key[0] != '\0')
-                Combo_RecordHintRead(fileNum, "mmNative",
-                                     nlohmann::json{ { "check", key }, { "text", text ? text : "" } }, "check");
-            return;
-        case 2:
-            if (key && key[0] != '\0')
-                Combo_RecordHintRead(fileNum, "mmNpc", std::string(key));
-            return;
-        default:
-            return;
-    }
-} catch (const std::exception& e) {
-    std::cerr << "[ComboShip] Combo_OnMmHintRevealed threw: " << e.what() << std::endl;
-} catch (...) { std::cerr << "[ComboShip] Combo_OnMmHintRevealed threw a non-std exception" << std::endl; }
-
-// Registered into both games: record THIS game's final-boss kill for its slot and return 1 iff BOTH
-// games' bosses are now dead. game/fileNum use the GameId convention (0=OOT, 1=MM).
-static int Combo_OnFinalBossDefeated(int game, int fileNum) {
-    if ((game != 0 && game != 1) || !ComboIsValidSlot(fileNum))
-        return 0;
-    if (fileNum != g_comboCompletionSlot)
-        LoadComboCompletion(fileNum);
-    // The OOT death cutscene re-enters this every frame during the fade; persist + log only on the
-    // first report for this slot so we don't thrash the sidecar. Repeats just return the cached answer.
-    if (!g_comboCompletion[game]) {
-        g_comboCompletion[game] = true;
-        SaveComboCompletion(fileNum);
-        std::cout << "[ComboShip] Final boss defeated: game=" << game << " slot=" << fileNum
-                  << " both=" << (g_comboCompletion[0] && g_comboCompletion[1]) << std::endl;
-    }
-    return (g_comboCompletion[0] && g_comboCompletion[1]) ? 1 : 0;
-}
-
-// ComboShip (#136): each game's piece-count getter, handed to the OTHER game so its pickup messages
-// and hints can show combined progress.
-static int Combo_GetOotTriforceCount() {
-    return SOH_GetTriforcePieceCount ? SOH_GetTriforcePieceCount() : 0;
-}
-static int Combo_GetMmTriforceCount() {
-    return MM_GetTriforcePieceCount ? MM_GetTriforcePieceCount() : 0;
-}
-
-// Poked after every Triforce Piece grant (own or dormant) and every Anchor team-state merge: sums both
-// games' counters and, on the first crossing, latches completion and rolls the ending. game/fileNum use
-// the GameId convention (0 = OOT, 1 = MM). No exception may cross the C-ABI boundary.
-static void Combo_OnTriforceProgress(int game, int fileNum) try {
-    if ((game != 0 && game != 1) || !ComboIsValidSlot(fileNum))
-        return; // Anchor pokes carry fileNum 0xFF at the file-select — no slot, nothing to evaluate
-    if (fileNum != g_comboCompletionSlot)
-        LoadComboCompletion(fileNum);
-    if (!g_goalHunt || g_goalRequired <= 0 || g_comboTriforceDone)
-        return;
-    const int total = Combo_GetOotTriforceCount() + Combo_GetMmTriforceCount();
-    if (total < g_goalRequired)
-        return;
-    g_comboTriforceDone = true;
-    g_comboCompletion[0] = g_comboCompletion[1] = true;
-    SaveComboCompletion(fileNum);
-    const bool mmActive = ComboAnchor::ActiveGame() == 1;
-    std::cout << "[ComboShip] Triforce Hunt complete: " << total << "/" << g_goalRequired << " slot=" << fileNum
-              << " active=" << (mmActive ? "mm" : "oot") << std::endl;
-    if (SOH_TriggerTriforceCredits)
-        SOH_TriggerTriforceCredits(mmActive ? 1 : 0);
-    if (MM_TriggerTriforceCredits)
-        MM_TriggerTriforceCredits(mmActive ? 0 : 1);
-} catch (const std::exception& e) {
-    std::cerr << "[ComboShip] Combo_OnTriforceProgress threw: " << e.what() << std::endl;
-} catch (...) { std::cerr << "[ComboShip] Combo_OnTriforceProgress threw a non-std exception" << std::endl; }
 
 // Simple xorshift32 used for a random seed when none is provided.
 static int ComboRandRange(int minV, int maxV) {

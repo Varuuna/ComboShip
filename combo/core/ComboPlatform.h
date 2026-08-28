@@ -5,6 +5,7 @@
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
+#define NOMINMAX // std::min/max in the rando headers
 #include <Windows.h>
 typedef HMODULE DllHandle;
 #else

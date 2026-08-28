@@ -69,8 +69,11 @@ target_link_libraries(comboui PRIVATE libultraship)
 add_dependencies(comboui libultraship)
 
 # Source files
+# core/: launcher-only modules. combo/gui/ builds into comboui.dll and combo/rando/ is header-only
+# (shared with comborando and both game DLLs) — neither belongs here.
 set(COMBO_SOURCES
     ComboShip.cpp
+    core/ComboPlatform.cpp
 )
 
 # Create executable

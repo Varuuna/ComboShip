@@ -31,7 +31,7 @@ loop that boots one game and resumes the other across transitions.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  ComboShip.exe  (combo/ComboShip.cpp)                          │
+│  ComboShip.exe  (combo/ComboShip.cpp + combo/core/)            │
 │   • LoadLibrary soh.dll + 2ship.dll, resolve exports           │
 │   • Ensure O2R archives exist (extract if missing)             │
 │   • Bidirectional game-switch loop (boot once, resume after)   │
@@ -59,10 +59,12 @@ layout and enables the transition hooks in both games.
 ### Exported Entry Points
 
 The launcher talks to each game purely through exported C functions resolved with `GetProcAddress`
-(see `combo/ComboShip.cpp`). Missing optional exports are tolerated (null-checked); only the core
-ones are required. The tables below are the **core transition surface** — a representative subset.
-The full surface (Anchor transport, randomizer oracle exports, cross-game item delivery, save
-callbacks) is larger and lives in `combo/ComboShip.cpp`; see [`deviations/`](deviations/) per feature.
+(see `combo/core/ComboDllApi.{h,cpp}`). Missing optional exports are tolerated (null-checked); only
+the core ones are required. The tables below are the **core transition surface** — a representative
+subset. The full surface (Anchor transport, randomizer oracle exports, cross-game item delivery,
+save callbacks) is larger and lives in that one header; see [`deviations/`](deviations/) per feature.
+`scripts/check-export-bindings.ps1` verifies every pointer is declared, resolved, and named after
+the symbol it resolves from.
 
 | OOT export (`soh.dll`)         | Purpose                                                      |
 |--------------------------------|--------------------------------------------------------------|
@@ -92,11 +94,12 @@ callbacks) is larger and lives in `combo/ComboShip.cpp`; see [`deviations/`](dev
 `main()` in `combo/ComboShip.cpp`:
 
 1. Load `soh.dll` and `2ship.dll`; resolve exports.
-2. Ensure OOT archives exist (`soh.o2r` / `oot*.o2r`), running `SOH_Extract` if not.
-3. Ensure the MM ROM archive exists (`mm.o2r` / `mm.zip` / `mm.otr`), running `MM_Extract` if not.
-4. `SOH_Init()` — bring up OOT.
-5. Register the OOT new-save and scene-switch callbacks.
-6. Run the **bidirectional switch loop**:
+2. Ensure both ROM archives exist (`oot*.o2r`, and `mm.o2r` / `mm.zip` / `mm.otr`). If either is
+   missing, create the window from the bundled `soh.o2r` (`SOH_InitWindowOnly`) and run comboui's
+   combo-owned extraction screen, which gathers both ROMs with progress bars.
+3. `SOH_Init()` — bring up OOT.
+4. Register the OOT new-save and scene-switch callbacks.
+5. Run the **bidirectional switch loop**:
    - **OOT side:** first entry calls `SOH_RunMain`; later entries call `SOH_ResumeGame`. Entering
      the **Mask Shop** sets a pending MM file number, so the loop calls `SOH_PrepareForTransition`,
      `MM_NotifyComboTransition`, registers the MM→OOT return callback, and switches to MM.
@@ -109,7 +112,7 @@ callbacks) is larger and lives in `combo/ComboShip.cpp`; see [`deviations/`](dev
      the boot sequence). MM foreground → `MM_RequestComboReturn` reuses the return path (MM saves only if
      autosave is on) and flags `SOH_ResumeGame` to leave `gComboReturnFileNum = -1`, so `title_setup.c`
      boots to `Title_Init` (first-boot) instead of resuming the save.
-7. On loop exit, `SOH_Deinit()` tears down the OOT context that was kept alive across transitions.
+6. On loop exit, `SOH_Deinit()` tears down the OOT context that was kept alive across transitions.
 
 ### Shared Window, Context, and Resources
 
@@ -194,8 +197,9 @@ void SomeUpstreamFunction(void) {
 - The top-level `CMakeLists.txt` defines `COMBO_BUILD`, adds the shared `libultraship`, `ZAPD`, and
   `OTRExporter`, and `add_subdirectory(combo)` for the launcher.
 - A meta target builds everything: `add_custom_target(combo ALL DEPENDS soh 2ship ComboShip)`.
-- `combo/CMakeLists.txt` builds `ComboShip.exe` from `combo/ComboShip.cpp` and, as a POST_BUILD step,
-  copies the three DLLs, the port `.o2r` archives, and extractor assets next to the exe.
+- `combo/CMakeLists.txt` builds `ComboShip.exe` from `combo/ComboShip.cpp` (`main()` and the boot
+  sequence) plus the launcher modules in `combo/core/`, and, as a POST_BUILD step, copies the three
+  DLLs, the port `.o2r` archives, and extractor assets next to the exe.
 - Convenience build scripts live in `scripts/` (`build-libultraship.ps1`, `build-soh.ps1`,
   `build-2ship.ps1`, `build-comboship.ps1`). Build targets individually rather than rebuilding
   everything.

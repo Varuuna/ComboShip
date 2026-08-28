@@ -6,8 +6,6 @@
 #include <map>
 #include <vector>
 
-#include "core/ComboDllApi.h"
-
 // ---------- ComboShip merged per-slot save container (Save/file{N+1}.combosav) ----------
 // One JSON file per slot holds both games' saves verbatim + combo metadata (completion + baked rando).
 // The launcher mediates every per-slot read/write through Combo_ReadGameSave/Combo_WriteGameSave
@@ -40,7 +38,7 @@ static std::string ComboReleaseMajorMinor(const std::string& v) {
 }
 
 // Hold g_containerMutex. Returns a ref into the cache; loads from disk or creates a fresh container.
-nlohmann::json& LoadOrCreateContainer(int fileNum) {
+static nlohmann::json& LoadOrCreateContainer(int fileNum) {
     auto it = g_containerCache.find(fileNum);
     if (it != g_containerCache.end())
         return it->second;
@@ -91,7 +89,7 @@ nlohmann::json& LoadOrCreateContainer(int fileNum) {
 }
 
 // Hold g_containerMutex. Serialize the cached container to a temp file, then atomic rename over it.
-void FlushContainer(int fileNum) {
+static void FlushContainer(int fileNum) {
     auto it = g_containerCache.find(fileNum);
     if (it == g_containerCache.end())
         return;
@@ -125,7 +123,7 @@ int Combo_TakeEvictionNotice() {
     return slot;
 }
 
-void EraseComboContainer(int slot) {
+void ComboEraseSlotStorage(int slot) {
     {
         std::lock_guard<std::mutex> lk(g_containerMutex);
         g_containerCache.erase(slot);
@@ -136,19 +134,11 @@ void EraseComboContainer(int slot) {
         std::error_code ec;
         std::filesystem::remove(ComboContainerPath(slot), ec);
     }
-    // ComboShip (#182): MM caches which slot's owl save its gSaveContext came from; the section it
-    // named is gone. Outside the lock — the DLL must never re-enter the container.
-    if (MM_InvalidateOwlBlobSlot)
-        MM_InvalidateOwlBlobSlot();
-    // ComboShip (#164): clear the Hint Tracker outside the lock — its push path re-takes the mutex, and
-    // the window would otherwise keep showing the deleted slot's hints on the file-select screen.
-    if (ComboUI_SetHintTrackerData)
-        ComboUI_SetHintTrackerData(-1, "", "");
 }
 
-// Copy a whole slot (both games + baked rando) — OOT file-select "copy file". Registered into OOT
-// via SOH_SetCopyContainer; the .combosav has no per-game file to copy, so the launcher owns it.
-void Combo_CopyContainer(int from, int to) {
+// Copy a whole slot (both games + baked rando) — backs OOT file-select "copy file". Reached through
+// the launcher's Combo_CopyContainer wrapper, which notifies the DLLs afterwards.
+void ComboCopySlotStorage(int from, int to) {
     {
         std::lock_guard<std::mutex> lk(g_containerMutex);
         nlohmann::json copy = LoadOrCreateContainer(from); // deep copy of the source container
@@ -158,9 +148,6 @@ void Combo_CopyContainer(int from, int to) {
             g_MmSaveInMemorySlot = -1; // the destination's MM save just changed under us
         FlushContainer(to);
     }
-    // ComboShip (#182): the destination's owl save came from the donor, so MM's descent cache is wrong.
-    if (MM_InvalidateOwlBlobSlot)
-        MM_InvalidateOwlBlobSlot();
 }
 
 // Launcher-provided save IO, pushed into each DLL. game: 0=OOT,1=MM (GameId); fileNum 0-based.
@@ -262,4 +249,86 @@ void Combo_SetNotes(int fileNum, const char* text) {
         return;
     c["combo"]["notes"] = text;
     FlushContainer(fileNum);
+}
+
+// ---------- typed slot accessors (see the contract in ComboContainer.h) ----------
+
+ComboSlotGoalState ComboReadGoalState(int slot) {
+    ComboSlotGoalState s;
+    std::lock_guard<std::mutex> lk(g_containerMutex);
+    auto& c = LoadOrCreateContainer(slot);
+    auto combo = c.value("combo", nlohmann::json::object());
+    auto comp = combo.value("completion", nlohmann::json::object());
+    s.ootDone = comp.value("oot", false);
+    s.mmDone = comp.value("mm", false);
+    s.triforceDone = comp.value("triforce", false);
+    // The goal is seed-bound: it rides the slot's baked combo.rando, not the live menu CVars.
+    auto rando = combo.value("rando", nlohmann::json::object());
+    auto goal = rando.value("goal", nlohmann::json::object());
+    s.hunt = goal.value("type", std::string("bosses")) == "triforceHunt";
+    s.required = s.hunt ? goal.value("requiredPieces", 0) : 0;
+    s.total = goal.value("totalPieces", -1); // absent on seeds made before the combined total
+    // Same for the starting game (#135) — old seeds have no field and started in OOT.
+    s.startingGameMM = rando.value("startingGame", std::string("OOT")) == "MM";
+    return s;
+}
+
+void ComboWriteCompletion(int slot, bool oot, bool mm, bool triforce) {
+    std::lock_guard<std::mutex> lk(g_containerMutex);
+    auto& c = LoadOrCreateContainer(slot);
+    c["combo"]["completion"]["oot"] = oot;
+    c["combo"]["completion"]["mm"] = mm;
+    c["combo"]["completion"]["triforce"] = triforce;
+    FlushContainer(slot);
+}
+
+ComboHintSlice ComboReadHintSlice(int slot) {
+    ComboHintSlice out;
+    std::lock_guard<std::mutex> lk(g_containerMutex);
+    auto& c = LoadOrCreateContainer(slot);
+    const auto combo = c.value("combo", nlohmann::json::object());
+    out.hints = combo.value("rando", nlohmann::json::object()).value("hints", nlohmann::json::object()).dump();
+    out.read = combo.value("hintsRead", nlohmann::json::object()).dump();
+    return out;
+}
+
+bool ComboInsertHintRead(int slot, const char* bucket, const nlohmann::json& value, const char* matchField) {
+    std::lock_guard<std::mutex> lk(g_containerMutex);
+    auto& c = LoadOrCreateContainer(slot);
+    nlohmann::json& arr = c["combo"]["hintsRead"][bucket];
+    if (!arr.is_array())
+        arr = nlohmann::json::array();
+    for (auto& e : arr) {
+        if (matchField ? e.value(matchField, std::string()) == value.value(matchField, std::string()) : e == value)
+            return false;
+    }
+    arr.push_back(value);
+    FlushContainer(slot);
+    return true;
+}
+
+void ComboResetSlotForNewFile(int slot) {
+    std::lock_guard<std::mutex> lk(g_containerMutex);
+    auto& c = LoadOrCreateContainer(slot);
+    c["combo"]["notes"] = "";
+    if (c["combo"].contains("hintsRead"))
+        c["combo"].erase("hintsRead");
+    FlushContainer(slot);
+}
+
+void ComboBakeSeed(int slot, const nlohmann::json& seed) {
+    std::lock_guard<std::mutex> lk(g_containerMutex);
+    auto& c = LoadOrCreateContainer(slot);
+    if (!seed.is_null())
+        c["combo"]["rando"] = seed;
+    if (c.contains("combo") && c["combo"].is_object())
+        c["combo"].erase("completion");
+    FlushContainer(slot);
+}
+
+std::string ComboReadBakedRando(int slot) {
+    std::lock_guard<std::mutex> lk(g_containerMutex);
+    auto& c = LoadOrCreateContainer(slot);
+    auto r = c.value("combo", nlohmann::json::object()).value("rando", nlohmann::json());
+    return r.is_null() ? std::string() : r.dump();
 }

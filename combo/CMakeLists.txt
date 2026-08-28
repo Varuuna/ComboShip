@@ -75,6 +75,7 @@ set(COMBO_SOURCES
     ComboShip.cpp
     core/ComboPlatform.cpp
     core/ComboDllApi.cpp
+    core/ComboContainer.cpp
 )
 
 # Create executable

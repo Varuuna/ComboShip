@@ -26,6 +26,7 @@ add_executable(lus_tests
     archive_self_tests.cpp
     resource_manager_scope_tests.cpp
     combo_menu_export_tests.cpp
+    combo_seed_math_tests.cpp
 )
 
 if(ENABLE_SCRIPTING)
@@ -49,7 +50,11 @@ target_link_libraries(lus_tests PRIVATE
 target_compile_definitions(lus_tests PRIVATE SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_OFF)
 
 # ComboShip: combo-owned menu serializer is header-only; tests mock the game-side menu types.
-target_include_directories(lus_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../combo/menu)
+# core/ is on the path for the same reason — the seed derivations are header-only and shared with
+# comborando, so they can be pinned here without linking the launcher.
+target_include_directories(lus_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../combo/menu
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../combo/core)
 
 include(GoogleTest)
 gtest_discover_tests(lus_tests)

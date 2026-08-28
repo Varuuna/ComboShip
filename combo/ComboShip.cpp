@@ -44,6 +44,8 @@
 #include "core/ComboDllApi.h"
 #include "core/ComboSeedMath.h"
 #include "core/ComboContainer.h"
+#include "core/ComboSeedFile.h"
+#include "core/ComboBootstrap.h"
 
 // OOT slot whose MM save is live in MM's dormant memory (-1 = none). Guards Combo_OnOOTSaveLoad
 // against reloading stale disk state over MM's in-memory progress after round trips.
@@ -1455,67 +1457,6 @@ static int Combo_PollFinalize() {
     return (g_ComboProgress.done.load() && !g_GenerateBusy.load()) ? 1 : 0;
 }
 
-// ComboShip: read a candidate consolidated seed file. True only if it opens, parses and is ours.
-static bool TryLoadComboSeedFile(const std::filesystem::path& p, nlohmann::json& out) {
-    std::ifstream in(p);
-    if (!in.is_open())
-        return false;
-    try {
-        nlohmann::json j;
-        in >> j;
-        if (j.value("fileType", std::string()) != "ComboShipRandomizer") {
-            std::cerr << "[ComboShip] reload: " << p.string() << " is not a ComboShip seed file\n";
-            return false;
-        }
-        out = std::move(j);
-        return true;
-    } catch (const std::exception& e) {
-        std::cerr << "[ComboShip] reload: could not parse " << p.string() << ": " << e.what() << "\n";
-        return false;
-    }
-}
-
-// ComboShip: a stored-relative path (or one from a different CWD) also gets tried next to the exe.
-static std::filesystem::path ResolveComboSeedPath(const std::string& file) {
-    std::filesystem::path p(file);
-    std::error_code ec;
-    if (std::filesystem::exists(p, ec))
-        return p;
-#ifdef _WIN32
-    // Wide API: the ANSI variant mangles non-ASCII install paths (e.g. accented user names) to '?'.
-    wchar_t exe[MAX_PATH] = { 0 };
-    if (GetModuleFileNameW(nullptr, exe, MAX_PATH)) {
-        const auto dir = std::filesystem::path(exe).parent_path();
-        // A relative path re-rooted at the exe; a moved absolute one by name under the seed dir.
-        for (const auto& alt : { dir / p.relative_path(), dir / ComboRando::ConsolidatedDir() / p.filename() })
-            if (std::filesystem::exists(alt, ec))
-                return alt;
-    }
-#endif
-    return p;
-}
-
-// ComboShip: newest readable combo seed in the Randomizer dir — recovers an auto-load when the
-// remembered path is lost (e.g. a wiped CVar) while the seed files are still there.
-static std::filesystem::path FindNewestComboSeed(nlohmann::json& out) {
-    std::error_code ec;
-    std::vector<std::pair<std::filesystem::file_time_type, std::filesystem::path>> found;
-    for (const auto& dir :
-         { ComboRando::ConsolidatedDir(), ResolveComboSeedPath(ComboRando::ConsolidatedDir().string()) }) {
-        for (std::filesystem::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
-            if (!it->is_regular_file(ec) || it->path().extension() != ".json")
-                continue;
-            found.emplace_back(std::filesystem::last_write_time(it->path(), ec), it->path());
-        }
-        if (!found.empty())
-            break;
-    }
-    std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
-    for (const auto& [t, p] : found)
-        if (TryLoadComboSeedFile(p, out))
-            return p;
-    return {};
-}
 
 // ComboShip: reload a consolidated seed file (the remembered pending file when path is null/empty, or
 // a dropped file) and make it playable WITHOUT regenerating. Runs synchronously on the MAIN thread
@@ -1883,72 +1824,6 @@ static void Combo_OnMMReturn(int kind) {
     g_pendingOOTReturn = true;
 }
 
-// ---------- O2R existence checks ----------
-
-static bool OOTArchivesExist() {
-    // The OoT *ROM* archive (player-extracted) is oot.o2r / oot-mq.o2r. soh.o2r is the bundled PORT
-    // archive (assets/fonts) that always ships with the build — it must NOT count here, or a genuine
-    // first run (port archive present, ROM not yet extracted) would skip extraction and then hard-exit
-    // inside Initialize() when oot.o2r is missing.
-    return std::filesystem::exists("oot-mq.o2r") || std::filesystem::exists("oot.o2r");
-}
-
-// ROM-derived archive (must be extracted from the player's MM ROM)
-static bool MMRomArchiveExists() {
-    return std::filesystem::exists("mm.o2r") || std::filesystem::exists("mm.zip") || std::filesystem::exists("mm.otr");
-}
-
-// Any MM archive at all (used for general "is MM set up" check)
-static bool MMArchivesExist() {
-    return MMRomArchiveExists() || std::filesystem::exists("2ship.o2r");
-}
-
-// ComboShip (issue 24): the combined config. Absent => fresh install => offer settings import.
-static bool ComboConfigExists() {
-    return std::filesystem::exists("comboship.json");
-}
-
-// Parse a JSON object from disk. False on missing/parse-failure/non-object (slot then skipped).
-static bool LoadJsonObject(const std::string& path, nlohmann::json& out) {
-    if (path.empty()) {
-        return false;
-    }
-    try {
-        std::ifstream f(path);
-        if (!f) {
-            return false;
-        }
-        nlohmann::json j = nlohmann::json::parse(f);
-        if (!j.is_object()) {
-            return false;
-        }
-        out = std::move(j);
-        return true;
-    } catch (...) { return false; }
-}
-
-// Per-leaf merge: objects recurse; on a leaf collision (scalar/array) the overlay wins. Keys unique
-// to either side are kept. Used with 2Ship as base + SoH as overlay so SoH wins.
-static void DeepMerge(nlohmann::json& base, const nlohmann::json& overlay) {
-    if (!base.is_object() || !overlay.is_object()) {
-        base = overlay;
-        return;
-    }
-    for (auto it = overlay.begin(); it != overlay.end(); ++it) {
-        auto found = base.find(it.key());
-        if (found != base.end() && found->is_object() && it->is_object()) {
-            DeepMerge(*found, *it);
-        } else {
-            base[it.key()] = it.value();
-        }
-    }
-}
-
-// Soft validator (non-blocking hint): a Ship config is a JSON object with a CVars block.
-static int LauncherValidateShipConfig(const char* path) {
-    nlohmann::json j;
-    return (path && LoadJsonObject(path, j) && j.contains("CVars")) ? 1 : 0;
-}
 
 // ---------- Entry point ----------
 

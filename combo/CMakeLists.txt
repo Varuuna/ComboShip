@@ -82,6 +82,9 @@ set(COMBO_SOURCES
     core/ComboCrossItems.cpp
     core/ComboGoal.cpp
     core/ComboHintReveal.cpp
+    core/ComboSeedState.cpp
+    core/ComboGeneration.cpp
+    core/ComboReload.cpp
 )
 
 # Create executable

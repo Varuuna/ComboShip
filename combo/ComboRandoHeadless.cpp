@@ -38,6 +38,7 @@
 #include "rando/CrossForeign.h" // BuildForeignArray (foreign enrichment parity with RunComboFill)
 #include "rando/CrossHints.h"
 #include "core/ComboSeedMath.h"
+#include "core/ComboFillDriver.h"
 
 namespace {
 
@@ -483,6 +484,18 @@ int main(int argc, char** argv) {
                                   : "")
               << "\n";
     int failures = 0;
+    // Same hook table the launcher builds from its export pointers - this is the point of the driver.
+    CwFillHooks hooks;
+    hooks.SetSeedOot = SOH_SetSeed;
+    hooks.SetSeedMm = MM_SetSeed;
+    hooks.SetGoalOot = SOH_SetComboGoal;
+    hooks.SetGoalMm = MM_SetComboGoal;
+    hooks.SetStartingGame = SOH_SetComboStartingGame;
+    hooks.DumpOot = SOH_Dump;
+    hooks.DumpMm = MM_Dump;
+    hooks.GetForced = SOH_GetForced;
+    hooks.ShuffleEntrances = SOH_ShuffleEntrances;
+
     auto t0 = std::chrono::steady_clock::now();
     for (int i = 0; i < count; ++i) {
         const uint32_t base = (haveMasterSeed ? masterSeedArg : ComboHash(seed)) + static_cast<uint32_t>(i);
@@ -498,38 +511,28 @@ int main(int argc, char** argv) {
             masterSeed = base + attempt * 0x9E3779B9u;
             const bool mmStart = !pinStartOot && !(startCfg == 2 && attempt + 1 == kFillAttempts) &&
                                  ResolveStartingGameMM(startCfg, masterSeed);
-            if (SOH_SetSeed)
-                SOH_SetSeed(masterSeed);
-            if (MM_SetSeed)
-                MM_SetSeed(masterSeed);
-            // Before the dumps: the goal shapes OOT's wincon placement and MM's hunt pool.
-            if (SOH_SetComboGoal)
-                SOH_SetComboGoal(goal.hunt ? 1 : 0, goal.required, ComboRando::CwOotPieces(goal.total));
-            if (MM_SetComboGoal)
-                MM_SetComboGoal(goal.hunt ? 1 : 0, goal.required, ComboRando::CwMmPieces(goal.total));
-            // Same reason (#135): an MM start forces OOT's age/forest/exclusions.
-            if (SOH_SetComboStartingGame)
-                SOH_SetComboStartingGame(mmStart ? 1 : 0);
-            sohDump = SOH_Dump();
-            mmDump = MM_Dump();
-            if (goal.hunt) {
-                const int pieces = ComboRando::CountPoolTriforcePieces(sohDump, mmDump);
-                if (pieces < goal.required) {
-                    std::cerr << "[comborando] Triforce Hunt needs " << goal.required << " pieces but only " << pieces
-                              << " are in the combined pool — raise --triforce-total / the Combo pool total\n";
-                    return 2;
-                }
+            CwPrologueOut pro;
+            const CwPrologue prologue = ComboFillPrologue(hooks, masterSeed, mmStart, goal, pro);
+            sohDump = pro.sohDump;
+            mmDump = pro.mmDump;
+            if (prologue == CwPrologue::EmptyDump) {
+                std::cerr << "[comborando] empty static-data dump — cannot generate\n";
+                return 2;
             }
-            std::string forced = SOH_GetForced ? SOH_GetForced(masterSeed) : "";
-            // Same placement as RunComboFill: after the dump/forced read, before the fill, so logic
-            // validates the shuffled world. No-op when the entrance options are off.
-            if (SOH_ShuffleEntrances && !SOH_ShuffleEntrances(masterSeed)) {
+            if (prologue == CwPrologue::TriforceShort) {
+                std::cerr << "[comborando] Triforce Hunt needs " << goal.required << " pieces but only "
+                          << pro.poolPieces
+                          << " are in the combined pool — raise --triforce-total / the Combo pool total\n";
+                return 2;
+            }
+            if (prologue == CwPrologue::ShuffleFailed) {
                 std::cerr << "[comborando] seed " << masterSeed << ": entrance shuffle found no valid layout\n";
                 if (mmStart && startCfg == 2)
                     pinStartOot = true;
                 continue;
             }
-            ComboRando::OotAccess ootAccess = ComboRando::OotAccessFromDump(sohDump);
+            const std::string& forced = pro.forcedOot;
+            const ComboRando::OotAccess ootAccess = pro.ootAccess;
             r = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, oot, mmO, nullptr, forced, ootAccess,
                                                    goal, mmStart ? ComboRando::GAME_MM : ComboRando::GAME_OOT);
             if (r.success) {

@@ -13,6 +13,7 @@
 #include "core/ComboContainer.h"
 #include "core/ComboCrossItems.h"
 #include "core/ComboDllApi.h"
+#include "core/ComboFillDriver.h"
 #include "core/ComboGoal.h"
 #include "core/ComboSeedMath.h"
 #include "core/ComboSeedState.h"
@@ -78,6 +79,21 @@ void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRando::Ora
                                   const ComboRando::OracleFns& mmOracle, const std::string& seedLabel,
                                   nlohmann::json* playthroughOut = nullptr, const std::string& sohDump = "",
                                   const std::string& mmDump = "", ComboRando::CwGoal goal = {}, bool mmStart = false);
+
+// The launcher's export pointers as fill hooks; comborando builds the same table from its own.
+static CwFillHooks ComboLauncherFillHooks() {
+    CwFillHooks h;
+    h.SetSeedOot = SOH_SetComboRandoSeed;
+    h.SetSeedMm = MM_SetComboRandoSeed;
+    h.SetGoalOot = SOH_SetComboGoal;
+    h.SetGoalMm = MM_SetComboGoal;
+    h.SetStartingGame = SOH_SetComboStartingGame;
+    h.DumpOot = SOH_DumpRandoStaticData;
+    h.DumpMm = MM_DumpRandoStaticData;
+    h.GetForced = SOH_GetForcedPlacements;
+    h.ShuffleEntrances = SOH_ShuffleEntrancesForCombo;
+    return h;
+}
 
 // ComboShip: worker that runs the combined-logic fill (or no-logic fallback) on a background
 // thread, reports progress via the ComboGenProgress struct, and stashes placements.
@@ -176,49 +192,22 @@ void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* progress)
         const bool mmStart = !pinStartOot && !(startCfg == 2 && attempt + 1 == kFillAttempts) &&
                              ResolveStartingGameMM(startCfg, masterSeed);
 
-        // ComboShip: seed OOT's rando RNG BEFORE the dump so its shop/scrub/merchant setup (which runs
-        // both inside the dump and again at SOH_ApplyRandoPlacements) makes identical choices each time.
-        if (SOH_SetComboRandoSeed)
-            SOH_SetComboRandoSeed(masterSeed);
-        if (MM_SetComboRandoSeed)
-            MM_SetComboRandoSeed(masterSeed);
-        // Must precede the dumps: OOT's FinalizeSettings and MM's GeneratePools shape their pools
-        // (wincon, Majora soul removal, piece count) from the goal.
-        if (SOH_SetComboGoal)
-            SOH_SetComboGoal(goal.hunt ? 1 : 0, goal.required, ComboRando::CwOotPieces(goal.total));
-        if (MM_SetComboGoal)
-            MM_SetComboGoal(goal.hunt ? 1 : 0, goal.required, ComboRando::CwMmPieces(goal.total));
-        // Same reason (#135): an MM start forces OOT's age/forest/exclusions, which shape its pool.
-        if (SOH_SetComboStartingGame)
-            SOH_SetComboStartingGame(mmStart ? 1 : 0);
-
-        sohDump = SOH_DumpRandoStaticData();
-        mmDump = MM_DumpRandoStaticData();
-        if (sohDump.empty() || mmDump.empty()) {
+        CwPrologueOut pro;
+        const CwPrologue prologue = ComboFillPrologue(ComboLauncherFillHooks(), masterSeed, mmStart, goal, pro);
+        sohDump = pro.sohDump;
+        mmDump = pro.mmDump;
+        resolvedMmStart = mmStart; // these dumps used it, so whatever spoiler they end up in must record it
+        if (prologue == CwPrologue::EmptyDump) {
             fail("empty static-data dump");
             return;
         }
-        resolvedMmStart = mmStart; // these dumps used it, so whatever spoiler they end up in must record it
-        if (goal.hunt) {
-            const int pieces = ComboRando::CountPoolTriforcePieces(sohDump, mmDump);
-            if (pieces < goal.required) {
-                fail((std::string("Triforce Hunt needs ") + std::to_string(goal.required) + " pieces but only " +
-                      std::to_string(pieces) + " are in the combined pool — raise the Combo menu's pool total")
-                         .c_str());
-                return;
-            }
+        if (prologue == CwPrologue::TriforceShort) {
+            fail((std::string("Triforce Hunt needs ") + std::to_string(goal.required) + " pieces but only " +
+                  std::to_string(pro.poolPieces) + " are in the combined pool — raise the Combo menu's pool total")
+                     .c_str());
+            return;
         }
-        // ComboShip: OOT forced placements (Link's Pocket) the static dump can't carry. The fill
-        // reserves these out of the cross pool and commits them so the check isn't left unplaced.
-        // Read BEFORE the entrance shuffle: it reads the live placement ComboFillConfined just made,
-        // and the shuffle's ItemReset would wipe it.
-        std::string forcedOot;
-        if (SOH_GetForcedPlacements)
-            forcedOot = SOH_GetForcedPlacements(masterSeed);
-
-        // ComboShip (#90): OOT entrance shuffle. Runs after the dump (settings finalized) and before the
-        // fill, so logic validates the shuffled world. No-op when the entrance options are off.
-        if (SOH_ShuffleEntrancesForCombo && !SOH_ShuffleEntrancesForCombo(masterSeed)) {
+        if (prologue == CwPrologue::ShuffleFailed) {
             // A different masterSeed yields a different layout, so reroll rather than sending the user
             // to the settings; the post-loop check reports it if every attempt fails. Mirrors the loop
             // tail's MM restore, which this skips.
@@ -231,6 +220,7 @@ void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* progress)
                 Combo_MM_Rando_Restore();
             continue;
         }
+        const std::string& forcedOot = pro.forcedOot;
         if (!haveOracles)
             break; // no oracles -> no-logic fallback below; the dumps are still needed
 

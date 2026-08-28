@@ -557,6 +557,36 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
     }
     return count;
 }
+
+// ComboShip: the setup DL a row's draw func emits before its display lists, for the funcs that don't
+// use plain 25. NULL = 25 Opa/Xlu (the consumer's own). The foreign consumer must submit the SAME
+// setup: 23 is 1-CYCLE without fog, and a list authored for it renders through the wrong combiner
+// under 2-cycle 25 — the second cycle wins and samples TEXEL1, i.e. the host's leftover tile.
+void GetItem_GetDrawSetupDLs(s32 drawId, void** outOpa, void** outXlu) {
+    void (*drawFunc)(PlayState*, s16);
+
+    if (outOpa != NULL) {
+        *outOpa = NULL;
+    }
+    if (outXlu != NULL) {
+        *outXlu = NULL;
+    }
+    if ((drawId < 0) || (drawId >= (s32)ARRAY_COUNT(sDrawItemTable))) {
+        return;
+    }
+
+    drawFunc = sDrawItemTable[drawId].drawFunc;
+    if (drawFunc == GetItem_DrawBombchu) {
+        if (outOpa != NULL) {
+            *outOpa = gSetupDLs[SETUPDL_23];
+        }
+    } else if (drawFunc == GetItem_DrawCompass) {
+        // Compass keeps 25 on OPA and draws its glass with SETUPDL_5.
+        if (outXlu != NULL) {
+            *outXlu = gSetupDLs[SETUPDL_5];
+        }
+    }
+}
 #endif
 
 void GetItem_DrawBombchu(PlayState* play, s16 drawId) {

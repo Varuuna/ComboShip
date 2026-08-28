@@ -1030,7 +1030,11 @@ void Interpreter::ImportTextureCi4(int tile, bool importReplacement) {
     const uint8_t* palette;
 
     if (mRdp->palettes[palIdx / 8] == nullptr) {
-        SPDLOG_WARN("CI4: null palette slot {} for palIdx={}", palIdx / 8, palIdx);
+        // As in the CI8 path: a silent return leaves a stale GPU texture. Log once per address.
+        static std::unordered_set<const void*> sReportedNullPalettes4;
+        if (sReportedNullPalettes4.insert((const void*)addr).second) {
+            SPDLOG_ERROR("CI4: null palette slot {} for palIdx={}", palIdx / 8, palIdx);
+        }
         return;
     }
     palette = mRdp->palettes[palIdx / 8] + (palIdx % 8) * 16 * 2;
@@ -1120,8 +1124,13 @@ void Interpreter::ImportTextureCi8(int tile, bool importReplacement) {
     uint32_t lineSizeBytes = mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].line_size_bytes;
 
     if (mRdp->palettes[0] == nullptr || mRdp->palettes[1] == nullptr) {
-        SPDLOG_WARN("CI8: null palette (pal0={}, pal1={})", static_cast<const void*>(mRdp->palettes[0]),
-                    static_cast<const void*>(mRdp->palettes[1]));
+        // Returning here leaves the GPU texture holding whatever was in it — visible as noise on an
+        // otherwise correct model, so say so loudly (once per address, this runs per frame).
+        static std::unordered_set<const void*> sReportedNullPalettes;
+        if (sReportedNullPalettes.insert((const void*)addr).second) {
+            SPDLOG_ERROR("CI8: null palette (pal0={}, pal1={})", static_cast<const void*>(mRdp->palettes[0]),
+                         static_cast<const void*>(mRdp->palettes[1]));
+        }
         return;
     }
 
@@ -4272,7 +4281,11 @@ bool gfx_set_timg_otr_hash_handler_custom(F3DGfx** cmd0) {
             gfx->GfxDpSetTextureImage(fmt, size, width, fileName, texFlags, rawTexMetadata, tex);
         }
     } else {
-        SPDLOG_ERROR("G_SETTIMG_OTR_HASH: Texture is null");
+        // ComboShip: name it and log once per path — this fires every frame the model is on screen.
+        static std::unordered_set<std::string> sReportedNullTextures;
+        if (sReportedNullTextures.insert(fileName).second) {
+            SPDLOG_ERROR("G_SETTIMG_OTR_HASH: Texture is null ({})", fileName);
+        }
     }
 
     (*cmd0)++;

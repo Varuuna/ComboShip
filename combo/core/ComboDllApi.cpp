@@ -1,0 +1,314 @@
+#include "core/ComboDllApi.h"
+
+FnVoid SOH_Init = nullptr;
+FnExtract SOH_Extract = nullptr;
+FnRunMain SOH_RunMain = nullptr;
+FnVoid MM_InitArchives = nullptr;
+FnExtract MM_Extract = nullptr;
+FnInt MM_ArchiveCount = nullptr;
+FnSetSaveCallback SOH_SetOnNewSaveCallback = nullptr;
+FnSetSaveCallback SOH_SetOnLoadSaveCallback = nullptr;
+FnGetPlayerName SOH_GetCurrentPlayerName = nullptr;
+FnMMLoadSave MM_LoadSaveForCombo = nullptr;
+FnMMInvalidateOwlBlob MM_InvalidateOwlBlobSlot = nullptr;
+FnVoid SOH_ParkForComboMMResume = nullptr;
+FnMMInitSave MM_SetComboEntryIsResume = nullptr;
+FnIsOnFileSelect SOH_IsOnFileSelect = nullptr;
+FnSetSceneSwitchCallback SOH_SetOnSceneSwitchCallback = nullptr;
+FnMMRunGame MM_RunGame = nullptr;
+FnSOHDeinit SOH_Deinit = nullptr;
+FnSOHPrepare SOH_PrepareForTransition = nullptr;
+FnMMNotify MM_NotifyComboTransition = nullptr;
+FnMMSetReturnCb MM_SetOnComboReturnCallback = nullptr;
+FnVoidArgless SOH_ResumeGame = nullptr;
+FnVoidArgless SOH_NotifyComboReturn = nullptr;
+FnMMResume MM_ResumeGame = nullptr;
+FnVoidArgless MM_PrepareForTransition = nullptr;
+FnDumpData SOH_DumpRandoStaticData = nullptr;
+FnDumpData MM_DumpRandoStaticData = nullptr;
+FnDumpData SOH_DumpRandoSettings = nullptr;
+FnDumpData SOH_DumpEnabledTricks = nullptr;
+FnDumpData MM_DumpRandoSettings = nullptr;
+FnDumpData SOH_DumpRandoHintData = nullptr;
+FnApplyHints SOH_ApplyComboHints = nullptr;
+FnSetHintsPresent SOH_SetComboHintsPresent = nullptr;
+FnVoidArgless SOH_FireGenerationCompleteHooks = nullptr;
+FnVoidV SOH_PrepRandoContext = nullptr;
+FnTakeStr SOH_RestoreRandoSettings = nullptr;
+FnTakeStr MM_RestoreRandoSettings = nullptr;
+FnTakeStr SOH_SetCheckPrices = nullptr;
+FnTakeStr MM_SetCheckPrices = nullptr;
+FnSetReloadCb SOH_SetOnComboReloadCallback = nullptr;
+FnTakeStr SOH_SetComboSpoilerPath = nullptr;
+FnDumpData SOH_GetComboSpoilerPath = nullptr;
+FnSetComboSaveIO SOH_SetComboSaveIO = nullptr;
+FnSetComboSaveIO MM_SetComboSaveIO = nullptr;
+FnTakeStr SOH_LoadComboRando = nullptr;
+FnTakeStr MM_LoadComboRando = nullptr;
+FnSetCopyContainer SOH_SetCopyContainer = nullptr;
+FnSetOutdatedSaveNotice SOH_SetOutdatedSaveNotice = nullptr;
+FnGetForced SOH_GetForcedPlacements = nullptr;
+FnVoidArgless MM_BootForCombo = nullptr;
+FnVoidArgless SOH_ResumeForeground = nullptr;
+FnVoidArgless MM_Deinit = nullptr;
+FnComboUIRegister ComboUI_Register = nullptr;
+FnComboUIForeground ComboUI_OnForegroundGame = nullptr;
+FnComboUIRegister ComboUI_RestoreTrackerIntent = nullptr;
+FnComboUISetRosterProvider ComboUI_SetAnchorRosterProvider = nullptr;
+FnComboUISetNotesStore ComboUI_SetNotesStore = nullptr;
+FnComboUISetHintTrackerData ComboUI_SetHintTrackerData = nullptr;
+FnSetHintRevealOot SOH_SetComboHintRevealCb = nullptr;
+FnSetHintRevealMm MM_SetComboHintRevealCb = nullptr;
+FnComboUISetInt ComboUI_SetComboComplete = nullptr;
+FnVoidArgless MM_ComboPausePlaytime = nullptr;
+FnVoidArgless MM_ComboResumePlaytime = nullptr;
+FnVoidArgless ComboUI_SyncRandomizedCosmetics = nullptr;
+FnComboUIGate ComboUI_CosmeticsSyncGateEnabled = nullptr;
+FnClaimGenRollSeed ComboUI_ClaimGenRollSeed = nullptr;
+FnVoid SOH_InitWindowOnly = nullptr;
+FnVoid SOH_FinishInit = nullptr;
+ComboFnValidateRom SOH_ValidateRom = nullptr;
+ComboFnValidateRom SOH_ClassifyRom = nullptr;
+ComboFnStartExtraction SOH_StartExtraction = nullptr;
+ComboFnGetProgress SOH_GetExtractionProgress = nullptr;
+ComboFnValidateRom MM_ValidateRom = nullptr;
+ComboFnValidateRom MM_ClassifyRom = nullptr;
+ComboFnStartExtraction MM_StartExtraction = nullptr;
+ComboFnGetProgress MM_GetExtractionProgress = nullptr;
+ComboFnRunExtraction ComboUI_RunExtraction = nullptr;
+ComboFnRunSettingsImport ComboUI_RunSettingsImport = nullptr;
+ComboFnApplyImportedConfig SOH_ApplyImportedConfig = nullptr;
+FnOracleVoid Combo_SOH_Rando_Reset = nullptr;
+FnOracleSetItems Combo_SOH_Rando_SetOwnedItems = nullptr;
+FnOracleGetChecks Combo_SOH_Rando_GetReachableChecks = nullptr;
+FnOraclePlaceItem Combo_SOH_Rando_PlaceItem = nullptr;
+FnOracleGetPortalOpen Combo_SOH_Rando_GetPortalOpen = nullptr;
+FnOracleVoid Combo_MM_Rando_Reset = nullptr;
+FnOracleSetItems Combo_MM_Rando_SetOwnedItems = nullptr;
+FnOracleGetChecks Combo_MM_Rando_GetReachableChecks = nullptr;
+FnOraclePlaceItem Combo_MM_Rando_PlaceItem = nullptr;
+FnOracleVoid Combo_MM_Rando_Restore = nullptr;
+FnShuffleEntrances SOH_ShuffleEntrancesForCombo = nullptr;
+FnDumpData SOH_DumpEntranceOverrides = nullptr;
+FnSetDeleteForeignSave SOH_SetDeleteForeignSave = nullptr;
+FnSetDeleteForeignSave MM_SetDeleteForeignSave = nullptr;
+FnDeleteSaveFile SOH_DeleteSaveFile = nullptr;
+FnDeleteSaveFile MM_DeleteSaveFile = nullptr;
+FnSetGenerateCb SOH_SetOnComboGenerateCallback = nullptr;
+FnApplyPlacements SOH_ApplyRandoPlacements = nullptr;
+FnMMInitRandoSave MM_InitRandoSaveFile = nullptr;
+FnSetComboRandoSeed SOH_SetComboRandoSeed = nullptr;
+FnSetComboRandoSeed MM_SetComboRandoSeed = nullptr;
+FnSetComboSeedHash SOH_SetComboSeedHash = nullptr;
+FnSetGenReqCb SOH_SetOnComboGenerateRequestCallback = nullptr;
+FnSetSeedGenerated SOH_SetSeedGenerated = nullptr;
+FnSetComboProgressPtr SOH_SetComboProgressPtr = nullptr;
+FnSetComboFinalizeCb SOH_SetOnComboFinalizeCallback = nullptr;
+FnSetAnchorSend SOH_SetAnchorSend = nullptr;
+FnSetAnchorConnect SOH_SetAnchorConnect = nullptr;
+FnSetAnchorDisconnect SOH_SetAnchorDisconnect = nullptr;
+FnAnchorRecv SOH_Anchor_RecvJson = nullptr;
+FnVoidArgless SOH_Anchor_OnConnected = nullptr;
+FnVoidArgless SOH_Anchor_OnDisconnected = nullptr;
+FnVoidArgless SOH_Anchor_RequestResync = nullptr;
+FnSetAnchorSend MM_SetAnchorSend = nullptr;
+FnAnchorRecv MM_Anchor_RecvJson = nullptr;
+FnVoidArgless MM_Anchor_Activate = nullptr;
+FnVoidArgless MM_Anchor_Deactivate = nullptr;
+FnVoidArgless MM_Anchor_RequestResync = nullptr;
+FnSetPumpDormant SOH_SetPumpDormant = nullptr;
+FnSetPumpDormant MM_SetPumpDormant = nullptr;
+FnVoidArgless SOH_Anchor_PumpDormant = nullptr;
+FnVoidArgless MM_Anchor_PumpDormant = nullptr;
+FnSetCrossDeliver SOH_SetCrossDeliver = nullptr;
+FnSetCrossDeliver MM_SetCrossDeliver = nullptr;
+FnGrantCrossItem SOH_GrantCrossItem = nullptr;
+FnGrantCrossItem MM_GrantCrossItem = nullptr;
+FnSetCrossRoute SOH_SetMarkForeignObtained = nullptr;
+FnSetCrossRoute MM_SetMarkForeignObtained = nullptr;
+FnGrantCrossItem SOH_MarkForeignObtained = nullptr;
+FnGrantCrossItem MM_MarkForeignObtained = nullptr;
+FnSetBossDefeatedCb SOH_SetFinalBossDefeatedCb = nullptr;
+FnSetBossDefeatedCb MM_SetFinalBossDefeatedCb = nullptr;
+FnSetComboGoal SOH_SetComboGoal = nullptr;
+FnSetComboGoal MM_SetComboGoal = nullptr;
+FnReadComboGoalCVars SOH_ReadComboGoalCVars = nullptr;
+FnGetTriforceCount SOH_GetTriforcePieceCount = nullptr;
+FnGetTriforceCount MM_GetTriforcePieceCount = nullptr;
+FnTriggerTriforceCredits SOH_TriggerTriforceCredits = nullptr;
+FnTriggerTriforceCredits MM_TriggerTriforceCredits = nullptr;
+FnSetTriforceProgressCb SOH_SetTriforceProgressCb = nullptr;
+FnSetTriforceProgressCb MM_SetTriforceProgressCb = nullptr;
+FnSetOtherTriforceCountCb SOH_SetOtherTriforceCountCb = nullptr;
+FnSetOtherTriforceCountCb MM_SetOtherTriforceCountCb = nullptr;
+FnSetComboStartingGame SOH_SetComboStartingGame = nullptr;
+FnReadComboStartingGameCVar SOH_ReadComboStartingGameCVar = nullptr;
+
+void ComboResolveGameExports(DllHandle sohModule, DllHandle mmModule) {
+    // Resolve soh.dll exports
+    SOH_Init = (FnVoid)GetSym(sohModule, "SOH_Init");
+    SOH_RunMain = (FnRunMain)GetSym(sohModule, "SOH_RunMain");
+    SOH_Extract = (FnExtract)GetSym(sohModule, "SOH_Extract");
+
+
+    // Resolve 2ship.dll exports
+    MM_InitArchives = (FnVoid)GetSym(mmModule, "MM_InitArchives");
+    MM_Extract = (FnExtract)GetSym(mmModule, "MM_Extract");
+    MM_ArchiveCount = (FnInt)GetSym(mmModule, "MM_ArchiveCount");
+    SOH_SetOnNewSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnNewSaveCallback");
+    SOH_SetOnLoadSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnLoadSaveCallback");
+    SOH_GetCurrentPlayerName = (FnGetPlayerName)GetSym(sohModule, "SOH_GetCurrentPlayerName");
+    MM_LoadSaveForCombo = (FnMMLoadSave)GetSym(mmModule, "MM_LoadSaveForCombo");
+    MM_InvalidateOwlBlobSlot = (FnMMInvalidateOwlBlob)GetSym(mmModule, "MM_InvalidateOwlBlobSlot");
+    SOH_ParkForComboMMResume = (FnVoid)GetSym(sohModule, "SOH_ParkForComboMMResume");
+    MM_SetComboEntryIsResume = (FnMMInitSave)GetSym(mmModule, "MM_SetComboEntryIsResume");
+    SOH_IsOnFileSelect = (FnIsOnFileSelect)GetSym(sohModule, "SOH_IsOnFileSelect");
+    SOH_SetOnSceneSwitchCallback = (FnSetSceneSwitchCallback)GetSym(sohModule, "SOH_SetOnSceneSwitchCallback");
+    MM_RunGame = (FnMMRunGame)GetSym(mmModule, "MM_RunGame");
+    SOH_Deinit = (FnSOHDeinit)GetSym(sohModule, "SOH_Deinit");
+    SOH_PrepareForTransition = (FnSOHPrepare)GetSym(sohModule, "SOH_PrepareForTransition");
+    MM_NotifyComboTransition = (FnMMNotify)GetSym(mmModule, "MM_NotifyComboTransition");
+    MM_SetOnComboReturnCallback = (FnMMSetReturnCb)GetSym(mmModule, "MM_SetOnComboReturnCallback");
+    SOH_ResumeGame = (FnVoidArgless)GetSym(sohModule, "SOH_ResumeGame");
+    SOH_NotifyComboReturn = (FnVoidArgless)GetSym(sohModule, "SOH_NotifyComboReturn");
+    MM_ResumeGame = (FnMMResume)GetSym(mmModule, "MM_ResumeGame");
+    MM_PrepareForTransition = (FnVoidArgless)GetSym(mmModule, "MM_PrepareForTransition");
+    SOH_DumpRandoStaticData = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoStaticData");
+    MM_DumpRandoStaticData = (FnDumpData)GetSym(mmModule, "MM_DumpRandoStaticData");
+    SOH_DumpRandoSettings = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoSettings");
+    SOH_DumpEnabledTricks = (FnDumpData)GetSym(sohModule, "SOH_DumpEnabledTricks");
+    MM_DumpRandoSettings = (FnDumpData)GetSym(mmModule, "MM_DumpRandoSettings");
+    SOH_DumpRandoHintData = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoHintData");
+    SOH_ApplyComboHints = (FnApplyHints)GetSym(sohModule, "SOH_ApplyComboHints");
+    SOH_SetComboHintsPresent = (FnSetHintsPresent)GetSym(sohModule, "SOH_SetComboHintsPresent");
+    SOH_FireGenerationCompleteHooks = (FnVoidArgless)GetSym(sohModule, "SOH_FireGenerationCompleteHooks");
+    // #164: combo Hint Tracker reveal reporting.
+    SOH_SetComboHintRevealCb = (FnSetHintRevealOot)GetSym(sohModule, "SOH_SetComboHintRevealCb");
+    MM_SetComboHintRevealCb = (FnSetHintRevealMm)GetSym(mmModule, "MM_SetComboHintRevealCb");
+    SOH_PrepRandoContext = (FnVoidV)GetSym(sohModule, "SOH_PrepRandoContext");
+    SOH_RestoreRandoSettings = (FnTakeStr)GetSym(sohModule, "SOH_RestoreRandoSettings");
+    MM_RestoreRandoSettings = (FnTakeStr)GetSym(mmModule, "MM_RestoreRandoSettings");
+    SOH_SetCheckPrices = (FnTakeStr)GetSym(sohModule, "SOH_SetCheckPrices");
+    MM_SetCheckPrices = (FnTakeStr)GetSym(mmModule, "MM_SetCheckPrices");
+    SOH_SetOnComboReloadCallback = (FnSetReloadCb)GetSym(sohModule, "SOH_SetOnComboReloadCallback");
+    SOH_SetComboSpoilerPath = (FnTakeStr)GetSym(sohModule, "SOH_SetComboSpoilerPath");
+    SOH_GetComboSpoilerPath = (FnDumpData)GetSym(sohModule, "SOH_GetComboSpoilerPath");
+    MM_InitRandoSaveFile = (FnMMInitRandoSave)GetSym(mmModule, "MM_InitRandoSaveFile");
+    SOH_SetOnComboGenerateCallback = (FnSetGenerateCb)GetSym(sohModule, "SOH_SetOnComboGenerateCallback");
+    SOH_ApplyRandoPlacements = (FnApplyPlacements)GetSym(sohModule, "SOH_ApplyRandoPlacements");
+    SOH_GetForcedPlacements = (FnGetForced)GetSym(sohModule, "SOH_GetForcedPlacements");
+    SOH_SetComboRandoSeed = (FnSetComboRandoSeed)GetSym(sohModule, "SOH_SetComboRandoSeed");
+    MM_SetComboRandoSeed = (FnSetComboRandoSeed)GetSym(mmModule, "MM_SetComboRandoSeed");
+    SOH_SetComboSeedHash = (FnSetComboSeedHash)GetSym(sohModule, "SOH_SetComboSeedHash");
+    SOH_SetOnComboGenerateRequestCallback = (FnSetGenReqCb)GetSym(sohModule, "SOH_SetOnComboGenerateRequestCallback");
+    SOH_SetSeedGenerated = (FnSetSeedGenerated)GetSym(sohModule, "SOH_SetSeedGenerated");
+    SOH_SetComboProgressPtr = (FnSetComboProgressPtr)GetSym(sohModule, "SOH_SetComboProgressPtr");
+    SOH_SetOnComboFinalizeCallback = (FnSetComboFinalizeCb)GetSym(sohModule, "SOH_SetOnComboFinalizeCallback");
+    MM_BootForCombo = (FnVoidArgless)GetSym(mmModule, "MM_BootForCombo");
+    MM_Deinit = (FnVoidArgless)GetSym(mmModule, "MM_Deinit");
+    SOH_ResumeForeground = (FnVoidArgless)GetSym(sohModule, "SOH_ResumeForeground");
+
+    // ComboShip-owned unified extraction primitives + split init
+    SOH_InitWindowOnly = (FnVoid)GetSym(sohModule, "SOH_InitWindowOnly");
+    SOH_FinishInit = (FnVoid)GetSym(sohModule, "SOH_FinishInit");
+    SOH_ValidateRom = (ComboFnValidateRom)GetSym(sohModule, "SOH_ValidateRom");
+    SOH_ClassifyRom = (ComboFnValidateRom)GetSym(sohModule, "SOH_ClassifyRom");
+    SOH_StartExtraction = (ComboFnStartExtraction)GetSym(sohModule, "SOH_StartExtraction");
+    SOH_GetExtractionProgress = (ComboFnGetProgress)GetSym(sohModule, "SOH_GetExtractionProgress");
+    MM_ValidateRom = (ComboFnValidateRom)GetSym(mmModule, "MM_ValidateRom");
+    MM_ClassifyRom = (ComboFnValidateRom)GetSym(mmModule, "MM_ClassifyRom");
+    MM_StartExtraction = (ComboFnStartExtraction)GetSym(mmModule, "MM_StartExtraction");
+    MM_GetExtractionProgress = (ComboFnGetProgress)GetSym(mmModule, "MM_GetExtractionProgress");
+    SOH_ApplyImportedConfig = (ComboFnApplyImportedConfig)GetSym(sohModule, "SOH_ApplyImportedConfig");
+
+    // Anchor transport seam exports (Phase 1)
+    SOH_SetAnchorSend = (FnSetAnchorSend)GetSym(sohModule, "SOH_SetAnchorSend");
+    SOH_SetAnchorConnect = (FnSetAnchorConnect)GetSym(sohModule, "SOH_SetAnchorConnect");
+    SOH_SetAnchorDisconnect = (FnSetAnchorDisconnect)GetSym(sohModule, "SOH_SetAnchorDisconnect");
+    SOH_Anchor_RecvJson = (FnAnchorRecv)GetSym(sohModule, "SOH_Anchor_RecvJson");
+    SOH_Anchor_OnConnected = (FnVoidArgless)GetSym(sohModule, "SOH_Anchor_OnConnected");
+    SOH_Anchor_OnDisconnected = (FnVoidArgless)GetSym(sohModule, "SOH_Anchor_OnDisconnected");
+    MM_SetAnchorSend = (FnSetAnchorSend)GetSym(mmModule, "MM_SetAnchorSend");
+    MM_Anchor_RecvJson = (FnAnchorRecv)GetSym(mmModule, "MM_Anchor_RecvJson");
+    MM_Anchor_Activate = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_Activate");
+    MM_Anchor_Deactivate = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_Deactivate");
+    SOH_Anchor_RequestResync = (FnVoidArgless)GetSym(sohModule, "SOH_Anchor_RequestResync");
+    MM_Anchor_RequestResync = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_RequestResync");
+    SOH_SetPumpDormant = (FnSetPumpDormant)GetSym(sohModule, "SOH_SetPumpDormant");
+    MM_SetPumpDormant = (FnSetPumpDormant)GetSym(mmModule, "MM_SetPumpDormant");
+    SOH_Anchor_PumpDormant = (FnVoidArgless)GetSym(sohModule, "SOH_Anchor_PumpDormant");
+    MM_Anchor_PumpDormant = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_PumpDormant");
+
+    // Cross-game item delivery seam (issue #3)
+    SOH_SetCrossDeliver = (FnSetCrossDeliver)GetSym(sohModule, "SOH_SetCrossDeliver");
+    MM_SetCrossDeliver = (FnSetCrossDeliver)GetSym(mmModule, "MM_SetCrossDeliver");
+    SOH_GrantCrossItem = (FnGrantCrossItem)GetSym(sohModule, "SOH_GrantCrossItem");
+    MM_GrantCrossItem = (FnGrantCrossItem)GetSym(mmModule, "MM_GrantCrossItem");
+    SOH_SetMarkForeignObtained = (FnSetCrossRoute)GetSym(sohModule, "SOH_SetMarkForeignObtained");
+    MM_SetMarkForeignObtained = (FnSetCrossRoute)GetSym(mmModule, "MM_SetMarkForeignObtained");
+    SOH_MarkForeignObtained = (FnGrantCrossItem)GetSym(sohModule, "SOH_MarkForeignObtained");
+    MM_MarkForeignObtained = (FnGrantCrossItem)GetSym(mmModule, "MM_MarkForeignObtained");
+    SOH_SetFinalBossDefeatedCb = (FnSetBossDefeatedCb)GetSym(sohModule, "SOH_SetFinalBossDefeatedCb");
+    MM_SetFinalBossDefeatedCb = (FnSetBossDefeatedCb)GetSym(mmModule, "MM_SetFinalBossDefeatedCb");
+
+    // Combined Triforce Hunt goal seam (#136)
+    SOH_SetComboGoal = (FnSetComboGoal)GetSym(sohModule, "SOH_SetComboGoal");
+    MM_SetComboGoal = (FnSetComboGoal)GetSym(mmModule, "MM_SetComboGoal");
+    SOH_ReadComboGoalCVars = (FnReadComboGoalCVars)GetSym(sohModule, "SOH_ReadComboGoalCVars");
+    SOH_GetTriforcePieceCount = (FnGetTriforceCount)GetSym(sohModule, "SOH_GetTriforcePieceCount");
+    MM_GetTriforcePieceCount = (FnGetTriforceCount)GetSym(mmModule, "MM_GetTriforcePieceCount");
+    MM_ComboPausePlaytime = (FnVoidArgless)GetSym(mmModule, "MM_ComboPausePlaytime");
+    MM_ComboResumePlaytime = (FnVoidArgless)GetSym(mmModule, "MM_ComboResumePlaytime");
+    SOH_TriggerTriforceCredits = (FnTriggerTriforceCredits)GetSym(sohModule, "SOH_TriggerTriforceCredits");
+    MM_TriggerTriforceCredits = (FnTriggerTriforceCredits)GetSym(mmModule, "MM_TriggerTriforceCredits");
+    SOH_SetTriforceProgressCb = (FnSetTriforceProgressCb)GetSym(sohModule, "SOH_SetTriforceProgressCb");
+    MM_SetTriforceProgressCb = (FnSetTriforceProgressCb)GetSym(mmModule, "MM_SetTriforceProgressCb");
+    SOH_SetOtherTriforceCountCb = (FnSetOtherTriforceCountCb)GetSym(sohModule, "SOH_SetOtherTriforceCountCb");
+    MM_SetOtherTriforceCountCb = (FnSetOtherTriforceCountCb)GetSym(mmModule, "MM_SetOtherTriforceCountCb");
+
+    // Starting game seam (#135) — OOT-side only; MM needs no setter (nothing there reads it).
+    SOH_SetComboStartingGame = (FnSetComboStartingGame)GetSym(sohModule, "SOH_SetComboStartingGame");
+    SOH_ReadComboStartingGameCVar = (FnReadComboStartingGameCVar)GetSym(sohModule, "SOH_ReadComboStartingGameCVar");
+
+    // Oracle exports
+    Combo_SOH_Rando_Reset = (FnOracleVoid)GetSym(sohModule, "Combo_SOH_Rando_Reset");
+    Combo_SOH_Rando_SetOwnedItems = (FnOracleSetItems)GetSym(sohModule, "Combo_SOH_Rando_SetOwnedItems");
+    Combo_SOH_Rando_GetReachableChecks = (FnOracleGetChecks)GetSym(sohModule, "Combo_SOH_Rando_GetReachableChecks");
+    Combo_SOH_Rando_PlaceItem = (FnOraclePlaceItem)GetSym(sohModule, "Combo_SOH_Rando_PlaceItem");
+    Combo_SOH_Rando_GetPortalOpen = (FnOracleGetPortalOpen)GetSym(sohModule, "Combo_SOH_Rando_GetPortalOpen");
+    Combo_MM_Rando_Reset = (FnOracleVoid)GetSym(mmModule, "Combo_MM_Rando_Reset");
+    Combo_MM_Rando_SetOwnedItems = (FnOracleSetItems)GetSym(mmModule, "Combo_MM_Rando_SetOwnedItems");
+    Combo_MM_Rando_GetReachableChecks = (FnOracleGetChecks)GetSym(mmModule, "Combo_MM_Rando_GetReachableChecks");
+    Combo_MM_Rando_PlaceItem = (FnOraclePlaceItem)GetSym(mmModule, "Combo_MM_Rando_PlaceItem");
+    Combo_MM_Rando_Restore = (FnOracleVoid)GetSym(mmModule, "Combo_MM_Rando_Restore");
+
+    // OOT entrance-shuffle wiring (#90)
+    SOH_ShuffleEntrancesForCombo = (FnShuffleEntrances)GetSym(sohModule, "SOH_ShuffleEntrancesForCombo");
+    SOH_DumpEntranceOverrides = (FnDumpData)GetSym(sohModule, "SOH_DumpEntranceOverrides");
+
+    // Cross-game erase seam (issue #1)
+    SOH_SetComboSaveIO = (FnSetComboSaveIO)GetSym(sohModule, "SOH_SetComboSaveIO");
+    MM_SetComboSaveIO = (FnSetComboSaveIO)GetSym(mmModule, "MM_SetComboSaveIO");
+    SOH_LoadComboRando = (FnTakeStr)GetSym(sohModule, "SOH_LoadComboRando");
+    MM_LoadComboRando = (FnTakeStr)GetSym(mmModule, "MM_LoadComboRando");
+    SOH_SetCopyContainer = (FnSetCopyContainer)GetSym(sohModule, "SOH_SetCopyContainer");
+    SOH_SetOutdatedSaveNotice = (FnSetOutdatedSaveNotice)GetSym(sohModule, "SOH_SetOutdatedSaveNotice");
+    SOH_SetDeleteForeignSave = (FnSetDeleteForeignSave)GetSym(sohModule, "SOH_SetDeleteForeignSave");
+    MM_SetDeleteForeignSave = (FnSetDeleteForeignSave)GetSym(mmModule, "MM_SetDeleteForeignSave");
+    SOH_DeleteSaveFile = (FnDeleteSaveFile)GetSym(sohModule, "SOH_DeleteSaveFile");
+    MM_DeleteSaveFile = (FnDeleteSaveFile)GetSym(mmModule, "MM_DeleteSaveFile");
+}
+
+void ComboResolveComboUiExports(DllHandle comboUIModule) {
+    ComboUI_Register = (FnComboUIRegister)GetSym(comboUIModule, "ComboUI_Register");
+    ComboUI_OnForegroundGame = (FnComboUIForeground)GetSym(comboUIModule, "ComboUI_OnForegroundGame");
+    ComboUI_RestoreTrackerIntent = (FnComboUIRegister)GetSym(comboUIModule, "ComboUI_RestoreTrackerIntent");
+    ComboUI_SetAnchorRosterProvider =
+        (FnComboUISetRosterProvider)GetSym(comboUIModule, "ComboUI_SetAnchorRosterProvider");
+    ComboUI_SetHintTrackerData = (FnComboUISetHintTrackerData)GetSym(comboUIModule, "ComboUI_SetHintTrackerData");
+    ComboUI_SetComboComplete = (FnComboUISetInt)GetSym(comboUIModule, "ComboUI_SetComboComplete");
+    ComboUI_SetNotesStore = (FnComboUISetNotesStore)GetSym(comboUIModule, "ComboUI_SetNotesStore");
+    ComboUI_SyncRandomizedCosmetics = (FnVoidArgless)GetSym(comboUIModule, "ComboUI_SyncRandomizedCosmetics");
+    ComboUI_CosmeticsSyncGateEnabled = (FnComboUIGate)GetSym(comboUIModule, "ComboUI_CosmeticsSyncGateEnabled");
+    ComboUI_ClaimGenRollSeed = (FnClaimGenRollSeed)GetSym(comboUIModule, "ComboUI_ClaimGenRollSeed");
+}

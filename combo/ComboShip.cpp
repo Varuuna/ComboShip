@@ -41,162 +41,14 @@
 #include "ComboExtract.h"
 #include "ComboSettingsImport.h"
 #include "core/ComboPlatform.h"
+#include "core/ComboDllApi.h"
+#include "core/ComboSeedMath.h"
 
-// ---------- Function pointer types ----------
-
-typedef void (*FnVoid)();
-typedef bool (*FnExtract)(const char*);
-typedef void (*FnRunMain)(int, char**);
-typedef int (*FnInt)();
-typedef void (*FnSetSaveCallback)(void (*)(int));
-typedef void (*FnMMInitSave)(int);
-typedef void (*FnSetSceneSwitchCallback)(void (*)(int));
-typedef void (*FnMMRunGame)(int);
-typedef void (*FnSOHDeinit)();
-typedef void (*FnSOHPrepare)();
-typedef void (*FnMMNotify)();
-static FnVoid SOH_Init = nullptr;
-static FnExtract SOH_Extract = nullptr;
-static FnRunMain SOH_RunMain = nullptr;
-static FnVoid MM_InitArchives = nullptr;
-static FnExtract MM_Extract = nullptr;
-static FnInt MM_ArchiveCount = nullptr;
-static FnSetSaveCallback SOH_SetOnNewSaveCallback = nullptr;
-static FnSetSaveCallback SOH_SetOnLoadSaveCallback = nullptr;
-typedef void (*FnGetPlayerName)(unsigned char*);
-static FnGetPlayerName SOH_GetCurrentPlayerName = nullptr;
-// Nonzero = the slot's MM half is missing/broken; nothing was loaded (see SaveManager_LoadSaveFile).
-typedef int (*FnMMLoadSave)(int);
-static FnMMLoadSave MM_LoadSaveForCombo = nullptr;
-// ComboShip (#182): MM caches which slot's owl save its gSaveContext came from; tell it when the
-// launcher replaces a slot's mm section underneath it.
-typedef void (*FnMMInvalidateOwlBlob)(void);
-static FnMMInvalidateOwlBlob MM_InvalidateOwlBlobSlot = nullptr;
-// #89 resume-into-MM: drop out of OOT's loop before it runs a Play frame / tell MM how it was entered.
-// SOH_IsOnFileSelect distinguishes a real file-select load from the OnLoadGame that TitleSetup fires
-// on the MM->OOT return (which must not bounce the player straight back into MM).
-typedef unsigned char (*FnIsOnFileSelect)();
-static FnVoid SOH_ParkForComboMMResume = nullptr;
-static FnMMInitSave MM_SetComboEntryIsResume = nullptr;
-static FnIsOnFileSelect SOH_IsOnFileSelect = nullptr;
 // OOT slot whose MM save is live in MM's dormant memory (-1 = none). Guards Combo_OnOOTSaveLoad
 // against reloading stale disk state over MM's in-memory progress after round trips.
 static int g_MmSaveInMemorySlot = -1;
-static FnSetSceneSwitchCallback SOH_SetOnSceneSwitchCallback = nullptr;
-static FnMMRunGame MM_RunGame = nullptr;
-static FnSOHDeinit SOH_Deinit = nullptr;
-static FnSOHPrepare SOH_PrepareForTransition = nullptr;
-static FnMMNotify MM_NotifyComboTransition = nullptr;
-
-typedef void (*FnMMSetReturnCb)(void (*)(int));
-static FnMMSetReturnCb MM_SetOnComboReturnCallback = nullptr;
 static bool g_pendingOOTReturn = false;
-
-typedef void (*FnVoidArgless)(void);
-static FnVoidArgless SOH_ResumeGame = nullptr;
-static FnVoidArgless SOH_NotifyComboReturn = nullptr;
-
-typedef void (*FnMMResume)(int);
-static FnMMResume MM_ResumeGame = nullptr;
-static FnVoidArgless MM_PrepareForTransition = nullptr;
-
-// ComboShip: headless static-data dump exports
-typedef const char* (*FnDumpData)(void);
-static FnDumpData SOH_DumpRandoStaticData = nullptr;
-static FnDumpData MM_DumpRandoStaticData = nullptr;
-static FnDumpData SOH_DumpRandoSettings = nullptr; // {cvar:value} OOT rando settings snapshot
-static FnDumpData SOH_DumpEnabledTricks = nullptr; // [NameTag,...] the player's enabled OOT tricks
-static FnDumpData MM_DumpRandoSettings = nullptr;  // {cvar:value} MM rando settings snapshot
-static FnDumpData SOH_DumpRandoHintData = nullptr; // OOT hint text/options schema (cross-hint Phase 2)
-// ComboShip: cross-hint Phase 3 — apply combo-generated hints + tell OOT whether this seed has any.
-typedef void (*FnApplyHints)(const char*);
-typedef void (*FnSetHintsPresent)(int);
-static FnApplyHints SOH_ApplyComboHints = nullptr;
-static FnSetHintsPresent SOH_SetComboHintsPresent = nullptr;
-// #169: OOT's generation-completion hooks (cosmetics/audio randomize-on-gen) — combo's fill never
-// reaches the vanilla fire site, so the launcher fires them itself (see Combo_FireGenRollHooksOnce).
-static FnVoidArgless SOH_FireGenerationCompleteHooks = nullptr;
-// Reload/remember-seed: restore settings + run the pool prep before re-applying saved placements.
-typedef void (*FnVoidV)(void);
-typedef void (*FnTakeStr)(const char*);
-typedef void (*FnSetReloadCb)(int (*)(const char*));
-static FnVoidV SOH_PrepRandoContext = nullptr;
-static FnTakeStr SOH_RestoreRandoSettings = nullptr;
-static FnTakeStr MM_RestoreRandoSettings = nullptr;
-static FnTakeStr SOH_SetCheckPrices = nullptr;
-static FnTakeStr MM_SetCheckPrices = nullptr;
-static FnSetReloadCb SOH_SetOnComboReloadCallback = nullptr;
-// Remembered spoiler path (CVAR_GENERAL("ComboSpoiler")) — soh owns the config, so the launcher goes
-// through it rather than parsing comboship.json itself.
-static FnTakeStr SOH_SetComboSpoilerPath = nullptr;
-static FnDumpData SOH_GetComboSpoilerPath = nullptr;
-
-// ComboShip merged per-slot save container: setters that push the launcher's save-IO callbacks into
-// each DLL, plus the once-per-load push of the baked combo rando (foreign map + cross-hints).
-typedef void (*FnSetComboSaveIO)(ComboRando::FnComboReadSave, ComboRando::FnComboWriteSave);
-static FnSetComboSaveIO SOH_SetComboSaveIO = nullptr;
-static FnSetComboSaveIO MM_SetComboSaveIO = nullptr;
-static FnTakeStr SOH_LoadComboRando = nullptr;
-static FnTakeStr MM_LoadComboRando = nullptr;
-// OOT file-select "copy file": whole-container copy (both games + rando) through the launcher.
-typedef void (*FnSetCopyContainer)(void (*)(int, int));
-static FnSetCopyContainer SOH_SetCopyContainer = nullptr;
-// OOT polls this each frame (main thread) for slots whose container was backed up for a release mismatch.
-typedef void (*FnSetOutdatedSaveNotice)(int (*)());
-static FnSetOutdatedSaveNotice SOH_SetOutdatedSaveNotice = nullptr;
-
-// ComboShip: OOT forced placements (Link's Pocket etc.) the static dump can't carry — see
-// SOH_GetForcedPlacements. Seed-parameterized so the pick is deterministic per generated seed.
-typedef const char* (*FnGetForced)(uint32_t);
-static FnGetForced SOH_GetForcedPlacements = nullptr;
-
-// ComboShip: eager MM boot at startup (replaces the headless MM_InitRandoLogic warm-up).
-static FnVoidArgless MM_BootForCombo = nullptr;
-static FnVoidArgless SOH_ResumeForeground = nullptr;
-static FnVoidArgless MM_Deinit = nullptr;
-
-typedef void (*FnComboUIRegister)(void);
 static DllHandle comboUIModule = nullptr;
-static FnComboUIRegister ComboUI_Register = nullptr;
-
-// ComboShip: tracker visibility follows the active game (see combo/gui/ComboTrackerVisibility.cpp).
-typedef void (*FnComboUIForeground)(int);
-static FnComboUIForeground ComboUI_OnForegroundGame = nullptr;
-static FnComboUIRegister ComboUI_RestoreTrackerIntent = nullptr;
-
-// ComboShip: hand comboui the launcher-owned Anchor roster getter (the room window reads it).
-typedef void (*FnComboUISetRosterProvider)(const char* (*)());
-static FnComboUISetRosterProvider ComboUI_SetAnchorRosterProvider = nullptr;
-
-// ComboShip (#165): hand comboui the launcher-owned per-slot notes accessors (combo.notes).
-typedef void (*FnComboUISetNotesStore)(const char* (*)(int), void (*)(int, const char*));
-static FnComboUISetNotesStore ComboUI_SetNotesStore = nullptr;
-
-// ComboShip (#164): combo Hint Tracker — push the slot's hints slice + read state into comboui, and
-// receive reveal reports back from both game DLLs.
-typedef void (*FnComboUISetHintTrackerData)(int, const char*, const char*);
-static FnComboUISetHintTrackerData ComboUI_SetHintTrackerData = nullptr;
-typedef void (*FnSetHintRevealOot)(void (*)(int, const char*));
-static FnSetHintRevealOot SOH_SetComboHintRevealCb = nullptr;
-typedef void (*FnSetHintRevealMm)(void (*)(int, int, int, const char*, const char*));
-static FnSetHintRevealMm MM_SetComboHintRevealCb = nullptr;
-
-// ComboShip (#173): combo-owned overlay timers. MM's play time is wall clock between flushes, so it
-// must be paused/resumed across every game swap or the time spent in OOT lands in MM's save.
-typedef void (*FnComboUISetInt)(int);
-static FnComboUISetInt ComboUI_SetComboComplete = nullptr;
-static FnVoidArgless MM_ComboPausePlaytime = nullptr;
-static FnVoidArgless MM_ComboResumePlaytime = nullptr;
-
-// ComboShip (#169): combo-owned OOT->MM cosmetic color sync (combo/gui/ComboCosmeticsSync.cpp). The
-// gate predicate is exported too, so the launcher never duplicates the CVar reads.
-static FnVoidArgless ComboUI_SyncRandomizedCosmetics = nullptr;
-typedef int (*FnComboUIGate)(void);
-static FnComboUIGate ComboUI_CosmeticsSyncGateEnabled = nullptr;
-// Per-seed latch for the gen-roll hooks (comboui owns it — the exe has no CVar API). 1 = not rolled yet.
-typedef int (*FnClaimGenRollSeed)(unsigned long long);
-static FnClaimGenRollSeed ComboUI_ClaimGenRollSeed = nullptr;
-
 // ComboShip (#169): fire OOT's generation-completion hooks at most once per seed per machine, so the
 // silent auto-load on every boot cannot re-roll over cosmetic/audio edits the user made by hand.
 // force = fresh generation: still claim the seed (so later loads of it leave manual edits alone) but
@@ -208,51 +60,6 @@ static void Combo_FireGenRollHooksOnce(uint64_t masterSeed, bool force = false) 
     if (claimed || force)
         SOH_FireGenerationCompleteHooks();
 }
-
-// ComboShip-owned unified ROM extraction (see ComboExtract.h). The split init lets us create the
-// shared window from soh.o2r before any ROM exists, run the extraction screen, then finish.
-static FnVoid SOH_InitWindowOnly = nullptr;
-static FnVoid SOH_FinishInit = nullptr;
-static ComboFnValidateRom SOH_ValidateRom = nullptr;
-static ComboFnValidateRom SOH_ClassifyRom = nullptr;
-static ComboFnStartExtraction SOH_StartExtraction = nullptr;
-static ComboFnGetProgress SOH_GetExtractionProgress = nullptr;
-static ComboFnValidateRom MM_ValidateRom = nullptr;
-static ComboFnValidateRom MM_ClassifyRom = nullptr;
-static ComboFnStartExtraction MM_StartExtraction = nullptr;
-static ComboFnGetProgress MM_GetExtractionProgress = nullptr;
-static ComboFnRunExtraction ComboUI_RunExtraction = nullptr;
-
-// ComboShip-owned first-launch settings import (see ComboSettingsImport.h). comboui renders the
-// screen; soh applies the launcher-merged config to the live Config.
-static ComboFnRunSettingsImport ComboUI_RunSettingsImport = nullptr;
-static ComboFnApplyImportedConfig SOH_ApplyImportedConfig = nullptr;
-
-// ComboShip: per-game reachability oracle exports
-typedef void (*FnOracleVoid)(void);
-typedef void (*FnOracleSetItems)(const char*);
-typedef const char* (*FnOracleGetChecks)(void);
-typedef void (*FnOraclePlaceItem)(const char*, const char*);
-typedef uint8_t (*FnOracleGetPortalOpen)(void);
-
-static FnOracleVoid Combo_SOH_Rando_Reset = nullptr;
-static FnOracleSetItems Combo_SOH_Rando_SetOwnedItems = nullptr;
-static FnOracleGetChecks Combo_SOH_Rando_GetReachableChecks = nullptr;
-static FnOraclePlaceItem Combo_SOH_Rando_PlaceItem = nullptr;
-// OOT->MM portal gate (Happy Mask Shop region access) — see CrossWorldRando.h.
-static FnOracleGetPortalOpen Combo_SOH_Rando_GetPortalOpen = nullptr;
-
-static FnOracleVoid Combo_MM_Rando_Reset = nullptr;
-static FnOracleSetItems Combo_MM_Rando_SetOwnedItems = nullptr;
-static FnOracleGetChecks Combo_MM_Rando_GetReachableChecks = nullptr;
-static FnOraclePlaceItem Combo_MM_Rando_PlaceItem = nullptr;
-static FnOracleVoid Combo_MM_Rando_Restore = nullptr;
-
-// ComboShip (#90): OOT entrance shuffle — the combo generator never runs native Fill(), so the
-// entrance options need this explicit headless shuffle + an informational spoiler dump.
-typedef int (*FnShuffleEntrances)(uint64_t);
-static FnShuffleEntrances SOH_ShuffleEntrancesForCombo = nullptr;
-static FnDumpData SOH_DumpEntranceOverrides = nullptr;
 
 // ---------- ComboShip merged per-slot save container (Save/file{N+1}.combosav) ----------
 // One JSON file per slot holds both games' saves verbatim + combo metadata (completion + baked rando).
@@ -525,12 +332,6 @@ static void Combo_SetNotes(int fileNum, const char* text) {
 // ComboShip (issue #1): erasing a slot from either game's file-select wipes BOTH saves — each game
 // fires its Set*-registered callback with the slot, the launcher routes it to the other game's
 // save-only delete export (never re-entering a menu erase path). See docs/deviations/boot-shutdown.md.
-typedef void (*FnSetDeleteForeignSave)(void (*)(int));
-typedef void (*FnDeleteSaveFile)(int);
-static FnSetDeleteForeignSave SOH_SetDeleteForeignSave = nullptr;
-static FnSetDeleteForeignSave MM_SetDeleteForeignSave = nullptr;
-static FnDeleteSaveFile SOH_DeleteSaveFile = nullptr;
-static FnDeleteSaveFile MM_DeleteSaveFile = nullptr;
 
 // Registered into each game; invoked when that game erases a slot. Routes the (0-based) slot to the
 // OTHER game's delete export, then removes the merged container. The launcher does no index math —
@@ -546,29 +347,6 @@ static void DeleteForeignSaveFromMM(int slot) {
     EraseComboContainer(slot);
 }
 
-// ComboShip: placement injection exports
-typedef void (*FnSetGenerateCb)(void (*)(int));
-typedef void (*FnApplyPlacements)(const char*);
-// Returns 0 on success; nonzero means the placement apply failed and the slot has no MM placements.
-typedef int (*FnMMInitRandoSave)(int, const char*, const unsigned char*);
-typedef void (*FnSetComboRandoSeed)(uint64_t);
-typedef void (*FnSetComboSeedHash)(uint32_t);
-static FnSetGenerateCb SOH_SetOnComboGenerateCallback = nullptr;
-static FnApplyPlacements SOH_ApplyRandoPlacements = nullptr;
-static FnMMInitRandoSave MM_InitRandoSaveFile = nullptr;
-static FnSetComboRandoSeed SOH_SetComboRandoSeed = nullptr;
-static FnSetComboRandoSeed MM_SetComboRandoSeed = nullptr;
-static FnSetComboSeedHash SOH_SetComboSeedHash = nullptr;
-
-// ComboShip: window-driven generate request (threaded, progress-reporting)
-typedef void (*FnSetGenReqCb)(void (*)(const char*));
-typedef void (*FnSetSeedGenerated)(uint8_t);
-typedef void (*FnSetComboProgressPtr)(const ComboRando::ComboGenProgress*);
-typedef void (*FnSetComboFinalizeCb)(int (*)());
-static FnSetGenReqCb SOH_SetOnComboGenerateRequestCallback = nullptr;
-static FnSetSeedGenerated SOH_SetSeedGenerated = nullptr;
-static FnSetComboProgressPtr SOH_SetComboProgressPtr = nullptr;
-static FnSetComboFinalizeCb SOH_SetOnComboFinalizeCallback = nullptr;
 
 static std::atomic<bool> g_GenerateBusy{ false };
 
@@ -588,98 +366,13 @@ static uint32_t g_FinalizeMasterSeed = 0; // #169: the gen-roll latch keys off t
 // Combo_OnOOTSaveInit bakes it into the slot's container and pushes it into both DLLs at Start.
 static std::string g_ConsolidatedJson;
 
-// ---------- ComboShip-owned Anchor connection (Phase 1) ----------
-// The persistent socket + receive thread live HERE (launcher) so the connection survives OOT<->MM
-// transitions. soh's Anchor keeps its packet/handler/menu logic but redirects transport through the
-// callbacks registered below and receives inbound via SOH_Anchor_RecvJson. See docs/deviations/anchor.md.
-typedef void (*FnSetAnchorSend)(void (*)(const char*));
-typedef void (*FnSetAnchorConnect)(void (*)(const char*, uint16_t));
-typedef void (*FnSetAnchorDisconnect)(void (*)(void));
-typedef void (*FnAnchorRecv)(const char*);
-static FnSetAnchorSend SOH_SetAnchorSend = nullptr;
-static FnSetAnchorConnect SOH_SetAnchorConnect = nullptr;
-static FnSetAnchorDisconnect SOH_SetAnchorDisconnect = nullptr;
-static FnAnchorRecv SOH_Anchor_RecvJson = nullptr;
-static FnVoidArgless SOH_Anchor_OnConnected = nullptr;
-static FnVoidArgless SOH_Anchor_OnDisconnected = nullptr;
-// Bug 2: launcher-orchestrated resync, dormant-safe (see ComboAnchor::RequestFullResync below).
-static FnVoidArgless SOH_Anchor_RequestResync = nullptr;
-
-// MM Anchor adapter exports (Phase 2). MM piggybacks on the same launcher-owned connection; it is
-// activated/deactivated on transitions and receives inbound packets when it is the active game.
-static FnSetAnchorSend MM_SetAnchorSend = nullptr;
-static FnAnchorRecv MM_Anchor_RecvJson = nullptr;
-static FnVoidArgless MM_Anchor_Activate = nullptr;
-static FnVoidArgless MM_Anchor_Deactivate = nullptr;
-static FnVoidArgless MM_Anchor_RequestResync = nullptr;
-
-// A6: live dormant-game co-op sync. The launcher feeds every inbound packet to BOTH games; the active
-// game calls the registered pump each frame so the dormant sibling applies save-affecting packets on
-// the game thread (never the receive thread — that would race the active game's save writes).
-typedef void (*FnSetPumpDormant)(void (*)());
-static FnSetPumpDormant SOH_SetPumpDormant = nullptr;
-static FnSetPumpDormant MM_SetPumpDormant = nullptr;
-static FnVoidArgless SOH_Anchor_PumpDormant = nullptr;
-static FnVoidArgless MM_Anchor_PumpDormant = nullptr;
-
-// Cross-game item delivery seam (issue #3). Each game's foreign-check detection (and the Anchor
-// receive path) routes an item to the OTHER game through one launcher-owned dispatcher, which calls
-// the target DLL's save-only grant export. The same dispatcher serves the single-player and
-// networked paths. targetGame/srcGame use the GameId convention 0 = OOT, 1 = MM (== sActiveGame).
-typedef void (*FnSetCrossRoute)(void (*)(int, const char*));
-// Deliver callback carries srcCheckName too (bug 3: keys the launcher-side receive dedup below).
-typedef void (*FnSetCrossDeliver)(void (*)(int, const char*, const char*));
-typedef void (*FnGrantCrossItem)(const char*);
-static FnSetCrossDeliver SOH_SetCrossDeliver = nullptr;
-static FnSetCrossDeliver MM_SetCrossDeliver = nullptr;
-static FnGrantCrossItem SOH_GrantCrossItem = nullptr;
-static FnGrantCrossItem MM_GrantCrossItem = nullptr;
-static FnSetCrossRoute SOH_SetMarkForeignObtained = nullptr;
-static FnSetCrossRoute MM_SetMarkForeignObtained = nullptr;
-static FnGrantCrossItem SOH_MarkForeignObtained = nullptr;
-static FnGrantCrossItem MM_MarkForeignObtained = nullptr;
-
-// ComboShip: gate the ending on BOTH final bosses. Each game calls the registered callback when its
-// final boss dies (OOT Ganon / MM Majora): it records the kill in the per-slot completion sidecar and
-// returns 1 iff both are now dead. The game then plays its native ending (finale) or warps the player
-// back to the cross-game portal to finish the other game. See docs/UPSTREAM_MERGES.md.
-typedef void (*FnSetBossDefeatedCb)(int (*)(int, int));
-static FnSetBossDefeatedCb SOH_SetFinalBossDefeatedCb = nullptr;
-static FnSetBossDefeatedCb MM_SetFinalBossDefeatedCb = nullptr;
 static bool g_comboCompletion[2] = { false, false };
 static int g_comboCompletionSlot = -1;
-
-// ComboShip (#136): Triforce Hunt is ONE combined goal — the launcher pushes it into both DLLs, sums
-// both counters on every piece grant/merge, and dispatches the ending itself.
-typedef void (*FnSetComboGoal)(int hunt, int required, int pieces);
-typedef int (*FnReadComboGoalCVars)(int* required, int* total);
-typedef int (*FnGetTriforceCount)(void);
-typedef void (*FnTriggerTriforceCredits)(int dormant);
-typedef void (*FnSetTriforceProgressCb)(void (*)(int, int));
-typedef void (*FnSetOtherTriforceCountCb)(int (*)(void));
-static FnSetComboGoal SOH_SetComboGoal = nullptr;
-static FnSetComboGoal MM_SetComboGoal = nullptr;
-static FnReadComboGoalCVars SOH_ReadComboGoalCVars = nullptr;
-static FnGetTriforceCount SOH_GetTriforcePieceCount = nullptr;
-static FnGetTriforceCount MM_GetTriforcePieceCount = nullptr;
-static FnTriggerTriforceCredits SOH_TriggerTriforceCredits = nullptr;
-static FnTriggerTriforceCredits MM_TriggerTriforceCredits = nullptr;
-static FnSetTriforceProgressCb SOH_SetTriforceProgressCb = nullptr;
-static FnSetTriforceProgressCb MM_SetTriforceProgressCb = nullptr;
-static FnSetOtherTriforceCountCb SOH_SetOtherTriforceCountCb = nullptr;
-static FnSetOtherTriforceCountCb MM_SetOtherTriforceCountCb = nullptr;
 // Active goal for the loaded slot (0 required = the both-bosses goal) + the one-shot completion latch.
 static bool g_goalHunt = false;
 static int g_goalRequired = 0;
 static int g_goalTotal = -1; // combined pieces the seed places; -1 = seed predates the combo-owned total
 static bool g_comboTriforceDone = false;
-
-// ComboShip (#135): starting game. The menu CVar may say Random; the launcher resolves it per seed and
-// pushes the concrete value, which soh's FinalizeSettings turns into forced age/forest/exclusions.
-typedef void (*FnSetComboStartingGame)(int mmStart);
-typedef int (*FnReadComboStartingGameCVar)(void);
-static FnSetComboStartingGame SOH_SetComboStartingGame = nullptr;
-static FnReadComboStartingGameCVar SOH_ReadComboStartingGameCVar = nullptr;
 // Starting game of the LOADED slot (seed-bound, like g_goalHunt).
 static bool g_startingGameMM = false;
 
@@ -1280,26 +973,6 @@ static void Combo_OnTriforceProgress(int game, int fileNum) try {
 } catch (const std::exception& e) {
     std::cerr << "[ComboShip] Combo_OnTriforceProgress threw: " << e.what() << std::endl;
 } catch (...) { std::cerr << "[ComboShip] Combo_OnTriforceProgress threw a non-std exception" << std::endl; }
-
-// Seed utilities — Ship_Hash/Ship_Random are not exported from libultraship, so implement inline.
-// FNV-1a 32-bit hash: deterministic string-to-uint32 used to derive the master seed.
-static uint32_t ComboHash(const char* str) {
-    if (!str)
-        return 0;
-    uint32_t h = 2166136261u;
-    while (*str) {
-        h ^= static_cast<unsigned char>(*str++);
-        h *= 16777619u;
-    }
-    return h;
-}
-// ComboShip (#135): resolve the starting-game CVar (0=OOT, 1=MM, 2=Random 50-50 off the master seed).
-// ComboRandoHeadless.cpp duplicates this; the derivation string must stay byte-identical.
-static bool ResolveStartingGameMM(int cfg, uint32_t masterSeed) {
-    if (cfg == 2)
-        return (ComboHash(("startingGame:" + std::to_string(masterSeed)).c_str()) & 1u) != 0;
-    return cfg == 1;
-}
 
 // Simple xorshift32 used for a random seed when none is provided.
 static int ComboRandRange(int minV, int maxV) {
@@ -2623,10 +2296,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Resolve soh.dll exports
-    SOH_Init = (FnVoid)GetSym(sohModule, "SOH_Init");
-    SOH_RunMain = (FnRunMain)GetSym(sohModule, "SOH_RunMain");
-    SOH_Extract = (FnExtract)GetSym(sohModule, "SOH_Extract");
+    ComboResolveGameExports(sohModule, mmModule);
 
     if (!SOH_Init || !SOH_RunMain) {
         std::cerr << "ERROR: soh.dll is missing required ComboShip exports (SOH_Init / SOH_RunMain)." << std::endl;
@@ -2635,153 +2305,6 @@ int main(int argc, char** argv) {
         FreeDll(sohModule);
         return 1;
     }
-
-    // Resolve 2ship.dll exports
-    MM_InitArchives = (FnVoid)GetSym(mmModule, "MM_InitArchives");
-    MM_Extract = (FnExtract)GetSym(mmModule, "MM_Extract");
-    MM_ArchiveCount = (FnInt)GetSym(mmModule, "MM_ArchiveCount");
-    SOH_SetOnNewSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnNewSaveCallback");
-    SOH_SetOnLoadSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnLoadSaveCallback");
-    SOH_GetCurrentPlayerName = (FnGetPlayerName)GetSym(sohModule, "SOH_GetCurrentPlayerName");
-    MM_LoadSaveForCombo = (FnMMLoadSave)GetSym(mmModule, "MM_LoadSaveForCombo");
-    MM_InvalidateOwlBlobSlot = (FnMMInvalidateOwlBlob)GetSym(mmModule, "MM_InvalidateOwlBlobSlot");
-    SOH_ParkForComboMMResume = (FnVoid)GetSym(sohModule, "SOH_ParkForComboMMResume");
-    MM_SetComboEntryIsResume = (FnMMInitSave)GetSym(mmModule, "MM_SetComboEntryIsResume");
-    SOH_IsOnFileSelect = (FnIsOnFileSelect)GetSym(sohModule, "SOH_IsOnFileSelect");
-    SOH_SetOnSceneSwitchCallback = (FnSetSceneSwitchCallback)GetSym(sohModule, "SOH_SetOnSceneSwitchCallback");
-    MM_RunGame = (FnMMRunGame)GetSym(mmModule, "MM_RunGame");
-    SOH_Deinit = (FnSOHDeinit)GetSym(sohModule, "SOH_Deinit");
-    SOH_PrepareForTransition = (FnSOHPrepare)GetSym(sohModule, "SOH_PrepareForTransition");
-    MM_NotifyComboTransition = (FnMMNotify)GetSym(mmModule, "MM_NotifyComboTransition");
-    MM_SetOnComboReturnCallback = (FnMMSetReturnCb)GetSym(mmModule, "MM_SetOnComboReturnCallback");
-    SOH_ResumeGame = (FnVoidArgless)GetSym(sohModule, "SOH_ResumeGame");
-    SOH_NotifyComboReturn = (FnVoidArgless)GetSym(sohModule, "SOH_NotifyComboReturn");
-    MM_ResumeGame = (FnMMResume)GetSym(mmModule, "MM_ResumeGame");
-    MM_PrepareForTransition = (FnVoidArgless)GetSym(mmModule, "MM_PrepareForTransition");
-    SOH_DumpRandoStaticData = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoStaticData");
-    MM_DumpRandoStaticData = (FnDumpData)GetSym(mmModule, "MM_DumpRandoStaticData");
-    SOH_DumpRandoSettings = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoSettings");
-    SOH_DumpEnabledTricks = (FnDumpData)GetSym(sohModule, "SOH_DumpEnabledTricks");
-    MM_DumpRandoSettings = (FnDumpData)GetSym(mmModule, "MM_DumpRandoSettings");
-    SOH_DumpRandoHintData = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoHintData");
-    SOH_ApplyComboHints = (FnApplyHints)GetSym(sohModule, "SOH_ApplyComboHints");
-    SOH_SetComboHintsPresent = (FnSetHintsPresent)GetSym(sohModule, "SOH_SetComboHintsPresent");
-    SOH_FireGenerationCompleteHooks = (FnVoidArgless)GetSym(sohModule, "SOH_FireGenerationCompleteHooks");
-    // #164: combo Hint Tracker reveal reporting.
-    SOH_SetComboHintRevealCb = (FnSetHintRevealOot)GetSym(sohModule, "SOH_SetComboHintRevealCb");
-    MM_SetComboHintRevealCb = (FnSetHintRevealMm)GetSym(mmModule, "MM_SetComboHintRevealCb");
-    SOH_PrepRandoContext = (FnVoidV)GetSym(sohModule, "SOH_PrepRandoContext");
-    SOH_RestoreRandoSettings = (FnTakeStr)GetSym(sohModule, "SOH_RestoreRandoSettings");
-    MM_RestoreRandoSettings = (FnTakeStr)GetSym(mmModule, "MM_RestoreRandoSettings");
-    SOH_SetCheckPrices = (FnTakeStr)GetSym(sohModule, "SOH_SetCheckPrices");
-    MM_SetCheckPrices = (FnTakeStr)GetSym(mmModule, "MM_SetCheckPrices");
-    SOH_SetOnComboReloadCallback = (FnSetReloadCb)GetSym(sohModule, "SOH_SetOnComboReloadCallback");
-    SOH_SetComboSpoilerPath = (FnTakeStr)GetSym(sohModule, "SOH_SetComboSpoilerPath");
-    SOH_GetComboSpoilerPath = (FnDumpData)GetSym(sohModule, "SOH_GetComboSpoilerPath");
-    MM_InitRandoSaveFile = (FnMMInitRandoSave)GetSym(mmModule, "MM_InitRandoSaveFile");
-    SOH_SetOnComboGenerateCallback = (FnSetGenerateCb)GetSym(sohModule, "SOH_SetOnComboGenerateCallback");
-    SOH_ApplyRandoPlacements = (FnApplyPlacements)GetSym(sohModule, "SOH_ApplyRandoPlacements");
-    SOH_GetForcedPlacements = (FnGetForced)GetSym(sohModule, "SOH_GetForcedPlacements");
-    SOH_SetComboRandoSeed = (FnSetComboRandoSeed)GetSym(sohModule, "SOH_SetComboRandoSeed");
-    MM_SetComboRandoSeed = (FnSetComboRandoSeed)GetSym(mmModule, "MM_SetComboRandoSeed");
-    SOH_SetComboSeedHash = (FnSetComboSeedHash)GetSym(sohModule, "SOH_SetComboSeedHash");
-    SOH_SetOnComboGenerateRequestCallback = (FnSetGenReqCb)GetSym(sohModule, "SOH_SetOnComboGenerateRequestCallback");
-    SOH_SetSeedGenerated = (FnSetSeedGenerated)GetSym(sohModule, "SOH_SetSeedGenerated");
-    SOH_SetComboProgressPtr = (FnSetComboProgressPtr)GetSym(sohModule, "SOH_SetComboProgressPtr");
-    SOH_SetOnComboFinalizeCallback = (FnSetComboFinalizeCb)GetSym(sohModule, "SOH_SetOnComboFinalizeCallback");
-    MM_BootForCombo = (FnVoidArgless)GetSym(mmModule, "MM_BootForCombo");
-    MM_Deinit = (FnVoidArgless)GetSym(mmModule, "MM_Deinit");
-    SOH_ResumeForeground = (FnVoidArgless)GetSym(sohModule, "SOH_ResumeForeground");
-
-    // ComboShip-owned unified extraction primitives + split init
-    SOH_InitWindowOnly = (FnVoid)GetSym(sohModule, "SOH_InitWindowOnly");
-    SOH_FinishInit = (FnVoid)GetSym(sohModule, "SOH_FinishInit");
-    SOH_ValidateRom = (ComboFnValidateRom)GetSym(sohModule, "SOH_ValidateRom");
-    SOH_ClassifyRom = (ComboFnValidateRom)GetSym(sohModule, "SOH_ClassifyRom");
-    SOH_StartExtraction = (ComboFnStartExtraction)GetSym(sohModule, "SOH_StartExtraction");
-    SOH_GetExtractionProgress = (ComboFnGetProgress)GetSym(sohModule, "SOH_GetExtractionProgress");
-    MM_ValidateRom = (ComboFnValidateRom)GetSym(mmModule, "MM_ValidateRom");
-    MM_ClassifyRom = (ComboFnValidateRom)GetSym(mmModule, "MM_ClassifyRom");
-    MM_StartExtraction = (ComboFnStartExtraction)GetSym(mmModule, "MM_StartExtraction");
-    MM_GetExtractionProgress = (ComboFnGetProgress)GetSym(mmModule, "MM_GetExtractionProgress");
-    SOH_ApplyImportedConfig = (ComboFnApplyImportedConfig)GetSym(sohModule, "SOH_ApplyImportedConfig");
-
-    // Anchor transport seam exports (Phase 1)
-    SOH_SetAnchorSend = (FnSetAnchorSend)GetSym(sohModule, "SOH_SetAnchorSend");
-    SOH_SetAnchorConnect = (FnSetAnchorConnect)GetSym(sohModule, "SOH_SetAnchorConnect");
-    SOH_SetAnchorDisconnect = (FnSetAnchorDisconnect)GetSym(sohModule, "SOH_SetAnchorDisconnect");
-    SOH_Anchor_RecvJson = (FnAnchorRecv)GetSym(sohModule, "SOH_Anchor_RecvJson");
-    SOH_Anchor_OnConnected = (FnVoidArgless)GetSym(sohModule, "SOH_Anchor_OnConnected");
-    SOH_Anchor_OnDisconnected = (FnVoidArgless)GetSym(sohModule, "SOH_Anchor_OnDisconnected");
-    MM_SetAnchorSend = (FnSetAnchorSend)GetSym(mmModule, "MM_SetAnchorSend");
-    MM_Anchor_RecvJson = (FnAnchorRecv)GetSym(mmModule, "MM_Anchor_RecvJson");
-    MM_Anchor_Activate = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_Activate");
-    MM_Anchor_Deactivate = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_Deactivate");
-    SOH_Anchor_RequestResync = (FnVoidArgless)GetSym(sohModule, "SOH_Anchor_RequestResync");
-    MM_Anchor_RequestResync = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_RequestResync");
-    SOH_SetPumpDormant = (FnSetPumpDormant)GetSym(sohModule, "SOH_SetPumpDormant");
-    MM_SetPumpDormant = (FnSetPumpDormant)GetSym(mmModule, "MM_SetPumpDormant");
-    SOH_Anchor_PumpDormant = (FnVoidArgless)GetSym(sohModule, "SOH_Anchor_PumpDormant");
-    MM_Anchor_PumpDormant = (FnVoidArgless)GetSym(mmModule, "MM_Anchor_PumpDormant");
-
-    // Cross-game item delivery seam (issue #3)
-    SOH_SetCrossDeliver = (FnSetCrossDeliver)GetSym(sohModule, "SOH_SetCrossDeliver");
-    MM_SetCrossDeliver = (FnSetCrossDeliver)GetSym(mmModule, "MM_SetCrossDeliver");
-    SOH_GrantCrossItem = (FnGrantCrossItem)GetSym(sohModule, "SOH_GrantCrossItem");
-    MM_GrantCrossItem = (FnGrantCrossItem)GetSym(mmModule, "MM_GrantCrossItem");
-    SOH_SetMarkForeignObtained = (FnSetCrossRoute)GetSym(sohModule, "SOH_SetMarkForeignObtained");
-    MM_SetMarkForeignObtained = (FnSetCrossRoute)GetSym(mmModule, "MM_SetMarkForeignObtained");
-    SOH_MarkForeignObtained = (FnGrantCrossItem)GetSym(sohModule, "SOH_MarkForeignObtained");
-    MM_MarkForeignObtained = (FnGrantCrossItem)GetSym(mmModule, "MM_MarkForeignObtained");
-    SOH_SetFinalBossDefeatedCb = (FnSetBossDefeatedCb)GetSym(sohModule, "SOH_SetFinalBossDefeatedCb");
-    MM_SetFinalBossDefeatedCb = (FnSetBossDefeatedCb)GetSym(mmModule, "MM_SetFinalBossDefeatedCb");
-
-    // Combined Triforce Hunt goal seam (#136)
-    SOH_SetComboGoal = (FnSetComboGoal)GetSym(sohModule, "SOH_SetComboGoal");
-    MM_SetComboGoal = (FnSetComboGoal)GetSym(mmModule, "MM_SetComboGoal");
-    SOH_ReadComboGoalCVars = (FnReadComboGoalCVars)GetSym(sohModule, "SOH_ReadComboGoalCVars");
-    SOH_GetTriforcePieceCount = (FnGetTriforceCount)GetSym(sohModule, "SOH_GetTriforcePieceCount");
-    MM_GetTriforcePieceCount = (FnGetTriforceCount)GetSym(mmModule, "MM_GetTriforcePieceCount");
-    MM_ComboPausePlaytime = (FnVoidArgless)GetSym(mmModule, "MM_ComboPausePlaytime");
-    MM_ComboResumePlaytime = (FnVoidArgless)GetSym(mmModule, "MM_ComboResumePlaytime");
-    SOH_TriggerTriforceCredits = (FnTriggerTriforceCredits)GetSym(sohModule, "SOH_TriggerTriforceCredits");
-    MM_TriggerTriforceCredits = (FnTriggerTriforceCredits)GetSym(mmModule, "MM_TriggerTriforceCredits");
-    SOH_SetTriforceProgressCb = (FnSetTriforceProgressCb)GetSym(sohModule, "SOH_SetTriforceProgressCb");
-    MM_SetTriforceProgressCb = (FnSetTriforceProgressCb)GetSym(mmModule, "MM_SetTriforceProgressCb");
-    SOH_SetOtherTriforceCountCb = (FnSetOtherTriforceCountCb)GetSym(sohModule, "SOH_SetOtherTriforceCountCb");
-    MM_SetOtherTriforceCountCb = (FnSetOtherTriforceCountCb)GetSym(mmModule, "MM_SetOtherTriforceCountCb");
-
-    // Starting game seam (#135) — OOT-side only; MM needs no setter (nothing there reads it).
-    SOH_SetComboStartingGame = (FnSetComboStartingGame)GetSym(sohModule, "SOH_SetComboStartingGame");
-    SOH_ReadComboStartingGameCVar = (FnReadComboStartingGameCVar)GetSym(sohModule, "SOH_ReadComboStartingGameCVar");
-
-    // Oracle exports
-    Combo_SOH_Rando_Reset = (FnOracleVoid)GetSym(sohModule, "Combo_SOH_Rando_Reset");
-    Combo_SOH_Rando_SetOwnedItems = (FnOracleSetItems)GetSym(sohModule, "Combo_SOH_Rando_SetOwnedItems");
-    Combo_SOH_Rando_GetReachableChecks = (FnOracleGetChecks)GetSym(sohModule, "Combo_SOH_Rando_GetReachableChecks");
-    Combo_SOH_Rando_PlaceItem = (FnOraclePlaceItem)GetSym(sohModule, "Combo_SOH_Rando_PlaceItem");
-    Combo_SOH_Rando_GetPortalOpen = (FnOracleGetPortalOpen)GetSym(sohModule, "Combo_SOH_Rando_GetPortalOpen");
-    Combo_MM_Rando_Reset = (FnOracleVoid)GetSym(mmModule, "Combo_MM_Rando_Reset");
-    Combo_MM_Rando_SetOwnedItems = (FnOracleSetItems)GetSym(mmModule, "Combo_MM_Rando_SetOwnedItems");
-    Combo_MM_Rando_GetReachableChecks = (FnOracleGetChecks)GetSym(mmModule, "Combo_MM_Rando_GetReachableChecks");
-    Combo_MM_Rando_PlaceItem = (FnOraclePlaceItem)GetSym(mmModule, "Combo_MM_Rando_PlaceItem");
-    Combo_MM_Rando_Restore = (FnOracleVoid)GetSym(mmModule, "Combo_MM_Rando_Restore");
-
-    // OOT entrance-shuffle wiring (#90)
-    SOH_ShuffleEntrancesForCombo = (FnShuffleEntrances)GetSym(sohModule, "SOH_ShuffleEntrancesForCombo");
-    SOH_DumpEntranceOverrides = (FnDumpData)GetSym(sohModule, "SOH_DumpEntranceOverrides");
-
-    // Cross-game erase seam (issue #1)
-    SOH_SetComboSaveIO = (FnSetComboSaveIO)GetSym(sohModule, "SOH_SetComboSaveIO");
-    MM_SetComboSaveIO = (FnSetComboSaveIO)GetSym(mmModule, "MM_SetComboSaveIO");
-    SOH_LoadComboRando = (FnTakeStr)GetSym(sohModule, "SOH_LoadComboRando");
-    MM_LoadComboRando = (FnTakeStr)GetSym(mmModule, "MM_LoadComboRando");
-    SOH_SetCopyContainer = (FnSetCopyContainer)GetSym(sohModule, "SOH_SetCopyContainer");
-    SOH_SetOutdatedSaveNotice = (FnSetOutdatedSaveNotice)GetSym(sohModule, "SOH_SetOutdatedSaveNotice");
-    SOH_SetDeleteForeignSave = (FnSetDeleteForeignSave)GetSym(sohModule, "SOH_SetDeleteForeignSave");
-    MM_SetDeleteForeignSave = (FnSetDeleteForeignSave)GetSym(mmModule, "MM_SetDeleteForeignSave");
-    SOH_DeleteSaveFile = (FnDeleteSaveFile)GetSym(sohModule, "SOH_DeleteSaveFile");
-    MM_DeleteSaveFile = (FnDeleteSaveFile)GetSym(mmModule, "MM_DeleteSaveFile");
 
     if (!MM_InitArchives) {
         std::cerr << "ERROR: 2ship.dll is missing required ComboShip exports (MM_InitArchives)." << std::endl;
@@ -2989,21 +2512,11 @@ int main(int argc, char** argv) {
         comboUIModule = LoadDll("comboui.dll");
     }
     if (comboUIModule) {
-        ComboUI_Register = (FnComboUIRegister)GetSym(comboUIModule, "ComboUI_Register");
-        ComboUI_OnForegroundGame = (FnComboUIForeground)GetSym(comboUIModule, "ComboUI_OnForegroundGame");
-        ComboUI_RestoreTrackerIntent = (FnComboUIRegister)GetSym(comboUIModule, "ComboUI_RestoreTrackerIntent");
-        ComboUI_SetAnchorRosterProvider =
-            (FnComboUISetRosterProvider)GetSym(comboUIModule, "ComboUI_SetAnchorRosterProvider");
-        ComboUI_SetHintTrackerData = (FnComboUISetHintTrackerData)GetSym(comboUIModule, "ComboUI_SetHintTrackerData");
-        ComboUI_SetComboComplete = (FnComboUISetInt)GetSym(comboUIModule, "ComboUI_SetComboComplete");
+        ComboResolveComboUiExports(comboUIModule);
         if (ComboUI_SetAnchorRosterProvider)
             ComboUI_SetAnchorRosterProvider(&ComboAnchor::Combo_Anchor_GetRoster);
-        ComboUI_SetNotesStore = (FnComboUISetNotesStore)GetSym(comboUIModule, "ComboUI_SetNotesStore");
         if (ComboUI_SetNotesStore)
             ComboUI_SetNotesStore(&Combo_GetNotes, &Combo_SetNotes);
-        ComboUI_SyncRandomizedCosmetics = (FnVoidArgless)GetSym(comboUIModule, "ComboUI_SyncRandomizedCosmetics");
-        ComboUI_CosmeticsSyncGateEnabled = (FnComboUIGate)GetSym(comboUIModule, "ComboUI_CosmeticsSyncGateEnabled");
-        ComboUI_ClaimGenRollSeed = (FnClaimGenRollSeed)GetSym(comboUIModule, "ComboUI_ClaimGenRollSeed");
         if (ComboUI_Register) {
             ComboUI_Register();
             std::cout << "[ComboShip] comboui registered (unified menu installed)." << std::endl;

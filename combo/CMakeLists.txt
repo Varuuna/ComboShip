@@ -74,6 +74,7 @@ add_dependencies(comboui libultraship)
 set(COMBO_SOURCES
     ComboShip.cpp
     core/ComboPlatform.cpp
+    core/ComboDllApi.cpp
 )
 
 # Create executable

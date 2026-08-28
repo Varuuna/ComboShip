@@ -37,6 +37,7 @@
 #include "rando/ComboPlaythrough.h"
 #include "rando/CrossForeign.h" // BuildForeignArray (foreign enrichment parity with RunComboFill)
 #include "rando/CrossHints.h"
+#include "core/ComboSeedMath.h"
 
 namespace {
 
@@ -50,22 +51,6 @@ typedef void (*FnOracleSetItems)(const char*);
 typedef const char* (*FnOracleGetChecks)(void);
 typedef void (*FnOraclePlaceItem)(const char*, const char*);
 typedef uint8_t (*FnOracleGetPortalOpen)(void); // OOT->MM portal gate (see CrossWorldRando.h)
-
-// Must match ComboShip.cpp's ComboHash (FNV-1a 32-bit) so headless seeds match in-game seeds.
-uint32_t ComboHash(const std::string& s) {
-    uint32_t h = 2166136261u;
-    for (unsigned char c : s)
-        h = (h ^ c) * 16777619u;
-    return h;
-}
-
-// #135: resolve the starting-game config (0 = OOT, 1 = MM, 2 = Random) for one attempt. Must stay
-// byte-identical to ComboShip.cpp's ResolveStartingGameMM, derivation string included.
-bool ResolveStartingGameMM(int cfg, uint32_t masterSeed) {
-    if (cfg == 2)
-        return (ComboHash("startingGame:" + std::to_string(masterSeed)) & 1u) != 0;
-    return cfg == 1;
-}
 
 template <typename T> T Sym(HMODULE m, const char* name) {
     return reinterpret_cast<T>(GetProcAddress(m, name));

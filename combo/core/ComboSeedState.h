@@ -36,6 +36,3 @@ extern std::string g_ConsolidatedJson;
 extern std::string g_PendingMMSettingsJson;
 extern std::string g_UserMMSettingsSnapshot;
 extern bool g_ComboReloadRestoreUserMM;
-
-// Transition state: >=0 means OOT wants MM for that slot. Moves to ComboTransition (step 13).
-extern int g_PendingMMFileNum;

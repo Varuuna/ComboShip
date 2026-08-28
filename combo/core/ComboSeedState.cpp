@@ -24,5 +24,3 @@ std::string g_ConsolidatedJson;
 std::string g_PendingMMSettingsJson;     // seed's MM settings, applied right before slot-bind
 std::string g_UserMMSettingsSnapshot;    // user's MM settings, restored right after slot-bind
 bool g_ComboReloadRestoreUserMM = false; // false for an explicit drop (seed settings stick)
-
-int g_PendingMMFileNum = -1;

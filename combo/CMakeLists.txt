@@ -85,6 +85,8 @@ set(COMBO_SOURCES
     core/ComboSeedState.cpp
     core/ComboGeneration.cpp
     core/ComboReload.cpp
+    core/ComboTransition.cpp
+    core/ComboSlotBind.cpp
 )
 
 # Create executable

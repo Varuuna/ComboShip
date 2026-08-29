@@ -4,6 +4,9 @@
 #include <spdlog/spdlog.h>
 #include "static_data.h"
 #include "rng.h"
+#ifdef COMBO_BUILD
+#include "soh/Enhancements/randomizer/hook_handlers.h" // ComboShip: OOT_LookupForeignByCheck
+#endif
 
 namespace Rando {
 Hint::Hint() {
@@ -520,6 +523,17 @@ const HintText Hint::GetItemHintText(uint8_t slot, bool mysterious) const {
         // item hints read as sentences, so the fake name needs its article like a real item's hint has
         return HintText(CustomMessage(
             { ctx->overrides[hintedCheck].GetTrickArticle() + ctx->overrides[hintedCheck].GetTrickName() }));
+#ifdef COMBO_BUILD
+    } else if (targetRG == RG_COMBO_FOREIGN) {
+        // ComboShip: the sentinel's own hint text is "No Hint" — name the real MM item instead.
+        // A foreign trap is hinted under its typo'd disguise name, like OOT's own ice traps.
+        const ComboRando::ForeignItem* fi = OOT_LookupForeignByCheck(hintedCheck);
+        std::string shown = fi == nullptr ? "" : (fi->fakeTrickName.empty() ? fi->displayName : fi->fakeTrickName);
+        if (shown.empty()) { // lookup raced the blob push: "something", never the sentinel's "No Hint"
+            return StaticData::hintTextTable[RHT_MYSTERIOUS_ITEM];
+        }
+        return HintText(CustomMessage(shown, shown, shown));
+#endif
     } else {
         return ctx->GetItemLocation(hintedCheck)->GetPlacedItem().GetHint();
     }

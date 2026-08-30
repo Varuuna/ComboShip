@@ -737,10 +737,12 @@ out-of-range index. The seed had Master Sword shuffled, so the player could neve
   means the hint is not emitted, so native fills that slot from its own placement instead: a static
   hint never names a location for an item that isn't in the pool.
 - `soh/soh/OTRGlobals.cpp` — `SOH_DumpRandoHintData` exports `shuffleMasterSword`/`startingMasterSword`;
-  `Combo_IsUsedHintTemplate` allows the two extra Ganondorf templates plus `RHT_YOUR_POCKET`;
-  `Combo_WalkComboHints` pads any combo MESSAGE hint to the count its slot can be read with
-  (`Combo_RequiredHintMessages`), so a seed generated before this change can no longer render an empty
-  box.
+  `Combo_IsUsedHintTemplate` allows the two extra Ganondorf templates plus `RHT_YOUR_POCKET`.
+- `soh/soh/Enhancements/randomizer/hint.cpp` — `GetHintMessage` falls back to the LAST message when a
+  builder indexes past a MESSAGE hint's payload, so an old seed (or any short payload) shows the one
+  variant it has instead of a blank box. It has to sit here, not in the apply walk: `LoadRandomizer`
+  rebuilds every hint from the save's own `comboMessagesEn` array AFTER `SOH_ApplyComboHints` runs, so
+  anything the walk padded is thrown away on a save load.
 - `soh/soh/Enhancements/randomizer/hint.cpp` — `GetItemHintText` resolves `RG_COMBO_FOREIGN` through
   the foreign map. The sentinel's own hint key is `RHT_NONE`, which renders as the literal string
   "No Hint", so every item-naming hint pointing at a cross-placed check used to say "I will give you

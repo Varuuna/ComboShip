@@ -290,6 +290,13 @@ const CustomMessage Hint::GetHintMessage(MessageFormat format, size_t id) const 
     if (hintType == HINT_TYPE_MESSAGE) {
         if (id < messages.size()) {
             hintText = messages[id];
+#ifdef COMBO_BUILD
+            // ComboShip: native builders read these slots by index off live state (Ganondorf reads 1
+            // and 2, Saria reads 1), but a combo payload — or a save written by an older build —
+            // may carry fewer. Fall back to the last message instead of an empty textbox.
+        } else if (!messages.empty()) {
+            hintText = messages.back();
+#endif
         }
     } else if (hintType == HINT_TYPE_ALTAR_CHILD) {
         if (ctx->GetOption(RSK_TOT_ALTAR_HINT)) {

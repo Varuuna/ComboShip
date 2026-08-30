@@ -4543,21 +4543,6 @@ static bool sComboHintsPresent = false;
 static std::unordered_map<int, std::string> sComboHintKeys;
 static uint64_t sComboHintKeysGen = (uint64_t)-1; // OOT_ForeignMapGen() the map was built for
 
-// ComboShip: how many messages a hint slot may be read with — some builders index by live state.
-// Mirrors Hint::GetNumberOfMessages (hint.cpp), which can't be used here: the Hint doesn't exist yet.
-// Ganondorf's 3 variants are hardcoded because it's special-cased out of staticHintInfoMap.
-static size_t Combo_RequiredHintMessages(RandomizerHint rh) {
-    if (rh == RH_GANONDORF_HINT) {
-        return 3;
-    }
-    auto it = Rando::StaticData::staticHintInfoMap.find(rh);
-    if (it == Rando::StaticData::staticHintInfoMap.end()) {
-        return 1;
-    }
-    size_t n = it->second.hintKeys.size();
-    return n > 0 ? n : 1;
-}
-
 // ComboShip: one resolution walk over a combo hints payload, shared by apply and by the lazy map
 // replay. `isTaken` reports an already-claimed hint slot; `emit` receives each resolution in claiming
 // order. Both callers MUST walk this identically or the sentinel -> stone mapping drifts.
@@ -4612,12 +4597,6 @@ Combo_WalkComboHints(const nlohmann::json& hints, const std::function<bool(Rando
         if (rh == RH_NONE || isTaken(rh)) {
             ++skipped;
             continue;
-        }
-        // A payload with fewer messages than the slot can be read with would render an empty
-        // textbox (unshuffled Master Sword, or a seed generated before the 3-variant Ganondorf
-        // text existed), so pad with the first.
-        for (size_t need = Combo_RequiredHintMessages(rh); messages.size() < need;) {
-            messages.push_back(messages[0]);
         }
         emit(rh, checkName, messages);
         ++applied;

@@ -2664,6 +2664,13 @@ uint32_t Logic::CurrentInventory(uint32_t item) {
 }
 
 void Logic::SetUpgrade(uint32_t upgrade, uint8_t level) {
+    // ComboShip: clamp to what the field can hold. UPG_WALLET is 2 bits, so an unclamped 4th
+    // Progressive Wallet wrote 0x4000 into UPG_BULLET_BAG and the wallet read back as 0 — logic went
+    // non-monotonic (more wallets = smaller capacity) and priced shop checks became unreachable.
+    const uint8_t maxLevel = static_cast<uint8_t>(gUpgradeMasks[upgrade] >> gUpgradeShifts[upgrade]);
+    if (level > maxLevel) {
+        level = maxLevel;
+    }
     mSaveContext->inventory.upgrades &= gUpgradeNegMasks[upgrade];
     mSaveContext->inventory.upgrades |= level << gUpgradeShifts[upgrade];
 }

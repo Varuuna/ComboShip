@@ -10,6 +10,7 @@
 #include <array>
 #include <cstdint>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -412,6 +413,26 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
         return EnglishOnly(plain);
     };
 
+    // Area text for an OOT item wherever it landed, in either game. nullopt = the item is in no
+    // check at all (starting item, or not shuffled in), so no hint may name a location for it.
+    // yourPocket mirrors the native Hint flag: only hints that set it say "your pocket".
+    auto itemAreaText = [&](const char* itemName, bool yourPocket = false) -> std::optional<Tri> {
+        auto it = std::find_if(placements.begin(), placements.end(),
+                               [&](const CwPlacedItem& p) { return p.itemGame == GAME_OOT && p.item == itemName; });
+        if (it == placements.end())
+            return std::nullopt;
+        if (it->checkGame != GAME_OOT) {
+            auto mk = mmLocationHints.find(it->check);
+            return areaText("mm:" + (mk != mmLocationHints.end() ? mk->second : it->check));
+        }
+        if (yourPocket && it->check == "Link's Pocket")
+            return PickTemplate(tmpl("RHT_YOUR_POCKET"), hintClarity, rng);
+        auto ck = ootChecks.find(it->check);
+        if (ck == ootChecks.end())
+            return std::nullopt;
+        return areaText("oot:" + ck->second.area);
+    };
+
     // Weighted pick of a not-yet-used index from `pool` (indices into `candidates` or an area vector),
     // via a caller-supplied "already used" predicate. Returns -1 when nothing remains.
     auto pickUnused = [&](const std::vector<size_t>& idxs, const std::vector<std::string>& keys,
@@ -445,17 +466,32 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
         }
     }
 
-    // Ganondorf hint: find the Light Arrows placement (always an OOT item) wherever it landed.
+    // Ganondorf hint. BuildGanondorfHint (StaticHints.cpp) picks the message BY INDEX from live
+    // state, so a shuffled Master Sword needs all three variants, in native's hintKeys order.
     if (ganondorfHintOn) {
-        auto it = std::find_if(candidates.begin(), candidates.end(), [](const HintCandidate& c) {
-            return c.itemGame == GAME_OOT && c.itemKey == "Light Arrows";
-        });
-        if (it != candidates.end()) {
-            Tri msg = PickTemplate(tmpl("RHT_GANONDORF_HINT_LA_ONLY"), hintClarity, rng);
-            ReplacePlaceholder(msg, 1, areaText(it->areaKey));
-            ootHints.push_back({ { "checkName", kGanondorfHintKey },
-                                 { "type", "ganondorf" },
-                                 { "messages", { { { "en", msg.en }, { "de", msg.de }, { "fr", msg.fr } } } } });
+        const std::optional<Tri> laArea = itemAreaText("Light Arrows", true);
+        const std::optional<Tri> msArea = itemAreaText("Master Sword", true);
+        const bool msShuffled =
+            options.value("shuffleMasterSword", 0) != 0 && options.value("startingMasterSword", 0) == 0;
+        // Native reads index 1/2 whenever the sword is shuffled, so an unresolvable sword must skip
+        // the whole hint (native then fills it) rather than answer those reads with the arrows' text.
+        if (laArea && (!msShuffled || msArea)) {
+            auto render = [&](const char* key) {
+                Tri m = PickTemplate(tmpl(key), hintClarity, rng);
+                ReplacePlaceholder(m, 1, *laArea);
+                if (msArea)
+                    ReplacePlaceholder(m, 2, *msArea);
+                return m;
+            };
+            nlohmann::json msgs = nlohmann::json::array();
+            auto push = [&](const Tri& m) { msgs.push_back({ { "en", m.en }, { "de", m.de }, { "fr", m.fr } }); };
+            push(render("RHT_GANONDORF_HINT_LA_ONLY"));
+            if (msShuffled) {
+                push(render("RHT_GANONDORF_HINT_MS_ONLY"));
+                push(render("RHT_GANONDORF_HINT_LA_AND_MS"));
+            }
+            ootHints.push_back(
+                { { "checkName", kGanondorfHintKey }, { "type", "ganondorf" }, { "messages", std::move(msgs) } });
         }
     }
 
@@ -465,25 +501,10 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
     // literal "[[N]]" in the displayed hint. Resolving each reward via `candidates` (which spans both
     // games) fills every slot regardless of which game holds it.
     if (options.value("totAltarHint", 0) != 0) {
-        // Searches the FULL placement list (not the advancement-filtered `candidates`) — dungeon
-        // rewards are always progression, but a fixed/own-dungeon reward's advancement stamp in the
-        // dump isn't guaranteed, and a missed reward here would wrongly read as "an unknown place".
+        // An unresolvable reward reads as "an unknown place" (pre-existing fill gap, not an
+        // altar-composition bug — see UPSTREAM_MERGES.md); the altar text always fills every slot.
         auto rewardArea = [&](const char* itemName) -> Tri {
-            auto it = std::find_if(placements.begin(), placements.end(),
-                                   [&](const CwPlacedItem& p) { return p.itemGame == GAME_OOT && p.item == itemName; });
-            if (it == placements.end())
-                return EnglishOnly("an unknown place"); // graceful: seen when a reward isn't in the
-                                                        // placement dump at all (pre-existing fill gap,
-                                                        // not an altar-composition bug — see UPSTREAM_MERGES.md)
-            if (it->checkGame == GAME_OOT) {
-                auto ck = ootChecks.find(it->check);
-                if (ck != ootChecks.end())
-                    return areaText("oot:" + ck->second.area);
-            } else {
-                auto mk = mmLocationHints.find(it->check);
-                return areaText("mm:" + (mk != mmLocationHints.end() ? mk->second : it->check));
-            }
-            return EnglishOnly("an unknown place");
+            return itemAreaText(itemName).value_or(EnglishOnly("an unknown place"));
         };
         auto endClause = [&](const char* jsonKey) -> Tri {
             std::string key = options.value(jsonKey, "");

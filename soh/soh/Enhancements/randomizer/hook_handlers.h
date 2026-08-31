@@ -10,6 +10,8 @@
 #include "soh/Enhancements/item-tables/ItemTableTypes.h"
 // ComboShip: per-slot foreign-item lookup (defined in hook_handlers.cpp).
 const ComboRando::ForeignItem* OOT_LookupForeign(int slot, const std::string& checkName);
+// ComboShip: same lookup keyed by check, for callers that have no save/location context.
+const ComboRando::ForeignItem* OOT_LookupForeignByCheck(RandomizerCheck rc);
 // ComboShip: the foreign item's home-game container category, so Container Matches Contents doesn't
 // render every foreign check as the junk sentinel. Defined in hook_handlers.cpp.
 GetItemCategory OOT_GetForeignCategory(RandomizerCheck rc);

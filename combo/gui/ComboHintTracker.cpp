@@ -230,7 +230,8 @@ void Rebuild(const std::string& hintsJson, const std::string& readJson) {
         }
         const nlohmann::json* msgs = Node(e, "messages");
         if (msgs && msgs->is_array() && !msgs->empty()) {
-            en.text = Sanitize((*msgs)[0].value("en", std::string()));
+            // CrossHints::Generate pushes a multi-message hint's most complete variant last.
+            en.text = Sanitize(msgs->back().value("en", std::string()));
         }
         en.read = readOot.count(en.key) != 0;
         Group& grp = sGroups[OotGroupForType(e.value("type", std::string()))];

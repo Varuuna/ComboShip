@@ -4244,6 +4244,9 @@ static bool Combo_IsUsedHintTemplate(const std::string& name) {
         "RHT_CAN_BE_FOUND_AT",
         "RHT_HOARDS",
         "RHT_GANONDORF_HINT_LA_ONLY",
+        "RHT_GANONDORF_HINT_MS_ONLY",
+        "RHT_GANONDORF_HINT_LA_AND_MS",
+        "RHT_YOUR_POCKET",
         // Altar templates + option-driven end clauses (Fix 3: combo composes altar hints itself).
         "RHT_CHILD_ALTAR_STONES",
         "RHT_CHILD_ALTAR_TEXT_END_DOTOPEN",
@@ -4404,6 +4407,9 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
             { "hintClarity", static_cast<int>(ctx->GetOption(RSK_HINT_CLARITY).Get()) },
             { "hintDistribution", static_cast<int>(ctx->GetOption(RSK_HINT_DISTRIBUTION).Get()) },
             { "ganondorfHint", static_cast<int>(ctx->GetOption(RSK_GANONDORF_HINT).Get()) },
+            // Ganondorf's hint text has three variants, chosen by these two (see CreateGanondorfHint).
+            { "shuffleMasterSword", static_cast<int>(ctx->GetOption(RSK_SHUFFLE_MASTER_SWORD).Get()) },
+            { "startingMasterSword", static_cast<int>(ctx->GetOption(RSK_STARTING_MASTER_SWORD).Get()) },
             { "warpSongHints", static_cast<int>(ctx->GetOption(RSK_WARP_SONG_HINTS).Get()) },
             { "totAltarHint", static_cast<int>(ctx->GetOption(RSK_TOT_ALTAR_HINT).Get()) },
             { "doorOfTimeTemplate", doorOfTimeKey },

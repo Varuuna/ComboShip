@@ -720,8 +720,47 @@ runtime lookups on either game's side, since only the combo layer sees both worl
 
 **Known v1 limitations (documented, not bugs):** trial/gossip text for cross entries is English-only
 (no translation source); MM can't exclude an already-obtained OOT item from its own gossip pool
-(only its own-game repeat-hint pool is protected); Ganondorf's combined-hint phrasing variant isn't
-mirrored.
+(only its own-game repeat-hint pool is protected). ~~Ganondorf's combined-hint phrasing variant isn't
+mirrored~~ — fixed 2026-08-29, see below.
+
+## Ganondorf hint variants + foreign item names in hints (2026-08-29)
+
+**Why:** a player's Ganondorf hint showed an EMPTY textbox. `BuildGanondorfHint` (StaticHints.cpp)
+picks the message by INDEX from live state — 1 or 2 while Master Sword is shuffled and unowned — but
+the combo payload carried a single message, and `Hint::GetHintMessage` returns empty text for an
+out-of-range index. The seed had Master Sword shuffled, so the player could never see a hint.
+
+- `combo/rando/CrossHints.h` — new `itemAreaText` resolver (an OOT item's area wherever it landed, in
+  either game), shared with the altar block's `rewardArea`. The Ganondorf hint now emits all three
+  variants in native's `hintKeys` order (LA_ONLY / MS_ONLY / LA_AND_MS) when the sword is shuffled and
+  isn't a starting item. `nullopt` (item in no check at all — starting item, or category not shuffled)
+  means the hint is not emitted, so native fills that slot from its own placement instead: a static
+  hint never names a location for an item that isn't in the pool.
+- `soh/soh/OTRGlobals.cpp` — `SOH_DumpRandoHintData` exports `shuffleMasterSword`/`startingMasterSword`;
+  `Combo_IsUsedHintTemplate` allows the two extra Ganondorf templates plus `RHT_YOUR_POCKET`.
+- `soh/soh/Enhancements/randomizer/hint.cpp` — `GetHintMessage` falls back to the LAST message when a
+  builder indexes past a MESSAGE hint's payload, so an old seed (or any short payload) shows the one
+  variant it has instead of a blank box. It has to sit here, not in the apply walk: `LoadRandomizer`
+  rebuilds every hint from the save's own `comboMessagesEn` array AFTER `SOH_ApplyComboHints` runs, so
+  anything the walk padded is thrown away on a save load.
+- `soh/soh/Enhancements/randomizer/hint.cpp` — `GetItemHintText` resolves `RG_COMBO_FOREIGN` through
+  the foreign map. The sentinel's own hint key is `RHT_NONE`, which renders as the literal string
+  "No Hint", so every item-naming hint pointing at a cross-placed check used to say "I will give you
+  No Hint!" (Loach, HBA, Malon, Big Poes, Chickens, Biggoron, Frogs, OoT, Mask Shop). A lookup that
+  races the blob push falls back to "something", never to the sentinel.
+- `soh/soh/Enhancements/randomizer/hook_handlers.{h,cpp}` — `OOT_LookupForeignByCheck`, the same
+  lookup keyed by check for callers with no save/location context.
+- `combo/gui/ComboHintTracker.cpp` — shows a multi-message hint's last (most complete) variant.
+
+Verified headlessly: regenerating the reported seed changes only the Ganondorf entry (1 -> 3 messages,
+message 0 byte-identical); all 42 other OOT hints, the MM hints and both placement maps are unchanged,
+because the new templates have no clarity variants and so draw nothing from the RNG.
+
+**Known limitations (unchanged):** composed area names are English in all three languages, including
+for OOT areas that do have translations (`areaText` wraps them in `EnglishOnly`); warp-song hints still
+use native's OOT-only area resolution; the 12 area-type NPC static hints (Sheik, boss keys, Dampé,
+Greg, Saria, Mido, Fishing Pole) still say "an Isolated Place" for a cross-placed target — that is the
+follow-up branch.
 
 **Settings-persistence fix (2026-07-16):** the silent file-select auto-reload
 (`Combo_OnReloadRequest(NULL)`) was writing the pending seed's `gRando.*` CVars over the user's

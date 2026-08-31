@@ -436,6 +436,12 @@ const ComboRando::ForeignItem* OOT_LookupForeign(int slot, const std::string& ch
     return it == g_ootForeignMap.end() ? nullptr : &it->second;
 }
 
+// ComboShip: the same lookup keyed by check, for callers with no save/location context of their own.
+const ComboRando::ForeignItem* OOT_LookupForeignByCheck(RandomizerCheck rc) {
+    const std::string& name = Rando::StaticData::GetLocation(rc)->GetName();
+    return name.empty() ? nullptr : OOT_LookupForeign(gSaveContext.fileNum, name);
+}
+
 // ComboShip: foreign[].category -> OOT container-art category. Unknown and MM-only (mask,
 // strayFairy) map to MAJOR — over-promising beats dressing a major item as junk.
 static GetItemCategory ForeignCategoryFromName(const std::string& name) {

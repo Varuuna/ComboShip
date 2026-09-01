@@ -3974,7 +3974,15 @@ void KaleidoScope_Update(PlayState* play) {
 #endif
 
             // pauseCtx->nameSegment = (void*)(((uintptr_t)pauseCtx->iconItemLangSegment + size + 0xF) & ~0xF);
+#ifdef COMBO_BUILD
+            // ComboShip: zero the buffer. KaleidoScope_DrawEquipment runs gSPInvalidateTexCache on it (which
+            // sig-checks the CONTENTS for "__OTR__" and resolves them as a path) before UpdateNamePanel has
+            // ever written a name into it. Recycled heap here can hold an MM resource path left over from the
+            // other game's session, which misses OOT's RM — see docs/deviations/resource-mgmt.md.
+            pauseCtx->nameSegment = calloc(1, 0x400 + 0xA00); // OTRTODO: GET RID OF THIS
+#else
             pauseCtx->nameSegment = malloc(0x400 + 0xA00); // OTRTODO: GET RID OF THIS
+#endif
 
             osSyncPrintf("サイズ＝%x\n", size2 + size1 + size0 + size);
             osSyncPrintf("item_name I_N_PT=%x\n", 0x800);

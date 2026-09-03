@@ -15,6 +15,7 @@
 #include <mutex>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace ComboRando {
@@ -138,6 +139,26 @@ std::string LabelForOotKey(const std::string& key, int ordinal) {
     if (key == "__ALTAR_ADULT__") {
         return "Adult Altar";
     }
+    if (HasPrefix(key, "__STATIC__")) {
+        // "__STATIC__<RandomizerHint>" (CrossHints.h kStaticHintPrefix): the NPC that speaks it.
+        static const std::unordered_map<std::string, const char*> kNpcLabels = {
+            { "RH_SHEIK_HINT", "Sheik (Ganon's Castle)" },
+            { "RH_FOREST_BOSS_KEY_HINT", "Forest Temple Boss Door" },
+            { "RH_FIRE_BOSS_KEY_HINT", "Fire Temple Boss Door" },
+            { "RH_WATER_BOSS_KEY_HINT", "Water Temple Boss Door" },
+            { "RH_SPIRIT_BOSS_KEY_HINT", "Spirit Temple Boss Door" },
+            { "RH_SHADOW_BOSS_KEY_HINT", "Shadow Temple Boss Door" },
+            { "RH_GANONS_BOSS_KEY_HINT", "Ganon's Tower Boss Door" },
+            { "RH_DAMPES_DIARY", "Dampe's Diary" },
+            { "RH_GREG_RUPEE", "Treasure Chest Shop (Greg)" },
+            { "RH_SARIA_HINT", "Saria" },
+            { "RH_MIDO_HINT", "Mido" },
+            { "RH_FISHING_POLE", "Fishing Pond Owner" },
+        };
+        const std::string rh = key.substr(10);
+        auto it = kNpcLabels.find(rh);
+        return it != kNpcLabels.end() ? it->second : rh;
+    }
     if (HasPrefix(key, "__STONE__")) {
         return "Gossip Stone #" + std::to_string(ordinal);
     }
@@ -155,7 +176,17 @@ std::string LabelForOotKey(const std::string& key, int ordinal) {
 
 // Display group of an OOT hint, by its generator "type". Indices into the group list Rebuild lays
 // out; keep the two in sync.
-enum OotGroup { kGrpStones = 0, kGrpAltarChild, kGrpAltarAdult, kGrpGanondorf, kGrpTrials, kGrpAlways, kGrpJunk };
+enum OotGroup {
+    kGrpStones = 0,
+    kGrpAltarChild,
+    kGrpAltarAdult,
+    kGrpGanondorf,
+    kGrpNpc,
+    kGrpTrials,
+    kGrpAlways,
+    kGrpJunk,
+    kGrpCount
+};
 
 int OotGroupForType(const std::string& type) {
     if (type == "altarChild") {
@@ -166,6 +197,9 @@ int OotGroupForType(const std::string& type) {
     }
     if (type == "ganondorf") {
         return kGrpGanondorf;
+    }
+    if (type == "static") {
+        return kGrpNpc;
     }
     if (type == "trial") {
         return kGrpTrials;
@@ -182,11 +216,12 @@ int OotGroupForType(const std::string& type) {
 // Rebuild the display model from the pushed strings. Corrupt input -> empty (never throws).
 void Rebuild(const std::string& hintsJson, const std::string& readJson) {
     sGroups.clear();
-    sGroups.resize(7);
+    sGroups.resize(kGrpCount);
     sGroups[kGrpStones].title = "Gossip Stones";
     sGroups[kGrpAltarChild].title = "Temple of Time Altar (Child)";
     sGroups[kGrpAltarAdult].title = "Temple of Time Altar (Adult)";
     sGroups[kGrpGanondorf].title = "Ganondorf";
+    sGroups[kGrpNpc].title = "NPC Item Hints";
     sGroups[kGrpTrials].title = "Trials";
     sGroups[kGrpAlways].title = "Always Hints";
     sGroups[kGrpJunk].title = "Junk Hints";

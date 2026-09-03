@@ -4247,6 +4247,15 @@ static bool Combo_IsUsedHintTemplate(const std::string& name) {
         "RHT_GANONDORF_HINT_MS_ONLY",
         "RHT_GANONDORF_HINT_LA_AND_MS",
         "RHT_YOUR_POCKET",
+        // Area-type NPC item hints (combo composes these from the two-game placement list).
+        "RHT_SHEIK_HINT_LA_ONLY",
+        "RHT_BOSS_KEY_HINT",
+        "RHT_DAMPE_DIARY",
+        "RHT_GREG_HINT",
+        "RHT_SARIA_TALK_HINT",
+        "RHT_SARIA_SONG_HINT",
+        "RHT_MIDO_HINT",
+        "RHT_FISHING_POLE_HINT",
         // Altar templates + option-driven end clauses (Fix 3: combo composes altar hints itself).
         "RHT_CHILD_ALTAR_STONES",
         "RHT_CHILD_ALTAR_TEXT_END_DOTOPEN",
@@ -4412,6 +4421,15 @@ extern "C" __declspec(dllexport) const char* SOH_DumpRandoHintData(void) {
             { "startingMasterSword", static_cast<int>(ctx->GetOption(RSK_STARTING_MASTER_SWORD).Get()) },
             { "warpSongHints", static_cast<int>(ctx->GetOption(RSK_WARP_SONG_HINTS).Get()) },
             { "totAltarHint", static_cast<int>(ctx->GetOption(RSK_TOT_ALTAR_HINT).Get()) },
+            // Area-type NPC item hints (staticHintInfoMap rows with targetItems) the combo composer
+            // builds itself — native's FindItemsAndMarkHinted can't see an item cross-placed into MM.
+            { "sheikLaHint", static_cast<int>(ctx->GetOption(RSK_SHEIK_LA_HINT).Get()) },
+            { "bossKeyHint", static_cast<int>(ctx->GetOption(RSK_BOSS_KEY_HINT).Get()) },
+            { "dampesDiaryHint", static_cast<int>(ctx->GetOption(RSK_DAMPES_DIARY_HINT).Get()) },
+            { "gregHint", static_cast<int>(ctx->GetOption(RSK_GREG_HINT).Get()) },
+            { "sariaHint", static_cast<int>(ctx->GetOption(RSK_SARIA_HINT).Get()) },
+            { "midoHint", static_cast<int>(ctx->GetOption(RSK_MIDO_HINT).Get()) },
+            { "fishingPoleHint", static_cast<int>(ctx->GetOption(RSK_FISHING_POLE_HINT).Get()) },
             { "doorOfTimeTemplate", doorOfTimeKey },
             { "bridgeTemplate", bridge.first },
             { "bridgeCount", bridge.second },
@@ -4568,6 +4586,30 @@ Combo_WalkComboHints(const nlohmann::json& hints, const std::function<bool(Rando
             rh = RH_ALTAR_CHILD;
         } else if (checkName == "__ALTAR_ADULT__") {
             rh = RH_ALTAR_ADULT;
+        } else if (checkName.rfind("__STATIC__", 0) == 0) {
+            // "__STATIC__<RandomizerHint>": an area-type NPC item hint CrossHints.h composed from the
+            // two-game placement list (native's own builder only searches OOT checks). Once enabled
+            // here, CreateStaticHints() below self-skips the key.
+            static const std::unordered_map<std::string, RandomizerHint> kStaticHints = {
+                { "RH_SHEIK_HINT", RH_SHEIK_HINT },
+                { "RH_FOREST_BOSS_KEY_HINT", RH_FOREST_BOSS_KEY_HINT },
+                { "RH_FIRE_BOSS_KEY_HINT", RH_FIRE_BOSS_KEY_HINT },
+                { "RH_WATER_BOSS_KEY_HINT", RH_WATER_BOSS_KEY_HINT },
+                { "RH_SPIRIT_BOSS_KEY_HINT", RH_SPIRIT_BOSS_KEY_HINT },
+                { "RH_SHADOW_BOSS_KEY_HINT", RH_SHADOW_BOSS_KEY_HINT },
+                { "RH_GANONS_BOSS_KEY_HINT", RH_GANONS_BOSS_KEY_HINT },
+                { "RH_DAMPES_DIARY", RH_DAMPES_DIARY },
+                { "RH_GREG_RUPEE", RH_GREG_RUPEE },
+                { "RH_SARIA_HINT", RH_SARIA_HINT },
+                { "RH_MIDO_HINT", RH_MIDO_HINT },
+                { "RH_FISHING_POLE", RH_FISHING_POLE },
+            };
+            auto it = kStaticHints.find(checkName.substr(10));
+            if (it == kStaticHints.end()) {
+                ++skipped;
+                continue;
+            }
+            rh = it->second;
         } else if (checkName.rfind("__", 0) == 0) {
             // "__STONE__N"/"__TRIAL__.../"__JUNK__...": CrossHints.h assigns these to an abstract
             // stone SLOT (count only, not a specific check — combo doesn't pick which physical

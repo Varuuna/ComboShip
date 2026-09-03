@@ -349,6 +349,14 @@ extern "C" char* ResourceMgr_LoadJPEG(char* data, size_t dataSize) {
 extern "C" char* ResourceMgr_LoadTexOrDListByName(const char* filePath) {
     auto res = ResourceMgr_GetResourceByNameHandlingMQ(filePath);
 
+#ifdef COMBO_BUILD
+    // ComboShip: a miss returns null here (same as ResourceMgr_LoadIfDListByName). The GBI wrappers
+    // that reach this (gSPInvalidateTexCache / gSPSegmentLoadRes) tolerate a null address, so this
+    // turns a resolve miss into a no-op rather than an access violation on GetInitData().
+    if (res == nullptr) {
+        return nullptr;
+    }
+#endif
     if (res->GetInitData()->Type == static_cast<uint32_t>(Fast::ResourceType::DisplayList)) {
         return (char*)&((std::static_pointer_cast<Fast::DisplayList>(res))->Instructions[0]);
     }

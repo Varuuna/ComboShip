@@ -198,10 +198,26 @@ Two alternatives were rejected and should stay rejected:
 **`mm/2s2h/BenPort.cpp` + `soh/soh/ResourceManagerHelpers.cpp` (COMBO_BUILD-guarded):**
 `ResourceMgr_LoadIfDListByName` returns null on a miss instead of dereferencing. Both callers already
 test the return (`stubs.c:163`, `GbiWrap.cpp:48`), so the function's contract already admitted null —
-it just failed to produce it. The sibling `ResourceMgr_LoadTexOrDListByName` has the identical
-unguarded deref but is left alone: no `Cfa*` path reaches it via `gSPSegmentLoadRes` today. The other
-~11 unchecked `GetResourceByName` sites in `BenPort.cpp` are a vendored 2Ship pattern whose callers
-deref unconditionally, so guarding them would relocate the crash rather than fix it.
+it just failed to produce it. The sibling `ResourceMgr_LoadTexOrDListByName` now carries the same
+guard on both hosts (see the pause name-panel entry below — `gSPInvalidateTexCache` reaches it). The
+other ~11 unchecked `GetResourceByName` sites in `BenPort.cpp` are a vendored 2Ship pattern whose
+callers deref unconditionally, so guarding them would relocate the crash rather than fix it.
+
+**`soh/src/overlays/misc/ovl_kaleido_scope/z_kaleido_scope_PAL.c` (COMBO_BUILD-guarded) +
+`ResourceMgr_LoadTexOrDListByName` on both hosts:** OOT's pause menu `malloc`s a fresh, never-freed
+`pauseCtx->nameSegment` on every open, and only `KaleidoScope_UpdateNamePanel` (gated to specific
+pause states) ever writes a name-texture path into it. `KaleidoScope_DrawEquipment` runs
+`gSPInvalidateTexCache(POLY_OPA_DISP++, pauseCtx->nameSegment)` every drawn frame — during the
+opening animation and page rotation too — and that wrapper (`GbiWrap.cpp`, `stubs.c`) sig-checks the
+buffer's **contents** for `__OTR__` and resolves them via `ResourceMgr_LoadTexOrDListByName`. In a
+single-game process a stale `__OTR__` string in recycled heap is at worst a valid host path; under
+ComboShip the same heap has just hosted an MM session, so it can hold an MM resource path that misses
+OOT's RM → `LoadResource` returns null → unguarded `GetInitData()` deref → 0xC0000005. Reproduced
+from a player crash report (v0.3.0, develop `2caad20`, DMC after an MM→OOT return, pause on the
+Equipment page; the export-approx frame `Ship::ControlPort::GetConnectedDevice+0xD` is an ICF alias of
+`IResource::GetInitData`). Fix: `calloc` the buffer so uninitialised memory can never pass the sig
+check, and give `LoadTexOrDListByName` the same null-on-miss contract as `LoadIfDListByName` — its
+GBI callers already tolerate a 0 address.
 
 ## MM transition-actor ids re-normalized on scene load (Woodfall door fix) (2026-08-05)
 

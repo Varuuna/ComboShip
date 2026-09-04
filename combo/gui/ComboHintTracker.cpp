@@ -1,5 +1,6 @@
 // combo/gui/ComboHintTracker.cpp — see ComboHintTracker.h
 #include "ComboHintTracker.h"
+#include "ComboExport.h"
 #include "ComboForeground.h"  // foreground game for the OnlyPaused gate
 #include "ComboTrackerSwap.h" // ForegroundPaused (shared with the icon trackers)
 #include "ComboWidgetStyle.h"
@@ -540,13 +541,7 @@ void DrawHintTrackerSharedPanel() {
 // ComboShip: the launcher pushes the slot's hints slice + read state here (at slot bind/load and
 // after every reveal). Strings are copied — the launcher reuses its buffers — and parsed lazily on
 // the draw thread.
-#ifdef _WIN32
-extern "C" __declspec(dllexport) void ComboUI_SetHintTrackerData(int slot, const char* hintsJson,
-                                                                 const char* readStateJson)
-#else
-extern "C" void ComboUI_SetHintTrackerData(int slot, const char* hintsJson, const char* readStateJson)
-#endif
-{
+extern "C" COMBO_EXPORT void ComboUI_SetHintTrackerData(int slot, const char* hintsJson, const char* readStateJson) {
     try {
         std::lock_guard<std::mutex> lock(ComboRando::sPushMutex);
         ComboRando::sPushedSlot = slot;

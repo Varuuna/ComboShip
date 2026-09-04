@@ -33,9 +33,6 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
-#ifdef _WIN32
-#include <windows.h>
-#endif
 
 #include "ComboItemDrawABI.h"
 // ComboShip: the animated class, with 2ship.dll as the host (see the shim in ComboForeignAnim.h).
@@ -43,6 +40,7 @@
 #include "ComboForeignAnim.h"
 #include "2s2h/Rando/MiscBehavior/MiscBehavior.h" // Rando::MiscBehavior::MM_LookupForeign
 #include "rando/CrossForeign.h"                   // ComboRando::ForeignItem / GAME_OOT
+#include "ComboResolve.h"                         // Combo_ResolveSym (process-wide combo-ABI resolution)
 
 namespace {
 
@@ -93,11 +91,10 @@ inline ComboForeignResolveOOT ComboFillForeignDrawInfoOOT(RandoCheckId rc, Combo
         return ComboForeignResolveOOT::Unknown;
     }
 
-#ifdef _WIN32
     static Fn_GetItemDrawInfo sGetItemDrawInfo = nullptr;
     if (sGetItemDrawInfo == nullptr) {
-        HMODULE h = GetModuleHandleA("soh.dll"); // already loaded by the exe (ComboMenuModel pattern)
-        sGetItemDrawInfo = h ? (Fn_GetItemDrawInfo)GetProcAddress(h, "OOT_GetItemDrawInfo") : nullptr;
+        // soh already loaded by the exe (ComboMenuModel pattern); resolution is process-wide.
+        sGetItemDrawInfo = (Fn_GetItemDrawInfo)Combo_ResolveSym("soh", "OOT_GetItemDrawInfo");
     }
     if (sGetItemDrawInfo == nullptr) {
         return ComboForeignResolveOOT::NotReady; // soh.dll may simply not be resident yet
@@ -115,8 +112,7 @@ inline ComboForeignResolveOOT ComboFillForeignDrawInfoOOT(RandoCheckId rc, Combo
         // only describes the item; ComboForeignAnim_Draw loads + draws it (mirror of the OOT side).
         static Fn_GetItemAnimDrawInfo sGetItemAnimDrawInfo = nullptr;
         if (sGetItemAnimDrawInfo == nullptr) {
-            HMODULE h = GetModuleHandleA("soh.dll");
-            sGetItemAnimDrawInfo = h ? (Fn_GetItemAnimDrawInfo)GetProcAddress(h, "OOT_GetItemAnimDrawInfo") : nullptr;
+            sGetItemAnimDrawInfo = (Fn_GetItemAnimDrawInfo)Combo_ResolveSym("soh", "OOT_GetItemAnimDrawInfo");
         }
         if (sGetItemAnimDrawInfo == nullptr) {
             return ComboForeignResolveOOT::NotReady;
@@ -167,9 +163,6 @@ inline ComboForeignResolveOOT ComboFillForeignDrawInfoOOT(RandoCheckId rc, Combo
     }
     info.ok = true;
     return ComboForeignResolveOOT::Ok;
-#else
-    return ComboForeignResolveOOT::Unknown; // GetProcAddress resolution is Windows-only (ComboMenuModel)
-#endif
 }
 
 // Full lookup chain (foreign map -> OOT export -> routed strings), cached per check per slot per

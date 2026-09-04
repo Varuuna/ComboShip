@@ -1,5 +1,6 @@
 // combo/gui/ComboMenu.cpp
 #include "ComboMenu.h"
+#include "ComboExport.h"
 #include "ComboMenuModel.h"
 #include "ComboWidgetRender.h"
 #include "ComboWidgetStyle.h"
@@ -22,9 +23,7 @@
 #include <cstring>
 #include <cstdio>
 #include <unordered_set>
-#ifdef _WIN32
-#include <windows.h>
-#endif
+#include "ComboResolve.h"
 
 namespace {
 // soh.dll exports: trigger combo generation (non-blocking; spawns the launcher worker), read the
@@ -39,19 +38,14 @@ FnGetProgress sGetProgress = nullptr;
 FnIsOnFileSelect sIsOnFileSelect = nullptr;
 FnRefreshStartingGameUI sRefreshStartingGameUI = nullptr;
 void ResolveComboGenSyms() {
-#ifdef _WIN32
-    HMODULE h = GetModuleHandleA("soh.dll");
-    if (!h)
-        return;
     if (!sTrigger)
-        sTrigger = (FnTriggerGenerate)GetProcAddress(h, "SOH_TriggerComboGenerate");
+        sTrigger = (FnTriggerGenerate)Combo_ResolveSym("soh", "SOH_TriggerComboGenerate");
     if (!sGetProgress)
-        sGetProgress = (FnGetProgress)GetProcAddress(h, "SOH_GetComboGenProgress");
+        sGetProgress = (FnGetProgress)Combo_ResolveSym("soh", "SOH_GetComboGenProgress");
     if (!sIsOnFileSelect)
-        sIsOnFileSelect = (FnIsOnFileSelect)GetProcAddress(h, "SOH_IsOnFileSelect");
+        sIsOnFileSelect = (FnIsOnFileSelect)Combo_ResolveSym("soh", "SOH_IsOnFileSelect");
     if (!sRefreshStartingGameUI)
-        sRefreshStartingGameUI = (FnRefreshStartingGameUI)GetProcAddress(h, "SOH_RefreshComboStartingGameUI");
-#endif
+        sRefreshStartingGameUI = (FnRefreshStartingGameUI)Combo_ResolveSym("soh", "SOH_RefreshComboStartingGameUI");
 }
 
 // Bug 2: Anchor resync exports, one per game DLL — resolved the same way as the combo-gen syms
@@ -73,26 +67,20 @@ FnGetOwnerInfo sSohAnchorGetOwnerInfo = nullptr;
 FnSendRoomState sSohAnchorSendRoomState = nullptr;
 FnClearTeamState sSohAnchorClearTeamState = nullptr;
 void ResolveAnchorResyncSyms() {
-#ifdef _WIN32
-    if (HMODULE h = GetModuleHandleA("soh.dll")) {
-        if (!sSohRequestResync)
-            sSohRequestResync = (FnRequestResync)GetProcAddress(h, "SOH_Anchor_RequestResync");
-        if (!sSohAnchorSetEnabled)
-            sSohAnchorSetEnabled = (FnSetEnabled)GetProcAddress(h, "SOH_Anchor_SetEnabled");
-        if (!sSohAnchorGetConnState)
-            sSohAnchorGetConnState = (FnGetConnState)GetProcAddress(h, "SOH_Anchor_GetConnectionState");
-        if (!sSohAnchorGetOwnerInfo)
-            sSohAnchorGetOwnerInfo = (FnGetOwnerInfo)GetProcAddress(h, "SOH_Anchor_GetOwnerInfo");
-        if (!sSohAnchorSendRoomState)
-            sSohAnchorSendRoomState = (FnSendRoomState)GetProcAddress(h, "SOH_Anchor_SendRoomState");
-        if (!sSohAnchorClearTeamState)
-            sSohAnchorClearTeamState = (FnClearTeamState)GetProcAddress(h, "SOH_Anchor_ClearTeamState");
-    }
-    if (!sMmRequestResync) {
-        if (HMODULE h = GetModuleHandleA("2ship.dll"))
-            sMmRequestResync = (FnRequestResync)GetProcAddress(h, "MM_Anchor_RequestResync");
-    }
-#endif
+    if (!sSohRequestResync)
+        sSohRequestResync = (FnRequestResync)Combo_ResolveSym("soh", "SOH_Anchor_RequestResync");
+    if (!sSohAnchorSetEnabled)
+        sSohAnchorSetEnabled = (FnSetEnabled)Combo_ResolveSym("soh", "SOH_Anchor_SetEnabled");
+    if (!sSohAnchorGetConnState)
+        sSohAnchorGetConnState = (FnGetConnState)Combo_ResolveSym("soh", "SOH_Anchor_GetConnectionState");
+    if (!sSohAnchorGetOwnerInfo)
+        sSohAnchorGetOwnerInfo = (FnGetOwnerInfo)Combo_ResolveSym("soh", "SOH_Anchor_GetOwnerInfo");
+    if (!sSohAnchorSendRoomState)
+        sSohAnchorSendRoomState = (FnSendRoomState)Combo_ResolveSym("soh", "SOH_Anchor_SendRoomState");
+    if (!sSohAnchorClearTeamState)
+        sSohAnchorClearTeamState = (FnClearTeamState)Combo_ResolveSym("soh", "SOH_Anchor_ClearTeamState");
+    if (!sMmRequestResync)
+        sMmRequestResync = (FnRequestResync)Combo_ResolveSym("2ship", "MM_Anchor_RequestResync");
 }
 
 // Shared Anchor config CVar keys (process-global libultraship store; both game DLLs read these — see
@@ -120,18 +108,12 @@ FnDump sSohDump = nullptr;
 FnDump sMmDump = nullptr;
 FnRequestReload sRequestReload = nullptr;
 void ResolvePlandoSyms() {
-#ifdef _WIN32
-    if (HMODULE h = GetModuleHandleA("soh.dll")) {
-        if (!sSohDump)
-            sSohDump = (FnDump)GetProcAddress(h, "SOH_DumpRandoStaticData");
-        if (!sRequestReload)
-            sRequestReload = (FnRequestReload)GetProcAddress(h, "SOH_RequestComboReload");
-    }
-    if (HMODULE h = GetModuleHandleA("2ship.dll")) {
-        if (!sMmDump)
-            sMmDump = (FnDump)GetProcAddress(h, "MM_DumpRandoStaticData");
-    }
-#endif
+    if (!sSohDump)
+        sSohDump = (FnDump)Combo_ResolveSym("soh", "SOH_DumpRandoStaticData");
+    if (!sRequestReload)
+        sRequestReload = (FnRequestReload)Combo_ResolveSym("soh", "SOH_RequestComboReload");
+    if (!sMmDump)
+        sMmDump = (FnDump)Combo_ResolveSym("2ship", "MM_DumpRandoStaticData");
 }
 
 // Combo plandomizer editable state (single ComboMenu instance -> file-static). rows is the edited
@@ -1784,17 +1766,12 @@ void ComboMenu::DrawComboPanel() {
 } // namespace ComboRando
 
 // ComboShip: open the combo menu on the Randomizer tab (file-select "Open Randomizer Settings").
-extern "C" __declspec(dllexport) void ComboUI_OpenRandomizerSettings(void) {
+extern "C" COMBO_EXPORT void ComboUI_OpenRandomizerSettings(void) {
     if (ComboRando::sComboMenu)
         ComboRando::sComboMenu->OpenAtRandomizer();
 }
 
-#ifdef _WIN32
-extern "C" __declspec(dllexport) void ComboUI_Register(void)
-#else
-extern "C" void ComboUI_Register(void)
-#endif
-{
+extern "C" COMBO_EXPORT void ComboUI_Register(void) {
     auto ctx = Ship::Context::GetRawInstance();
     if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
         return; // GUI not ready

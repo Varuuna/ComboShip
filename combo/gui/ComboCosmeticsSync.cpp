@@ -8,7 +8,8 @@
 // instance across the exe and every DLL, so the sync is plain reads/writes with no IPC. The launcher
 // drives it through the exports at the bottom (sync, its gate, and the per-seed gen-roll latch).
 #include <libultraship/libultraship.h> // CVar bridge
-#include <ship/Context.h>              // SaveConsoleVariablesNextFrame (persist the writes)
+#include "ComboExport.h"
+#include <ship/Context.h> // SaveConsoleVariablesNextFrame (persist the writes)
 #include <spdlog/spdlog.h>
 #include "ComboMenuModel.h" // cached MM_MenuApplyCVarChange resolver
 // RANDOMIZE_ON_RANDO_GEN_ONLY. Relative path on purpose: enhancementTypes.h is a zero-include enum
@@ -145,7 +146,7 @@ bool AnyOotGenRollEnabled() {
 
 // Gate: the combo toggle plus BOTH games' randomize-on-generation options. The File-Load randomize
 // modes deliberately don't count — they re-roll OOT after the sync and would drift the games apart.
-extern "C" __declspec(dllexport) int ComboUI_CosmeticsSyncGateEnabled(void) {
+extern "C" COMBO_EXPORT int ComboUI_CosmeticsSyncGateEnabled(void) {
     if (CVarGetInteger("gCombo.Rando.SyncCosmetics", 0) != 1) {
         return 0;
     }
@@ -155,7 +156,7 @@ extern "C" __declspec(dllexport) int ComboUI_CosmeticsSyncGateEnabled(void) {
     return CVarGetInteger("gCosmetics.RandomizeOnSeedGen", 0) == 1 ? 1 : 0;
 }
 
-extern "C" __declspec(dllexport) void ComboUI_SyncRandomizedCosmetics(void) {
+extern "C" COMBO_EXPORT void ComboUI_SyncRandomizedCosmetics(void) {
     if (!ComboUI_CosmeticsSyncGateEnabled()) {
         return;
     }
@@ -195,7 +196,7 @@ extern "C" __declspec(dllexport) void ComboUI_SyncRandomizedCosmetics(void) {
 // else the silent auto-load on every boot would re-roll over the user's manual cosmetic edits.
 // Returns 1 (and claims the seed) only when this seed is not among the last kGenRollSeedsKept claimed
 // and some subscriber is actually enabled to roll. Hex strings, not int CVars: the int store is 32-bit.
-extern "C" __declspec(dllexport) int ComboUI_ClaimGenRollSeed(unsigned long long seed) {
+extern "C" COMBO_EXPORT int ComboUI_ClaimGenRollSeed(unsigned long long seed) {
     // Claiming with every option off would burn the seed, so enabling them mid-seed would do nothing.
     if (!AnyOotGenRollEnabled()) {
         return 0;

@@ -36,6 +36,13 @@ project(ComboShip VERSION ${COMBO_EPOCH}.${COMBO_MINOR}.${COMBO_PATCH} LANGUAGES
 message(STATUS "ComboShip version ${PROJECT_VERSION} "
                "(epoch ${COMBO_EPOCH}, soh ${COMBO_SOH_SHORT}, mm ${COMBO_MM_SHORT})")
 
+# ComboShip: libultraship/soh/2ship/comboui build as shared objects, so every vendored static
+# dependency (stormlib, ImGui, stb, prism, ...) that links into them must be compiled PIC on ELF.
+# MSVC doesn't need or use this.
+if (NOT MSVC)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
+
 # Include both game-specific cvars
 include(CMake/soh-cvars.cmake)
 include(CMake/2ship-cvars.cmake)
@@ -260,6 +267,24 @@ add_subdirectory(OTRExporter ${CMAKE_BINARY_DIR}/OTRExporter)
 if(MSVC AND TARGET OTRExporter)
     set_target_properties(OTRExporter PROPERTIES
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+# ComboShip Linux: ZAPDLib/OTRExporter link statically into BOTH game shared objects; without
+# hidden visibility their identical symbols (ZFile, ZTexture, vendored bzip2, ...) land in the
+# global namespace twice and ELF interposition would bind both games to one copy — shared mutable
+# extractor state across games. Hide them like the game targets themselves (soh/mm CMakeLists).
+# libultraship keeps default visibility on purpose: it is the deliberately-shared engine (the ELF
+# replacement for the Windows /DEF full-export pipeline), and the games resolve ImGui/storm/prism
+# through it.
+if (NOT MSVC)
+    foreach(combo_hidden_tgt ZAPDLib OTRExporter storm)
+        if (TARGET ${combo_hidden_tgt})
+            set_target_properties(${combo_hidden_tgt} PROPERTIES
+                C_VISIBILITY_PRESET hidden
+                CXX_VISIBILITY_PRESET hidden
+                VISIBILITY_INLINES_HIDDEN ON)
+        endif()
+    endforeach()
 endif()
 
 ################################################################################

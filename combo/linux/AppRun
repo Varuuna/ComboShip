@@ -1,0 +1,54 @@
+#!/bin/sh
+# ComboShip AppImage entry point.
+#
+# The launcher's runtime layout is portable: it dlopens ./libsoh.so, ./lib2ship.so and
+# ./comboui.so relative to the CURRENT DIRECTORY, and looks for the game archives
+# (soh.o2r / 2ship.o2r bundled here; oot.o2r / mm.o2r extracted from the player's ROMs),
+# saves and config there too (see combo/ComboShip.cpp LoadDll). The AppImage mount is
+# read-only, so this script anchors a writable data directory, exposes the bundled
+# runtime pieces inside it, and runs the launcher from there.
+#
+# Data directory, in order of preference:
+#   $SHIP_HOME                        — explicit override (also honored by libultraship)
+#   <dir with the AppImage>/ComboShip-data — portable default
+#   $PWD                              — fallback when run from an extracted AppDir
+set -u
+
+HERE="$(dirname "$(readlink -f "$0")")"
+BIN="$HERE/usr/bin"
+
+if [ -n "${SHIP_HOME:-}" ]; then
+    DATA="$SHIP_HOME"
+elif [ -n "${APPIMAGE:-}" ]; then
+    DATA="$(dirname "$APPIMAGE")/ComboShip-data"
+else
+    DATA="$PWD"
+fi
+mkdir -p "$DATA" || exit 1
+export SHIP_HOME="$DATA"
+
+# Read-only bundled pieces, exposed via symlinks refreshed every run (the mount point
+# changes between runs). A real file/dir with the same name is a user override — keep it.
+for f in libsoh.so lib2ship.so libultraship.so comboui.so soh.o2r 2ship.o2r assets; do
+    if [ -e "$BIN/$f" ] && { [ -L "$DATA/$f" ] || [ ! -e "$DATA/$f" ]; }; then
+        ln -sfn "$BIN/$f" "$DATA/$f"
+    fi
+done
+
+# Writable content that ships with defaults: copied once, then owned by the user.
+for d in mods presets randomizer; do
+    if [ -d "$BIN/$d" ] && [ ! -e "$DATA/$d" ]; then
+        cp -r "$BIN/$d" "$DATA/$d"
+    fi
+done
+
+# Bundled deps live in usr/lib (and libultraship.so in usr/bin). The built libraries
+# carry no usable RUNPATH outside the build tree, so resolve everything explicitly.
+# The host's original value is preserved for child processes the game spawns (the
+# zenity/kdialog ROM picker — see PickRomFile in combo/gui/ComboExtractScreen.cpp):
+# host tools can break when forced to load the bundle's libraries.
+export COMBO_HOST_LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="$BIN:$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+cd "$DATA" || exit 1
+exec "$BIN/ComboShip" "$@"

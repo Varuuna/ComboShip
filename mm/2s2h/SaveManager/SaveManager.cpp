@@ -36,6 +36,7 @@ extern SaveContext gSaveContext;
 const std::filesystem::path savesFolderPath(Ship::Context::GetPathRelativeToAppDirectory("saves", appShortName));
 
 #ifdef COMBO_BUILD
+#include "ComboExport.h"        // ComboShip: COMBO_EXPORT for MM_InvalidateOwlBlobSlot
 #include "rando/CrossForeign.h" // ComboShip: merged-save IO callback typedefs + GameId
 
 // ComboShip: launcher-provided .combosav IO. When set, a main per-slot file{N}.json read/write routes
@@ -299,7 +300,7 @@ extern "C" void Combo_MMDropOwlSaveBlob(void) try {
 
 // ComboShip (#182): the launcher can replace a slot's mm section behind MM's back (copy/erase/evict),
 // which would leave the descent flag pointing at a blob gSaveContext never came from.
-extern "C" __declspec(dllexport) void MM_InvalidateOwlBlobSlot(void) {
+extern "C" COMBO_EXPORT void MM_InvalidateOwlBlobSlot(void) {
     gComboOwlBlobSlot = -1;
 }
 #endif

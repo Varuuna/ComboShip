@@ -15,9 +15,8 @@
 #include <memory>
 #include <string>
 #include <vector>
-#ifdef _WIN32
-#include <windows.h> // GetModuleHandleA/GetProcAddress for the SOH_/MM_ timer exports
-#endif
+#include "ComboExport.h"
+#include "ComboResolve.h" // Combo_ResolveSym for the SOH_/MM_ timer exports
 
 namespace ComboRando {
 
@@ -78,16 +77,10 @@ const GameFns& Fns() {
     static bool tried = false;
     if (!tried) {
         tried = true;
-#ifdef _WIN32
-        if (HMODULE soh = GetModuleHandleA("soh.dll")) {
-            fns.ootPlaytimeDs = (uint64_t(*)(void))GetProcAddress(soh, "SOH_GetPlaytimeDeciseconds");
-            fns.ootOverlay = (int (*)(uint32_t*, int32_t*, int32_t*, uint32_t*, int32_t*, int32_t*))GetProcAddress(
-                soh, "SOH_GetOverlayTimers");
-        }
-        if (HMODULE mm = GetModuleHandleA("2ship.dll")) {
-            fns.mmPlaytimeMs = (uint64_t(*)(void))GetProcAddress(mm, "MM_GetPlaytimeMs");
-        }
-#endif
+        fns.ootPlaytimeDs = (uint64_t(*)(void))Combo_ResolveSym("soh", "SOH_GetPlaytimeDeciseconds");
+        fns.ootOverlay = (int (*)(uint32_t*, int32_t*, int32_t*, uint32_t*, int32_t*, int32_t*))Combo_ResolveSym(
+            "soh", "SOH_GetOverlayTimers");
+        fns.mmPlaytimeMs = (uint64_t(*)(void))Combo_ResolveSym("2ship", "MM_GetPlaytimeMs");
     }
     return fns;
 }
@@ -440,11 +433,6 @@ void DrawTimersSharedPanel() {
 } // namespace ComboRando
 
 // ComboShip: the launcher pushes whether both games are beaten, on slot load and when it latches.
-#ifdef _WIN32
-extern "C" __declspec(dllexport) void ComboUI_SetComboComplete(int complete)
-#else
-extern "C" void ComboUI_SetComboComplete(int complete)
-#endif
-{
+extern "C" COMBO_EXPORT void ComboUI_SetComboComplete(int complete) {
     ComboRando::sRunComplete.store(complete, std::memory_order_relaxed);
 }

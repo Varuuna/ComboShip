@@ -1,5 +1,8 @@
 ﻿#include "soh/OTRGlobals.h"
 #include "soh/ResourceManagerHelpers.h"
+#ifdef COMBO_BUILD
+#include "ComboExport.h"
+#endif
 #include "soh/Enhancements/enhancementTypes.h"
 #include "soh/Enhancements/custom-message/CustomMessageTypes.h"
 #include "soh/Enhancements/randomizer/randomizerTypes.h"
@@ -556,7 +559,7 @@ void OOT_ComboHintRevealed(RandomizerHint hintKey);
 
 // ComboShip: launcher pushes the baked combo rando (foreign map + cross-hints) once per save-load.
 // Store the blob and rebuild the OOT foreign cache from it. Idempotent (pushed at bind and load).
-extern "C" __declspec(dllexport) void SOH_LoadComboRando(const char* json) {
+extern "C" COMBO_EXPORT void SOH_LoadComboRando(const char* json) {
     ComboRando::Combo_SetForeignJson(json);
     g_ootForeignMap = ComboRando::LoadForeignForGame(0, ComboRando::GAME_OOT);
     ++g_ootForeignGen; // invalidate the foreign-draw caches keyed on this

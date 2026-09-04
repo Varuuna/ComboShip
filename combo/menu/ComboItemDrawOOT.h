@@ -17,13 +17,14 @@
 #define COMBO_ITEM_DRAW_OOT_H
 
 #include "ComboItemDrawABI.h"
+#include "ComboExport.h"
 #include "libultraship/bridge.h" // CVarGetInteger / CVarGetColor24 (cosmetic key/nut colors)
 #include "libultraship/color.h"  // Color_RGB8
 #include "soh/cvar_prefixes.h"
 #include "soh/Enhancements/cosmetics/cosmeticsTypes.h" // COLORSCHEME_*
 #include "soh/OTRGlobals.h"                            // rando-context null guards (MM calls us while OOT is dormant)
 #include <string>
-#include "dungeon.h"                               // Rando::DungeonKey / GetDungeon()->IsMQ() (key-ring MQ variants)
+#include "soh/Enhancements/randomizer/dungeon.h"   // Rando::DungeonKey / GetDungeon()->IsMQ() (key-ring MQ variants)
 #include "objects/object_gi_fire/object_gi_fire.h" // gGiBlueFireFlameDL (boss-soul flame)
 #include "objects/object_gi_key/object_gi_key.h"   // gGiSmallKeyDL
 #include "objects/object_gi_bosskey/object_gi_bosskey.h"     // gGiBossKeyDL / gGiBossKeyGemDL
@@ -462,13 +463,13 @@ static int32_t OOT_FillItemDrawInfo(RandomizerGet rg, CwItemDrawInfo* out) {
     return 1;
 }
 
-// Cross-game item draw info. MM resolves this via GetProcAddress to learn which OOT display lists
+// Cross-game item draw info. MM resolves this via Combo_ResolveSym to learn which OOT display lists
 // render a foreign item; itemName is the OOT English item name (the foreign map's grant key).
 // Returns 0 for unknown/non-portable items, CW_DRAW_NOT_READY while OOT's rando state is down.
 // The whole body is inside the try: an unwind across the C ABI into 2ship.dll is unrecoverable.
 static bool OOT_BossSoulUsesSkeleton(RandomizerGet rg); // defined with the animated ABI below
 
-extern "C" __declspec(dllexport) int32_t OOT_GetItemDrawInfo(const char* itemName, CwItemDrawInfo* out) {
+extern "C" COMBO_EXPORT int32_t OOT_GetItemDrawInfo(const char* itemName, CwItemDrawInfo* out) {
     try {
         if (itemName == nullptr || out == nullptr) {
             return 0;
@@ -691,7 +692,7 @@ static int32_t OOT_FillBossSoulAnim(int slot, CwItemAnimDrawInfo* out) {
 // than a SkelAnime skeleton and rides the static ABI. Returns 0 otherwise; MM falls back to its
 // sentinel. Mirror of MM_GetItemAnimDrawInfo.
 // Whole body inside the try: an unwind across the C ABI into 2ship.dll is unrecoverable.
-extern "C" __declspec(dllexport) int32_t OOT_GetItemAnimDrawInfo(const char* itemName, CwItemAnimDrawInfo* out) {
+extern "C" COMBO_EXPORT int32_t OOT_GetItemAnimDrawInfo(const char* itemName, CwItemAnimDrawInfo* out) {
     try {
         if (itemName == nullptr || out == nullptr) {
             return 0;

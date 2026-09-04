@@ -298,6 +298,14 @@ const CustomMessage Hint::GetHintMessage(MessageFormat format, size_t id) const 
             hintText = messages.back();
 #endif
         }
+#ifdef COMBO_BUILD
+        // ComboShip: a combo-composed Saria hint's song message (slot 1) is natively a blue textbox
+        // (RHT_SARIA_SONG_HINT). The combo payload and the save carry text only, so restore it here —
+        // this is the one spot that survives LoadRandomizer rebuilding hints from the save arrays.
+        if (ownKey == RH_SARIA_HINT && id == 1) {
+            hintText.SetTextBoxType(TEXTBOX_TYPE_BLUE);
+        }
+#endif
     } else if (hintType == HINT_TYPE_ALTAR_CHILD) {
         if (ctx->GetOption(RSK_TOT_ALTAR_HINT)) {
             hintText = StaticData::hintTextTable[RHT_CHILD_ALTAR_STONES].GetHintMessage();

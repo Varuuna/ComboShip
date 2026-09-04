@@ -758,9 +758,9 @@ because the new templates have no clarity variants and so draw nothing from the 
 
 **Known limitations (unchanged):** composed area names are English in all three languages, including
 for OOT areas that do have translations (`areaText` wraps them in `EnglishOnly`); warp-song hints still
-use native's OOT-only area resolution; the 12 area-type NPC static hints (Sheik, boss keys, Dampé,
-Greg, Saria, Mido, Fishing Pole) still say "an Isolated Place" for a cross-placed target — that is the
-follow-up branch.
+use native's OOT-only area resolution; ~~the 12 area-type NPC static hints (Sheik, boss keys, Dampé,
+Greg, Saria, Mido, Fishing Pole) still say "an Isolated Place" for a cross-placed target~~ — fixed
+2026-09-02, see "NPC item hints resolve cross-placed items" below.
 
 **Settings-persistence fix (2026-07-16):** the silent file-select auto-reload
 (`Combo_OnReloadRequest(NULL)`) was writing the pending seed's `gRando.*` CVars over the user's
@@ -1731,3 +1731,41 @@ which retries until `2ship.dll` is loaded.
 - A hand-edited seed file with no `masterSeed` key falls back to 0 consistently on every path (latch,
   `SOH_SetComboRandoSeed`, the rolls), so all such seeds share one palette and one audio shuffle — the
   pre-existing behavior of `SOH_SetComboRandoSeed(0)`, not a new deviation.
+
+## NPC item hints resolve cross-placed items (2026-09-02)
+
+**Why:** a player's Greg hint (Treasure Chest Shop owner) said the rupee was "somewhere in an Isolated
+Place"; Greg was in a Snowhead Temple pot. Native `CreateStaticHintFromData` (hints.cpp) resolves each
+static hint's target item through `FindItemsAndMarkHinted`, which searches only `ctx->allLocations`
+(OOT's own checks). An item cross-placed into MM comes back `RC_UNKNOWN_CHECK`, whose empty area set
+is stored as `RA_NONE`, and `StaticData::areaNames[RA_NONE]` is `RHT_ISOLATED_PLACE`. The same path
+covered every area-type NPC hint with a target item: Sheik's Light Arrows, the six boss-door hints,
+Dampé's diary (hookshot), Greg, Saria (magic meter), Mido (Kokiri Sword) and the fishing pond owner.
+
+- `combo/rando/CrossHints.h` — new block after the Ganondorf hint composes those 12 hints from the
+  two-game placement list via the existing `itemAreaText` (Link's Pocket -> `RHT_YOUR_POCKET` for the
+  rows native flags `yourPocket`). Each is emitted as `"__STATIC__<RandomizerHint>"` with `type:
+  "static"`, one message per native `hintKeys` entry (Saria gets talk + song). The hinted check is
+  reserved in `usedCheckKeys`, mirroring native's `SetHintAccesible` (static hints are created before
+  stone/always hints natively, so stones never re-target them). An item in no check at all (starting
+  item, category not shuffled) is skipped and native fills the slot as before. These templates have no
+  clarity variants, so the block draws nothing from the RNG — existing seeds regenerate with identical
+  stone picks.
+- `soh/soh/OTRGlobals.cpp` — `SOH_DumpRandoHintData` exports the seven NPC hint options
+  (`sheikLaHint`, `bossKeyHint`, `dampesDiaryHint`, `gregHint`, `sariaHint`, `midoHint`,
+  `fishingPoleHint`); `Combo_IsUsedHintTemplate` allows the eight templates; `Combo_WalkComboHints`
+  maps the sentinel back to its `RandomizerHint` (checked BEFORE the generic `__` branch, which would
+  otherwise burn a gossip-stone slot on it). Native `CreateStaticHints()` then self-skips the enabled
+  key.
+- `soh/soh/Enhancements/randomizer/hint.cpp` — `GetHintMessage` re-stamps a MESSAGE-type Saria hint's
+  slot 1 as `TEXTBOX_TYPE_BLUE` (native's `RHT_SARIA_SONG_HINT` box type; the payload and the save
+  carry text only). Placed in the reader, not the apply walk, for the same reason as the last-message
+  fallback above it: `LoadRandomizer` rebuilds hints from the save arrays after the walk.
+- `combo/gui/ComboHintTracker.cpp` — new "NPC Item Hints" group, labelled by speaker.
+
+**Behavior change for OOT-placed targets too:** these hints are now composed by combo for every seed
+with the option on, not only cross-placed ones, so their area names follow the composer's conventions
+(English in all three languages, clear area name regardless of the obscure/ambiguous area-name pool
+native's `NamesChosen` draws from). Progressive items (hookshot, magic) hint the first copy in
+placement order, as native hinted the first copy in `allLocations` order — either copy is a valid
+target for both.

@@ -38,6 +38,9 @@ void Randomizer_DrawRocsFeather(PlayState* play, GetItemEntry* getItemEntry);
 // routing; falls back to the blue-rupee sentinel when the model can't be resolved. The check
 // identity rides in getItemEntry->comboForeignCheck.
 void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getItemEntry);
+// ComboShip: freeze a foreign check's model at the tier it grants, before the cross-grant that
+// follows mutates MM's dormant save and a live re-resolve flips the held-up model next frame.
+void Randomizer_LatchComboForeign(int32_t rc); // RandomizerCheck, as int32_t like comboForeignCheck
 #endif
 
 #define GET_ITEM_MYSTERY                                                                                 \

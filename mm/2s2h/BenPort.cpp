@@ -4034,7 +4034,17 @@ extern "C" __declspec(dllexport) void MM_GrantCrossItem(const char* itemName) {
         SPDLOG_WARN("[ComboShip] MM_GrantCrossItem: unknown MM item '{}'", itemName);
         return;
     }
-    RandoItemId rid = it->second;
+    const RandoItemId placed = it->second;
+    // ComboShip: run the same already-have conversion a native MM pickup gets (CheckQueue/shops go
+    // through Rando::ConvertItem before Rando::GiveItem; so does MMAnchor's dormant GIVE_ITEM). Without
+    // it a duplicate lands in vanilla Item_Give, which writes equipment unconditionally — a Hero's
+    // Shield found in OOT after the Mirror Shield overwrote the shield nibble (MM has no owned-shield
+    // bitmask, the equipped value IS ownership).
+    RandoItemId rid = Rando::ConvertItem(placed);
+    if (rid != placed) {
+        SPDLOG_INFO("[ComboShip] MM_GrantCrossItem: '{}' not obtainable (already have / no slot), converted {} -> {}",
+                    itemName, (int)placed, (int)rid);
+    }
     // ComboShip: MM junk can't rotate when collected in OOT; deliver a fixed Red Rupee.
     if (rid == RI_JUNK) {
         rid = RI_RUPEE_RED;

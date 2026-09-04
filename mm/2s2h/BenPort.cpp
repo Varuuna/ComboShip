@@ -3989,10 +3989,8 @@ static bool Combo_IsBottleRefill(RandoItemId rid) {
 }
 
 void Combo_MM_GiveDormantResolved(RandoItemId rid) {
-    // ComboShip (#84): drop a bottle refill when no bottle is free. This path bypasses
-    // Rando::ConvertItem, whose !Inventory_HasEmptyBottle() check normally blocks it, and Item_Give's
-    // bottle-contents branch falls through to `INV_CONTENT(item) = item` — which maps every content to
-    // SLOT_BOTTLE_1 and so overwrites bottle #1. Keep this even if that branch is ever fixed upstream.
+    // ComboShip (#84): drop a bottle refill when no bottle is free. Callers convert first, so this is
+    // a backstop — Item_Give's bottle-contents branch overwrites bottle #1. Keep it either way.
     if (Combo_IsBottleRefill(rid) && !Inventory_HasEmptyBottle()) {
         SPDLOG_INFO("[ComboShip] MM cross-grant: no empty bottle, dropping refill");
         return;
@@ -4035,11 +4033,8 @@ extern "C" __declspec(dllexport) void MM_GrantCrossItem(const char* itemName) {
         return;
     }
     const RandoItemId placed = it->second;
-    // ComboShip: run the same already-have conversion a native MM pickup gets (CheckQueue/shops go
-    // through Rando::ConvertItem before Rando::GiveItem; so does MMAnchor's dormant GIVE_ITEM). Without
-    // it a duplicate lands in vanilla Item_Give, which writes equipment unconditionally — a Hero's
-    // Shield found in OOT after the Mirror Shield overwrote the shield nibble (MM has no owned-shield
-    // bitmask, the equipped value IS ownership).
+    // ComboShip: convert like a native pickup does. MM's equipped shield value IS ownership, so an
+    // already-owned item would otherwise downgrade it through vanilla Item_Give.
     RandoItemId rid = Rando::ConvertItem(placed);
     if (rid != placed) {
         SPDLOG_INFO("[ComboShip] MM_GrantCrossItem: '{}' not obtainable (already have / no slot), converted {} -> {}",

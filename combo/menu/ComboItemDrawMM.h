@@ -845,9 +845,9 @@ static int32_t MM_FillItemDrawInfo(RandoItemId id, CwItemDrawInfo* out) {
             id = resolved;
         }
     }
-    // ComboShip: junk/trap are indirections MM resolves at draw time (Rando::DrawItem). We have no
-    // check id here, so the seed-only default is used — the model is stable but may differ from the
-    // one MM itself would pick for this check.
+    // ComboShip: junk/trap are indirections MM resolves at draw time (Rando::DrawItem), with no check
+    // id here to resolve against. Generation now bakes cross-placed junk, so the junk arm is only
+    // reached by an older seed or a plando row that still names the placeholder.
     if (id == RI_JUNK) {
         id = Rando::CurrentJunkItem();
     } else if (id == RI_TRAP) {

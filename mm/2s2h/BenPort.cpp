@@ -3425,11 +3425,18 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         { "RO_HINTS_PURCHASEABLE", (uint32_t)saveInfo.randoSaveOptions[RO_HINTS_PURCHASEABLE] }
     };
 
+    // ComboShip: the set MM's own pickup rotation draws from, so the combo generator can bake a
+    // cross-placed junk placeholder into an item MM itself would have handed the player.
+    nlohmann::json junkPool = nlohmann::json::array();
+    for (RandoItemId id : Rando::ComboJunkPool()) {
+        junkPool.push_back(Rando::StaticData::GetItemDisplayName(id));
+    }
+
     cached = nlohmann::json{
-        { "checks", std::move(checks) },  { "pool", std::move(pool) },
-        { "fixed", std::move(fixed) },    { "items", std::move(items) },
-        { "prices", std::move(prices) },  { "locationHints", std::move(locationHints) },
-        { "options", std::move(options) }
+        { "checks", std::move(checks) },   { "pool", std::move(pool) },
+        { "fixed", std::move(fixed) },     { "items", std::move(items) },
+        { "prices", std::move(prices) },   { "locationHints", std::move(locationHints) },
+        { "options", std::move(options) }, { "junkPool", std::move(junkPool) }
     }.dump();
     return cached.c_str();
 }
@@ -4040,7 +4047,8 @@ extern "C" __declspec(dllexport) void MM_GrantCrossItem(const char* itemName) {
         SPDLOG_INFO("[ComboShip] MM_GrantCrossItem: '{}' not obtainable (already have / no slot), converted {} -> {}",
                     itemName, (int)placed, (int)rid);
     }
-    // ComboShip: MM junk can't rotate when collected in OOT; deliver a fixed Red Rupee.
+    // ComboShip: generation now bakes cross-placed junk into a real item, so this only catches an
+    // older seed or a plando row that still names the placeholder. Red Rupee keeps those working.
     if (rid == RI_JUNK) {
         rid = RI_RUPEE_RED;
     }

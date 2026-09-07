@@ -18,6 +18,8 @@ void DrawItem(RandoItemId randoItemId, RandoCheckId randoCheckId = RC_UNKNOWN, A
 // ComboShip: freeze a foreign check's model at the tier it grants, before the cross-grant that
 // follows mutates OOT's dormant save and a live re-resolve flips the held-up model next frame.
 void LatchComboForeign(RandoCheckId randoCheckId);
+// ComboShip: junk rotation pool minus RI_NONE, dumped for the combo generator's junk bake.
+std::vector<RandoItemId> ComboJunkPool();
 #endif
 void GiveItem(RandoItemId randoItemId);
 // ComboShip: a small key lives in TWO counters — inventory.dungeonKeys and the rando mirror that

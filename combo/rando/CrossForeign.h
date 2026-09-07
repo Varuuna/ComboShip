@@ -264,9 +264,9 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray) {
             continue;
         std::string itemGame = fm.value("itemGame", "");
         std::string itemName = fm.value("itemName", "");
-        // Junk goes untagged: it reads as an ordinary pickup, and the "sent to the other game" toast
-        // already says where it went. Everything else keeps the home-game suffix.
-        const bool tagged = (itemGame == "mm" || itemGame == "oot") && fm.value("category", std::string{}) != "junk";
+        // Junk keeps the tag too: "10 Arrows" that turn out to be MM's grant no OOT ammo, and the
+        // suffix is the only thing that tells the player why.
+        const bool tagged = (itemGame == "mm" || itemGame == "oot");
         const char* suffix = (itemGame == "mm") ? " (MM)" : " (OOT)";
         auto tag = [&](std::string s) {
             s = StripGameSuffix(std::move(s));

@@ -1865,8 +1865,9 @@ all read it — so those three can't disagree. Downstream everything then sees a
   order. Same rule the trap disguises and cross-hints already follow.
 - MM-only and one-directional: OOT pads with concrete items (`GetJunkItem`), so it has no junk
   placeholder. MM junk in MM checks is untouched and still rotates at pickup.
-- Junk display names go **untagged** (no " (MM)"/" (OOT)" suffix in `BuildForeignArray`). A baked junk
-  item reads as an ordinary pickup, and the "Sent to Termina" toast already says where it went.
+- Junk display names keep the `" (MM)"`/`" (OOT)"` suffix. Dropping it for junk was tried and reverted:
+  a bare "10 Arrows" in OOT that is really MM's grants no OOT ammo, and the suffix is the only thing
+  that tells the player why. It matters most for the ammo and refill entries, which look native.
 - The `RI_JUNK -> RI_RUPEE_RED` line in `MM_GrantCrossItem` stays as a fallback: an older seed or a
   hand-written plando row can still name the placeholder, and the plando writer round-trips
   `itemName` verbatim.

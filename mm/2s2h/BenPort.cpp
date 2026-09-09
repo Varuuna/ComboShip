@@ -2667,6 +2667,13 @@ extern "C" __declspec(dllexport) void MM_BootForCombo(void) {
     gComboBootOnly = 1;
     MM_RunMain(); // full init; main.c skips Graph_ThreadEntry due to gComboBootOnly
     gComboBootOnly = 0;
+    // Issue #199: SaveContext_Init memsets gSaveContext to 0, so a never-loaded boot reads as
+    // fileNum 0 / SAVETYPE_VANILLA — indistinguishable from a real slot 1. Stamp the same "nothing
+    // loaded" sentinel a failed load uses (SaveManager_LoadFailedForCombo) so every dormant-writer
+    // gate correctly treats zeroed BSS as no save, until MM_LoadSaveForCombo/SaveManager_LoadSaveFile
+    // actually loads a slot.
+    gSaveContext.fileNum = 0xFF;
+    gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_VANILLA;
 }
 
 // ComboShip: headless rando-only MM init — builds ONLY the rando region graph via the "RANDO_LOGIC"

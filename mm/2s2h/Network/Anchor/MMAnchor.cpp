@@ -95,6 +95,10 @@ bool MMAnchor::IsSaveLoaded() {
     return gPlayState != nullptr && GET_PLAYER(gPlayState) != nullptr;
 }
 
+bool MMAnchor::HasLoadedRandoSave() {
+    return gSaveContext.fileNum >= 0 && gSaveContext.fileNum <= 2 && IS_RANDO;
+}
+
 void MMAnchor::RegisterHooks() {
     if (hooksRegistered) {
         return;
@@ -258,6 +262,20 @@ void MMAnchor::PumpDormant() {
         std::lock_guard<std::mutex> lock(incomingMutex);
         toProcess.swap(incomingQueue);
     }
+    // Issue #199: reset here (not per-packet) so persistence below reflects whether ANY packet in this
+    // pump actually committed a merge, matching soh's Anchor::PumpDormant.
+    dormantDidApply = false;
+    // Scope-guards isDormantApply around a call so an exception from HandlePacket_UpdateTeamState can't
+    // leave it stuck true (the surrounding try/catch alone would skip the reset-after line).
+    struct DormantApplyGuard {
+        MMAnchor* self;
+        explicit DormantApplyGuard(MMAnchor* s) : self(s) {
+            self->isDormantApply = true;
+        }
+        ~DormantApplyGuard() {
+            self->isDormantApply = false;
+        }
+    };
     while (!toProcess.empty()) {
         nlohmann::json payload = toProcess.front();
         toProcess.pop();
@@ -275,18 +293,18 @@ void MMAnchor::PumpDormant() {
                 // Bug: previously dropped entirely while dormant. The merge itself only touches
                 // gSaveContext.save, so it's dormant-safe once the scene-bound post-steps are skipped
                 // (guarded by isDormantApply inside the handler).
-                bool willApply = roomState.syncItemsAndFlags && payload.contains("state") &&
-                                 payload["state"].contains("shipSaveInfo");
-                SPDLOG_INFO("[MMAnchor] dormant UPDATE_TEAM_STATE applying={}", willApply);
-                isDormantApply = true;
-                HandlePacket_UpdateTeamState(payload);
-                isDormantApply = false;
-                if (willApply && gSaveContext.fileNum != 0xFF) {
-                    SaveManager_SaveCurrentForCombo();
-                    SPDLOG_INFO("[MMAnchor] dormant MM save persisted after team-state apply");
-                }
+                SPDLOG_INFO("[MMAnchor] dormant UPDATE_TEAM_STATE received");
+                DormantApplyGuard guard(this);
+                HandlePacket_UpdateTeamState(payload); // sets dormantDidApply only on a true commit
             }
         } catch (const std::exception& e) { SPDLOG_ERROR("[MMAnchor] dormant apply exception: {}", e.what()); }
+    }
+    // Issue #199: persist iff a team-state packet actually merged (not merely "looked applyable" —
+    // the old willApply prediction ran before the handler's IS_RANDO/rando-block guards, so it
+    // persisted a refused apply's still-zeroed save) AND a real slot is loaded.
+    if (dormantDidApply && HasLoadedRandoSave()) {
+        SaveManager_SaveCurrentForCombo();
+        SPDLOG_INFO("[MMAnchor] dormant MM save persisted after team-state apply");
     }
 }
 
@@ -760,8 +778,9 @@ void MMAnchor::SendTeamStateFromSave(const std::string& targetTeamId) {
     // Bug 2: IsSaveLoaded() requires gPlayState (foreground only) — a dormant MM has none, so the
     // dormant answer path silently dropped every request. Judge by the resident save instead
     // (mirrors OOT's isDormantApply branch of Anchor::IsSaveLoaded).
-    bool saveOnDisk = gSaveContext.fileNum >= 0 && gSaveContext.fileNum <= 2;
-    if (!saveOnDisk || !roomState.syncItemsAndFlags) {
+    // Issue #199: HasLoadedRandoSave (not just a fileNum range) — answering with a zeroed/non-rando
+    // save would hand the requester a state that then fails their own IS_RANDO guard for nothing.
+    if (!HasLoadedRandoSave() || !roomState.syncItemsAndFlags) {
         return;
     }
     nlohmann::json payload;
@@ -801,8 +820,11 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     // ComboShip: both guards must hold on the dormant path too (PumpDormant persists right after), so
     // neither may be conditioned on IS_RANDO. No vanilla mode here: a non-rando local save means nothing
     // usable is loaded, and preserving that saveType through the merge is the original key-eating bug.
-    if (!IS_RANDO) {
-        SPDLOG_WARN("[MMAnchor] dropping team state: local save is not SAVETYPE_RANDO");
+    // Issue #199: HasLoadedRandoSave also catches a never-loaded boot (fileNum outside 0..2) — IS_RANDO
+    // alone isn't enough once a caller reaches here with a real fileNum but no actual save behind it.
+    if (!HasLoadedRandoSave()) {
+        SPDLOG_WARN("[MMAnchor] dropping team state: no loaded rando save (fileNum={}, IS_RANDO={})",
+                    gSaveContext.fileNum, IS_RANDO);
         return;
     }
     // A non-rando peer serializes a zeroed rando struct, and the wholesale shipSaveInfo assign below
@@ -1025,7 +1047,12 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     // ComboShip: dormant apply has no gPlayState/scene — CheckTracker/ActorBehavior/ShipInit re-derive
     // scene-bound state and aren't dormant-safe, and a backgrounded apply shouldn't toast. MM's own
     // OnSaveLoad re-requests a resync on activation, which re-runs this block in the foreground.
-    if (!isDormantApply) {
+    if (isDormantApply) {
+        // Issue #199: this is the only true "we actually merged a team state" signal — replaces the
+        // old PumpDormant-computed willApply prediction. Scene-bound re-derivation below is skipped
+        // (no gPlayState while dormant); PumpDormant persists based on this flag once the loop ends.
+        dormantDidApply = true;
+    } else {
         if (ComboAnchor_ShouldToastResync()) {
             Notification::Emit({
                 .message = "Save updated from team",

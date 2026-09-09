@@ -1,5 +1,6 @@
 #include "SaveManager.h"
 
+#include <cassert>
 #include <fstream>
 #include <filesystem>
 #include <nlohmann/json.hpp>
@@ -244,6 +245,19 @@ void SaveManager_InitNewSaveForSlot(int mmFileNum, const unsigned char* ootName8
 }
 
 void SaveManager_SaveCurrentForCombo() {
+#ifdef COMBO_BUILD
+    // Issue #199: guard the storage access, not each call site's entry — every dormant writer is
+    // supposed to gate on a real loaded slot before calling here, but a single refusing check at the
+    // actual write is what makes that an invariant instead of a convention. fileNum outside 0..2 means
+    // nothing usable is loaded (0xFF sentinel, or stale/garbage); refuse instead of persisting it.
+    if (gSaveContext.fileNum < 0 || gSaveContext.fileNum > 2) {
+        SPDLOG_ERROR("[ComboShip] SaveManager_SaveCurrentForCombo: refusing write, fileNum={} is not a "
+                     "loaded slot",
+                     gSaveContext.fileNum);
+        assert(false);
+        return;
+    }
+#endif
     int mmFileNum = (int)gSaveContext.fileNum + 1;
     std::string fileName = SaveManager_GetFileName(mmFileNum);
     nlohmann::json j;

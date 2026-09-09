@@ -2638,6 +2638,8 @@ extern "C" int Combo_LoadMMSaveFile(int mmFileNum) {
     // IS_RANDO hook stays unregistered (COND_HOOK tests the condition once, at OnSaveLoad).
     if (gSaveContext.save.shipSaveInfo.saveType != SAVETYPE_RANDO) {
         SPDLOG_ERROR("[ComboShip] MM save file{} is not SAVETYPE_RANDO — rebuilding a baseline", mmFileNum);
+        // The load above already set fileNum to this slot; re-mark "no save" or it reads as resident.
+        SaveManager_MarkNoSaveLoaded();
         return -6;
     }
     return 0;
@@ -2667,13 +2669,9 @@ extern "C" __declspec(dllexport) void MM_BootForCombo(void) {
     gComboBootOnly = 1;
     MM_RunMain(); // full init; main.c skips Graph_ThreadEntry due to gComboBootOnly
     gComboBootOnly = 0;
-    // Issue #199: SaveContext_Init memsets gSaveContext to 0, so a never-loaded boot reads as
-    // fileNum 0 / SAVETYPE_VANILLA — indistinguishable from a real slot 1. Stamp the same "nothing
-    // loaded" sentinel a failed load uses (SaveManager_LoadFailedForCombo) so every dormant-writer
-    // gate correctly treats zeroed BSS as no save, until MM_LoadSaveForCombo/SaveManager_LoadSaveFile
-    // actually loads a slot.
-    gSaveContext.fileNum = 0xFF;
-    gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_VANILLA;
+    // Setup_InitImpl never runs on this boot-only path, so gSaveContext's BSS zero-state would
+    // otherwise read as a loaded slot 1. Stamp it "no save" until a real load fills a slot.
+    SaveManager_MarkNoSaveLoaded();
 }
 
 // ComboShip: headless rando-only MM init — builds ONLY the rando region graph via the "RANDO_LOGIC"

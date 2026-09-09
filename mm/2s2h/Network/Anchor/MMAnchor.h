@@ -119,17 +119,13 @@ class MMAnchor {
     bool refreshingActors = false; // true while RefreshClientActors is spawning (gates the init hook)
 
     bool IsSaveLoaded();
-    // Issue #199: the storage-level test for "a real save is resident" — fileNum alone isn't enough
-    // (0..2 also matches the zeroed post-boot state before MM_BootForCombo's sentinel fix, or a
-    // vanilla save), and IS_RANDO alone isn't enough (0xFF/garbage fileNum). Both together are what
-    // every dormant answer/apply/persist path must gate on.
+    // fileNum 0..2 AND IS_RANDO — neither alone is a reliable "real save resident" test.
     bool HasLoadedRandoSave();
     void PumpDormant(); // A6: drain+apply save-affecting co-op packets while MM is the dormant game
     // True while PumpDormant applies a packet (MM backgrounded, no gPlayState); mirrors soh's Anchor.
     bool isDormantApply = false;
-    // Issue #199: set at the END of HandlePacket_UpdateTeamState, only on a true commit (mirrors soh's
-    // Anchor::dormantDidApply) — replaces the old PumpDormant-computed `willApply` prediction, which
-    // persisted whether or not the handler actually merged anything.
+    // Set only on a true commit at the end of HandlePacket_UpdateTeamState (mirrors soh's Anchor);
+    // replaces a prior PumpDormant-computed prediction that persisted whether or not anything merged.
     bool dormantDidApply = false;
     // Bug 2: request a fresh team-state from teammates regardless of active/dormant (bypasses
     // SendPacket_RequestTeamState's isActive gate — a resync must go out from the dormant sibling too).

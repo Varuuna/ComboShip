@@ -2581,6 +2581,10 @@ static void Combo_OnOOTSaveLoad(int fileNum) {
     // dormant memory would otherwise pose as this slot's save (and a dormant write would persist it).
     if (MM_LoadSaveForCombo(fileNum) == 0) {
         g_MmSaveInMemorySlot = fileNum;
+        // A dormant slot load is exactly the moment MM can finally consume a team-state resync —
+        // ask now instead of waiting for foreground entry (MMAnchor::OnSaveLoad is isActive-gated).
+        if (MM_Anchor_RequestResync)
+            MM_Anchor_RequestResync();
     }
     // Both counters are now live: catch a goal crossed while the game wasn't running (e.g. a teammate's
     // pieces applied to a dormant save). Latched, so it can't roll credits twice.

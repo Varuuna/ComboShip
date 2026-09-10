@@ -60,11 +60,10 @@ void BuildMerchantMessage(CustomMessage& msg, RandomizerCheck rc, bool mysteriou
             // A foreign trap is sold under its typo'd disguise name, like OOT's own ice traps. A
             // non-disguised foreign item previews its LIVE tier, like the shelf model beside it.
             std::string shown =
-                fi == nullptr
-                    ? ""
-                    : (!fi->fakeTrickName.empty()
-                           ? fi->fakeTrickName
-                           : ComboRando::ShownForeignName(*fi, Randomizer_ComboForeignLiveName((int32_t)rc)));
+                fi == nullptr ? ""
+                              : (!fi->fakeTrickName.empty()
+                                     ? fi->fakeTrickName
+                                     : ComboRando::ShownForeignName(*fi, Randomizer_ComboForeignLiveName((int32_t)rc)));
             if (!shown.empty()) {
                 itemName = CustomMessage(Text{ shown, shown, shown });
                 color = "%g";

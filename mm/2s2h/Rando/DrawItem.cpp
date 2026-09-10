@@ -29,6 +29,10 @@ Gfx* ResourceMgr_LoadGfxByName(const char* path);
 // after the engine headers above (outside the extern "C" block — it is C++). Mirror of soh's
 // Randomizer_DrawComboForeign.
 #include "ComboForeignDrawMM.h"
+
+void Rando::LatchComboForeign(RandoCheckId randoCheckId) {
+    ComboLatchForeignDrawOOT(randoCheckId);
+}
 #endif
 
 s32 StrayFairyOverrideLimbDraw(PlayState* play, s32 limbIndex, Gfx** dList, Vec3f* pos, Vec3s* rot, Actor* thisx,

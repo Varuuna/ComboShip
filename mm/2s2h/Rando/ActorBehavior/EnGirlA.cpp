@@ -91,6 +91,8 @@ void EnGirlA_RandoBuyFunc(PlayState* play, EnGirlA* enGirlA) {
     // ComboShip: OOT-bound item — deliver cross-game instead of granting locally (mirrors CheckQueue).
     if (randoSaveCheck.randoItemId == RI_COMBO_FOREIGN) {
         if (!wasObtained) {
+            // ComboShip: the shelf draws for a few more frames, so freeze it before the cross-grant.
+            Rando::LatchComboForeign(randoCheckId);
             Rando::MiscBehavior::SendForeignCheck(randoCheckId);
         }
         return;

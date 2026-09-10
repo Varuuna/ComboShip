@@ -184,6 +184,8 @@ void Rando::MiscBehavior::CheckQueue() {
                                 }
                                 SaveManager_SaveCurrentForCombo();
                             } else if (!wasObtained) {
+                                // ComboShip: freeze the held-up model BEFORE the cross-grant moves OOT's save.
+                                Rando::LatchComboForeign(cid);
                                 Rando::MiscBehavior::SendForeignCheck(cid); // cross-deliver + toast + save
                             }
                             queued = false;

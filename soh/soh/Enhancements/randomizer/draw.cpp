@@ -520,6 +520,14 @@ extern "C" void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getIt
 extern "C" void Randomizer_LatchComboForeign(int32_t rc) {
     ComboLatchForeignDraw((RandomizerCheck)rc);
 }
+
+extern "C" const char* Randomizer_ComboForeignLatchedName(int32_t rc) {
+    return ComboForeignLatchedName((RandomizerCheck)rc);
+}
+
+extern "C" const char* Randomizer_ComboForeignLiveName(int32_t rc) {
+    return ComboForeignLiveName((RandomizerCheck)rc);
+}
 #endif
 
 Gfx* GetEmptyDlist(GraphicsContext* gfxCtx) {

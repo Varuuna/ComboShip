@@ -252,6 +252,19 @@ inline void AssignTrapDisguises(nlohmann::json& foreignArr, const nlohmann::json
     }
 }
 
+// " (MM)" / " (OOT)" — the one source for the home-game tag foreign names carry.
+inline const char* GameSuffix(GameId g) {
+    return g == GAME_MM ? " (MM)" : " (OOT)";
+}
+
+// Text shown for a foreign check: the latched/live resolved tier (tagged), or the spoiler displayName.
+inline std::string ShownForeignName(const ForeignItem& fi, const char* resolved) {
+    if (resolved != nullptr && resolved[0] != '\0') {
+        return std::string(resolved) + GameSuffix(fi.itemGame);
+    }
+    return fi.displayName;
+}
+
 // Tag a spoiler "foreign" array's displayNames with their home-game suffix for the consolidated file.
 // Every display surface (shops, hints, trackers, toasts) reads displayName, so tag once here.
 // advancement/trap/category are emitted only when meaningful; every loader defaults them.
@@ -265,7 +278,7 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray) {
         std::string itemGame = fm.value("itemGame", "");
         std::string itemName = fm.value("itemName", "");
         const bool tagged = (itemGame == "mm" || itemGame == "oot");
-        const char* suffix = (itemGame == "mm") ? " (MM)" : " (OOT)";
+        const char* suffix = GameSuffix(KeyToGameId(itemGame));
         auto tag = [&](std::string s) {
             s = StripGameSuffix(std::move(s));
             if (!s.empty() && tagged)

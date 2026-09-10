@@ -136,6 +136,9 @@ typedef struct {
      * dead second cycle wins and samples TEXEL1, i.e. whatever tile the HOST last left bound. */
     const void* setupDlOpa;
     const void* setupDlXlu;
+
+    /* Resolved tier name when a progressive placeholder converted (e.g. "Large Quiver"), or NULL. */
+    const char* resolvedName;
 } CwItemDrawInfo;
 
 /* Returns 1 and fills out on success; 0 if the item is unknown/undrawable; CW_DRAW_NOT_READY if the

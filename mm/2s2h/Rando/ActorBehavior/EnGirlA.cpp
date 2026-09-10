@@ -157,7 +157,7 @@ void renameStolenBombBag(u16* textId, bool* loadFromMessageTable) {
     entry.msg = "Tonight's special, stolen from the Bomb Shop: %r{{itemName}}%w. Check it out!\x19\xA8";
     CustomMessage::Replace(&entry.msg, "{{itemName}}",
                            Rando::StaticData::GetItemName(Rando::ConvertItem(randoSaveCheck.randoItemId, randoCheckId),
-                                                          false, randoCheckId));
+                                                          false, randoCheckId, true));
     CustomMessage::LoadCustomMessageIntoFont(entry);
     *loadFromMessageTable = false;
 }
@@ -170,7 +170,7 @@ void renameSpecialBargain(u16* textId, bool* loadFromMessageTable) {
     entry.msg = "Tonight's bargain: %r{{itemName}}%w. Check it out!\x19\xA8";
     CustomMessage::Replace(&entry.msg, "{{itemName}}",
                            Rando::StaticData::GetItemName(Rando::ConvertItem(randoSaveCheck.randoItemId, randoCheckId),
-                                                          false, randoCheckId));
+                                                          false, randoCheckId, true));
     CustomMessage::LoadCustomMessageIntoFont(entry);
     *loadFromMessageTable = false;
 }
@@ -334,7 +334,7 @@ void Rando::ActorBehavior::InitEnGirlABehavior() {
         entry.msg = "\x01{{itemName}}: {{rupees}} Rupees\x11\x00";
         entry.msg += '\x00';
         CustomMessage::Replace(&entry.msg, "{{itemName}}",
-                               Rando::StaticData::GetItemName(randoItemId, false, randoCheckId));
+                               Rando::StaticData::GetItemName(randoItemId, false, randoCheckId, true));
         CustomMessage::Replace(&entry.msg, "{{rupees}}", std::to_string(randoSaveCheck.price));
 
         if (!CanBePurchased(randoSaveCheck, randoCheckId)) {
@@ -365,7 +365,8 @@ void Rando::ActorBehavior::InitEnGirlABehavior() {
         entry.msg = "\x01{{itemName}}: {{rupees}} Rupees\x02\x11\xC2I'll buy it\x11No thanks\xBF";
         CustomMessage::Replace(&entry.msg, "{{itemName}}",
                                Rando::StaticData::GetItemName(
-                                   Rando::ConvertItem(randoSaveCheck.randoItemId, randoCheckId), false, randoCheckId));
+                                   Rando::ConvertItem(randoSaveCheck.randoItemId, randoCheckId), false, randoCheckId,
+                                   true));
         CustomMessage::Replace(&entry.msg, "{{rupees}}", std::to_string(randoSaveCheck.price));
 
         CustomMessage::LoadCustomMessageIntoFont(entry);
@@ -391,7 +392,8 @@ void Rando::ActorBehavior::InitEnGirlABehavior() {
         entry.msg += "I need a mushroom to make this.\x1A";
         CustomMessage::Replace(&entry.msg, "{{itemName}}",
                                Rando::StaticData::GetItemName(
-                                   Rando::ConvertItem(randoSaveCheck.randoItemId, randoCheckId), false, randoCheckId));
+                                   Rando::ConvertItem(randoSaveCheck.randoItemId, randoCheckId), false, randoCheckId,
+                                   true));
         CustomMessage::Replace(&entry.msg, "{{itemPrice}}", std::to_string(randoSaveCheck.price));
         CustomMessage::LoadCustomMessageIntoFont(entry);
         *loadFromMessageTable = false;
@@ -410,7 +412,8 @@ void Rando::ActorBehavior::InitEnGirlABehavior() {
         entry.msg = "I used this to make %r{{itemName}}%w, take it!\x19";
         CustomMessage::Replace(&entry.msg, "{{itemName}}",
                                Rando::StaticData::GetItemName(
-                                   Rando::ConvertItem(randoSaveCheck.randoItemId, randoCheckId), true, randoCheckId));
+                                   Rando::ConvertItem(randoSaveCheck.randoItemId, randoCheckId), true, randoCheckId,
+                                   true));
 
         // Mark the item as eligible for purchase
         randoSaveCheck.eligible = true;
@@ -437,7 +440,8 @@ void Rando::ActorBehavior::InitEnGirlABehavior() {
             "If nothing devastating happens to Mommy tonight, we should be able to sell %r{{itemName}}%w.\x19\xA8";
         CustomMessage::Replace(&entry.msg, "{{itemName}}",
                                Rando::StaticData::GetItemName(
-                                   Rando::ConvertItem(randoSaveCheck.randoItemId, randoCheckId), true, randoCheckId));
+                                   Rando::ConvertItem(randoSaveCheck.randoItemId, randoCheckId), true, randoCheckId,
+                                   true));
         CustomMessage::LoadCustomMessageIntoFont(entry);
         *loadFromMessageTable = false;
     });
@@ -451,7 +455,8 @@ void Rando::ActorBehavior::InitEnGirlABehavior() {
         entry.msg = "Thanks to a mishap, we did not receive our %r{{itemName}}%w stock. Maybe next time...\x19\xA8";
         CustomMessage::Replace(&entry.msg, "{{itemName}}",
                                Rando::StaticData::GetItemName(
-                                   Rando::ConvertItem(randoSaveCheck.randoItemId, randoCheckId), true, randoCheckId));
+                                   Rando::ConvertItem(randoSaveCheck.randoItemId, randoCheckId), true, randoCheckId,
+                                   true));
         CustomMessage::LoadCustomMessageIntoFont(entry);
         *loadFromMessageTable = false;
     });
@@ -465,7 +470,8 @@ void Rando::ActorBehavior::InitEnGirlABehavior() {
         entry.msg = "It's over... Now we'll never sell %r{{itemName}}%w...\x19\xA8";
         CustomMessage::Replace(&entry.msg, "{{itemName}}",
                                Rando::StaticData::GetItemName(
-                                   Rando::ConvertItem(randoSaveCheck.randoItemId, randoCheckId), true, randoCheckId));
+                                   Rando::ConvertItem(randoSaveCheck.randoItemId, randoCheckId), true, randoCheckId,
+                                   true));
 
         CustomMessage::LoadCustomMessageIntoFont(entry);
         *loadFromMessageTable = false;
@@ -481,7 +487,8 @@ void Rando::ActorBehavior::InitEnGirlABehavior() {
         entry.msg = "We just got some new stock: %r{{itemName}}%w.\x19\xA8";
         CustomMessage::Replace(&entry.msg, "{{itemName}}",
                                Rando::StaticData::GetItemName(
-                                   Rando::ConvertItem(randoSaveCheck.randoItemId, randoCheckId), true, randoCheckId));
+                                   Rando::ConvertItem(randoSaveCheck.randoItemId, randoCheckId), true, randoCheckId,
+                                   true));
 
         CustomMessage::LoadCustomMessageIntoFont(entry);
         *loadFromMessageTable = false;

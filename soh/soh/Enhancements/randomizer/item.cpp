@@ -106,7 +106,11 @@ uint16_t Item::GetPrice() const {
     return price;
 }
 
+#ifdef COMBO_BUILD
+std::shared_ptr<GetItemEntry> Item::GetGIEntry(RandomizerGet* actualOut) const { // NOLINT(*-no-recursion)
+#else
 std::shared_ptr<GetItemEntry> Item::GetGIEntry() const { // NOLINT(*-no-recursion)
+#endif
     if (giEntry != nullptr && giEntry->itemId != RG_PROGRESSIVE_BOMBCHU_BAG) {
         return giEntry;
     }
@@ -401,6 +405,11 @@ std::shared_ptr<GetItemEntry> Item::GetGIEntry() const { // NOLINT(*-no-recursio
     if (giEntry != nullptr && actual == RG_NONE) {
         return giEntry;
     }
+#ifdef COMBO_BUILD
+    if (actualOut != nullptr) {
+        *actualOut = actual;
+    }
+#endif
     return StaticData::RetrieveItem(actual).GetGIEntry();
 }
 

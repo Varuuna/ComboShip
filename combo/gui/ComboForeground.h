@@ -11,9 +11,6 @@ namespace ComboUI {
 // 0 = OOT, 1 = MM. Defaults to OOT (the foreground game at startup after the eager MM boot).
 int GetForegroundGame();
 
-inline bool IsGameActive(int game) {
-    return GetForegroundGame() == game;
-}
 inline bool IsMmActive() {
     return GetForegroundGame() == 1;
 }

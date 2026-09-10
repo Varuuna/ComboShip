@@ -29,6 +29,7 @@ This document is the authoritative checklist. **Statuses:**
 | OOT apply | `SOH_ApplyRandoPlacements` (`OTRGlobals.cpp:3556`) + `Combo_SetupOOTShops` (`:3253`) |
 | MM apply | `MM_InitRandoSaveFile` (`BenPort.cpp:2673`) → `Rando::Spoiler::ApplyToSaveContext` |
 | Validator | `comborando --playthrough` (`combo/ComboRandoHeadless.cpp`) |
+| Shared Items trim + mirror (new, 2026-09-10) | `CrossWorldCombinedFill` (`CrossWorldRando.h`) — trims MM's copies of each effective family before balancing, mirrors the OOT-owned count onto the MM oracle inside `reachableFixpoint`; `RunPlaythrough`/`ApplySharedMirror` (`ComboPlaythrough.h`) do the same for `--playthrough`. See `deviations/rando.md` |
 
 ## Table 1 — SoH `Fill()` (`soh/soh/Enhancements/randomizer/3drando/fill.cpp:1301`)
 

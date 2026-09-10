@@ -62,6 +62,7 @@ CrowdControl* CrowdControl::Instance;
 #include <BenGui/BenMenu.h>
 #ifdef COMBO_BUILD
 #include "ComboMenuSharedContext.h"               // ComboShip: shared per-DLL ImGui context helper (combo-owned)
+#include "rando/SharedItems.h"                     // ComboShip: Shared Items family table
 #include "2s2h/Rando/MiscBehavior/MiscBehavior.h" // ComboShip: MM_LoadComboRando cache invalidation + ComboRando types
 #endif
 
@@ -150,6 +151,8 @@ extern "C"
 // kind: 0 = portal (walked out the Clock Tower), 1 = Ctrl+R reset, 2 = owl-save quit. Only a portal
 // return continues the session in OOT; the other two end it and boot OOT to its title.
 extern "C" void (*gComboReturnCallback)(int kind) = nullptr;
+// Shared Items per-frame drain seam (defined with the rest of the Shared Items ABI further down).
+extern "C" void (*gMMComboSharedTick)(void);
 extern "C" __declspec(dllexport) void MM_SetOnComboReturnCallback(void (*cb)(int kind)) {
     gComboReturnCallback = cb;
 }
@@ -1159,6 +1162,12 @@ extern "C" void InitOTR(int argc, char* argv[]) {
             gComboReturnCallback(isOwlSaveQuit ? 2 : (isReset ? 1 : 0));
         if (auto fast3d = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow())) {
             fast3d->SetIsRunning(false);
+        }
+    });
+    // Shared Items: per-frame drain seam. Always-on (not Anchor-gated) so it also runs solo.
+    GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameStateUpdate>([]() {
+        if (gMMComboSharedTick) {
+            gMMComboSharedTick();
         }
     });
 #endif
@@ -4104,6 +4113,145 @@ extern "C" __declspec(dllexport) void MM_SetComboGoal(int hunt, int required, in
     gMMComboGoalRequired = gMMComboGoalHunt ? required : 0;
     gMMComboGoalPieces = pieces < 0 ? -1 : (pieces > 100 ? 100 : pieces); // same 0..100 cap as OOT's
 }
+// ComboShip: Shared Items (OoTMM-style) — see combo/rando/SharedItems.h. MM has no gen-time settings
+// that depend on the mask (only OOT's wallet force does), so only the runtime tier ABI lives here.
+extern "C" __declspec(dllexport) int MM_GetSharedTier(int family) try {
+    if (family < 0 || family >= ComboRando::SF_COUNT)
+        return 0;
+    switch (static_cast<ComboRando::SharedFamily>(family)) {
+        case ComboRando::SF_BOW:
+            return CUR_UPG_VALUE(UPG_QUIVER);
+        case ComboRando::SF_BOMB_BAG:
+            return CUR_UPG_VALUE(UPG_BOMB_BAG);
+        case ComboRando::SF_MAGIC:
+            return gSaveContext.save.saveInfo.playerData.isMagicAcquired +
+                   gSaveContext.save.saveInfo.playerData.isDoubleMagicAcquired;
+        case ComboRando::SF_WALLET:
+            return CUR_UPG_VALUE(UPG_WALLET);
+        case ComboRando::SF_HOOKSHOT:
+            return INV_CONTENT(ITEM_HOOKSHOT) != ITEM_NONE ? 1 : 0;
+        case ComboRando::SF_FIRE_ARROWS:
+            return INV_CONTENT(ITEM_ARROW_FIRE) != ITEM_NONE ? 1 : 0;
+        case ComboRando::SF_ICE_ARROWS:
+            return INV_CONTENT(ITEM_ARROW_ICE) != ITEM_NONE ? 1 : 0;
+        case ComboRando::SF_LIGHT_ARROWS:
+            return INV_CONTENT(ITEM_ARROW_LIGHT) != ITEM_NONE ? 1 : 0;
+        case ComboRando::SF_LENS:
+            return INV_CONTENT(ITEM_LENS_OF_TRUTH) != ITEM_NONE ? 1 : 0;
+        case ComboRando::SF_EPONAS_SONG:
+            return CHECK_QUEST_ITEM(QUEST_SONG_EPONA) ? 1 : 0;
+        case ComboRando::SF_SONG_OF_STORMS:
+            return CHECK_QUEST_ITEM(QUEST_SONG_STORMS) ? 1 : 0;
+        case ComboRando::SF_GORON_MASK:
+            return INV_CONTENT(ITEM_MASK_GORON) != ITEM_NONE ? 1 : 0;
+        case ComboRando::SF_ZORA_MASK:
+            return INV_CONTENT(ITEM_MASK_ZORA) != ITEM_NONE ? 1 : 0;
+        case ComboRando::SF_KEATON_MASK:
+            return INV_CONTENT(ITEM_MASK_KEATON) != ITEM_NONE ? 1 : 0;
+        case ComboRando::SF_BUNNY_HOOD:
+            return INV_CONTENT(ITEM_MASK_BUNNY) != ITEM_NONE ? 1 : 0;
+        case ComboRando::SF_MASK_OF_TRUTH:
+            return INV_CONTENT(ITEM_MASK_TRUTH) != ITEM_NONE ? 1 : 0;
+        default:
+            return 0;
+    }
+} catch (const std::exception& e) {
+    SPDLOG_ERROR("[ComboShip] MM_GetSharedTier threw: {}", e.what());
+    return 0;
+} catch (...) {
+    SPDLOG_ERROR("[ComboShip] MM_GetSharedTier threw a non-std exception");
+    return 0;
+}
+
+extern "C" __declspec(dllexport) void MM_RaiseSharedTier(int family, int tier) try {
+    if (family < 0 || family >= ComboRando::SF_COUNT)
+        return;
+    const auto& def = ComboRando::SharedFamilyByIndex(family);
+    tier = std::min(tier, def.mmTierCap);
+    for (;;) {
+        const int cur = MM_GetSharedTier(family);
+        if (cur >= tier)
+            return;
+        RandoItemId base = RI_JUNK;
+        switch (static_cast<ComboRando::SharedFamily>(family)) {
+            case ComboRando::SF_BOW:
+                base = RI_PROGRESSIVE_BOW;
+                break;
+            case ComboRando::SF_BOMB_BAG:
+                base = RI_PROGRESSIVE_BOMB_BAG;
+                break;
+            case ComboRando::SF_MAGIC:
+                base = RI_PROGRESSIVE_MAGIC;
+                break;
+            case ComboRando::SF_WALLET:
+                base = RI_PROGRESSIVE_WALLET;
+                break;
+            case ComboRando::SF_HOOKSHOT:
+                base = RI_HOOKSHOT;
+                break;
+            case ComboRando::SF_FIRE_ARROWS:
+                base = RI_ARROW_FIRE;
+                break;
+            case ComboRando::SF_ICE_ARROWS:
+                base = RI_ARROW_ICE;
+                break;
+            case ComboRando::SF_LIGHT_ARROWS:
+                base = RI_ARROW_LIGHT;
+                break;
+            case ComboRando::SF_LENS:
+                base = RI_LENS;
+                break;
+            case ComboRando::SF_EPONAS_SONG:
+                base = RI_SONG_EPONA;
+                break;
+            case ComboRando::SF_SONG_OF_STORMS:
+                base = RI_SONG_STORMS;
+                break;
+            case ComboRando::SF_GORON_MASK:
+                base = RI_MASK_GORON;
+                break;
+            case ComboRando::SF_ZORA_MASK:
+                base = RI_MASK_ZORA;
+                break;
+            case ComboRando::SF_KEATON_MASK:
+                base = RI_MASK_KEATON;
+                break;
+            case ComboRando::SF_BUNNY_HOOD:
+                base = RI_MASK_BUNNY;
+                break;
+            case ComboRando::SF_MASK_OF_TRUTH:
+                base = RI_MASK_TRUTH;
+                break;
+            default:
+                break;
+        }
+        // Default check id (RC_UNKNOWN) is safe here: none of these families gate on hasObtainedCheck.
+        RandoItemId rid = Rando::ConvertItem(base);
+        if (rid == RI_JUNK)
+            return; // never substitutes junk — stop instead of granting the wrong thing
+        if (gPlayState == NULL) {
+            Combo_MM_GiveDormantResolved(rid);
+        } else {
+            Rando::GiveItem(rid);
+            SaveManager_SaveCurrentForCombo();
+        }
+        if (MM_GetSharedTier(family) <= cur)
+            return; // didn't raise — stop instead of looping forever
+    }
+} catch (const std::exception& e) {
+    SPDLOG_ERROR("[ComboShip] MM_RaiseSharedTier threw: {}", e.what());
+} catch (...) { SPDLOG_ERROR("[ComboShip] MM_RaiseSharedTier threw a non-std exception"); }
+
+// Shared Items pokes: same shape as the #136 Triforce callbacks.
+extern "C" void (*gMMComboSharedChanged)(int game, int fileNum) = nullptr;
+extern "C" __declspec(dllexport) void MM_SetSharedChangedCb(void (*cb)(int, int)) {
+    gMMComboSharedChanged = cb;
+}
+extern "C" void (*gMMComboSharedTick)(void) = nullptr;
+extern "C" __declspec(dllexport) void MM_SetSharedTickCb(void (*cb)(void)) {
+    gMMComboSharedTick = cb;
+}
+
 extern "C" __declspec(dllexport) int MM_GetTriforcePieceCount(void) {
     return gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces;
 }

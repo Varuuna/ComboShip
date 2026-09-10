@@ -12,6 +12,8 @@ extern "C" {
 bool Rando::gComboDormantGive = false;
 // ComboShip (#136): launcher seam — poked after each Triforce Piece so combo can evaluate the goal.
 extern "C" void (*gMMComboTriforceProgress)(int game, int fileNum);
+// ComboShip: Shared Items — poked after every give so the launcher can reconcile OOT<->MM tiers.
+extern "C" void (*gMMComboSharedChanged)(int game, int fileNum);
 #endif
 
 void Rando::GiveItem(RandoItemId randoItemId) {
@@ -403,4 +405,10 @@ void Rando::GiveItem(RandoItemId randoItemId) {
             Item_Give(gPlayState, Rando::StaticData::Items[randoItemId].itemId);
             break;
     }
+#ifdef COMBO_BUILD
+    // ComboShip: Shared Items — single exit poke, mirrors the #136 Triforce poke above.
+    if (gMMComboSharedChanged != NULL) {
+        gMMComboSharedChanged(1, gSaveContext.fileNum);
+    }
+#endif
 }

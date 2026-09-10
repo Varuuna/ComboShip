@@ -1106,10 +1106,14 @@ void PlandoSavePlay() {
             foreignRaw.push_back(std::move(marker));
         }
     }
+    // Shared Items: the loaded seed's own effective mask — plando doesn't change which families are
+    // shared, only where items land.
+    const uint32_t plandoSharedMask = ComboRando::SharedMaskFromKeys(j.value("sharedItems", nlohmann::json::array()));
     // Native cross-game name collisions get their own-game suffix; foreign checks are skipped (their
     // real item travels in foreign[]). Exactly the generator's write path.
-    ComboRando::SuffixCrossGameItems(ootPl, mmPl, foreignRaw, sPlando.sohDump, sPlando.mmDump);
-    nlohmann::json foreign = ComboRando::BuildForeignArray(foreignRaw);
+    ComboRando::SuffixCrossGameItems(ootPl, mmPl, foreignRaw, sPlando.sohDump, sPlando.mmDump,
+                                     ComboRando::SharedUntaggedNames(plandoSharedMask));
+    nlohmann::json foreign = ComboRando::BuildForeignArray(foreignRaw, plandoSharedMask);
 
     j["oot"]["placements"] = ootPl;
     j["mm"]["placements"] = mmPl;
@@ -1701,6 +1705,32 @@ void ComboMenu::DrawComboPanel() {
     ComboRando::ComboMenu_PopCombobox();
     ImGui::TextDisabled("Majora's Mask starts the file in South Clock Town. It forces Child age, an openable forest,\n"
                         "and the Mask Shop key/entrance exclusions, so Ocarina of Time stays enterable from nothing.");
+    ImGui::Separator();
+
+    // Shared Items (OoTMM-style): one item counts for both games, applied at generation. Deferred
+    // families (Ocarina, Song of Time, Shields, Bottles, Health) are not drawn — see the plan doc.
+    ImGui::SeparatorText("Shared Items");
+    {
+        const ImGuiTableFlags sharedTableFlags = ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings;
+        if (ImGui::BeginTable("##sharedcols", 2, sharedTableFlags)) {
+            for (int i = 0; i < ComboRando::SF_COUNT; ++i) {
+                const auto& def = ComboRando::SharedFamilyByIndex(i);
+                if (i % 2 == 0)
+                    ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(i % 2);
+                bool on = CVarGetInteger(def.cvar, 0) != 0;
+                ComboRando::ComboMenu_PushCheckbox(goalTheme);
+                if (ImGui::Checkbox(def.label, &on)) {
+                    CVarSetInteger(def.cvar, on ? 1 : 0);
+                }
+                ComboRando::ComboMenu_PopCheckbox();
+                ImGui::SetItemTooltip("%s", def.tooltip);
+            }
+            ImGui::EndTable();
+        }
+    }
+    ImGui::TextDisabled("One item counts for both games. Applied at generation. Masks need Ocarina of\n"
+                        "Time's Mask Quest set to Shuffle. Shared Wallets turns off Shuffle Child Wallet.");
     ImGui::Separator();
 
     // Cosmetics (#169): each game randomizes on its own by default; sync makes MM take OOT's colors.

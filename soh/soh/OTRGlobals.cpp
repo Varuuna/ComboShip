@@ -3076,12 +3076,24 @@ void Combo_GrantResolvedOOT(const GetItemEntry& gie) {
 extern "C" __declspec(dllexport) void SOH_GrantCrossItem(const char* itemName) {
     if (!itemName)
         return;
-    auto it = Rando::StaticData::itemNameToEnum.find(itemName);
-    if (it == Rando::StaticData::itemNameToEnum.end()) {
-        SPDLOG_WARN("[ComboShip] SOH_GrantCrossItem: unknown OOT item '{}'", itemName);
-        return;
+    RandomizerGet rg;
+    // ComboShip: resolve magic concretely — Item::GetGIEntry()'s progressive resolver reads a
+    // stale/frozen Logic magicLevel, losing a second dormant magic upgrade. See deviations/rando.md.
+    if (std::string(itemName) == "Progressive Magic Meter") {
+        if (gSaveContext.isMagicAcquired && gSaveContext.isDoubleMagicAcquired) {
+            SPDLOG_INFO("[ComboShip] SOH_GrantCrossItem: '{}' already at double magic, nothing to grant", itemName);
+            return;
+        }
+        rg = gSaveContext.isMagicAcquired ? RG_MAGIC_DOUBLE : RG_MAGIC_SINGLE;
+    } else {
+        auto it = Rando::StaticData::itemNameToEnum.find(itemName);
+        if (it == Rando::StaticData::itemNameToEnum.end()) {
+            SPDLOG_WARN("[ComboShip] SOH_GrantCrossItem: unknown OOT item '{}'", itemName);
+            return;
+        }
+        rg = it->second;
     }
-    GetItemEntry gie = Rando::StaticData::RetrieveItem(it->second).GetGIEntry_Copy();
+    GetItemEntry gie = Rando::StaticData::RetrieveItem(rg).GetGIEntry_Copy();
     Combo_GrantResolvedOOT(gie);
     SPDLOG_INFO("[ComboShip] SOH_GrantCrossItem: granted '{}' into OOT save", itemName);
 }

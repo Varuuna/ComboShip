@@ -682,3 +682,23 @@ would false-fire, because file-select copy/erase/nameset legitimately call it fo
 removed, matching the quit-to-title seams above. Also noticed but not touched: the comment at
 `BenPort.cpp`'s `Combo_LoadMMSaveFile` claims the caller rebuilds on a negative code — `title_setup.c`
 discards the return and rebuilds nothing. Not sent upstream.
+
+**`mm/src/code/z_game_over.c` (COMBO_BUILD-guarded):** custom/randomized death-jingle tracks can
+replace `NA_BGM_GAME_OVER` with an arbitrarily long or looping sequence, and
+`GAMEOVER_DEATH_FADE_OUT`'s only exit condition was
+`AudioSeq_GetActiveSeqId(SEQ_PLAYER_FANFARE) != NA_BGM_GAME_OVER` — a replacement that never finishes
+hangs the death sequence forever (confirmed on a live death: jingle still playing, screen black, Link
+motionless, minutes later). Added a combo-owned counter (`sComboFadeOutTimer`, separate from
+`sGameOverTimer` because that one is live on the sibling `Kaleido.GameOver` branch and reused across
+states) that caps the wait at 200 ticks (~10s at the state's 20Hz update rate) and force-stops the
+fanfare (`SEQCMD_STOP_SEQUENCE`) only on the cap path, so a looping replacement can't bleed into the
+next scene; the vanilla condition and the Kaleido branch are untouched.
+
+**`mm/2s2h/SaveManager/SaveManager.cpp` (COMBO_BUILD-guarded, existing fence):** a stalled death (see
+above) could still be interrupted by the player (Ctrl+R) before the fade-out cap fired, and
+`SaveManager_SaveCurrentForCombo` was the only save writer with no "don't persist while dead" guard
+(owl/pause/autosave/Song-of-Time saves all floor or block elsewhere). It now floors health to `0x30` in
+the serialized `newCycleSave` doc (and the refreshed `owlSave` blob, when one is written) whenever
+`gPlayState`'s `gameOverCtx.state != GAMEOVER_INACTIVE` or live health is already 0. Live
+`gSaveContext` and the load path are untouched, so a legitimate low-health owl save still resumes at
+its real health.

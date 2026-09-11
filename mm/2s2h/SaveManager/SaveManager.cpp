@@ -256,6 +256,13 @@ void SaveManager_SaveCurrentForCombo() {
 #endif
     j["newCycleSave"]["save"] = gSaveContext.save;
 #ifdef COMBO_BUILD
+    // ComboShip (#death-jingle-hang): this is the only save writer with no "don't persist while dead"
+    // guard. Floor health in the SERIALIZED doc only — never touch live gSaveContext or the load path.
+    bool comboDeadForSave = (gPlayState != nullptr && gPlayState->gameOverCtx.state != GAMEOVER_INACTIVE) ||
+                            gSaveContext.save.saveInfo.playerData.health == 0;
+    if (comboDeadForSave) {
+        j["newCycleSave"]["save"]["saveInfo"]["playerData"]["health"] = 0x30;
+    }
     if (j.contains("owlSave")) {
         if (gComboOwlBlobSlot == mmFileNum) {
             // gSaveContext descends from this blob, so refresh the WHOLE SaveContext — same shape the
@@ -271,6 +278,9 @@ void SaveManager_SaveCurrentForCombo() {
                 j["owlSave"]["save"]["shipSaveInfo"]["pauseSaveEntrance"] =
                     keep.at("shipSaveInfo").at("pauseSaveEntrance");
                 j["owlSave"]["save"]["shipSaveInfo"]["respawn"] = keep.at("shipSaveInfo").at("respawn");
+                if (comboDeadForSave) {
+                    j["owlSave"]["save"]["saveInfo"]["playerData"]["health"] = 0x30;
+                }
             } catch (...) {
                 SPDLOG_ERROR("[ComboShip] Owl blob refresh failed; dropping it");
                 j.erase("owlSave");

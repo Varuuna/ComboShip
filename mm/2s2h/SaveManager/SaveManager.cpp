@@ -258,8 +258,9 @@ void SaveManager_SaveCurrentForCombo() {
 #ifdef COMBO_BUILD
     // ComboShip (#death-jingle-hang): this is the only save writer with no "don't persist while dead"
     // guard. Floor health in the SERIALIZED doc only — never touch live gSaveContext or the load path.
-    bool comboDeadForSave = (gPlayState != nullptr && gPlayState->gameOverCtx.state != GAMEOVER_INACTIVE) ||
-                            gSaveContext.save.saveInfo.playerData.health == 0;
+    bool comboDeadForSave = ((gPlayState != nullptr && gPlayState->gameOverCtx.state != GAMEOVER_INACTIVE) ||
+                             gSaveContext.save.saveInfo.playerData.health == 0) &&
+                            gSaveContext.save.saveInfo.playerData.health < 0x30;
     if (comboDeadForSave) {
         j["newCycleSave"]["save"]["saveInfo"]["playerData"]["health"] = 0x30;
     }

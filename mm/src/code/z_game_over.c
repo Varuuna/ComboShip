@@ -98,9 +98,8 @@ void GameOver_Update(PlayState* play) {
                 break;
             }
 #ifdef COMBO_BUILD
-            // ComboShip (#death-jingle-hang): music randomization can substitute NA_BGM_GAME_OVER with an
-            // arbitrarily long or looping track, so gActiveSeqs[FANFARE].seqId may never clear on its own.
-            // Cap the wait at 20 game ticks/sec * 10s and force the sequence to stop on that path only.
+            // ComboShip: a randomized/looping NA_BGM_GAME_OVER replacement may never clear; cap the
+            // wait (~10s) and stop the fanfare on the cap path only.
             sComboFadeOutTimer++;
             if (AudioSeq_GetActiveSeqId(SEQ_PLAYER_FANFARE) != NA_BGM_GAME_OVER || sComboFadeOutTimer > 200) {
                 if (sComboFadeOutTimer > 200) {

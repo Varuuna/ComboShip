@@ -6,6 +6,9 @@
 #include "soh/SohGui/ImGuiUtils.h"
 #include "soh/Enhancements/item-tables/ItemTableManager.h"
 #include "soh/OTRGlobals.h"
+#ifdef COMBO_BUILD
+#include "soh/Enhancements/randomizer/hook_handlers.h" // ComboShip: ComboOotDormantGiveScope
+#endif
 
 extern "C" {
 #include "functions.h"
@@ -79,6 +82,10 @@ void Anchor::HandlePacket_GiveItem(nlohmann::json payload) {
     } else {
         getItemEntry = Rando::StaticData::RetrieveItem(static_cast<RandomizerGet>(getItemId)).GetGIEntry_Copy();
     }
+
+#ifdef COMBO_BUILD
+    ComboOotDormantGiveScope dormantGive; // ComboShip: a teammate's item is not a local pickup
+#endif
 
     if (getItemEntry.modIndex == MOD_NONE) {
         if (getItemEntry.getItemId == GI_SWORD_BGS) {

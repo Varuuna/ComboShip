@@ -32,6 +32,15 @@ void BroadcastCheckObtainedIfFirst(RandoCheckId rc, RandoItemId rawItemId, bool 
 // lookup caches rebuild from the pushed blob when their stored gen is stale.
 uint64_t ComboRandoGen();
 void InvalidateComboForeignCache();
+// ComboShip: shared cross-game items (rando/CrossShared.h), defined in the combo-owned
+// ComboSharedItems.cpp. After a LOCAL grant of `item` from check `rc`, deliver the pair's OOT half into
+// OOT's resident save; no-op unless `item` is an enabled pair's MM half.
+void ShareLocalItem(RandoCheckId rc, RandoItemId item);
+// ComboShip: is `item` the MM half of an enabled shared pair?
+bool IsSharedPairItem(RandoItemId item);
+// ComboShip: `converted` after ConvertItem, except that a shared half MM already owns stays `raw` — it is
+// the same item again, not junk.
+RandoItemId KeepSharedHalf(RandoItemId converted, RandoItemId raw);
 #endif
 void InitFileSelect();
 void InitKaleidoItemPage();

@@ -24,4 +24,20 @@ RandomizerCheck OOT_GetQueuedDrawCheck();
 // Called at grant time (Randomizer_Item_Give) so the foreign item flows through the normal get-item
 // presentation; the caller skips the local grant. Defined in hook_handlers.cpp.
 void OOT_DeliverForeign(RandomizerCheck rc);
+// ComboShip: shared cross-game items (rando/CrossShared.h), defined in the combo-owned
+// ComboSharedItems.cpp. After a LOCAL collection of check rc, grant the shared pair's MM half into MM's
+// resident save; no-op unless the placed item is an enabled pair's OOT half.
+void OOT_ShareLocalItem(RandomizerCheck rc);
+// ComboShip: nonzero while a save-direct give (dormant cross-grant, Anchor receive) runs, so the
+// shared-item OnItemReceive hook knows it is not a local pickup. Defined in OTRGlobals.cpp; MM's analog
+// is Rando::gComboDormantGive. Scope it with ComboOotDormantGiveScope.
+extern "C" int gComboOotDormantGive;
+struct ComboOotDormantGiveScope {
+    ComboOotDormantGiveScope() {
+        gComboOotDormantGive++;
+    }
+    ~ComboOotDormantGiveScope() {
+        gComboOotDormantGive--;
+    }
+};
 #endif

@@ -20,6 +20,7 @@
 #include <nlohmann/json.hpp>
 #include "gui/ComboGenProgress.h"
 #include "CrossForeign.h" // for ComboRando::GameId
+#include "CrossShared.h"  // shared cross-game item pairs (docs/CROSS_ITEMS_PLAN.md)
 
 namespace ComboRando {
 
@@ -226,10 +227,15 @@ constexpr int kMaxPrereqTries = 4; // Tier-1 repicks of just the portal prerequi
 // out of the cross pool, owned-from-start for logic, and appended to the OOT placements.
 // startingGame (#135): GAME_MM roots MM from the start instead of behind the portal; the portal
 // prerequisites are still derived, as the re-entry guarantee for a player who strays into OOT.
-inline CombinedFillResult CrossWorldCombinedFill(
-    const std::string& sohDumpJson, const std::string& mmDumpJson, uint32_t masterSeed, const OracleFns& ootOracle,
-    const OracleFns& mmOracle, ComboRando::ComboGenProgress* progress = nullptr, const std::string& forcedOotJson = "",
-    OotAccess ootAccess = OotAccess::ALL_REACHABLE, CwGoal goal = {}, GameId startingGame = GAME_OOT) {
+// shared: enabled shared pairs (CrossShared.h). Each pair's MM copies leave the pool, its OOT copies
+// are trimmed to the merged count, and crediting either name credits both games' owned sets.
+inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson, const std::string& mmDumpJson,
+                                                 uint32_t masterSeed, const OracleFns& ootOracle,
+                                                 const OracleFns& mmOracle,
+                                                 ComboRando::ComboGenProgress* progress = nullptr,
+                                                 const std::string& forcedOotJson = "",
+                                                 OotAccess ootAccess = OotAccess::ALL_REACHABLE, CwGoal goal = {},
+                                                 GameId startingGame = GAME_OOT, CwSharedSettings shared = {}) {
     CombinedFillResult result;
     result.success = false;
 
@@ -319,6 +325,88 @@ inline CombinedFillResult CrossWorldCombinedFill(
         std::cerr << "[ComboShip] CrossWorldCombinedFill: " << result.error << "\n";
         return result;
     }
+
+    // --- Shared items: merge each enabled pair into one set of copies (OoTMM setupSharedItems) ---
+    // MM copies leave the pool; the OOT copies are the shared instances, trimmed or cloned to
+    // min(mergedCount, ootCopies + mmCopies). The balancer below junk-pads the MM deficit. Locked
+    // (fixed[]) copies are left alone; they still credit and grant the pair by name. RNG-free.
+    if (shared.Any()) {
+        for (int si = 0; si < kSharedPairCount; ++si) {
+            if (!shared.Enabled(si))
+                continue;
+            const CwSharedPair& pair = kSharedPairs[si];
+            size_t ootCopies = 0, mmCopies = 0;
+            CwItem ootTemplate{ GAME_OOT, pair.ootName, true, CwCat::MAJOR };
+            bool haveTemplate = false;
+            for (auto* src : { &advItems, &junkItems }) {
+                std::vector<CwItem> kept;
+                kept.reserve(src->size());
+                for (auto& it : *src) {
+                    if (it.game == GAME_MM && it.name == pair.mmName) {
+                        ++mmCopies;
+                        if (!haveTemplate) // an MM-only pool still yields a usable OOT instance
+                            ootTemplate = { GAME_OOT, pair.ootName, it.advancement, it.cat };
+                        continue; // removed
+                    }
+                    if (it.game == GAME_OOT && it.name == pair.ootName) {
+                        ++ootCopies;
+                        ootTemplate = it;
+                        haveTemplate = true;
+                    }
+                    kept.push_back(std::move(it));
+                }
+                *src = std::move(kept);
+            }
+            const size_t target =
+                std::min<size_t>(static_cast<size_t>(std::max(pair.mergedCount, 0)), ootCopies + mmCopies);
+            size_t trimmed = 0, cloned = 0;
+            if (ootCopies > target) {
+                size_t surplus = ootCopies - target;
+                for (auto* src : { &junkItems, &advItems }) { // shed junk-class copies first
+                    std::vector<CwItem> kept;
+                    kept.reserve(src->size());
+                    for (auto& it : *src) {
+                        if (surplus > 0 && it.game == GAME_OOT && it.name == pair.ootName) {
+                            --surplus;
+                            ++trimmed;
+                            continue;
+                        }
+                        kept.push_back(std::move(it));
+                    }
+                    *src = std::move(kept);
+                }
+            } else if (ootCopies < target) {
+                for (size_t k = ootCopies; k < target; ++k) {
+                    (ootTemplate.advancement ? advItems : junkItems).push_back(ootTemplate);
+                    ++cloned;
+                }
+            }
+            std::cout << "[ComboShip] CrossWorldCombinedFill: shared '" << pair.key << "' — oot " << ootCopies
+                      << " + mm " << mmCopies << " copies -> " << target << " shared (trimmed " << trimmed
+                      << ", cloned " << cloned << ", mm copies removed " << mmCopies << ")\n";
+        }
+    }
+    // Owned-set credit/uncredit with the shared-pair mirror (CreditOwnedShared).
+    auto creditOwned = [&](Game g, const std::string& name, std::vector<std::string>& ootOwned,
+                           std::vector<std::string>& mmOwned) {
+        CreditOwnedShared(shared, g, name, ootOwned, mmOwned);
+    };
+    auto removeOneName = [](std::vector<std::string>& v, const std::string& name) {
+        for (size_t i = 0; i < v.size(); ++i) {
+            if (v[i] == name) {
+                v[i] = v.back();
+                v.pop_back();
+                return;
+            }
+        }
+    };
+    auto uncreditOwned = [&](Game g, const std::string& name, std::vector<std::string>& ootOwned,
+                             std::vector<std::string>& mmOwned) {
+        removeOneName(g == GAME_OOT ? ootOwned : mmOwned, name);
+        if (const CwSharedPair* p = CwSharedPairForItem(shared, g, name))
+            removeOneName(g == GAME_OOT ? mmOwned : ootOwned, CwSharedName(*p, g == GAME_OOT ? GAME_MM : GAME_OOT));
+    };
+
     // #135: under an MM start the Mask Shop Key is forced start-with, so a confined placement of it in
     // fixed[] means the force never reached OOT's settings. Warn only — A0 keeps the portal re-openable.
     if (mmStart) {
@@ -656,10 +744,13 @@ inline CombinedFillResult CrossWorldCombinedFill(
     };
     auto reachableFixpoint = [&](const std::vector<std::string>& ootBase,
                                  const std::vector<std::string>& mmBase) -> FixResult {
+        // The base sets arrive already pair-mirrored (phase A maintains them through creditOwned).
         std::vector<std::string> ootOwned = ootBase, mmOwned = mmBase;
         // Forced placements (Link's Pocket etc.) are granted at save creation → owned from the start.
-        ootOwned.insert(ootOwned.end(), ootForcedOwned.begin(), ootForcedOwned.end());
-        mmOwned.insert(mmOwned.end(), mmForcedOwned.begin(), mmForcedOwned.end());
+        for (const auto& n : ootForcedOwned)
+            creditOwned(GAME_OOT, n, ootOwned, mmOwned);
+        for (const auto& n : mmForcedOwned)
+            creditOwned(GAME_MM, n, ootOwned, mmOwned);
         std::vector<bool> credited(placements.size(), false);
         std::unordered_set<std::string> ootReachable, mmReachable;
         // Latched: once OOT can reach the portal it stays open. An MM start roots MM immediately (#135).
@@ -677,8 +768,7 @@ inline CombinedFillResult CrossWorldCombinedFill(
                     continue;
                 const auto& reach = placements[i].check.game == GAME_OOT ? ootReachable : mmReachable;
                 if (reach.count(placements[i].check.name)) {
-                    auto& owned = placements[i].item.game == GAME_OOT ? ootOwned : mmOwned;
-                    owned.push_back(placements[i].item.name);
+                    creditOwned(placements[i].item.game, placements[i].item.name, ootOwned, mmOwned);
                     credited[i] = true;
                     changed = true;
                 }
@@ -796,24 +886,16 @@ inline CombinedFillResult CrossWorldCombinedFill(
         }
         std::vector<CwItem> relaxedToJunk; // OOT adv stranded off-path under BEATABLE_ONLY dead-ends
         cwShuffle(toPlace, rng);
+        // Unplaced items are assumed owned; a shared pair is assumed in both games.
         std::vector<std::string> ootRemaining, mmRemaining;
         for (const auto& it : toPlace)
-            (it.game == GAME_OOT ? ootRemaining : mmRemaining).push_back(it.name);
+            creditOwned(it.game, it.name, ootRemaining, mmRemaining);
 
         // Batch placement: pull K items and place all K into distinct reachable checks off ONE
         // fixpoint — still a strictly-conservative assumed fill (each lands on a check reachable
         // without itself and the rest of its batch), but divides the fixpoint cost by K. The cap
         // halves on a failed batch (never grows back within a pass); only a failed K=1 ends the pass.
         size_t batchCap = 16;
-        auto removeOne = [](std::vector<std::string>& v, const std::string& name) {
-            for (size_t i = 0; i < v.size(); ++i) {
-                if (v[i] == name) {
-                    v[i] = v.back();
-                    v.pop_back();
-                    return;
-                }
-            }
-        };
 
         bool deadEnd = false;
         while (!toPlace.empty()) {
@@ -824,7 +906,7 @@ inline CombinedFillResult CrossWorldCombinedFill(
             for (size_t i = 0; i < k; ++i) {
                 batch.push_back(toPlace.back());
                 toPlace.pop_back();
-                removeOne(batch.back().game == GAME_OOT ? ootRemaining : mmRemaining, batch.back().name);
+                uncreditOwned(batch.back().game, batch.back().name, ootRemaining, mmRemaining);
             }
 
             auto fr = reachableFixpoint(ootRemaining, mmRemaining);
@@ -850,7 +932,7 @@ inline CombinedFillResult CrossWorldCombinedFill(
                 }
                 // Put the batch back (reverse order restores the pop sequence — deterministic).
                 for (auto it = batch.rbegin(); it != batch.rend(); ++it) {
-                    (it->game == GAME_OOT ? ootRemaining : mmRemaining).push_back(it->name);
+                    creditOwned(it->game, it->name, ootRemaining, mmRemaining);
                     toPlace.push_back(*it);
                 }
                 if (batch.size() > 1) {
@@ -1117,8 +1199,30 @@ inline CombinedFillResult CrossWorldCombinedFill(
     nlohmann::json ootPlacements = nlohmann::json::object();
     nlohmann::json mmPlacements = nlohmann::json::object();
     nlohmann::json foreignMarkers = nlohmann::json::array();
+    nlohmann::json sharedMarkers = nlohmann::json::array();
 
+    // A shared item at a cross-game check is emitted under the check game's native name (OoTMM's
+    // checks.ts picks the per-game id the same way), so that game grants, draws and tracks it natively
+    // and the give-both hook mirrors it. It is never a foreign marker.
+    std::vector<CwPlacement> emitted;
+    emitted.reserve(placements.size());
     for (const auto& p : placements) {
+        CwPlacement e = p;
+        if (p.check.game != p.item.game) {
+            if (const CwSharedPair* sp = CwSharedPairForItem(shared, p.item.game, p.item.name)) {
+                e.item.game = p.check.game;
+                e.item.name = CwSharedName(*sp, p.check.game);
+                sharedMarkers.push_back({ { "checkGame", p.check.game == GAME_OOT ? "oot" : "mm" },
+                                          { "checkName", p.check.name },
+                                          { "key", sp->key },
+                                          { "ootName", sp->ootName },
+                                          { "mmName", sp->mmName } });
+            }
+        }
+        emitted.push_back(std::move(e));
+    }
+
+    for (const auto& p : emitted) {
         if (p.check.game == GAME_OOT) {
             ootPlacements[p.check.name] = p.item.name;
         } else {
@@ -1145,6 +1249,10 @@ inline CombinedFillResult CrossWorldCombinedFill(
     spoiler["mmCount"] = static_cast<uint32_t>(mmPlacements.size());
     spoiler["mm"] = mmPlacements;
     spoiler["foreign"] = foreignMarkers;
+    // Shared items: the enabled pairs (read back by the validator and both DLLs) and where a shared
+    // copy crossed games (informational; the runtime is name-based).
+    spoiler[kSharedItemsKey] = shared.ToJson();
+    spoiler["shared"] = sharedMarkers;
     // Forced placements (e.g. Link's Pocket) are owned at start, so hints must never target them —
     // the dump's fixed[] skips forced checks, so the spoiler names them for CrossHints instead.
     nlohmann::json startKnown = nlohmann::json::array();
@@ -1154,7 +1262,8 @@ inline CombinedFillResult CrossWorldCombinedFill(
     spoiler["startKnown"] = std::move(startKnown);
 
     // --- Commit placements to oracles (for save consumption) ---
-    for (const auto& p : placements) {
+    // `emitted`, not `placements`: a shared copy is already under the name its game's apply expects.
+    for (const auto& p : emitted) {
         if (p.check.game == GAME_OOT) {
             ootOracle.PlaceItem(p.check.name.c_str(), p.item.name.c_str());
         } else {

@@ -63,6 +63,7 @@ CrowdControl* CrowdControl::Instance;
 #ifdef COMBO_BUILD
 #include "ComboMenuSharedContext.h"               // ComboShip: shared per-DLL ImGui context helper (combo-owned)
 #include "2s2h/Rando/MiscBehavior/MiscBehavior.h" // ComboShip: MM_LoadComboRando cache invalidation + ComboRando types
+#include "rando/CrossShared.h"                    // ComboShip: shared cross-game item pairs (level probe)
 #endif
 
 #include "2s2h/GameInteractor/GameInteractor.h"
@@ -3988,7 +3989,14 @@ static bool Combo_IsBottleRefill(RandoItemId rid) {
     }
 }
 
+// persist=false (shared pairs, CrossShared.h): the grant stays in MM's resident memory until MM saves or
+// the next portal handoff writes it, so a quit-without-saving in OOT reverts both halves. Foreign items
+// keep the immediate write; their check can simply be reopened.
+static void Combo_MM_GiveDormantResolvedEx(RandoItemId rid, bool persist);
 void Combo_MM_GiveDormantResolved(RandoItemId rid) {
+    Combo_MM_GiveDormantResolvedEx(rid, /*persist*/ true);
+}
+static void Combo_MM_GiveDormantResolvedEx(RandoItemId rid, bool persist) {
     // ComboShip (#84): drop a bottle refill when no bottle is free. Callers convert first, so this is
     // a backstop — Item_Give's bottle-contents branch overwrites bottle #1. Keep it either way.
     if (Combo_IsBottleRefill(rid) && !Inventory_HasEmptyBottle()) {
@@ -4018,7 +4026,7 @@ void Combo_MM_GiveDormantResolved(RandoItemId rid) {
         gSaveContext.magicToAdd = 0;
         gSaveContext.isMagicRequested = false;
     }
-    if (gSaveContext.fileNum != 0xFF) {
+    if (persist && gSaveContext.fileNum != 0xFF) {
         SaveManager_SaveCurrentForCombo(); // persist NOW
     }
 }
@@ -4036,6 +4044,12 @@ extern "C" __declspec(dllexport) void MM_GrantCrossItem(const char* itemName) {
     // ComboShip: convert like a native pickup does. MM's equipped shield value IS ownership, so an
     // already-owned item would otherwise downgrade it through vanilla Item_Give.
     RandoItemId rid = Rando::ConvertItem(placed);
+    // ComboShip: a shared half MM already owns is the same item again, so a no-op rather than the
+    // consolation rupee below.
+    if (rid == RI_JUNK && Rando::MiscBehavior::IsSharedPairItem(placed)) {
+        SPDLOG_INFO("[ComboShip] MM_GrantCrossItem: shared '{}' already owned; nothing to grant", itemName);
+        return;
+    }
     if (rid != placed) {
         SPDLOG_INFO("[ComboShip] MM_GrantCrossItem: '{}' not obtainable (already have / no slot), converted {} -> {}",
                     itemName, (int)placed, (int)rid);
@@ -4044,8 +4058,38 @@ extern "C" __declspec(dllexport) void MM_GrantCrossItem(const char* itemName) {
     if (rid == RI_JUNK) {
         rid = RI_RUPEE_RED;
     }
-    Combo_MM_GiveDormantResolved(rid);
-    SPDLOG_INFO("[ComboShip] MM_GrantCrossItem: granted '{}' into MM save", itemName);
+    // A shared half is memory-only (see Combo_MM_GiveDormantResolvedEx); a foreign item persists now.
+    const bool shared = Rando::MiscBehavior::IsSharedPairItem(placed);
+    Combo_MM_GiveDormantResolvedEx(rid, /*persist*/ !shared);
+    SPDLOG_INFO("[ComboShip] MM_GrantCrossItem: granted '{}' into MM save{}", itemName,
+                shared ? " (shared half: memory-only)" : "");
+}
+
+// ComboShip: write MM's resident save. Called by the launcher at the OOT->MM handoff, after the shared-item
+// reconcile, because MM's boot/resume reloads the slot from the container and a memory-only shared grant
+// must be on disk first. MM is dormant here, so no unsaved MM progress is involved.
+extern "C" __declspec(dllexport) void MM_PersistResidentSave(void) {
+    if (gSaveContext.fileNum == 0xFF) {
+        return;
+    }
+    SaveManager_SaveCurrentForCombo();
+}
+
+// ComboShip: level of one shared item in MM's resident save, by friendly item name, for the launcher's
+// reconcile. -1 = no save bound / unknown / not an inventory-page item (progressive pairs will need
+// their own probe); 0/1 = absent/owned.
+extern "C" __declspec(dllexport) int MM_GetSharedItemLevel(const char* itemName) {
+    if (!itemName || gSaveContext.fileNum == 0xFF)
+        return -1;
+    const auto& nameToId = Combo_MM_SpoilerNameToItemId();
+    auto it = nameToId.find(itemName);
+    if (it == nameToId.end())
+        return -1;
+    const ItemId itemId = Rando::StaticData::Items[it->second].itemId;
+    // gItemSlots covers only the inventory-page items; anything past it has no slot to probe.
+    if (itemId == ITEM_NONE || (size_t)itemId >= sizeof(gItemSlots) || SLOT(itemId) == SLOT_NONE)
+        return -1;
+    return INV_CONTENT(itemId) == itemId ? 1 : 0;
 }
 
 // ComboShip: mark a foreign MM check obtained without re-delivering — used on the NETWORK receive

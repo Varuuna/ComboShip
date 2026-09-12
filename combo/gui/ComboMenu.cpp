@@ -459,6 +459,7 @@ struct HubEntry {
         OOT_RANDO,
         MM_RANDO,
         COMBO_GEN,
+        COMBO_SHARED_ITEMS,
         COMBO_PLANDO,
         COMBO_TRACKER,
         COMBO_CHECK_TRACKER,
@@ -1107,8 +1108,9 @@ void PlandoSavePlay() {
         }
     }
     // Native cross-game name collisions get their own-game suffix; foreign checks are skipped (their
-    // real item travels in foreign[]). Exactly the generator's write path.
-    ComboRando::SuffixCrossGameItems(ootPl, mmPl, foreignRaw, sPlando.sohDump, sPlando.mmDump);
+    // real item travels in foreign[]), as are the seed's shared pairs. Exactly the generator's write path.
+    ComboRando::SuffixCrossGameItems(ootPl, mmPl, foreignRaw, sPlando.sohDump, sPlando.mmDump,
+                                     ComboRando::CwSharedNames(ComboRando::SharedSettingsFromSpoiler(j)));
     nlohmann::json foreign = ComboRando::BuildForeignArray(foreignRaw);
 
     j["oot"]["placements"] = ootPl;
@@ -1147,6 +1149,26 @@ void PlandoSavePlay() {
 
 // Combo > Plandomizer: load a generated combo seed, edit item placements (native OR cross-game),
 // then Save & Play. Placements-only MVP; prices/settings/tricks/hints are preserved read-only.
+// Shared cross-game items (docs/CROSS_ITEMS_PLAN.md): one checkbox per CrossShared.h pair, written to
+// gCombo.Rando.Shared.<key>; soh.dll folds those CVars into the mask the launcher bakes into the seed.
+void DrawComboSharedItemsPanel() {
+    const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
+    ImGui::SeparatorText("Shared Items");
+    for (int i = 0; i < ComboRando::kSharedPairCount; ++i) {
+        const ComboRando::CwSharedPair& pair = ComboRando::kSharedPairs[i];
+        const std::string cvar = std::string("gCombo.Rando.Shared.") + pair.key;
+        bool on = CVarGetInteger(cvar.c_str(), 0) != 0;
+        ComboRando::ComboMenu_PushCheckbox(theme);
+        if (ImGui::Checkbox(pair.label, &on)) {
+            CVarSetInteger(cvar.c_str(), on ? 1 : 0);
+        }
+        ComboRando::ComboMenu_PopCheckbox();
+        if (pair.desc && pair.desc[0] && ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", pair.desc);
+        }
+    }
+}
+
 void DrawComboPlandoPanel() {
     const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
     ResolvePlandoSyms();
@@ -1360,6 +1382,12 @@ void ComboMenu::DrawSharedPanel() {
             gen.group = "Combo";
             gen.kind = HubEntry::COMBO_GEN;
             e.push_back(std::move(gen));
+            // Shared cross-game items (docs/CROSS_ITEMS_PLAN.md): its own page, one row per pair.
+            HubEntry sh;
+            sh.label = "Shared Items";
+            sh.group = "Combo";
+            sh.kind = HubEntry::COMBO_SHARED_ITEMS;
+            e.push_back(std::move(sh));
             HubEntry pl;
             pl.label = "Plandomizer";
             pl.group = "Combo";
@@ -1442,6 +1470,8 @@ void ComboMenu::DrawSharedPanel() {
         ImGui::TextUnformatted("Select an option.");
     } else if (active->kind == HubEntry::COMBO_GEN) {
         DrawComboPanel();
+    } else if (active->kind == HubEntry::COMBO_SHARED_ITEMS) {
+        DrawComboSharedItemsPanel();
     } else if (active->kind == HubEntry::COMBO_PLANDO) {
         DrawComboPlandoPanel();
     } else if (active->kind == HubEntry::COMBO_TRACKER) {

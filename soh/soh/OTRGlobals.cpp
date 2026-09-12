@@ -145,6 +145,7 @@
 #ifdef COMBO_BUILD
 #include "ComboMenuSharedContext.h" // ComboShip: shared per-DLL ImGui context helper (combo-owned)
 #include "rando/CrossForeign.h"     // ComboShip (#164): g_comboForeignJson for the hint-key map replay
+#include "rando/CrossShared.h"      // ComboShip: shared cross-game item pairs (settings mask + level probe)
 #include "soh/Enhancements/randomizer/hook_handlers.h" // ComboShip (#164): OOT_ForeignMapGen
 #include <functional>                                  // ComboShip (#164): shared hint-resolution callbacks
 #endif
@@ -3030,9 +3031,16 @@ void Combo_ApplyItemReceiveSideEffects(const GetItemEntry& gie) {
     }
 }
 
+// ComboShip: see hook_handlers.h (ComboOotDormantGiveScope).
+extern "C" int gComboOotDormantGive = 0;
+
 // ComboShip: save-direct grant of a resolved OOT item. Shared by SOH_GrantCrossItem and Anchor's
 // team-state backfill so both apply identical dispatch + side effects + persist.
-void Combo_GrantResolvedOOT(const GetItemEntry& gie) {
+// persist=false (shared pairs, CrossShared.h): the grant stays in OOT's resident memory until OOT saves or
+// the next portal handoff writes it, so a quit-without-saving in MM reverts both halves. Foreign items
+// keep the immediate write; their check can simply be reopened.
+void Combo_GrantResolvedOOT(const GetItemEntry& gie, bool persist = true) {
+    ComboOotDormantGiveScope dormantGive;
     // ComboShip (#84): drop bottle CONTENTS when no bottle is free. Milk Bottle and Ruto's Letter are
     // excluded exactly as Item_Give excludes them — they create a new bottle, so gating them here
     // would permanently lose Ruto's Letter and softlock the seed.
@@ -3068,7 +3076,7 @@ void Combo_GrantResolvedOOT(const GetItemEntry& gie) {
         gSaveContext.healthCapacity += 0x10 * (heartPieces / 4);
         gSaveContext.health += 0x10 * (heartPieces / 4);
     }
-    if (SaveManager::Instance && gSaveContext.fileNum != 0xFF) {
+    if (persist && SaveManager::Instance && gSaveContext.fileNum != 0xFF) {
         SaveManager::Instance->SaveFile(gSaveContext.fileNum); // persist NOW
     }
 }
@@ -3082,8 +3090,24 @@ extern "C" __declspec(dllexport) void SOH_GrantCrossItem(const char* itemName) {
         return;
     }
     GetItemEntry gie = Rando::StaticData::RetrieveItem(it->second).GetGIEntry_Copy();
-    Combo_GrantResolvedOOT(gie);
-    SPDLOG_INFO("[ComboShip] SOH_GrantCrossItem: granted '{}' into OOT save", itemName);
+    // A shared half is memory-only (see Combo_GrantResolvedOOT); a foreign item persists now.
+    const bool shared = ComboRando::CwSharedPairForItem(ComboRando::LoadSharedSettingsFromBlob(), ComboRando::GAME_OOT,
+                                                        itemName) != nullptr;
+    Combo_GrantResolvedOOT(gie, /*persist*/ !shared);
+    SPDLOG_INFO("[ComboShip] SOH_GrantCrossItem: granted '{}' into OOT save{}", itemName,
+                shared ? " (shared half: memory-only)" : "");
+}
+
+// ComboShip: write OOT's resident save. Called by the launcher at the MM->OOT portal handoff, after the
+// shared-item reconcile, because OOT resumes through Sram_OpenSave, which reloads the slot from the
+// container, and a memory-only shared grant must be on disk first. Waits for the pool write, since
+// that reload follows immediately.
+extern "C" __declspec(dllexport) void SOH_PersistResidentSave(void) {
+    if (SaveManager::Instance == nullptr || gSaveContext.fileNum == 0xFF || gSaveContext.fileNum == 0xFE) {
+        return;
+    }
+    SaveManager::Instance->SaveFile(gSaveContext.fileNum);
+    SaveManager::Instance->ThreadPoolWait();
 }
 
 // ComboShip: mark a foreign OOT check obtained without re-delivering — used on the NETWORK receive
@@ -3172,6 +3196,38 @@ extern "C" __declspec(dllexport) void SOH_SetComboStartingGame(int mmStart) {
 // Menu-authored CVar (0 = OOT, 1 = MM, 2 = Random), read here because the launcher has no CVar access.
 extern "C" __declspec(dllexport) int SOH_ReadComboStartingGameCVar(void) {
     return CVarGetInteger("gCombo.Rando.StartingGame", 0);
+}
+// ComboShip: shared cross-game items (rando/CrossShared.h). The menu's per-pair CVars
+// (gCombo.Rando.Shared.<key>) as the pair-index bitmask the launcher and fill consume.
+extern "C" __declspec(dllexport) int SOH_ReadComboSharedItemsCVars(void) {
+    ComboRando::CwSharedSettings s;
+    for (int i = 0; i < ComboRando::kSharedPairCount; ++i) {
+        const std::string cvar = std::string("gCombo.Rando.Shared.") + ComboRando::kSharedPairs[i].key;
+        s.Set(i, CVarGetInteger(cvar.c_str(), 0) != 0);
+    }
+    return static_cast<int>(s.mask);
+}
+// ComboShip: level of one shared item in OOT's resident save, by OOT English item name, for the launcher's
+// reconcile. -1 = no save bound / unknown / not an inventory-page item (progressive pairs will need their
+// own probe); 0/1 = absent/owned.
+extern "C" __declspec(dllexport) int SOH_GetSharedItemLevel(const char* itemName) {
+    if (itemName == NULL || gSaveContext.fileNum == 0xFF) {
+        return -1;
+    }
+    auto it = Rando::StaticData::itemNameToEnum.find(itemName);
+    if (it == Rando::StaticData::itemNameToEnum.end()) {
+        return -1;
+    }
+    const Rando::Item& item = Rando::StaticData::RetrieveItem(it->second);
+    if (item.GetItemType() != ITEMTYPE_ITEM) {
+        return -1;
+    }
+    const int itemId = item.GetItemID();
+    // gItemSlots covers only the inventory-page items; anything past it has no slot to probe.
+    if (itemId < 0 || itemId >= static_cast<int>(sizeof(gItemSlots)) || SLOT(itemId) == SLOT_NONE) {
+        return -1;
+    }
+    return INV_CONTENT(itemId) == itemId ? 1 : 0;
 }
 // An explicit MM start forces these three, so grey them out. Under Random they stay editable — the
 // force is silent when MM rolls. HandleStartingAgeUI owns RSK_STARTING_AGE in both directions.

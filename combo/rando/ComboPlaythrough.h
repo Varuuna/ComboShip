@@ -243,6 +243,8 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
                                               ComboGenProgress* progress = nullptr) {
     RequirednessResult result;
     auto placements = ParseSpoilerPlacements(spoilerJson, sohDumpJson, mmDumpJson);
+    // ComboShip: shared pairs credit both games (CrossShared.h); read from the spoiler itself.
+    const CwSharedSettings shared = SharedSettingsFromSpoiler(spoilerJson);
 
     auto checkKey = [](const CwPlacedItem& p) {
         return std::string(p.checkGame == GAME_OOT ? "oot:" : "mm:") + p.check;
@@ -282,7 +284,7 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
                 const auto& p = placements[i];
                 const auto& reach = (p.checkGame == GAME_OOT) ? *ootReach : *mmReach;
                 if (reach.count(p.check)) {
-                    (p.itemGame == GAME_OOT ? ootOwned : mmOwned).push_back(p.item);
+                    CreditOwnedShared(shared, p.itemGame, p.item, ootOwned, mmOwned);
                     credited[i] = true;
                     changed = true;
                 }
@@ -401,6 +403,8 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
 
     using Placed = CwPlacedItem;
     std::vector<Placed> placements = ParseSpoilerPlacements(spoilerJson, sohDumpJson, mmDumpJson);
+    // ComboShip: shared pairs credit both games (CrossShared.h); read from the spoiler itself.
+    const CwSharedSettings shared = SharedSettingsFromSpoiler(spoilerJson);
 
     auto queryReachable = QueryReachable;
 
@@ -459,7 +463,7 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
         for (auto& p : newly) {
             std::string key = (p.checkGame == GAME_OOT ? "oot:" : "mm:") + p.check;
             collected.insert(key);
-            (p.itemGame == GAME_OOT ? ownedOot : ownedMm).push_back(p.item);
+            CreditOwnedShared(shared, p.itemGame, p.item, ownedOot, ownedMm);
             if (playthroughOut && (p.advancement || !progressionOnly)) {
                 nlohmann::json step = { { "game", p.checkGame == GAME_OOT ? "oot" : "mm" },
                                         { "check", p.check },

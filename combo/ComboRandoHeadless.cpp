@@ -169,6 +169,8 @@ int main(int argc, char** argv) {
     // #135: starting game — also pushed before every dump (it forces OOT's age/forest/exclusions).
     auto SOH_SetComboStartingGame = Sym<void (*)(int)>(soh, "SOH_SetComboStartingGame");
     auto SOH_ReadComboStartingGameCVar = Sym<int (*)(void)>(soh, "SOH_ReadComboStartingGameCVar");
+    // Shared cross-game items — the menu CVar mask, same source as in-game (CrossShared.h).
+    auto SOH_ReadComboSharedItemsCVars = Sym<int (*)(void)>(soh, "SOH_ReadComboSharedItemsCVars");
 
     ComboRando::OracleFns oot{ Sym<FnOracleVoid>(soh, "Combo_SOH_Rando_Reset"),
                                Sym<FnOracleSetItems>(soh, "Combo_SOH_Rando_SetOwnedItems"),
@@ -210,6 +212,8 @@ int main(int argc, char** argv) {
         flat["oot"] = spoiler.value("oot", nlohmann::json::object()).value("placements", nlohmann::json::object());
         flat["mm"] = spoiler.value("mm", nlohmann::json::object()).value("placements", nlohmann::json::object());
         flat["foreign"] = spoiler.value("foreign", nlohmann::json::array());
+        // Shared pairs credit both games in the traversal (CrossShared.h); absent on older seeds.
+        flat[ComboRando::kSharedItemsKey] = spoiler.value(ComboRando::kSharedItemsKey, nlohmann::json::object());
         std::string label = SeedLabel(spoiler);
         uint32_t masterSeed = spoiler.value("masterSeed", 0u);
         // #136: the seed's own goal drives both the traversal win test and the pool shaping below.
@@ -488,6 +492,11 @@ int main(int argc, char** argv) {
     const int startCfg = startingGameArg >= 0            ? startingGameArg
                          : SOH_ReadComboStartingGameCVar ? SOH_ReadComboStartingGameCVar()
                                                          : 0;
+    // Shared cross-game items: the menu CVars, so a headless seed reproduces the in-game one.
+    ComboRando::CwSharedSettings shared;
+    if (SOH_ReadComboSharedItemsCVars) {
+        shared = ComboRando::CwSharedSettings::FromMask(static_cast<uint32_t>(SOH_ReadComboSharedItemsCVars()));
+    }
     std::cout << "[comborando] validating " << count << " seed(s) from "
               << (haveMasterSeed ? "masterSeed " + std::to_string(masterSeedArg) : "'" + seed + "'")
               << (goal.hunt ? " (Triforce Hunt, " + std::to_string(goal.required) + " of " +
@@ -496,7 +505,7 @@ int main(int argc, char** argv) {
               << (startCfg == 1   ? ", starting game MM"
                   : startCfg == 2 ? ", starting game random"
                                   : "")
-              << "\n";
+              << (shared.Any() ? ", shared items " + shared.ToJson().dump() : std::string()) << "\n";
     int failures = 0;
     auto t0 = std::chrono::steady_clock::now();
     for (int i = 0; i < count; ++i) {
@@ -546,7 +555,7 @@ int main(int argc, char** argv) {
             }
             ComboRando::OotAccess ootAccess = ComboRando::OotAccessFromDump(sohDump);
             r = ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, oot, mmO, nullptr, forced, ootAccess,
-                                                   goal, mmStart ? ComboRando::GAME_MM : ComboRando::GAME_OOT);
+                                                   goal, mmStart ? ComboRando::GAME_MM : ComboRando::GAME_OOT, shared);
             if (r.success) {
                 resolvedMmStart = mmStart;
                 // Cross-hint data (Phase 2/3 mirror of RunComboFill, incl. the same area maps so the
@@ -617,12 +626,16 @@ int main(int argc, char** argv) {
                                              { "requiredPieces", goal.required },
                                              { "totalPieces", goal.total } };
                     consolidated["startingGame"] = resolvedMmStart ? "MM" : "OOT"; // #135
+                    // Shared cross-game items (parity with RunComboFill's writer): seed-bound settings +
+                    // where a shared copy crossed games.
+                    consolidated[ComboRando::kSharedItemsKey] = shared.ToJson();
+                    consolidated["shared"] = fillSpoiler.value("shared", nlohmann::json::array());
                     // ComboShip: suffix cross-game item-name collisions in the placements (parity with
                     // RunComboFill's consolidated writer) so the headless spoiler shows "(OOT)"/"(MM)".
                     nlohmann::json ootPl = fillSpoiler.value("oot", nlohmann::json::object());
                     nlohmann::json mmPl = fillSpoiler.value("mm", nlohmann::json::object());
                     ComboRando::SuffixCrossGameItems(ootPl, mmPl, fillSpoiler.value("foreign", nlohmann::json::array()),
-                                                     sohDump, mmDump);
+                                                     sohDump, mmDump, ComboRando::CwSharedNames(shared));
                     consolidated["oot"] = { { "settings", nlohmann::json::parse(SOH_DumpSettings()) },
                                             { "enabledTricks", SOH_DumpEnabledTricks
                                                                    ? nlohmann::json::parse(SOH_DumpEnabledTricks())

@@ -304,9 +304,11 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray) {
 // on apply. Foreign checks are skipped (their real cross-game item is carried by the foreign[] array,
 // whose displayName already carries the tag). Check names are never suffixed: they live in per-game
 // objects (oot/mm) and a game DLL can't reproduce a cross-game-aware suffix at runtime.
+// skipNames: colliding names left bare anyway. The enabled shared pairs (CrossShared.h) are one item in
+// both games, so a game tag would misdescribe them.
 inline void SuffixCrossGameItems(nlohmann::json& ootPlacements, nlohmann::json& mmPlacements,
                                  const nlohmann::json& foreignArray, const std::string& sohDump,
-                                 const std::string& mmDump) {
+                                 const std::string& mmDump, const std::set<std::string>& skipNames = {}) {
     auto itemNames = [](const std::string& dump) {
         std::set<std::string> s;
         try {
@@ -325,7 +327,7 @@ inline void SuffixCrossGameItems(nlohmann::json& ootPlacements, nlohmann::json& 
     };
     std::set<std::string> ootSet = itemNames(sohDump), mmSet = itemNames(mmDump), shared;
     for (const auto& n : ootSet)
-        if (mmSet.count(n))
+        if (mmSet.count(n) && !skipNames.count(n))
             shared.insert(n);
     if (shared.empty())
         return;

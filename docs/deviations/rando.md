@@ -1769,3 +1769,111 @@ with the option on, not only cross-placed ones, so their area names follow the c
 native's `NamesChosen` draws from). Progressive items (hookshot, magic) hint the first copy in
 placement order, as native hinted the first copy in `allLocations` order — either copy is a valid
 target for both.
+
+## Shared cross-game items — Phase 1 POC: shared Lens of Truth (2026-09-09)
+
+**Why:** OoTMM's "shared items" let an item both games already have act as ONE logical item: find it in
+either game, use it in both. ComboShip only delivered a foreign item into its home game's save. Plan,
+OoTMM mapping, dedupe and save-asymmetry decisions: [`../CROSS_ITEMS_PLAN.md`](../CROSS_ITEMS_PLAN.md).
+Lens of Truth is the first (one-shot, no ammo, no levels) pair; the table is built to take more.
+
+**Combo-owned (no merge risk):**
+
+- `combo/rando/CrossShared.h` — pairing table (`kSharedPairs`: key, label, OOT name, MM name, merged
+  count), `CwSharedSettings` bitmask (JSON form `"sharedItems": {key: bool}`), `CwSharedPairForItem`
+  (name-based), `CreditOwnedShared` (the `has(X) || has(SHARED_X)` union at owned-set level),
+  `CwSharedNames`, `LoadSharedSettingsFromBlob` (DLL side, from the pushed consolidated spoiler).
+- `combo/rando/CrossWorldRando.h` — `CrossWorldCombinedFill` gains a trailing `CwSharedSettings`. Pool
+  pre-pass after the dump parse: each enabled pair's MM copies leave the pool, the OOT copies are
+  trimmed/cloned to `min(mergedCount, oot + mm)` (OoTMM `replaceItem` + `removeItem`); the existing
+  balancer junk-pads MM. Owned sets (`reachableFixpoint`, phase-A assumed sets incl. batch put-back,
+  forced-owned) go through `creditOwned`/`uncreditOwned`, so one shared copy counts in both games.
+  Emission renames a shared copy at a cross-game check to the CHECK game's native name (OoTMM
+  `checks.ts`), never a foreign marker; the oracle commit uses the same renamed list. Spoiler gains
+  `sharedItems` + `shared[]`.
+- `combo/rando/ComboPlaythrough.h` — both traversals credit via `CreditOwnedShared`, reading the
+  settings from the spoiler they walk (hermetic).
+- `combo/rando/CrossForeign.h` — `SuffixCrossGameItems` takes `skipNames` so an enabled pair's colliding
+  name stays bare (one item, not a same-named pair). Callers pass `CwSharedNames(...)`.
+- `combo/ComboShip.cpp` — menu mask via `SOH_ReadComboSharedItemsCVars`; passed to every fill call;
+  `consolidated["sharedItems"]`/`["shared"]`; slot latch `g_sharedSettings` in `LoadComboCompletion`;
+  `DeliverCrossItem` dedupe key is now check **+ item**, and the set is cleared on every slot bind/load
+  (`ResetCrossItemDedup` in `LoadComboCompletion`): it only guards one wire packet reaching both DLLs,
+  and across a reload it silently dropped a re-collection after a quit-without-saving (or a second file on
+  the same seed) for shared AND foreign items; `ReconcileSharedItems` max-reconciles every
+  enabled pair via `SOH_/MM_GetSharedItemLevel` + the existing cross-grant exports, at OOT->MM, at the
+  portal MM->OOT return, and (MM-direction only — OOT may have no PlayState) on OOT save load.
+- `combo/ComboRandoHeadless.cpp` — reads the menu CVar mask like the launcher; spoiler parity;
+  `--playthrough` forwards `sharedItems` into the flat spoiler.
+- `combo/gui/ComboMenu.cpp` — "Shared Items" page under the Randomizer tab's Combo group
+  (`DrawComboSharedItemsPanel`), one checkbox + hover tooltip per table row (`gCombo.Rando.Shared.<key>`);
+  plando writer skips the seed's shared names when suffixing.
+
+**Combo-owned files inside the vendored trees (no merge risk; do NOT delete on merges):**
+
+- `soh/soh/Enhancements/randomizer/ComboSharedItems.cpp` — the OOT give-both. `OOT_ShareLocalItem(rc)`:
+  placed item's English name -> enabled pair's OOT half -> MM half to `gComboCrossDeliver` +
+  `Anchor_BroadcastCrossItem` + toast. Its `OnItemReceive` hook is self-registered (`RegisterShipInitFunc`),
+  so no upstream function is edited. The hook's own entry carries no check (vanilla-table items arrive via
+  `Return_Item`'s table lookup), so it reads `GET_PLAYER(gPlayState)->getItemEntry.comboForeignCheck`
+  (stamped by `Context::GetFinalGIEntry` on every entry it builds), requires that entry to match the
+  received mod/item, and is silenced by `gComboOotDormantGive`. Chests and shops never pass
+  `RandomizerOnItemReceiveHandler`'s queued-check gate, which is why this is a separate hook.
+- `mm/2s2h/Rando/MiscBehavior/ComboSharedItems.cpp` — the MM side: `ShareLocalItem(rc, item)` (mirror of
+  the above via `gMMComboCrossDeliver`), `IsSharedPairItem(item)`, and `KeepSharedHalf(converted, raw)`,
+  which returns the raw shared half when `ConvertItem`'s already-owned rule said junk (the OOT half
+  arrived first; it is the same item, so the re-give is an idempotent no-op that re-shares).
+- `soh/.../randomizer/hook_handlers.h` (already combo-owned) — declares `OOT_ShareLocalItem`,
+  `gComboOotDormantGive` and the RAII `ComboOotDormantGiveScope` (the OOT analog of MM's
+  `Rando::gComboDormantGive`), so the vendored consumers below are one-liners.
+
+**Vendored (COMBO_BUILD-guarded, preserve on merges):**
+
+- `soh/soh/OTRGlobals.cpp` — `SOH_ReadComboSharedItemsCVars` (bitmask), `SOH_GetSharedItemLevel(name)`
+  (inventory-page items only: `INV_CONTENT(id) == id`; -1 otherwise), `SOH_PersistResidentSave`,
+  `gComboOotDormantGive`'s definition, and `Combo_GrantResolvedOOT(gie, persist)` scoped by
+  `ComboOotDormantGiveScope`; `SOH_GrantCrossItem` passes `persist=false` for a shared half.
+- `soh/soh/Network/Anchor/Packets/GiveItem.cpp` — one `ComboOotDormantGiveScope` in `HandlePacket_GiveItem`
+  (a teammate's item is not a local pickup) + the header include.
+- `mm/2s2h/BenPort.cpp` — `MM_GetSharedItemLevel(name)` (friendly name -> `Items[].itemId` slot probe),
+  `MM_PersistResidentSave`, `Combo_MM_GiveDormantResolvedEx(rid, persist)`; `MM_GrantCrossItem` returns
+  without granting when the placed item is a shared half MM already owns (else the consolation Red Rupee)
+  and passes `persist=false` for a shared half.
+- `mm/2s2h/Rando/MiscBehavior/CheckQueue.cpp` — three one-line fenced calls in `CheckQueue()`'s lambdas:
+  `KeepSharedHalf` after each `ConvertItem` (give + draw) and `ShareLocalItem` right after
+  `Rando::GiveItem` (local path only; dormant grants and Anchor receives do not pass here).
+- `mm/2s2h/Rando/MiscBehavior/MiscBehavior.h` — the three declarations, inside the existing
+  `COMBO_BUILD` block.
+
+**Dedupe / save-asymmetry decisions (see the plan):** pool dedupe by explicit merged count; grant
+dedupe by check+item at the launcher, cleared on every bind/load; Lens is one-shot so the pair grant is
+idempotent. The far half of a SHARED pair is memory-only: `SOH_GrantCrossItem` / `MM_GrantCrossItem`
+skip their immediate persist when the item is an enabled pair's half (`Combo_GrantResolvedOOT(gie,
+persist)` / `Combo_MM_GiveDormantResolvedEx(rid, persist)`), so it reaches disk only when that game
+saves itself and a quit-without-saving in the finder's game reverts both halves (the far game reloads
+from disk on the way to the title). Because both resume paths reload the slot (OOT: TitleSetup ->
+`Sram_OpenSave`; MM: its boot/resume load), the portal handoffs write the ARRIVING game's resident save
+first: `SOH_PersistResidentSave` (`SaveFile` + `ThreadPoolWait`) after the MM->OOT reconcile and
+`MM_PersistResidentSave` (`SaveManager_SaveCurrentForCombo`) after the OOT->MM one, both launcher-called
+and never on a reset/owl-quit return. Foreign items keep the immediate persist. The transition/load
+reconcile remains for the one-sided cases. Progressive pairs (bows, magic, bomb bags) need a level-set grant before they are added to the
+table. Only capacity is shared: arrows, bombs, magic and rupees stay per game by design (plan,
+"Counts"), so there is no transition-time consumable copy.
+
+**Known, left alone:** a toast still on screen at a handoff or reset replays on that game's next frame
+(the notification window only counts down while drawn, and `ComboTrackerVisibility` unregisters the
+dormant game's window). After a quit-without-saving it can read like a fresh "Sent to Hyrule"; the log
+shows no delivery. Pre-existing, not specific to shared items.
+
+**Debugging note:** C++ `SPDLOG_*` from OTRGlobals/BenPort/CheckQueue/hook_handlers never reaches
+"Ship of Harkinian.log", and the launcher's std::cout is lost when the exe is started from Explorer;
+the C bridge `lusprintf(__FILE__, __LINE__, 2, ...)` does reach the file from any module (cf.
+z_parameter.c "Item Give"). Temporary traces on that path are how the 2026-09-09 quit-without-saving
+sequence was pinned down; they were removed again afterwards.
+
+**Verified:** all Windows targets (soh/2ship/comboui/ComboShip/comborando) build clean; the three new
+exports are present. Headless with the pair enabled: the fill logs `oot 1 + mm 1 copies ->
+1 shared (mm copies removed 1)`, 7/7 seeds PASS, three of them landing the single Lens at an MM check
+under MM's native name with a `shared[]` marker and no foreign entry; `--playthrough` reports BEATABLE.
+Its affordability canary flags GC Medigoron and the Wasteland Carpet Salesman (price 200, 0 wallets) —
+pre-existing, identical with the pair disabled.

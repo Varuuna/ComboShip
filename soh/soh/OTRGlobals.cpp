@@ -3244,6 +3244,8 @@ extern "C" __declspec(dllexport) int SOH_GetSharedTier(int family) try {
             return CUR_UPG_VALUE(UPG_QUIVER);
         case ComboRando::SF_BOMB_BAG:
             return CUR_UPG_VALUE(UPG_BOMB_BAG);
+        case ComboRando::SF_BOMBCHU_BAG:
+            return INV_CONTENT(ITEM_BOMBCHU) != ITEM_NONE ? 1 : 0;
         case ComboRando::SF_MAGIC:
             // Never magicLevel: it's a HUD-tick value, reset to 0 on load and never advanced dormant.
             return gSaveContext.isMagicAcquired + gSaveContext.isDoubleMagicAcquired;

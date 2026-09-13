@@ -1857,7 +1857,7 @@ is shared by four different RGs; the stick/nut capacity GIs are shared with the 
 
 ## Shared Items (OoTMM-style) — combo-owned feature (2026-09-10)
 
-A new Combo menu section ("Shared Items", 16 first-cut toggles: Bows, Bomb Bags, Magic, Wallets,
+A new Combo menu section ("Shared Items", 17 toggles: Bows, Bomb Bags, Bombchu Bags, Magic, Wallets,
 Hookshot, Fire/Ice/Light Arrows, Lens of Truth, Epona's Song, Song of Storms, Goron/Zora/Keaton/Bunny/
 Truth masks). Design: OOT keeps the family's pool copies, MM's are trimmed at generation, and a
 runtime ABI reconciles tiers in both directions — a shared item found in MM is simply a foreign OOT
@@ -1944,6 +1944,22 @@ whose `itemName` is an effective family's `ootName` gets `"shared": true` and sk
 `ForeignItem::shared` (parsed from the spoiler, absent = false) makes `ShownForeignName` return the bare
 resolved name instead of appending `GameSuffix`. Old seeds: `shared` absent everywhere → tagged exactly
 as before.
+
+**Bombchu Bag family (2026-09-13, split out of Bomb Bag):** MM's own Bomb Bag semantics grant Bombchu
+access (`INV_CONTENT(ITEM_BOMBCHU)`), leaking chus into MM whenever *any* Bomb Bag family is shared. New
+`SharedFamilyDef` fields `mmHasItem` (false = no MM pool copy, no trim, no oracle mirror — the family's
+`mmName` is `""`) and `ootToMmOnly` (true = one-way; MM's only tier signal, `INV_CONTENT(ITEM_BOMBCHU)`,
+is also set by vanilla ammo, so a two-way reconcile would hand OOT a free bag off a junk chest) model
+this: `SF_BOMBCHU_BAG` mirrors OOT's `RSK_BOMBCHU_BAG` option (Single/Progressive), key `bombchuBags`.
+MM gets the loaded slot's effective mask via a new `MM_SetComboSharedItems(mask)` export (mirrors
+`SOH_SetComboSharedItems`, bound/pushed alongside it in `combo/ComboShip.cpp`) and a helper,
+`Combo_MM_BombchuBagShared()`, so the vendored pokes below never include the family header. While the
+family is effective: `mm/2s2h/Rando/GiveItem.cpp` `RI_BOMB_BAG_*` grants bombs only (chus untouched
+unless already owned); `mm/2s2h/Rando/ConvertItem.cpp` `IsItemObtainable` blocks chu-ammo pickups
+(`RI_BOMBCHU*`) until a bag is owned, substituting instead. `GiveItemForOracle` (`BenPort.cpp`) is left
+unchanged — it runs at gen time against the loaded slot's mask, not the seed being generated, and MM
+logic never gates on chus alone. Standalone MM (mask off/missing) keeps 2ship's default bag-grants-chus
+behavior — the export is fail-open, never fail-into-suppression.
 
 **Side fix (separate commit, not folded into Shared Items):** `SOH_GrantCrossItem`
 (`soh/soh/OTRGlobals.cpp`) resolved a dormant "Progressive Magic Meter" through `Item::GetGIEntry()`'s

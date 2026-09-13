@@ -802,6 +802,8 @@ typedef void (*FnRaiseSharedTier)(int family, int tier);
 typedef void (*FnSetSharedChangedCb)(void (*)(int, int));
 typedef void (*FnSetSharedTickCb)(void (*)(void));
 static FnSetComboSharedItems SOH_SetComboSharedItems = nullptr;
+// MM's mirror of the OOT setter — mask-gated vendor pokes (e.g. Bombchu Bag family) read it.
+static FnSetComboSharedItems MM_SetComboSharedItems = nullptr;
 static FnReadComboSharedCVars SOH_ReadComboSharedCVars = nullptr;
 static FnGetSharedTier SOH_GetSharedTier = nullptr;
 static FnGetSharedTier MM_GetSharedTier = nullptr;
@@ -1216,6 +1218,8 @@ static void LoadComboCompletion(int slot) {
     g_goalTotal = -1;
     g_startingGameMM = false;
     g_sharedMask = 0;
+    if (MM_SetComboSharedItems)
+        MM_SetComboSharedItems(0); // clear before the slot read below re-pushes the loaded value (or stays 0)
     {
         std::lock_guard<std::mutex> lk(g_containerMutex);
         auto& c = LoadOrCreateContainer(slot);
@@ -1244,6 +1248,8 @@ static void LoadComboCompletion(int slot) {
         SOH_SetComboStartingGame(g_startingGameMM ? 1 : 0);
     if (SOH_SetComboSharedItems)
         SOH_SetComboSharedItems(g_sharedMask);
+    if (MM_SetComboSharedItems)
+        MM_SetComboSharedItems(g_sharedMask);
     if (ComboUI_SetComboComplete)
         ComboUI_SetComboComplete((g_comboCompletion[0] && g_comboCompletion[1]) ? 1 : 0);
 }
@@ -1261,6 +1267,8 @@ static void RestoreLoadedSlotGoal() {
         SOH_SetComboStartingGame(g_startingGameMM ? 1 : 0);
     if (SOH_SetComboSharedItems)
         SOH_SetComboSharedItems(g_sharedMask);
+    if (MM_SetComboSharedItems)
+        MM_SetComboSharedItems(g_sharedMask);
 }
 
 static void SaveComboCompletion(int slot) {
@@ -1438,9 +1446,10 @@ static void Combo_SharedReconcileNow() try {
     for (int i = 0; i < ComboRando::SF_COUNT; ++i) {
         if (!(g_sharedMask & (1u << i)))
             continue;
+        const auto& def = ComboRando::SharedFamilyByIndex(i);
         const int o = SOH_GetSharedTier(i);
         const int m = MM_GetSharedTier(i);
-        const int target = o > m ? o : m;
+        const int target = def.ootToMmOnly ? o : (o > m ? o : m); // one-way: OOT is never raised from MM
         if (o < target)
             SOH_RaiseSharedTier(i, target);
         if (m < target)
@@ -2960,6 +2969,9 @@ int main(int argc, char** argv) {
 
     // Shared Items seam — SOH_SetComboSharedItems is OOT-only (shapes the gen-time wallet force).
     SOH_SetComboSharedItems = (FnSetComboSharedItems)GetSym(sohModule, "SOH_SetComboSharedItems");
+    // MM's mirror — mask-gated vendor pokes only; no gen-time effect. Missing export = fail-open (MM
+    // keeps its 2ship defaults, never suppressed).
+    MM_SetComboSharedItems = (FnSetComboSharedItems)GetSym(mmModule, "MM_SetComboSharedItems");
     SOH_ReadComboSharedCVars = (FnReadComboSharedCVars)GetSym(sohModule, "SOH_ReadComboSharedCVars");
     SOH_GetSharedTier = (FnGetSharedTier)GetSym(sohModule, "SOH_GetSharedTier");
     MM_GetSharedTier = (FnGetSharedTier)GetSym(mmModule, "MM_GetSharedTier");

@@ -6,6 +6,7 @@
 #include <cassert>
 #ifdef COMBO_BUILD
 #include "Rando/MiscBehavior/MiscBehavior.h" // ComboShip: MM_LookupForeign for foreign container art
+extern "C" int Combo_MM_BombchuBagShared(void);
 #endif
 
 // Copied from z_player.c, we could instead move this to a header file, idk
@@ -383,14 +384,24 @@ bool Rando::IsItemObtainable(RandoItemId randoItemId, RandoCheckId randoCheckId)
                 return false;
             }
             break;
-        case RI_BOMBCHU:
-        case RI_BOMBCHU_5:
-        case RI_BOMBCHU_10:
         case RI_BOMBS_5:
         case RI_BOMBS_10:
             if (CUR_UPG_VALUE(UPG_BOMB_BAG) == 0) {
                 return false;
             }
+            break;
+        case RI_BOMBCHU:
+        case RI_BOMBCHU_5:
+        case RI_BOMBCHU_10:
+            if (CUR_UPG_VALUE(UPG_BOMB_BAG) == 0) {
+                return false;
+            }
+#ifdef COMBO_BUILD
+            // Shared Bombchu Bag family effective and not yet owned: chu ammo is not a valid source.
+            if (Combo_MM_BombchuBagShared() && INV_CONTENT(ITEM_BOMBCHU) == ITEM_NONE) {
+                return false;
+            }
+#endif
             break;
         case RI_SHIELD_HERO:
             if (GET_CUR_EQUIP_VALUE(EQUIP_TYPE_SHIELD) != EQUIP_VALUE_SHIELD_NONE) {

@@ -3517,7 +3517,8 @@ static void GiveItemForOracle(RandoItemId ri) {
             break;
         }
 
-        // Bomb bags — set upgrade + inventory
+        // Bomb bags — set upgrade + inventory. Chu grant left unconditional: gen-time mask is the
+        // loaded slot's, not the seed's, and MM logic never gates on chus alone (see GiveItem.cpp).
         case RI_BOMB_BAG_20:
             Inventory_ChangeUpgrade(UPG_BOMB_BAG, 1);
             INV_CONTENT(ITEM_BOMB) = ITEM_BOMB;
@@ -4115,6 +4116,17 @@ extern "C" __declspec(dllexport) void MM_SetComboGoal(int hunt, int required, in
 }
 // ComboShip: Shared Items (OoTMM-style) — see combo/rando/SharedItems.h. MM has no gen-time settings
 // that depend on the mask (only OOT's wallet force does), so only the runtime tier ABI lives here.
+// gMMComboSharedMask mirrors the loaded slot's effective mask (SOH_SetComboSharedItems's MM twin) —
+// vendored pokes (Bomb Bag / Bombchu Bag) read it through Combo_MM_BombchuBagShared so they never
+// need the family header.
+extern "C" int gMMComboSharedMask = 0;
+extern "C" __declspec(dllexport) void MM_SetComboSharedItems(uint32_t mask) {
+    gMMComboSharedMask = static_cast<int>(mask);
+}
+extern "C" int Combo_MM_BombchuBagShared(void) {
+    return (gMMComboSharedMask >> ComboRando::SF_BOMBCHU_BAG) & 1;
+}
+
 extern "C" __declspec(dllexport) int MM_GetSharedTier(int family) try {
     if (family < 0 || family >= ComboRando::SF_COUNT)
         return 0;
@@ -4123,6 +4135,8 @@ extern "C" __declspec(dllexport) int MM_GetSharedTier(int family) try {
             return CUR_UPG_VALUE(UPG_QUIVER);
         case ComboRando::SF_BOMB_BAG:
             return CUR_UPG_VALUE(UPG_BOMB_BAG);
+        case ComboRando::SF_BOMBCHU_BAG:
+            return INV_CONTENT(ITEM_BOMBCHU) != ITEM_NONE ? 1 : 0;
         case ComboRando::SF_MAGIC:
             return gSaveContext.save.saveInfo.playerData.isMagicAcquired +
                    gSaveContext.save.saveInfo.playerData.isDoubleMagicAcquired;
@@ -4172,6 +4186,16 @@ extern "C" __declspec(dllexport) void MM_RaiseSharedTier(int family, int tier) t
         const int cur = MM_GetSharedTier(family);
         if (cur >= tier)
             return;
+        // SF_BOMBCHU_BAG has no RandoItemId (MM has no bombchu-bag item) — poke the save directly.
+        if (family == ComboRando::SF_BOMBCHU_BAG) {
+            INV_CONTENT(ITEM_BOMBCHU) = ITEM_BOMBCHU;
+            AMMO(ITEM_BOMBCHU) = CUR_CAPACITY(UPG_BOMB_BAG);
+            if (gSaveContext.fileNum != 0xFF)
+                SaveManager_SaveCurrentForCombo(); // persist dormant grants too (gPlayState is NULL then)
+            if (MM_GetSharedTier(family) <= cur)
+                return; // didn't raise — stop instead of looping forever
+            continue;
+        }
         RandoItemId base = RI_JUNK;
         switch (static_cast<ComboRando::SharedFamily>(family)) {
             case ComboRando::SF_BOW:

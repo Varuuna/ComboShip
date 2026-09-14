@@ -265,6 +265,7 @@ void CowUpdate() {
             sWarpOnClose = false;
             sStickLatch = true; // require the stick to return to centre before it moves the cursor
             CowFreeze(play, true);
+            func_800F64E0(1); // pause-menu open sound, like MM's owl map
             sState = COW_FADE_IN;
             return;
         }
@@ -316,7 +317,7 @@ void CowUpdate() {
                 sPromptCancelled = false;
                 sState = COW_CONFIRM;
             } else if (CHECK_BTN_ANY(input->press.button, BTN_B | BTN_START)) {
-                Sfx_PlaySfxCentered(NA_SE_SY_DECIDE);
+                func_800F64E0(0); // pause-menu close sound, as when unpausing
                 sState = COW_FADE_OUT;
             }
             return;
@@ -337,6 +338,7 @@ void CowUpdate() {
                 sWarpOnClose = true;
                 sState = COW_FADE_OUT;
             } else {
+                Sfx_PlaySfxCentered(NA_SE_SY_CANCEL); // back to the map
                 sStickLatch = true;
                 sState = COW_SELECT;
             }

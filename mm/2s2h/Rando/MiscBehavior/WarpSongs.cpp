@@ -31,6 +31,9 @@ const char* const kSongNames[6] = {
     "Minuet of Forest",  "Bolero of Fire",     "Serenade of Water",
     "Requiem of Spirit", "Nocturne of Shadow", "Prelude of Light",
 };
+// OOT's own "Warp to X?" prompts tint the destination in the song's colour. MM's colour bytes:
+// 0x02 green, 0x01 red (MM's red is orange-red), 0x03 blue, 0x08 orange, 0x06 purple, 0x04 yellow.
+const char* const kPlaceColors[6] = { "%g", "%r", "%b", "\x08", "%p", "%y" };
 const char* const kPlaceNames[6] = {
     "the Sacred Forest Meadow", "Death Mountain Crater", "Lake Hylia",
     "the Desert Colossus",      "the Graveyard",         "the Temple of Time",
@@ -121,7 +124,8 @@ void Rando::MiscBehavior::WarpSongs() {
             entry.msg = std::string("You played the ") + kSongNames[msgCtx->songPlayed - OCARINA_SONG_MINUET] + ".";
         } else if (sState == WS_CONFIRM) {
             entry.nextMessageID = 0x1B95;
-            entry.msg = std::string("Soar to ") + kPlaceNames[sWarpIndex] + "?\x02\x11\xC2Yes\x11No";
+            entry.msg = std::string("Soar to ") + kPlaceColors[sWarpIndex] + kPlaceNames[sWarpIndex] +
+                        "%w?\x02\x11\xC2Yes\x11No";
         } else {
             return; // not ours: vanilla text (or another feature's hook, e.g. Saria's Song)
         }

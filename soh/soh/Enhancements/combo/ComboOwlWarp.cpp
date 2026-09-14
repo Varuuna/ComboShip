@@ -309,7 +309,7 @@ void CowUpdate() {
             }
             if (CHECK_BTN_ALL(input->press.button, BTN_A)) {
                 Sfx_PlaySfxCentered(NA_SE_SY_DECIDE);
-                sConfirmMsg = CustomMessage(std::string("\x08Soar to %g") + sCowOwlNames[sCursor] + "%w?&&" +
+                sConfirmMsg = CustomMessage(std::string("\x08Soar to %p") + sCowOwlNames[sCursor] + "%w?&&" +
                                                 CustomMessage::TWO_WAY_CHOICE() + "%gYes&No%w\x09",
                                             TEXTBOX_TYPE_BLUE);
                 sConfirmMsg.Format(); // '&' -> newline, colours, and the MESSAGE_END terminator

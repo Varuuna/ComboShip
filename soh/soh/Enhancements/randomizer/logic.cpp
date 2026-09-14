@@ -2947,6 +2947,9 @@ void Logic::Reset(bool resetSaveContext /*= true*/) {
         SetRandoInf(RAND_INF_HAS_OCARINA_C_DOWN, !ocBtnShuffle);
         SetRandoInf(RAND_INF_HAS_OCARINA_C_LEFT, !ocBtnShuffle);
         SetRandoInf(RAND_INF_HAS_OCARINA_C_RIGHT, !ocBtnShuffle);
+        // ComboShip (teleport songs): a starting Song of Soaring is owned from the first search.
+        SetRandoInf(RAND_INF_HAS_SONG_OF_SOARING, ctx->GetOption(RSK_SONG_OF_SOARING_OOT).Is(true) &&
+                                                      ctx->GetOption(RSK_STARTING_SONG_OF_SOARING).Is(true));
 
         // Progressive Items
         SetUpgrade(UPG_STICKS, ctx->GetOption(RSK_SHUFFLE_DEKU_STICK_BAG).Is(true) ? 0 : 1);

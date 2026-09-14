@@ -1522,6 +1522,8 @@ void Settings::CreateOptions() {
     OPT_BOOL(RSK_STARTING_CLAIM_CHECK, "Start with Claim Check", CVAR_RANDOMIZER_SETTING("StartingClaimCheck"));
     OPT_BOOL(RSK_STARTING_GERUDO_CARD, "Start with Gerudo Card", CVAR_RANDOMIZER_SETTING("StartingGerudoCard"));
     OPT_BOOL(RSK_STARTING_BUNNY_HOOD, "Start with Bunny Hood", CVAR_RANDOMIZER_SETTING("StartingBunnyHood"));
+    // ComboShip (teleport songs)
+    OPT_BOOL(RSK_STARTING_SONG_OF_SOARING, "Start with Song of Soaring", CVAR_RANDOMIZER_SETTING("StartingSongOfSoaring"));
     OPT_U8(RSK_STARTING_BIGGORON_SWORD, "Start with Biggoron's Sword", {"Off", "Giant's Knife", "Biggoron's Sword"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("StartingBiggoronSword"), "", WIDGET_CVAR_COMBOBOX, 0);
     OPT_BOOL(RSK_FULL_WALLETS, "Full Wallets", {"No", "Yes"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("FullWallets"), mOptionDescriptions[RSK_FULL_WALLETS], WIDGET_CVAR_CHECKBOX, RO_GENERIC_OFF);
     OPT_BOOL(RSK_STARTING_ZELDAS_LULLABY, "Start with Zelda's Lullaby", CVAR_RANDOMIZER_SETTING("StartingZeldasLullaby"), "", IMFLAG_NONE);
@@ -2438,27 +2440,27 @@ void Settings::CreateOptions() {
                                                  &mOptions[RSK_KEYRINGS_GTG],
                                                  &mOptions[RSK_KEYRINGS_GANONS_CASTLE],
                                              });
-    mOptionGroups[RSG_STARTING_ITEMS] =
-        OptionGroup::SubGroup("Items", { &mOptions[RSK_STARTING_OCARINA],        &mOptions[RSK_STARTING_KOKIRI_SWORD],
-                                         &mOptions[RSK_STARTING_MASTER_SWORD],   &mOptions[RSK_STARTING_DEKU_SHIELD],
-                                         &mOptions[RSK_STARTING_HYLIAN_SHIELD],  &mOptions[RSK_STARTING_MIRROR_SHIELD],
-                                         &mOptions[RSK_STARTING_GORON_TUNIC],    &mOptions[RSK_STARTING_ZORA_TUNIC],
-                                         &mOptions[RSK_STARTING_IRON_BOOTS],     &mOptions[RSK_STARTING_HOVER_BOOTS],
-                                         &mOptions[RSK_STARTING_MEGATON_HAMMER], &mOptions[RSK_STARTING_BOOMERANG],
-                                         &mOptions[RSK_STARTING_LENS_OF_TRUTH],  &mOptions[RSK_STARTING_DINS_FIRE],
-                                         &mOptions[RSK_STARTING_FARORES_WIND],   &mOptions[RSK_STARTING_NAYRUS_LOVE],
-                                         &mOptions[RSK_STARTING_FIRE_ARROWS],    &mOptions[RSK_STARTING_ICE_ARROWS],
-                                         &mOptions[RSK_STARTING_LIGHT_ARROWS],   &mOptions[RSK_STARTING_STONE_OF_AGONY],
-                                         &mOptions[RSK_STARTING_HOOKSHOT],       &mOptions[RSK_STARTING_BOW],
-                                         &mOptions[RSK_STARTING_SLINGSHOT],      &mOptions[RSK_STARTING_BOMB_BAG],
-                                         &mOptions[RSK_STARTING_STRENGTH],       &mOptions[RSK_STARTING_SCALE],
-                                         &mOptions[RSK_STARTING_WALLET],         &mOptions[RSK_STARTING_MAGIC_METER],
-                                         &mOptions[RSK_STARTING_BOMBCHU_BAG],    &mOptions[RSK_STARTING_BOTTLE_1],
-                                         &mOptions[RSK_STARTING_BOTTLE_2],       &mOptions[RSK_STARTING_BOTTLE_3],
-                                         &mOptions[RSK_STARTING_BOTTLE_4],       &mOptions[RSK_STARTING_WEIRD_EGG],
-                                         &mOptions[RSK_STARTING_ZELDAS_LETTER],  &mOptions[RSK_STARTING_CLAIM_CHECK],
-                                         &mOptions[RSK_STARTING_GERUDO_CARD],    &mOptions[RSK_STARTING_BIGGORON_SWORD],
-                                         &mOptions[RSK_STARTING_BUNNY_HOOD] });
+    mOptionGroups[RSG_STARTING_ITEMS] = OptionGroup::SubGroup(
+        "Items", { &mOptions[RSK_STARTING_OCARINA],        &mOptions[RSK_STARTING_KOKIRI_SWORD],
+                   &mOptions[RSK_STARTING_MASTER_SWORD],   &mOptions[RSK_STARTING_DEKU_SHIELD],
+                   &mOptions[RSK_STARTING_HYLIAN_SHIELD],  &mOptions[RSK_STARTING_MIRROR_SHIELD],
+                   &mOptions[RSK_STARTING_GORON_TUNIC],    &mOptions[RSK_STARTING_ZORA_TUNIC],
+                   &mOptions[RSK_STARTING_IRON_BOOTS],     &mOptions[RSK_STARTING_HOVER_BOOTS],
+                   &mOptions[RSK_STARTING_MEGATON_HAMMER], &mOptions[RSK_STARTING_BOOMERANG],
+                   &mOptions[RSK_STARTING_LENS_OF_TRUTH],  &mOptions[RSK_STARTING_DINS_FIRE],
+                   &mOptions[RSK_STARTING_FARORES_WIND],   &mOptions[RSK_STARTING_NAYRUS_LOVE],
+                   &mOptions[RSK_STARTING_FIRE_ARROWS],    &mOptions[RSK_STARTING_ICE_ARROWS],
+                   &mOptions[RSK_STARTING_LIGHT_ARROWS],   &mOptions[RSK_STARTING_STONE_OF_AGONY],
+                   &mOptions[RSK_STARTING_HOOKSHOT],       &mOptions[RSK_STARTING_BOW],
+                   &mOptions[RSK_STARTING_SLINGSHOT],      &mOptions[RSK_STARTING_BOMB_BAG],
+                   &mOptions[RSK_STARTING_STRENGTH],       &mOptions[RSK_STARTING_SCALE],
+                   &mOptions[RSK_STARTING_WALLET],         &mOptions[RSK_STARTING_MAGIC_METER],
+                   &mOptions[RSK_STARTING_BOMBCHU_BAG],    &mOptions[RSK_STARTING_BOTTLE_1],
+                   &mOptions[RSK_STARTING_BOTTLE_2],       &mOptions[RSK_STARTING_BOTTLE_3],
+                   &mOptions[RSK_STARTING_BOTTLE_4],       &mOptions[RSK_STARTING_WEIRD_EGG],
+                   &mOptions[RSK_STARTING_ZELDAS_LETTER],  &mOptions[RSK_STARTING_CLAIM_CHECK],
+                   &mOptions[RSK_STARTING_GERUDO_CARD],    &mOptions[RSK_STARTING_BIGGORON_SWORD],
+                   &mOptions[RSK_STARTING_BUNNY_HOOD],     &mOptions[RSK_STARTING_SONG_OF_SOARING] });
     mOptionGroups[RSG_STARTING_SONGS] =
         OptionGroup::SubGroup("Ocarina Songs", {
                                                    &mOptions[RSK_STARTING_ZELDAS_LULLABY],
@@ -3288,6 +3290,7 @@ void Settings::RandomizeAllSettings() {
             case RSK_STARTING_GERUDO_CARD:
             case RSK_STARTING_BIGGORON_SWORD:
             case RSK_STARTING_BUNNY_HOOD:
+            case RSK_STARTING_SONG_OF_SOARING: // ComboShip (teleport songs)
             // ComboShip: (#133/#134) opt-outs, never randomized
             case RSK_EXCLUDE_MASK_SHOP_KEY:
             case RSK_EXCLUDE_MASK_SHOP_ENTRANCE:

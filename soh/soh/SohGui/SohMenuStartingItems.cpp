@@ -341,6 +341,11 @@ void DrawStartingItemsMenu(WidgetInfo& info) {
     StartingSongToggle(RSK_STARTING_NOCTURNE_OF_SHADOW, QUEST_SONG_NOCTURNE);
     ImGui::SameLine();
     StartingSongToggle(RSK_STARTING_PRELUDE_OF_LIGHT, QUEST_SONG_PRELUDE);
+    // ComboShip (teleport songs): MM's Song of Soaring, only while the seed setting adds it to the pool.
+    if (CVarGetInteger(Rando::Settings::GetInstance()->GetOption(RSK_SONG_OF_SOARING_OOT).GetCVarName().c_str(), 0)) {
+        ImGui::SameLine();
+        StartingItemToggle(RSK_STARTING_SONG_OF_SOARING, ITEM_SONG_PRELUDE);
+    }
 
     ImGui::SeparatorText("Other");
     StartingItemCombobox(RSK_LINKS_POCKET);

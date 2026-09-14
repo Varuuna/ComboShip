@@ -214,6 +214,8 @@ __declspec(dllexport)
 #endif
     // Ctrl+R reset while MM is foreground: bounce back to OOT (saves if autosave on) + go dormant.
     void MM_RequestComboReturn(void);
+// Teleport songs: portal-kind return to OOT arriving at the given OOT entrance (see BenPort.cpp).
+void Combo_RequestCrossSwitch(int ootEntrance);
 #ifdef _WIN32
 __declspec(dllexport)
 #endif

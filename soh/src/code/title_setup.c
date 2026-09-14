@@ -7,6 +7,10 @@
 // file-select screens, load this save slot, and spawn straight into Play in the Market outside the
 // Happy Mask Shop (the fixed arrival point for the cross-game portal return).
 extern s32 gComboReturnFileNum;
+// Arrival override (teleport songs / debug): >= 0 means spawn at this entrance instead of outside the
+// Happy Mask Shop. Pushed by the launcher (SOH_SetTargetEntrance), consumed once here.
+extern s32 gComboTargetEntrance;
+extern s32 gComboCrossArrival;
 #endif
 
 void TitleSetup_InitImpl(GameState* gameState) {
@@ -32,7 +36,16 @@ void TitleSetup_InitImpl(GameState* gameState) {
         GameInteractor_ExecuteOnLoadGame(gSaveContext.fileNum);
         // Must follow OnLoadGame: the rando handler's Entrance_SetSavewarpEntrance() recomputes from
         // savedSceneNum (never set by the portal handoff) and would clobber this with Link's House.
-        gSaveContext.entranceIndex = Entrance_OverrideNextIndex(ENTR_MARKET_DAY_OUTSIDE_HAPPY_MASK_SHOP);
+        if (gComboTargetEntrance >= 0) {
+            // Cross-game arrival at a requested entrance (an MM warp song, or combo_warp_oot). Routed
+            // through the entrance-rando override like OOT's own warp songs are.
+            LUSLOG_INFO("[ComboShip] TitleSetup combo arrival at entrance 0x%X", gComboTargetEntrance);
+            gSaveContext.entranceIndex = Entrance_OverrideNextIndex((s16)gComboTargetEntrance);
+            gComboTargetEntrance = -1;
+            gComboCrossArrival = 1;
+        } else {
+            gSaveContext.entranceIndex = Entrance_OverrideNextIndex(ENTR_MARKET_DAY_OUTSIDE_HAPPY_MASK_SHOP);
+        }
         // A portal return is never a cutscene arrival: a never-played MM-start save still holds the
         // pending intro (0xFFF1), which would shift Play_Init's entrance lookup onto a garbage layer.
         gSaveContext.cutsceneIndex = 0;

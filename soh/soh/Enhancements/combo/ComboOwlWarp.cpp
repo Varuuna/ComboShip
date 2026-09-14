@@ -8,11 +8,13 @@
 //
 // Recognition never touches OOT's ocarina tables: the 12-song u16 availability word has no free bit
 // and every per-song table is 12 wide. The note stream is watched from OnOcarinaNote and its tail
-// compared against the six-pitch pattern (no vanilla song is a suffix of it). The chooser is not a
-// kaleido page either: pauseCtx->debugState freezes the world (Play_Update then runs the inert
-// KaleidoScopeCall_Update instead of actors + Message_Update, and START is refused), MSGMODE_PAUSED
-// parks the ocarina session, and the map is drawn from OnPlayDrawEnd into OVERLAY_DISP, under the HUD
-// and any textbox, like MM's.
+// compared against the six-pitch pattern (no vanilla song is a suffix of it). On a match the ocarina
+// session is closed the way the vanilla B-cancel closes it, and only once the message mode is clean
+// again does anything else start (PauseWarp's shape): the refusal textbox, or the chooser, which holds
+// Link with PLAYER_STATE1_IN_CUTSCENE (also refuses START through Play_InCsMode) while the world runs,
+// like OOT's own "Warp to X?" prompt. Starting a textbox while the session is still in
+// MSGMODE_OCARINA_PLAYING corrupts the message context (it spilled into interfaceCtx->view). The map
+// is drawn from OnPlayDrawEnd into OVERLAY_DISP, under the HUD and any textbox, like MM's.
 #include <libultraship/bridge/consolevariablebridge.h>
 #include "soh/ShipInit.hpp"
 #include "soh/OTRGlobals.h"
@@ -63,7 +65,6 @@ COW_MM_ASSET(sCowNameStoneTower, "__OTR__map_name_static/gMapPointStoneTowerENGT
 
 constexpr int COW_OWL_COUNT = 10; // OwlWarpId 0..9, bit i of MM's owlActivationFlags
 constexpr int COW_OWL_CLOCK_TOWN = 4;
-constexpr u16 COW_DEBUG_STATE = 0x10; // a pauseCtx->debugState kaleido never handles: freeze only
 constexpr int COW_MAP_W = 216;
 constexpr int COW_MAP_H = 128;
 
@@ -81,14 +82,16 @@ const char* const sCowOwlNames[COW_OWL_COUNT] = {
 const s16 sCowOwlX[COW_OWL_COUNT] = { -80, -64, -9, -3, -7, -16, -1, 23, 44, 54 };
 const s16 sCowOwlY[COW_OWL_COUNT] = { -8, -38, 39, 26, 1, -7, -28, -27, -1, 24 };
 
-enum CowState { COW_OFF, COW_FADE_IN, COW_SELECT, COW_CONFIRM, COW_FADE_OUT };
+enum CowState { COW_OFF, COW_CLOSING, COW_REFUSED, COW_FADE_IN, COW_SELECT, COW_CONFIRM, COW_FADE_OUT };
 CowState sState = COW_OFF;
-int sAlpha = 0;  // map / icons / plate
-int sDim = 0;    // MM's R_PAUSE_OWL_WARP_ALPHA dimmer over the map
-u16 sFlags = 0;  // activated statues
-int sCursor = 0; // OwlWarpId under the cursor
+int sAlpha = 0;       // map / icons / plate
+int sDim = 0;         // MM's R_PAUSE_OWL_WARP_ALPHA dimmer over the map
+u16 sFlags = 0;       // activated statues
+int sCursor = 0;      // OwlWarpId under the cursor
+u16 sPendingText = 0; // refusal textbox to show once the ocarina session has closed (0 = open the chooser)
 bool sWarpOnClose = false;
 bool sStickLatch = false;
+bool sHoldingLink = false; // PLAYER_STATE1_IN_CUTSCENE set by us
 
 // Recognition ring, fed from OnOcarinaNote (mirrors AudioOcarina_CheckSongsWithoutMusicStaff's rules:
 // a note counts when the pitch changes and is not silence). The flag is consumed on the main thread.
@@ -165,48 +168,40 @@ int CowStepCursor(int from, int dir) {
     return from;
 }
 
-// The song was played: refuse, or open the chooser. Runs on the main thread after Play_Update.
-void CowOnSongPlayed(PlayState* play) {
-    MessageContext* msgCtx = &play->msgCtx;
-    AudioOcarina_SetInstrument(OCARINA_INSTRUMENT_OFF); // clears the input state so vanilla cannot match later
-    Sfx_PlaySfxCentered(NA_SE_SY_CORRECT_CHIME);        // OOT's bank has no MM soaring jingle
-    // Same order as the vanilla warp-song branch (z_message_PAL.c MSGMODE_SONG_PLAYED_ACT): a room that
-    // forbids warp songs refuses first; the restriction-flag rule is rando-exempt there, so it is here.
-    if (msgCtx->disableWarpSongs) {
-        Message_StartTextbox(play, 0x88C, NULL); // "You can't warp here!"
-        msgCtx->ocarinaMode = OCARINA_MODE_04;
-        return;
+void CowHoldLink(PlayState* play, bool hold) {
+    Player* player = GET_PLAYER(play);
+    if (hold) {
+        player->stateFlags1 |= PLAYER_STATE1_IN_CUTSCENE;
+    } else {
+        player->stateFlags1 &= ~PLAYER_STATE1_IN_CUTSCENE;
     }
-    const int flags = gComboOwlFlagsProvider ? gComboOwlFlagsProvider() : -1;
-    if (flags <= 0) {
-        Message_StartTextbox(play, TEXT_COMBO_SOARING_NO_MARK, NULL);
-        msgCtx->ocarinaMode = OCARINA_MODE_04;
-        return;
-    }
-    sFlags = (u16)(flags & ((1 << COW_OWL_COUNT) - 1));
-    sCursor = CowFirstActivated(sFlags);
-    if (sCursor < 0) {
-        Message_StartTextbox(play, TEXT_COMBO_SOARING_NO_MARK, NULL);
-        msgCtx->ocarinaMode = OCARINA_MODE_04;
-        return;
-    }
-    msgCtx->msgMode = MSGMODE_PAUSED;            // park the ocarina session (staff box stops drawing)
-    play->pauseCtx.debugState = COW_DEBUG_STATE; // freeze the world, refuse START
-    sAlpha = 0;
-    sDim = 0;
-    sWarpOnClose = false;
-    sStickLatch = true; // require the stick to return to centre before it moves the cursor
-    sState = COW_FADE_IN;
+    sHoldingLink = hold;
 }
 
-// Close the chooser the way the vanilla B-cancel closes an ocarina session, then warp if asked.
-void CowFinish(PlayState* play) {
+// The song was played: end the ocarina session exactly like the vanilla B-cancel (z_message_PAL.c
+// MSGMODE_OCARINA_PLAYING) and decide what follows once the message mode is clean. Main thread only.
+void CowOnSongPlayed(PlayState* play) {
     MessageContext* msgCtx = &play->msgCtx;
-    play->pauseCtx.debugState = 0;
-    if (msgCtx->msgMode == MSGMODE_PAUSED) {
-        Message_CloseTextbox(play);
+    AudioOcarina_SetInstrument(OCARINA_INSTRUMENT_OFF);
+    Sfx_PlaySfxCentered(NA_SE_SY_CORRECT_CHIME); // OOT's bank has no MM soaring jingle
+    msgCtx->ocarinaMode = OCARINA_MODE_04;       // Link puts the ocarina away
+    Message_CloseTextbox(play);
+    // Same order as the vanilla warp-song branch (MSGMODE_SONG_PLAYED_ACT): a room that forbids warp
+    // songs refuses first; the restriction-flag rule is rando-exempt there, so it is here.
+    if (msgCtx->disableWarpSongs) {
+        sPendingText = 0x88C; // "You can't warp here!"
+    } else {
+        const int flags = gComboOwlFlagsProvider ? gComboOwlFlagsProvider() : -1;
+        sFlags = flags > 0 ? (u16)(flags & ((1 << COW_OWL_COUNT) - 1)) : 0;
+        sCursor = CowFirstActivated(sFlags);
+        sPendingText = (sCursor < 0) ? TEXT_COMBO_SOARING_NO_MARK : 0;
     }
-    msgCtx->ocarinaMode = OCARINA_MODE_04; // Link puts the ocarina away and clears his ocarina state
+    sState = COW_CLOSING;
+}
+
+// Close the chooser, then warp if asked.
+void CowFinish(PlayState* play) {
+    CowHoldLink(play, false);
     sState = COW_OFF;
     if (sWarpOnClose) {
         sWarpOnClose = false;
@@ -239,6 +234,30 @@ void CowUpdate() {
                 return; // not ours (a prompt, a scarecrow session, the song not owned): vanilla carries on
             }
             CowOnSongPlayed(play);
+            return;
+        }
+        case COW_CLOSING: {
+            if (msgCtx->msgMode != MSGMODE_NONE) {
+                return; // the ocarina textbox is still closing
+            }
+            CowHoldLink(play, true); // Link stands still and START is refused (Play_InCsMode)
+            if (sPendingText != 0) {
+                Message_StartTextbox(play, sPendingText, NULL); // clean state, PauseWarp's shape
+                sState = COW_REFUSED;
+                return;
+            }
+            sAlpha = 0;
+            sDim = 0;
+            sWarpOnClose = false;
+            sStickLatch = true; // require the stick to return to centre before it moves the cursor
+            sState = COW_FADE_IN;
+            return;
+        }
+        case COW_REFUSED: {
+            if (msgCtx->msgMode == MSGMODE_NONE) {
+                CowHoldLink(play, false);
+                sState = COW_OFF;
+            }
             return;
         }
         case COW_FADE_IN: {
@@ -277,12 +296,10 @@ void CowUpdate() {
                 sConfirmMsg = CustomMessage(std::string("\x08Soar to %g") + sCowOwlNames[sCursor] + "%w?&&" +
                                                 CustomMessage::TWO_WAY_CHOICE() + "%gYes&No%w\x09",
                                             TEXTBOX_TYPE_BLUE);
-                play->pauseCtx.debugState = 0; // Message_Update must run for the prompt
                 Message_StartTextbox(play, TEXT_COMBO_SOARING_CONFIRM, NULL);
                 sState = COW_CONFIRM;
             } else if (CHECK_BTN_ANY(input->press.button, BTN_B | BTN_START)) {
                 Sfx_PlaySfxCentered(NA_SE_SY_DECIDE);
-                play->pauseCtx.debugState = 0;
                 sState = COW_FADE_OUT;
             }
             return;
@@ -295,7 +312,6 @@ void CowUpdate() {
                 sWarpOnClose = true;
                 sState = COW_FADE_OUT;
             } else {
-                play->pauseCtx.debugState = COW_DEBUG_STATE; // back to the map, frozen again
                 sStickLatch = true;
                 sState = COW_SELECT;
             }
@@ -313,12 +329,13 @@ void CowUpdate() {
     }
 }
 
-// Anything that reloads the world drops the chooser (a save load mid-chooser cannot happen, but a
-// scene change can if a cutscene fires on the frame the song completes).
+// Anything that reloads the world drops the chooser (a scene change can happen if a cutscene fires on
+// the frame the song completes).
 void CowReset() {
-    if (sState != COW_OFF && gPlayState != nullptr && gPlayState->pauseCtx.debugState == COW_DEBUG_STATE) {
-        gPlayState->pauseCtx.debugState = 0;
+    if (sHoldingLink && gPlayState != nullptr) {
+        CowHoldLink(gPlayState, false);
     }
+    sHoldingLink = false;
     sState = COW_OFF;
     sWarpOnClose = false;
     sSongMatched = false;

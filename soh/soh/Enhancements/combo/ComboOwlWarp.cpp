@@ -10,11 +10,11 @@
 // and every per-song table is 12 wide. The note stream is watched from OnOcarinaNote and its tail
 // compared against the six-pitch pattern (no vanilla song is a suffix of it). On a match the ocarina
 // session is closed the way the vanilla B-cancel closes it, and only once the message mode is clean
-// again does anything else start (PauseWarp's shape): the refusal textbox, or the chooser, which holds
-// Link with PLAYER_STATE1_IN_CUTSCENE (also refuses START through Play_InCsMode) while the world runs,
-// like OOT's own "Warp to X?" prompt. Starting a textbox while the session is still in
-// MSGMODE_OCARINA_PLAYING corrupts the message context (it spilled into interfaceCtx->view). The map
-// is drawn from OnPlayDrawEnd into OVERLAY_DISP, under the HUD and any textbox, like MM's.
+// again does anything else start (PauseWarp's shape): the refusal textbox, or the chooser, which freezes
+// the world with pauseCtx->debugState (a value kaleido never handles) and holds Link with
+// PLAYER_STATE1_IN_CUTSCENE, stepping Message_Update itself for the Yes/No prompt so the freeze holds. Starting a
+// textbox while the session is still in MSGMODE_OCARINA_PLAYING corrupts the message context (it spilled into
+// interfaceCtx->view). The map is drawn from OnPlayDrawEnd into OVERLAY_DISP, under the HUD and any textbox, like MM's.
 #include <libultraship/bridge/consolevariablebridge.h>
 #include "soh/ShipInit.hpp"
 #include "soh/OTRGlobals.h"
@@ -65,6 +65,7 @@ COW_MM_ASSET(sCowNameStoneTower, "__OTR__map_name_static/gMapPointStoneTowerENGT
 
 constexpr int COW_OWL_COUNT = 10; // OwlWarpId 0..9, bit i of MM's owlActivationFlags
 constexpr int COW_OWL_CLOCK_TOWN = 4;
+constexpr u16 COW_DEBUG_STATE = 0x10; // pauseCtx->debugState value kaleido never handles: a pure world freeze
 constexpr int COW_MAP_W = 216;
 constexpr int COW_MAP_H = 128;
 
@@ -91,7 +92,8 @@ int sCursor = 0;      // OwlWarpId under the cursor
 u16 sPendingText = 0; // refusal textbox to show once the ocarina session has closed (0 = open the chooser)
 bool sWarpOnClose = false;
 bool sStickLatch = false;
-bool sHoldingLink = false; // PLAYER_STATE1_IN_CUTSCENE set by us
+bool sHoldingLink = false;     // PLAYER_STATE1_IN_CUTSCENE set by us
+bool sPromptCancelled = false; // B pressed while the Yes/No prompt was up: B closes it with the cursor still on Yes
 
 // Recognition ring, fed from OnOcarinaNote (mirrors AudioOcarina_CheckSongsWithoutMusicStaff's rules:
 // a note counts when the pitch changes and is not silence). The flag is consumed on the main thread.
@@ -168,6 +170,17 @@ int CowStepCursor(int from, int dir) {
     return from;
 }
 
+// Freeze the world like the pause menu does: with debugState set, Play_Update runs the inert
+// KaleidoScopeCall_Update instead of actors, camera and Message_Update (z_play.c), START is refused,
+// and Play_Draw keeps drawing the last frame. Nothing in kaleido reacts to this value.
+void CowFreeze(PlayState* play, bool freeze) {
+    if (freeze) {
+        play->pauseCtx.debugState = COW_DEBUG_STATE;
+    } else if (play->pauseCtx.debugState == COW_DEBUG_STATE) {
+        play->pauseCtx.debugState = 0;
+    }
+}
+
 void CowHoldLink(PlayState* play, bool hold) {
     Player* player = GET_PLAYER(play);
     if (hold) {
@@ -201,6 +214,7 @@ void CowOnSongPlayed(PlayState* play) {
 
 // Close the chooser, then warp if asked.
 void CowFinish(PlayState* play) {
+    CowFreeze(play, false);
     CowHoldLink(play, false);
     sState = COW_OFF;
     if (sWarpOnClose) {
@@ -250,6 +264,7 @@ void CowUpdate() {
             sDim = 0;
             sWarpOnClose = false;
             sStickLatch = true; // require the stick to return to centre before it moves the cursor
+            CowFreeze(play, true);
             sState = COW_FADE_IN;
             return;
         }
@@ -298,6 +313,7 @@ void CowUpdate() {
                                             TEXTBOX_TYPE_BLUE);
                 sConfirmMsg.Format(); // '&' -> newline, colours, and the MESSAGE_END terminator
                 Message_StartTextbox(play, TEXT_COMBO_SOARING_CONFIRM, NULL);
+                sPromptCancelled = false;
                 sState = COW_CONFIRM;
             } else if (CHECK_BTN_ANY(input->press.button, BTN_B | BTN_START)) {
                 Sfx_PlaySfxCentered(NA_SE_SY_DECIDE);
@@ -306,10 +322,18 @@ void CowUpdate() {
             return;
         }
         case COW_CONFIRM: {
+            // The world stays frozen through the prompt, so step the message system ourselves (Play_Update
+            // skips it while debugState is set; Message_Draw still runs from Play_DrawOverlayElements).
             if (msgCtx->msgMode != MSGMODE_NONE) {
-                return; // prompt still up (PauseWarp reads the choice the same way)
+                if (CHECK_BTN_ALL(input->press.button, BTN_B)) {
+                    sPromptCancelled = true; // B is "No" regardless of where the cursor sits
+                }
+                Message_Update(play);
             }
-            if (msgCtx->choiceIndex == 0) {
+            if (msgCtx->msgMode != MSGMODE_NONE) {
+                return; // prompt still up
+            }
+            if (msgCtx->choiceIndex == 0 && !sPromptCancelled) {
                 sWarpOnClose = true;
                 sState = COW_FADE_OUT;
             } else {
@@ -333,8 +357,11 @@ void CowUpdate() {
 // Anything that reloads the world drops the chooser (a scene change can happen if a cutscene fires on
 // the frame the song completes).
 void CowReset() {
-    if (sHoldingLink && gPlayState != nullptr) {
-        CowHoldLink(gPlayState, false);
+    if (gPlayState != nullptr) {
+        CowFreeze(gPlayState, false);
+        if (sHoldingLink) {
+            CowHoldLink(gPlayState, false);
+        }
     }
     sHoldingLink = false;
     sState = COW_OFF;

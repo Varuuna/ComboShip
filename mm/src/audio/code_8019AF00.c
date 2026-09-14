@@ -2175,7 +2175,7 @@ OcarinaSongButtons gOcarinaSongButtons[OCARINA_SONG_MAX] = {
             OCARINA_BTN_C_UP,
             OCARINA_BTN_C_RIGHT,
             OCARINA_BTN_C_LEFT,
-            OCARINA_BTN_C_RIGHT,
+            OCARINA_BTN_C_UP,
         },
     },
 #endif

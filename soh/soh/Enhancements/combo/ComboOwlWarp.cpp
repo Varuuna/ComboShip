@@ -296,6 +296,7 @@ void CowUpdate() {
                 sConfirmMsg = CustomMessage(std::string("\x08Soar to %g") + sCowOwlNames[sCursor] + "%w?&&" +
                                                 CustomMessage::TWO_WAY_CHOICE() + "%gYes&No%w\x09",
                                             TEXTBOX_TYPE_BLUE);
+                sConfirmMsg.Format(); // '&' -> newline, colours, and the MESSAGE_END terminator
                 Message_StartTextbox(play, TEXT_COMBO_SOARING_CONFIRM, NULL);
                 sState = COW_CONFIRM;
             } else if (CHECK_BTN_ANY(input->press.button, BTN_B | BTN_START)) {
@@ -434,6 +435,14 @@ static void RegisterComboOwlWarp() {
     // Registered whenever a rando save is loaded; the seed option and item ownership are checked per use.
     const bool on = IS_RANDO;
     CowReset();
+    // Format() converts '&' / colours and appends MESSAGE_END; LoadIntoFont copies the RAW text, so an
+    // unformatted message has no terminator and Message_Decode runs past the 200-byte decode buffer
+    // into interfaceCtx (the first two soaring tests crashed exactly there). Once only: it mutates.
+    static bool sNoMarkFormatted = false;
+    if (!sNoMarkFormatted) {
+        sNoMarkMsg.Format();
+        sNoMarkFormatted = true;
+    }
     COND_HOOK(OnOcarinaNote, on, CowOnOcarinaNote);
     COND_HOOK(OnGameFrameUpdate, on, CowUpdate);
     COND_HOOK(OnPlayDrawEnd, on, CowDraw);

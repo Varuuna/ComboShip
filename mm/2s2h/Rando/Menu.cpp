@@ -419,6 +419,7 @@ static RegisterShipInitFunc refreshMetricsInit(RefreshMetrics, {
                                                                    "gRando.Options.RO_SHUFFLE_SONG_INVERTED_TIME",
                                                                    "gRando.Options.RO_SHUFFLE_SONG_SARIA",
                                                                    "gRando.Options.RO_SHUFFLE_SONG_SUN",
+                                                                   "gRando.Options.RO_SHUFFLE_SONG_WARP_SONGS",
                                                                    "gRando.Options.RO_SHUFFLE_SWIM",
                                                                    "gRando.Options.RO_SHUFFLE_TINGLE_SHOPS",
                                                                    "gRando.Options.RO_SHUFFLE_TRAPS",
@@ -995,6 +996,13 @@ static void DrawItemPoolTab() {
                      "Adds the Song of Double Time to the item pool.", 1);
     ItemPoolCheckbox("Inverted Song of Time", RO_SHUFFLE_SONG_INVERTED_TIME,
                      "Adds the Inverted Song of Time to the item pool.", 1);
+#ifdef COMBO_BUILD
+    ItemPoolCheckbox("OoT Warp Songs", RO_SHUFFLE_SONG_WARP_SONGS,
+                     "Adds Ocarina of Time's six warp songs (Minuet of Forest through Prelude of Light) to the item "
+                     "pool. Playing one in Termina asks to soar to that warp pad in Hyrule and switches games. "
+                     "Refused wherever the Song of Soaring is.",
+                     6);
+#endif
     ItemPoolCheckbox("Saria's Song", RO_SHUFFLE_SONG_SARIA,
                      "Adds Saria's Song to the item pool, playing it will give you a hint to a reachable "
                      "item, preferring items from your Priority Items list (configurable via the button to "

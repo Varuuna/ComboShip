@@ -4354,7 +4354,7 @@ void Message_DrawSceneTitleCard(PlayState* play, Gfx** gfxP) {
     *gfxP = gfx++;
 }
 
-s16 sOcarinaSongFanfares[] = {
+s16 sOcarinaSongFanfares[OCARINA_SONG_MAX] = {
     NA_BGM_OCARINA_SONATA,            // OCARINA_SONG_SONATA
     NA_BGM_OCARINA_LULLABY,           // OCARINA_SONG_GORON_LULLABY
     NA_BGM_OCARINA_NEW_WAVE,          // OCARINA_SONG_NEW_WAVE
@@ -4372,6 +4372,24 @@ s16 sOcarinaSongFanfares[] = {
     NA_BGM_OCARINA_LULLABY_INTRO_PTR, // OCARINA_SONG_GORON_LULLABY_INTRO
     NA_BGM_OCARINA_LULLABY_INTRO_PTR, // OCARINA_SONG_WIND_FISH_HUMAN
     NA_BGM_OCARINA_LULLABY_INTRO_PTR, // OCARINA_SONG_WIND_FISH_GORON
+#ifdef COMBO_BUILD
+    // ComboShip: the table is indexed by msgCtx->songPlayed (below), which vanilla only reaches with ids
+    // <= OCARINA_SONG_SCARECROW_SPAWN; the entries up to there were an out-of-bounds read. Then the OOT
+    // warp songs (teleport songs), which share the soaring jingle: OOT's own are not in MM's bank.
+    NA_BGM_OCARINA_LULLABY_INTRO_PTR, // OCARINA_SONG_WIND_FISH_ZORA
+    NA_BGM_OCARINA_LULLABY_INTRO_PTR, // OCARINA_SONG_WIND_FISH_DEKU
+    NA_BGM_OCARINA_LULLABY_INTRO_PTR, // OCARINA_SONG_EVAN_PART1
+    NA_BGM_OCARINA_LULLABY_INTRO_PTR, // OCARINA_SONG_EVAN_PART2
+    NA_BGM_OCARINA_LULLABY_INTRO_PTR, // OCARINA_SONG_ZELDAS_LULLABY
+    NA_BGM_OCARINA_LULLABY_INTRO_PTR, // OCARINA_SONG_SCARECROW_SPAWN
+    NA_BGM_OCARINA_LULLABY_INTRO_PTR, // OCARINA_SONG_TERMINA_WALL
+    NA_BGM_OCARINA_SOARING,           // OCARINA_SONG_MINUET
+    NA_BGM_OCARINA_SOARING,           // OCARINA_SONG_BOLERO
+    NA_BGM_OCARINA_SOARING,           // OCARINA_SONG_SERENADE
+    NA_BGM_OCARINA_SOARING,           // OCARINA_SONG_REQUIEM
+    NA_BGM_OCARINA_SOARING,           // OCARINA_SONG_NOCTURNE
+    NA_BGM_OCARINA_SOARING,           // OCARINA_SONG_PRELUDE
+#endif
 };
 
 s8 sOcarinaSongFanfareIoData[PLAYER_FORM_MAX] = {
@@ -4637,12 +4655,15 @@ void Message_DrawMain(PlayState* play, Gfx** gfxP) {
                 // 0xFF means no staff is up
                 //! @bug states 0xFE and 0xFF will index CHECK_QUEST_ITEM Out of bounds, causing ASAN to crash.
                 // 2S2H [Port] Fix this OOB with a check.
-                if (msgCtx->ocarinaStaff->state != 0xFE && msgCtx->ocarinaStaff->state != 0xFF) {
+                if (msgCtx->ocarinaStaff->state != 0xFE && msgCtx->ocarinaStaff->state != 0xFF &&
+                    !OCARINA_SONG_IS_OOT_WARP(msgCtx->ocarinaStaff->state)) {
                     vanillaOwnedSongCheck =
                         vanillaOwnedSongCheck || CHECK_QUEST_ITEM(QUEST_SONG_SONATA + msgCtx->ocarinaStaff->state);
                 }
 
-                if (msgCtx->ocarinaStaff->state <= OCARINA_SONG_SCARECROW_SPAWN) {
+                // ComboShip (teleport songs): OOT's warp songs are owned through VB_SONG_AVAILABLE_TO_PLAY only.
+                if (msgCtx->ocarinaStaff->state <= OCARINA_SONG_SCARECROW_SPAWN ||
+                    OCARINA_SONG_IS_OOT_WARP(msgCtx->ocarinaStaff->state)) {
                     if (msgCtx->ocarinaStaff->state == OCARINA_SONG_EVAN_PART1) {
                         AudioOcarina_ResetAndReadInput();
                         AudioOcarina_StartDefault(0x80100000);
@@ -4848,6 +4869,10 @@ void Message_DrawMain(PlayState* play, Gfx** gfxP) {
             case MSGMODE_DISPLAY_SONG_PLAYED_TEXT_BEGIN:
                 if (msgCtx->songPlayed == OCARINA_SONG_SCARECROW_SPAWN) {
                     Message_ContinueTextbox(play, 0x1B6B);
+                } else if (OCARINA_SONG_IS_OOT_WARP(msgCtx->songPlayed)) {
+                    // ComboShip (teleport songs): 0x1B72 + id would be a Song of Time prompt; WarpSongs.cpp
+                    // supplies the "You played the ..." body for 0x1B95 in this message mode.
+                    Message_ContinueTextbox(play, 0x1B95);
                 } else {
                     Message_ContinueTextbox(play, 0x1B72 + msgCtx->songPlayed);
                 }

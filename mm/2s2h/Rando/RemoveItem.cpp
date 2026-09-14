@@ -347,6 +347,14 @@ void Rando::RemoveItem(RandoItemId randoItemId) {
         case RI_SONG_INVERTED_TIME:
             Flags_ClearRandoInf(RANDO_INF_OBTAINED_SONG_INVERTED_TIME);
             break;
+        case RI_SONG_MINUET:
+        case RI_SONG_BOLERO:
+        case RI_SONG_SERENADE:
+        case RI_SONG_REQUIEM:
+        case RI_SONG_NOCTURNE:
+        case RI_SONG_PRELUDE:
+            Flags_ClearRandoInf((RandoInf)(RANDO_INF_OBTAINED_SONG_MINUET + (randoItemId - RI_SONG_MINUET)));
+            break;
         case RI_SONG_LULLABY_INTRO:
             REMOVE_QUEST_ITEM(QUEST_SONG_LULLABY_INTRO);
             break;

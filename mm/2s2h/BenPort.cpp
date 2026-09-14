@@ -3764,6 +3764,15 @@ static void GiveItemForOracle(RandoItemId ri) {
         case RI_SONG_INVERTED_TIME:
             Flags_SetRandoInf(RANDO_INF_OBTAINED_SONG_INVERTED_TIME);
             break;
+        // ComboShip (teleport songs): OOT warp songs, RandoInf-backed like the two above.
+        case RI_SONG_MINUET:
+        case RI_SONG_BOLERO:
+        case RI_SONG_SERENADE:
+        case RI_SONG_REQUIEM:
+        case RI_SONG_NOCTURNE:
+        case RI_SONG_PRELUDE:
+            Flags_SetRandoInf((RandoInf)(RANDO_INF_OBTAINED_SONG_MINUET + (ri - RI_SONG_MINUET)));
+            break;
 
         // ComboShip: Goron Lullaby Intro. Its itemId (0x73) is outside the contiguous
         // ITEM_SONG_SONATA..SUN block the default case maps to quest items, so it needs its own flag.

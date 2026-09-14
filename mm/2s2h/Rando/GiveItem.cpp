@@ -392,6 +392,15 @@ void Rando::GiveItem(RandoItemId randoItemId) {
         case RI_SONG_INVERTED_TIME:
             Flags_SetRandoInf(RANDO_INF_OBTAINED_SONG_INVERTED_TIME);
             break;
+        case RI_SONG_MINUET:
+        case RI_SONG_BOLERO:
+        case RI_SONG_SERENADE:
+        case RI_SONG_REQUIEM:
+        case RI_SONG_NOCTURNE:
+        case RI_SONG_PRELUDE:
+            // ComboShip (teleport songs): OOT warp songs are RandoInf-backed, same order as the RI block.
+            Flags_SetRandoInf((RandoInf)(RANDO_INF_OBTAINED_SONG_MINUET + (randoItemId - RI_SONG_MINUET)));
+            break;
         case RI_SONG_SARIA:
             gSaveContext.save.shipSaveInfo.rando.sariaHintsAvailable++;
             Item_Give(gPlayState, Rando::StaticData::Items[randoItemId].itemId);

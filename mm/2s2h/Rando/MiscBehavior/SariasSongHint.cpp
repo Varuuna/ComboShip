@@ -12,7 +12,7 @@ extern "C" {
 #include <variables.h>
 #include <z64ocarina.h>
 s32 Message_ShouldAdvanceSilent(PlayState* play);
-extern s16 sOcarinaSongFanfares[17];
+extern s16 sOcarinaSongFanfares[OCARINA_SONG_MAX];
 extern s16 sLastPlayedSong;
 }
 

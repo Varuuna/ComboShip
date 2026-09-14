@@ -538,6 +538,9 @@ void OOT_DeliverForeign(RandomizerCheck rc) {
         Anchor_BroadcastCrossItem((int)fi->itemGame, fi->itemName.c_str(), checkName.c_str());
         SPDLOG_INFO("[ComboShip] OOT sprang foreign trap '{}' locally (from check '{}')", fi->itemName, checkName);
     } else if (fi) {
+        // ComboShip: freeze the held-up model BEFORE the cross-grant moves MM's save. After the fi
+        // lookup on purpose: it can build the foreign map and bump the generation the cache keys on.
+        Randomizer_LatchComboForeign(rc);
         // Grant straight into the dormant target game's resident save (and persist it there), then
         // share with networked teammates. Replaces the old JSON mailbox + per-frame drain.
         if (gComboCrossDeliver)

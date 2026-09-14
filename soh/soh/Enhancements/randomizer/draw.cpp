@@ -516,6 +516,10 @@ extern "C" void Randomizer_DrawRocsFeather(PlayState* play, GetItemEntry* getIte
 extern "C" void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getItemEntry) {
     OOT_DrawComboForeign(play, getItemEntry);
 }
+
+extern "C" void Randomizer_LatchComboForeign(int32_t rc) {
+    ComboLatchForeignDraw((RandomizerCheck)rc);
+}
 #endif
 
 Gfx* GetEmptyDlist(GraphicsContext* gfxCtx) {

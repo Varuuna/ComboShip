@@ -1770,6 +1770,67 @@ native's `NamesChosen` draws from). Progressive items (hookshot, magic) hint the
 placement order, as native hinted the first copy in `allLocations` order — either copy is a valid
 target for both.
 
+## Foreign progressive models froze one tier too late (2026-09-04)
+
+`24d328af3` (#88) made a foreign progressive item draw the tier it actually grants instead of its
+static tier-1 model, by resolving through `Rando::ConvertItem` / `Item::GetGIEntry` and marking the
+recipe `stateDependent` — which makes both draw caches re-resolve it **every frame**.
+
+That is right while the item is only being *previewed* (lying in the world, on a shop shelf), but the
+cross-grant fires **mid-presentation**: `OOT_DeliverForeign` runs from `Randomizer_Item_Give` while
+the item is still held up, and MM's foreign branch cross-delivers from inside the `giveItem` lambda.
+The grant moves the other game's dormant save, so the next frame resolves one tier higher — picking
+up MM's Progressive Bow in OOT drew a Bow for one frame, then a Large Quiver. Every progressive, both
+directions, plus the MM foreign shop shelf (which keeps drawing until `boughtFunc` blanks it).
+
+MM's own **native** items never had this: `CheckQueue` converts once before the give and latches the
+concrete id into `CUSTOM_ITEM_PARAM`. The foreign path had no equivalent because its recipe is keyed
+by *check*, not by a stored resolved item.
+
+**Fix — a grant-time latch.** Both foreign caches gained a second entry point
+(`ComboLatchForeignDraw` / `ComboLatchForeignDrawOOT`) that resolves the recipe once, immediately
+before the grant, and stores it with `stateDependent = false`. The three function-local statics moved
+into a `ComboForeignDrawCache{,OOT}` struct + accessor so the resolver and the latch share one
+slot/generation sweep. The OOT latch re-adopts the generation after a successful fill, because
+`OOT_LookupForeign` can bump it from inside that fill (`OOT_GetForeignCategory` does the same);
+MM needs no equivalent — `ComboRandoGen()` is only ever bumped by `MM_LoadComboRando`. Vendored seams are thin wrappers: `Randomizer_LatchComboForeign` (draw.cpp,
+`int32_t` because `RandomizerCheck` isn't in `draw.h`'s scope) and `Rando::LatchComboForeign`
+(DrawItem.cpp). Call sites: `OOT_DeliverForeign`, `CheckQueue`'s foreign branch, `EnGirlA_RandoBuyFunc`.
+
+**Why clearing the flag beats a separate `latched` field:** the resolver returns at the cache-hit gate
+*before* reaching the fill, so a mid-presentation `NotReady` can no longer `erase` the latch and an
+`Unknown` can no longer overwrite it with `ok=false`. Both hazards become structurally unreachable.
+
+**Placement traps.**
+- OOT: the latch goes *after* the `fi` lookup, not at the top of `OOT_DeliverForeign` —
+  `OOT_LookupForeign` can lazily build the map and bump `OOT_ForeignMapGen()`, which would sweep the
+  latch straight back out. (`OOT_GetForeignCategory` documents the same hazard.)
+- MM: gated on `!wasObtained`, so a Song-of-Time re-presentation — which grants nothing — keeps
+  showing the tier the check actually gave instead of live-resolving one it will never grant. That
+  guarantee is session-scoped: any cache sweep (below) drops it and the re-presentation goes live again.
+- Neither trap branch latches: a foreign trap fires on the finder and touches only that game's save.
+- `info.animOk` recipes are skipped. No item in either anim class is progressive, so the skip is a
+  no-op on the OOT host (MM's stray fairies / souls / minifrogs never set `stateDependent` at all),
+  and on the MM host it preserves the one real anim state-dependence: the `SimplerBossSoulModels` CVar,
+  which a grant never moves and which must keep tracking a mid-session toggle.
+
+**Failure-path invariant:** any non-`Ok` resolution at latch time writes nothing and erases nothing.
+The entry keeps `stateDependent == true`, the draw resumes live per-frame re-resolution, and the worst
+case is exactly the pre-fix behaviour. The latch never sentinels a check and never negative-caches —
+the resolver's `erase`/`ok=false` are correct *for a draw* (something must be on screen this frame),
+but the latch isn't drawing, so it has no licence to poison a check for the rest of the slot.
+
+**Latch lifetime:** cleared by save-slot change, foreign-map generation change, save reload/seed
+rebake (both go through the first two), and re-latching on a later grant. Deliberately *not* cleared
+when the presentation ends — a frame-gap heuristic would reintroduce the bug on any frame the held-up
+item isn't submitted (fade, pause, textbox-only phase).
+
+**Residual:** the *name* alongside is static (`fi->displayName` both directions) and never re-resolved,
+so an OOT player now sees the correct Bow model under "You found Progressive Bow!". Resolving the text
+to the granted tier needs a new cross-game name ABI, and every other `displayName` consumer (check
+tracker, hints, merchant text, MM shop descriptions) must keep the generic name or it leaks
+progression. Separate follow-up.
+
 ## Shared cross-game items — Phase 1 POC: shared Lens of Truth (2026-09-09)
 
 **Why:** OoTMM's "shared items" let an item both games already have act as ONE logical item: find it in

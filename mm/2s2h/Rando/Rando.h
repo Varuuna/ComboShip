@@ -14,6 +14,11 @@ namespace Rando {
 
 void Init();
 void DrawItem(RandoItemId randoItemId, RandoCheckId randoCheckId = RC_UNKNOWN, Actor* actor = nullptr);
+#ifdef COMBO_BUILD
+// ComboShip: freeze a foreign check's model at the tier it grants, before the cross-grant that
+// follows mutates OOT's dormant save and a live re-resolve flips the held-up model next frame.
+void LatchComboForeign(RandoCheckId randoCheckId);
+#endif
 void GiveItem(RandoItemId randoItemId);
 // ComboShip: a small key lives in TWO counters — inventory.dungeonKeys and the rando mirror that
 // logic's KEY_COUNT reads — and both are -1 when fresh. Normalize each sentinel independently before

@@ -166,34 +166,71 @@ inline ComboForeignResolve ComboFillForeignDrawInfo(RandomizerCheck rc, int slot
 #endif
 }
 
+// Recipe cache, swept per save slot and per foreign-map generation. Shared by the resolver and the
+// grant-time latch below so both observe the same sweep.
+struct ComboForeignDrawCache {
+    std::unordered_map<int32_t, ComboForeignDrawInfo> map;
+    int slot = -1;
+    uint64_t gen = (uint64_t)-1;
+};
+
+inline ComboForeignDrawCache& ComboForeignDrawCacheGet() {
+    static ComboForeignDrawCache c;
+    int slot = gSaveContext.fileNum;
+    uint64_t gen = OOT_ForeignMapGen();
+    if (slot != c.slot || gen != c.gen) {
+        c.map.clear();
+        c.slot = slot;
+        c.gen = gen;
+    }
+    return c;
+}
+
 // Full lookup chain (foreign map -> MM export -> routed strings), cached per check per slot per
 // foreign-map generation so it runs once per check instead of every frame.
 inline const ComboForeignDrawInfo* ComboResolveForeignDrawInfo(RandomizerCheck rc) {
-    static std::unordered_map<int32_t, ComboForeignDrawInfo> sCache;
-    static int sCacheSlot = -1;
-    static uint64_t sCacheGen = (uint64_t)-1;
-    int slot = gSaveContext.fileNum;
-    uint64_t gen = OOT_ForeignMapGen();
-    if (slot != sCacheSlot || gen != sCacheGen) {
-        sCache.clear();
-        sCacheSlot = slot;
-        sCacheGen = gen;
-    }
-    auto cached = sCache.find(rc);
-    if (cached != sCache.end() && !cached->second.stateDependent) {
+    ComboForeignDrawCache& c = ComboForeignDrawCacheGet();
+    auto cached = c.map.find(rc);
+    if (cached != c.map.end() && !cached->second.stateDependent) {
         return cached->second.ok ? &cached->second : nullptr;
     }
     // A state-dependent recipe (progressive tier, Triforce shard, junk/trap) is re-resolved every
     // frame; caching it would freeze whichever model happened to be correct on the first draw.
     ComboForeignDrawInfo info{}; // built locally: a failure must not clobber a live cached recipe
-    if (ComboFillForeignDrawInfo(rc, slot, info) == ComboForeignResolve::NotReady) {
-        sCache.erase(rc); // transient — retry next frame instead of freezing the sentinel in
+    if (ComboFillForeignDrawInfo(rc, c.slot, info) == ComboForeignResolve::NotReady) {
+        c.map.erase(rc); // transient — retry next frame instead of freezing the sentinel in
         return nullptr;
     }
-    ComboForeignDrawInfo& entry = sCache[rc]; // Unknown caches ok=false: one lookup, then sentinel
+    ComboForeignDrawInfo& entry = c.map[rc]; // Unknown caches ok=false: one lookup, then sentinel
     entry = info;
     return entry.ok ? &entry : nullptr;
 }
+
+// ComboShip: freeze this check's recipe at the tier it is ABOUT to grant. The cross-grant mutates
+// MM's dormant save mid-presentation, so a live re-resolve would flip the held-up model next frame.
+inline void ComboLatchForeignDraw(RandomizerCheck rc) {
+    if (rc == RC_UNKNOWN_CHECK) {
+        return;
+    }
+    ComboForeignDrawCache& c = ComboForeignDrawCacheGet();
+    ComboForeignDrawInfo info{};
+    if (ComboFillForeignDrawInfo(rc, c.slot, info) != ComboForeignResolve::Ok) {
+        return; // nothing written, nothing erased: the draw stays live, i.e. no worse than before
+    }
+    if (info.animOk) {
+        return; // MM's anim class (stray fairies, souls, minifrogs) is never state-dependent
+    }
+    // The fill's lookup may have built the foreign map, bumping the generation the cache keys on;
+    // adopt it (dropping entries resolved against the old map) so this latch survives.
+    uint64_t gen = OOT_ForeignMapGen();
+    if (gen != c.gen) {
+        c.map.clear();
+        c.gen = gen;
+    }
+    info.stateDependent = false; // frozen: the resolver's cache-hit path now serves it verbatim
+    c.map[rc] = info;
+}
+
 } // namespace
 
 // ---- Non-portable MM draw funcs. Each handler is a 1:1 port of the MM get-item func

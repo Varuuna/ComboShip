@@ -3210,6 +3210,16 @@ extern "C" int (*gComboOtherTriforceCount)(void) = nullptr;
 extern "C" __declspec(dllexport) void SOH_SetOtherTriforceCountCb(int (*cb)(void)) {
     gComboOtherTriforceCount = cb;
 }
+// ComboShip (teleport songs): launcher-provided views into MM's dormant save for OOT's Song of Soaring:
+// the owl-statue activation bits (-1 = unavailable) and OwlWarpId -> MM arrival entrance (-1 = bad id).
+extern "C" int (*gComboOwlFlagsProvider)(void) = nullptr;
+extern "C" int (*gComboOwlWarpEntranceProvider)(int owlId) = nullptr;
+extern "C" __declspec(dllexport) void SOH_SetOwlFlagsProvider(int (*cb)(void)) {
+    gComboOwlFlagsProvider = cb;
+}
+extern "C" __declspec(dllexport) void SOH_SetOwlWarpEntranceProvider(int (*cb)(int)) {
+    gComboOwlWarpEntranceProvider = cb;
+}
 // Poked after every piece grant (active or dormant); the launcher evaluates the combined total.
 extern "C" void (*gComboTriforceProgress)(int game, int fileNum) = nullptr;
 extern "C" __declspec(dllexport) void SOH_SetTriforceProgressCb(void (*cb)(int, int)) {

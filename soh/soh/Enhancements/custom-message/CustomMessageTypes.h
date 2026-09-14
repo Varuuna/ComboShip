@@ -243,6 +243,9 @@ typedef enum {
     TEXT_SAVE_MSG = 0x9213,
     TEXT_CONTINUE_OVERWORLD_MSG = 0x9214,
     TEXT_CONTINUE_DUNGEON_MSG = 0x9215,
+    // ComboShip (teleport songs): Song of Soaring in OOT
+    TEXT_COMBO_SOARING_NO_MARK = 0x9216,
+    TEXT_COMBO_SOARING_CONFIRM = 0x9217,
 } TextIDs;
 
 #ifdef __cplusplus

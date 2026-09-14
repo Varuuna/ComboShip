@@ -168,6 +168,8 @@ bool Logic::HasItem(RandomizerGet itemName) {
         case RG_SPEAK_HYLIAN:
         case RG_SPEAK_KOKIRI:
         case RG_SPEAK_ZORA:
+            // ComboShip (teleport songs)
+        case RG_SONG_OF_SOARING:
             // Ocarina Buttons
         case RG_OCARINA_A_BUTTON:
         case RG_OCARINA_C_LEFT_BUTTON:
@@ -1865,6 +1867,7 @@ std::map<RandomizerGet, uint32_t> StaticData::RandoGetToRandInf = {
     { RG_OCARINA_C_DOWN_BUTTON, RAND_INF_HAS_OCARINA_C_DOWN },
     { RG_OCARINA_C_LEFT_BUTTON, RAND_INF_HAS_OCARINA_C_LEFT },
     { RG_OCARINA_C_RIGHT_BUTTON, RAND_INF_HAS_OCARINA_C_RIGHT },
+    { RG_SONG_OF_SOARING, RAND_INF_HAS_SONG_OF_SOARING }, // ComboShip (teleport songs)
     { RG_KEATON_MASK, RAND_INF_CHILD_TRADES_HAS_MASK_KEATON },
     { RG_SKULL_MASK, RAND_INF_CHILD_TRADES_HAS_MASK_SKULL },
     { RG_SPOOKY_MASK, RAND_INF_CHILD_TRADES_HAS_MASK_SPOOKY },
@@ -2327,6 +2330,7 @@ void Logic::ApplyItemEffect(Item& item, bool state) {
                 case RG_OCARINA_C_DOWN_BUTTON:
                 case RG_OCARINA_C_LEFT_BUTTON:
                 case RG_OCARINA_C_RIGHT_BUTTON:
+                case RG_SONG_OF_SOARING: // ComboShip (teleport songs)
                 case RG_KEATON_MASK:
                 case RG_SKULL_MASK:
                 case RG_SPOOKY_MASK:

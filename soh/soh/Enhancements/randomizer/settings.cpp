@@ -217,6 +217,8 @@ void Settings::CreateOptions() {
     });
     // ComboShip: (#133)
     OPT_BOOL(RSK_EXCLUDE_MASK_SHOP_KEY, "Exclude Mask Shop Key", {"Off", "On"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("ExcludeMaskShopKey"), mOptionDescriptions[RSK_EXCLUDE_MASK_SHOP_KEY], WIDGET_CVAR_CHECKBOX, RO_GENERIC_OFF, true);
+    // ComboShip (teleport songs)
+    OPT_BOOL(RSK_SONG_OF_SOARING_OOT, "Song of Soaring (soar to Termina)", {"Off", "On"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("ComboSongOfSoaring"), mOptionDescriptions[RSK_SONG_OF_SOARING_OOT], WIDGET_CVAR_CHECKBOX, RO_GENERIC_OFF, false);
     OPT_U8(RSK_GERUDO_FORTRESS, "Fortress Carpenters", {"Normal", "Fast", "Free"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("FortressCarpenters"), mOptionDescriptions[RSK_GERUDO_FORTRESS]);
     OPT_CALLBACK(RSK_GERUDO_FORTRESS, {
         const uint8_t maxKeyringCount =
@@ -2000,6 +2002,7 @@ void Settings::CreateOptions() {
                                   &mOptions[RSK_LOCK_OVERWORLD_DOORS],
                                   // ComboShip: (#133)
                                   &mOptions[RSK_EXCLUDE_MASK_SHOP_KEY],
+                                  &mOptions[RSK_SONG_OF_SOARING_OOT],
                                   &mOptions[RSK_GERUDO_FORTRESS],
                                   &mOptions[RSK_RAINBOW_BRIDGE],
                                   &mOptions[RSK_BRIDGE_OPTIONS],
@@ -2255,6 +2258,7 @@ void Settings::CreateOptions() {
                                                                &mOptions[RSK_LOCK_OVERWORLD_DOORS],
                                                                // ComboShip: (#133)
                                                                &mOptions[RSK_EXCLUDE_MASK_SHOP_KEY],
+                                                               &mOptions[RSK_SONG_OF_SOARING_OOT],
                                                                &mOptions[RSK_GERUDO_FORTRESS],
                                                                &mOptions[RSK_RAINBOW_BRIDGE],
                                                                &mOptions[RSK_RAINBOW_BRIDGE_STONE_COUNT],
@@ -3287,6 +3291,7 @@ void Settings::RandomizeAllSettings() {
             // ComboShip: (#133/#134) opt-outs, never randomized
             case RSK_EXCLUDE_MASK_SHOP_KEY:
             case RSK_EXCLUDE_MASK_SHOP_ENTRANCE:
+            case RSK_SONG_OF_SOARING_OOT: // teleport songs: a cross-game feature toggle, never randomized
                 continue;
             default:
                 break;

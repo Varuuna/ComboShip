@@ -408,6 +408,13 @@ void GenerateItemPool() {
         AddItemToPool(RG_OCARINA_C_RIGHT_BUTTON, 2, 1, 1, 1);
     }
 
+#ifdef COMBO_BUILD
+    // ComboShip (teleport songs): one Song of Soaring; out of logic, so a plain major item.
+    if (ctx->GetOption(RSK_SONG_OF_SOARING_OOT)) {
+        AddItemToPool(RG_SONG_OF_SOARING, 1, 1, 1, 1);
+    }
+#endif
+
     if (ctx->GetOption(RSK_SKELETON_KEY)) {
         AddFixedItemToPool(RG_SKELETON_KEY, 1);
     }

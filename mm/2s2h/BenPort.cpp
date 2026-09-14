@@ -4152,6 +4152,20 @@ extern "C" __declspec(dllexport) void MM_SetComboGoal(int hunt, int required, in
 extern "C" __declspec(dllexport) int MM_GetTriforcePieceCount(void) {
     return gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces;
 }
+
+// ComboShip (teleport songs): probes for OOT's Song of Soaring. Read from MM's resident gSaveContext, which the
+// launcher loads with the active slot at OOT load time (dormant-safe, same reliance as the triforce probe).
+// Bit i of the flags = OwlWarpId i activated (LSB = Great Bay Coast).
+extern "C" __declspec(dllexport) int MM_GetOwlActivationFlags(void) {
+    return gSaveContext.save.saveInfo.playerData.owlActivationFlags;
+}
+// The MM entrance an owl statue's soaring arrival uses (mirror of sOwlWarpEntrances); -1 for a bad id.
+extern "C" __declspec(dllexport) int MM_GetOwlWarpEntrance(int owlId) {
+    if (owlId < 0 || owlId >= OWL_WARP_MAX - 1) {
+        return -1;
+    }
+    return sOwlWarpEntrancesForMods[owlId];
+}
 // The OTHER game's piece count, so pickup messages can show the combined progress.
 extern "C" int (*gMMComboOtherTriforceCount)(void) = nullptr;
 extern "C" __declspec(dllexport) void MM_SetOtherTriforceCountCb(int (*cb)(void)) {

@@ -1830,3 +1830,72 @@ so an OOT player now sees the correct Bow model under "You found Progressive Bow
 to the granted tier needs a new cross-game name ABI, and every other `displayName` consumer (check
 tracker, hints, merchant text, MM shop descriptions) must keep the generic name or it leaks
 progression. Separate follow-up.
+
+## Cross-game teleport songs: Song of Soaring in OOT, OOT warp songs in MM (2026-09-14)
+
+**Why:** OoTMM's `songSoaringOot` / `songMinuetMm`..`songPreludeMm`. Playing MM's Song of Soaring in
+Hyrule opens Termina's owl-statue map and switches games to the chosen statue; playing an OOT warp song
+in Termina asks "Soar to X?" and switches games to that warp pad. Both are opt-in seed settings
+(OOT: `RSK_SONG_OF_SOARING_OOT`, "Song of Soaring (soar to Termina)"; MM: `RO_SHUFFLE_SONG_WARP_SONGS`,
+"OoT Warp Songs" in the Extra Songs card), out of logic on purpose: neither oracle can express
+cross-game access, and a route logic does not know only makes a seed more open, never less beatable.
+Standalone on develop; the shared-items table (Epona's/Storms/Time) is separate work. Not shared items:
+OOT's Song of Soaring and MM's are two items (the combined fill suffixes the name collision).
+
+**Entrance-targeted handoff (launcher + both DLLs).** The portal always landed in South Clock Town /
+outside the Mask Shop. Now the leaving game can stage an arrival entrance: `Combo_RequestCrossSwitch(
+entrance)` (OTRGlobals.cpp / BenPort.cpp) stashes it and raises the same pending flag the portal uses,
+so persistence and the launcher loop are unchanged; the launcher drains it (`SOH_/MM_GetPendingCrossTarget`,
+consume-on-read) and pushes it as a one-shot override (`SOH_/MM_SetTargetEntrance` ->
+`gComboTargetEntrance`) right before the other game's boot/resume, where `TitleSetup_InitImpl` /
+`Setup_InitImpl` honour it (OOT through `Entrance_OverrideNextIndex`, so entrance rando applies like it
+does to OOT's own warp songs; MM after the owl-save/resume branch so those side effects still run).
+`gComboCrossArrival` marks the arrival until the first OnSceneInit. Only a portal-kind (0) return applies
+the target; a reset / owl-save quit drops it. Export shape mirrors `feat/cross-entrances`. Debug:
+console `combo_warp_mm <hex>` (OOT) / `combo_warp_oot <hex>` (MM).
+
+**OOT warp songs in MM (vendored, `COMBO_BUILD`-guarded, preserve on merges).**
+- `mm/include/z64ocarina.h`: `OCARINA_SONG_MINUET..PRELUDE` = 24..29 before `OCARINA_SONG_MAX` (30) +
+  `OCARINA_SONG_IS_OOT_WARP()`. They sit past the 24-bit availability mask (`AudioOcarina_Start`
+  `& 0xFFFFFF`) and are only ever enabled through `VB_SONG_AVAILABLE_TO_PLAY`.
+- `mm/src/audio/code_8019AF00.c`: six rows each in `sOcarinaSongNotes` (copies of the OOT leftovers
+  `sOoTOcarinaSongNotes[0..5]` already in the file), `gOcarinaSongButtons` (soh's table) and
+  `sIsOcarinaSongReserved`.
+- `mm/src/code/z_message.c`: the song-played gate accepts the new ids and skips the quest-bit shift
+  (`QUEST_SONG_SONATA + 24..29` is out of range); `sOcarinaSongFanfares` is sized `[OCARINA_SONG_MAX]`
+  (it is indexed by `songPlayed` and was already read past its 17 entries); the "You played" name box
+  routes the new ids to 0x1B95 instead of `0x1B72 + id`, which lands on the Song of Time prompts that
+  ClockShuffle hooks unguarded.
+- Items are `RANDO_INF_OBTAINED_SONG_*` (Double Time pattern, `itemId = ITEM_NONE`): MM has two free
+  `questItems` bits and fixed kaleido layout tables, so no pause quest-page icon (tracker + pickup
+  only). `RI_SONG_MINUET..PRELUDE` sit inside the `RI_SONG_DOUBLE_TIME..RI_SONG_TIME` range the menu
+  and item tracker use for song icon sizing (this shifts later RI ids, like every 2Ship item insert).
+- `mm/2s2h/Rando/MiscBehavior/WarpSongs.cpp` (combo-owned): availability hook, "You played the X." and
+  "Soar to X?" both on text id 0x1B95 with a local state machine (SariasSongHint pattern, coexists
+  with its 0x1B95 hooks), refusal wherever MM refuses its own Song of Soaring (`restrictions.songOfSoaring`,
+  `Map_CurRoomHasMapI`, Secret Shrine), Yes -> `Combo_RequestCrossSwitch(ENTR_*_WARP_PAD)`.
+
+**Song of Soaring in OOT.** `RG_SONG_OF_SOARING` + `RAND_INF_HAS_SONG_OF_SOARING` (ocarina-button
+pattern: the grant is the `RandoGetToRandInf` row; one pool copy; `ITEMTYPE_ITEM` with a custom song-note
+draw in MM's soaring tint; tracker entry in the songs group; RG appended after `RG_COMBO_FOREIGN`).
+`soh/soh/Enhancements/combo/ComboOwlWarp.cpp` (combo-owned):
+- Recognition never touches OOT's ocarina tables (the u16 availability word has no free bit; every
+  per-song table is 12 wide): `OnOcarinaNote` feeds a ring, the tail is compared with F4 B4 D5 F4 B4
+  D5 (no vanilla song is a suffix of it), and the match is consumed on the main thread in
+  `OnGameFrameUpdate` (free play only). Refusals in vanilla order: `disableWarpSongs` -> 0x88C, no
+  activated statue (or MM save not resident: provider returns -1) -> "yet to leave your mark".
+- The chooser is not a kaleido page: `pauseCtx->debugState = 0x10` freezes the world (Play_Update runs
+  the inert KaleidoScopeCall_Update, START is refused), `MSGMODE_PAUSED` parks the ocarina session, and
+  `OnPlayDrawEnd` draws into OVERLAY_DISP (under HUD and textbox) inside `gSPComboRMPush("mm")`: MM's
+  CI8 Termina map + TLUT as 16 texture-rect strips (z_kaleido_map.c flat path), the dimmer, one
+  `gWorldMapOwlFaceTex` per activated statue at MM's page-space positions (screen = X+160, 121-Y), the
+  IA4 `map_name_static` plate, then OOT's own pause-cursor corners. `G_TT_NONE` is reset after the
+  palette strips. Flat, no page-roll. A -> custom two-choice prompt (debugState cleared so
+  Message_Update runs); Yes -> fade out, `OCARINA_MODE_04` (Link puts the ocarina away, vanilla B-cancel
+  shape) then `Combo_RequestCrossSwitch(MM_GetOwlWarpEntrance(id))`.
+- Cross-DLL through the launcher: `MM_GetOwlActivationFlags` / `MM_GetOwlWarpEntrance` exports,
+  `SOH_SetOwlFlagsProvider` / `SOH_SetOwlWarpEntranceProvider` callbacks (triforce-count pattern); the
+  flags provider returns -1 unless MM's resident save is the slot OOT is playing.
+
+**Verified:** Linux syntax checks of every touched translation unit against the worktree's headers;
+Windows build + in-game runs are the real check (see the commit log).

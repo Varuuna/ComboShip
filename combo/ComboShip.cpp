@@ -788,6 +788,15 @@ static FnSetTriforceProgressCb SOH_SetTriforceProgressCb = nullptr;
 static FnSetTriforceProgressCb MM_SetTriforceProgressCb = nullptr;
 static FnSetOtherTriforceCountCb SOH_SetOtherTriforceCountCb = nullptr;
 static FnSetOtherTriforceCountCb MM_SetOtherTriforceCountCb = nullptr;
+// ComboShip (teleport songs): OOT's Song of Soaring reads MM's owl-statue flags and arrival entrances.
+typedef int (*FnGetOwlFlags)(void);
+typedef int (*FnGetOwlWarpEntrance)(int owlId);
+typedef void (*FnSetOwlFlagsProvider)(int (*)(void));
+typedef void (*FnSetOwlWarpEntranceProvider)(int (*)(int));
+static FnGetOwlFlags MM_GetOwlActivationFlags = nullptr;
+static FnGetOwlWarpEntrance MM_GetOwlWarpEntrance = nullptr;
+static FnSetOwlFlagsProvider SOH_SetOwlFlagsProvider = nullptr;
+static FnSetOwlWarpEntranceProvider SOH_SetOwlWarpEntranceProvider = nullptr;
 // Active goal for the loaded slot (0 required = the both-bosses goal) + the one-shot completion latch.
 static bool g_goalHunt = false;
 static int g_goalRequired = 0;
@@ -1372,6 +1381,18 @@ static int Combo_GetOotTriforceCount() {
 }
 static int Combo_GetMmTriforceCount() {
     return MM_GetTriforcePieceCount ? MM_GetTriforcePieceCount() : 0;
+}
+
+// ComboShip (teleport songs): MM's owl-statue activation flags for the slot OOT is playing, -1 when MM's
+// resident save is not that slot (nothing loaded yet, or a session that ended in MM) — the song then
+// refuses rather than reading stale memory. Also the OwlWarpId -> MM entrance mapping.
+static int Combo_GetMmOwlFlags() {
+    if (!MM_GetOwlActivationFlags || g_MmSaveInMemorySlot < 0)
+        return -1;
+    return MM_GetOwlActivationFlags();
+}
+static int Combo_GetMmOwlWarpEntrance(int owlId) {
+    return MM_GetOwlWarpEntrance ? MM_GetOwlWarpEntrance(owlId) : -1;
 }
 
 // Poked after every Triforce Piece grant (own or dormant) and every Anchor team-state merge: sums both
@@ -2874,6 +2895,10 @@ int main(int argc, char** argv) {
     MM_SetTriforceProgressCb = (FnSetTriforceProgressCb)GetSym(mmModule, "MM_SetTriforceProgressCb");
     SOH_SetOtherTriforceCountCb = (FnSetOtherTriforceCountCb)GetSym(sohModule, "SOH_SetOtherTriforceCountCb");
     MM_SetOtherTriforceCountCb = (FnSetOtherTriforceCountCb)GetSym(mmModule, "MM_SetOtherTriforceCountCb");
+    MM_GetOwlActivationFlags = (FnGetOwlFlags)GetSym(mmModule, "MM_GetOwlActivationFlags");
+    MM_GetOwlWarpEntrance = (FnGetOwlWarpEntrance)GetSym(mmModule, "MM_GetOwlWarpEntrance");
+    SOH_SetOwlFlagsProvider = (FnSetOwlFlagsProvider)GetSym(sohModule, "SOH_SetOwlFlagsProvider");
+    SOH_SetOwlWarpEntranceProvider = (FnSetOwlWarpEntranceProvider)GetSym(sohModule, "SOH_SetOwlWarpEntranceProvider");
 
     // Starting game seam (#135) — OOT-side only; MM needs no setter (nothing there reads it).
     SOH_SetComboStartingGame = (FnSetComboStartingGame)GetSym(sohModule, "SOH_SetComboStartingGame");
@@ -3077,6 +3102,11 @@ int main(int argc, char** argv) {
         SOH_SetOtherTriforceCountCb(Combo_GetMmTriforceCount);
     if (MM_SetOtherTriforceCountCb)
         MM_SetOtherTriforceCountCb(Combo_GetOotTriforceCount);
+    // Teleport songs: OOT's Song of Soaring looks at MM's owl statues through the launcher.
+    if (SOH_SetOwlFlagsProvider)
+        SOH_SetOwlFlagsProvider(Combo_GetMmOwlFlags);
+    if (SOH_SetOwlWarpEntranceProvider)
+        SOH_SetOwlWarpEntranceProvider(Combo_GetMmOwlWarpEntrance);
     if (SOH_SetCrossDeliver || MM_SetCrossDeliver) {
         std::cout << "[ComboShip] Cross-game item delivery seam registered." << std::endl;
     }

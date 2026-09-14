@@ -3208,8 +3208,10 @@ extern "C" __declspec(dllexport) int SOH_ReadComboSharedItemsCVars(void) {
     return static_cast<int>(s.mask);
 }
 // ComboShip: level of one shared item in OOT's resident save, by OOT English item name, for the launcher's
-// reconcile. -1 = no save bound / unknown / not an inventory-page item (progressive pairs will need their
-// own probe); 0/1 = absent/owned.
+// level-set grants and reconcile. Progressive pairs report their upgrade tier (quiver/bag 0..3, magic
+// 0..2) plus one for OOT's Infinite Upgrades tier, which MM has no counterpart for (the launcher's
+// extra grant into MM resolves to MM's at-max no-op). Inventory-page items 0/1 = absent/owned; -1 = no
+// save bound / unknown / not probeable.
 extern "C" __declspec(dllexport) int SOH_GetSharedItemLevel(const char* itemName) {
     if (itemName == NULL || gSaveContext.fileNum == 0xFF) {
         return -1;
@@ -3217,6 +3219,17 @@ extern "C" __declspec(dllexport) int SOH_GetSharedItemLevel(const char* itemName
     auto it = Rando::StaticData::itemNameToEnum.find(itemName);
     if (it == Rando::StaticData::itemNameToEnum.end()) {
         return -1;
+    }
+    switch (it->second) {
+        case RG_PROGRESSIVE_BOW:
+            return CUR_UPG_VALUE(UPG_QUIVER) + (Flags_GetRandomizerInf(RAND_INF_HAS_INFINITE_QUIVER) ? 1 : 0);
+        case RG_PROGRESSIVE_BOMB_BAG:
+            return CUR_UPG_VALUE(UPG_BOMB_BAG) + (Flags_GetRandomizerInf(RAND_INF_HAS_INFINITE_BOMB_BAG) ? 1 : 0);
+        case RG_PROGRESSIVE_MAGIC_METER:
+            return (gSaveContext.isMagicAcquired ? 1 : 0) + (gSaveContext.isDoubleMagicAcquired ? 1 : 0) +
+                   (Flags_GetRandomizerInf(RAND_INF_HAS_INFINITE_MAGIC_METER) ? 1 : 0);
+        default:
+            break;
     }
     const Rando::Item& item = Rando::StaticData::RetrieveItem(it->second);
     if (item.GetItemType() != ITEMTYPE_ITEM) {

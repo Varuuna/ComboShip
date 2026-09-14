@@ -1775,18 +1775,20 @@ target for both.
 **Why:** OoTMM's "shared items" let an item both games already have act as ONE logical item: find it in
 either game, use it in both. ComboShip only delivered a foreign item into its home game's save. Plan,
 OoTMM mapping, dedupe and save-asymmetry decisions: [`../CROSS_ITEMS_PLAN.md`](../CROSS_ITEMS_PLAN.md).
-Lens of Truth is the first (one-shot, no ammo, no levels) pair; the table is built to take more.
+Pairs so far: Lens of Truth (one-shot), then Progressive Bow, Progressive Bomb Bag and Progressive Magic
+Meter / Progressive Magic (capacity only; arrows, bombs and magic stay per game).
 
 **Combo-owned (no merge risk):**
 
-- `combo/rando/CrossShared.h` — pairing table (`kSharedPairs`: key, label, OOT name, MM name, merged
-  count), `CwSharedSettings` bitmask (JSON form `"sharedItems": {key: bool}`), `CwSharedPairForItem`
+- `combo/rando/CrossShared.h` — pairing table (`kSharedPairs`: key, label, tooltip, OOT name, MM name,
+  `mmMax` = MM's level ceiling, one below OOT's Infinite Upgrades tier),
+  `CwSharedSettings` bitmask (JSON form `"sharedItems": {key: bool}`), `CwSharedPairForItem`
   (name-based), `CreditOwnedShared` (the `has(X) || has(SHARED_X)` union at owned-set level),
   `CwSharedNames`, `LoadSharedSettingsFromBlob` (DLL side, from the pushed consolidated spoiler).
 - `combo/rando/CrossWorldRando.h` — `CrossWorldCombinedFill` gains a trailing `CwSharedSettings`. Pool
   pre-pass after the dump parse: each enabled pair's MM copies leave the pool, the OOT copies are
-  trimmed/cloned to `min(mergedCount, oot + mm)` (OoTMM `replaceItem` + `removeItem`); the existing
-  balancer junk-pads MM. Owned sets (`reachableFixpoint`, phase-A assumed sets incl. batch put-back,
+  trimmed/cloned to `max(oot, mm)` (OoTMM `shareItems('max')`), so OOT's pool size and Infinite
+  Upgrades tier carry into the merged pool; the existing balancer junk-pads MM. Owned sets (`reachableFixpoint`, phase-A assumed sets incl. batch put-back,
   forced-owned) go through `creditOwned`/`uncreditOwned`, so one shared copy counts in both games.
   Emission renames a shared copy at a cross-game check to the CHECK game's native name (OoTMM
   `checks.ts`), never a foreign marker; the oracle commit uses the same renamed list. Spoiler gains
@@ -1797,7 +1799,14 @@ Lens of Truth is the first (one-shot, no ammo, no levels) pair; the table is bui
   name stays bare (one item, not a same-named pair). Callers pass `CwSharedNames(...)`.
 - `combo/ComboShip.cpp` — menu mask via `SOH_ReadComboSharedItemsCVars`; passed to every fill call;
   `consolidated["sharedItems"]`/`["shared"]`; slot latch `g_sharedSettings` in `LoadComboCompletion`;
-  `DeliverCrossItem` dedupe key is now check **+ item**, and the set is cleared on every slot bind/load
+  `DeliverCrossItem` treats a shared half as a level-SET (`RaiseSharedLevel`: single-step grants until
+  the target's probe reaches the source's level, re-probing after each and stopping when a grant no
+  longer raises it — OOT's Infinite Upgrades tier has no MM counterpart), so a progressive pair cannot
+  be pushed a tier high by a re-collection or an Anchor re-send; `SharedPickupFromMM` (registered through
+  the new `MM_SetSharedPickup` seam) is the MM pickup entry and takes an explicit source level for the
+  one case MM's probe cannot express, the pair's top copy collected at MM's ceiling (`mmMax + 1`);
+  `ReconcileSharedItems` uses the same helper; the dedupe key is now check **+ item**, and the set is
+  cleared on every slot bind/load
   (`ResetCrossItemDedup` in `LoadComboCompletion`): it only guards one wire packet reaching both DLLs,
   and across a reload it silently dropped a re-collection after a quit-without-saving (or a second file on
   the same seed) for shared AND foreign items; `ReconcileSharedItems` max-reconciles every
@@ -1819,8 +1828,10 @@ Lens of Truth is the first (one-shot, no ammo, no levels) pair; the table is bui
   (stamped by `Context::GetFinalGIEntry` on every entry it builds), requires that entry to match the
   received mod/item, and is silenced by `gComboOotDormantGive`. Chests and shops never pass
   `RandomizerOnItemReceiveHandler`'s queued-check gate, which is why this is a separate hook.
-- `mm/2s2h/Rando/MiscBehavior/ComboSharedItems.cpp` — the MM side: `ShareLocalItem(rc, item)` (mirror of
-  the above via `gMMComboCrossDeliver`), `IsSharedPairItem(item)`, and `KeepSharedHalf(converted, raw)`,
+- `mm/2s2h/Rando/MiscBehavior/ComboSharedItems.cpp` — the MM side: `ShareLocalItem(rc, rawItem,
+  atCeiling)` (matched on the PLACED item, since a progressive's converted id is a concrete tier; goes
+  through `gMMComboSharedPickup`, carrying `mmMax + 1` as the source level when MM's convert step said
+  junk at its ceiling), `IsSharedPairItem(item)`, and `KeepSharedHalf(converted, raw)`,
   which returns the raw shared half when `ConvertItem`'s already-owned rule said junk (the OOT half
   arrived first; it is the same item, so the re-give is an idempotent no-op that re-shares).
 - `soh/.../randomizer/hook_handlers.h` (already combo-owned) — declares `OOT_ShareLocalItem`,
@@ -1830,18 +1841,23 @@ Lens of Truth is the first (one-shot, no ammo, no levels) pair; the table is bui
 **Vendored (COMBO_BUILD-guarded, preserve on merges):**
 
 - `soh/soh/OTRGlobals.cpp` — `SOH_ReadComboSharedItemsCVars` (bitmask), `SOH_GetSharedItemLevel(name)`
-  (inventory-page items only: `INV_CONTENT(id) == id`; -1 otherwise), `SOH_PersistResidentSave`,
+  (progressive bow/bomb bag -> `CUR_UPG_VALUE`, magic -> the two acquired flags, each +1 for the matching
+  `RAND_INF_HAS_INFINITE_*`; inventory-page items `INV_CONTENT(id) == id`; -1 otherwise),
+  `SOH_PersistResidentSave`,
   `gComboOotDormantGive`'s definition, and `Combo_GrantResolvedOOT(gie, persist)` scoped by
   `ComboOotDormantGiveScope`; `SOH_GrantCrossItem` passes `persist=false` for a shared half.
 - `soh/soh/Network/Anchor/Packets/GiveItem.cpp` — one `ComboOotDormantGiveScope` in `HandlePacket_GiveItem`
   (a teammate's item is not a local pickup) + the header include.
-- `mm/2s2h/BenPort.cpp` — `MM_GetSharedItemLevel(name)` (friendly name -> `Items[].itemId` slot probe),
+- `mm/2s2h/BenPort.cpp` — `MM_GetSharedItemLevel(name)` (progressive bow/bomb bag -> `CUR_UPG_VALUE`,
+  magic -> the two acquired flags; else friendly name -> `Items[].itemId` slot probe),
   `MM_PersistResidentSave`, `Combo_MM_GiveDormantResolvedEx(rid, persist)`; `MM_GrantCrossItem` returns
   without granting when the placed item is a shared half MM already owns (else the consolation Red Rupee)
   and passes `persist=false` for a shared half.
-- `mm/2s2h/Rando/MiscBehavior/CheckQueue.cpp` — three one-line fenced calls in `CheckQueue()`'s lambdas:
-  `KeepSharedHalf` after each `ConvertItem` (give + draw) and `ShareLocalItem` right after
-  `Rando::GiveItem` (local path only; dormant grants and Anchor receives do not pass here).
+- `mm/2s2h/Rando/MiscBehavior/CheckQueue.cpp` — small fenced blocks in `CheckQueue()`'s lambdas:
+  `KeepSharedHalf` after each `ConvertItem` (give + draw; the give side first notes whether the convert
+  said junk) and `ShareLocalItem(check, placed item, at ceiling)` right after `Rando::GiveItem` (local
+  path only; dormant grants and Anchor receives do not pass here).
+- `mm/2s2h/BenPort.cpp` also hosts `MM_SetSharedPickup` / `gMMComboSharedPickup`, the MM pickup seam.
 - `mm/2s2h/Rando/MiscBehavior/MiscBehavior.h` — the three declarations, inside the existing
   `COMBO_BUILD` block.
 

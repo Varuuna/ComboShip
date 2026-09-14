@@ -197,6 +197,7 @@ void Rando::MiscBehavior::CheckQueue() {
                         RandoItemId randoItemId =
                             Rando::ConvertItem(randoSaveCheck.randoItemId, (RandoCheckId)CUSTOM_ITEM_PARAM);
 #ifdef COMBO_BUILD
+                        const bool comboAtCeiling = randoItemId == RI_JUNK; // ComboShip: see ShareLocalItem
                         randoItemId = Rando::MiscBehavior::KeepSharedHalf(randoItemId, randoSaveCheck.randoItemId);
 #endif
                         std::string prefix = "You found";
@@ -269,7 +270,8 @@ void Rando::MiscBehavior::CheckQueue() {
                         queued = false;
 #ifdef COMBO_BUILD
                         // ComboShip: a local grant of a shared half also grants the OOT half.
-                        Rando::MiscBehavior::ShareLocalItem((RandoCheckId)CUSTOM_ITEM_PARAM, randoItemId);
+                        Rando::MiscBehavior::ShareLocalItem((RandoCheckId)CUSTOM_ITEM_PARAM, randoSaveCheck.randoItemId,
+                                                            comboAtCeiling);
                         // ComboShip: shared-progression co-op — broadcast this obtained check's RAW
                         // item to Anchor teammates (CUSTOM_ITEM_PARAM is still the checkId here; it is
                         // overwritten with the item id on the next line). No-op if Anchor is inactive.

@@ -17,19 +17,27 @@
 namespace ComboRando {
 
 // One shared pair. key is the spoiler key ("sharedItems": { key: true }) and the CVar suffix
-// (gCombo.Rando.Shared.<key>). mergedCount is decided per item, as OoTMM does (removeItem(SHARED_X, n)).
+// (gCombo.Rando.Shared.<key>). The merged pool keeps max(OOT copies, MM copies) of the pair, so it
+// follows each game's own pool settings (OOT's pool size and Infinite Upgrades tier) without a count here.
 struct CwSharedPair {
     const char* key;
     const char* label;   // menu text
     const char* desc;    // menu tooltip
     const char* ootName; // OOT English item name (Rando::StaticData::itemNameToEnum key)
     const char* mmName;  // MM friendly item name (GetItemDisplayName)
-    int mergedCount;     // copies kept in the combined pool
+    int mmMax;           // highest level MM can hold; OOT's Infinite Upgrades tier sits one above it
 };
 
-// Row order is the settings bit order: append only.
+// Row order is the settings bit order: append only. Progressive pairs share the upgrade level (quiver,
+// bag, meter); ammo and magic counts stay per game (docs/CROSS_ITEMS_PLAN.md, "Counts").
 inline constexpr CwSharedPair kSharedPairs[] = {
     { "lensOfTruth", "Lens of Truth", "One Lens of Truth for both games.", "Lens of Truth", "Lens of Truth", 1 },
+    { "bows", "Bows", "Progressive Bow upgrades count for both games. Arrows stay per game.", "Progressive Bow",
+      "Progressive Bow", 3 },
+    { "bombBags", "Bomb Bags", "Progressive Bomb Bag upgrades count for both games. Bombs stay per game.",
+      "Progressive Bomb Bag", "Progressive Bomb Bag", 3 },
+    { "magic", "Magic", "Progressive Magic Meter upgrades count for both games. Magic stays per game.",
+      "Progressive Magic Meter", "Progressive Magic", 2 },
 };
 inline constexpr int kSharedPairCount = static_cast<int>(sizeof(kSharedPairs) / sizeof(kSharedPairs[0]));
 

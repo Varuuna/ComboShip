@@ -33,9 +33,11 @@ void BroadcastCheckObtainedIfFirst(RandoCheckId rc, RandoItemId rawItemId, bool 
 uint64_t ComboRandoGen();
 void InvalidateComboForeignCache();
 // ComboShip: shared cross-game items (rando/CrossShared.h), defined in the combo-owned
-// ComboSharedItems.cpp. After a LOCAL grant of `item` from check `rc`, deliver the pair's OOT half into
-// OOT's resident save; no-op unless `item` is an enabled pair's MM half.
-void ShareLocalItem(RandoCheckId rc, RandoItemId item);
+// ComboSharedItems.cpp. After a LOCAL grant from check `rc` of the PLACED item `rawItem` (before
+// ConvertItem), deliver the pair's OOT half into OOT's resident save; no-op unless `rawItem` is an
+// enabled pair's MM half. `atCeiling` = ConvertItem said junk, i.e. MM could not go higher: the pair's
+// top copy, which OOT (Infinite Upgrades) can still take.
+void ShareLocalItem(RandoCheckId rc, RandoItemId rawItem, bool atCeiling);
 // ComboShip: is `item` the MM half of an enabled shared pair?
 bool IsSharedPairItem(RandoItemId item);
 // ComboShip: `converted` after ConvertItem, except that a shared half MM already owns stays `raw` — it is

@@ -326,10 +326,11 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         return result;
     }
 
-    // --- Shared items: merge each enabled pair into one set of copies (OoTMM setupSharedItems) ---
+    // --- Shared items: merge each enabled pair into one set of copies (OoTMM shareItems 'max') ---
     // MM copies leave the pool; the OOT copies are the shared instances, trimmed or cloned to
-    // min(mergedCount, ootCopies + mmCopies). The balancer below junk-pads the MM deficit. Locked
-    // (fixed[]) copies are left alone; they still credit and grant the pair by name. RNG-free.
+    // max(ootCopies, mmCopies), so OOT's pool size and Infinite Upgrades tier carry over (the extra
+    // copies resolve to each game's own at-max behaviour). The balancer below junk-pads the MM deficit.
+    // Locked (fixed[]) copies are left alone; they still credit and grant the pair by name. RNG-free.
     if (shared.Any()) {
         for (int si = 0; si < kSharedPairCount; ++si) {
             if (!shared.Enabled(si))
@@ -357,8 +358,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                 }
                 *src = std::move(kept);
             }
-            const size_t target =
-                std::min<size_t>(static_cast<size_t>(std::max(pair.mergedCount, 0)), ootCopies + mmCopies);
+            const size_t target = std::max(ootCopies, mmCopies);
             size_t trimmed = 0, cloned = 0;
             if (ootCopies > target) {
                 size_t surplus = ootCopies - target;

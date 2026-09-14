@@ -803,6 +803,10 @@ static FnGetSharedItemLevel SOH_GetSharedItemLevel = nullptr;
 static FnGetSharedItemLevel MM_GetSharedItemLevel = nullptr;
 static FnVoidArgless SOH_PersistResidentSave = nullptr;
 static FnVoidArgless MM_PersistResidentSave = nullptr;
+// MM's shared-item pickup seam: the cross-deliver shape plus the source level MM's probe cannot express
+// (the pair's top copy, above MM's ceiling; -1 = read the probe).
+typedef void (*FnSetSharedPickup)(void (*)(const char*, int, const char*));
+static FnSetSharedPickup MM_SetSharedPickup = nullptr;
 // Shared settings of the loaded slot (seed-bound, from its baked combo.rando).
 static ComboRando::CwSharedSettings g_sharedSettings;
 static ComboRando::CwSharedSettings ReadMenuSharedSettings() {
@@ -1152,6 +1156,51 @@ static void ResetCrossItemDedup() {
 // ComboShip (#136): defined below; the cross-grant re-evaluates the combined goal (see DeliverCrossItem).
 static void Combo_OnTriforceProgress(int game, int fileNum);
 
+// Raise `target`'s half of a shared pair to the other game's level (or to srcLevel when >= 0), one
+// single-step grant at a time, re-probing after each so a tier the target cannot represent ends the
+// loop after one no-op instead of looping. Returns false when a probe is unavailable, so the caller
+// can fall back to a plain grant.
+static bool RaiseSharedLevel(ComboRando::GameId target, const ComboRando::CwSharedPair& pair, int srcLevel) {
+    if (!SOH_GetSharedItemLevel || !MM_GetSharedItemLevel)
+        return false;
+    const bool toMM = target == ComboRando::GAME_MM;
+    const char* targetName = toMM ? pair.mmName : pair.ootName;
+    FnGrantCrossItem grant = toMM ? MM_GrantCrossItem : SOH_GrantCrossItem;
+    FnGetSharedItemLevel probe = toMM ? MM_GetSharedItemLevel : SOH_GetSharedItemLevel;
+    int src =
+        srcLevel >= 0 ? srcLevel : (toMM ? SOH_GetSharedItemLevel(pair.ootName) : MM_GetSharedItemLevel(pair.mmName));
+    int cur = probe(targetName);
+    if (src < 0 || cur < 0 || !grant)
+        return false;
+    while (cur < src) {
+        grant(targetName);
+        const int now = probe(targetName);
+        if (now <= cur)
+            break; // at this game's ceiling; nothing more to raise
+        cur = now;
+    }
+    return true;
+}
+
+// MM's shared-item pickup. Same dedupe as DeliverCrossItem; srcLevel >= 0 is MM telling us the level its
+// probe cannot (the pair's top copy, above its ceiling), so OOT is raised to that instead of MM's level.
+static void SharedPickupFromMM(const char* ootItemName, int srcLevel, const char* srcCheckName) {
+    if (!ootItemName)
+        return;
+    if (srcCheckName && srcCheckName[0] != '\0') {
+        const std::string key = std::string(srcCheckName) + "|" + ootItemName;
+        std::lock_guard<std::mutex> lock(sAppliedCrossChecksMutex);
+        if (!sAppliedCrossChecks.insert(key).second)
+            return;
+    }
+    const ComboRando::CwSharedPair* pair =
+        ComboRando::CwSharedPairForItem(g_sharedSettings, ComboRando::GAME_OOT, ootItemName);
+    if (pair && RaiseSharedLevel(ComboRando::GAME_OOT, *pair, srcLevel))
+        return;
+    if (SOH_GrantCrossItem)
+        SOH_GrantCrossItem(ootItemName);
+}
+
 static void DeliverCrossItem(int targetGame, const char* itemName, const char* srcCheckName) {
     if (srcCheckName && srcCheckName[0] != '\0') {
         // Keyed by check + item: a shared pair's local grant and its cross-delivered half share a check,
@@ -1162,13 +1211,19 @@ static void DeliverCrossItem(int targetGame, const char* itemName, const char* s
             return; // already delivered for this check
         }
     }
-    if (targetGame == 1) {
-        if (MM_GrantCrossItem)
-            MM_GrantCrossItem(itemName);
-    } else {
-        if (SOH_GrantCrossItem)
-            SOH_GrantCrossItem(itemName);
-    }
+    FnGrantCrossItem grant = (targetGame == 1) ? MM_GrantCrossItem : SOH_GrantCrossItem;
+    if (!grant)
+        return;
+    // A shared pair's half is a level-SET, not one more step: raise the target to the source game's
+    // level (the source already holds its half). A re-collection after a reload, an Anchor re-send, or
+    // a progressive pair that the target had already caught up on then grants nothing extra. Falls back
+    // to a single grant when either probe is unavailable.
+    const ComboRando::CwSharedPair* pair =
+        itemName ? ComboRando::CwSharedPairForItem(g_sharedSettings, (ComboRando::GameId)targetGame, itemName)
+                 : nullptr;
+    if (pair && RaiseSharedLevel((ComboRando::GameId)targetGame, *pair, /*srcLevel*/ -1))
+        return;
+    grant(itemName);
     // ComboShip (#136): the grant's own poke carries the TARGET game's fileNum, which is unbound (0xFF)
     // whenever that game is dormant, so it gets dropped. Re-poke here — the single choke point every
     // cross-grant (local collection in either game, Anchor receive, resync backfill) passes through —
@@ -1199,15 +1254,13 @@ static void ReconcileSharedItems(const char* why, bool allowOotGrant) {
         const int mm = MM_GetSharedItemLevel(p.mmName);
         if (oot < 0 || mm < 0 || oot == mm)
             continue;
-        if (oot > mm && MM_GrantCrossItem) {
-            for (int k = mm; k < oot; ++k)
-                MM_GrantCrossItem(p.mmName);
-            std::cout << "[ComboShip] shared '" << p.key << "': OOT " << oot << " > MM " << mm << " — granted to MM ("
+        if (oot > mm) {
+            RaiseSharedLevel(ComboRando::GAME_MM, p, oot);
+            std::cout << "[ComboShip] shared '" << p.key << "': OOT " << oot << " > MM " << mm << " — raised MM ("
                       << why << ")\n";
-        } else if (mm > oot && allowOotGrant && SOH_GrantCrossItem) {
-            for (int k = oot; k < mm; ++k)
-                SOH_GrantCrossItem(p.ootName);
-            std::cout << "[ComboShip] shared '" << p.key << "': MM " << mm << " > OOT " << oot << " — granted to OOT ("
+        } else if (allowOotGrant) {
+            RaiseSharedLevel(ComboRando::GAME_OOT, p, mm);
+            std::cout << "[ComboShip] shared '" << p.key << "': MM " << mm << " > OOT " << oot << " — raised OOT ("
                       << why << ")\n";
         }
     }
@@ -2910,6 +2963,7 @@ int main(int argc, char** argv) {
     // Cross-game item delivery seam (issue #3)
     SOH_SetCrossDeliver = (FnSetCrossDeliver)GetSym(sohModule, "SOH_SetCrossDeliver");
     MM_SetCrossDeliver = (FnSetCrossDeliver)GetSym(mmModule, "MM_SetCrossDeliver");
+    MM_SetSharedPickup = (FnSetSharedPickup)GetSym(mmModule, "MM_SetSharedPickup");
     SOH_GrantCrossItem = (FnGrantCrossItem)GetSym(sohModule, "SOH_GrantCrossItem");
     MM_GrantCrossItem = (FnGrantCrossItem)GetSym(mmModule, "MM_GrantCrossItem");
     SOH_SetMarkForeignObtained = (FnSetCrossRoute)GetSym(sohModule, "SOH_SetMarkForeignObtained");
@@ -3119,6 +3173,8 @@ int main(int argc, char** argv) {
         SOH_SetCrossDeliver(DeliverCrossItem);
     if (MM_SetCrossDeliver)
         MM_SetCrossDeliver(DeliverCrossItem);
+    if (MM_SetSharedPickup)
+        MM_SetSharedPickup(SharedPickupFromMM); // shared-item pickups: level-set with MM's explicit source level
     if (SOH_SetMarkForeignObtained)
         SOH_SetMarkForeignObtained(MarkForeignObtained);
     if (MM_SetMarkForeignObtained)

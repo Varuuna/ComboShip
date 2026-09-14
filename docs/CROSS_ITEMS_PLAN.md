@@ -1,9 +1,11 @@
 # Cross-game items
 
-Last updated 2026-09-10. Current state: Phase 1 code is in (shared Lens of Truth), builds on Windows,
-passes the headless generator and validator, and works in game: pickup in either direction, the Lens
-surviving the portal handoff, and a quit-without-saving reverting both games. The file map lives in
-the 2026-09-09 entry of `deviations/rando.md`.
+Last updated 2026-09-11. Current state: Phase 1 is in with four pairs (Lens of Truth, Bows, Bomb
+Bags, Magic), builds on Windows, passes the headless generator and validator, and works in game: the
+Lens in both directions, the portal handoff persist, a quit-without-saving reverting both games, and
+bows sharing their quiver level with the Infinite Upgrades tier landing only on the fourth copy. Bomb
+bags and magic use the same code path and have not been played separately. The file map lives in the
+2026-09-09 entry of `deviations/rando.md`.
 
 ## Goal
 
@@ -29,7 +31,7 @@ Useful when porting a specific item:
 
 - Pool merge: `packages/logic/src/world/transform.ts`, `setupSharedItems`. Both copies are replaced by
   `SHARED_X`, then the surplus is removed to an explicit count per item (bows 3+3 -> 3, hookshot
-  2+1 -> 2, lens 1+1 -> 1).
+  2+1 -> 2, lens 1+1 -> 1); table-driven groups use `shareItems(defs, 'max' | 'sum')`. We use `max`.
 - Logic: macros in `data/macros/macros_*.yml` of the form `has(X) || has(SHARED_X)`.
 - Runtime grant: `src/common/item/item_add.c`, `kSimpleSharedItems` and `comboAddItemRaw`. Granting
   one half grants the other in the same call.
@@ -49,7 +51,7 @@ Useful when porting a specific item:
 | OoTMM | ComboShip |
 |---|---|
 | `shared*` settings | `gCombo.Rando.Shared.<key>` CVars, one checkbox per pair on the "Shared Items" page of the combo menu. The launcher and the headless tool read them through a soh.dll export and bake them into the consolidated seed as `sharedItems`; the validator reads the spoiler only. |
-| Pool merge | A pre-pass in the fill right after the dumps are parsed. MM copies leave the pool, OOT copies are trimmed or cloned to the merged count. The existing per-game balancer junk-pads MM. |
+| Pool merge | A pre-pass in the fill right after the dumps are parsed. MM copies leave the pool, OOT copies are trimmed or cloned to the larger of the two counts. The existing per-game balancer junk-pads MM. |
 | Union macro | When a shared item enters one game's owned set, its pair name is pushed into the other's. Native logic graphs are untouched. Applies to the fill and the validator. |
 | Per-check id | A shared item placed at an MM check is emitted under MM's native name. It is not a foreign marker and is not game-suffixed in the spoiler. |
 | Give both | A hook at each game's local-pickup seam hands the pair to the existing cross-deliver callback. Dormant grants and Anchor receives are excluded. |
@@ -59,11 +61,12 @@ Useful when porting a specific item:
 
 Three separate problems:
 
-- **Pool.** The pairing table carries the merged count. That is the only place the count is decided.
-- **Grants.** The launcher's cross-deliver dedupe is keyed by check plus item. Pair grants for
-  progressive items must set a level, not increment one: the hook passes the source game's resulting
-  level and the target raises its copy to match. Re-collecting after a reload then does nothing on
-  the far side. Lens is one-shot, so this reduces to "grant if missing".
+- **Pool.** The merged pool keeps the larger of the two games' copy counts for the pair; nothing else
+  decides it.
+- **Grants.** The launcher's cross-deliver dedupe is keyed by check plus item. A pair grant sets a
+  level rather than adding a step: the launcher reads the source game's level, reads the target's, and
+  grants only the difference. Re-collecting after a reload, an Anchor re-send, or a target that already
+  caught up then grants nothing. Lens is one-shot, so this reduces to "grant if missing".
 - **Levels.** Every enabled pair is max-reconciled at both transitions and on OOT save load. Shared
   progression only goes up, so the higher level is always right. This also covers one-sided grants:
   starting items, forced placements, co-op backfill.
@@ -115,12 +118,26 @@ pairing table.
 Pairing table. Each row is one line in `combo/rando/CrossShared.h`; the Shared Items menu page,
 settings bit, fill, validator and hooks all derive from it.
 
-| Pair | OOT pool | MM pool | Merged | Needs |
-|---|---|---|---|---|
-| Lens of Truth | 1 | 1 | 1 | nothing; first pair |
-| Progressive Bow | 4 | 3 | 3 | level-set grant |
-| Progressive Magic Meter / Progressive Magic | 3 | 2 | 2 | level-set grant |
-| Progressive Bomb Bag | 4 | 3 | 3 | level-set grant |
+| Pair | OOT pool | MM pool | Level probe |
+|---|---|---|---|
+| Lens of Truth | 1 | 1 | inventory slot, 0/1 |
+| Progressive Bow | 3 (4 with Infinite Upgrades) | 3 | quiver upgrade 0..3, +1 for the infinite tier |
+| Progressive Bomb Bag | 3 (4 with Infinite Upgrades) | 3 | bomb bag upgrade 0..3, +1 for the infinite tier |
+| Progressive Magic Meter / Progressive Magic | 2 (3 with Infinite Upgrades) | 2 | magic flags 0..2, +1 for the infinite tier |
+
+The merged pool keeps the larger of the two games' copy counts, the `max` policy OoTMM uses for its
+table-driven groups. That way OOT's pool-size setting and its Infinite Upgrades tier carry into the
+merged pool without a count in the table. MM has no infinite upgrades, so the OOT-only tier shows up
+as one extra shared copy: OOT's probe counts the infinite flag as a level, the launcher's level-set
+tries one more step into MM, MM's at-max rule makes it a no-op, and the raise loop stops there. The
+reverse needs one rule: MM's probe caps at the pair's ceiling (in the table as `mmMax`), so a pickup of
+the top copy in MM is invisible to the level. MM's hook knows it, though: its convert step said junk
+because MM was already at the ceiling. For that pickup MM tells the launcher the source level outright,
+`mmMax + 1`, through a dedicated pickup seam, and OOT is raised to it (an OOT without Infinite Upgrades
+simply stops rising). Merely being at the ceiling is not a signal: reaching level 3 on the third copy
+must not hand OOT the infinite tier, which an earlier version of this rule got wrong. Under Condensed
+Progressive the first OOT pickup is the infinite tier and already counts as level 1, so MM's first
+capacity upgrade lands on that pickup.
 
 Tasks:
 
@@ -133,8 +150,8 @@ Tasks:
 | 5 | Level probes per DLL and the launcher reconcile at transitions and OOT save load | done |
 | 6 | Validator pairing; the headless tool reads the menu CVars like the launcher | done |
 | 7 | Deviation record | done |
-| 8 | Level-set grant for progressive pairs | todo, before bows |
-| 9 | Add bow, magic, bomb bag rows | todo, after 8 |
+| 8 | Level-set grant: the launcher raises the target to the source game's level instead of granting one step | done |
+| 9 | Bow, bomb bag and magic rows, with progressive level probes in both games | done; bows verified in game, including the Infinite Upgrades tier |
 
 Lesson from the first in-game run: SoH chests and shops do not go through the queued-check path, and a
 vanilla-table item reaches the receive hook with no check identity. The OOT hook now runs before the
@@ -210,8 +227,10 @@ is deferred.
   toast and the Lens in MM's inventory. Then the reverse with the Lens at an MM check. Finally a
   quit-without-saving in MM after a pickup: neither game has the Lens afterwards, nothing is granted
   on the reload, and reopening the chest gives the Lens again, not junk.
-- Before bows land: the same three runs with a progressive pair. Both games must end on the same
-  quiver level after each run, while the arrow counts stay independent.
+- Progressive pairs: the same three runs with a Progressive Bow. Both games must end on the same
+  quiver level after each run, while the arrow counts stay independent. Headless with all four pairs
+  on, the fill logs one merge line per pair (`oot 3 + mm 3 copies -> 3 shared` for bows) and the
+  spoiler holds exactly the merged count of each item across both games.
 - Teleport songs: warp from OOT to each activated MM statue and back through the Clock Tower; warp
   from MM to each OOT pad as child and as adult; play a warp song in an MM dungeon and expect the
   refusal; quit without saving in MM after a song warp and check the reconcile on the next handoff.

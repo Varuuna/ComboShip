@@ -1154,7 +1154,14 @@ void PlandoSavePlay() {
 void DrawComboSharedItemsPanel() {
     const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
     ImGui::SeparatorText("Shared Items");
-    for (int i = 0; i < ComboRando::kSharedPairCount; ++i) {
+    // Alphabetical by label; the table itself stays in settings-bit order (append-only).
+    int order[ComboRando::kSharedPairCount];
+    for (int i = 0; i < ComboRando::kSharedPairCount; ++i)
+        order[i] = i;
+    std::sort(order, order + ComboRando::kSharedPairCount, [](int a, int b) {
+        return strcmp(ComboRando::kSharedPairs[a].label, ComboRando::kSharedPairs[b].label) < 0;
+    });
+    for (int i : order) {
         const ComboRando::CwSharedPair& pair = ComboRando::kSharedPairs[i];
         const std::string cvar = std::string("gCombo.Rando.Shared.") + pair.key;
         bool on = CVarGetInteger(cvar.c_str(), 0) != 0;

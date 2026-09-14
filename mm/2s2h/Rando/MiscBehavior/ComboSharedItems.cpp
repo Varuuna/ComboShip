@@ -14,8 +14,9 @@ extern "C" {
 #include "variables.h"
 }
 
-// Launcher seam and Anchor share, both defined elsewhere in 2s2h (BenPort.cpp / MMAnchor.cpp).
+// Launcher seams and Anchor share, all defined elsewhere in 2s2h (BenPort.cpp / MMAnchor.cpp).
 extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName);
+extern "C" void (*gMMComboSharedPickup)(const char* ootItemName, int srcLevel, const char* srcCheckName);
 extern "C" void MMAnchor_BroadcastCrossItem(int targetGame, const char* itemName, const char* srcCheckName);
 
 // Shared settings of the pushed seed, rebuilt when MM_LoadComboRando bumps the generation.
@@ -45,18 +46,24 @@ RandoItemId Rando::MiscBehavior::KeepSharedHalf(RandoItemId converted, RandoItem
 }
 
 // After a LOCAL grant of a shared pair's MM half, hand the OOT half to OOT's resident save through the
-// launcher seam and share it with teammates. Name-based, so an unshuffled copy counts too. Dormant grants
-// and Anchor receives never come through here.
-void Rando::MiscBehavior::ShareLocalItem(RandoCheckId rc, RandoItemId item) {
+// launcher seam and share it with teammates. Matched on the PLACED item (a progressive pair's converted
+// id is the concrete tier, not the pair name). Name-based, so an unshuffled copy counts too. Dormant
+// grants and Anchor receives never come through here.
+// atCeiling: MM's probe cannot report this pickup (it is already at mmMax), so tell the launcher the
+// source level outright — mmMax + 1 — instead of letting it read MM's level. That is how the pair's top
+// copy, collected in MM, still reaches OOT's Infinite Upgrades tier; OOT without that tier stops rising.
+void Rando::MiscBehavior::ShareLocalItem(RandoCheckId rc, RandoItemId rawItem, bool atCeiling) {
     const ComboRando::CwSharedSettings& shared = ComboSharedSettings();
     if (!shared.Any() || gSaveContext.fileNum == 0xFF)
         return;
-    const std::string& itemName = Rando::StaticData::GetItemDisplayName(item);
+    const std::string& itemName = Rando::StaticData::GetItemDisplayName(rawItem);
     const ComboRando::CwSharedPair* pair = ComboRando::CwSharedPairForItem(shared, ComboRando::GAME_MM, itemName);
     if (pair == nullptr)
         return;
     const std::string checkName = Rando::StaticData::GetCheckDisplayName(rc);
-    if (gMMComboCrossDeliver)
+    if (gMMComboSharedPickup)
+        gMMComboSharedPickup(pair->ootName, atCeiling ? pair->mmMax + 1 : -1, checkName.c_str());
+    else if (gMMComboCrossDeliver)
         gMMComboCrossDeliver((int)ComboRando::GAME_OOT, pair->ootName, checkName.c_str());
     MMAnchor_BroadcastCrossItem((int)ComboRando::GAME_OOT, pair->ootName, checkName.c_str());
     Notification::Emit({ .message = "Shared with Hyrule:", .suffix = pair->label });

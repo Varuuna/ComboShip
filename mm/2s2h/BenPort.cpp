@@ -4076,8 +4076,8 @@ extern "C" __declspec(dllexport) void MM_PersistResidentSave(void) {
 }
 
 // ComboShip: level of one shared item in MM's resident save, by friendly item name, for the launcher's
-// reconcile. -1 = no save bound / unknown / not an inventory-page item (progressive pairs will need
-// their own probe); 0/1 = absent/owned.
+// level-set grants and reconcile. Progressive pairs report their upgrade tier (quiver/bag 0..3, magic
+// 0..2); inventory-page items 0/1 = absent/owned; -1 = no save bound / unknown / not probeable.
 extern "C" __declspec(dllexport) int MM_GetSharedItemLevel(const char* itemName) {
     if (!itemName || gSaveContext.fileNum == 0xFF)
         return -1;
@@ -4085,6 +4085,17 @@ extern "C" __declspec(dllexport) int MM_GetSharedItemLevel(const char* itemName)
     auto it = nameToId.find(itemName);
     if (it == nameToId.end())
         return -1;
+    switch (it->second) {
+        case RI_PROGRESSIVE_BOW:
+            return (int)CUR_UPG_VALUE(UPG_QUIVER);
+        case RI_PROGRESSIVE_BOMB_BAG:
+            return (int)CUR_UPG_VALUE(UPG_BOMB_BAG);
+        case RI_PROGRESSIVE_MAGIC:
+            return (gSaveContext.save.saveInfo.playerData.isMagicAcquired ? 1 : 0) +
+                   (gSaveContext.save.saveInfo.playerData.isDoubleMagicAcquired ? 1 : 0);
+        default:
+            break;
+    }
     const ItemId itemId = Rando::StaticData::Items[it->second].itemId;
     // gItemSlots covers only the inventory-page items; anything past it has no slot to probe.
     if (itemId == ITEM_NONE || (size_t)itemId >= sizeof(gItemSlots) || SLOT(itemId) == SLOT_NONE)
@@ -4118,6 +4129,12 @@ extern "C" __declspec(dllexport) void MM_MarkForeignObtained(const char* checkNa
 extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName) = nullptr;
 extern "C" __declspec(dllexport) void MM_SetCrossDeliver(void (*cb)(int, const char*, const char*)) {
     gMMComboCrossDeliver = cb;
+}
+// ComboShip: shared-item pickup seam (rando/CrossShared.h). Like MM_SetCrossDeliver but carries the
+// source level MM's probe cannot express (-1 = let the launcher read it); see ComboSharedItems.cpp.
+extern "C" void (*gMMComboSharedPickup)(const char* ootItemName, int srcLevel, const char* srcCheckName) = nullptr;
+extern "C" __declspec(dllexport) void MM_SetSharedPickup(void (*cb)(const char*, int, const char*)) {
+    gMMComboSharedPickup = cb;
 }
 extern "C" void (*gMMComboMarkForeignObtained)(int srcGame, const char* checkName) = nullptr;
 extern "C" __declspec(dllexport) void MM_SetMarkForeignObtained(void (*cb)(int, const char*)) {

@@ -11,7 +11,7 @@
 // compared against the six-pitch pattern (no vanilla song is a suffix of it). On a match the ocarina
 // session is closed the way the vanilla B-cancel closes it, and only once the message mode is clean
 // again does anything else start (PauseWarp's shape): the refusal textbox, or the chooser, which freezes
-// the world with pauseCtx->debugState (a value kaleido never handles) and holds Link with
+// the world with a real pauseCtx->state (so the engine keeps drawing its Start "Return" prompt) and holds Link with
 // PLAYER_STATE1_IN_CUTSCENE, stepping Message_Update itself for the Yes/No prompt so the freeze holds. Starting a
 // textbox while the session is still in MSGMODE_OCARINA_PLAYING corrupts the message context (it spilled into
 // interfaceCtx->view). The map is drawn from OnPlayDrawEnd into OVERLAY_DISP, under the HUD and any textbox, like MM's.
@@ -64,9 +64,41 @@ COW_MM_ASSET(sCowNameSouthernSwamp, "__OTR__map_name_static/gMapPointSouthernSwa
 COW_MM_ASSET(sCowNameIkanaCanyon, "__OTR__map_name_static/gMapPointIkanaCanyonENGTex");
 COW_MM_ASSET(sCowNameStoneTower, "__OTR__map_name_static/gMapPointStoneTowerENGTex");
 
+// MM's map-page parchment tiles (KaleidoScope_DrawPageSections / sMapPageBgTextures): a 3-column x
+// 5-row grid of 80x32 IA8 tiles that frames the world map. In icon_item_static_yar, except the
+// column-1 row-0 title tile, which is language-specific in icon_item_jpn_static.
+COW_MM_ASSET(sCowMap00, "__OTR__icon_item_static_yar/gPauseMap00Tex");
+COW_MM_ASSET(sCowMap01, "__OTR__icon_item_static_yar/gPauseMap01Tex");
+COW_MM_ASSET(sCowMap02, "__OTR__icon_item_static_yar/gPauseMap02Tex");
+COW_MM_ASSET(sCowMap03, "__OTR__icon_item_static_yar/gPauseMap03Tex");
+COW_MM_ASSET(sCowMap04, "__OTR__icon_item_static_yar/gPauseMap04Tex");
+COW_MM_ASSET(sCowMap10ENG, "__OTR__icon_item_jpn_static/gPauseMap10ENGTex");
+COW_MM_ASSET(sCowMap11, "__OTR__icon_item_static_yar/gPauseMap11Tex");
+COW_MM_ASSET(sCowMap12, "__OTR__icon_item_static_yar/gPauseMap12Tex");
+COW_MM_ASSET(sCowMap13, "__OTR__icon_item_static_yar/gPauseMap13Tex");
+COW_MM_ASSET(sCowMap14, "__OTR__icon_item_static_yar/gPauseMap14Tex");
+COW_MM_ASSET(sCowMap20, "__OTR__icon_item_static_yar/gPauseMap20Tex");
+COW_MM_ASSET(sCowMap21, "__OTR__icon_item_static_yar/gPauseMap21Tex");
+COW_MM_ASSET(sCowMap22, "__OTR__icon_item_static_yar/gPauseMap22Tex");
+COW_MM_ASSET(sCowMap23, "__OTR__icon_item_static_yar/gPauseMap23Tex");
+COW_MM_ASSET(sCowMap24, "__OTR__icon_item_static_yar/gPauseMap24Tex");
+const char* const sCowFrame[15] = {
+    sCowMap00, sCowMap01, sCowMap02, sCowMap03, sCowMap04, sCowMap10ENG, sCowMap11, sCowMap12,
+    sCowMap13, sCowMap14, sCowMap20, sCowMap21, sCowMap22, sCowMap23,    sCowMap24,
+};
+COW_MM_ASSET(sCowNamePanelL, "__OTR__icon_item_static_yar/gNamePanelLeftTex");  // IA8 72x24 (MM name box)
+COW_MM_ASSET(sCowNamePanelR, "__OTR__icon_item_static_yar/gNamePanelRightTex"); // IA8 72x24
+
 constexpr int COW_OWL_COUNT = 10; // OwlWarpId 0..9, bit i of MM's owlActivationFlags
 constexpr int COW_OWL_CLOCK_TOWN = 4;
-constexpr u16 COW_DEBUG_STATE = 0x10; // pauseCtx->debugState value kaleido never handles: a pure world freeze
+// A real pauseCtx->state (not debugState) so Interface_Draw still builds the HUD and draws the standard
+// Start "Return" prompt (that whole block is gated on debugState == 0, z_parameter.c). 0x14 is chosen so:
+// it is >= 18, the range Interface_DrawItemButtons draws the Start prompt for; it is outside 4..7 and
+// 0xB..0x12, the only ranges KaleidoScopeCall_Draw draws OOT's pause pages for, so those stay hidden; and
+// no KaleidoScope_Update case handles it (no default), so kaleido no-ops. The world still freezes because
+// any nonzero state routes Play_Update to KaleidoScopeCall_Update. Entering swaps the player overlay out
+// like a normal pause; leaving swaps it back with KaleidoScopeCall_LoadPlayer (nothing else does it here).
+constexpr u16 COW_PAUSE_STATE = 0x14;
 constexpr int COW_MAP_W = 216;
 constexpr int COW_MAP_H = 128;
 
@@ -80,7 +112,7 @@ const char* const sCowOwlNames[COW_OWL_COUNT] = {
 };
 // Owl icon quads in MM's map-page space (z_kaleido_scope_NES.c sVtxPageMapWorldQuadsX/Y, warp entries),
 // 24x12 each with the top-left at (X, Y), Y up. MM's flat map puts the image's top-left (-109, 59) at
-// screen (51, 62), so screen = (X + 160, 121 - Y).
+// screen (52, 61) after a 1px nudge, so screen = (X + 161, 120 - Y).
 const s16 sCowOwlX[COW_OWL_COUNT] = { -80, -64, -9, -3, -7, -16, -1, 23, 44, 54 };
 const s16 sCowOwlY[COW_OWL_COUNT] = { -8, -38, 39, 26, 1, -7, -28, -27, -1, 24 };
 
@@ -171,14 +203,28 @@ int CowStepCursor(int from, int dir) {
     return from;
 }
 
-// Freeze the world like the pause menu does: with debugState set, Play_Update runs the inert
-// KaleidoScopeCall_Update instead of actors, camera and Message_Update (z_play.c), START is refused,
-// and Play_Draw keeps drawing the last frame. Nothing in kaleido reacts to this value.
+// Enter/leave our owl-warp pause. Setting a real pauseCtx->state (see COW_PAUSE_STATE) makes Play_Update
+// run the inert KaleidoScopeCall_Update instead of actors/camera/Message_Update (z_play.c) and Play_Draw
+// hold the last frame, exactly like the real pause menu, while the engine keeps drawing the Start "Return"
+// prompt. Leaving restores the player actor overlay the pause swapped out (KaleidoScopeCall_LoadPlayer is
+// idempotent: it no-ops when the player overlay is already resident) and drops the forced Start alpha.
 void CowFreeze(PlayState* play, bool freeze) {
     if (freeze) {
-        play->pauseCtx.debugState = COW_DEBUG_STATE;
-    } else if (play->pauseCtx.debugState == COW_DEBUG_STATE) {
-        play->pauseCtx.debugState = 0;
+        play->pauseCtx.state = COW_PAUSE_STATE;
+    } else if (play->pauseCtx.state == COW_PAUSE_STATE) {
+        play->pauseCtx.state = 0;
+        play->interfaceCtx.startAlpha = 0;
+        KaleidoScopeCall_LoadPlayer();
+        // Bring the HUD back. Playing the ocarina hid it (saving the prior mode in prevHudVisibilityMode);
+        // its normal end restores that mode, but we bypassed that end, so the same restore has to run here
+        // or the HUD stays dark until the next ocarina. Straight from z_message.c's ocarina-close path.
+        if (gSaveContext.prevHudVisibilityMode == HUD_VISIBILITY_NO_CHANGE ||
+            gSaveContext.prevHudVisibilityMode == HUD_VISIBILITY_NOTHING ||
+            gSaveContext.prevHudVisibilityMode == HUD_VISIBILITY_NOTHING_ALT) {
+            gSaveContext.prevHudVisibilityMode = HUD_VISIBILITY_ALL;
+        }
+        gSaveContext.hudVisibilityMode = HUD_VISIBILITY_NO_CHANGE;
+        Interface_ChangeHudVisibilityMode(gSaveContext.prevHudVisibilityMode);
     }
 }
 
@@ -310,7 +356,7 @@ void CowUpdate() {
             }
             if (CHECK_BTN_ALL(input->press.button, BTN_A)) {
                 Sfx_PlaySfxCentered(NA_SE_SY_DECIDE);
-                sConfirmMsg = CustomMessage(std::string("\x08Soar to %p") + sCowOwlNames[sCursor] + "%w?&&" +
+                sConfirmMsg = CustomMessage(std::string("\x08Soar to %g") + sCowOwlNames[sCursor] + "%w?&&" +
                                                 CustomMessage::TWO_WAY_CHOICE() + "%gYes&No%w\x09",
                                             TEXTBOX_TYPE_BLUE);
                 sConfirmMsg.Format(); // '&' -> newline, colors, and the MESSAGE_END terminator
@@ -325,21 +371,26 @@ void CowUpdate() {
         }
         case COW_CONFIRM: {
             // The world stays frozen through the prompt, so step the message system ourselves (Play_Update
-            // skips it while debugState is set; Message_Draw still runs from Play_DrawOverlayElements).
+            // skips it while a pause state is set; Message_Draw still runs from Play_DrawOverlayElements).
             if (msgCtx->msgMode != MSGMODE_NONE) {
-                if (CHECK_BTN_ALL(input->press.button, BTN_B)) {
-                    sPromptCancelled = true; // B is "No" regardless of where the cursor sits
+                if (!sPromptCancelled && CHECK_BTN_ALL(input->press.button, BTN_B)) {
+                    // B cancels. Close it ourselves and skip Message_Update this frame so the message
+                    // system doesn't also play its own confirm/pass sound on top of the cancel.
+                    sPromptCancelled = true;
+                    Sfx_PlaySfxCentered(NA_SE_SY_CANCEL);
+                    Message_CloseTextbox(play);
+                } else {
+                    Message_Update(play); // navigate / confirm the choice, animate the close
                 }
-                Message_Update(play);
             }
             if (msgCtx->msgMode != MSGMODE_NONE) {
-                return; // prompt still up
+                return; // prompt still up (or still closing)
             }
             if (msgCtx->choiceIndex == 0 && !sPromptCancelled) {
                 sWarpOnClose = true;
                 sState = COW_FADE_OUT;
             } else {
-                Sfx_PlaySfxCentered(NA_SE_SY_CANCEL); // back to the map
+                // "No" (A) already sounded via the message system; B sounded above. Just go back.
                 sStickLatch = true;
                 sState = COW_SELECT;
             }
@@ -383,36 +434,72 @@ static void CowDraw() {
         return;
     }
 
+    // Once the map is up (we hold the pause state), let the engine draw the standard Start "Return" prompt:
+    // Interface_DrawItemButtons draws it for a real pause state (>= 18) using only interfaceCtx->startAlpha,
+    // which nothing else drives while we are up -- so set it here, from OnPlayDrawEnd, the frame's last write
+    // before Interface_Draw reads it -- and zero the rest of the HUD so only the Return prompt shows over the
+    // map. Hidden during the Yes/No prompt, where B / Start belong to the choice. Skipped in the pre-freeze
+    // states (CLOSING / REFUSED), where the ocarina and refusal textboxes still want the normal HUD.
+    if (sState == COW_FADE_IN || sState == COW_SELECT || sState == COW_CONFIRM || sState == COW_FADE_OUT) {
+        InterfaceContext* ic = &play->interfaceCtx;
+        ic->startAlpha = (sState == COW_CONFIRM) ? 0 : (s16)sAlpha;
+        ic->aAlpha = ic->bAlpha = ic->cLeftAlpha = ic->cDownAlpha = ic->cRightAlpha = 0;
+        ic->healthAlpha = ic->magicAlpha = ic->minimapAlpha = 0;
+    }
+
     OPEN_DISPS(play->state.gfxCtx);
 
     Gfx_SetupDL_39Overlay(play->state.gfxCtx);
-    gDPSetTextureFilter(OVERLAY_DISP++, G_TF_POINT);
+    gDPSetTextureFilter(OVERLAY_DISP++,
+                        G_TF_BILERP); // MM's owl map is bilinear (z_kaleido_map.c:722); point looked blocky upscaled
 
     // Everything MM-owned resolves against MM's ResourceManager between push and pop.
     gSPComboRMPush(OVERLAY_DISP++, "mm");
 
+    // Map-page parchment frame behind the world map (MM draws sMapPageBgTextures before DrawWorldMap):
+    // a 3x5 grid of the 80x32 IA8 tiles tinted MM's tan (prim 180,180,120), stretched over 82x35 cells
+    // and placed so row 0 is the "MAP" title band above the map (y 62), rows 1-4 hold the framed map, and
+    // row 4 shows below it as a bottom border -- 2ship's framed owl page rather than a floating map.
+    gDPSetRenderMode(OVERLAY_DISP++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+    gDPSetCombineMode(OVERLAY_DISP++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM);
+    gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 180, 180, 120, sAlpha);
+    for (int i = 0; i < 15; i++) {
+        const int fx = 37 + (i / 5) * 82; // column-major, like sMapPageBgTextures
+        const int fy = 36 + (i % 5) * 33; // row 0 = title band above the map (y62), row 4 = bottom border
+        gDPLoadTextureBlock(OVERLAY_DISP++, sCowFrame[i], G_IM_FMT_IA, G_IM_SIZ_8b, 80, 32, 0,
+                            G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD,
+                            G_TX_NOLOD);
+        // dsdx/dtdy stretch the 80x32 tile over the 82x33 cell (80*1024/82, 32*1024/33).
+        gSPTextureRectangle(OVERLAY_DISP++, fx << 2, fy << 2, (fx + 82) << 2, (fy + 33) << 2, G_TX_RENDERTILE, 0, 0,
+                            999, 992);
+    }
+    gDPPipeSync(OVERLAY_DISP++);
+
     // Termina map: CI8 + 256-color palette, 16 strips of 8 rows (MM z_kaleido_map.c, flat path).
+    gDPSetTextureFilter(OVERLAY_DISP++,
+                        G_TF_POINT); // the world map itself is point-filtered in MM (z_kaleido_map.c:650)
     gDPSetRenderMode(OVERLAY_DISP++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
     gDPSetCombineMode(OVERLAY_DISP++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM);
     gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 255, 255, sAlpha);
     gDPLoadTLUT_pal256(OVERLAY_DISP++, sCowMapTlut);
     gDPSetTextureLUT(OVERLAY_DISP++, G_TT_RGBA16);
-    for (int j = 0, t = 62; j < COW_MAP_H / 8; j++, t += 8) {
+    for (int j = 0, t = 61; j < COW_MAP_H / 8; j++, t += 8) {
         gDPLoadMultiTile(OVERLAY_DISP++, sCowMapTex, 0, G_TX_RENDERTILE, G_IM_FMT_CI, G_IM_SIZ_8b, COW_MAP_W, COW_MAP_H,
                          0, j * 8, COW_MAP_W - 1, (j + 1) * 8 - 1, 0, G_TX_NOMIRROR | G_TX_WRAP,
                          G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
         gDPSetTileSize(OVERLAY_DISP++, G_TX_RENDERTILE, 0, 0, (COW_MAP_W - 1) << G_TEXTURE_IMAGE_FRAC,
                        (8 - 1) << G_TEXTURE_IMAGE_FRAC);
-        gSPTextureRectangle(OVERLAY_DISP++, 51 << 2, t << 2, (51 + COW_MAP_W) << 2, (t + 8) << 2, G_TX_RENDERTILE, 0, 0,
+        gSPTextureRectangle(OVERLAY_DISP++, 52 << 2, t << 2, (52 + COW_MAP_W) << 2, (t + 8) << 2, G_TX_RENDERTILE, 0, 0,
                             1 << 10, 1 << 10);
     }
-    gDPSetTextureLUT(OVERLAY_DISP++, G_TT_NONE); // the HUD / textbox after us must not index the palette
+    gDPSetTextureLUT(OVERLAY_DISP++, G_TT_NONE);      // the HUD / textbox after us must not index the palette
+    gDPSetTextureFilter(OVERLAY_DISP++, G_TF_BILERP); // back to bilinear for the icons / panel / cursor
 
     // MM's dimmer over the map while choosing.
     gDPPipeSync(OVERLAY_DISP++);
     gDPSetCombineMode(OVERLAY_DISP++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
     gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 0, 0, 0, sDim);
-    gDPFillRectangle(OVERLAY_DISP++, 50, 62, 270, 190);
+    gDPFillRectangle(OVERLAY_DISP++, 51, 61, 271, 189);
 
     // One owl face per activated statue.
     gDPPipeSync(OVERLAY_DISP++);
@@ -424,17 +511,32 @@ static void CowDraw() {
         if (!(sFlags & (1 << i))) {
             continue;
         }
-        const int x = sCowOwlX[i] + 160;
-        const int y = 121 - sCowOwlY[i];
+        const int x = sCowOwlX[i] + 161;
+        const int y = 120 - sCowOwlY[i];
         gSPTextureRectangle(OVERLAY_DISP++, x << 2, y << 2, (x + 24) << 2, (y + 12) << 2, G_TX_RENDERTILE, 0, 0,
                             1 << 10, 1 << 10);
     }
 
-    // Location plate above the map (MM shows it on the info panel below).
+    // Name panel behind the location name -- MM's gItemNamePanelDL: gNamePanelLeft/RightTex, two IA8
+    // 72x24 tiles side by side (144 wide), tinted MM's tan (prim 150,140,90), the same box MM draws.
     gDPPipeSync(OVERLAY_DISP++);
+    gDPSetRenderMode(OVERLAY_DISP++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+    gDPSetCombineMode(OVERLAY_DISP++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM);
+    gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 150, 140, 90, sAlpha);
+    gDPLoadTextureBlock(OVERLAY_DISP++, sCowNamePanelL, G_IM_FMT_IA, G_IM_SIZ_8b, 72, 24, 0, G_TX_NOMIRROR | G_TX_WRAP,
+                        G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+    gSPTextureRectangle(OVERLAY_DISP++, 88 << 2, 195 << 2, 160 << 2, 219 << 2, G_TX_RENDERTILE, 0, 0, 1 << 10, 1 << 10);
+    gDPLoadTextureBlock(OVERLAY_DISP++, sCowNamePanelR, G_IM_FMT_IA, G_IM_SIZ_8b, 72, 24, 0, G_TX_NOMIRROR | G_TX_WRAP,
+                        G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+    gSPTextureRectangle(OVERLAY_DISP++, 160 << 2, 195 << 2, 232 << 2, 219 << 2, G_TX_RENDERTILE, 0, 0, 1 << 10,
+                        1 << 10);
+
+    // Location name on the panel, like MM's info panel ("Clock Town").
+    gDPPipeSync(OVERLAY_DISP++);
+    gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 255, 255, sAlpha);
     gDPLoadTextureBlock_4b(OVERLAY_DISP++, sCowNameTexs[sCursor], G_IM_FMT_IA, 128, 16, 0, G_TX_NOMIRROR | G_TX_WRAP,
                            G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-    gSPTextureRectangle(OVERLAY_DISP++, 96 << 2, 42 << 2, 224 << 2, 58 << 2, G_TX_RENDERTILE, 0, 0, 1 << 10, 1 << 10);
+    gSPTextureRectangle(OVERLAY_DISP++, 96 << 2, 199 << 2, 224 << 2, 215 << 2, G_TX_RENDERTILE, 0, 0, 1 << 10, 1 << 10);
 
     gSPComboRMPop(OVERLAY_DISP++);
 
@@ -442,8 +544,8 @@ static void CowDraw() {
     if (sState == COW_SELECT || sState == COW_CONFIRM) {
         const void* const corners[4] = { gPauseMenuCursorTopLeftTex, gPauseMenuCursorTopRightTex,
                                          gPauseMenuCursorBottomLeftTex, gPauseMenuCursorBottomRightTex };
-        const int left = sCowOwlX[sCursor] + 160 - 4;
-        const int top = 121 - sCowOwlY[sCursor] - 4;
+        const int left = sCowOwlX[sCursor] + 161 - 4;
+        const int top = 120 - sCowOwlY[sCursor] - 4;
         const int right = left + 32;
         const int bottom = top + 20;
         const int cx[4] = { left, right - 8, left, right - 8 };

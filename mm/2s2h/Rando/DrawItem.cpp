@@ -122,7 +122,8 @@ void DrawSong(RandoItemId randoItemId) {
         case RI_SONG_SOARING:
             gDPSetEnvColor(POLY_XLU_DISP++, 200, 160, 255, 255);
             break;
-        // ComboShip (teleport songs): OOT's warp-song colours.
+#ifdef COMBO_BUILD
+        // ComboShip (teleport songs): OOT's warp-song colors.
         case RI_SONG_MINUET:
             gDPSetEnvColor(POLY_XLU_DISP++, 150, 255, 100, 255);
             break;
@@ -141,6 +142,7 @@ void DrawSong(RandoItemId randoItemId) {
         case RI_SONG_PRELUDE:
             gDPSetEnvColor(POLY_XLU_DISP++, 255, 240, 100, 255);
             break;
+#endif
         case RI_SONG_ELEGY:
             gDPSetEnvColor(POLY_XLU_DISP++, 255, 98, 0, 255);
             break;
@@ -574,12 +576,14 @@ void Rando::DrawItem(RandoItemId randoItemId, RandoCheckId randoCheckId, Actor* 
         case RI_SONG_NOVA:
         case RI_SONG_DOUBLE_TIME:
         case RI_SONG_INVERTED_TIME:
-        case RI_SONG_MINUET:
+#ifdef COMBO_BUILD
+        case RI_SONG_MINUET: // ComboShip (teleport songs)
         case RI_SONG_BOLERO:
         case RI_SONG_SERENADE:
         case RI_SONG_REQUIEM:
         case RI_SONG_NOCTURNE:
         case RI_SONG_PRELUDE:
+#endif
             DrawSong(randoItemId);
             break;
         case RI_CLOCK_TOWN_STRAY_FAIRY:

@@ -49,9 +49,8 @@ typedef enum OcarinaSongId {
 } OcarinaSongId;
 
 #ifdef COMBO_BUILD
+// ComboShip (teleport songs)
 #define OCARINA_SONG_IS_OOT_WARP(song) ((song) >= OCARINA_SONG_MINUET && (song) <= OCARINA_SONG_PRELUDE)
-#else
-#define OCARINA_SONG_IS_OOT_WARP(song) (false)
 #endif
 
 typedef enum OcarinaSongActionId {

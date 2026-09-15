@@ -1634,6 +1634,7 @@ bool VerifyArchiveVersion(OTRVersion version) {
 
 // ComboShip: forward declarations — defined further down with the combo exports.
 extern "C" void (*gComboSceneSwitchCallback)(int fileNum);
+#ifdef COMBO_BUILD
 // ComboShip (teleport songs): cross-game handoff state. Set when we want to switch to MM; acted on at
 // the start of the next clean frame by the OnGameFrameUpdate hook below.
 static bool sComboSwitchPending = false;
@@ -1647,6 +1648,7 @@ extern "C" s32 gComboTargetEntrance = -1;
 // Set by TitleSetup on an override arrival, cleared by the next OnSceneInit: lets hooks tell a
 // combo-driven arrival apart from a player-driven scene load.
 extern "C" s32 gComboCrossArrival = 0;
+#endif
 // Launcher poll: returns the next save slot backed up for a release mismatch, or -1 if none.
 extern "C" int (*gComboOutdatedSaveNotice)();
 

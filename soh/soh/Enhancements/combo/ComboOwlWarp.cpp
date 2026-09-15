@@ -15,6 +15,7 @@
 // PLAYER_STATE1_IN_CUTSCENE, stepping Message_Update itself for the Yes/No prompt so the freeze holds. Starting a
 // textbox while the session is still in MSGMODE_OCARINA_PLAYING corrupts the message context (it spilled into
 // interfaceCtx->view). The map is drawn from OnPlayDrawEnd into OVERLAY_DISP, under the HUD and any textbox, like MM's.
+#ifdef COMBO_BUILD
 #include <libultraship/bridge/consolevariablebridge.h>
 #include "soh/ShipInit.hpp"
 #include "soh/OTRGlobals.h"
@@ -312,7 +313,7 @@ void CowUpdate() {
                 sConfirmMsg = CustomMessage(std::string("\x08Soar to %p") + sCowOwlNames[sCursor] + "%w?&&" +
                                                 CustomMessage::TWO_WAY_CHOICE() + "%gYes&No%w\x09",
                                             TEXTBOX_TYPE_BLUE);
-                sConfirmMsg.Format(); // '&' -> newline, colours, and the MESSAGE_END terminator
+                sConfirmMsg.Format(); // '&' -> newline, colors, and the MESSAGE_END terminator
                 Message_StartTextbox(play, TEXT_COMBO_SOARING_CONFIRM, NULL);
                 sPromptCancelled = false;
                 sState = COW_CONFIRM;
@@ -390,7 +391,7 @@ static void CowDraw() {
     // Everything MM-owned resolves against MM's ResourceManager between push and pop.
     gSPComboRMPush(OVERLAY_DISP++, "mm");
 
-    // Termina map: CI8 + 256-colour palette, 16 strips of 8 rows (MM z_kaleido_map.c, flat path).
+    // Termina map: CI8 + 256-color palette, 16 strips of 8 rows (MM z_kaleido_map.c, flat path).
     gDPSetRenderMode(OVERLAY_DISP++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
     gDPSetCombineMode(OVERLAY_DISP++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM);
     gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 255, 255, sAlpha);
@@ -464,7 +465,7 @@ static void RegisterComboOwlWarp() {
     // Registered whenever a rando save is loaded; the seed option and item ownership are checked per use.
     const bool on = IS_RANDO;
     CowReset();
-    // Format() converts '&' / colours and appends MESSAGE_END; LoadIntoFont copies the RAW text, so an
+    // Format() converts '&' / colors and appends MESSAGE_END; LoadIntoFont copies the RAW text, so an
     // unformatted message has no terminator and Message_Decode runs past the 200-byte decode buffer
     // into interfaceCtx (the first two soaring tests crashed exactly there). Once only: it mutates.
     static bool sNoMarkFormatted = false;
@@ -488,3 +489,5 @@ static void RegisterComboOwlWarp() {
 }
 
 static RegisterShipInitFunc initFunc(RegisterComboOwlWarp, { "IS_RANDO" });
+
+#endif // COMBO_BUILD

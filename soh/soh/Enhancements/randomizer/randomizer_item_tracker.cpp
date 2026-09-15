@@ -142,8 +142,10 @@ std::vector<ItemTrackerItem> songItems = {
     ITEM_TRACKER_ITEM(QUEST_SONG_REQUIEM, 0, DrawSong),
     ITEM_TRACKER_ITEM(QUEST_SONG_NOCTURNE, 0, DrawSong),
     ITEM_TRACKER_ITEM(QUEST_SONG_PRELUDE, 0, DrawSong),
+#ifdef COMBO_BUILD
     // ComboShip (teleport songs): MM's Song of Soaring, RandoInf-backed, so it is a custom item, not a quest song.
     ITEM_TRACKER_ITEM_CUSTOM(RG_SONG_OF_SOARING, ITEM_SONG_PRELUDE, ITEM_SONG_PRELUDE, 0, DrawItem),
+#endif
 };
 
 std::vector<ItemTrackerItem> gregItems = {
@@ -1072,11 +1074,13 @@ void DrawItem(ItemTrackerItem item) {
             hasItem = Flags_GetRandomizerInf(RAND_INF_HAS_OCARINA_A);
             itemName = "Ocarina A Button";
             break;
+#ifdef COMBO_BUILD
         case RG_SONG_OF_SOARING: // ComboShip (teleport songs)
             actualItemId = item.id;
             hasItem = Flags_GetRandomizerInf(RAND_INF_HAS_SONG_OF_SOARING);
             itemName = "Song of Soaring";
             break;
+#endif
         case RG_OCARINA_C_UP_BUTTON:
             actualItemId = item.id;
             hasItem = Flags_GetRandomizerInf(RAND_INF_HAS_OCARINA_C_UP);

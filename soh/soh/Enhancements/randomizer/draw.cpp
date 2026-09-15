@@ -15,7 +15,9 @@ extern "C" {
 #include "objects/object_gi_bosskey/object_gi_bosskey.h"
 #include "objects/object_gi_compass/object_gi_compass.h"
 #include "objects/object_gi_map/object_gi_map.h"
+#ifdef COMBO_BUILD
 #include "objects/object_gi_melody/object_gi_melody.h" // ComboShip (teleport songs): gGiSongNoteDL
+#endif
 #include "objects/object_gi_hearts/object_gi_hearts.h"
 #include "objects/object_gi_scale/object_gi_scale.h"
 #include "objects/object_gi_fire/object_gi_fire.h"
@@ -1121,6 +1123,7 @@ extern "C" void Randomizer_DrawOcarinaButton(PlayState* play, GetItemEntry* getI
     CLOSE_DISPS(play->state.gfxCtx);
 }
 
+#ifdef COMBO_BUILD
 // ComboShip (teleport songs): MM's Song of Soaring on the OOT host, the vanilla song-note model in MM's
 // soaring tint (Rando/DrawItem.cpp DrawSong: 200, 160, 255). Same shape as z_draw.c's GetItem_DrawXlu01.
 static Gfx gGiSongOfSoaringColorDL[] = {
@@ -1142,6 +1145,7 @@ extern "C" void Randomizer_DrawSongOfSoaring(PlayState* play, GetItemEntry* getI
 
     CLOSE_DISPS(play->state.gfxCtx);
 }
+#endif
 
 static Gfx gGiBronzeScaleWaterColorDL[] = {
     gsDPPipeSync(),

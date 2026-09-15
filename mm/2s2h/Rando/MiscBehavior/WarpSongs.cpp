@@ -8,6 +8,8 @@
 // playable (VB_SONG_AVAILABLE_TO_PLAY). Both prompts reuse text id 0x1B95 with a local state machine,
 // exactly like SariasSongHint.cpp, so no new message-table ids are needed and ClockShuffle's unguarded
 // hooks on 0x1B8A..0x1B92 (where 0x1B72 + id would have landed) stay untouched.
+#ifdef COMBO_BUILD
+
 #include "2s2h/CustomMessage/CustomMessage.h"
 #include "MiscBehavior.h"
 #include "2s2h/BenPort.h"
@@ -31,7 +33,7 @@ const char* const kSongNames[6] = {
     "Minuet of Forest",  "Bolero of Fire",     "Serenade of Water",
     "Requiem of Spirit", "Nocturne of Shadow", "Prelude of Light",
 };
-// OOT's own "Warp to X?" prompts tint the destination in the song's colour. MM's colour bytes:
+// OOT's own "Warp to X?" prompts tint the destination in the song's color. MM's color bytes:
 // 0x02 green, 0x01 red (MM's red is orange-red), 0x03 blue, 0x04 yellow, 0x06 purple, 0x05 light blue.
 const char* const kPlaceColors[6] = { "%g", "%r", "%b", "%y", "%p", "\x05" };
 const char* const kPlaceNames[6] = {
@@ -133,3 +135,5 @@ void Rando::MiscBehavior::WarpSongs() {
         *loadFromMessageTable = false;
     });
 }
+
+#endif // COMBO_BUILD

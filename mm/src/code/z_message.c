@@ -4354,7 +4354,12 @@ void Message_DrawSceneTitleCard(PlayState* play, Gfx** gfxP) {
     *gfxP = gfx++;
 }
 
+#ifdef COMBO_BUILD
+// ComboShip (teleport songs): sized explicitly so the OOT warp-song ids at the tail fit.
 s16 sOcarinaSongFanfares[OCARINA_SONG_MAX] = {
+#else
+s16 sOcarinaSongFanfares[] = {
+#endif
     NA_BGM_OCARINA_SONATA,            // OCARINA_SONG_SONATA
     NA_BGM_OCARINA_LULLABY,           // OCARINA_SONG_GORON_LULLABY
     NA_BGM_OCARINA_NEW_WAVE,          // OCARINA_SONG_NEW_WAVE
@@ -4655,15 +4660,24 @@ void Message_DrawMain(PlayState* play, Gfx** gfxP) {
                 // 0xFF means no staff is up
                 //! @bug states 0xFE and 0xFF will index CHECK_QUEST_ITEM Out of bounds, causing ASAN to crash.
                 // 2S2H [Port] Fix this OOB with a check.
+#ifdef COMBO_BUILD
+                // ComboShip (teleport songs): OOT's warp songs have no MM quest bit to index.
                 if (msgCtx->ocarinaStaff->state != 0xFE && msgCtx->ocarinaStaff->state != 0xFF &&
                     !OCARINA_SONG_IS_OOT_WARP(msgCtx->ocarinaStaff->state)) {
+#else
+                if (msgCtx->ocarinaStaff->state != 0xFE && msgCtx->ocarinaStaff->state != 0xFF) {
+#endif
                     vanillaOwnedSongCheck =
                         vanillaOwnedSongCheck || CHECK_QUEST_ITEM(QUEST_SONG_SONATA + msgCtx->ocarinaStaff->state);
                 }
 
+#ifdef COMBO_BUILD
                 // ComboShip (teleport songs): OOT's warp songs are owned through VB_SONG_AVAILABLE_TO_PLAY only.
                 if (msgCtx->ocarinaStaff->state <= OCARINA_SONG_SCARECROW_SPAWN ||
                     OCARINA_SONG_IS_OOT_WARP(msgCtx->ocarinaStaff->state)) {
+#else
+                if (msgCtx->ocarinaStaff->state <= OCARINA_SONG_SCARECROW_SPAWN) {
+#endif
                     if (msgCtx->ocarinaStaff->state == OCARINA_SONG_EVAN_PART1) {
                         AudioOcarina_ResetAndReadInput();
                         AudioOcarina_StartDefault(0x80100000);
@@ -4869,10 +4883,12 @@ void Message_DrawMain(PlayState* play, Gfx** gfxP) {
             case MSGMODE_DISPLAY_SONG_PLAYED_TEXT_BEGIN:
                 if (msgCtx->songPlayed == OCARINA_SONG_SCARECROW_SPAWN) {
                     Message_ContinueTextbox(play, 0x1B6B);
+#ifdef COMBO_BUILD
                 } else if (OCARINA_SONG_IS_OOT_WARP(msgCtx->songPlayed)) {
                     // ComboShip (teleport songs): 0x1B72 + id would be a Song of Time prompt; WarpSongs.cpp
                     // supplies the "You played the ..." body for 0x1B95 in this message mode.
                     Message_ContinueTextbox(play, 0x1B95);
+#endif
                 } else {
                     Message_ContinueTextbox(play, 0x1B72 + msgCtx->songPlayed);
                 }

@@ -2853,6 +2853,7 @@ typedef enum {
     RI_SONG_INVERTED_TIME,
     RI_SONG_LULLABY_INTRO,
     RI_SONG_LULLABY,
+#ifdef COMBO_BUILD
     // ComboShip (teleport songs): OOT's warp songs as MM items. Kept inside the RI_SONG_DOUBLE_TIME..
     // RI_SONG_TIME range the menu / item tracker use for song icon sizing; order = OOT warp index.
     RI_SONG_MINUET,
@@ -2861,6 +2862,7 @@ typedef enum {
     RI_SONG_REQUIEM,
     RI_SONG_NOCTURNE,
     RI_SONG_PRELUDE,
+#endif
     RI_SONG_NOVA,
     RI_SONG_OATH,
     RI_SONG_SARIA,
@@ -3330,7 +3332,9 @@ typedef enum {
     RO_SHUFFLE_SONG_INVERTED_TIME,
     RO_SHUFFLE_SONG_SARIA,
     RO_SHUFFLE_SONG_SUN,
+#ifdef COMBO_BUILD
     RO_SHUFFLE_SONG_WARP_SONGS, // ComboShip: OOT's six warp songs (cross-game teleport)
+#endif
     RO_SHUFFLE_SWIM,
     RO_SHUFFLE_TINGLE_SHOPS,
     RO_SHUFFLE_TRAPS,
@@ -3476,6 +3480,7 @@ typedef enum {
     RANDO_INF_OBTAINED_OCARINA_BUTTON_C_UP,
     RANDO_INF_OBTAINED_SONG_DOUBLE_TIME,
     RANDO_INF_OBTAINED_SONG_INVERTED_TIME,
+#ifdef COMBO_BUILD
     // ComboShip (teleport songs): OOT warp songs have no MM quest bit; same order as RI_SONG_MINUET..
     RANDO_INF_OBTAINED_SONG_MINUET,
     RANDO_INF_OBTAINED_SONG_BOLERO,
@@ -3483,6 +3488,7 @@ typedef enum {
     RANDO_INF_OBTAINED_SONG_REQUIEM,
     RANDO_INF_OBTAINED_SONG_NOCTURNE,
     RANDO_INF_OBTAINED_SONG_PRELUDE,
+#endif
     RANDO_INF_MAX,
 } RandoInf;
 

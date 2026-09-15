@@ -168,8 +168,10 @@ bool Logic::HasItem(RandomizerGet itemName) {
         case RG_SPEAK_HYLIAN:
         case RG_SPEAK_KOKIRI:
         case RG_SPEAK_ZORA:
+#ifdef COMBO_BUILD
             // ComboShip (teleport songs)
         case RG_SONG_OF_SOARING:
+#endif
             // Ocarina Buttons
         case RG_OCARINA_A_BUTTON:
         case RG_OCARINA_C_LEFT_BUTTON:
@@ -1867,7 +1869,9 @@ std::map<RandomizerGet, uint32_t> StaticData::RandoGetToRandInf = {
     { RG_OCARINA_C_DOWN_BUTTON, RAND_INF_HAS_OCARINA_C_DOWN },
     { RG_OCARINA_C_LEFT_BUTTON, RAND_INF_HAS_OCARINA_C_LEFT },
     { RG_OCARINA_C_RIGHT_BUTTON, RAND_INF_HAS_OCARINA_C_RIGHT },
+#ifdef COMBO_BUILD
     { RG_SONG_OF_SOARING, RAND_INF_HAS_SONG_OF_SOARING }, // ComboShip (teleport songs)
+#endif
     { RG_KEATON_MASK, RAND_INF_CHILD_TRADES_HAS_MASK_KEATON },
     { RG_SKULL_MASK, RAND_INF_CHILD_TRADES_HAS_MASK_SKULL },
     { RG_SPOOKY_MASK, RAND_INF_CHILD_TRADES_HAS_MASK_SPOOKY },
@@ -2330,7 +2334,9 @@ void Logic::ApplyItemEffect(Item& item, bool state) {
                 case RG_OCARINA_C_DOWN_BUTTON:
                 case RG_OCARINA_C_LEFT_BUTTON:
                 case RG_OCARINA_C_RIGHT_BUTTON:
+#ifdef COMBO_BUILD
                 case RG_SONG_OF_SOARING: // ComboShip (teleport songs)
+#endif
                 case RG_KEATON_MASK:
                 case RG_SKULL_MASK:
                 case RG_SPOOKY_MASK:
@@ -2947,9 +2953,11 @@ void Logic::Reset(bool resetSaveContext /*= true*/) {
         SetRandoInf(RAND_INF_HAS_OCARINA_C_DOWN, !ocBtnShuffle);
         SetRandoInf(RAND_INF_HAS_OCARINA_C_LEFT, !ocBtnShuffle);
         SetRandoInf(RAND_INF_HAS_OCARINA_C_RIGHT, !ocBtnShuffle);
+#ifdef COMBO_BUILD
         // ComboShip (teleport songs): a starting Song of Soaring is owned from the first search.
         SetRandoInf(RAND_INF_HAS_SONG_OF_SOARING, ctx->GetOption(RSK_SONG_OF_SOARING_OOT).Is(true) &&
                                                       ctx->GetOption(RSK_STARTING_SONG_OF_SOARING).Is(true));
+#endif
 
         // Progressive Items
         SetUpgrade(UPG_STICKS, ctx->GetOption(RSK_SHUFFLE_DEKU_STICK_BAG).Is(true) ? 0 : 1);

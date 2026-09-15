@@ -32,8 +32,8 @@ const char* const kSongNames[6] = {
     "Requiem of Spirit", "Nocturne of Shadow", "Prelude of Light",
 };
 // OOT's own "Warp to X?" prompts tint the destination in the song's colour. MM's colour bytes:
-// 0x02 green, 0x01 red (MM's red is orange-red), 0x03 blue, 0x08 orange, 0x06 purple, 0x04 yellow.
-const char* const kPlaceColors[6] = { "%g", "%r", "%b", "\x08", "%p", "%y" };
+// 0x02 green, 0x01 red (MM's red is orange-red), 0x03 blue, 0x08 orange, 0x06 purple, 0x05 light blue.
+const char* const kPlaceColors[6] = { "%g", "%r", "%b", "\x08", "%p", "\x05" };
 const char* const kPlaceNames[6] = {
     "the Sacred Forest Meadow", "Death Mountain Crater", "Lake Hylia",
     "the Desert Colossus",      "the Graveyard",         "the Temple of Time",

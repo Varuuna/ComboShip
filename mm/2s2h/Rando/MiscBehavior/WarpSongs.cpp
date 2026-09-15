@@ -1,6 +1,6 @@
 // ComboShip (cross-game teleport songs): Ocarina of Time's six warp songs as MM rando items.
 //
-// Playing one in Termina shows "You played the <song>." then asks "Soar to <place>?"; Yes persists MM and
+// Playing one in Termina shows "You played the <song>." then asks "Warp to <place>?"; Yes persists MM and
 // hands off to OOT arriving at that warp pad (Combo_RequestCrossSwitch, the entrance-targeted handoff).
 // Refused wherever MM refuses its own Song of Soaring (restriction flag, dungeons, the Secret Shrine).
 //

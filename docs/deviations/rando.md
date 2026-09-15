@@ -1835,7 +1835,7 @@ progression. Separate follow-up.
 
 **Why:** OoTMM's `songSoaringOot` / `songMinuetMm`..`songPreludeMm`. Playing MM's Song of Soaring in
 Hyrule opens Termina's owl-statue map and switches games to the chosen statue; playing an OOT warp song
-in Termina asks "Soar to X?" and switches games to that warp pad. Both are opt-in seed settings
+in Termina asks "Warp to X?" and switches games to that warp pad. Both are opt-in seed settings
 (OOT: `RSK_SONG_OF_SOARING_OOT`, "Song of Soaring (soar to Termina)"; MM: `RO_SHUFFLE_SONG_WARP_SONGS`,
 "OoT Warp Songs" in the Extra Songs card), out of logic on purpose: neither oracle can express
 cross-game access, and a route logic does not know only makes a seed more open, never less beatable.
@@ -1871,7 +1871,7 @@ console `combo_warp_mm <hex>` (OOT) / `combo_warp_oot <hex>` (MM).
   only). `RI_SONG_MINUET..PRELUDE` sit inside the `RI_SONG_DOUBLE_TIME..RI_SONG_TIME` range the menu
   and item tracker use for song icon sizing (this shifts later RI ids, like every 2Ship item insert).
 - `mm/2s2h/Rando/MiscBehavior/WarpSongs.cpp` (combo-owned): availability hook, "You played the X." and
-  "Soar to X?" both on text id 0x1B95 with a local state machine (SariasSongHint pattern, coexists
+  "Warp to X?" both on text id 0x1B95 with a local state machine (SariasSongHint pattern, coexists
   with its 0x1B95 hooks), refusal wherever MM refuses its own Song of Soaring (`restrictions.songOfSoaring`,
   `Map_CurRoomHasMapI`, Secret Shrine), Yes -> `Combo_RequestCrossSwitch(ENTR_*_WARP_PAD)`.
 

@@ -125,7 +125,7 @@ void Rando::MiscBehavior::WarpSongs() {
         } else if (sState == WS_CONFIRM) {
             entry.nextMessageID = 0x1B95;
             entry.msg = std::string("Soar to ") + kPlaceColors[sWarpIndex] + kPlaceNames[sWarpIndex] +
-                        "%w?\x02\x11\xC2Yes\x11No";
+                        "%w?\x11\x02\x11\xC2Yes\x11No"; // blank line before the choices, like the vanilla warp prompt
         } else {
             return; // not ours: vanilla text (or another feature's hook, e.g. Saria's Song)
         }

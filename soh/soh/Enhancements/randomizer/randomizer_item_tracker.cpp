@@ -144,7 +144,7 @@ std::vector<ItemTrackerItem> songItems = {
     ITEM_TRACKER_ITEM(QUEST_SONG_PRELUDE, 0, DrawSong),
 #ifdef COMBO_BUILD
     // ComboShip (teleport songs): MM's Song of Soaring, RandoInf-backed, so it is a custom item, not a quest song.
-    ITEM_TRACKER_ITEM_CUSTOM(RG_SONG_OF_SOARING, ITEM_SONG_PRELUDE, ITEM_SONG_PRELUDE, 0, DrawItem),
+    ITEM_TRACKER_ITEM_CUSTOM(RG_SONG_OF_SOARING, ITEM_SONG_PRELUDE, ITEM_SONG_PRELUDE, 0, DrawSong),
 #endif
 };
 
@@ -1412,12 +1412,16 @@ void DrawDungeonItem(ItemTrackerItem item) {
 void DrawSong(ItemTrackerItem item) {
     float iconSize = static_cast<float>(CVarGetInteger(CVAR_TRACKER_ITEM("IconSize"), 36));
     ImVec2 p = ImGui::GetCursorScreenPos();
-    bool hasSong = HasSong(item);
+    // ComboShip (teleport songs): Song of Soaring is a rando item, not a quest-song bit, so its ownership
+    // and name come from the randomizer inf rather than HasSong()/GetQuestItemName(). The 2:3 song aspect
+    // below is shared -- drawing it through DrawItem's square icon was what stretched it wide.
+    bool isSoaring = item.id == RG_SONG_OF_SOARING;
+    bool hasSong = isSoaring ? Flags_GetRandomizerInf(RAND_INF_HAS_SONG_OF_SOARING) : HasSong(item);
     ImGui::SetCursorScreenPos(ImVec2(p.x + 6, p.y));
     ImGui::Image(std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui())
                      ->GetTextureByName(hasSong && IsValidSaveFile() ? item.name : item.nameFaded),
                  ImVec2(iconSize / 1.5f, iconSize), ImVec2(0, 0), ImVec2(1, 1));
-    Tooltip(SohUtils::GetQuestItemName(item.id).c_str());
+    Tooltip(isSoaring ? "Song of Soaring" : SohUtils::GetQuestItemName(item.id).c_str());
 }
 
 void DrawNotes(bool resizeable = false) {

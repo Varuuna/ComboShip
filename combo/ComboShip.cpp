@@ -230,6 +230,16 @@ typedef void (*FnMMResume)(int);
 static FnMMResume MM_ResumeGame = nullptr;
 static FnVoidArgless MM_PrepareForTransition = nullptr;
 
+// ComboShip (teleport songs): entrance-targeted handoff. The leaving game stages the entrance it wants
+// the other game to arrive at; the launcher drains it here and pushes it as a one-shot arrival override
+// right before the other game's boot/resume. Same shape as feat/cross-entrances so the two merge.
+typedef int (*FnGetCrossTarget)(void); // consume-on-read, -1 = none
+typedef void (*FnSetTargetEntrance)(int);
+static FnGetCrossTarget SOH_GetPendingCrossTarget = nullptr;
+static FnGetCrossTarget MM_GetPendingCrossTarget = nullptr;
+static FnSetTargetEntrance SOH_SetTargetEntrance = nullptr;
+static FnSetTargetEntrance MM_SetTargetEntrance = nullptr;
+
 // ComboShip: headless static-data dump exports
 typedef const char* (*FnDumpData)(void);
 static FnDumpData SOH_DumpRandoStaticData = nullptr;
@@ -837,6 +847,16 @@ static FnSetSharedTickCb MM_SetSharedTickCb = nullptr;
 static uint32_t g_sharedMask = 0;
 static bool g_sharedReconcilePending = false;
 
+// ComboShip (teleport songs): OOT's Song of Soaring reads MM's owl-statue flags and arrival entrances.
+typedef int (*FnGetOwlFlags)(void);
+typedef int (*FnGetOwlWarpEntrance)(int owlId);
+typedef void (*FnSetOwlFlagsProvider)(int (*)(void));
+typedef void (*FnSetOwlWarpEntranceProvider)(int (*)(int));
+static FnGetOwlFlags MM_GetOwlActivationFlags = nullptr;
+static FnGetOwlWarpEntrance MM_GetOwlWarpEntrance = nullptr;
+static FnSetOwlFlagsProvider SOH_SetOwlFlagsProvider = nullptr;
+static FnSetOwlWarpEntranceProvider SOH_SetOwlWarpEntranceProvider = nullptr;
+
 namespace ComboAnchor {
 static std::thread sThread;
 static std::atomic<bool> sEnabled{ false };
@@ -1419,6 +1439,18 @@ static int Combo_GetOotTriforceCount() {
 }
 static int Combo_GetMmTriforceCount() {
     return MM_GetTriforcePieceCount ? MM_GetTriforcePieceCount() : 0;
+}
+
+// ComboShip (teleport songs): MM's owl-statue activation flags for the slot OOT is playing, -1 when MM's
+// resident save is not that slot (nothing loaded yet, or a session that ended in MM) — the song then
+// refuses rather than reading stale memory. Also the OwlWarpId -> MM entrance mapping.
+static int Combo_GetMmOwlFlags() {
+    if (!MM_GetOwlActivationFlags || g_MmSaveInMemorySlot < 0)
+        return -1;
+    return MM_GetOwlActivationFlags();
+}
+static int Combo_GetMmOwlWarpEntrance(int owlId) {
+    return MM_GetOwlWarpEntrance ? MM_GetOwlWarpEntrance(owlId) : -1;
 }
 
 // Poked after every Triforce Piece grant (own or dormant) and every Anchor team-state merge: sums both
@@ -2900,6 +2932,10 @@ int main(int argc, char** argv) {
     SOH_NotifyComboReturn = (FnVoidArgless)GetSym(sohModule, "SOH_NotifyComboReturn");
     MM_ResumeGame = (FnMMResume)GetSym(mmModule, "MM_ResumeGame");
     MM_PrepareForTransition = (FnVoidArgless)GetSym(mmModule, "MM_PrepareForTransition");
+    SOH_GetPendingCrossTarget = (FnGetCrossTarget)GetSym(sohModule, "SOH_GetPendingCrossTarget");
+    MM_GetPendingCrossTarget = (FnGetCrossTarget)GetSym(mmModule, "MM_GetPendingCrossTarget");
+    SOH_SetTargetEntrance = (FnSetTargetEntrance)GetSym(sohModule, "SOH_SetTargetEntrance");
+    MM_SetTargetEntrance = (FnSetTargetEntrance)GetSym(mmModule, "MM_SetTargetEntrance");
     SOH_DumpRandoStaticData = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoStaticData");
     MM_DumpRandoStaticData = (FnDumpData)GetSym(mmModule, "MM_DumpRandoStaticData");
     SOH_DumpRandoSettings = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoSettings");
@@ -2992,6 +3028,10 @@ int main(int argc, char** argv) {
     MM_SetTriforceProgressCb = (FnSetTriforceProgressCb)GetSym(mmModule, "MM_SetTriforceProgressCb");
     SOH_SetOtherTriforceCountCb = (FnSetOtherTriforceCountCb)GetSym(sohModule, "SOH_SetOtherTriforceCountCb");
     MM_SetOtherTriforceCountCb = (FnSetOtherTriforceCountCb)GetSym(mmModule, "MM_SetOtherTriforceCountCb");
+    MM_GetOwlActivationFlags = (FnGetOwlFlags)GetSym(mmModule, "MM_GetOwlActivationFlags");
+    MM_GetOwlWarpEntrance = (FnGetOwlWarpEntrance)GetSym(mmModule, "MM_GetOwlWarpEntrance");
+    SOH_SetOwlFlagsProvider = (FnSetOwlFlagsProvider)GetSym(sohModule, "SOH_SetOwlFlagsProvider");
+    SOH_SetOwlWarpEntranceProvider = (FnSetOwlWarpEntranceProvider)GetSym(sohModule, "SOH_SetOwlWarpEntranceProvider");
 
     // Starting game seam (#135) — OOT-side only; MM needs no setter (nothing there reads it).
     SOH_SetComboStartingGame = (FnSetComboStartingGame)GetSym(sohModule, "SOH_SetComboStartingGame");
@@ -3210,6 +3250,11 @@ int main(int argc, char** argv) {
         SOH_SetOtherTriforceCountCb(Combo_GetMmTriforceCount);
     if (MM_SetOtherTriforceCountCb)
         MM_SetOtherTriforceCountCb(Combo_GetOotTriforceCount);
+    // Teleport songs: OOT's Song of Soaring looks at MM's owl statues through the launcher.
+    if (SOH_SetOwlFlagsProvider)
+        SOH_SetOwlFlagsProvider(Combo_GetMmOwlFlags);
+    if (SOH_SetOwlWarpEntranceProvider)
+        SOH_SetOwlWarpEntranceProvider(Combo_GetMmOwlWarpEntrance);
     // Shared Items: tier-changed pokes in, per-frame drain seam.
     if (SOH_SetSharedChangedCb)
         SOH_SetSharedChangedCb(Combo_OnSharedChanged);
@@ -3406,6 +3451,15 @@ int main(int argc, char** argv) {
     for (;;) {
         if (current == GAME_OOT) {
             g_PendingMMFileNum = -1;
+            // Teleport songs: always drain MM's staged target so nothing goes stale; apply it only on a
+            // portal-kind return (a reset / owl-save quit boots OOT to its title).
+            if (MM_GetPendingCrossTarget && SOH_SetTargetEntrance) {
+                const int t = MM_GetPendingCrossTarget();
+                if (t >= 0 && g_mmReturnKind == 0) {
+                    std::cout << "[ComboShip] cross target -> OOT entrance 0x" << std::hex << t << std::dec << "\n";
+                    SOH_SetTargetEntrance(t);
+                }
+            }
             if (!ootBooted) {
                 std::cout << "[ComboShip] OOT boot\n";
                 SOH_RunMain(argc, argv);
@@ -3434,6 +3488,14 @@ int main(int argc, char** argv) {
             g_pendingOOTReturn = false;
             // MM's own boot/resume path loads this slot's save into gSaveContext.
             g_MmSaveInMemorySlot = g_PendingMMFileNum;
+            // Teleport songs: arrive at the entrance OOT staged (Song of Soaring / combo_warp_mm), if any.
+            if (SOH_GetPendingCrossTarget && MM_SetTargetEntrance) {
+                const int t = SOH_GetPendingCrossTarget();
+                if (t >= 0) {
+                    std::cout << "[ComboShip] cross target -> MM entrance 0x" << std::hex << t << std::dec << "\n";
+                    MM_SetTargetEntrance(t);
+                }
+            }
             if (!mmBooted) {
                 std::cout << "[ComboShip] MM boot\n";
                 MM_RunGame(g_PendingMMFileNum);

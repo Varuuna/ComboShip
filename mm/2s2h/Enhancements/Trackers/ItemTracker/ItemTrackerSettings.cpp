@@ -321,6 +321,15 @@ void LoadAvailableWindows() {
             { TRACKER_ITEM_RANDO, RI_SONG_INVERTED_TIME },
             { TRACKER_ITEM_RANDO, RI_SONG_SUN },
             { TRACKER_ITEM_RANDO, RI_SONG_SARIA },
+#ifdef COMBO_BUILD
+            // ComboShip (teleport songs): OOT's warp songs
+            { TRACKER_ITEM_RANDO, RI_SONG_MINUET },
+            { TRACKER_ITEM_RANDO, RI_SONG_BOLERO },
+            { TRACKER_ITEM_RANDO, RI_SONG_SERENADE },
+            { TRACKER_ITEM_RANDO, RI_SONG_REQUIEM },
+            { TRACKER_ITEM_RANDO, RI_SONG_NOCTURNE },
+            { TRACKER_ITEM_RANDO, RI_SONG_PRELUDE },
+#endif
         },
     });
 

@@ -44,6 +44,14 @@ void Settings::CreateOptionDescriptions() {
     // ComboShip: (#133)
     mOptionDescriptions[RSK_EXCLUDE_MASK_SHOP_KEY] =
         "The Mask Shop Key is not shuffled; you start with it. The door stays closed until you open it.";
+#ifdef COMBO_BUILD
+    // ComboShip (teleport songs)
+    mOptionDescriptions[RSK_SONG_OF_SOARING_OOT] =
+        "Adds Majora's Mask's Song of Soaring to the item pool. Playing it in Hyrule opens Termina's owl-statue "
+        "map (statues already activated in the MM save) and switches games to the chosen statue.\n"
+        "\n"
+        "Refused wherever OOT's own warp songs are. Not part of logic.";
+#endif
     mOptionDescriptions[RSK_STARTING_AGE] =
         "Choose which age Link will start as.\n\n"
         "Starting as adult means you start with the Master Sword in your inventory.\n"

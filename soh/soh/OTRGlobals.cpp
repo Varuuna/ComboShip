@@ -1637,6 +1637,21 @@ bool VerifyArchiveVersion(OTRVersion version) {
 
 // ComboShip: forward declarations — defined further down with the combo exports.
 extern "C" void (*gComboSceneSwitchCallback)(int fileNum);
+#ifdef COMBO_BUILD
+// ComboShip (teleport songs): cross-game handoff state. Set when we want to switch to MM; acted on at
+// the start of the next clean frame by the OnGameFrameUpdate hook below.
+static bool sComboSwitchPending = false;
+static int sComboSwitchFileNum = -1;
+// Entrance the pending switch should arrive at in MM (-1 = the portal default, South Clock Town).
+// Staged here, drained by the launcher through SOH_GetPendingCrossTarget.
+static int sComboCrossTargetMM = -1;
+// Arrival override for OOT, pushed by the launcher (SOH_SetTargetEntrance) before a resume and
+// consumed once by TitleSetup_InitImpl (title_setup.c). -1 = the portal default (outside the Mask Shop).
+extern "C" s32 gComboTargetEntrance = -1;
+// Set by TitleSetup on an override arrival, cleared by the next OnSceneInit: lets hooks tell a
+// combo-driven arrival apart from a player-driven scene load.
+extern "C" s32 gComboCrossArrival = 0;
+#endif
 // Launcher poll: returns the next save slot backed up for a release mismatch, or -1 if none.
 extern "C" int (*gComboOutdatedSaveNotice)();
 // Shared Items pokes (defined with the rest of the Shared Items ABI further down).
@@ -1815,11 +1830,9 @@ static void Combo_FinishInit() {
     Ship::Context::GetRawInstance()->GetFileDropMgr()->RegisterDropHandler(SoH_HandleConfigDrop);
 
 #ifdef COMBO_BUILD
-    // Flag set when we want to switch to MM. Acted on at the start of the next clean frame.
-    static bool sComboSwitchPending = false;
-    static int sComboSwitchFileNum = -1;
-
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnSceneInit>([](int16_t sceneNum) {
+        // A combo-driven arrival is over once the first scene has loaded.
+        gComboCrossArrival = 0;
         // Cross-game OOT->MM trigger: entering the Happy Mask Shop.
         if (sceneNum == SCENE_HAPPY_MASK_SHOP) {
             sComboSwitchFileNum = (int)gSaveContext.fileNum;
@@ -3391,6 +3404,16 @@ extern "C" int (*gComboOtherTriforceCount)(void) = nullptr;
 extern "C" COMBO_EXPORT void SOH_SetOtherTriforceCountCb(int (*cb)(void)) {
     gComboOtherTriforceCount = cb;
 }
+// ComboShip (teleport songs): launcher-provided views into MM's dormant save for OOT's Song of Soaring:
+// the owl-statue activation bits (-1 = unavailable) and OwlWarpId -> MM arrival entrance (-1 = bad id).
+extern "C" int (*gComboOwlFlagsProvider)(void) = nullptr;
+extern "C" int (*gComboOwlWarpEntranceProvider)(int owlId) = nullptr;
+extern "C" COMBO_EXPORT void SOH_SetOwlFlagsProvider(int (*cb)(void)) {
+    gComboOwlFlagsProvider = cb;
+}
+extern "C" COMBO_EXPORT void SOH_SetOwlWarpEntranceProvider(int (*cb)(int)) {
+    gComboOwlWarpEntranceProvider = cb;
+}
 // Poked after every piece grant (active or dormant); the launcher evaluates the combined total.
 extern "C" void (*gComboTriforceProgress)(int game, int fileNum) = nullptr;
 extern "C" COMBO_EXPORT void SOH_SetTriforceProgressCb(void (*cb)(int, int)) {
@@ -3628,6 +3651,31 @@ extern "C" COMBO_EXPORT int32_t SOH_MenuDrawWidget(int32_t i, int32_t width) {
 // Forest. Counterpart to MM's reuse path in BenPort.cpp.
 extern "C" bool WindowIsRunning(void);
 
+// ComboShip (teleport songs): gameplay-callable "switch to MM and arrive at this entrance". Same
+// persistence and handoff as walking into the Happy Mask Shop (the OnGameFrameUpdate hook saves the
+// slot, tells the launcher, and stops the loop); only the MM arrival differs. Console: combo_warp_mm.
+extern "C" void Combo_RequestCrossSwitch(int mmEntrance) {
+    if (gSaveContext.fileNum > 2) {
+        SPDLOG_WARN("[ComboShip] Combo_RequestCrossSwitch: no save loaded (fileNum={})", (int)gSaveContext.fileNum);
+        return;
+    }
+    sComboCrossTargetMM = mmEntrance;
+    sComboSwitchFileNum = (int)gSaveContext.fileNum;
+    sComboSwitchPending = true;
+}
+
+// Launcher drain: the MM entrance the pending switch should arrive at, consumed on read (-1 = none).
+extern "C" COMBO_EXPORT int SOH_GetPendingCrossTarget(void) {
+    const int t = sComboCrossTargetMM;
+    sComboCrossTargetMM = -1;
+    return t;
+}
+
+// Launcher push: arrive at this OOT entrance on the next resume instead of outside the Mask Shop.
+extern "C" COMBO_EXPORT void SOH_SetTargetEntrance(int entrance) {
+    gComboTargetEntrance = entrance;
+}
+
 extern "C" COMBO_EXPORT void SOH_ResumeGame(void) {
     auto ctx = Ship::Context::GetRawInstance();
     // Flush every log line immediately so the resume diagnostics survive a hard crash (the console
@@ -3655,6 +3703,9 @@ extern "C" COMBO_EXPORT void SOH_ResumeGame(void) {
     // ComboShip: on a reset return, leave gComboReturnFileNum < 0 so TitleSetup boots to the title
     // sequence (first-boot) instead of jumping straight back into Play on the saved slot.
     gComboReturnFileNum = sComboResetPending ? -1 : (s32)gSaveContext.fileNum;
+    if (sComboResetPending) {
+        gComboTargetEntrance = -1; // a reset return boots to the title; never carry an armed target there
+    }
     sComboResetPending = false;
     SOH_ResetFrameLoopForResume();
     SPDLOG_INFO("[ComboShip] SOH_ResumeGame: entering OOT loop (gComboReturnFileNum={}, WindowIsRunning={})",

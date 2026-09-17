@@ -150,6 +150,37 @@ static int32_t MM_FillSongDrawInfo(RandoItemId id, CwItemDrawInfo* out) {
             rgb[1] = 160;
             rgb[2] = 255;
             break;
+        // ComboShip (teleport songs): OOT's warp songs as MM items, colours mirror DrawItem.cpp.
+        case RI_SONG_MINUET:
+            rgb[0] = 150;
+            rgb[1] = 255;
+            rgb[2] = 100;
+            break;
+        case RI_SONG_BOLERO:
+            rgb[0] = 255;
+            rgb[1] = 80;
+            rgb[2] = 40;
+            break;
+        case RI_SONG_SERENADE:
+            rgb[0] = 100;
+            rgb[1] = 150;
+            rgb[2] = 255;
+            break;
+        case RI_SONG_REQUIEM:
+            rgb[0] = 255;
+            rgb[1] = 160;
+            rgb[2] = 0;
+            break;
+        case RI_SONG_NOCTURNE:
+            rgb[0] = 255;
+            rgb[1] = 100;
+            rgb[2] = 255;
+            break;
+        case RI_SONG_PRELUDE:
+            rgb[0] = 255;
+            rgb[1] = 240;
+            rgb[2] = 100;
+            break;
         case RI_SONG_ELEGY:
             rgb[0] = 255;
             rgb[1] = 98;

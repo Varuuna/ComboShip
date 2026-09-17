@@ -35,6 +35,7 @@ extern PlayState* gPlayState;
 #include "rando/CrossForeign.h" // ComboShip: GameId
 // ComboShip (issue #3): immediate cross-game delivery seam (defined in OTRGlobals.cpp).
 extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName);
+extern "C" void Combo_RequestCrossSwitch(int mmEntrance); // OTRGlobals.cpp (teleport songs)
 #endif
 
 #define CMD_REGISTER Ship::Context::GetRawInstance()->GetConsole()->AddCommand
@@ -1522,6 +1523,30 @@ static bool AvailableChecksRecalculateHandler(std::shared_ptr<Ship::Console> Con
 }
 
 #ifdef COMBO_BUILD
+// ComboShip (teleport songs): `combo_warp_mm <hex MM entrance>` — save, switch to MM and arrive at that
+// entrance (debug for the entrance-targeted handoff; e.g. 0xD09 = ENTRANCE(SOUTH_CLOCK_TOWN, 9), the
+// Clock Town owl statue).
+static bool ComboWarpMMHandler(std::shared_ptr<Ship::Console> Console, const std::vector<std::string>& args,
+                               std::string* output) {
+    if (args.size() < 2) {
+        ERROR_MESSAGE("[ComboShip] combo_warp_mm: expected an MM entrance (hex).");
+        return 1;
+    }
+    if (gPlayState == nullptr || gSaveContext.fileNum == 0xFF) {
+        ERROR_MESSAGE("[ComboShip] combo_warp_mm: not in gameplay.");
+        return 1;
+    }
+    unsigned int entrance;
+    try {
+        entrance = std::stoi(args[1], nullptr, 16);
+    } catch ([[maybe_unused]] std::invalid_argument const& ex) {
+        ERROR_MESSAGE("[ComboShip] combo_warp_mm: entrance value must be a hex number.");
+        return 1;
+    }
+    Combo_RequestCrossSwitch((int)entrance);
+    return 0;
+}
+
 // ComboShip: `cross_send <MM RI_* itemName>` — deliver an MM-bound item into MM's resident save NOW
 // (debug; issue #3). Replaces the old mailbox enqueue.
 static bool CrossSendHandler(std::shared_ptr<Ship::Console> Console, const std::vector<std::string>& args,
@@ -1817,6 +1842,11 @@ void DebugConsole_Init(void) {
                                  {
                                      { "itemName", Ship::ArgumentType::TEXT },
                                  } });
+    CMD_REGISTER("combo_warp_mm", { ComboWarpMMHandler,
+                                    "ComboShip: switch to MM and arrive at the given MM entrance (hex).",
+                                    {
+                                        { "entrance", Ship::ArgumentType::NUMBER },
+                                    } });
 #endif
 
     Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();

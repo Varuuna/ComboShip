@@ -28,9 +28,30 @@ typedef enum OcarinaSongId {
     /* 21 */ OCARINA_SONG_ZELDAS_LULLABY,
     /* 22 */ OCARINA_SONG_SCARECROW_SPAWN,
     /* 23 */ OCARINA_SONG_TERMINA_WALL,
+#ifdef COMBO_BUILD
+    // ComboShip (teleport songs): Ocarina of Time's six warp songs, playable in MM once found as rando
+    // items. They sit past the 24-bit availability mask, so they are only ever enabled through
+    // VB_SONG_AVAILABLE_TO_PLAY (Rando/MiscBehavior/WarpSongs.cpp). Warp index = id - OCARINA_SONG_MINUET.
+    /* 24 */ OCARINA_SONG_MINUET,
+    /* 25 */ OCARINA_SONG_BOLERO,
+    /* 26 */ OCARINA_SONG_SERENADE,
+    /* 27 */ OCARINA_SONG_REQUIEM,
+    /* 28 */ OCARINA_SONG_NOCTURNE,
+    /* 29 */ OCARINA_SONG_PRELUDE,
+    /* 30 */ OCARINA_SONG_MAX,
+    // anything larger than MAX is considered the long scarecrow's song
+    /* 30 */ OCARINA_SONG_SCARECROW_LONG = OCARINA_SONG_MAX
+#else
     /* 24 */ OCARINA_SONG_MAX,
-    /* 24 */ OCARINA_SONG_SCARECROW_LONG = OCARINA_SONG_MAX // anything larger than 24 is considered the long scarecrow's song
+    // anything larger than 24 is considered the long scarecrow's song
+    /* 24 */ OCARINA_SONG_SCARECROW_LONG = OCARINA_SONG_MAX
+#endif
 } OcarinaSongId;
+
+#ifdef COMBO_BUILD
+// ComboShip (teleport songs)
+#define OCARINA_SONG_IS_OOT_WARP(song) ((song) >= OCARINA_SONG_MINUET && (song) <= OCARINA_SONG_PRELUDE)
+#endif
 
 typedef enum OcarinaSongActionId {
     /* 0x00 */ OCARINA_ACTION_0, // acts like free play but never set

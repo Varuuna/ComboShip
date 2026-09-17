@@ -25,6 +25,10 @@
 #define MM_NTSC_US_10 0x5354631C
 #define MM_NTSC_US_GC 0xB443EB08
 
+#ifdef COMBO_BUILD
+#include "ComboExport.h"
+#endif
+
 #ifdef __cplusplus
 #include <ship/Context.h>
 
@@ -205,23 +209,11 @@ extern "C" {
 #endif
 uint64_t GetUnixTimestamp();
 #ifdef COMBO_BUILD
-#ifdef _WIN32
-__declspec(dllexport)
-#endif
-    void MM_SetOnComboReturnCallback(void (*cb)(int kind));
-#ifdef _WIN32
-__declspec(dllexport)
-#endif
-    // Ctrl+R reset while MM is foreground: bounce back to OOT (saves if autosave on) + go dormant.
-    void MM_RequestComboReturn(void);
-#ifdef _WIN32
-__declspec(dllexport)
-#endif
-    void MM_PrepareForTransition(void);
-#ifdef _WIN32
-__declspec(dllexport)
-#endif
-    void MM_ResumeGame(int fileNum);
+COMBO_EXPORT void MM_SetOnComboReturnCallback(void (*cb)(int kind));
+// Ctrl+R reset while MM is foreground: bounce back to OOT (saves if autosave on) + go dormant.
+COMBO_EXPORT void MM_RequestComboReturn(void);
+COMBO_EXPORT void MM_PrepareForTransition(void);
+COMBO_EXPORT void MM_ResumeGame(int fileNum);
 #endif
 void CrashHandler_PrintExt(char* buffer, size_t* pos);
 #ifdef __cplusplus

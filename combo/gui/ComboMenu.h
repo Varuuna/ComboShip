@@ -3,6 +3,7 @@
 #pragma once
 
 #include <libultraship/libultraship.h>
+#include "ComboExport.h"
 #include <string>
 #include <map>
 #include <utility>
@@ -57,8 +58,4 @@ class ComboMenu final : public Ship::GuiWindow {
 
 } // namespace ComboRando
 
-#ifdef _WIN32
-extern "C" __declspec(dllexport) void ComboUI_Register(void);
-#else
-extern "C" void ComboUI_Register(void);
-#endif
+extern "C" COMBO_EXPORT void ComboUI_Register(void);

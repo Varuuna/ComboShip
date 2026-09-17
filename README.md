@@ -25,7 +25,9 @@ If you can still reproduce it, please create an issue.
 
 ## Building
 
-ComboShip currently builds on **Windows** only. macOS and Linux support will return later.
+ComboShip builds on **Windows** (below) and **Linux** — see
+[`docs/BUILDING_LINUX.md`](docs/BUILDING_LINUX.md) for Linux build, run and
+AppImage packaging instructions. macOS support will return later.
 
 ### Prerequisites
 

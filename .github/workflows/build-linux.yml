@@ -1,0 +1,158 @@
+name: Build (Linux)
+
+# Linux port CI: full Release build (Ninja + gcc), port o2r generation, and a headless comborando
+# seed-generation smoke test — the same end-to-end check used to validate the port locally (the
+# fill runs both games' oracles in-process, so it exercises the ELF combo ABI without ROMs).
+# Produces a runnable ComboShip-linux artifact (users add their own extracted oot.o2r/mm.o2r)
+# plus a self-contained ComboShip-linux-appimage — the plain tree links against the runner's
+# system libraries, so on other distros it needs a matching ABI (see docs/BUILDING_LINUX.md);
+# the AppImage bundles them. Windows builds are unaffected — see build.yml / build-artifacts.yml.
+
+on:
+  pull_request:
+    paths: &code_paths
+      - 'libultraship/**'
+      - 'soh/**'
+      - 'mm/**'
+      - 'combo/**'
+      - 'CMakeLists.txt'
+      - 'CMake/**'
+      - 'OTRExporter/**'
+      - 'ZAPDTR/**'
+      - 'scripts/linux/**'
+      - '.github/workflows/build-linux.yml'
+  push:
+    branches: [develop]
+    paths: *code_paths
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Same fast gate as build.yml, for the same reason documented there: a formatting error or a
+  # committed conflict marker shouldn't cost a full build. The standalone conflict-check.yml and
+  # clang-format.yml remain the branch-protection required checks; this copy only exists so the
+  # build job can `needs:` it within one file.
+  gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+      - name: Scan for conflict markers
+        shell: bash
+        run: |
+          set -uo pipefail
+          hits=$(git grep -nE '^(<{7}|>{7}|\|{7})( |$)' -- . \
+                 ':(exclude).github/workflows/build.yml' \
+                 ':(exclude).github/workflows/build-artifacts.yml' \
+                 ':(exclude).github/workflows/build-linux.yml' \
+                 ':(exclude).github/workflows/conflict-check.yml' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Unresolved conflict markers — skipping the build until resolved:"
+            printf '%s\n' "$hits"
+            exit 1
+          fi
+          echo "No conflict markers."
+      - name: clang-format (clang-format-14)
+        run: |
+          sudo apt-get update && sudo apt-get install -y clang-format-14
+          ./run-clang-format.sh
+          git diff --exit-code
+
+  build-linux:
+    needs: gate
+    # 24.04, not 22.04: the port is developed and tested against noble's apt packages (SDL 2.30.x,
+    # tinyxml2 10.0), which are new enough that upstream 2ship's source-built SDL/tinyxml2 steps
+    # (a jammy workaround) aren't needed here.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      # Upstream 2ship's apt-deps.txt set, plus libzip + tools for the ZAPD/o2r pipeline.
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libusb-dev libusb-1.0-0-dev libsdl2-dev libsdl2-net-dev libpng-dev libglew-dev \
+            nlohmann-json3-dev libtinyxml2-dev libspdlog-dev ninja-build \
+            libogg-dev libopus-dev opus-tools libopusfile-dev libvorbis-dev \
+            libzip-dev zipcmp zipmerge ziptool
+
+      # ~2600 objects across lus/soh/2ship/combo: ccache is the difference between ~90 min cold
+      # and a few minutes warm. Cache is only saved on branch pushes so PR runs can't pollute it.
+      - name: Configure ccache
+        uses: hendrikmuhs/ccache-action@v1.2.22
+        with:
+          save: ${{ github.event_name == 'push' }}
+          key: ${{ runner.os }}-linux-ccache-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-linux-ccache-${{ github.ref }}
+            ${{ runner.os }}-linux-ccache
+
+      # The GenerateSohOtr / Generate2ShipOtr targets run OTRExporter/extract_assets.py via Python3.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Configure
+        run: >
+          cmake -B build-cmake -S . -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      # Same order as the Windows pipeline: libultraship -> soh -> 2ship (they share
+      # OTRExporter/ZAPD), then the combo targets. -j 4 caps peak memory: some soh/2ship TUs are
+      # >1 GB each at peak, and the 16 GB standard runner OOMs before Ninja's default parallelism
+      # helps (locally 20 jobs OOM'd a 21 GB machine).
+      - name: Build libultraship
+        run: cmake --build build-cmake --target libultraship -j 4
+      - name: Build soh
+        run: cmake --build build-cmake --target soh -j 4
+      - name: Build 2ship
+        run: cmake --build build-cmake --target 2ship -j 4
+      - name: Build comborando
+        run: cmake --build build-cmake --target comborando -j 4
+      - name: Build comboui
+        run: cmake --build build-cmake --target comboui -j 4
+      - name: Build ComboShip
+        run: cmake --build build-cmake --target ComboShip -j 4
+
+      # Port asset archives (--norom), same as the Windows job.
+      - name: Generate soh.o2r
+        run: cmake --build build-cmake --target GenerateSohOtr -j 4
+      - name: Generate 2ship.o2r
+        run: cmake --build build-cmake --target Generate2ShipOtr -j 4
+
+      # End-to-end smoke: generate + validate one cross-world seed with both games' logic oracles
+      # loaded in-process. Catches symbol-interposition and combo-ABI regressions that compiling
+      # can't. Runs from the deploy dir because the tool dlopens ./libsoh.so & ./lib2ship.so.
+      # Fixed seed keeps failures reproducible; exit code is the verdict (0 = beatable).
+      - name: Smoke-test seed generation (comborando)
+        working-directory: build-cmake/combo
+        run: ./comborando --seed ci-linux-smoke --count 1
+
+      # Stages the runnable tree (binaries + assets + port o2rs; game archives oot.o2r / mm.o2r
+      # are ROM-extracted by the user and never built or shipped here) and packages it as a
+      # self-contained AppImage — linuxdeploy bundles the system .so deps and combo/linux/AppRun
+      # recreates the launcher's portable cwd layout in a writable data dir at run time.
+      - name: Stage Linux package + build AppImage
+        run: ./scripts/linux/make-appimage.sh build-cmake _packages
+
+      - name: Upload ComboShip-linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ComboShip-linux
+          path: _packages/stage
+          if-no-files-found: error
+
+      # GitHub zips artifact contents on download, which drops the exec bit — the docs tell users
+      # to chmod +x the AppImage after unzipping (standard for CI-distributed AppImages).
+      - name: Upload ComboShip-linux AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: ComboShip-linux-appimage
+          path: _packages/ComboShip-*-linux-x86_64.AppImage
+          if-no-files-found: error

@@ -4,6 +4,8 @@
 // Import / Skip. The launcher does the JSON parse + merge + apply; this file only renders and reports
 // the chosen paths.
 #include "ComboSettingsImportScreen.h"
+#include "ComboExport.h"
+#include "ComboFilePicker.h"  // native Browse dialog (comdlg32 / pfd), shared with the extraction screen
 #include "ComboWidgetStyle.h" // ComboMenu_ThemeColor / PushButton / PopButton
 
 #include <libultraship/libultraship.h>
@@ -13,12 +15,6 @@
 #include <string>
 #include <filesystem>
 #include <cstring>
-
-#ifdef _WIN32
-#include <windows.h>
-#include <commdlg.h>
-#pragma comment(lib, "comdlg32")
-#endif
 
 using ComboRando::ComboMenu_PopButton;
 using ComboRando::ComboMenu_PushButton;
@@ -36,20 +32,8 @@ struct ConfigSlot {
 
 // Native open-file dialog filtered to .json. Returns "" if cancelled.
 std::string PickConfigFile() {
-#ifdef _WIN32
-    char file[MAX_PATH] = { 0 };
-    OPENFILENAMEA ofn = { 0 };
-    ofn.lStructSize = sizeof(ofn);
-    ofn.lpstrFilter = "Settings (*.json)\0*.json\0All Files (*.*)\0*.*\0";
-    ofn.lpstrFile = file;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.lpstrTitle = "Select settings file";
-    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-    if (GetOpenFileNameA(&ofn)) {
-        return std::string(file);
-    }
-#endif
-    return std::string();
+    return ComboFilePicker::PickFile("Select settings file", "Settings (*.json)\0*.json\0All Files (*.*)\0*.*\0",
+                                     { "Settings (*.json)", "*.json", "All Files", "*" });
 }
 
 void CopyPath(char* dst, size_t cap, const std::string& src) {
@@ -66,8 +50,8 @@ void UseSharedImGuiContext() {
 
 } // namespace
 
-extern "C" __declspec(dllexport) int ComboUI_RunSettingsImport(const ComboSettingsImportCallbacks* cb,
-                                                               ComboSettingsImportResult* out) {
+extern "C" COMBO_EXPORT int ComboUI_RunSettingsImport(const ComboSettingsImportCallbacks* cb,
+                                                      ComboSettingsImportResult* out) {
     if (!out) {
         return 0;
     }
@@ -152,6 +136,14 @@ extern "C" __declspec(dllexport) int ComboUI_RunSettingsImport(const ComboSettin
             ImGui::TextWrapped("Optional: bring over your settings from an existing Ship of Harkinian and/or "
                                "2 Ship 2 Harkinian install. Pick one or both files, or Skip to start fresh. "
                                "Where both set the same option (e.g. graphics or controls), OoT wins.");
+            if (!ComboFilePicker::Available()) {
+                // Wrapped text in the disabled color (TextDisabled doesn't wrap), ASCII only —
+                // same treatment as the extraction screen's hint.
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+                ImGui::TextWrapped("No file-picker helper found (install zenity or kdialog); only "
+                                   "auto-detected configs can be imported here, or Skip to start fresh.");
+                ImGui::PopStyleColor();
+            }
             ImGui::Spacing();
 
             for (int i = 0; i < 2; i++) {
@@ -160,12 +152,18 @@ extern "C" __declspec(dllexport) int ComboUI_RunSettingsImport(const ComboSettin
                 ImGui::TextColored(theme, "%s", s.label);
                 ImGui::TextWrapped("%s", s.path.empty() ? "(none selected)" : s.path.c_str());
                 ComboMenu_PushButton(theme);
+                if (!ComboFilePicker::Available()) {
+                    ImGui::BeginDisabled();
+                }
                 if (ImGui::Button(s.path.empty() ? "Browse..." : "Change")) {
                     std::string picked = PickConfigFile();
                     if (!picked.empty()) {
                         s.path = picked;
                         s.valid = !s.validate || s.validate(picked.c_str()) != 0;
                     }
+                }
+                if (!ComboFilePicker::Available()) {
+                    ImGui::EndDisabled();
                 }
                 ComboMenu_PopButton();
                 if (!s.path.empty()) {

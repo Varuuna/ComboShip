@@ -5,10 +5,7 @@
 #pragma once
 
 #include "../ComboSettingsImport.h"
+#include "ComboExport.h"
 
-#ifdef _WIN32
-extern "C" __declspec(dllexport) int ComboUI_RunSettingsImport(const ComboSettingsImportCallbacks* cb,
-                                                               ComboSettingsImportResult* out);
-#else
-extern "C" int ComboUI_RunSettingsImport(const ComboSettingsImportCallbacks* cb, ComboSettingsImportResult* out);
-#endif
+extern "C" COMBO_EXPORT int ComboUI_RunSettingsImport(const ComboSettingsImportCallbacks* cb,
+                                                      ComboSettingsImportResult* out);

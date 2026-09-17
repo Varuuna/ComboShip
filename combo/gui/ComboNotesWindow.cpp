@@ -1,5 +1,6 @@
 // combo/gui/ComboNotesWindow.cpp — see ComboNotesWindow.h
 #include "ComboNotesWindow.h"
+#include "ComboExport.h"
 #include "ComboTrackerCommon.h" // ComboTracker::OotActiveSlot + SetTracker
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>     // InputTextMultiline over a std::string (vendored with ImGui)
@@ -104,13 +105,7 @@ void ComboNotes::RegisterWindow() {
 
 // ComboShip (#165): the launcher hands comboui its per-slot notes accessors here (called at startup,
 // right before ComboUI_Register).
-#ifdef _WIN32
-extern "C" __declspec(dllexport) void ComboUI_SetNotesStore(const char* (*getter)(int),
-                                                            void (*setter)(int, const char*))
-#else
-extern "C" void ComboUI_SetNotesStore(const char* (*getter)(int), void (*setter)(int, const char*))
-#endif
-{
+extern "C" COMBO_EXPORT void ComboUI_SetNotesStore(const char* (*getter)(int), void (*setter)(int, const char*)) {
     sGet = getter;
     sSet = setter;
 }

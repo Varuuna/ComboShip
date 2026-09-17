@@ -1,4 +1,7 @@
 #include "SaveManager.h"
+#ifdef COMBO_BUILD
+#include "ComboExport.h"
+#endif
 #include "OTRGlobals.h"
 #include "Enhancements/game-interactor/GameInteractor.h"
 #include "Enhancements/randomizer/SeedContext.h"
@@ -2968,12 +2971,12 @@ extern "C" void Save_CopyFile(int from, int to) {
 // registers routing via SOH_SetDeleteForeignSave so OOT's erase forwards the slot to MM, and calls
 // SOH_DeleteSaveFile so MM's erase can wipe OOT's matching save. See docs/UPSTREAM_MERGES.md.
 extern "C" void (*gComboDeleteForeignSave)(int fileNum) = nullptr;
-extern "C" __declspec(dllexport) void SOH_SetDeleteForeignSave(void (*cb)(int)) {
+extern "C" COMBO_EXPORT void SOH_SetDeleteForeignSave(void (*cb)(int)) {
     gComboDeleteForeignSave = cb;
 }
 // Inbound: launcher calls this when MM erases a slot. Goes straight to DeleteZeldaFile (NOT
 // Save_DeleteFile) so it does not re-fire OOT's own erase seam and loop back into MM.
-extern "C" __declspec(dllexport) void SOH_DeleteSaveFile(int fileNum) {
+extern "C" COMBO_EXPORT void SOH_DeleteSaveFile(int fileNum) {
     if (SaveManager::Instance) {
         SaveManager::Instance->DeleteZeldaFile(fileNum);
     }
@@ -2981,14 +2984,13 @@ extern "C" __declspec(dllexport) void SOH_DeleteSaveFile(int fileNum) {
 
 // ComboShip: launcher pushes its merged-save IO callbacks at boot. When set, OOT per-slot save
 // read/write routes through the .combosav container (see SaveFileThreaded/LoadFile).
-extern "C" __declspec(dllexport) void SOH_SetComboSaveIO(ComboRando::FnComboReadSave r,
-                                                         ComboRando::FnComboWriteSave w) {
+extern "C" COMBO_EXPORT void SOH_SetComboSaveIO(ComboRando::FnComboReadSave r, ComboRando::FnComboWriteSave w) {
     gComboReadGameSave = r;
     gComboWriteGameSave = w;
 }
 
 // ComboShip: launcher registers its whole-container copy for file-select "copy file".
-extern "C" __declspec(dllexport) void SOH_SetCopyContainer(void (*cb)(int, int)) {
+extern "C" COMBO_EXPORT void SOH_SetCopyContainer(void (*cb)(int, int)) {
     gComboCopyContainer = cb;
 }
 #endif

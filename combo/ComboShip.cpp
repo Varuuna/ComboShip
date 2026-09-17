@@ -2434,7 +2434,8 @@ static int Combo_OnReloadRequest(const char* path) {
                 SOH_SetComboStartingGame(j.value("startingGame", std::string("OOT")) == "MM" ? 1 : 0);
             // Shared Items: re-push so the wallet force (settings.cpp) matches this seed before FinalizeSettings.
             if (SOH_SetComboSharedItems)
-                SOH_SetComboSharedItems(ComboRando::SharedMaskFromKeys(j.value("sharedItems", nlohmann::json::array())));
+                SOH_SetComboSharedItems(
+                    ComboRando::SharedMaskFromKeys(j.value("sharedItems", nlohmann::json::array())));
         }
         auto oot = j.value("oot", nlohmann::json::object());
         auto mm = j.value("mm", nlohmann::json::object());

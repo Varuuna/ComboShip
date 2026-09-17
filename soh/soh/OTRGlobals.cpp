@@ -3369,9 +3369,9 @@ extern "C" COMBO_EXPORT void SOH_RaiseSharedTier(int family, int tier) try {
         if (SOH_GetSharedTier(family) <= cur)
             return; // didn't raise (e.g. no free trade slot) — stop instead of looping forever
     }
-} catch (const std::exception& e) {
-    SPDLOG_ERROR("[ComboShip] SOH_RaiseSharedTier threw: {}", e.what());
-} catch (...) { SPDLOG_ERROR("[ComboShip] SOH_RaiseSharedTier threw a non-std exception"); }
+} catch (const std::exception& e) { SPDLOG_ERROR("[ComboShip] SOH_RaiseSharedTier threw: {}", e.what()); } catch (...) {
+    SPDLOG_ERROR("[ComboShip] SOH_RaiseSharedTier threw a non-std exception");
+}
 
 // Shared Items pokes: fired after every tier change and every frame (drain seam). See deviations/rando.md.
 extern "C" void (*gComboSharedChanged)(int game, int fileNum) = nullptr;

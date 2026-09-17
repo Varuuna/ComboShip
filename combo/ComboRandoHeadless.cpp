@@ -258,7 +258,8 @@ int main(int argc, char** argv) {
         // #135: the seed's starting game. Absent on old spoilers, which all started in OOT.
         const bool mmStart = spoiler.value("startingGame", std::string("OOT")) == "MM";
         // Shared Items: absent on old spoilers -> mask 0 -> feature off.
-        const uint32_t sharedMask = ComboRando::SharedMaskFromKeys(spoiler.value("sharedItems", nlohmann::json::array()));
+        const uint32_t sharedMask =
+            ComboRando::SharedMaskFromKeys(spoiler.value("sharedItems", nlohmann::json::array()));
 
         auto ootEnabledTricks =
             spoiler.value("oot", nlohmann::json::object()).value("enabledTricks", nlohmann::json::array());

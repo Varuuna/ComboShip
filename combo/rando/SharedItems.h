@@ -35,37 +35,36 @@ enum SharedFamily {
 struct SharedFamilyDef {
     SharedFamily family;
     const char* key;     // spoiler/CLI key
-    const char* cvar;     // menu CVar
-    const char* label;    // menu checkbox label
-    const char* tooltip;  // OoTMM-style tooltip
-    const char* ootName;  // OOT pool item name
-    const char* mmName;   // MM pool item name (trimmed / oracle-credited)
-    int mmTierCap;        // max tiers MM can hold
-    bool isMask;           // requires OOT Mask Quest = Shuffle
-    bool mmHasItem;        // false = MM has no pool copy of this item (no trim, no oracle mirror)
-    bool ootToMmOnly;      // true = one-way OOT->MM; MM's tier signal isn't a reliable OOT source
+    const char* cvar;    // menu CVar
+    const char* label;   // menu checkbox label
+    const char* tooltip; // OoTMM-style tooltip
+    const char* ootName; // OOT pool item name
+    const char* mmName;  // MM pool item name (trimmed / oracle-credited)
+    int mmTierCap;       // max tiers MM can hold
+    bool isMask;         // requires OOT Mask Quest = Shuffle
+    bool mmHasItem;      // false = MM has no pool copy of this item (no trim, no oracle mirror)
+    bool ootToMmOnly;    // true = one-way OOT->MM; MM's tier signal isn't a reliable OOT source
 };
 
 inline const SharedFamilyDef* SharedFamilyTable() {
     static const SharedFamilyDef table[SF_COUNT] = {
-        { SF_BOW, "bows", "gCombo.Rando.Shared.Bows", "Shared Bows",
-          "One Progressive Bow counts for both games.", "Progressive Bow", "Progressive Bow", 3, false, true,
-          false },
+        { SF_BOW, "bows", "gCombo.Rando.Shared.Bows", "Shared Bows", "One Progressive Bow counts for both games.",
+          "Progressive Bow", "Progressive Bow", 3, false, true, false },
         { SF_BOMB_BAG, "bombBags", "gCombo.Rando.Shared.BombBags", "Shared Bomb Bags",
-          "One Progressive Bomb Bag counts for both games.", "Progressive Bomb Bag", "Progressive Bomb Bag", 3,
-          false, true, false },
+          "One Progressive Bomb Bag counts for both games.", "Progressive Bomb Bag", "Progressive Bomb Bag", 3, false,
+          true, false },
         { SF_BOMBCHU_BAG, "bombchuBags", "gCombo.Rando.Shared.BombchuBags", "Shared Bombchu Bags",
           "One Bombchu Bag counts for both games. Requires OOT Bombchu Bag != None.", "Bombchu Bag", "", 1, false,
           false, true },
         { SF_MAGIC, "magic", "gCombo.Rando.Shared.Magic", "Shared Magic",
-          "One Progressive Magic Meter counts for both games.", "Progressive Magic Meter",
-          "Progressive Magic", 2, false, true, false },
+          "One Progressive Magic Meter counts for both games.", "Progressive Magic Meter", "Progressive Magic", 2,
+          false, true, false },
         { SF_WALLET, "wallets", "gCombo.Rando.Shared.Wallets", "Shared Wallets",
-          "One Progressive Wallet counts for both games. Forces Shuffle Child Wallet off.",
-          "Progressive Wallet", "Progressive Wallet", 3, false, true, false },
+          "One Progressive Wallet counts for both games. Forces Shuffle Child Wallet off.", "Progressive Wallet",
+          "Progressive Wallet", 3, false, true, false },
         { SF_HOOKSHOT, "hookshot", "gCombo.Rando.Shared.Hookshot", "Shared Hookshot",
-          "One Progressive Hookshot counts for both games (MM only needs tier 1).", "Progressive Hookshot",
-          "Hookshot", 1, false, true, false },
+          "One Progressive Hookshot counts for both games (MM only needs tier 1).", "Progressive Hookshot", "Hookshot",
+          1, false, true, false },
         { SF_FIRE_ARROWS, "fireArrows", "gCombo.Rando.Shared.FireArrows", "Shared Fire Arrows",
           "One Fire Arrows counts for both games.", "Fire Arrows", "Fire Arrows", 1, false, true, false },
         { SF_ICE_ARROWS, "iceArrows", "gCombo.Rando.Shared.IceArrows", "Shared Ice Arrows",
@@ -82,11 +81,11 @@ inline const SharedFamilyDef* SharedFamilyTable() {
           "One Goron Mask counts for both games. Requires OOT Mask Quest = Shuffle.", "Goron Mask", "Goron Mask", 1,
           true, true, false },
         { SF_ZORA_MASK, "zoraMask", "gCombo.Rando.Shared.ZoraMask", "Shared Zora Mask",
-          "One Zora Mask counts for both games. Requires OOT Mask Quest = Shuffle.", "Zora Mask", "Zora Mask", 1,
-          true, true, false },
+          "One Zora Mask counts for both games. Requires OOT Mask Quest = Shuffle.", "Zora Mask", "Zora Mask", 1, true,
+          true, false },
         { SF_KEATON_MASK, "keatonMask", "gCombo.Rando.Shared.KeatonMask", "Shared Keaton Mask",
-          "One Keaton Mask counts for both games. Requires OOT Mask Quest = Shuffle.", "Keaton Mask", "Keaton Mask",
-          1, true, true, false },
+          "One Keaton Mask counts for both games. Requires OOT Mask Quest = Shuffle.", "Keaton Mask", "Keaton Mask", 1,
+          true, true, false },
         { SF_BUNNY_HOOD, "bunnyHood", "gCombo.Rando.Shared.BunnyHood", "Shared Bunny Hood",
           "One Bunny Hood counts for both games. Requires OOT Mask Quest = Shuffle.", "Bunny Hood", "Bunny Hood", 1,
           true, true, false },

@@ -240,11 +240,13 @@ constexpr int kMaxPrereqTries = 4; // Tier-1 repicks of just the portal prerequi
 // out of the cross pool, owned-from-start for logic, and appended to the OOT placements.
 // startingGame (#135): GAME_MM roots MM from the start instead of behind the portal; the portal
 // prerequisites are still derived, as the re-entry guarantee for a player who strays into OOT.
-inline CombinedFillResult CrossWorldCombinedFill(
-    const std::string& sohDumpJson, const std::string& mmDumpJson, uint32_t masterSeed, const OracleFns& ootOracle,
-    const OracleFns& mmOracle, ComboRando::ComboGenProgress* progress = nullptr, const std::string& forcedOotJson = "",
-    OotAccess ootAccess = OotAccess::ALL_REACHABLE, CwGoal goal = {}, GameId startingGame = GAME_OOT,
-    uint32_t sharedMask = 0) {
+inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson, const std::string& mmDumpJson,
+                                                 uint32_t masterSeed, const OracleFns& ootOracle,
+                                                 const OracleFns& mmOracle,
+                                                 ComboRando::ComboGenProgress* progress = nullptr,
+                                                 const std::string& forcedOotJson = "",
+                                                 OotAccess ootAccess = OotAccess::ALL_REACHABLE, CwGoal goal = {},
+                                                 GameId startingGame = GAME_OOT, uint32_t sharedMask = 0) {
     CombinedFillResult result;
     result.success = false;
 
@@ -764,8 +766,8 @@ inline CombinedFillResult CrossWorldCombinedFill(
                     const auto& def = SharedFamilyByIndex(i);
                     if (!def.mmHasItem)
                         continue; // nothing to push; MM logic doesn't need it
-                    size_t k = static_cast<size_t>(
-                        std::count(ootOwned.begin(), ootOwned.end(), std::string(def.ootName)));
+                    size_t k =
+                        static_cast<size_t>(std::count(ootOwned.begin(), ootOwned.end(), std::string(def.ootName)));
                     size_t target = std::min<size_t>(k, static_cast<size_t>(def.mmTierCap));
                     for (size_t n = sharedGiven[i]; n < target; ++n)
                         mmOwned.push_back(def.mmName);

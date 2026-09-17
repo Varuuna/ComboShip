@@ -66,7 +66,7 @@ CrowdControl* CrowdControl::Instance;
 #include <BenGui/BenMenu.h>
 #ifdef COMBO_BUILD
 #include "ComboMenuSharedContext.h"               // ComboShip: shared per-DLL ImGui context helper (combo-owned)
-#include "rando/SharedItems.h"                     // ComboShip: Shared Items family table
+#include "rando/SharedItems.h"                    // ComboShip: Shared Items family table
 #include "2s2h/Rando/MiscBehavior/MiscBehavior.h" // ComboShip: MM_LoadComboRando cache invalidation + ComboRando types
 #endif
 
@@ -4273,9 +4273,9 @@ extern "C" COMBO_EXPORT void MM_RaiseSharedTier(int family, int tier) try {
         if (MM_GetSharedTier(family) <= cur)
             return; // didn't raise — stop instead of looping forever
     }
-} catch (const std::exception& e) {
-    SPDLOG_ERROR("[ComboShip] MM_RaiseSharedTier threw: {}", e.what());
-} catch (...) { SPDLOG_ERROR("[ComboShip] MM_RaiseSharedTier threw a non-std exception"); }
+} catch (const std::exception& e) { SPDLOG_ERROR("[ComboShip] MM_RaiseSharedTier threw: {}", e.what()); } catch (...) {
+    SPDLOG_ERROR("[ComboShip] MM_RaiseSharedTier threw a non-std exception");
+}
 
 // Shared Items pokes: same shape as the #136 Triforce callbacks.
 extern "C" void (*gMMComboSharedChanged)(int game, int fileNum) = nullptr;

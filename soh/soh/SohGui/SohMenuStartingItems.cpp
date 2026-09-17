@@ -30,8 +30,7 @@ static void SaveStartingItemCVars() {
 
 // Toggleable item icon (lit when the starting CVar is set, faded when not), mirroring
 // DrawQuestItemButton in the save editor. The CVar name and tooltip come from the Option itself.
-static void StartingItemToggle(RandomizerSettingKey rsk, uint32_t itemId, bool forceFaded = false,
-                               ImVec2 iconSize = ImVec2(kIconSize, kIconSize)) {
+static void StartingItemToggle(RandomizerSettingKey rsk, uint32_t itemId, bool forceFaded = false) {
     Rando::Option& option = Rando::Settings::GetInstance()->GetOption(rsk);
     const char* cvar = option.GetCVarName().c_str();
     const ItemMapEntry& entry = itemMapping[itemId];
@@ -40,7 +39,7 @@ static void StartingItemToggle(RandomizerSettingKey rsk, uint32_t itemId, bool f
     ImGui::PushID(static_cast<int32_t>(rsk));
     PushStyleButton(Colors::DarkGray);
     if (ImGui::ImageButton(entry.name.c_str(), GetFast3dGui()->GetTextureByName(on ? entry.name : entry.nameFaded),
-                           iconSize, ImVec2(0, 0), ImVec2(1, 1))) {
+                           ImVec2(kIconSize, kIconSize), ImVec2(0, 0), ImVec2(1, 1))) {
         CVarSetInteger(cvar, on ? 0 : 1);
         SaveStartingItemCVars();
     }
@@ -346,9 +345,7 @@ void DrawStartingItemsMenu(WidgetInfo& info) {
     // ComboShip (teleport songs): MM's Song of Soaring, only while the seed setting adds it to the pool.
     if (CVarGetInteger(Rando::Settings::GetInstance()->GetOption(RSK_SONG_OF_SOARING_OOT).GetCVarName().c_str(), 0)) {
         ImGui::SameLine();
-        // Song note texture is 2:3, so draw it at the song size (kSongSize) like the other songs above,
-        // not the square item size, or it stretches wide.
-        StartingItemToggle(RSK_STARTING_SONG_OF_SOARING, ITEM_SONG_PRELUDE, false, kSongSize);
+        StartingSongToggle(RSK_STARTING_SONG_OF_SOARING, QUEST_SONG_PRELUDE);
     }
 #endif
 

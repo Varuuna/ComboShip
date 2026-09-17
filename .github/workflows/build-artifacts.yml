@@ -1,14 +1,15 @@
-name: Build Artifacts (Windows)
+name: Build Artifacts
 
-# Nightly / PR build: runs the reusable build pipeline (build.yml) on PRs and on every develop push,
-# producing the runnable ComboShip Release ZIP as a downloadable artifact (pr-artifacts.yml posts
-# nightly.link links). develop pushes additionally produce the comborando validator, which
-# validate-seed.yml pulls from the latest successful develop run. Releases are cut separately from
-# v* tags — see release.yml.
+# Single PR gate + nightly build workflow. `gate` (conflict markers, asset collisions,
+# clang-format) runs on every PR; `windows`/`linux` run the reusable build pipelines only when
+# code paths changed, and only after gate passes. Keep the FILE NAME: validate-seed.yml selects
+# develop runs with `gh run list --workflow build-artifacts.yml`. See docs/UPSTREAM_MERGES.md.
 
 on:
   pull_request:
-    paths: &code_paths
+  push:
+    branches: [develop]
+    paths:
       - 'libultraship/**'
       - 'soh/**'
       - 'mm/**'
@@ -17,20 +18,104 @@ on:
       - 'CMake/**'
       - 'OTRExporter/**'
       - 'ZAPDTR/**'
+      - 'scripts/linux/**'
       # A build input (CMakeLists.txt reads it for the version/save gate), and it keeps the gate from
       # skipping an upstream-merge PR whose diff is only the pin bump + merge log.
       - 'upstream-pins.json'
       - '.github/workflows/build.yml'
+      - '.github/workflows/build-linux.yml'
       - '.github/workflows/build-artifacts.yml'
-  push:
-    branches: [develop]
-    paths: *code_paths
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Never cancel a develop push mid-flight: the Linux ccache only saves on push, and validate-seed
+  # depends on develop producing a successful run.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  build:
+  gate:
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ github.event_name != 'pull_request' || steps.filter.outputs.code == 'true' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Scan for conflict markers
+        shell: bash
+        run: |
+          set -uo pipefail
+          # {7,} not {7}: rename/path conflicts emit 8-char markers ("<<<<<<<< HEAD:path") — the exact
+          # form of the mm-asset splices that slipped past this gate in #50 and 2026-07-13.
+          pattern='^(<{7,}|>{7,}|\|{7,})( |$)'
+          hits=$(git grep -nE "$pattern" -- . ':(exclude).github/workflows/build-artifacts.yml' || true)
+
+          if [ -z "$hits" ]; then
+            echo "✅ No unresolved conflict markers." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          count=$(printf '%s\n' "$hits" | wc -l | tr -d ' ')
+          {
+            echo "## ⛔ Unresolved merge-conflict markers ($count)"
+            echo ""
+            echo "This PR has committed conflict markers and **must not be merged** until they are resolved."
+            echo "GitHub's \"ready to merge\" / \"no conflicts\" is misleading here — the markers are plain text"
+            echo "inside the files, not a git-level conflict. Resolve them on the source branch, then this"
+            echo "check goes green."
+            echo ""
+            echo '```'
+            printf '%s\n' "$hits"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          while IFS=: read -r file line _; do
+            [ -n "$file" ] && echo "::error file=${file},line=${line}::Unresolved merge-conflict marker — resolve before merging"
+          done <<< "$hits"
+
+          echo "::error::Found $count conflict-marker line(s). See annotations and the job summary."
+          exit 1
+
+      - name: Check custom asset trees for new path collisions
+        run: python3 scripts/check-asset-collisions.py
+
+      - name: clang-format (clang-format-14)
+        run: |
+          sudo apt-get update && sudo apt-get install -y clang-format-14
+          ./run-clang-format.sh
+          git diff --exit-code
+
+      - name: Filter changed paths
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            code:
+              - 'libultraship/**'
+              - 'soh/**'
+              - 'mm/**'
+              - 'combo/**'
+              - 'CMakeLists.txt'
+              - 'CMake/**'
+              - 'OTRExporter/**'
+              - 'ZAPDTR/**'
+              - 'scripts/linux/**'
+              - 'upstream-pins.json'
+              - '.github/workflows/build.yml'
+              - '.github/workflows/build-linux.yml'
+              - '.github/workflows/build-artifacts.yml'
+
+  windows:
+    needs: gate
+    if: needs.gate.outputs.code == 'true'
     uses: ./.github/workflows/build.yml
     with:
       # Only develop's validator artifact is ever consumed (validate-seed.yml fetches the latest
       # successful develop run), so PRs skip building and uploading it.
       validator: ${{ github.ref == 'refs/heads/develop' }}
+
+  linux:
+    needs: gate
+    if: needs.gate.outputs.code == 'true'
+    uses: ./.github/workflows/build-linux.yml

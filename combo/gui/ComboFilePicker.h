@@ -51,27 +51,7 @@ inline std::string PickFile(const char* title, const char* winFilter, const std:
     return std::string();
 #else
     (void)winFilter;
-    // An AppImage run exports a bundle-scoped LD_LIBRARY_PATH that can break the host's
-    // zenity/kdialog (GTK/Qt); AppRun saves the host's original value in
-    // COMBO_HOST_LD_LIBRARY_PATH, so swap it in around the dialog spawn (pfd forks the helper
-    // in the ctor) and restore before blocking on the result. Unset outside an AppImage.
-    const char* hostLibPath = std::getenv("COMBO_HOST_LD_LIBRARY_PATH");
-    std::string savedLibPath;
-    bool swapped = false;
-    if (hostLibPath != nullptr) {
-        const char* current = std::getenv("LD_LIBRARY_PATH");
-        savedLibPath = current != nullptr ? current : "";
-        if (hostLibPath[0] != '\0') {
-            setenv("LD_LIBRARY_PATH", hostLibPath, 1);
-        } else {
-            unsetenv("LD_LIBRARY_PATH");
-        }
-        swapped = true;
-    }
     pfd::open_file dlg(title, "", pfdFilters);
-    if (swapped) {
-        setenv("LD_LIBRARY_PATH", savedLibPath.c_str(), 1);
-    }
     auto selection = dlg.result();
     return selection.empty() ? std::string() : selection.front();
 #endif

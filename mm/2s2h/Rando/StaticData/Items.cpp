@@ -733,7 +733,12 @@ std::vector<std::string> GetTrickNames(RandoItemId id) {
 }
 #endif
 
-std::string GetItemName(RandoItemId randoItemId, bool includeArticle, RandoCheckId randoCheckId) {
+std::string GetItemName(RandoItemId randoItemId, bool includeArticle, RandoCheckId randoCheckId
+#ifdef COMBO_BUILD
+                        ,
+                        bool livePreview
+#endif
+) {
     std::string result;
 
 #ifdef COMBO_BUILD
@@ -745,6 +750,13 @@ std::string GetItemName(RandoItemId randoItemId, bool includeArticle, RandoCheck
             // A foreign trap keeps its typo'd disguise name until the check is collected.
             if (!fi->fakeTrickName.empty() && !RANDO_SAVE_CHECKS[randoCheckId].obtained) {
                 return fi->fakeTrickName;
+            }
+            // Disguise gone (obtained trap): fall through to the true name, never the disguise's tier.
+            if (livePreview && fi->fakeItemName.empty()) {
+                const char* live = Rando::ComboForeignLiveName(randoCheckId);
+                if (live != nullptr) {
+                    return ComboRando::ShownForeignName(*fi, live);
+                }
             }
             // KNOWN TRADEOFF: OOT displayNames carry no article, so includeArticle is ignored —
             // hint text reads "I can offer you Hookshot" instead of "...the Hookshot". Proper fix

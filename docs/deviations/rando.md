@@ -1830,3 +1830,27 @@ so an OOT player now sees the correct Bow model under "You found Progressive Bow
 to the granted tier needs a new cross-game name ABI, and every other `displayName` consumer (check
 tracker, hints, merchant text, MM shop descriptions) must keep the generic name or it leaks
 progression. Separate follow-up.
+
+**Follow-up — resolved tier name.** `CwItemDrawInfo` gained an appended `resolvedName` field, set by a
+producer only when a progressive placeholder actually converted to a tier (MM after the junk/trap
+indirection, so a maxed progressive that fell to junk names the junk item; OOT via a defaulted
+out-param on `Item::GetGIEntry`, see below). Each consumer cache copies it alongside the model and
+exposes two accessors: `ComboForeignLatchedName{,OOT}` (frozen — NULL unless the entry is latched
+with a non-empty name, so a pickup can never show the next tier) and `ComboForeignLiveName{,OOT}` (runs
+the per-frame resolver, for previews). `ShownForeignName` in `CrossForeign.h` tags the resolved name
+with the same `(MM)`/`(OOT)` suffix as `displayName`, or falls back to `displayName` when there is no
+name. Pickup text (OOT textbox/toast, MM textbox/toast) uses the latched accessor; shop/merchant/scrub
+previews use the live one. Everything else (trackers, hints, MM's other ~15 `GetItemName` callers)
+stays generic by construction: MM's `GetItemName` gained a defaulted `livePreview` parameter, opted
+into only at the purchase-preview call sites, so a hint feeder that reuses the same function can never
+leak a live tier into persisted hint text.
+
+**`Item::GetGIEntry` out-param (COMBO_BUILD-guarded deviation):** the vanilla signature returns
+`std::shared_ptr<GetItemEntry>`; the resolved `RandomizerGet` it computes for a progressive tier is a
+local (`actual`) never exposed. Combo appends a defaulted `RandomizerGet* actualOut = nullptr` and
+writes it once, right before the final `return`, only when the progressive branch actually resolved
+(the two earlier returns — non-progressive `giEntry`, and `actual == RG_NONE` falling back to
+`giEntry` — leave `*actualOut` untouched at the caller's default). All 17 existing callers are
+unaffected. Rejected: a combo-owned reverse `(modIndex, getItemId) -> RandomizerGet` map — real
+collisions exist (`GI_BRACELET` is both `RG_GORONS_BRACELET` and `RG_POWER_BRACELET`; `GI_SCALE_SILVER`
+is shared by four different RGs; the stick/nut capacity GIs are shared with the bag items).

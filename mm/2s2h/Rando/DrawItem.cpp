@@ -33,6 +33,14 @@ Gfx* ResourceMgr_LoadGfxByName(const char* path);
 void Rando::LatchComboForeign(RandoCheckId randoCheckId) {
     ComboLatchForeignDrawOOT(randoCheckId);
 }
+
+const char* Rando::ComboForeignLatchedName(RandoCheckId randoCheckId) {
+    return ComboForeignLatchedNameOOT(randoCheckId);
+}
+
+const char* Rando::ComboForeignLiveName(RandoCheckId randoCheckId) {
+    return ComboForeignLiveNameOOT(randoCheckId);
+}
 #endif
 
 s32 StrayFairyOverrideLimbDraw(PlayState* play, s32 limbIndex, Gfx** dList, Vec3f* pos, Vec3s* rot, Actor* thisx,

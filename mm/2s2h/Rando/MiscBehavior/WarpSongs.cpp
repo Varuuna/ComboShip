@@ -20,6 +20,7 @@ extern "C" {
 #include <variables.h>
 #include <z64ocarina.h>
 extern s16 sLastPlayedSong;
+extern u32 sOcarinaAvailableSongFlags; // code_8019AF00.c: bitmask of songs the recogniser currently accepts
 s32 Map_CurRoomHasMapI(PlayState* play);
 }
 
@@ -75,8 +76,14 @@ void Rando::MiscBehavior::WarpSongs() {
     COND_VB_SHOULD(VB_SONG_AVAILABLE_TO_PLAY, shouldRegister, {
         uint8_t* songIndex = va_arg(args, uint8_t*);
         if (IsWarpSongId(*songIndex)) {
-            *should =
-                Flags_GetRandoInf((RandoInf)(RANDO_INF_OBTAINED_SONG_MINUET + (*songIndex - OCARINA_SONG_MINUET)));
+            // Give the Termina wall (En_Gakufu) priority: while it listens for its tune, suppress our warp
+            // songs so a coinciding warp id can't win the recogniser's last-match and teleport instead.
+            if (sOcarinaAvailableSongFlags & (1 << OCARINA_SONG_TERMINA_WALL)) {
+                *should = false;
+            } else {
+                *should =
+                    Flags_GetRandoInf((RandoInf)(RANDO_INF_OBTAINED_SONG_MINUET + (*songIndex - OCARINA_SONG_MINUET)));
+            }
         }
     });
 

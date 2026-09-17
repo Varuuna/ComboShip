@@ -800,6 +800,30 @@ static FnReadComboStartingGameCVar SOH_ReadComboStartingGameCVar = nullptr;
 // Starting game of the LOADED slot (seed-bound, like g_goalHunt).
 static bool g_startingGameMM = false;
 
+// Shared Items (OoTMM-style, combo/rando/SharedItems.h). SOH_SetComboSharedItems is OOT-only — it
+// shapes OOT's gen-time wallet force (settings.cpp); nothing on the MM side depends on the mask.
+typedef void (*FnSetComboSharedItems)(uint32_t mask);
+typedef uint32_t (*FnReadComboSharedCVars)(void);
+typedef int (*FnGetSharedTier)(int family);
+typedef void (*FnRaiseSharedTier)(int family, int tier);
+typedef void (*FnSetSharedChangedCb)(void (*)(int, int));
+typedef void (*FnSetSharedTickCb)(void (*)(void));
+static FnSetComboSharedItems SOH_SetComboSharedItems = nullptr;
+// MM's mirror of the OOT setter — mask-gated vendor pokes (e.g. Bombchu Bag family) read it.
+static FnSetComboSharedItems MM_SetComboSharedItems = nullptr;
+static FnReadComboSharedCVars SOH_ReadComboSharedCVars = nullptr;
+static FnGetSharedTier SOH_GetSharedTier = nullptr;
+static FnGetSharedTier MM_GetSharedTier = nullptr;
+static FnRaiseSharedTier SOH_RaiseSharedTier = nullptr;
+static FnRaiseSharedTier MM_RaiseSharedTier = nullptr;
+static FnSetSharedChangedCb SOH_SetSharedChangedCb = nullptr;
+static FnSetSharedChangedCb MM_SetSharedChangedCb = nullptr;
+static FnSetSharedTickCb SOH_SetSharedTickCb = nullptr;
+static FnSetSharedTickCb MM_SetSharedTickCb = nullptr;
+// Shared-items mask of the LOADED slot (seed-bound, like g_goalHunt/g_startingGameMM). Absent key = 0.
+static uint32_t g_sharedMask = 0;
+static bool g_sharedReconcilePending = false;
+
 namespace ComboAnchor {
 static std::thread sThread;
 static std::atomic<bool> sEnabled{ false };
@@ -1200,6 +1224,9 @@ static void LoadComboCompletion(int slot) {
     g_goalRequired = 0;
     g_goalTotal = -1;
     g_startingGameMM = false;
+    g_sharedMask = 0;
+    if (MM_SetComboSharedItems)
+        MM_SetComboSharedItems(0); // clear before the slot read below re-pushes the loaded value (or stays 0)
     {
         std::lock_guard<std::mutex> lk(g_containerMutex);
         auto& c = LoadOrCreateContainer(slot);
@@ -1216,6 +1243,8 @@ static void LoadComboCompletion(int slot) {
         g_goalTotal = goal.value("totalPieces", -1); // absent on seeds made before the combined total
         // Same for the starting game (#135) — old seeds have no field and started in OOT.
         g_startingGameMM = rando.value("startingGame", std::string("OOT")) == "MM";
+        // Shared Items: absent key = mask 0 = feature off (old seeds unaffected).
+        g_sharedMask = ComboRando::SharedMaskFromKeys(rando.value("sharedItems", nlohmann::json::array()));
     }
     // Push outside the container lock — the DLL setters must never re-enter the sidecar.
     if (SOH_SetComboGoal)
@@ -1224,6 +1253,10 @@ static void LoadComboCompletion(int slot) {
         MM_SetComboGoal(g_goalHunt ? 1 : 0, g_goalRequired, ComboRando::CwMmPieces(g_goalTotal));
     if (SOH_SetComboStartingGame)
         SOH_SetComboStartingGame(g_startingGameMM ? 1 : 0);
+    if (SOH_SetComboSharedItems)
+        SOH_SetComboSharedItems(g_sharedMask);
+    if (MM_SetComboSharedItems)
+        MM_SetComboSharedItems(g_sharedMask);
     if (ComboUI_SetComboComplete)
         ComboUI_SetComboComplete((g_comboCompletion[0] && g_comboCompletion[1]) ? 1 : 0);
 }
@@ -1239,6 +1272,10 @@ static void RestoreLoadedSlotGoal() {
         MM_SetComboGoal(g_goalHunt ? 1 : 0, g_goalRequired, ComboRando::CwMmPieces(g_goalTotal));
     if (SOH_SetComboStartingGame)
         SOH_SetComboStartingGame(g_startingGameMM ? 1 : 0);
+    if (SOH_SetComboSharedItems)
+        SOH_SetComboSharedItems(g_sharedMask);
+    if (MM_SetComboSharedItems)
+        MM_SetComboSharedItems(g_sharedMask);
 }
 
 static void SaveComboCompletion(int slot) {
@@ -1398,6 +1435,49 @@ static void Combo_OnTriforceProgress(int game, int fileNum) try {
     std::cerr << "[ComboShip] Combo_OnTriforceProgress threw: " << e.what() << std::endl;
 } catch (...) { std::cerr << "[ComboShip] Combo_OnTriforceProgress threw a non-std exception" << std::endl; }
 
+// Shared Items tier reconcile (combo/rando/SharedItems.h). Deferred — never inline, a raise from
+// inside the OTHER game's own give lambda would be re-entrant; Combo_SharedTick drains it per frame.
+static void Combo_OnSharedChanged(int game, int fileNum) try {
+    if ((game != 0 && game != 1) || fileNum == 0xFF)
+        return; // Anchor pokes carry fileNum 0xFF at the file-select — no slot, nothing to reconcile
+    g_sharedReconcilePending = true;
+} catch (const std::exception& e) {
+    std::cerr << "[ComboShip] Combo_OnSharedChanged threw: " << e.what() << std::endl;
+} catch (...) { std::cerr << "[ComboShip] Combo_OnSharedChanged threw a non-std exception" << std::endl; }
+
+// Raises the lower side of every effective family to match the higher. Idempotent (see the
+// failure-path invariant in deviations/rando.md); never substitutes junk.
+static void Combo_SharedReconcileNow() try {
+    if (g_sharedMask == 0 || !SOH_GetSharedTier || !MM_GetSharedTier || !SOH_RaiseSharedTier || !MM_RaiseSharedTier)
+        return;
+    for (int i = 0; i < ComboRando::SF_COUNT; ++i) {
+        if (!(g_sharedMask & (1u << i)))
+            continue;
+        const auto& def = ComboRando::SharedFamilyByIndex(i);
+        const int o = SOH_GetSharedTier(i);
+        const int m = MM_GetSharedTier(i);
+        const int target = def.ootToMmOnly ? o : (o > m ? o : m); // one-way: OOT is never raised from MM
+        if (o < target)
+            SOH_RaiseSharedTier(i, target);
+        if (m < target)
+            MM_RaiseSharedTier(i, target); // MM_RaiseSharedTier clamps to mmTierCap internally
+    }
+} catch (const std::exception& e) {
+    std::cerr << "[ComboShip] Combo_SharedReconcileNow threw: " << e.what() << std::endl;
+} catch (...) { std::cerr << "[ComboShip] Combo_SharedReconcileNow threw a non-std exception" << std::endl; }
+
+// Per-frame drain seam (SOH_/MM_SetSharedTickCb). Gated on both saves resident.
+static void Combo_SharedTick() try {
+    if (!g_sharedReconcilePending || g_sharedMask == 0)
+        return;
+    if (g_comboCompletionSlot < 0 || g_MmSaveInMemorySlot != g_comboCompletionSlot)
+        return;
+    g_sharedReconcilePending = false; // clear BEFORE raising — a raise re-fires the poke and re-arms it
+    Combo_SharedReconcileNow();
+} catch (const std::exception& e) {
+    std::cerr << "[ComboShip] Combo_SharedTick threw: " << e.what() << std::endl;
+} catch (...) { std::cerr << "[ComboShip] Combo_SharedTick threw a non-std exception" << std::endl; }
+
 // Seed utilities — Ship_Hash/Ship_Random are not exported from libultraship, so implement inline.
 // FNV-1a 32-bit hash: deterministic string-to-uint32 used to derive the master seed.
 static uint32_t ComboHash(const char* str) {
@@ -1470,7 +1550,8 @@ static bool g_ComboReloadRestoreUserMM = false; // false for an explicit drop (s
 static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRando::OracleFns& ootOracle,
                                   const ComboRando::OracleFns& mmOracle, const std::string& seedLabel,
                                   nlohmann::json* playthroughOut = nullptr, const std::string& sohDump = "",
-                                  const std::string& mmDump = "", ComboRando::CwGoal goal = {}, bool mmStart = false);
+                                  const std::string& mmDump = "", ComboRando::CwGoal goal = {}, bool mmStart = false,
+                                  uint32_t sharedMask = 0);
 
 // ComboShip: worker that runs the combined-logic fill (or no-logic fallback) on a background
 // thread, reports progress via the ComboGenProgress struct, and stashes placements.
@@ -1513,6 +1594,8 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     const int startCfg = SOH_ReadComboStartingGameCVar ? SOH_ReadComboStartingGameCVar() : 0;
     bool pinStartOot = false; // Random: after an MM-start attempt fails, fall back silently to OOT
     bool resolvedMmStart = false;
+    // Shared Items: read via soh.dll — the launcher has no CVar access.
+    const uint32_t sharedMask = SOH_ReadComboSharedCVars ? SOH_ReadComboSharedCVars() : 0;
 
     std::string sohDump, mmDump, spoiler, lastFillError, sohHintDump;
     bool usedCombinedFill = false;
@@ -1584,6 +1667,9 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         // Same reason (#135): an MM start forces OOT's age/forest/exclusions, which shape its pool.
         if (SOH_SetComboStartingGame)
             SOH_SetComboStartingGame(mmStart ? 1 : 0);
+        // Shared Items: shapes OOT's wallet force before the dump (settings.cpp reads gComboSharedMask).
+        if (SOH_SetComboSharedItems)
+            SOH_SetComboSharedItems(sharedMask);
 
         sohDump = SOH_DumpRandoStaticData();
         mmDump = MM_DumpRandoStaticData();
@@ -1636,9 +1722,9 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         // ComboShip: honor OOT's logic/ALR settings per-game (MM stays all-reachable). The fill gates MM
         // on the portal region via ootOracle.GetPortalOpen; NO_LOGIC bypasses it.
         ComboRando::OotAccess ootAccess = ComboRando::OotAccessFromDump(sohDump);
-        auto result =
-            ComboRando::CrossWorldCombinedFill(sohDump, mmDump, masterSeed, ootOracle, mmOracle, progress, forcedOot,
-                                               ootAccess, goal, mmStart ? ComboRando::GAME_MM : ComboRando::GAME_OOT);
+        auto result = ComboRando::CrossWorldCombinedFill(
+            sohDump, mmDump, masterSeed, ootOracle, mmOracle, progress, forcedOot, ootAccess, goal,
+            mmStart ? ComboRando::GAME_MM : ComboRando::GAME_OOT, sharedMask);
 
         if (result.success) {
             spoiler = result.spoilerJson;
@@ -1678,7 +1764,7 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
             // oracles BEFORE SOH_ApplyRandoPlacements restores the live OOT context, so it can't
             // corrupt the generated seed. Restores MM itself.
             WriteComboPlaythrough(result.spoilerJson, ootOracle, mmOracle, inputSeed, &playthroughJson, sohDump, mmDump,
-                                  goal, mmStart);
+                                  goal, mmStart, sharedMask);
         } else {
             lastFillError = result.error;
             std::cout << "[ComboShip] RunComboFill: attempt " << (attempt + 1) << "/" << kFillAttempts
@@ -1823,10 +1909,16 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
                 return nlohmann::json::parse(fn());
             } catch (...) { return nlohmann::json::object(); }
         };
+        // Shared Items: the EFFECTIVE mask (families actually trimmed this fill) — a family with no OOT
+        // copies was left alone (see CrossWorldRando.h).
+        const nlohmann::json sharedItemsJson = j.value("sharedItems", nlohmann::json::array());
+        const uint32_t effectiveSharedMask = ComboRando::SharedMaskFromKeys(sharedItemsJson);
         // ComboShip: suffix cross-game item-name collisions (e.g. "Mirror Shield") in the human-readable
         // placements so the consolidated file / plandomizer read unambiguously; each game strips its own
-        // "(OOT)"/"(MM)" on apply. Foreign checks are skipped (carried by foreign[]).
-        ComboRando::SuffixCrossGameItems(ootSpoiler, mmSpoiler, foreignArr, sohDump, mmDump);
+        // "(OOT)"/"(MM)" on apply. Foreign checks are skipped (carried by foreign[]). Shared families are
+        // never suffixed (decision 3) — untagged set built from the effective mask.
+        ComboRando::SuffixCrossGameItems(ootSpoiler, mmSpoiler, foreignArr, sohDump, mmDump,
+                                         ComboRando::SharedUntaggedNames(effectiveSharedMask));
 
         nlohmann::json consolidated;
         consolidated["fileType"] = "ComboShipRandomizer";
@@ -1850,8 +1942,10 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         consolidated["mm"] = { { "settings", parseOrEmpty(MM_DumpRandoSettings) },
                                { "placements", mmSpoiler },
                                { "prices", pricesOf(mmDump) } };
-        auto foreignEnriched = ComboRando::BuildForeignArray(foreignArr);
+        auto foreignEnriched = ComboRando::BuildForeignArray(foreignArr, effectiveSharedMask);
         consolidated["foreign"] = foreignEnriched;
+        // Shared Items: seed-bound, like the goal and starting game.
+        consolidated["sharedItems"] = sharedItemsJson;
         consolidated["playthrough"] = ComboRando::PlaythroughLines(playthroughJson);
         // ComboShip (#136): the goal is seed-bound — the runtime latch reads it back from the slot's
         // baked combo.rando, never from the live menu CVars.
@@ -2006,14 +2100,14 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
 static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRando::OracleFns& ootOracle,
                                   const ComboRando::OracleFns& mmOracle, const std::string& seedLabel,
                                   nlohmann::json* playthroughOut, const std::string& sohDump, const std::string& mmDump,
-                                  ComboRando::CwGoal goal, bool mmStart) {
+                                  ComboRando::CwGoal goal, bool mmStart, uint32_t sharedMask) {
     // Thin wrapper over the shared traversal (combo/rando/ComboPlaythrough.h); passes this build's
     // MM oracle-restore pointer. A playthroughOut here means the spoiler's playthrough section, which
     // lists progression only; the text-log path and the headless validator keep every step.
     ComboRando::RunPlaythrough(spoilerJson, ootOracle, mmOracle, seedLabel, Combo_MM_Rando_Restore, playthroughOut,
                                sohDump, mmDump,
                                ComboRando::OotAccessFromDump(sohDump) != ComboRando::OotAccess::NO_LOGIC,
-                               /*progressionOnly*/ playthroughOut != nullptr, goal, mmStart);
+                               /*progressionOnly*/ playthroughOut != nullptr, goal, mmStart, sharedMask);
 }
 
 // Env-gated entry: COMBO_PLAYTHROUGH=<seed> generates that seed headless, then writes its log.
@@ -2338,6 +2432,10 @@ static int Combo_OnReloadRequest(const char* path) {
             // ComboShip (#135): same ordering rule — an MM start forces OOT settings that shape its pool.
             if (SOH_SetComboStartingGame)
                 SOH_SetComboStartingGame(j.value("startingGame", std::string("OOT")) == "MM" ? 1 : 0);
+            // Shared Items: re-push so the wallet force (settings.cpp) matches this seed before FinalizeSettings.
+            if (SOH_SetComboSharedItems)
+                SOH_SetComboSharedItems(
+                    ComboRando::SharedMaskFromKeys(j.value("sharedItems", nlohmann::json::array())));
         }
         auto oot = j.value("oot", nlohmann::json::object());
         auto mm = j.value("mm", nlohmann::json::object());
@@ -2551,6 +2649,9 @@ static void Combo_OnOOTSaveInit(int fileNum) {
     Combo_PushHintTrackerData(fileNum);
     // The creation path builds the save in MM's live gSaveContext.
     g_MmSaveInMemorySlot = fileNum;
+    // Shared Items: OOT's starting copies aren't mirrored into the MM oracle's base state at gen time
+    // (documented under-approximation) — reconcile now so they reach MM's fresh save for real.
+    Combo_SharedReconcileNow();
 }
 
 static void Combo_ResumeMMIfLastSavedThere(int fileNum);
@@ -2580,6 +2681,7 @@ static void Combo_OnOOTSaveLoad(int fileNum) {
     Combo_PushHintTrackerData(fileNum); // #164: this slot's hints + persisted read state
     if (!MM_LoadSaveForCombo || g_MmSaveInMemorySlot == fileNum) {
         Combo_OnTriforceProgress(0, fileNum);
+        Combo_SharedReconcileNow(); // Shared Items: full reconcile at slot bind (see the invariant note)
         Combo_ResumeMMIfLastSavedThere(fileNum);
         return;
     }
@@ -2596,6 +2698,7 @@ static void Combo_OnOOTSaveLoad(int fileNum) {
     // Both counters are now live: catch a goal crossed while the game wasn't running (e.g. a teammate's
     // pieces applied to a dormant save). Latched, so it can't roll credits twice.
     Combo_OnTriforceProgress(0, fileNum);
+    Combo_SharedReconcileNow(); // Shared Items: same reason — close any gap left by a dormant-only period
     Combo_ResumeMMIfLastSavedThere(fileNum);
 }
 
@@ -2879,6 +2982,21 @@ int main(int argc, char** argv) {
     SOH_SetComboStartingGame = (FnSetComboStartingGame)GetSym(sohModule, "SOH_SetComboStartingGame");
     SOH_ReadComboStartingGameCVar = (FnReadComboStartingGameCVar)GetSym(sohModule, "SOH_ReadComboStartingGameCVar");
 
+    // Shared Items seam — SOH_SetComboSharedItems is OOT-only (shapes the gen-time wallet force).
+    SOH_SetComboSharedItems = (FnSetComboSharedItems)GetSym(sohModule, "SOH_SetComboSharedItems");
+    // MM's mirror — mask-gated vendor pokes only; no gen-time effect. Missing export = fail-open (MM
+    // keeps its 2ship defaults, never suppressed).
+    MM_SetComboSharedItems = (FnSetComboSharedItems)GetSym(mmModule, "MM_SetComboSharedItems");
+    SOH_ReadComboSharedCVars = (FnReadComboSharedCVars)GetSym(sohModule, "SOH_ReadComboSharedCVars");
+    SOH_GetSharedTier = (FnGetSharedTier)GetSym(sohModule, "SOH_GetSharedTier");
+    MM_GetSharedTier = (FnGetSharedTier)GetSym(mmModule, "MM_GetSharedTier");
+    SOH_RaiseSharedTier = (FnRaiseSharedTier)GetSym(sohModule, "SOH_RaiseSharedTier");
+    MM_RaiseSharedTier = (FnRaiseSharedTier)GetSym(mmModule, "MM_RaiseSharedTier");
+    SOH_SetSharedChangedCb = (FnSetSharedChangedCb)GetSym(sohModule, "SOH_SetSharedChangedCb");
+    MM_SetSharedChangedCb = (FnSetSharedChangedCb)GetSym(mmModule, "MM_SetSharedChangedCb");
+    SOH_SetSharedTickCb = (FnSetSharedTickCb)GetSym(sohModule, "SOH_SetSharedTickCb");
+    MM_SetSharedTickCb = (FnSetSharedTickCb)GetSym(mmModule, "MM_SetSharedTickCb");
+
     // Oracle exports
     Combo_SOH_Rando_Reset = (FnOracleVoid)GetSym(sohModule, "Combo_SOH_Rando_Reset");
     Combo_SOH_Rando_SetOwnedItems = (FnOracleSetItems)GetSym(sohModule, "Combo_SOH_Rando_SetOwnedItems");
@@ -3077,6 +3195,15 @@ int main(int argc, char** argv) {
         SOH_SetOtherTriforceCountCb(Combo_GetMmTriforceCount);
     if (MM_SetOtherTriforceCountCb)
         MM_SetOtherTriforceCountCb(Combo_GetOotTriforceCount);
+    // Shared Items: tier-changed pokes in, per-frame drain seam.
+    if (SOH_SetSharedChangedCb)
+        SOH_SetSharedChangedCb(Combo_OnSharedChanged);
+    if (MM_SetSharedChangedCb)
+        MM_SetSharedChangedCb(Combo_OnSharedChanged);
+    if (SOH_SetSharedTickCb)
+        SOH_SetSharedTickCb(Combo_SharedTick);
+    if (MM_SetSharedTickCb)
+        MM_SetSharedTickCb(Combo_SharedTick);
     if (SOH_SetCrossDeliver || MM_SetCrossDeliver) {
         std::cout << "[ComboShip] Cross-game item delivery seam registered." << std::endl;
     }

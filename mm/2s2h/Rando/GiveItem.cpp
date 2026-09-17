@@ -12,6 +12,10 @@ extern "C" {
 bool Rando::gComboDormantGive = false;
 // ComboShip (#136): launcher seam — poked after each Triforce Piece so combo can evaluate the goal.
 extern "C" void (*gMMComboTriforceProgress)(int game, int fileNum);
+// ComboShip: Shared Items — poked after every give so the launcher can reconcile OOT<->MM tiers.
+extern "C" void (*gMMComboSharedChanged)(int game, int fileNum);
+// True while a shared Bombchu Bag family is effective for the loaded seed (SharedItems.h SF_BOMBCHU_BAG).
+extern "C" int Combo_MM_BombchuBagShared(void);
 #endif
 
 void Rando::GiveItem(RandoItemId randoItemId) {
@@ -141,8 +145,17 @@ void Rando::GiveItem(RandoItemId randoItemId) {
         case RI_BOMB_BAG_30:
         case RI_BOMB_BAG_40:
             Item_Give(gPlayState, Rando::StaticData::Items[randoItemId].itemId);
+#ifdef COMBO_BUILD
+            // Shared Bombchu Bag family effective: bag grants bombs only, chus come from that family.
+            if (!Combo_MM_BombchuBagShared())
+                INV_CONTENT(ITEM_BOMBCHU) = ITEM_BOMBCHU;
+            AMMO(ITEM_BOMB) = CUR_CAPACITY(UPG_BOMB_BAG);
+            if (INV_CONTENT(ITEM_BOMBCHU) != ITEM_NONE)
+                AMMO(ITEM_BOMBCHU) = CUR_CAPACITY(UPG_BOMB_BAG);
+#else
             INV_CONTENT(ITEM_BOMBCHU) = ITEM_BOMBCHU;
             AMMO(ITEM_BOMB) = AMMO(ITEM_BOMBCHU) = CUR_CAPACITY(UPG_BOMB_BAG);
+#endif
             break;
         case RI_WALLET_ADULT:
         case RI_WALLET_GIANT:
@@ -403,4 +416,10 @@ void Rando::GiveItem(RandoItemId randoItemId) {
             Item_Give(gPlayState, Rando::StaticData::Items[randoItemId].itemId);
             break;
     }
+#ifdef COMBO_BUILD
+    // ComboShip: Shared Items — single exit poke, mirrors the #136 Triforce poke above.
+    if (gMMComboSharedChanged != NULL) {
+        gMMComboSharedChanged(1, gSaveContext.fileNum);
+    }
+#endif
 }

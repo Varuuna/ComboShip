@@ -12,6 +12,7 @@
 #include <ship/window/gui/Gui.h>
 
 #ifdef COMBO_BUILD
+#include "rando/SharedItems.h" // ComboShip: Shared Items family indices (SF_WALLET)
 // ComboShip (#136): combo owns the win condition (combined Triforce goal), forced in FinalizeSettings.
 // A plain constant, not an #ifdef inside the OPT_CALLBACK macro arguments.
 extern "C" int gComboGoalHunt;
@@ -21,6 +22,8 @@ extern "C" int gComboGoalRequired;
 extern "C" int gComboGoalPieces;
 // ComboShip (#135): 1 when the resolved starting game is MM, which forces age/forest/exclusions below.
 extern "C" int gComboStartingGameMM;
+// ComboShip: Shared Items bitmask (combo/rando/SharedItems.h), pushed by SOH_SetComboSharedItems.
+extern "C" int gComboSharedMask;
 static constexpr bool kComboOwnsWincon = true;
 // ComboShip (#136): OOT's half of the combo-owned pool, for the menu-side dependent-count ranges.
 // Mirrors CwOotPieces in combo/rando/CrossWorldRando.h — the two splits must stay identical.
@@ -2729,6 +2732,10 @@ void Context::FinalizeSettings(const std::set<RandomizerCheck>& excludedLocation
         if (mOptions[RSK_FOREST].Is(RO_CLOSED_FOREST_ON)) {
             mOptions[RSK_FOREST].Set(RO_CLOSED_FOREST_DEKU_ONLY);
         }
+    }
+    // ComboShip: Shared Wallets has no MM equivalent for Child Wallet, so force it off (see deviations/rando.md).
+    if (gComboSharedMask & (1 << ComboRando::SF_WALLET)) {
+        mOptions[RSK_SHUFFLE_CHILD_WALLET].Set(RO_GENERIC_OFF);
     }
 #endif
     // ComboShip: (#133/#134) sub-options are meaningless without their parents

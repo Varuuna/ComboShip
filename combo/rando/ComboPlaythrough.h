@@ -20,8 +20,29 @@
 #include <vector>
 
 #include "CrossWorldRando.h"
+#include "SharedItems.h"
 
 namespace ComboRando {
+
+// Shared Items mirror: pushes newly-owed mmOwned copies per ootOwned's count; `given` tracks what's
+// already pushed so repeat calls don't duplicate.
+inline void ApplySharedMirror(uint32_t sharedMask, const std::vector<std::string>& ootOwned,
+                              std::vector<std::string>& mmOwned, size_t (&given)[SF_COUNT]) {
+    if (sharedMask == 0)
+        return;
+    for (int i = 0; i < SF_COUNT; ++i) {
+        if (!(sharedMask & (1u << i)))
+            continue;
+        const auto& def = SharedFamilyByIndex(i);
+        if (!def.mmHasItem)
+            continue; // nothing to push; MM logic doesn't need it
+        size_t k = static_cast<size_t>(std::count(ootOwned.begin(), ootOwned.end(), std::string(def.ootName)));
+        size_t target = std::min<size_t>(k, static_cast<size_t>(def.mmTierCap));
+        for (size_t n = given[i]; n < target; ++n)
+            mmOwned.push_back(def.mmName);
+        given[i] = target;
+    }
+}
 
 // A single placed item, parsed from a combined-fill spoiler (see ParseSpoilerPlacements). Shared by
 // RunPlaythrough and PareDownPlaythrough so both traverse the identical placement set.
@@ -391,7 +412,8 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
                                         const OracleFns& mmOracle, const std::string& seedLabel, void (*mmRestore)(),
                                         nlohmann::json* playthroughOut = nullptr, const std::string& sohDumpJson = "",
                                         const std::string& mmDumpJson = "", bool portalGated = true,
-                                        bool progressionOnly = false, CwGoal goal = {}, bool mmStart = false) {
+                                        bool progressionOnly = false, CwGoal goal = {}, bool mmStart = false,
+                                        uint32_t sharedMask = 0) {
     static const char* kOotGanon = "Ganon";           // RC_GANON reachable = OOT beatable (see CrossWorldRando.h)
     static const char* kMmWin = "Moon Majora Pot 01"; // ComboShip: friendly form of RC_MOON_MAJORA_POT_01
 
@@ -420,10 +442,12 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
     // Latched: MM stays open once OOT can reach the Happy Mask Shop. Ungated (NO_LOGIC) = open, and an
     // MM start (#135) roots MM from the beginning.
     bool portalOpen = !portalGated || mmStart;
+    size_t sharedGiven[SF_COUNT] = { 0 };
     for (int sphere = 0; sphere < kMaxSpheres; ++sphere) {
         auto ootReach = queryReachable(ootOracle, ownedOot);
         // Portal bit belongs to the OOT query just made; read it before crediting any MM check.
         portalOpen = portalOpen || OraclePortalOpen(ootOracle);
+        ApplySharedMirror(sharedMask, ownedOot, ownedMm, sharedGiven);
         auto mmReach = portalOpen ? queryReachable(mmOracle, ownedMm) : std::unordered_set<std::string>{};
         bool canGanon = ootReach.count(kOotGanon) > 0;
         bool canMajora = mmReach.count(kMmWin) > 0;
@@ -486,6 +510,8 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
         (p.itemGame == GAME_OOT ? allOot : allMm).push_back(p.item);
     auto everReachOot = queryReachable(ootOracle, allOot);
     bool everPortalOpen = OraclePortalOpen(ootOracle) || mmStart;
+    size_t everSharedGiven[SF_COUNT] = { 0 };
+    ApplySharedMirror(sharedMask, allOot, allMm, everSharedGiven);
     auto everReachMm = everPortalOpen ? queryReachable(mmOracle, allMm) : std::unordered_set<std::string>{};
     result.ganonReachable = everReachOot.count(kOotGanon) > 0;
     result.majoraReachable = everReachMm.count(kMmWin) > 0;

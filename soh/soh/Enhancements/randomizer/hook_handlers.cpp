@@ -546,7 +546,8 @@ void OOT_DeliverForeign(RandomizerCheck rc) {
         if (gComboCrossDeliver)
             gComboCrossDeliver((int)fi->itemGame, fi->itemName.c_str(), checkName.c_str());
         Anchor_BroadcastCrossItem((int)fi->itemGame, fi->itemName.c_str(), checkName.c_str());
-        Notification::Emit({ .message = "Sent to Termina:", .suffix = fi->displayName });
+        const char* resolved = Randomizer_ComboForeignLatchedName((int32_t)rc);
+        Notification::Emit({ .message = "Sent to Termina:", .suffix = ComboRando::ShownForeignName(*fi, resolved) });
         SPDLOG_INFO("[ComboShip] OOT delivered foreign item '{}' to MM (from check '{}')", fi->itemName, checkName);
     } else {
         SPDLOG_WARN("[ComboShip] OOT foreign sentinel at '{}' but no foreign-map entry; dropping", checkName);

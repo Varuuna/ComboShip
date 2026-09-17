@@ -41,6 +41,9 @@ void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getItemEntry);
 // ComboShip: freeze a foreign check's model at the tier it grants, before the cross-grant that
 // follows mutates MM's dormant save and a live re-resolve flips the held-up model next frame.
 void Randomizer_LatchComboForeign(int32_t rc); // RandomizerCheck, as int32_t like comboForeignCheck
+// ComboShip: resolved tier name for a latched (frozen) / live-previewed foreign check, or NULL.
+const char* Randomizer_ComboForeignLatchedName(int32_t rc);
+const char* Randomizer_ComboForeignLiveName(int32_t rc);
 #endif
 
 #define GET_ITEM_MYSTERY                                                                                 \

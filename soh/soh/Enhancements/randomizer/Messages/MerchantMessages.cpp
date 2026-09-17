@@ -11,6 +11,8 @@
 #include "soh/Enhancements/randomizer/randomizer.h"
 #ifdef COMBO_BUILD
 #include "soh/Enhancements/randomizer/hook_handlers.h"
+#include "soh/Enhancements/randomizer/draw.h"
+#include "rando/CrossForeign.h"
 #endif
 
 extern "C" {
@@ -55,8 +57,13 @@ void BuildMerchantMessage(CustomMessage& msg, RandomizerCheck rc, bool mysteriou
         if (rgid == RG_COMBO_FOREIGN) {
             const ComboRando::ForeignItem* fi =
                 OOT_LookupForeign(gSaveContext.fileNum, Rando::StaticData::GetLocation(rc)->GetName());
-            // A foreign trap is sold under its typo'd disguise name, like OOT's own ice traps.
-            std::string shown = fi == nullptr ? "" : (fi->fakeTrickName.empty() ? fi->displayName : fi->fakeTrickName);
+            // A foreign trap is sold under its typo'd disguise name, like OOT's own ice traps. A
+            // non-disguised foreign item previews its LIVE tier, like the shelf model beside it.
+            std::string shown =
+                fi == nullptr ? ""
+                              : (!fi->fakeTrickName.empty()
+                                     ? fi->fakeTrickName
+                                     : ComboRando::ShownForeignName(*fi, Randomizer_ComboForeignLiveName((int32_t)rc)));
             if (!shown.empty()) {
                 itemName = CustomMessage(Text{ shown, shown, shown });
                 color = "%g";

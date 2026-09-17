@@ -74,6 +74,8 @@ struct ComboForeignDrawInfoOOT {
     // Recipe chosen from live save state (progressive tier, Triforce shard, junk/trap) — re-resolve
     // every frame instead of caching, or the first model drawn sticks for the whole save slot.
     bool stateDependent = false;
+    // Resolved tier name (e.g. "Longshot") when a progressive placeholder converted, else empty.
+    std::string resolvedName;
 };
 
 // Routed path strings must outlive the frame (the GBI wrapper emits the raw pointer into the display
@@ -154,6 +156,9 @@ inline ComboForeignResolveOOT ComboFillForeignDrawInfoOOT(RandoCheckId rc, Combo
     info.hasEnvColor = raw.hasEnvColor != 0;
     info.drawKind = raw.drawKind;
     info.stateDependent = raw.stateDependent != 0;
+    if (raw.resolvedName != nullptr) {
+        info.resolvedName = raw.resolvedName;
+    }
     info.layerPrimMask = raw.layerPrimMask;
     info.layerEnvMask = raw.layerEnvMask;
     memcpy(info.layerPrimColor, raw.layerPrimColor, sizeof(info.layerPrimColor));
@@ -228,6 +233,26 @@ inline void ComboLatchForeignDrawOOT(RandoCheckId rc) {
     }
     info.stateDependent = false; // frozen: the resolver's cache-hit path now serves it verbatim
     c.map[rc] = info;
+}
+
+// Frozen tier name only: NULL unless latched (stateDependent == false) with a non-empty name. Never
+// serves a live entry, so a pickup can't show the tier the NEXT copy would give.
+inline const char* ComboForeignLatchedNameOOT(RandoCheckId rc) {
+    ComboForeignDrawCacheOOT& c = ComboForeignDrawCacheOOTGet();
+    auto it = c.map.find(rc);
+    if (it == c.map.end() || it->second.stateDependent || it->second.resolvedName.empty()) {
+        return nullptr;
+    }
+    return it->second.resolvedName.c_str();
+}
+
+// Live tier name for previews: runs the same per-frame resolver the shelf model uses.
+inline const char* ComboForeignLiveNameOOT(RandoCheckId rc) {
+    const ComboForeignDrawInfoOOT* info = ComboResolveForeignDrawInfoOOT(rc);
+    if (info == nullptr || info->resolvedName.empty()) {
+        return nullptr;
+    }
+    return info->resolvedName.c_str();
 }
 
 } // namespace

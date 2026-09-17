@@ -20,6 +20,9 @@ void DrawItem(RandoItemId randoItemId, RandoCheckId randoCheckId = RC_UNKNOWN, A
 void LatchComboForeign(RandoCheckId randoCheckId);
 // ComboShip: junk rotation pool minus RI_NONE, dumped for the combo generator's junk bake.
 std::vector<RandoItemId> ComboJunkPool();
+// ComboShip: resolved tier name for a latched (frozen) / live-previewed foreign check, or NULL.
+const char* ComboForeignLatchedName(RandoCheckId randoCheckId);
+const char* ComboForeignLiveName(RandoCheckId randoCheckId);
 #endif
 void GiveItem(RandoItemId randoItemId);
 // ComboShip: a small key lives in TWO counters — inventory.dungeonKeys and the rando mirror that

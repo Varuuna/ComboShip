@@ -423,7 +423,11 @@ static bool OOT_IsStateDependentDraw(RandomizerGet rg) {
 }
 
 static int32_t OOT_FillItemDrawInfo(RandomizerGet rg, CwItemDrawInfo* out) {
-    GetItemEntry gi = Rando::StaticData::RetrieveItem(rg).GetGIEntry_Copy();
+    RandomizerGet actual = RG_NONE;
+    GetItemEntry gi = *Rando::StaticData::RetrieveItem(rg).GetGIEntry(&actual);
+    if (actual != RG_NONE) {
+        out->resolvedName = Rando::StaticData::RetrieveItem(actual).GetName().english.c_str();
+    }
     // Progressive items resolve to the tier actually owed; classify THAT item's draw func, not the
     // placeholder's (drawItemId carries the resolved RandomizerGet for rando-table entries).
     RandomizerGet effRg = (gi.tableId == TABLE_RANDOMIZER) ? (RandomizerGet)gi.drawItemId : rg;

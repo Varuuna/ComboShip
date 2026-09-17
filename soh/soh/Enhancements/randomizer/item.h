@@ -51,7 +51,12 @@ class Item {
     LogicVal GetLogicVal() const;
     RandomizerGet GetRandomizerGet() const;
     uint16_t GetPrice() const;
+#ifdef COMBO_BUILD
+    // actualOut: resolved RandomizerGet when a progressive placeholder converted, else untouched.
+    std::shared_ptr<GetItemEntry> GetGIEntry(RandomizerGet* actualOut = nullptr) const;
+#else
     std::shared_ptr<GetItemEntry> GetGIEntry() const;
+#endif
     GetItemEntry GetGIEntry_Copy() const;
     void SetPrice(uint16_t price_);
     void SetAsPlaythrough();

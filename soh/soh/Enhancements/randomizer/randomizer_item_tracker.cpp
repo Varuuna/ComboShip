@@ -130,22 +130,18 @@ std::vector<ItemTrackerItem> dungeonRewardMedallions = {
 std::vector<ItemTrackerItem> dungeonRewards = {};
 
 std::vector<ItemTrackerItem> songItems = {
-    ITEM_TRACKER_ITEM(QUEST_SONG_LULLABY, 0, DrawSong),
-    ITEM_TRACKER_ITEM(QUEST_SONG_EPONA, 0, DrawSong),
-    ITEM_TRACKER_ITEM(QUEST_SONG_SARIA, 0, DrawSong),
-    ITEM_TRACKER_ITEM(QUEST_SONG_SUN, 0, DrawSong),
-    ITEM_TRACKER_ITEM(QUEST_SONG_TIME, 0, DrawSong),
-    ITEM_TRACKER_ITEM(QUEST_SONG_STORMS, 0, DrawSong),
-    ITEM_TRACKER_ITEM(QUEST_SONG_MINUET, 0, DrawSong),
-    ITEM_TRACKER_ITEM(QUEST_SONG_BOLERO, 0, DrawSong),
-    ITEM_TRACKER_ITEM(QUEST_SONG_SERENADE, 0, DrawSong),
-    ITEM_TRACKER_ITEM(QUEST_SONG_REQUIEM, 0, DrawSong),
-    ITEM_TRACKER_ITEM(QUEST_SONG_NOCTURNE, 0, DrawSong),
-    ITEM_TRACKER_ITEM(QUEST_SONG_PRELUDE, 0, DrawSong),
+    // clang-format off
+    ITEM_TRACKER_ITEM(QUEST_SONG_LULLABY, 0, DrawSong),  ITEM_TRACKER_ITEM(QUEST_SONG_EPONA, 0, DrawSong),
+    ITEM_TRACKER_ITEM(QUEST_SONG_SARIA, 0, DrawSong),    ITEM_TRACKER_ITEM(QUEST_SONG_SUN, 0, DrawSong),
+    ITEM_TRACKER_ITEM(QUEST_SONG_TIME, 0, DrawSong),     ITEM_TRACKER_ITEM(QUEST_SONG_STORMS, 0, DrawSong),
+    ITEM_TRACKER_ITEM(QUEST_SONG_MINUET, 0, DrawSong),   ITEM_TRACKER_ITEM(QUEST_SONG_BOLERO, 0, DrawSong),
+    ITEM_TRACKER_ITEM(QUEST_SONG_SERENADE, 0, DrawSong), ITEM_TRACKER_ITEM(QUEST_SONG_REQUIEM, 0, DrawSong),
+    ITEM_TRACKER_ITEM(QUEST_SONG_NOCTURNE, 0, DrawSong), ITEM_TRACKER_ITEM(QUEST_SONG_PRELUDE, 0, DrawSong),
 #ifdef COMBO_BUILD
     // ComboShip (teleport songs): MM's Song of Soaring, RandoInf-backed, so it is a custom item, not a quest song.
     ITEM_TRACKER_ITEM_CUSTOM(RG_SONG_OF_SOARING, ITEM_SONG_PRELUDE, ITEM_SONG_PRELUDE, 0, DrawSong),
 #endif
+    // clang-format on
 };
 
 std::vector<ItemTrackerItem> gregItems = {

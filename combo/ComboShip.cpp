@@ -795,15 +795,6 @@ static FnSetTriforceProgressCb SOH_SetTriforceProgressCb = nullptr;
 static FnSetTriforceProgressCb MM_SetTriforceProgressCb = nullptr;
 static FnSetOtherTriforceCountCb SOH_SetOtherTriforceCountCb = nullptr;
 static FnSetOtherTriforceCountCb MM_SetOtherTriforceCountCb = nullptr;
-// ComboShip (teleport songs): OOT's Song of Soaring reads MM's owl-statue flags and arrival entrances.
-typedef int (*FnGetOwlFlags)(void);
-typedef int (*FnGetOwlWarpEntrance)(int owlId);
-typedef void (*FnSetOwlFlagsProvider)(int (*)(void));
-typedef void (*FnSetOwlWarpEntranceProvider)(int (*)(int));
-static FnGetOwlFlags MM_GetOwlActivationFlags = nullptr;
-static FnGetOwlWarpEntrance MM_GetOwlWarpEntrance = nullptr;
-static FnSetOwlFlagsProvider SOH_SetOwlFlagsProvider = nullptr;
-static FnSetOwlWarpEntranceProvider SOH_SetOwlWarpEntranceProvider = nullptr;
 // Active goal for the loaded slot (0 required = the both-bosses goal) + the one-shot completion latch.
 static bool g_goalHunt = false;
 static int g_goalRequired = 0;
@@ -842,6 +833,16 @@ static FnSetSharedTickCb MM_SetSharedTickCb = nullptr;
 // Shared-items mask of the LOADED slot (seed-bound, like g_goalHunt/g_startingGameMM). Absent key = 0.
 static uint32_t g_sharedMask = 0;
 static bool g_sharedReconcilePending = false;
+
+// ComboShip (teleport songs): OOT's Song of Soaring reads MM's owl-statue flags and arrival entrances.
+typedef int (*FnGetOwlFlags)(void);
+typedef int (*FnGetOwlWarpEntrance)(int owlId);
+typedef void (*FnSetOwlFlagsProvider)(int (*)(void));
+typedef void (*FnSetOwlWarpEntranceProvider)(int (*)(int));
+static FnGetOwlFlags MM_GetOwlActivationFlags = nullptr;
+static FnGetOwlWarpEntrance MM_GetOwlWarpEntrance = nullptr;
+static FnSetOwlFlagsProvider SOH_SetOwlFlagsProvider = nullptr;
+static FnSetOwlWarpEntranceProvider SOH_SetOwlWarpEntranceProvider = nullptr;
 
 namespace ComboAnchor {
 static std::thread sThread;

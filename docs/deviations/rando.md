@@ -1899,3 +1899,83 @@ draw in MM's soaring tint; tracker entry in the songs group; RG appended after `
 
 **Verified:** Linux syntax checks of every touched translation unit against the worktree's headers;
 Windows build + in-game runs are the real check (see the commit log).
+
+## Cross-placed MM junk is baked at generation (2026-09-07)
+
+A foreign MM junk check used to give three different answers. The grant forced a Red Rupee
+(`mm/2s2h/BenPort.cpp`, `MM_GrantCrossItem`); the model called `Rando::CurrentJunkItem()` with no
+check id (`combo/menu/ComboItemDrawMM.h`), so every foreign junk check in a seed drew the same item;
+and the text read "Junk (MM)".
+
+It can't be fixed by passing a check id through. `CurrentJunkItem(checkId)` seeds on
+`MM_finalSeed + randoCheckId` (`mm/2s2h/Rando/ConvertItem.cpp`), and a cross-placed item has no MM
+check id — the check lives in OOT, and `DeliverCrossItem` carries the OOT check *name*. The default
+mode also mixes in `gameplayFrames / 30`, and `gPlayState` is null while MM is dormant (combo pins
+`frames = 0`), so cross junk could never rotate visually either.
+
+**Fix:** resolve it once at generation. `CrossWorldCombinedFill` rewrites `p.item.name` for any MM
+junk placeholder landing in an OOT check, before the spoiler, the placements and the oracle commit
+all read it — so those three can't disagree. Downstream everything then sees an ordinary named item.
+
+**Details that matter:**
+- Candidates come from MM's **own** rotation set, exposed as `junkPool` in `MM_Dump` via
+  `Rando::ComboJunkPool()` — not derived from the dump's `pool[]`. Deriving it looked cheaper but let
+  three unsafe items through: `RI_NONE` ("literally nothing", `RITYPE_JUNK`, the vanilla item of 179
+  pot/crate checks) would have granted nothing at all and slipped past the Red Rupee fallback because
+  `ConvertItem` passes it through; and the singular `RI_DEKU_STICK`/`RI_DEKU_NUT` are item ids 0x08 and
+  0x09, i.e. real inventory slots that MM's logic gates on all over `Logic.h`. MM's own list carries
+  the inert `*_5` variants (0x8B/0x8D) instead, drops `RI_NONE`, and omits Huge/Silver Rupee.
+- MM picks uniformly from that list too (`obtainableJunkItems[Ship_Random(0, size)]`), so sampling it
+  uniformly matches MM's distribution rather than the pool's frequencies.
+- An older 2ship.dll emits no `junkPool`, so the bake no-ops and logs how many placements it skipped.
+  Those seeds keep the old placeholder behaviour.
+- Candidates are sorted and de-duplicated, and the pick uses its own RNG stream seeded per check
+  (`masterSeed << 32 ^ CwHashName(checkName) ^ 0x4A554E4B`). It never draws from the fill's `rng`, so
+  same-seed output stays byte-identical, and per-check seeding makes it independent of placement
+  order. Same rule the trap disguises and cross-hints already follow.
+- MM-only and one-directional: OOT pads with concrete items (`GetJunkItem`), so it has no junk
+  placeholder. MM junk in MM checks is untouched and still rotates at pickup.
+- Junk display names keep the `" (MM)"`/`" (OOT)"` suffix. Dropping it for junk was tried and reverted:
+  a bare "10 Arrows" in OOT that is really MM's grants no OOT ammo, and the suffix is the only thing
+  that tells the player why. It matters most for the ammo and refill entries, which look native.
+- The `RI_JUNK -> RI_RUPEE_RED` line in `MM_GrantCrossItem` stays as a fallback: an older seed or a
+  hand-written plando row can still name the placeholder, and the plando writer round-trips
+  `itemName` verbatim.
+
+**Accepted behaviour change:** `Rando::CurrentJunkItem` additionally filters by MM's live
+obtainability (don't hand out arrows with no bow). Generation can't do that, so the pick is unfiltered
+and may be an item the player can't use yet — low-value but harmless, and the same class of item MM
+would have offered. Seeds generated before this change keep their old behaviour.
+
+**Two consequences worth knowing:**
+- The playthrough pare-down, the sphere log and cross-hint requiredness all replay the *baked* spoiler,
+  so they now credit a real junk item where the fill validated a no-op placeholder. Every candidate is
+  non-advancement and inert in the oracle, so the fill's beatability guarantee holds — but this is why
+  the candidate set has to stay free of anything that lands in an inventory slot.
+- The oracle commit now skips foreign placements entirely. It previously fed the *other* game's item
+  name to a game's `PlaceItem`, which harmlessly missed the name lookup for "Junk" — but a baked name
+  like "Blue Rupee" exists in OOT too, so it would have placed the wrong native item at that check.
+
+**Follow-up — resolved tier name.** `CwItemDrawInfo` gained an appended `resolvedName` field, set by a
+producer only when a progressive placeholder actually converted to a tier (MM after the junk/trap
+indirection, so a maxed progressive that fell to junk names the junk item; OOT via a defaulted
+out-param on `Item::GetGIEntry`, see below). Each consumer cache copies it alongside the model and
+exposes two accessors: `ComboForeignLatchedName{,OOT}` (frozen — NULL unless the entry is latched
+with a non-empty name, so a pickup can never show the next tier) and `ComboForeignLiveName{,OOT}` (runs
+the per-frame resolver, for previews). `ShownForeignName` in `CrossForeign.h` tags the resolved name
+with the same `(MM)`/`(OOT)` suffix as `displayName`, or falls back to `displayName` when there is no
+name. Pickup text (OOT textbox/toast, MM textbox/toast) uses the latched accessor; shop/merchant/scrub
+previews use the live one. Everything else (trackers, hints, MM's other ~15 `GetItemName` callers)
+stays generic by construction: MM's `GetItemName` gained a defaulted `livePreview` parameter, opted
+into only at the purchase-preview call sites, so a hint feeder that reuses the same function can never
+leak a live tier into persisted hint text.
+
+**`Item::GetGIEntry` out-param (COMBO_BUILD-guarded deviation):** the vanilla signature returns
+`std::shared_ptr<GetItemEntry>`; the resolved `RandomizerGet` it computes for a progressive tier is a
+local (`actual`) never exposed. Combo appends a defaulted `RandomizerGet* actualOut = nullptr` and
+writes it once, right before the final `return`, only when the progressive branch actually resolved
+(the two earlier returns — non-progressive `giEntry`, and `actual == RG_NONE` falling back to
+`giEntry` — leave `*actualOut` untouched at the caller's default). All 17 existing callers are
+unaffected. Rejected: a combo-owned reverse `(modIndex, getItemId) -> RandomizerGet` map — real
+collisions exist (`GI_BRACELET` is both `RG_GORONS_BRACELET` and `RG_POWER_BRACELET`; `GI_SCALE_SILVER`
+is shared by four different RGs; the stick/nut capacity GIs are shared with the bag items).

@@ -260,3 +260,15 @@ for whichever lands second. The bot deliberately never touches this index.
 
 Moved to [`deviations/`](deviations/) — one file per subsystem. Preserve every entry across
 upstream merges (each also carries a `// ComboShip:` comment at the code site).
+
+Recent vendored signature changes (full rationale in [`deviations/rando.md`](deviations/rando.md)):
+
+- `soh/soh/Enhancements/randomizer/item.{h,cpp}` — `Item::GetGIEntry(RandomizerGet* actualOut =
+  nullptr)`, COMBO_BUILD-guarded defaulted out-param. Why: the resolved progressive tier is a hidden
+  local; a combo-owned reverse `GetItemID -> RandomizerGet` map is ambiguous on the Strength/Scale/
+  stick/nut-upgrade tiers, so the real function has to expose it instead.
+- `mm/2s2h/Rando/StaticData/{StaticData.h,Items.cpp}` — `GetItemName(..., bool livePreview = false)`,
+  COMBO_BUILD-guarded, plus 12 one-argument call-site edits (10 in `ActorBehavior/EnGirlA.cpp`, 2 in
+  `ActorBehavior/EnBal.cpp`). Why: opt-in per call site, not a check-type gate — `GetItemName` is one
+  choke point for ~25 callers including hint feeders that pass a hinted check's id, so a blanket rule
+  would leak a live tier into persisted hint text.

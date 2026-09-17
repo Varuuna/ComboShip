@@ -290,3 +290,57 @@ Fixes, receiver-only, no wire change (`mm/2s2h/Network/Anchor/MMAnchor.{h,cpp}`)
 `Rando::MiscBehavior::OnFileLoad()` is still deliberately absent from the post-merge re-init block: it
 calls `CheckQueueReset()`, which would drop queued in-flight grants. Preserving the local `saveType`
 keeps its already-registered hooks valid, so it is not needed.
+
+## Issue #199: zeroed-boot MM save corruption on early resync (2026-09-09)
+
+**Why:** MM's eager boot (`MM_BootForCombo`) skips its game loop entirely, so `Setup_InitImpl` —
+and its `SaveContext_Init` zero-fill — never runs; `gSaveContext` sits at its BSS zero-state, where
+`fileNum == 0` / `SAVETYPE_VANILLA` was indistinguishable from a real loaded slot 1 until the first
+`SaveManager_LoadSaveFile`. Every dormant writer gated on `fileNum != 0xFF`, which that zero-state
+always passes. Combined with `MMAnchor::PumpDormant` persisting on a *predicted* `willApply` (computed from the
+packet shape before the handler ran, not from whether it actually merged anything), a teammate's
+`UPDATE_TEAM_STATE` arriving before a player picked a save slot got refused by the handler's
+`!IS_RANDO` guard but still triggered `SaveManager_SaveCurrentForCombo()`, writing the zeroed save
+(all-zero items == `ITEM_OCARINA_OF_TIME`) into slot 1. Reported as "ocarina in all slots".
+
+**Invariant (hard gate):** when MM has no usable save loaded (`fileNum` not in 0..2, or not `IS_RANDO`),
+MM is completely inert to Anchor — never answers, applies, or persists anything. The on-disk save stays
+byte-identical; a lost resync is recovered naturally when MM's own `OnSaveLoad` hook re-requests one
+after the real slot load. No repair/detection machinery was added — per `save-compat not required`, a
+corrupted/lost save from an old build stays lost; this fix only stops new corruption.
+
+Fixes, all `COMBO_BUILD`, no vendored `mm/src` edits:
+- `mm/2s2h/BenPort.cpp` (`MM_BootForCombo`): stamps `fileNum = 0xFF` / `saveType = SAVETYPE_VANILLA`
+  right after `MM_RunMain()` returns — the same sentinel a failed load already uses
+  (`SaveManager_LoadFailedForCombo`). Zeroed BSS can no longer read as slot 1.
+- `mm/2s2h/Network/Anchor/MMAnchor.{h,cpp}`: `willApply` (a pre-handler prediction) replaced with
+  `dormantDidApply`, set by `HandlePacket_UpdateTeamState` only at its true commit point (mirrors soh's
+  `Anchor::dormantDidApply`). `PumpDormant` now persists once after draining its queue, iff
+  `dormantDidApply && HasLoadedRandoSave()` — not per-packet on a guess. `isDormantApply` is reset via a
+  scope guard so an exception from the handler can't leave it stuck true.
+- New `MMAnchor::HasLoadedRandoSave()` (`fileNum` 0..2 **and** `IS_RANDO`) replaces the looser
+  `fileNum` range check in `SendTeamStateFromSave` (don't answer a request with a zeroed/non-rando save)
+  and the `IS_RANDO`-only guard in `HandlePacket_UpdateTeamState` (a boot-sentinel `fileNum` with a
+  stale `IS_RANDO` read would otherwise still slip through).
+- `mm/2s2h/SaveManager/SaveManager.cpp` (`SaveManager_SaveCurrentForCombo`): single refusing guard at
+  the actual write — `ERROR` log + return if `fileNum` isn't 0..2 (no assert: 0xFF reaches this
+  legitimately whenever play proceeds after an ordinary failed load). This is the storage-level
+  backstop behind every dormant writer (`Combo_MM_GiveDormantResolved`, `MM_MarkForeignObtained`,
+  `MM_TriggerTriforceCredits`, the trap-defer path in `Traps.cpp`, and `MMAnchor::PumpDormant`), all of
+  which still keep their own `fileNum != 0xFF` gates — the point is that none of them has to be perfect
+  for the invariant to hold.
+- `mm/2s2h/BenPort.cpp` (`Combo_LoadMMSaveFile`): the non-rando tripwire now also calls the shared
+  `SaveManager_MarkNoSaveLoaded()` before returning -6. `SaveManager_LoadSaveFile` already points
+  `fileNum` at the slot it read, so without this a non-rando (e.g. already-corrupted) save left
+  `fileNum` 0..2 with `IS_RANDO` false — passing the range-only backstop above and reaching a dormant
+  writer through a path the boot-sentinel fix doesn't cover.
+- `combo/ComboShip.cpp` (`Combo_OnOOTSaveLoad`): fires `MM_Anchor_RequestResync()` right after a
+  successful dormant-peek `MM_LoadSaveForCombo`, instead of waiting for MM's foreground entry
+  (`MMAnchor::OnSaveLoad` is `isActive`-gated) — closes the gap between "a save is loaded" and
+  "MM can actually consume a resync".
+
+**Deviation from the reviewed plan:** the plan additionally proposed gating `RequestResyncDormantSafe`
+on `HasLoadedRandoSave` ("don't ask for a state we can't consume"). Left unchanged — the reported
+sequence and this fix's own playtest table depend on the dormant boot-time resync *request* still going
+out while no slot is loaded yet (that's what proves the refusal path works); it's the *reply* that's now
+correctly refused by `HandlePacket_UpdateTeamState`'s `HasLoadedRandoSave` guard.

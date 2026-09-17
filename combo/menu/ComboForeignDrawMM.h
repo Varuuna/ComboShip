@@ -33,9 +33,6 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
-#ifdef _WIN32
-#include <windows.h>
-#endif
 
 #include "ComboItemDrawABI.h"
 // ComboShip: the animated class, with 2ship.dll as the host (see the shim in ComboForeignAnim.h).
@@ -43,6 +40,7 @@
 #include "ComboForeignAnim.h"
 #include "2s2h/Rando/MiscBehavior/MiscBehavior.h" // Rando::MiscBehavior::MM_LookupForeign
 #include "rando/CrossForeign.h"                   // ComboRando::ForeignItem / GAME_OOT
+#include "ComboResolve.h"                         // Combo_ResolveSym (process-wide combo-ABI resolution)
 
 namespace {
 
@@ -74,6 +72,8 @@ struct ComboForeignDrawInfoOOT {
     // Recipe chosen from live save state (progressive tier, Triforce shard, junk/trap) — re-resolve
     // every frame instead of caching, or the first model drawn sticks for the whole save slot.
     bool stateDependent = false;
+    // Resolved tier name (e.g. "Longshot") when a progressive placeholder converted, else empty.
+    std::string resolvedName;
 };
 
 // Routed path strings must outlive the frame (the GBI wrapper emits the raw pointer into the display
@@ -93,11 +93,10 @@ inline ComboForeignResolveOOT ComboFillForeignDrawInfoOOT(RandoCheckId rc, Combo
         return ComboForeignResolveOOT::Unknown;
     }
 
-#ifdef _WIN32
     static Fn_GetItemDrawInfo sGetItemDrawInfo = nullptr;
     if (sGetItemDrawInfo == nullptr) {
-        HMODULE h = GetModuleHandleA("soh.dll"); // already loaded by the exe (ComboMenuModel pattern)
-        sGetItemDrawInfo = h ? (Fn_GetItemDrawInfo)GetProcAddress(h, "OOT_GetItemDrawInfo") : nullptr;
+        // soh already loaded by the exe (ComboMenuModel pattern); resolution is process-wide.
+        sGetItemDrawInfo = (Fn_GetItemDrawInfo)Combo_ResolveSym("soh", "OOT_GetItemDrawInfo");
     }
     if (sGetItemDrawInfo == nullptr) {
         return ComboForeignResolveOOT::NotReady; // soh.dll may simply not be resident yet
@@ -115,8 +114,7 @@ inline ComboForeignResolveOOT ComboFillForeignDrawInfoOOT(RandoCheckId rc, Combo
         // only describes the item; ComboForeignAnim_Draw loads + draws it (mirror of the OOT side).
         static Fn_GetItemAnimDrawInfo sGetItemAnimDrawInfo = nullptr;
         if (sGetItemAnimDrawInfo == nullptr) {
-            HMODULE h = GetModuleHandleA("soh.dll");
-            sGetItemAnimDrawInfo = h ? (Fn_GetItemAnimDrawInfo)GetProcAddress(h, "OOT_GetItemAnimDrawInfo") : nullptr;
+            sGetItemAnimDrawInfo = (Fn_GetItemAnimDrawInfo)Combo_ResolveSym("soh", "OOT_GetItemAnimDrawInfo");
         }
         if (sGetItemAnimDrawInfo == nullptr) {
             return ComboForeignResolveOOT::NotReady;
@@ -154,6 +152,9 @@ inline ComboForeignResolveOOT ComboFillForeignDrawInfoOOT(RandoCheckId rc, Combo
     info.hasEnvColor = raw.hasEnvColor != 0;
     info.drawKind = raw.drawKind;
     info.stateDependent = raw.stateDependent != 0;
+    if (raw.resolvedName != nullptr) {
+        info.resolvedName = raw.resolvedName;
+    }
     info.layerPrimMask = raw.layerPrimMask;
     info.layerEnvMask = raw.layerEnvMask;
     memcpy(info.layerPrimColor, raw.layerPrimColor, sizeof(info.layerPrimColor));
@@ -167,9 +168,6 @@ inline ComboForeignResolveOOT ComboFillForeignDrawInfoOOT(RandoCheckId rc, Combo
     }
     info.ok = true;
     return ComboForeignResolveOOT::Ok;
-#else
-    return ComboForeignResolveOOT::Unknown; // GetProcAddress resolution is Windows-only (ComboMenuModel)
-#endif
 }
 
 // Recipe cache, swept per save slot and per foreign-map generation. Shared by the resolver and the
@@ -228,6 +226,26 @@ inline void ComboLatchForeignDrawOOT(RandoCheckId rc) {
     }
     info.stateDependent = false; // frozen: the resolver's cache-hit path now serves it verbatim
     c.map[rc] = info;
+}
+
+// Frozen tier name only: NULL unless latched (stateDependent == false) with a non-empty name. Never
+// serves a live entry, so a pickup can't show the tier the NEXT copy would give.
+inline const char* ComboForeignLatchedNameOOT(RandoCheckId rc) {
+    ComboForeignDrawCacheOOT& c = ComboForeignDrawCacheOOTGet();
+    auto it = c.map.find(rc);
+    if (it == c.map.end() || it->second.stateDependent || it->second.resolvedName.empty()) {
+        return nullptr;
+    }
+    return it->second.resolvedName.c_str();
+}
+
+// Live tier name for previews: runs the same per-frame resolver the shelf model uses.
+inline const char* ComboForeignLiveNameOOT(RandoCheckId rc) {
+    const ComboForeignDrawInfoOOT* info = ComboResolveForeignDrawInfoOOT(rc);
+    if (info == nullptr || info->resolvedName.empty()) {
+        return nullptr;
+    }
+    return info->resolvedName.c_str();
 }
 
 } // namespace

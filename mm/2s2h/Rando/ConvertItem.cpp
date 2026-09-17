@@ -81,6 +81,20 @@ static std::vector<RandoItemId> junkItems = {
     RI_NONE,
 };
 
+#ifdef COMBO_BUILD
+// ComboShip: the rotation pool, so the combo generator can bake cross-placed junk from the same set
+// MM itself would draw. RI_NONE is dropped: a cross check that grants nothing has nothing to show.
+std::vector<RandoItemId> Rando::ComboJunkPool() {
+    std::vector<RandoItemId> out;
+    for (RandoItemId id : junkItems) {
+        if (id != RI_NONE) {
+            out.push_back(id);
+        }
+    }
+    return out;
+}
+#endif
+
 static std::vector<RandoItemId> obtainableJunkItems;
 static std::vector<RandoItemId> obtainableTrapItems;
 static std::vector<RandoItemId> allTrapItems;

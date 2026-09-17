@@ -7,9 +7,7 @@
 #include <libultraship/libultraship.h>
 #include <ship/resource/CrossRMRegistry.h>
 #include <imgui_internal.h> // FindWindowByName / SetWindowPos / ImGuiWindow rects
-#ifdef _WIN32
-#include <windows.h> // GetModuleHandleA/GetProcAddress (lazy MM save load for dormant draws)
-#endif
+#include "ComboResolve.h"   // Combo_ResolveSym (lazy MM save load for dormant draws)
 
 namespace {
 
@@ -31,36 +29,27 @@ Peek sPeeks[ComboTracker::kSwapCount];
 // Combined Triforce progress (#136): counts live in the two game DLLs, the goal in soh's copy of the
 // slot's seed. Returns false unless the loaded seed's goal is a hunt.
 bool ComboTriforceProgress(int& have, int& need) {
-#ifdef _WIN32
     static int (*sOot)(void) = nullptr;
     static int (*sMm)(void) = nullptr;
     static int (*sGoal)(int*) = nullptr;
     static bool sTried = false;
     if (!sTried) {
         sTried = true;
-        if (HMODULE soh = GetModuleHandleA("soh.dll")) {
-            sOot = (int (*)(void))GetProcAddress(soh, "SOH_GetTriforcePieceCount");
-            sGoal = (int (*)(int*))GetProcAddress(soh, "SOH_GetComboGoal");
-        }
-        if (HMODULE mm = GetModuleHandleA("2ship.dll")) {
-            sMm = (int (*)(void))GetProcAddress(mm, "MM_GetTriforcePieceCount");
-        }
+        sOot = (int (*)(void))Combo_ResolveSym("soh", "SOH_GetTriforcePieceCount");
+        sGoal = (int (*)(int*))Combo_ResolveSym("soh", "SOH_GetComboGoal");
+        sMm = (int (*)(void))Combo_ResolveSym("2ship", "MM_GetTriforcePieceCount");
     }
     if (!sOot || !sMm || !sGoal || !sGoal(&need) || need <= 0) {
         return false;
     }
     have = sOot() + sMm();
     return true;
-#else
-    return false;
-#endif
 }
 
 // A dormant MM draw can precede any MM visit, and until then nothing has loaded the slot's MM save
 // into MM's dormant gSaveContext (it holds boot defaults — the tracker would read all-blank). Load
 // it here, once per slot. Never after MM has been foreground: its live memory is newer than disk.
 void EnsureMmSaveLoadedForDormantDraw() {
-#ifdef _WIN32
     if (ComboUI::MmEverForeground()) {
         return;
     }
@@ -68,9 +57,7 @@ void EnsureMmSaveLoadedForDormantDraw() {
     static bool sTried = false;
     if (!sTried) {
         sTried = true;
-        if (HMODULE mm = GetModuleHandleA("2ship.dll")) {
-            sLoadMmSave = (int (*)(int))GetProcAddress(mm, "MM_LoadSaveForCombo");
-        }
+        sLoadMmSave = (int (*)(int))Combo_ResolveSym("2ship", "MM_LoadSaveForCombo");
     }
     static int sLoadedSlot = -1;
     int slot = OotActiveSlot();
@@ -82,7 +69,6 @@ void EnsureMmSaveLoadedForDormantDraw() {
     // every draw would re-read the container and spam the log.
     sLoadMmSave(slot);
     sLoadedSlot = slot;
-#endif
 }
 
 // Each game's own "only show while paused" setting, per tracker kind. OOT's is a no-op unless the
@@ -334,7 +320,6 @@ void SwapWindow::Draw() {
 } // namespace
 
 bool ComboTracker::ForegroundPaused(int fg) {
-#ifdef _WIN32
     static int (*sFn[2])(void) = {};
     static bool sTried[2] = {};
     if (fg != 0 && fg != 1) {
@@ -342,14 +327,12 @@ bool ComboTracker::ForegroundPaused(int fg) {
     }
     if (!sTried[fg]) {
         sTried[fg] = true;
-        if (HMODULE h = GetModuleHandleA(fg == 0 ? "soh.dll" : "2ship.dll")) {
-            sFn[fg] = (int (*)(void))GetProcAddress(h, fg == 0 ? "SOH_IsPausedForCombo" : "MM_IsPausedForCombo");
-        }
+        sFn[fg] = (int (*)(void))Combo_ResolveSym(fg == 0 ? "soh" : "2ship",
+                                                  fg == 0 ? "SOH_IsPausedForCombo" : "MM_IsPausedForCombo");
     }
     if (sFn[fg]) {
         return sFn[fg]() != 0;
     }
-#endif
     return true;
 }
 

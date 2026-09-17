@@ -16,6 +16,7 @@
 #ifdef COMBO_BUILD
 #include "rando/CrossForeign.h"
 #include "soh/Enhancements/randomizer/hook_handlers.h"
+#include "soh/Enhancements/randomizer/draw.h"
 extern "C" int gComboGoalRequired;
 extern "C" int (*gComboOtherTriforceCount)(void);
 #endif
@@ -263,6 +264,14 @@ void BuildComboForeignMessage(Player* player, CustomMessage& msg) {
         if (fi != nullptr && fi->trap) {
             Rando::Traps::BuildIceTrapMessageNamed(msg, name);
             return;
+        }
+        if (fi != nullptr) {
+            // Freeze the tier now (pre-grant), then name it: MM's cross-grant follows this textbox.
+            Randomizer_LatchComboForeign(rc);
+            const char* resolved = Randomizer_ComboForeignLatchedName((int32_t)rc);
+            if (resolved != nullptr) {
+                name = ComboRando::ShownForeignName(*fi, resolved);
+            }
         }
     }
     msg = CustomMessage("You found %g[[name]]%w!", "Du erhältst %g[[name]]%w!", "Vous avez trouvé %g[[name]]%w!",

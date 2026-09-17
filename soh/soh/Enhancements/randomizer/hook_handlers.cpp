@@ -1,5 +1,8 @@
 ﻿#include "soh/OTRGlobals.h"
 #include "soh/ResourceManagerHelpers.h"
+#ifdef COMBO_BUILD
+#include "ComboExport.h"
+#endif
 #include "soh/Enhancements/enhancementTypes.h"
 #include "soh/Enhancements/custom-message/CustomMessageTypes.h"
 #include "soh/Enhancements/randomizer/randomizerTypes.h"
@@ -546,7 +549,8 @@ void OOT_DeliverForeign(RandomizerCheck rc) {
         if (gComboCrossDeliver)
             gComboCrossDeliver((int)fi->itemGame, fi->itemName.c_str(), checkName.c_str());
         Anchor_BroadcastCrossItem((int)fi->itemGame, fi->itemName.c_str(), checkName.c_str());
-        Notification::Emit({ .message = "Sent to Termina:", .suffix = fi->displayName });
+        const char* resolved = Randomizer_ComboForeignLatchedName((int32_t)rc);
+        Notification::Emit({ .message = "Sent to Termina:", .suffix = ComboRando::ShownForeignName(*fi, resolved) });
         SPDLOG_INFO("[ComboShip] OOT delivered foreign item '{}' to MM (from check '{}')", fi->itemName, checkName);
     } else {
         SPDLOG_WARN("[ComboShip] OOT foreign sentinel at '{}' but no foreign-map entry; dropping", checkName);
@@ -559,7 +563,7 @@ void OOT_ComboHintRevealed(RandomizerHint hintKey);
 
 // ComboShip: launcher pushes the baked combo rando (foreign map + cross-hints) once per save-load.
 // Store the blob and rebuild the OOT foreign cache from it. Idempotent (pushed at bind and load).
-extern "C" __declspec(dllexport) void SOH_LoadComboRando(const char* json) {
+extern "C" COMBO_EXPORT void SOH_LoadComboRando(const char* json) {
     ComboRando::Combo_SetForeignJson(json);
     g_ootForeignMap = ComboRando::LoadForeignForGame(0, ComboRando::GAME_OOT);
     ++g_ootForeignGen; // invalidate the foreign-draw caches keyed on this

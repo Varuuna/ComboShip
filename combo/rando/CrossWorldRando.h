@@ -38,6 +38,19 @@ struct CwRng {
     }
 };
 
+// MM's junk placeholder as the dump names it. Cross-placed junk is baked into a real item below, so
+// this only reaches a consumer from an older seed or a hand-written plando row.
+inline constexpr const char* kMmJunkName = "Junk";
+
+// FNV-1a over a name, so a per-entry RNG stream can be seeded without touching the fill's own.
+inline uint32_t CwHashName(const std::string& s) {
+    uint32_t h = 2166136261u;
+    for (unsigned char c : s) {
+        h = (h ^ c) * 16777619u;
+    }
+    return h;
+}
+
 template <class T> inline void cwShuffle(std::vector<T>& v, CwRng& rng) {
     for (size_t i = v.size(); i > 1; --i) {
         size_t j = rng.below(static_cast<uint32_t>(i));
@@ -250,6 +263,8 @@ inline CombinedFillResult CrossWorldCombinedFill(
     // Checks from "checks", items from the real "pool" (split by advancement), confined
     // pre-placements from "fixed". Falls back to per-check vanillaItem if an old DLL omits "pool".
     std::vector<CwItem> advItems, junkItems;
+    // MM's own pickup-rotation names, for the cross-placed junk bake below.
+    std::vector<std::string> mmJunkNames;
     std::vector<CwCheck> allChecks;
     std::vector<CwPlacement> lockedPlacements; // confined pre-placements (own-dungeon keys, etc.)
 
@@ -291,6 +306,14 @@ inline CombinedFillResult CrossWorldCombinedFill(
                     continue;
                 bool adv = c.value("advancement", true);
                 (adv ? advItems : junkItems).push_back({ game, vi, adv, adv ? CwCat::UNKNOWN : CwCat::JUNK });
+            }
+        }
+
+        // MM's junk rotation set, for the bake below. Absent on an older 2ship.dll -> no bake.
+        if (game == GAME_MM) {
+            for (auto& j : d.value("junkPool", nlohmann::json::array())) {
+                if (j.is_string() && !j.get<std::string>().empty())
+                    mmJunkNames.push_back(j.get<std::string>());
             }
         }
 
@@ -1101,6 +1124,29 @@ inline CombinedFillResult CrossWorldCombinedFill(
         progress->total.store(0);
     }
 
+    // --- Bake cross-placed MM junk into a real item ---
+    // MM resolves its junk placeholder at pickup from finalSeed + the MM check id, and a check in OOT
+    // has none — so pick from MM's own rotation set here and every surface agrees (see the deviations
+    // doc). Own RNG stream, seeded per check: never draws from the fill's, never depends on order.
+    {
+        std::sort(mmJunkNames.begin(), mmJunkNames.end());
+        mmJunkNames.erase(std::unique(mmJunkNames.begin(), mmJunkNames.end()), mmJunkNames.end());
+        size_t unbaked = 0;
+        for (auto& p : placements) {
+            if (p.check.game != GAME_OOT || p.item.game != GAME_MM || p.item.name != kMmJunkName)
+                continue;
+            if (mmJunkNames.empty()) {
+                ++unbaked;
+                continue;
+            }
+            CwRng jr((static_cast<uint64_t>(masterSeed) << 32) ^ CwHashName(p.check.name) ^ 0x4A554E4BULL);
+            p.item.name = mmJunkNames[jr.below(static_cast<uint32_t>(mmJunkNames.size()))];
+        }
+        if (unbaked > 0)
+            std::cout << "[ComboShip] junk bake skipped for " << unbaked
+                      << " cross placements: 2ship.dll reported no junkPool" << std::endl;
+    }
+
     // --- Build spoiler (same shape as the no-logic generator) ---
     nlohmann::json spoiler;
     spoiler["masterSeed"] = masterSeed;
@@ -1155,6 +1201,11 @@ inline CombinedFillResult CrossWorldCombinedFill(
 
     // --- Commit placements to oracles (for save consumption) ---
     for (const auto& p : placements) {
+        // ComboShip: a foreign item's name lives in the OTHER game's namespace. Baked junk names now
+        // collide with real OOT items ("Blue Rupee"), so committing one would place the wrong native
+        // item at the check instead of harmlessly missing the lookup.
+        if (p.check.game != p.item.game)
+            continue;
         if (p.check.game == GAME_OOT) {
             ootOracle.PlaceItem(p.check.name.c_str(), p.item.name.c_str());
         } else {

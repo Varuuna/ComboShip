@@ -1,4 +1,8 @@
 #include "BenPort.h"
+#ifdef COMBO_BUILD
+#include "ComboExport.h"
+#include "ComboResolve.h"
+#endif
 #include <iostream>
 #include <algorithm>
 #include <filesystem>
@@ -139,18 +143,14 @@ AudioCollection* AudioCollection::Instance;
 // Context::mContext is the same instance in every DLL, so GetInstance() already returns it.
 static bool sComboTransitionActive = false;
 
-extern "C"
-#ifdef _WIN32
-    __declspec(dllexport)
-#endif
-        void MM_NotifyComboTransition(void) {
+extern "C" COMBO_EXPORT void MM_NotifyComboTransition(void) {
     sComboTransitionActive = true;
 }
 
 // kind: 0 = portal (walked out the Clock Tower), 1 = Ctrl+R reset, 2 = owl-save quit. Only a portal
 // return continues the session in OOT; the other two end it and boot OOT to its title.
 extern "C" void (*gComboReturnCallback)(int kind) = nullptr;
-extern "C" __declspec(dllexport) void MM_SetOnComboReturnCallback(void (*cb)(int kind)) {
+extern "C" COMBO_EXPORT void MM_SetOnComboReturnCallback(void (*cb)(int kind)) {
     gComboReturnCallback = cb;
 }
 static bool sComboReturnPending = false;
@@ -166,7 +166,7 @@ extern "C" int gComboCrossArrival = 0;
 // ComboShip: Ctrl+R reset while MM is foreground. Like the portal return, but only persists MM if
 // autosave is enabled (an authentic reset otherwise discards unsaved progress). Set via the export.
 static bool sComboResetReturnPending = false;
-extern "C" __declspec(dllexport) void MM_RequestComboReturn(void) {
+extern "C" COMBO_EXPORT void MM_RequestComboReturn(void) {
     sComboResetReturnPending = true;
 }
 // ComboShip (#89): owl save. MM would SET_NEXT_GAMESTATE(TitleSetup_Init) here (z_play.c) and quit to
@@ -1179,8 +1179,7 @@ extern "C" void InitOTR(int argc, char* argv[]) {
             static bool sTried = false;
             if (!sTried) {
                 sTried = true;
-                if (HMODULE h = GetModuleHandleA("soh.dll"))
-                    sFn = (void (*)(void))GetProcAddress(h, "SOH_SetComboBootToTitle");
+                sFn = (void (*)(void))Combo_ResolveSym("soh", "SOH_SetComboBootToTitle");
             }
             if (sFn)
                 sFn();
@@ -1278,7 +1277,7 @@ extern "C" void DeinitOTR() {
 // (the ctor reused OOT's), so without this its refcount never hits zero, ~Context never runs, and
 // window geometry/config are never saved. Call this before SOH_Deinit (the Context must stay alive
 // for BenGui::Destroy) so SOH's DeinitOTR releases the last ref and ~Context saves on the main thread.
-extern "C" __declspec(dllexport) void MM_Deinit(void) {
+extern "C" COMBO_EXPORT void MM_Deinit(void) {
     DeinitOTR();
 }
 #endif
@@ -2595,7 +2594,7 @@ static std::unique_ptr<Ship::ArchiveManager> gMMArchiveManager;
 
 // Opens mm.o2r + 2ship.o2r into a MM-private ArchiveManager (no context, no window).
 // This is the "dormant" MM state: archives open, no game loop running.
-extern "C" __declspec(dllexport) void MM_InitArchives() {
+extern "C" COMBO_EXPORT void MM_InitArchives() {
     std::vector<std::string> archivePaths;
 
     std::string mmPathO2R = Ship::Context::LocateFileAcrossAppDirs("mm.o2r", appShortName);
@@ -2638,7 +2637,7 @@ extern "C" int gComboStartFileNum = -1;
 // which is a real save load and so honors Remember Save Location. Set by the launcher before each
 // MM_RunGame/MM_ResumeGame; read by title_setup.c.
 extern "C" int gComboEntryIsResume = 0;
-extern "C" __declspec(dllexport) void MM_SetComboEntryIsResume(int isResume) {
+extern "C" COMBO_EXPORT void MM_SetComboEntryIsResume(int isResume) {
     gComboEntryIsResume = isResume ? 1 : 0;
     Combo_ClearReturnRequests(); // a stale request would quit the session we're about to start
 }
@@ -2651,8 +2650,7 @@ extern "C" void Combo_AdoptOOTGlobalOptions(void) {
     static bool sTried = false;
     if (!sTried) {
         sTried = true;
-        if (HMODULE h = GetModuleHandleA("soh.dll"))
-            sFn = (void (*)(int*, int*))GetProcAddress(h, "SOH_GetGlobalOptions");
+        sFn = (void (*)(int*, int*))Combo_ResolveSym("soh", "SOH_GetGlobalOptions");
     }
     if (!sFn)
         return;
@@ -2674,6 +2672,8 @@ extern "C" int Combo_LoadMMSaveFile(int mmFileNum) {
     // IS_RANDO hook stays unregistered (COND_HOOK tests the condition once, at OnSaveLoad).
     if (gSaveContext.save.shipSaveInfo.saveType != SAVETYPE_RANDO) {
         SPDLOG_ERROR("[ComboShip] MM save file{} is not SAVETYPE_RANDO — rebuilding a baseline", mmFileNum);
+        // The load above already set fileNum to this slot; re-mark "no save" or it reads as resident.
+        SaveManager_MarkNoSaveLoaded();
         return -6;
     }
     return 0;
@@ -2683,7 +2683,7 @@ extern "C" void MM_RunMain(void);
 
 // Full MM initialization + game loop, entered after OOT has exited.
 // fileNum is the OOT 0-indexed slot; we map it to the same MM slot.
-extern "C" __declspec(dllexport) void MM_RunGame(int fileNum) {
+extern "C" COMBO_EXPORT void MM_RunGame(int fileNum) {
     gComboStartFileNum = fileNum;
     MM_RunMain();
 }
@@ -2697,19 +2697,22 @@ extern "C" int gComboBootOnly = 0;
 // MM_RunMain's full init while skipping its game loop (gComboBootOnly). The caller brackets this
 // with SOH_PrepareForTransition / MM_PrepareForTransition + SOH_ResumeForeground to hand the
 // foreground back to OOT.
-extern "C" __declspec(dllexport) void MM_BootForCombo(void) {
+extern "C" COMBO_EXPORT void MM_BootForCombo(void) {
     gComboStartFileNum = -1;       // boot only — no save load / Play jump
     sComboTransitionActive = true; // OTRGlobals ctor reuses OOT's Context + creates MM's own RM
     gComboBootOnly = 1;
     MM_RunMain(); // full init; main.c skips Graph_ThreadEntry due to gComboBootOnly
     gComboBootOnly = 0;
+    // Setup_InitImpl never runs on this boot-only path, so gSaveContext's BSS zero-state would
+    // otherwise read as a loaded slot 1. Stamp it "no save" until a real load fills a slot.
+    SaveManager_MarkNoSaveLoaded();
 }
 
 // ComboShip: headless rando-only MM init — builds ONLY the rando region graph via the "RANDO_LOGIC"
 // ShipInit path (no window/RM/audio/GUI), unlike MM_BootForCombo's full boot. StaticData maps are
 // populated at DLL load; CVars come from the shared libultraship Context that SOH_InitRandoHeadless
 // stands up, so call that first. Enough for the MM reachability oracle. See docs/UPSTREAM_MERGES.md.
-extern "C" __declspec(dllexport) void MM_InitRandoHeadless(void) {
+extern "C" COMBO_EXPORT void MM_InitRandoHeadless(void) {
     static bool inited = false;
     if (inited)
         return;
@@ -2733,7 +2736,7 @@ extern "C" void OTRMessage_ResetForResume(void);
 
 // ComboShip: OOT->MM forward transition. Stop MM audio without destroying the shared
 // context/window/resource-manager (OOT reuses them). Mirrors SOH_PrepareForTransition.
-extern "C" __declspec(dllexport) void MM_PrepareForTransition(void) {
+extern "C" COMBO_EXPORT void MM_PrepareForTransition(void) {
     SaveManager_ThreadPoolWait();
     OTRAudio_Exit();
     // NOTE: do NOT BenGui::Destroy() here. The Gui is a single shared libultraship instance; tearing
@@ -2745,7 +2748,7 @@ extern "C" __declspec(dllexport) void MM_PrepareForTransition(void) {
 
 // ComboShip: OOT->MM return. Re-enter MM's game loop on the same shared context/window and jump
 // straight to Play in South Clock Town for the given slot. Counterpart to OOT's SOH_ResumeGame.
-extern "C" __declspec(dllexport) void MM_ResumeGame(int fileNum) {
+extern "C" COMBO_EXPORT void MM_ResumeGame(int fileNum) {
     auto ctx = Ship::Context::GetRawInstance();
     ctx->GetLogger()->flush_on(spdlog::level::trace);
     SPDLOG_INFO("[ComboShip] MM_ResumeGame: begin (fileNum={})", fileNum);
@@ -2797,7 +2800,7 @@ extern "C" __declspec(dllexport) void MM_ResumeGame(int fileNum) {
 // ComboShip: bring the MM save for the given OOT slot (0-indexed) into MM's dormant gSaveContext, so
 // the tracker peek shows real items before MM is visited this session. Same headless load path
 // title_setup.c runs on resume (no gPlayState needed). Nonzero = nothing usable was loaded.
-extern "C" __declspec(dllexport) int MM_LoadSaveForCombo(int fileNum) {
+extern "C" COMBO_EXPORT int MM_LoadSaveForCombo(int fileNum) {
     return Combo_LoadMMSaveFile(fileNum + 1); // shares the saveType tripwire
 }
 
@@ -2813,7 +2816,7 @@ extern "C" int gMMComboGoalPieces;
 // (PreplaceConfinedItems, via Ship_Random) is reproducible per seed.
 static uint64_t sMMComboRandoSeed = 0;
 static bool sMMComboRandoSeedSet = false;
-extern "C" __declspec(dllexport) void MM_SetComboRandoSeed(uint64_t seed) {
+extern "C" COMBO_EXPORT void MM_SetComboRandoSeed(uint64_t seed) {
     sMMComboRandoSeed = seed;
     sMMComboRandoSeedSet = true;
 }
@@ -2825,8 +2828,8 @@ extern "C" __declspec(dllexport) void MM_SetComboRandoSeed(uint64_t seed) {
 // through Rando::Spoiler::ApplyToSaveContext. Headless-safe: never calls GrantStartingItems / Item_Give
 // (those need gPlayState). Returns 0 on success, nonzero if no placements applied — the save stays
 // SAVETYPE_RANDO either way, since a vanilla one disables every IS_RANDO hook.
-extern "C" __declspec(dllexport) int MM_InitRandoSaveFile(int fileNum, const char* placementJson,
-                                                          const unsigned char* ootName8) {
+extern "C" COMBO_EXPORT int MM_InitRandoSaveFile(int fileNum, const char* placementJson,
+                                                 const unsigned char* ootName8) {
     // Playable combo baseline first (Human Link, South Clock Town, ocarina/songs, etc.).
     SaveManager_InitNewSaveForSlot(fileNum + 1, ootName8);
     // Sram_InitNewSave (inside the call above) resets fileNum; restore it so SaveManager_SaveCurrentForCombo
@@ -3001,7 +3004,7 @@ extern "C" __declspec(dllexport) int MM_InitRandoSaveFile(int fileNum, const cha
 // See docs/UPSTREAM_MERGES.md.
 void SaveManager_DeleteSaveFile(const std::filesystem::path& fileName);
 std::string SaveManager_GetFileName(int fileNum, bool isBackup);
-extern "C" __declspec(dllexport) void MM_DeleteSaveFile(int fileNum) {
+extern "C" COMBO_EXPORT void MM_DeleteSaveFile(int fileNum) {
     SaveManager_DeleteSaveFile(SaveManager_GetFileName(fileNum + 1, false));
     SaveManager_DeleteSaveFile(SaveManager_GetFileName(fileNum + 1, true));
     SPDLOG_INFO("[ComboShip] MM_DeleteSaveFile: erased MM save slot {}", fileNum);
@@ -3010,26 +3013,26 @@ extern "C" __declspec(dllexport) void MM_DeleteSaveFile(int fileNum) {
 // Outbound seam: the launcher registers routing here so MM's own erase can wipe OOT's matching save.
 // Fired from z_file_copy_erase.c on erase confirm with the 0-based slot.
 extern "C" void (*gMMComboDeleteForeignSave)(int fileNum) = nullptr;
-extern "C" __declspec(dllexport) void MM_SetDeleteForeignSave(void (*cb)(int)) {
+extern "C" COMBO_EXPORT void MM_SetDeleteForeignSave(void (*cb)(int)) {
     gMMComboDeleteForeignSave = cb;
 }
 
 // ComboShip: push the launcher's .combosav IO callbacks into SaveManager (routes file{N}.json into
 // the merged container). Both primitives funnel through them; null-callbacks fall back to disk IO.
-extern "C" __declspec(dllexport) void MM_SetComboSaveIO(ComboRando::FnComboReadSave r, ComboRando::FnComboWriteSave w) {
+extern "C" COMBO_EXPORT void MM_SetComboSaveIO(ComboRando::FnComboReadSave r, ComboRando::FnComboWriteSave w) {
     SaveManager_SetComboSaveIO(r, w);
 }
 
 // ComboShip: receive the consolidated combo spoiler (foreign map + cross-hints), pushed once per
 // save-load; store the blob and invalidate MM's lookup caches so they rebuild from it. Idempotent.
-extern "C" __declspec(dllexport) void MM_LoadComboRando(const char* json) {
+extern "C" COMBO_EXPORT void MM_LoadComboRando(const char* json) {
     ComboRando::Combo_SetForeignJson(json);
     Rando::MiscBehavior::InvalidateComboForeignCache();
 }
 
 // Returns the number of archives open in the MM-private ArchiveManager.
 // 0 means MM_InitArchives was not called or found no files.
-extern "C" __declspec(dllexport) int MM_ArchiveCount() {
+extern "C" COMBO_EXPORT int MM_ArchiveCount() {
     if (!gMMArchiveManager)
         return 0;
     auto archives = gMMArchiveManager->GetArchives();
@@ -3037,7 +3040,7 @@ extern "C" __declspec(dllexport) int MM_ArchiveCount() {
 }
 
 #if not defined(__SWITCH__) && not defined(__WIIU__)
-extern "C" __declspec(dllexport) bool MM_Extract(const char* searchPath) {
+extern "C" COMBO_EXPORT bool MM_Extract(const char* searchPath) {
     std::string path = searchPath ? searchPath : std::filesystem::current_path().string();
     std::string installPath = Ship::Context::GetAppBundlePath();
 
@@ -3074,7 +3077,7 @@ static std::atomic<bool> gComboMMExtractSuccess{ false };
 static std::future<void> gComboMMExtractFuture;
 static std::string gComboMMExtractRomPath;
 
-extern "C" __declspec(dllexport) int MM_ValidateRom(const char* romPath) {
+extern "C" COMBO_EXPORT int MM_ValidateRom(const char* romPath) {
     if (!romPath) {
         return 0;
     }
@@ -3083,7 +3086,7 @@ extern "C" __declspec(dllexport) int MM_ValidateRom(const char* romPath) {
 }
 
 // ComboShip: header-only version check for the folder auto-scan (no full-ROM read/CRC).
-extern "C" __declspec(dllexport) int MM_ClassifyRom(const char* romPath) {
+extern "C" COMBO_EXPORT int MM_ClassifyRom(const char* romPath) {
     if (!romPath) {
         return 0;
     }
@@ -3091,7 +3094,7 @@ extern "C" __declspec(dllexport) int MM_ClassifyRom(const char* romPath) {
     return extract.ClassifyRom(romPath) ? 1 : 0;
 }
 
-extern "C" __declspec(dllexport) int MM_StartExtraction(const char* romPath) {
+extern "C" COMBO_EXPORT int MM_StartExtraction(const char* romPath) {
     if (!romPath) {
         return 0;
     }
@@ -3120,8 +3123,8 @@ extern "C" __declspec(dllexport) int MM_StartExtraction(const char* romPath) {
     return 1;
 }
 
-extern "C" __declspec(dllexport) void MM_GetExtractionProgress(unsigned long long* count, unsigned long long* total,
-                                                               int* done, int* success) {
+extern "C" COMBO_EXPORT void MM_GetExtractionProgress(unsigned long long* count, unsigned long long* total, int* done,
+                                                      int* success) {
     if (count) {
         *count = (unsigned long long)gComboMMExtractCount.load();
     }
@@ -3146,7 +3149,7 @@ extern "C" __declspec(dllexport) void MM_GetExtractionProgress(unsigned long lon
 // dropped/reloaded seed reproduces MM's settings on any machine (MM options are CVar-backed;
 // MM_InitRandoSaveFile reads these CVars, so MM_RestoreRandoSettings writes them back before save
 // creation). Mirrors the option walk MM_DumpRandoStaticData uses.
-extern "C" __declspec(dllexport) const char* MM_DumpRandoSettings(void) {
+extern "C" COMBO_EXPORT const char* MM_DumpRandoSettings(void) {
     static std::string cached;
     nlohmann::json j = nlohmann::json::object();
     for (auto& [id, opt] : Rando::StaticData::Options) {
@@ -3179,7 +3182,7 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoSettings(void) {
 // ComboShip: restore MM rando settings from a {cvar:value} snapshot. The reload/drop path calls this
 // BEFORE MM_InitRandoSaveFile (which reads these CVars), so a dropped seed builds its MM save with the
 // author's settings rather than the local ones.
-extern "C" __declspec(dllexport) void MM_RestoreRandoSettings(const char* json) {
+extern "C" COMBO_EXPORT void MM_RestoreRandoSettings(const char* json) {
     if (!json)
         return;
     try {
@@ -3222,7 +3225,7 @@ static const std::unordered_map<std::string, RandoCheckId>& Combo_MM_CheckNameTo
 // can re-apply them (both wipe to 0 = every CAN_AFFORD free). MM_SetCheckPrices swaps in spoiler's.
 static std::unordered_map<uint32_t, uint16_t> sMMComboCheckPrices;
 
-extern "C" __declspec(dllexport) void MM_SetCheckPrices(const char* json) {
+extern "C" COMBO_EXPORT void MM_SetCheckPrices(const char* json) {
     sMMComboCheckPrices.clear();
     if (!json)
         return;
@@ -3247,7 +3250,7 @@ static void Combo_MM_ApplyCheckPrices() {
 extern std::unordered_map<RandoItemId, u32> riToWeight;
 extern std::unordered_map<RandoItemType, u32> itemTypeToWeight;
 
-extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
+extern "C" COMBO_EXPORT const char* MM_DumpRandoStaticData(void) {
     static std::string cached;
 
     nlohmann::json checks = nlohmann::json::array();
@@ -3461,11 +3464,18 @@ extern "C" __declspec(dllexport) const char* MM_DumpRandoStaticData(void) {
         { "RO_HINTS_PURCHASEABLE", (uint32_t)saveInfo.randoSaveOptions[RO_HINTS_PURCHASEABLE] }
     };
 
+    // ComboShip: the set MM's own pickup rotation draws from, so the combo generator can bake a
+    // cross-placed junk placeholder into an item MM itself would have handed the player.
+    nlohmann::json junkPool = nlohmann::json::array();
+    for (RandoItemId id : Rando::ComboJunkPool()) {
+        junkPool.push_back(Rando::StaticData::GetItemDisplayName(id));
+    }
+
     cached = nlohmann::json{
-        { "checks", std::move(checks) },  { "pool", std::move(pool) },
-        { "fixed", std::move(fixed) },    { "items", std::move(items) },
-        { "prices", std::move(prices) },  { "locationHints", std::move(locationHints) },
-        { "options", std::move(options) }
+        { "checks", std::move(checks) },   { "pool", std::move(pool) },
+        { "fixed", std::move(fixed) },     { "items", std::move(items) },
+        { "prices", std::move(prices) },   { "locationHints", std::move(locationHints) },
+        { "options", std::move(options) }, { "junkPool", std::move(junkPool) }
     }.dump();
     return cached.c_str();
 }
@@ -3881,7 +3891,7 @@ static void GiveItemForOracle(RandoItemId ri) {
     }
 }
 
-extern "C" __declspec(dllexport) void Combo_MM_Rando_Reset(void) {
+extern "C" COMBO_EXPORT void Combo_MM_Rando_Reset(void) {
     // ComboShip: MM's region graph + static data are built by the eager boot
     // (MM_BootForCombo -> ShipInit::InitAll), so the oracle needs no lazy init here.
     if (!sMM_OracleActive) { // snapshot the REAL live context only on the first Reset of a fill
@@ -3986,7 +3996,7 @@ static const std::unordered_map<std::string, RandoCheckId>& Combo_MM_CheckNameTo
 
 // ComboShip: JSON array of MM rando checks the player has obtained, for the sphere-hint system.
 // Reads RANDO_SAVE_CHECKS (in the MM save); safe to call while MM is dormant.
-extern "C" __declspec(dllexport) const char* Combo_MM_GetObtainedChecks(void) {
+extern "C" COMBO_EXPORT const char* Combo_MM_GetObtainedChecks(void) {
     static std::string cached;
     nlohmann::json out = nlohmann::json::array();
     for (const auto& [name, id] : Combo_MM_CheckNameToCheckId()) {
@@ -3997,7 +4007,7 @@ extern "C" __declspec(dllexport) const char* Combo_MM_GetObtainedChecks(void) {
     return cached.c_str();
 }
 
-extern "C" __declspec(dllexport) void Combo_MM_Rando_SetOwnedItems(const char* itemNamesJson) {
+extern "C" COMBO_EXPORT void Combo_MM_Rando_SetOwnedItems(const char* itemNamesJson) {
     if (!itemNamesJson)
         return;
     try {
@@ -4068,7 +4078,7 @@ void Combo_MM_GiveDormantResolved(RandoItemId rid) {
     }
 }
 
-extern "C" __declspec(dllexport) void MM_GrantCrossItem(const char* itemName) {
+extern "C" COMBO_EXPORT void MM_GrantCrossItem(const char* itemName) {
     if (!itemName)
         return;
     const auto& nameToId = Combo_MM_SpoilerNameToItemId();
@@ -4085,7 +4095,8 @@ extern "C" __declspec(dllexport) void MM_GrantCrossItem(const char* itemName) {
         SPDLOG_INFO("[ComboShip] MM_GrantCrossItem: '{}' not obtainable (already have / no slot), converted {} -> {}",
                     itemName, (int)placed, (int)rid);
     }
-    // ComboShip: MM junk can't rotate when collected in OOT; deliver a fixed Red Rupee.
+    // ComboShip: generation now bakes cross-placed junk into a real item, so this only catches an
+    // older seed or a plando row that still names the placeholder. Red Rupee keeps those working.
     if (rid == RI_JUNK) {
         rid = RI_RUPEE_RED;
     }
@@ -4096,7 +4107,7 @@ extern "C" __declspec(dllexport) void MM_GrantCrossItem(const char* itemName) {
 // ComboShip: mark a foreign MM check obtained without re-delivering — used on the NETWORK receive
 // path so a client that gets a teammate's broadcast won't later physically collect the same check
 // and double-deliver. Save-only (no grant), persisted immediately.
-extern "C" __declspec(dllexport) void MM_MarkForeignObtained(const char* checkName) {
+extern "C" COMBO_EXPORT void MM_MarkForeignObtained(const char* checkName) {
     if (!checkName)
         return;
     const auto& nameToId = Combo_MM_CheckNameToCheckId();
@@ -4117,23 +4128,23 @@ extern "C" __declspec(dllexport) void MM_MarkForeignObtained(const char* checkNa
 // ComboShip: routing seams — the launcher registers DeliverCrossItem / MarkForeignObtained here so
 // MM's foreign-check detection can hand an item to the OTHER game immediately (mirrors MM_SetAnchorSend).
 extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName) = nullptr;
-extern "C" __declspec(dllexport) void MM_SetCrossDeliver(void (*cb)(int, const char*, const char*)) {
+extern "C" COMBO_EXPORT void MM_SetCrossDeliver(void (*cb)(int, const char*, const char*)) {
     gMMComboCrossDeliver = cb;
 }
 extern "C" void (*gMMComboMarkForeignObtained)(int srcGame, const char* checkName) = nullptr;
-extern "C" __declspec(dllexport) void MM_SetMarkForeignObtained(void (*cb)(int, const char*)) {
+extern "C" COMBO_EXPORT void MM_SetMarkForeignObtained(void (*cb)(int, const char*)) {
     gMMComboMarkForeignObtained = cb;
 }
 // ComboShip (#164): combo Hint Tracker reveal sink. kind: 0 = cross gossipPool pick (poolIndex),
 // 1 = native MM stone hint (key = check name, text = plain hint), 2 = NPC itemLocations hint (key = item).
 extern "C" void (*gMMComboHintReveal)(int fileNum, int kind, int poolIndex, const char* key,
                                       const char* text) = nullptr;
-extern "C" __declspec(dllexport) void MM_SetComboHintRevealCb(void (*cb)(int, int, int, const char*, const char*)) {
+extern "C" COMBO_EXPORT void MM_SetComboHintRevealCb(void (*cb)(int, int, int, const char*, const char*)) {
     gMMComboHintReveal = cb;
 }
 // ComboShip: end-gating seam (mirrors OOT). z_boss_07.c calls gComboFinalBossDefeated when Majora dies.
 extern "C" int (*gComboFinalBossDefeated)(int game, int fileNum) = nullptr;
-extern "C" __declspec(dllexport) void MM_SetFinalBossDefeatedCb(int (*cb)(int, int)) {
+extern "C" COMBO_EXPORT void MM_SetFinalBossDefeatedCb(int (*cb)(int, int)) {
     gComboFinalBossDefeated = cb;
 }
 
@@ -4144,12 +4155,12 @@ extern "C" int gMMComboGoalRequired = 0;
 // This game's share of the combined piece total, forced at every save-option build site.
 // -1 = unset (old seed), so MM's own slider decides.
 extern "C" int gMMComboGoalPieces = -1;
-extern "C" __declspec(dllexport) void MM_SetComboGoal(int hunt, int required, int pieces) {
+extern "C" COMBO_EXPORT void MM_SetComboGoal(int hunt, int required, int pieces) {
     gMMComboGoalHunt = hunt ? 1 : 0;
     gMMComboGoalRequired = gMMComboGoalHunt ? required : 0;
     gMMComboGoalPieces = pieces < 0 ? -1 : (pieces > 100 ? 100 : pieces); // same 0..100 cap as OOT's
 }
-extern "C" __declspec(dllexport) int MM_GetTriforcePieceCount(void) {
+extern "C" COMBO_EXPORT int MM_GetTriforcePieceCount(void) {
     return gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces;
 }
 
@@ -4168,17 +4179,17 @@ extern "C" __declspec(dllexport) int MM_GetOwlWarpEntrance(int owlId) {
 }
 // The OTHER game's piece count, so pickup messages can show the combined progress.
 extern "C" int (*gMMComboOtherTriforceCount)(void) = nullptr;
-extern "C" __declspec(dllexport) void MM_SetOtherTriforceCountCb(int (*cb)(void)) {
+extern "C" COMBO_EXPORT void MM_SetOtherTriforceCountCb(int (*cb)(void)) {
     gMMComboOtherTriforceCount = cb;
 }
 // Poked after every piece grant (active or dormant); the launcher evaluates the combined total.
 extern "C" void (*gMMComboTriforceProgress)(int game, int fileNum) = nullptr;
-extern "C" __declspec(dllexport) void MM_SetTriforceProgressCb(void (*cb)(int, int)) {
+extern "C" COMBO_EXPORT void MM_SetTriforceProgressCb(void (*cb)(int, int)) {
     gMMComboTriforceProgress = cb;
 }
 // Goal reached: soul grant + completion hook run either way; only the active game gets the ending, a
 // dormant MM persists. The save can throw, and the launcher calls this — nothing may cross the C-ABI.
-extern "C" __declspec(dllexport) void MM_TriggerTriforceCredits(int dormant) try {
+extern "C" COMBO_EXPORT void MM_TriggerTriforceCredits(int dormant) try {
     if (!Flags_GetRandoInf(RANDO_INF_OBTAINED_SOUL_OF_BOSS_MAJORA)) {
         Rando::GiveItem(RI_SOUL_BOSS_MAJORA);
     }
@@ -4197,7 +4208,7 @@ extern "C" __declspec(dllexport) void MM_TriggerTriforceCredits(int dormant) try
     SPDLOG_ERROR("[ComboShip] MM_TriggerTriforceCredits threw: {}", e.what());
 } catch (...) { SPDLOG_ERROR("[ComboShip] MM_TriggerTriforceCredits threw a non-std exception"); }
 
-extern "C" __declspec(dllexport) const char* Combo_MM_Rando_GetReachableChecks(void) {
+extern "C" COMBO_EXPORT const char* Combo_MM_Rando_GetReachableChecks(void) {
     static std::string buf;
 
     std::set<RandoRegionId> reachable = { RR_MAX };
@@ -4258,7 +4269,7 @@ extern "C" __declspec(dllexport) const char* Combo_MM_Rando_GetReachableChecks(v
     return buf.c_str();
 }
 
-extern "C" __declspec(dllexport) void Combo_MM_Rando_PlaceItem(const char* checkName, const char* itemName) {
+extern "C" COMBO_EXPORT void Combo_MM_Rando_PlaceItem(const char* checkName, const char* itemName) {
     if (!checkName || !itemName)
         return;
     // ComboShip: map lookups replace nested name scans (runs once per committed check).
@@ -4272,7 +4283,7 @@ extern "C" __declspec(dllexport) void Combo_MM_Rando_PlaceItem(const char* check
     RANDO_SAVE_CHECKS[chkIt->second].shuffled = true;
 }
 
-extern "C" __declspec(dllexport) void Combo_MM_Rando_Restore(void) {
+extern "C" COMBO_EXPORT void Combo_MM_Rando_Restore(void) {
     if (!sMM_OracleActive) {
         return; // nothing snapshotted (double Restore / Restore without Reset)
     }
@@ -4319,13 +4330,13 @@ std::shared_ptr<BenGui::BenMenu> Combo_EnsureBenMenu() {
 
 // 2ship.dll has its own per-module ImGui GImGui — see combo/menu/ComboMenuSharedContext.h.
 
-extern "C" __declspec(dllexport) const CwMenu* MM_ExportMenu(void) {
+extern "C" COMBO_EXPORT const CwMenu* MM_ExportMenu(void) {
     ComboMenuContext::UseSharedImGuiContext();
     auto menu = Combo_EnsureBenMenu();
     return menu ? menu->ExportComboMenu() : nullptr;
 }
 
-extern "C" __declspec(dllexport) void MM_MenuInvokeCallback(int32_t i) {
+extern "C" COMBO_EXPORT void MM_MenuInvokeCallback(int32_t i) {
     ComboMenuContext::UseSharedImGuiContext();
     // Menu code can load MM resources — scope MM's own RM, not the foreground game's (also in the
     // eval/draw/apply exports below; see combo/gui/ComboWidgetRender.h).
@@ -4338,7 +4349,7 @@ extern "C" __declspec(dllexport) void MM_MenuInvokeCallback(int32_t i) {
 // ComboShip: re-run the ShipInit func(s) registered for this CVar, mirroring 2Ship's native UIWidgets
 // after a widget change — so settings/enhancements changed via the combo menu apply live instead of
 // only on the next ShipInit::InitAll (MM boot / new save).
-extern "C" __declspec(dllexport) void MM_MenuApplyCVarChange(const char* cvar) {
+extern "C" COMBO_EXPORT void MM_MenuApplyCVarChange(const char* cvar) {
     Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("mm")); // ShipInit funcs load MM resources
     if (cvar && cvar[0])
         ShipInit::Init(cvar);
@@ -4349,7 +4360,7 @@ extern "C" __declspec(dllexport) void MM_MenuApplyCVarChange(const char* cvar) {
 // CVars and calls this to apply per-port volume live. MM applies volume via AudioSeq_SetPortVolumeScale
 // (not ShipInit), so MM_MenuApplyCVarChange would not pick it up. gAudioCtx persists across transitions,
 // so this is safe even when MM is not the foreground game.
-extern "C" __declspec(dllexport) void MM_ApplyAudioVolume(int32_t seqPlayerIndex, float volume) {
+extern "C" COMBO_EXPORT void MM_ApplyAudioVolume(int32_t seqPlayerIndex, float volume) {
     AudioSeq_SetPortVolumeScale((u8)seqPlayerIndex, volume);
 }
 
@@ -4357,7 +4368,7 @@ extern "C" __declspec(dllexport) void MM_ApplyAudioVolume(int32_t seqPlayerIndex
 // (OOT) controls UI edits the same data MM reads. But each game's ControlDeck caches its mappings (it
 // only re-reads on Init / this call), so a rebind made while MM was dormant is not picked up until MM
 // reloads. The combo layer calls this when MM becomes the foreground game. Reloads all populated ports.
-extern "C" __declspec(dllexport) void MM_ReloadControls(void) {
+extern "C" COMBO_EXPORT void MM_ReloadControls(void) {
     auto controlDeck = Ship::Context::GetRawInstance()->GetControlDeck();
     if (!controlDeck)
         return;
@@ -4376,15 +4387,14 @@ bool Combo_MmIsForeground(void) {
     static bool sTried = false;
     if (!sTried) {
         sTried = true;
-        if (HMODULE h = GetModuleHandleA("comboui.dll"))
-            sFn = (int (*)(void))GetProcAddress(h, "ComboUI_GetForegroundGame");
+        sFn = (int (*)(void))Combo_ResolveSym("comboui", "ComboUI_GetForegroundGame");
     }
     return sFn ? (sFn() == 1) : true;
 }
 
 // ComboShip (#127): MM's pause state, read by comboui's dormant-tracker gate (see
 // SOH_IsPausedForCombo) — the dormant game's own pause state is stale.
-extern "C" __declspec(dllexport) int MM_IsPausedForCombo(void) {
+extern "C" COMBO_EXPORT int MM_IsPausedForCombo(void) {
     return gPlayState != nullptr && gPlayState->pauseCtx.state > 0;
 }
 
@@ -4394,7 +4404,7 @@ static bool sComboPlaytimeRunning = false;
 
 // Flushes the running interval into filePlaytime and stops counting. lastTimeLog == 0 means "never
 // marked" (new file, z_sram_NES.c) and must not be treated as a timestamp — it would add ~57 years.
-extern "C" __declspec(dllexport) void MM_ComboPausePlaytime(void) {
+extern "C" COMBO_EXPORT void MM_ComboPausePlaytime(void) {
     if (sComboPlaytimeRunning && gSaveContext.shipSaveContext.lastTimeLog != 0 &&
         gSaveContext.save.shipSaveInfo.fileCompletedAt == 0) {
         uint64_t now = GetUnixTimestamp();
@@ -4406,14 +4416,14 @@ extern "C" __declspec(dllexport) void MM_ComboPausePlaytime(void) {
     sComboPlaytimeRunning = false;
 }
 
-extern "C" __declspec(dllexport) void MM_ComboResumePlaytime(void) {
+extern "C" COMBO_EXPORT void MM_ComboResumePlaytime(void) {
     gSaveContext.shipSaveContext.lastTimeLog = GetUnixTimestamp();
     sComboPlaytimeRunning = true;
 }
 
 // MM's half of the combo total, in ms. The live interval is added only while MM is the foreground
 // game — otherwise the value would free-run on wall clock while MM is dormant.
-extern "C" __declspec(dllexport) uint64_t MM_GetPlaytimeMs(void) {
+extern "C" COMBO_EXPORT uint64_t MM_GetPlaytimeMs(void) {
     uint64_t total = gSaveContext.save.shipSaveInfo.filePlaytime;
     if (sComboPlaytimeRunning && gSaveContext.shipSaveContext.lastTimeLog != 0 &&
         gSaveContext.save.shipSaveInfo.fileCompletedAt == 0) {
@@ -4425,14 +4435,14 @@ extern "C" __declspec(dllexport) uint64_t MM_GetPlaytimeMs(void) {
     return total;
 }
 
-extern "C" __declspec(dllexport) int32_t MM_MenuEvalDisabled(int32_t i, const char** outReason) {
+extern "C" COMBO_EXPORT int32_t MM_MenuEvalDisabled(int32_t i, const char** outReason) {
     ComboMenuContext::UseSharedImGuiContext();
     Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("mm"));
     auto menu = Combo_EnsureBenMenu();
     return menu ? menu->EvalDisabledByIndex(i, outReason) : 0;
 }
 
-extern "C" __declspec(dllexport) void MM_MenuDrawCustom(int32_t i) {
+extern "C" COMBO_EXPORT void MM_MenuDrawCustom(int32_t i) {
     // comboui owns the active menu slot, so the Gui loop never drives MM's menu. A custom widget may read
     // THEME_COLOR (menuThemeIndex), which is set in UpdateElement(); skipping Update() makes ColorValues.at()
     // throw out_of_range (proven by the Phase 0 spike). So Init()+Update() before any custom draw.
@@ -4448,7 +4458,7 @@ extern "C" __declspec(dllexport) void MM_MenuDrawCustom(int32_t i) {
 
 // Draws widget i via MM's real MenuDrawItem (UIWidgets) into comboui's current window/cell. Same
 // context/RM/Init+Update contract as MM_MenuDrawCustom. Returns 1 if the CVar changed this frame.
-extern "C" __declspec(dllexport) int32_t MM_MenuDrawWidget(int32_t i, int32_t width) {
+extern "C" COMBO_EXPORT int32_t MM_MenuDrawWidget(int32_t i, int32_t width) {
     ComboMenuContext::UseSharedImGuiContext();
     Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("mm"));
     auto menu = Combo_EnsureBenMenu();

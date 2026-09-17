@@ -157,6 +157,19 @@ static std::string DllError() {
     const char* e = dlerror();
     return e ? e : "unknown dlerror";
 }
+// AppImage: keep the bundle's LD_LIBRARY_PATH out of child processes (zenity, kdialog). glibc
+// reads it once at startup, so our own dlopens are unaffected.
+static void RestoreHostLibraryPath() {
+    const char* host = std::getenv("COMBO_HOST_LD_LIBRARY_PATH");
+    if (host == nullptr) {
+        return;
+    }
+    if (host[0] != '\0') {
+        setenv("LD_LIBRARY_PATH", host, 1);
+    } else {
+        unsetenv("LD_LIBRARY_PATH");
+    }
+}
 #endif
 
 // ---------- Function pointer types ----------
@@ -2817,6 +2830,8 @@ int main(int argc, char** argv) {
     // (down-scaled) resolution and upscales it — making the whole menu/UI larger and blurrier on
     // >100% display scaling. Must run before any window is created.
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+#else
+    RestoreHostLibraryPath();
 #endif
 
     std::set_terminate(ComboTerminateHandler);

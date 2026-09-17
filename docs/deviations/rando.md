@@ -1848,7 +1848,7 @@ entrance)` (OTRGlobals.cpp / BenPort.cpp) stashes it and raises the same pending
 so persistence and the launcher loop are unchanged; the launcher drains it (`SOH_/MM_GetPendingCrossTarget`,
 consume-on-read) and pushes it as a one-shot override (`SOH_/MM_SetTargetEntrance` ->
 `gComboTargetEntrance`) right before the other game's boot/resume, where `TitleSetup_InitImpl` /
-`Setup_InitImpl` honour it (OOT through `Entrance_OverrideNextIndex`, so entrance rando applies like it
+`Setup_InitImpl` honor it (OOT through `Entrance_OverrideNextIndex`, so entrance rando applies like it
 does to OOT's own warp songs; MM after the owl-save/resume branch so those side effects still run).
 `gComboCrossArrival` marks the arrival until the first OnSceneInit. Only a portal-kind (0) return applies
 the target; a reset / owl-save quit drops it. Export shape mirrors `feat/cross-entrances`. Debug:

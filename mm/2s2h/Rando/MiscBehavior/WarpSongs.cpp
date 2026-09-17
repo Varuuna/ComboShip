@@ -43,7 +43,7 @@ const char* const kPlaceNames[6] = {
 };
 // OOT's warp-pad entrances (soh/include/tables/entrance_table.h), same order as z_player.c's
 // sWarpSongEntrances. OOT's TitleSetup routes the value through Entrance_OverrideNextIndex, so entrance
-// rando is honoured on that side.
+// rando is honored on that side.
 const int kWarpPadEntrances[6] = {
     0x0600, // ENTR_SACRED_FOREST_MEADOW_WARP_PAD
     0x04F6, // ENTR_DEATH_MOUNTAIN_CRATER_WARP_PAD

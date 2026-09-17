@@ -64,9 +64,8 @@ COW_MM_ASSET(sCowNameSouthernSwamp, "__OTR__map_name_static/gMapPointSouthernSwa
 COW_MM_ASSET(sCowNameIkanaCanyon, "__OTR__map_name_static/gMapPointIkanaCanyonENGTex");
 COW_MM_ASSET(sCowNameStoneTower, "__OTR__map_name_static/gMapPointStoneTowerENGTex");
 
-// MM's map-page parchment tiles (KaleidoScope_DrawPageSections / sMapPageBgTextures): a 3-column x
-// 5-row grid of 80x32 IA8 tiles that frames the world map. In icon_item_static_yar, except the
-// column-1 row-0 title tile, which is language-specific in icon_item_jpn_static.
+// MM's map-page parchment tiles (sMapPageBgTextures): a 3x5 grid of 80x32 IA8 tiles framing the world map,
+// in icon_item_static_yar except the col-1 row-0 title tile (language-specific, in icon_item_jpn_static).
 COW_MM_ASSET(sCowMap00, "__OTR__icon_item_static_yar/gPauseMap00Tex");
 COW_MM_ASSET(sCowMap01, "__OTR__icon_item_static_yar/gPauseMap01Tex");
 COW_MM_ASSET(sCowMap02, "__OTR__icon_item_static_yar/gPauseMap02Tex");
@@ -91,13 +90,8 @@ COW_MM_ASSET(sCowNamePanelR, "__OTR__icon_item_static_yar/gNamePanelRightTex"); 
 
 constexpr int COW_OWL_COUNT = 10; // OwlWarpId 0..9, bit i of MM's owlActivationFlags
 constexpr int COW_OWL_CLOCK_TOWN = 4;
-// A real pauseCtx->state (not debugState) so Interface_Draw still builds the HUD and draws the standard
-// Start "Return" prompt (that whole block is gated on debugState == 0, z_parameter.c). 0x14 is chosen so:
-// it is >= 18, the range Interface_DrawItemButtons draws the Start prompt for; it is outside 4..7 and
-// 0xB..0x12, the only ranges KaleidoScopeCall_Draw draws OOT's pause pages for, so those stay hidden; and
-// no KaleidoScope_Update case handles it (no default), so kaleido no-ops. The world still freezes because
-// any nonzero state routes Play_Update to KaleidoScopeCall_Update. Entering swaps the player overlay out
-// like a normal pause; leaving swaps it back with KaleidoScopeCall_LoadPlayer (nothing else does it here).
+// A real pauseCtx->state that freezes the world and lets Interface_Draw show the Start "Return" prompt, but
+// (>=18, outside 4..7/0xB..0x12, no KaleidoScope_Update case) draws no OOT pause pages -- kaleido no-ops.
 constexpr u16 COW_PAUSE_STATE = 0x14;
 constexpr int COW_MAP_W = 216;
 constexpr int COW_MAP_H = 128;
@@ -110,9 +104,8 @@ const char* const sCowOwlNames[COW_OWL_COUNT] = {
     "Great Bay Coast", "Zora Cape", "Snowhead",       "Mountain Village", "Clock Town",
     "Milk Road",       "Woodfall",  "Southern Swamp", "Ikana Canyon",     "Stone Tower",
 };
-// Owl icon quads in MM's map-page space (z_kaleido_scope_NES.c sVtxPageMapWorldQuadsX/Y, warp entries),
-// 24x12 each with the top-left at (X, Y), Y up. MM's flat map puts the image's top-left (-109, 59) at
-// screen (52, 61) after a 1px nudge, so screen = (X + 161, 120 - Y).
+// Owl icon quads in MM's map-page space (sVtxPageMapWorldQuadsX/Y), 24x12, top-left at (X, Y), Y up. On
+// our flat map screen = (X + 161, 120 - Y).
 const s16 sCowOwlX[COW_OWL_COUNT] = { -80, -64, -9, -3, -7, -16, -1, 23, 44, 54 };
 const s16 sCowOwlY[COW_OWL_COUNT] = { -8, -38, 39, 26, 1, -7, -28, -27, -1, 24 };
 
@@ -139,7 +132,7 @@ const u8 kSoaringPitches[6] = { OCARINA_PITCH_F4, OCARINA_PITCH_B4, OCARINA_PITC
                                 OCARINA_PITCH_F4, OCARINA_PITCH_B4, OCARINA_PITCH_D5 };
 
 CustomMessage sNoMarkMsg = CustomMessage(
-    "You have yet to leave your mark at any&owl statue in Termina. There is&nowhere to soar to.", TEXTBOX_TYPE_BLACK);
+    "You have yet to leave your mark&on any of the statues in Termina.&There is nowhere to soar to.", TEXTBOX_TYPE_BLACK);
 CustomMessage sConfirmMsg;
 
 bool CowEnabled() {
@@ -203,11 +196,8 @@ int CowStepCursor(int from, int dir) {
     return from;
 }
 
-// Enter/leave our owl-warp pause. Setting a real pauseCtx->state (see COW_PAUSE_STATE) makes Play_Update
-// run the inert KaleidoScopeCall_Update instead of actors/camera/Message_Update (z_play.c) and Play_Draw
-// hold the last frame, exactly like the real pause menu, while the engine keeps drawing the Start "Return"
-// prompt. Leaving restores the player actor overlay the pause swapped out (KaleidoScopeCall_LoadPlayer is
-// idempotent: it no-ops when the player overlay is already resident) and drops the forced Start alpha.
+// Enter/leave our owl-warp pause via a real pauseCtx->state (freezes the world like the pause menu). Leaving
+// restores the player-actor overlay the pause swapped out (KaleidoScopeCall_LoadPlayer) and the Start alpha.
 void CowFreeze(PlayState* play, bool freeze) {
     if (freeze) {
         play->pauseCtx.state = COW_PAUSE_STATE;
@@ -215,9 +205,8 @@ void CowFreeze(PlayState* play, bool freeze) {
         play->pauseCtx.state = 0;
         play->interfaceCtx.startAlpha = 0;
         KaleidoScopeCall_LoadPlayer();
-        // Bring the HUD back. Playing the ocarina hid it (saving the prior mode in prevHudVisibilityMode);
-        // its normal end restores that mode, but we bypassed that end, so the same restore has to run here
-        // or the HUD stays dark until the next ocarina. Straight from z_message.c's ocarina-close path.
+        // Bring back the HUD the ocarina hid: we bypassed its normal restore, so run it here (z_message.c's
+        // ocarina-close path) or the HUD stays dark until the next ocarina.
         if (gSaveContext.prevHudVisibilityMode == HUD_VISIBILITY_NO_CHANGE ||
             gSaveContext.prevHudVisibilityMode == HUD_VISIBILITY_NOTHING ||
             gSaveContext.prevHudVisibilityMode == HUD_VISIBILITY_NOTHING_ALT) {
@@ -434,12 +423,8 @@ static void CowDraw() {
         return;
     }
 
-    // Once the map is up (we hold the pause state), let the engine draw the standard Start "Return" prompt:
-    // Interface_DrawItemButtons draws it for a real pause state (>= 18) using only interfaceCtx->startAlpha,
-    // which nothing else drives while we are up -- so set it here, from OnPlayDrawEnd, the frame's last write
-    // before Interface_Draw reads it -- and zero the rest of the HUD so only the Return prompt shows over the
-    // map. Hidden during the Yes/No prompt, where B / Start belong to the choice. Skipped in the pre-freeze
-    // states (CLOSING / REFUSED), where the ocarina and refusal textboxes still want the normal HUD.
+    // Drive the engine's Start "Return" prompt (Interface_Draw reads startAlpha right after this) and zero the
+    // rest of the HUD so only it shows over the map. Off during the Yes/No box and the pre-freeze states.
     if (sState == COW_FADE_IN || sState == COW_SELECT || sState == COW_CONFIRM || sState == COW_FADE_OUT) {
         InterfaceContext* ic = &play->interfaceCtx;
         ic->startAlpha = (sState == COW_CONFIRM) ? 0 : (s16)sAlpha;
@@ -456,10 +441,8 @@ static void CowDraw() {
     // Everything MM-owned resolves against MM's ResourceManager between push and pop.
     gSPComboRMPush(OVERLAY_DISP++, "mm");
 
-    // Map-page parchment frame behind the world map (MM draws sMapPageBgTextures before DrawWorldMap):
-    // a 3x5 grid of the 80x32 IA8 tiles tinted MM's tan (prim 180,180,120), stretched over 82x35 cells
-    // and placed so row 0 is the "MAP" title band above the map (y 62), rows 1-4 hold the framed map, and
-    // row 4 shows below it as a bottom border -- 2ship's framed owl page rather than a floating map.
+    // Map-page parchment frame behind the world map: the 3x5 grid of 80x32 IA8 tiles tinted MM's tan, with
+    // row 0 as the "MAP" title band, rows 1-4 the framed map, and row 4 spilling below as a bottom border.
     gDPSetRenderMode(OVERLAY_DISP++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
     gDPSetCombineMode(OVERLAY_DISP++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM);
     gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 180, 180, 120, sAlpha);
@@ -567,9 +550,8 @@ static void RegisterComboOwlWarp() {
     // Registered whenever a rando save is loaded; the seed option and item ownership are checked per use.
     const bool on = IS_RANDO;
     CowReset();
-    // Format() converts '&' / colors and appends MESSAGE_END; LoadIntoFont copies the RAW text, so an
-    // unformatted message has no terminator and Message_Decode runs past the 200-byte decode buffer
-    // into interfaceCtx (the first two soaring tests crashed exactly there). Once only: it mutates.
+    // Format() appends MESSAGE_END; without it LoadIntoFont's raw text has no terminator and Message_Decode
+    // overruns the 200-byte buffer into interfaceCtx (crash). Once only: it mutates.
     static bool sNoMarkFormatted = false;
     if (!sNoMarkFormatted) {
         sNoMarkMsg.Format();

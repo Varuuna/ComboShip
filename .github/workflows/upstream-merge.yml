@@ -222,7 +222,7 @@ jobs:
         with:
           ref: develop
           fetch-depth: 0
-          # PAT so the opened PR triggers build-artifacts.yml / clang-format.yml (a PR opened by the
+          # PAT so the opened PR triggers build-artifacts.yml's gate (a PR opened by the
           # default GITHUB_TOKEN does NOT trigger other workflows). Falls back to GITHUB_TOKEN if
           # unset (PR is still created; a maintainer push then triggers the build).
           token: ${{ secrets.UPSTREAM_PR_PAT || github.token }}
@@ -433,7 +433,7 @@ jobs:
               try { conf = fs.readFileSync(process.env.CONFLICTS_PATH, 'utf8'); } catch (e) {}
               body = '> **Conflicts committed as markers** — resolve them on the `' + head + '` '
                    + 'branch (keep COMBO_BUILD blocks; see docs/UPSTREAM_MERGES.md). The required '
-                   + '`conflict-markers` check stays red, and lists each `file:line`, until they are gone.\n\n'
+                   + '`gate` check stays red, and lists each `file:line`, until they are gone.\n\n'
                    + '<details><summary>conflicted files</summary>\n\n```\n' + conf + '```\n</details>\n\n'
                    + body;
             }

@@ -1,12 +1,13 @@
 name: pr-artifacts
 
-# After "Build Artifacts (Windows)" finishes for a PR, post (or update) a comment on that PR with
-# nightly.link download links for each uploaded artifact. Runs in the base-repo context via
-# workflow_run, so it can comment even on fork PRs. Mirrors HarbourMasters/Shipwright/pr-artifacts.yml.
+# After "Build Artifacts" finishes for a PR, post (or update) a comment on that PR with
+# nightly.link download links for each uploaded artifact (Windows + Linux both come from the
+# single run). Runs in the base-repo context via workflow_run, so it can comment even on fork PRs.
+# Mirrors HarbourMasters/Shipwright/pr-artifacts.yml.
 
 on:
   workflow_run:
-    workflows: [Build Artifacts (Windows)]
+    workflows: [Build Artifacts]
     types:
       - completed
 
@@ -64,6 +65,9 @@ jobs:
               return acc;
             }, '### Build Artifacts');
       - id: 'add-to-pr'
+        # Zero artifacts means gate failed and both builds were skipped — skip the update so a red
+        # push doesn't wipe the previous good link list.
+        if: ${{ steps.artifacts-text.outputs.result != '### Build Artifacts' }}
         uses: garrettjoecox/pr-section@4.0.0
         with:
           repo-token: '${{ secrets.GITHUB_TOKEN }}'

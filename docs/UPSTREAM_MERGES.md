@@ -74,7 +74,8 @@ manual (it's judgement work). Three pieces:
   `docs/merges/<date>-<key>.md` scaffold. An upstream with nothing new gets no PR, and one whose PR
   is already open is left untouched while its siblings proceed. You finish each on its branch:
   resolve markers, work the build-fix chain, flesh out the merge log.
-  `build-artifacts.yml` / `clang-format.yml` / `conflict-markers` are the PR gates.
+  `build-artifacts.yml`'s single `gate` job (conflict markers, asset collisions, clang-format) is
+  the PR gate.
   - **Merge the libultraship PR first** — soh/mm `#include` libultraship by path (see the coupling
     note above). Nothing enforces it mechanically; the soh/mm PR bodies say so, and each PR in a
     pass links its siblings.
@@ -181,7 +182,7 @@ asset — a plausible wrong mesh/texture, no error (issue #97; mechanism in
 `scripts/check-asset-collisions.py` diffs the two **tracked** trees against the checked-in baseline
 `asset-collisions.json` and fails on any new differing-content collision or stale baseline entry. It
 runs locally via the CMake `CheckAssetCollisions` target (a dependency of `GenerateSohOtr`,
-`Generate2ShipOtr`, and the `combo` meta target) and on PRs via `asset-collisions.yml`.
+`Generate2ShipOtr`, and the `combo` meta target) and on PRs via `build-artifacts.yml`'s `gate` job.
 
 Convention: **new custom assets that can be drawn cross-game get per-game-distinct paths.** A
 deliberate same-path-different-content addition must be baselined (`--update`) in the PR that

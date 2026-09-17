@@ -199,14 +199,14 @@ extern "C" void Combo_RequestCrossSwitch(int ootEntrance) {
 }
 
 // Launcher drain: the OOT entrance the pending return should arrive at, consumed on read (-1 = none).
-extern "C" __declspec(dllexport) int MM_GetPendingCrossTarget(void) {
+extern "C" COMBO_EXPORT int MM_GetPendingCrossTarget(void) {
     const int t = sComboCrossTargetOOT;
     sComboCrossTargetOOT = -1;
     return t;
 }
 
 // Launcher push: arrive at this MM entrance on the next boot/resume instead of South Clock Town.
-extern "C" __declspec(dllexport) void MM_SetTargetEntrance(int entrance) {
+extern "C" COMBO_EXPORT void MM_SetTargetEntrance(int entrance) {
     gComboTargetEntrance = entrance;
 }
 // MM's own ResourceManager, created at first boot and kept alive for the whole process. A combo
@@ -4167,11 +4167,11 @@ extern "C" COMBO_EXPORT int MM_GetTriforcePieceCount(void) {
 // ComboShip (teleport songs): probes for OOT's Song of Soaring. Read from MM's resident gSaveContext, which the
 // launcher loads with the active slot at OOT load time (dormant-safe, same reliance as the triforce probe).
 // Bit i of the flags = OwlWarpId i activated (LSB = Great Bay Coast).
-extern "C" __declspec(dllexport) int MM_GetOwlActivationFlags(void) {
+extern "C" COMBO_EXPORT int MM_GetOwlActivationFlags(void) {
     return gSaveContext.save.saveInfo.playerData.owlActivationFlags;
 }
 // The MM entrance an owl statue's soaring arrival uses (mirror of sOwlWarpEntrances); -1 for a bad id.
-extern "C" __declspec(dllexport) int MM_GetOwlWarpEntrance(int owlId) {
+extern "C" COMBO_EXPORT int MM_GetOwlWarpEntrance(int owlId) {
     if (owlId < 0 || owlId >= OWL_WARP_MAX - 1) {
         return -1;
     }

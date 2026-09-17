@@ -131,8 +131,9 @@ volatile bool sSongMatched = false;
 const u8 kSoaringPitches[6] = { OCARINA_PITCH_F4, OCARINA_PITCH_B4, OCARINA_PITCH_D5,
                                 OCARINA_PITCH_F4, OCARINA_PITCH_B4, OCARINA_PITCH_D5 };
 
-CustomMessage sNoMarkMsg = CustomMessage(
-    "You have yet to leave your mark&on any of the statues in Termina.&There is nowhere to soar to.", TEXTBOX_TYPE_BLACK);
+CustomMessage sNoMarkMsg =
+    CustomMessage("You have yet to leave your mark&on any of the statues in Termina.&There is nowhere to soar to.",
+                  TEXTBOX_TYPE_BLACK);
 CustomMessage sConfirmMsg;
 
 bool CowEnabled() {

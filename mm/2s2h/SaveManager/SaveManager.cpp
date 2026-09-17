@@ -244,6 +244,16 @@ void SaveManager_InitNewSaveForSlot(int mmFileNum, const unsigned char* ootName8
 }
 
 void SaveManager_SaveCurrentForCombo() {
+#ifdef COMBO_BUILD
+    // Guard the write itself, not each caller's own gate. 0xFF (no save) reaches here on real,
+    // non-buggy paths (play proceeding after a failed load), so refuse and return — don't assert.
+    if (gSaveContext.fileNum < 0 || gSaveContext.fileNum > 2) {
+        SPDLOG_ERROR("[ComboShip] SaveManager_SaveCurrentForCombo: refusing write, fileNum={} is not a "
+                     "loaded slot",
+                     gSaveContext.fileNum);
+        return;
+    }
+#endif
     int mmFileNum = (int)gSaveContext.fileNum + 1;
     std::string fileName = SaveManager_GetFileName(mmFileNum);
     nlohmann::json j;
@@ -304,14 +314,18 @@ extern "C" __declspec(dllexport) void MM_InvalidateOwlBlobSlot(void) {
 }
 #endif
 
-// ComboShip: nothing usable was loaded, so leave gSaveContext pointing at NO slot. 0xFF is the "no save"
+// ComboShip: nothing usable is loaded, so leave gSaveContext pointing at NO slot. 0xFF is the "no save"
 // sentinel every dormant writer tests (Combo_MM_GiveDormantResolved, MM_MarkForeignObtained, MMAnchor's
 // PumpDormant), so a stray write lands nowhere instead of persisting the PREVIOUS slot's save — or
-// zeroed vanilla BSS — into the failed slot. Clearing saveType makes IS_RANDO false for the same reason:
-// the peek trackers must not keep drawing the previous slot's save as if it were this one.
-static int SaveManager_LoadFailedForCombo(int code) {
+// zeroed/never-loaded BSS — into the failed slot. Clearing saveType makes IS_RANDO false for the same
+// reason: the peek trackers must not keep drawing the previous slot's save as if it were this one.
+void SaveManager_MarkNoSaveLoaded() {
     gSaveContext.fileNum = 0xFF;
     gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_VANILLA;
+}
+
+static int SaveManager_LoadFailedForCombo(int code) {
+    SaveManager_MarkNoSaveLoaded();
     return code;
 }
 

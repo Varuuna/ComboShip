@@ -18,7 +18,18 @@ extern PlayState* gPlayState;
 
 uint8_t incomingIceTrapsFromAnchor = 0;
 
+#ifdef COMBO_BUILD
+// ComboShip: Shared Items — suppresses this send around a local shared-tier raise (SOH_RaiseSharedTier),
+// which would otherwise broadcast a teammate toast for the player's own reconcile.
+extern "C" int gComboSuppressAnchorSend;
+#endif
+
 void Anchor::SendPacket_GiveItem(u16 modId, s16 getItemId) {
+#ifdef COMBO_BUILD
+    if (gComboSuppressAnchorSend) {
+        return;
+    }
+#endif
     if (!IsSaveLoaded() || isProcessingIncomingPacket || !roomState.syncItemsAndFlags) {
 #ifdef COMBO_BUILD
         SPDLOG_INFO("[Anchor] GIVE_ITEM not sent: saveLoaded={} processingIncoming={} syncItems={}", IsSaveLoaded(),

@@ -20,6 +20,7 @@
 #include <nlohmann/json.hpp>
 #include "gui/ComboGenProgress.h"
 #include "CrossForeign.h" // for ComboRando::GameId
+#include "SharedItems.h"
 
 namespace ComboRando {
 
@@ -239,10 +240,13 @@ constexpr int kMaxPrereqTries = 4; // Tier-1 repicks of just the portal prerequi
 // out of the cross pool, owned-from-start for logic, and appended to the OOT placements.
 // startingGame (#135): GAME_MM roots MM from the start instead of behind the portal; the portal
 // prerequisites are still derived, as the re-entry guarantee for a player who strays into OOT.
-inline CombinedFillResult CrossWorldCombinedFill(
-    const std::string& sohDumpJson, const std::string& mmDumpJson, uint32_t masterSeed, const OracleFns& ootOracle,
-    const OracleFns& mmOracle, ComboRando::ComboGenProgress* progress = nullptr, const std::string& forcedOotJson = "",
-    OotAccess ootAccess = OotAccess::ALL_REACHABLE, CwGoal goal = {}, GameId startingGame = GAME_OOT) {
+inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson, const std::string& mmDumpJson,
+                                                 uint32_t masterSeed, const OracleFns& ootOracle,
+                                                 const OracleFns& mmOracle,
+                                                 ComboRando::ComboGenProgress* progress = nullptr,
+                                                 const std::string& forcedOotJson = "",
+                                                 OotAccess ootAccess = OotAccess::ALL_REACHABLE, CwGoal goal = {},
+                                                 GameId startingGame = GAME_OOT, uint32_t sharedMask = 0) {
     CombinedFillResult result;
     result.success = false;
 
@@ -425,6 +429,65 @@ inline CombinedFillResult CrossWorldCombinedFill(
                 }
             }
         } catch (...) {}
+    }
+
+    // Shared Items (OoTMM-style): trim MM's copies of each effective family; the fixpoint below
+    // mirrors the OOT-owned count back onto MM's oracle. See deviations/rando.md.
+    uint32_t effectiveSharedMask = 0;
+    if (sharedMask != 0) {
+        bool maskQuestShuffle = false;
+        try {
+            maskQuestShuffle = nlohmann::json::parse(sohDumpJson)
+                                   .value("accessibility", nlohmann::json::object())
+                                   .value("maskQuestShuffle", false);
+        } catch (...) {}
+        for (int i = 0; i < SF_COUNT; ++i) {
+            if (!(sharedMask & (1u << i)))
+                continue;
+            const auto& def = SharedFamilyByIndex(i);
+            if (def.isMask && !maskQuestShuffle) {
+                std::cout << "[ComboShip] Shared " << def.key << ": skipped (OOT Mask Quest is not Shuffle)\n";
+                continue;
+            }
+            size_t ootCopies = 0;
+            for (const auto& it : advItems)
+                if (it.game == GAME_OOT && it.name == def.ootName)
+                    ++ootCopies;
+            for (const auto& p : lockedPlacements)
+                if (p.item.game == GAME_OOT && p.item.name == def.ootName)
+                    ++ootCopies;
+            if (ootCopies == 0) {
+                std::cout << "[ComboShip] Shared " << def.key << ": OOT pool has none, left MM copies alone\n";
+                continue;
+            }
+            if (!def.mmHasItem) {
+                // MM has no pool copy of this item — nothing to trim, just mark the family effective.
+                effectiveSharedMask |= (1u << i);
+                std::cout << "[ComboShip] Shared " << def.key << ": MM has no item, not trimmed\n";
+                continue;
+            }
+            std::vector<CwItem> kept;
+            kept.reserve(advItems.size());
+            size_t removed = 0;
+            for (auto& it : advItems) {
+                if (it.game == GAME_MM && it.name == def.mmName) {
+                    ++removed;
+                    continue;
+                }
+                kept.push_back(std::move(it));
+            }
+            advItems = std::move(kept);
+            if (removed == 0) {
+                // Name drift between the two games' pools (see deviations/rando.md) — not fatal, but
+                // loud: this is exactly the bug class that shipped twice during implementation.
+                std::cout << "[ComboShip] Shared " << def.key << ": MM pool has none of '" << def.mmName
+                          << "', not shared\n";
+                continue;
+            }
+            effectiveSharedMask |= (1u << i);
+            std::cout << "[ComboShip] Shared " << def.key << ": trimmed " << removed << " MM '" << def.mmName
+                      << "' (balancer will pad with junk)\n";
+        }
     }
 
     // --- Balance each game's pool against its checks: P_g == C_g ---
@@ -687,12 +750,30 @@ inline CombinedFillResult CrossWorldCombinedFill(
         std::unordered_set<std::string> ootReachable, mmReachable;
         // Latched: once OOT can reach the portal it stays open. An MM start roots MM immediately (#135).
         bool portalOpen = !portalGated || mmStart;
+        // Shared Items mirror: how many copies of each effective family have already been pushed onto
+        // mmOwned this call, so re-querying doesn't duplicate them as ootOwned grows.
+        size_t sharedGiven[SF_COUNT] = { 0 };
         for (;;) {
             ootReachable = queryReachable(ootOracle, ootOwned);
             // Read the portal off THIS OOT query, before any MM check is credited below — that ordering
             // is what stops the fill proving the portal with an item that lives behind it.
             if (!portalOpen)
                 portalOpen = ootOracle.GetPortalOpen() != 0;
+            if (effectiveSharedMask != 0) {
+                for (int i = 0; i < SF_COUNT; ++i) {
+                    if (!(effectiveSharedMask & (1u << i)))
+                        continue;
+                    const auto& def = SharedFamilyByIndex(i);
+                    if (!def.mmHasItem)
+                        continue; // nothing to push; MM logic doesn't need it
+                    size_t k =
+                        static_cast<size_t>(std::count(ootOwned.begin(), ootOwned.end(), std::string(def.ootName)));
+                    size_t target = std::min<size_t>(k, static_cast<size_t>(def.mmTierCap));
+                    for (size_t n = sharedGiven[i]; n < target; ++n)
+                        mmOwned.push_back(def.mmName);
+                    sharedGiven[i] = target;
+                }
+            }
             mmReachable = portalOpen ? queryReachable(mmOracle, mmOwned) : std::unordered_set<std::string>{};
             bool changed = false;
             for (size_t i = 0; i < placements.size(); ++i) {
@@ -1159,6 +1240,7 @@ inline CombinedFillResult CrossWorldCombinedFill(
                              { "poolPadded", static_cast<uint32_t>(paddedTotal) },
                              { "checks", static_cast<uint32_t>(allChecks.size()) },
                              { "passes", passesUsed } };
+    spoiler["sharedItems"] = SharedKeysFromMask(effectiveSharedMask);
 
     nlohmann::json ootPlacements = nlohmann::json::object();
     nlohmann::json mmPlacements = nlohmann::json::object();

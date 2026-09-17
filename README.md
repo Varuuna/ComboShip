@@ -20,7 +20,9 @@ Like [OOTMM](https://ootmm.com/), ComboShip shuffles items across *both* games a
 
 ## Got issues?
 
-Check out the [nightly build](https://nightly.link/Varuuna/ComboShip/workflows/build-artifacts/develop/ComboShip-windows.zip) to see if your issue has already been fixed for an upcoming release.
+Check out the nightly builds to see if your issue has already been fixed for an upcoming release:
+- [Windows](https://nightly.link/Varuuna/ComboShip/workflows/build-artifacts/develop/ComboShip-windows.zip)
+- [Linux](https://nightly.link/Varuuna/ComboShip/workflows/build-artifacts/develop/ComboShip-linux.zip) / [Linux AppImage](https://nightly.link/Varuuna/ComboShip/workflows/build-artifacts/develop/ComboShip-linux-appimage.zip)
 If you can still reproduce it, please create an issue.
 
 ## Building

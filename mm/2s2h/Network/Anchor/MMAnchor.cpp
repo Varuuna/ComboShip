@@ -57,6 +57,8 @@ void (*gMMComboAnchorSend)(const char* json) = nullptr;
 // a received cross-game item into the TARGET game's save, and mark the SOURCE check obtained.
 extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName);
 extern "C" void (*gMMComboTriforceProgress)(int game, int fileNum);
+// Shared Items: a teammate's merged tier can be higher than ours — re-evaluate.
+extern "C" void (*gMMComboSharedChanged)(int game, int fileNum);
 extern "C" void (*gMMComboMarkForeignObtained)(int srcGame, const char* checkName);
 
 // ComboShip A6: launcher pump fn (set via MM_SetPumpDormant). The ACTIVE game calls it each frame so
@@ -1057,6 +1059,10 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     // ComboShip (#136): a teammate's pieces can cross the combined goal for us too — re-evaluate.
     if (gMMComboTriforceProgress != NULL) {
         gMMComboTriforceProgress(1, gSaveContext.fileNum);
+    }
+    // ComboShip: Shared Items — the inventory union above bypasses the grant path, so poke directly.
+    if (gMMComboSharedChanged != NULL) {
+        gMMComboSharedChanged(1, gSaveContext.fileNum);
     }
 
     // Replay any packets queued on the server while we were away, through the normal incoming path.

@@ -1979,3 +1979,117 @@ writes it once, right before the final `return`, only when the progressive branc
 unaffected. Rejected: a combo-owned reverse `(modIndex, getItemId) -> RandomizerGet` map — real
 collisions exist (`GI_BRACELET` is both `RG_GORONS_BRACELET` and `RG_POWER_BRACELET`; `GI_SCALE_SILVER`
 is shared by four different RGs; the stick/nut capacity GIs are shared with the bag items).
+
+## Shared Items (OoTMM-style) — combo-owned feature (2026-09-10)
+
+A new Combo menu section ("Shared Items", 17 toggles: Bows, Bomb Bags, Bombchu Bags, Magic, Wallets,
+Hookshot, Fire/Ice/Light Arrows, Lens of Truth, Epona's Song, Song of Storms, Goron/Zora/Keaton/Bunny/
+Truth masks). Design: OOT keeps the family's pool copies, MM's are trimmed at generation, and a
+runtime ABI reconciles tiers in both directions — a shared item found in MM is simply a foreign OOT
+item, reusing every existing piece (foreign sentinels, #201 model latch, #202 resolved name, cross-grant
+exports, Anchor packets) unchanged. Table + mask helpers: `combo/rando/SharedItems.h` (new, header-only,
+`namespace ComboRando`, compiled into soh.dll/2ship.dll/comborando/exe like `CrossWorldRando.h`).
+
+**CVars:** `gCombo.Rando.Shared.<Family>` (menu-authored, one per family — see the table's `cvar` field).
+**Spoiler key:** top-level `sharedItems: ["bows", ...]` (effective mask — a family with zero OOT copies
+in the pool is left alone and not listed, even if requested). Absent key = mask 0 = feature off (old
+seeds unaffected; no save-format change, no `COMBO_RELEASE_VERSION` bump, spoiler `version` stays 1).
+
+**Skip rule:** a mask family whose OOT pool holds none of `ootName` is skipped with a log line — sound,
+MM keeps its native copies. Masks additionally require OOT's Mask Quest = Shuffle (checked via a new
+`accessibility.maskQuestShuffle` dump field, `OTRGlobals.cpp`); otherwise skipped with a log line + a
+menu footer note. A family whose OOT copies exist but whose MM name doesn't match anything in MM's
+pool (a future name drift) also logs and is left out of the effective mask, rather than failing
+generation — this exact bug shipped twice during implementation (Magic, Hookshot) and was caught by
+the headless smoke test, not by inspection.
+
+**Known gap:** the trim only counts `advItems`/`lockedPlacements`; it does not scan MM's own
+confined/fixed pre-placements for `mmName`. None of the 16 first-cut families are ever
+confined-placed in practice (masks route through trade slots, not confinement), so this is inert
+today — flagged here so a future family addition checks it.
+
+**Wallet special case:** OOT's optional Child Wallet tier has no MM equivalent, so a shared wallet pool
+would be ambiguous (3 copies = child+adult+giant, or adult+giant+tycoon?). When Shared Wallets is on,
+`Context::FinalizeSettings` (`soh/soh/Enhancements/randomizer/settings.cpp`, same `#ifdef COMBO_BUILD`
+seam as the #135 forces) forces `RSK_SHUFFLE_CHILD_WALLET` off, reading `gComboSharedMask` — pushed by
+`SOH_SetComboSharedItems(mask)` before every dump and on reload, mirroring `SOH_SetComboStartingGame`.
+
+**Runtime ABI (C-ABI, canonical `extern "C" __declspec(dllexport)`, try/catch inside):**
+`SOH_/MM_GetSharedTier(family)`, `SOH_/MM_RaiseSharedTier(family, tier)`, `SOH_/MM_SetSharedChangedCb`,
+`SOH_/MM_SetSharedTickCb`, `SOH_SetComboSharedItems`/`SOH_ReadComboSharedCVars` (OOT-only — MM has no
+gen-time setting keyed on the mask). `SOH_GetSharedTier`'s magic case reads `isMagicAcquired +
+isDoubleMagicAcquired`, **never `magicLevel`** (a HUD-tick value, reset to 0 on load, never advanced
+while dormant — the exact trap the side-fix below closes). `SOH_RaiseSharedTier` resolves a **concrete**
+RG per tier (`RG_FAIRY_BOW`/`RG_BIG_QUIVER`/..., `RG_MAGIC_SINGLE`/`RG_MAGIC_DOUBLE`, etc.) and grants via
+the existing `Combo_GrantResolvedOOT` — never the progressive resolver (`Combo_SOH_Rando_Reset` rebinds
+`Logic::mSaveContext` to a scratch save, so that resolver's magic branch reads a frozen `magicLevel`).
+`MM_RaiseSharedTier` uses `Rando::ConvertItem(RI_PROGRESSIVE_*)` (default `RC_UNKNOWN` check id is safe —
+none of these families gate on `hasObtainedCheck`) and clamps to the family's `mmTierCap`; `RI_JUNK`
+means "stop", never "substitute".
+
+**Pokes (vendored, guarded, one-to-three lines each — the five deviations this feature adds):**
+- `soh/soh/Enhancements/randomizer/settings.cpp` — the wallet force above.
+- `soh/soh/Network/Anchor/Packets/GiveItem.cpp` — `gComboSuppressAnchorSend` check at the top of
+  `SendPacket_GiveItem`, so a local `SOH_RaiseSharedTier` grant doesn't broadcast a teammate toast for
+  the player's own reconcile (set/cleared by `SOH_RaiseSharedTier` around the grant).
+- `mm/2s2h/Rando/GiveItem.cpp` — one poke after the switch (single exit), mirroring the #136 poke.
+- `soh/soh/Network/Anchor/Packets/UpdateTeamState.cpp` and `mm/2s2h/Network/Anchor/MMAnchor.cpp` — one
+  poke each beside the existing #136 Triforce poke (the inventory-union merge bypasses grants).
+
+OOT's own poke is an always-on `OnItemReceive` + `OnGameFrameUpdate` hook registered in `InitOTR`'s
+existing combo-owned block (no vendored edit needed there); MM's per-frame tick is `OnGameStateUpdate`,
+also always-on — **`PumpDormant` is Anchor-gated** (OOT under `isConnected`, MM under `isActive`) and
+cannot be reused as the drain path.
+
+**Launcher (`combo/ComboShip.cpp`):** `Combo_OnSharedChanged(game, fileNum)` rejects `fileNum == 0xFF`
+(file-select) and only ever sets `g_sharedReconcilePending = true` — **deferred, never inline** (a raise
+into the *active* game from inside its own give lambda would be re-entrant). `Combo_SharedTick()` (the
+tick-cb target) drains it when pending **and** both saves are resident
+(`g_MmSaveInMemorySlot == g_comboCompletionSlot`): clears pending first, then `Combo_SharedReconcileNow()`
+raises the lower side of every effective family to `max(oot, mm)`. Raises re-fire the poke and re-arm
+pending; the next tick finds equality and no-ops — convergence takes two frames, expected. Full
+reconcile also runs at OOT slot bind (`Combo_OnOOTSaveLoad`, both branches) and right after
+`MM_InitRandoSaveFile` in `Combo_OnOOTSaveInit` (closes the accepted under-approximation: OOT's
+*starting* copies aren't mirrored into the MM oracle's base state at gen time, so the runtime reconcile
+grants them for real at save creation).
+
+**Failure-path invariant:** for every effective family, after any drained reconcile,
+`ootTier == mmTier == max(before)` unless a side is capped (MM Tycoon Wallet not shuffled, OOT child
+trade slot occupied — the RandoInf flag still counts). A lost pending flag, a crash before persist, or a
+capped raise leaves `min(o,m) < max(o,m)`; the next pickup, slot bind, or Anchor merge re-runs the same
+idempotent reconcile and closes the gap. No junk is ever substituted, no seed state is mutated, no
+refusal/repair on old saves.
+
+**Naming (decision: no game suffix on shared families):** `combo/rando/CrossForeign.h` is the single
+suffix source. `SuffixCrossGameItems` gained an `untagged` set parameter (built by
+`SharedUntaggedNames(mask)` — both games' pool name for every effective family) erased from the
+collision set before tagging. `BuildForeignArray` gained a `sharedMask` parameter: an OOT foreign marker
+whose `itemName` is an effective family's `ootName` gets `"shared": true` and skips the suffix on
+`displayName`/`fakeDisplayName`/`fakeTrickName` alike (a disguise *as* a shared item is also untagged).
+`ForeignItem::shared` (parsed from the spoiler, absent = false) makes `ShownForeignName` return the bare
+resolved name instead of appending `GameSuffix`. Old seeds: `shared` absent everywhere → tagged exactly
+as before.
+
+**Bombchu Bag family (2026-09-13, split out of Bomb Bag):** MM's own Bomb Bag semantics grant Bombchu
+access (`INV_CONTENT(ITEM_BOMBCHU)`), leaking chus into MM whenever *any* Bomb Bag family is shared. New
+`SharedFamilyDef` fields `mmHasItem` (false = no MM pool copy, no trim, no oracle mirror — the family's
+`mmName` is `""`) and `ootToMmOnly` (true = one-way; MM's only tier signal, `INV_CONTENT(ITEM_BOMBCHU)`,
+is also set by vanilla ammo, so a two-way reconcile would hand OOT a free bag off a junk chest) model
+this: `SF_BOMBCHU_BAG` mirrors OOT's `RSK_BOMBCHU_BAG` option (Single/Progressive), key `bombchuBags`.
+MM gets the loaded slot's effective mask via a new `MM_SetComboSharedItems(mask)` export (mirrors
+`SOH_SetComboSharedItems`, bound/pushed alongside it in `combo/ComboShip.cpp`) and a helper,
+`Combo_MM_BombchuBagShared()`, so the vendored pokes below never include the family header. While the
+family is effective: `mm/2s2h/Rando/GiveItem.cpp` `RI_BOMB_BAG_*` grants bombs only (chus untouched
+unless already owned); `mm/2s2h/Rando/ConvertItem.cpp` `IsItemObtainable` blocks chu-ammo pickups
+(`RI_BOMBCHU*`) until a bag is owned, substituting instead. `GiveItemForOracle` (`BenPort.cpp`) is left
+unchanged — it runs at gen time against the loaded slot's mask, not the seed being generated, and MM
+logic never gates on chus alone. Standalone MM (mask off/missing) keeps 2ship's default bag-grants-chus
+behavior — the export is fail-open, never fail-into-suppression.
+
+**Side fix (separate commit, not folded into Shared Items):** `SOH_GrantCrossItem`
+(`soh/soh/OTRGlobals.cpp`) resolved a dormant "Progressive Magic Meter" through `Item::GetGIEntry()`'s
+progressive resolver, which switches on `logic->GetSaveContext()->magicLevel` — stale/frozen once
+`Combo_SOH_Rando_Reset` has ever rebound `Logic::mSaveContext` to a scratch save (true after any
+generation). A second cross-granted magic upgrade re-resolved to single magic and was lost. Fixed the
+same way as the Shared Items reader: resolve by `isMagicAcquired`/`isDoubleMagicAcquired` to a concrete
+`RG_MAGIC_SINGLE`/`RG_MAGIC_DOUBLE` before the generic `itemNameToEnum` lookup.

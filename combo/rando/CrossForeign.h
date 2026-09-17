@@ -27,6 +27,8 @@
 #include <iterator>
 #include <nlohmann/json.hpp>
 
+#include "SharedItems.h"
+
 namespace ComboRando {
 
 // Game identity used across the cross-world rando layer (soh.dll, 2ship.dll, ComboShip.exe).
@@ -81,6 +83,9 @@ struct ForeignItem {
     std::string fakeItemName;
     std::string fakeDisplayName; // disguise human name (suffixed like displayName)
     std::string fakeTrickName;   // typo'd disguise name for shop/merchant/hint text
+    // Shared Items (OoTMM-style): itemName is an effective shared family's OOT name — no suffix, no
+    // "(OOT)"/"(MM)" tag on any surface. Absent (old seed) -> false -> tagged exactly as before.
+    bool shared = false;
     bool HasDisguise() const {
         return !fakeItemName.empty();
     }
@@ -260,7 +265,8 @@ inline const char* GameSuffix(GameId g) {
 // Text shown for a foreign check: the latched/live resolved tier (tagged), or the spoiler displayName.
 inline std::string ShownForeignName(const ForeignItem& fi, const char* resolved) {
     if (resolved != nullptr && resolved[0] != '\0') {
-        return std::string(resolved) + GameSuffix(fi.itemGame);
+        // Shared Items: once shared, the home-game qualifier is meaningless (decision 3).
+        return fi.shared ? std::string(resolved) : std::string(resolved) + GameSuffix(fi.itemGame);
     }
     return fi.displayName;
 }
@@ -268,7 +274,7 @@ inline std::string ShownForeignName(const ForeignItem& fi, const char* resolved)
 // Tag a spoiler "foreign" array's displayNames with their home-game suffix for the consolidated file.
 // Every display surface (shops, hints, trackers, toasts) reads displayName, so tag once here.
 // advancement/trap/category are emitted only when meaningful; every loader defaults them.
-inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray) {
+inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray, uint32_t sharedMask = 0) {
     nlohmann::json out = nlohmann::json::array();
     for (const auto& fm : foreignArray) {
         std::string checkGame = fm.value("checkGame", "");
@@ -279,7 +285,18 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray) {
         std::string itemName = fm.value("itemName", "");
         // Junk keeps the tag too: "10 Arrows" that turn out to be MM's grant no OOT ammo, and the
         // suffix is the only thing that tells the player why.
-        const bool tagged = (itemGame == "mm" || itemGame == "oot");
+        // Shared Items: the marker is an OOT item whose name is an effective family's ootName — the
+        // family carries no suffix anywhere, disguise included (decision 3).
+        bool shared = false;
+        if (sharedMask != 0 && itemGame == "oot") {
+            for (int i = 0; i < SF_COUNT; ++i) {
+                if ((sharedMask & (1u << i)) && itemName == SharedFamilyByIndex(i).ootName) {
+                    shared = true;
+                    break;
+                }
+            }
+        }
+        const bool tagged = !shared && (itemGame == "mm" || itemGame == "oot");
         const char* suffix = GameSuffix(KeyToGameId(itemGame));
         auto tag = [&](std::string s) {
             s = StripGameSuffix(std::move(s));
@@ -293,6 +310,8 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray) {
                                  { "itemGame", itemGame },
                                  { "itemName", itemName },
                                  { "displayName", displayName } };
+        if (shared)
+            entry["shared"] = true;
         if (fm.value("advancement", false))
             entry["advancement"] = true;
         if (fm.value("trap", false))
@@ -321,7 +340,7 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray) {
 // objects (oot/mm) and a game DLL can't reproduce a cross-game-aware suffix at runtime.
 inline void SuffixCrossGameItems(nlohmann::json& ootPlacements, nlohmann::json& mmPlacements,
                                  const nlohmann::json& foreignArray, const std::string& sohDump,
-                                 const std::string& mmDump) {
+                                 const std::string& mmDump, const std::set<std::string>& untagged = {}) {
     auto itemNames = [](const std::string& dump) {
         std::set<std::string> s;
         try {
@@ -342,6 +361,10 @@ inline void SuffixCrossGameItems(nlohmann::json& ootPlacements, nlohmann::json& 
     for (const auto& n : ootSet)
         if (mmSet.count(n))
             shared.insert(n);
+    // Shared Items (OoTMM-style): a name-collision here is between OOT's copies and MM's now-trimmed
+    // remainder, which is meaningless once the family is shared (decision 3) — never suffixed.
+    for (const auto& n : untagged)
+        shared.erase(n);
     if (shared.empty())
         return;
     std::set<std::string> ootForeign, mmForeign;
@@ -385,6 +408,8 @@ inline std::unordered_map<std::string, ForeignItem> LoadForeignForGame(int slot,
             fi.advancement = fm.value("advancement", false);
             // Absent in pre-trap-flag saves -> false -> the item cross-delivers as before.
             fi.trap = fm.value("trap", false);
+            // Absent in pre-Shared-Items saves -> false -> tagged exactly as before.
+            fi.shared = fm.value("shared", false);
             // Absent in pre-category saves -> empty -> consumers fall back to advancement.
             fi.category = fm.value("category", "");
             // Absent in pre-disguise saves -> empty -> every consumer falls back to the true name.

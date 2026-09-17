@@ -147,6 +147,7 @@
 #ifdef COMBO_BUILD
 #include "ComboMenuSharedContext.h" // ComboShip: shared per-DLL ImGui context helper (combo-owned)
 #include "rando/CrossForeign.h"     // ComboShip (#164): g_comboForeignJson for the hint-key map replay
+#include "rando/SharedItems.h"      // ComboShip: Shared Items family table
 #include "soh/Enhancements/randomizer/hook_handlers.h" // ComboShip (#164): OOT_ForeignMapGen
 #include <functional>                                  // ComboShip (#164): shared hint-resolution callbacks
 #endif
@@ -1653,6 +1654,9 @@ extern "C" s32 gComboCrossArrival = 0;
 #endif
 // Launcher poll: returns the next save slot backed up for a release mismatch, or -1 if none.
 extern "C" int (*gComboOutdatedSaveNotice)();
+// Shared Items pokes (defined with the rest of the Shared Items ABI further down).
+extern "C" void (*gComboSharedChanged)(int game, int fileNum);
+extern "C" void (*gComboSharedTick)(void);
 
 // ComboShip: InitOTR is split so the launcher can create the shared window (which needs only the
 // bundled soh.o2r, not a ROM) BEFORE the ROM archives exist, run its own unified extraction screen,
@@ -1859,6 +1863,19 @@ static void Combo_FinishInit() {
             SohGui::RegisterPopup("Outdated ComboShip Save",
                                   "The save in slot " + std::to_string(slot + 1) +
                                       " was made by a different ComboShip version and has been backed up.");
+        }
+    });
+
+    // Shared Items: pokes on every pickup (deferred reconcile — never inline) and once per frame (the
+    // drain seam). Always-on: PumpDormant is Anchor-gated and can't be reused for this.
+    GameInteractor::Instance->RegisterGameHook<GameInteractor::OnItemReceive>([](GetItemEntry) {
+        if (gComboSharedChanged && gSaveContext.fileNum != 0xFF) {
+            gComboSharedChanged(0, static_cast<int>(gSaveContext.fileNum));
+        }
+    });
+    GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameFrameUpdate>([]() {
+        if (gComboSharedTick) {
+            gComboSharedTick();
         }
     });
 #endif
@@ -3091,12 +3108,24 @@ void Combo_GrantResolvedOOT(const GetItemEntry& gie) {
 extern "C" COMBO_EXPORT void SOH_GrantCrossItem(const char* itemName) {
     if (!itemName)
         return;
-    auto it = Rando::StaticData::itemNameToEnum.find(itemName);
-    if (it == Rando::StaticData::itemNameToEnum.end()) {
-        SPDLOG_WARN("[ComboShip] SOH_GrantCrossItem: unknown OOT item '{}'", itemName);
-        return;
+    RandomizerGet rg;
+    // ComboShip: resolve magic concretely — Item::GetGIEntry()'s progressive resolver reads a
+    // stale/frozen Logic magicLevel, losing a second dormant magic upgrade. See deviations/rando.md.
+    if (std::string(itemName) == "Progressive Magic Meter") {
+        if (gSaveContext.isMagicAcquired && gSaveContext.isDoubleMagicAcquired) {
+            SPDLOG_INFO("[ComboShip] SOH_GrantCrossItem: '{}' already at double magic, nothing to grant", itemName);
+            return;
+        }
+        rg = gSaveContext.isMagicAcquired ? RG_MAGIC_DOUBLE : RG_MAGIC_SINGLE;
+    } else {
+        auto it = Rando::StaticData::itemNameToEnum.find(itemName);
+        if (it == Rando::StaticData::itemNameToEnum.end()) {
+            SPDLOG_WARN("[ComboShip] SOH_GrantCrossItem: unknown OOT item '{}'", itemName);
+            return;
+        }
+        rg = it->second;
     }
-    GetItemEntry gie = Rando::StaticData::RetrieveItem(it->second).GetGIEntry_Copy();
+    GetItemEntry gie = Rando::StaticData::RetrieveItem(rg).GetGIEntry_Copy();
     Combo_GrantResolvedOOT(gie);
     SPDLOG_INFO("[ComboShip] SOH_GrantCrossItem: granted '{}' into OOT save", itemName);
 }
@@ -3204,6 +3233,167 @@ extern "C" COMBO_EXPORT void SOH_RefreshComboStartingGameUI(void) {
             settings->GetOption(key).Enable();
         }
     }
+}
+
+// ComboShip: Shared Items (OoTMM-style) — see combo/rando/SharedItems.h. gComboSharedMask shapes the
+// gen-time wallet force (settings.cpp); the ABI below reconciles tiers between OOT and MM at runtime.
+extern "C" int gComboSharedMask = 0;
+extern "C" COMBO_EXPORT void SOH_SetComboSharedItems(uint32_t mask) {
+    gComboSharedMask = static_cast<int>(mask);
+}
+extern "C" COMBO_EXPORT uint32_t SOH_ReadComboSharedCVars(void) {
+    uint32_t mask = 0;
+    for (int i = 0; i < ComboRando::SF_COUNT; ++i) {
+        if (CVarGetInteger(ComboRando::SharedFamilyByIndex(i).cvar, 0)) {
+            mask |= (1u << i);
+        }
+    }
+    return mask;
+}
+
+extern "C" COMBO_EXPORT int SOH_GetSharedTier(int family) try {
+    if (family < 0 || family >= ComboRando::SF_COUNT)
+        return 0;
+    switch (static_cast<ComboRando::SharedFamily>(family)) {
+        case ComboRando::SF_BOW:
+            return CUR_UPG_VALUE(UPG_QUIVER);
+        case ComboRando::SF_BOMB_BAG:
+            return CUR_UPG_VALUE(UPG_BOMB_BAG);
+        case ComboRando::SF_BOMBCHU_BAG:
+            return INV_CONTENT(ITEM_BOMBCHU) != ITEM_NONE ? 1 : 0;
+        case ComboRando::SF_MAGIC:
+            // Never magicLevel: it's a HUD-tick value, reset to 0 on load and never advanced dormant.
+            return gSaveContext.isMagicAcquired + gSaveContext.isDoubleMagicAcquired;
+        case ComboRando::SF_WALLET:
+            return CUR_UPG_VALUE(UPG_WALLET);
+        case ComboRando::SF_HOOKSHOT:
+            return INV_CONTENT(ITEM_HOOKSHOT) == ITEM_NONE ? 0 : (INV_CONTENT(ITEM_HOOKSHOT) == ITEM_LONGSHOT ? 2 : 1);
+        case ComboRando::SF_FIRE_ARROWS:
+            return INV_CONTENT(ITEM_ARROW_FIRE) != ITEM_NONE ? 1 : 0;
+        case ComboRando::SF_ICE_ARROWS:
+            return INV_CONTENT(ITEM_ARROW_ICE) != ITEM_NONE ? 1 : 0;
+        case ComboRando::SF_LIGHT_ARROWS:
+            return INV_CONTENT(ITEM_ARROW_LIGHT) != ITEM_NONE ? 1 : 0;
+        case ComboRando::SF_LENS:
+            return INV_CONTENT(ITEM_LENS) != ITEM_NONE ? 1 : 0;
+        case ComboRando::SF_EPONAS_SONG:
+            return CHECK_QUEST_ITEM(QUEST_SONG_EPONA) ? 1 : 0;
+        case ComboRando::SF_SONG_OF_STORMS:
+            return CHECK_QUEST_ITEM(QUEST_SONG_STORMS) ? 1 : 0;
+        case ComboRando::SF_GORON_MASK:
+            return Flags_GetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_MASK_GORON) ? 1 : 0;
+        case ComboRando::SF_ZORA_MASK:
+            return Flags_GetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_MASK_ZORA) ? 1 : 0;
+        case ComboRando::SF_KEATON_MASK:
+            return Flags_GetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_MASK_KEATON) ? 1 : 0;
+        case ComboRando::SF_BUNNY_HOOD:
+            return Flags_GetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_MASK_BUNNY) ? 1 : 0;
+        case ComboRando::SF_MASK_OF_TRUTH:
+            return Flags_GetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_MASK_TRUTH) ? 1 : 0;
+        default:
+            return 0;
+    }
+} catch (const std::exception& e) {
+    SPDLOG_ERROR("[ComboShip] SOH_GetSharedTier threw: {}", e.what());
+    return 0;
+} catch (...) {
+    SPDLOG_ERROR("[ComboShip] SOH_GetSharedTier threw a non-std exception");
+    return 0;
+}
+
+// ComboShip: Anchor echo suppression around a Shared Items raise — a teammate toast for the player's
+// OWN local shared-tier raise would be wrong (Anchor/Packets/GiveItem.cpp checks this).
+extern "C" int gComboSuppressAnchorSend = 0;
+
+extern "C" COMBO_EXPORT void SOH_RaiseSharedTier(int family, int tier) try {
+    if (family < 0 || family >= ComboRando::SF_COUNT)
+        return;
+    const auto fam = static_cast<ComboRando::SharedFamily>(family);
+    for (;;) {
+        const int cur = SOH_GetSharedTier(family);
+        if (cur >= tier)
+            return;
+        RandomizerGet rg = RG_NONE;
+        switch (fam) {
+            case ComboRando::SF_BOW:
+                rg = cur == 0 ? RG_FAIRY_BOW : cur == 1 ? RG_BIG_QUIVER : RG_BIGGEST_QUIVER;
+                break;
+            case ComboRando::SF_BOMB_BAG:
+                rg = cur == 0 ? RG_BOMB_BAG : cur == 1 ? RG_BIG_BOMB_BAG : RG_BIGGEST_BOMB_BAG;
+                break;
+            case ComboRando::SF_MAGIC:
+                rg = cur == 0 ? RG_MAGIC_SINGLE : RG_MAGIC_DOUBLE;
+                break;
+            case ComboRando::SF_WALLET:
+                rg = cur == 0 ? RG_ADULT_WALLET : cur == 1 ? RG_GIANT_WALLET : RG_TYCOON_WALLET;
+                break;
+            case ComboRando::SF_HOOKSHOT:
+                rg = cur == 0 ? RG_HOOKSHOT : RG_LONGSHOT;
+                break;
+            case ComboRando::SF_FIRE_ARROWS:
+                rg = RG_FIRE_ARROWS;
+                break;
+            case ComboRando::SF_ICE_ARROWS:
+                rg = RG_ICE_ARROWS;
+                break;
+            case ComboRando::SF_LIGHT_ARROWS:
+                rg = RG_LIGHT_ARROWS;
+                break;
+            case ComboRando::SF_LENS:
+                rg = RG_LENS_OF_TRUTH;
+                break;
+            case ComboRando::SF_EPONAS_SONG:
+                rg = RG_EPONAS_SONG;
+                break;
+            case ComboRando::SF_SONG_OF_STORMS:
+                rg = RG_SONG_OF_STORMS;
+                break;
+            case ComboRando::SF_GORON_MASK:
+                rg = RG_GORON_MASK;
+                break;
+            case ComboRando::SF_ZORA_MASK:
+                rg = RG_ZORA_MASK;
+                break;
+            case ComboRando::SF_KEATON_MASK:
+                rg = RG_KEATON_MASK;
+                break;
+            case ComboRando::SF_BUNNY_HOOD:
+                rg = RG_BUNNY_HOOD;
+                break;
+            case ComboRando::SF_MASK_OF_TRUTH:
+                rg = RG_MASK_OF_TRUTH;
+                break;
+            default:
+                break;
+        }
+        if (rg == RG_NONE)
+            return;
+        {
+            // Scope-guard clears the flag even if Combo_GrantResolvedOOT throws.
+            struct FlagGuard {
+                ~FlagGuard() {
+                    gComboSuppressAnchorSend = 0;
+                }
+            } flagGuard;
+            gComboSuppressAnchorSend = 1;
+            GetItemEntry gie = Rando::StaticData::RetrieveItem(rg).GetGIEntry_Copy();
+            Combo_GrantResolvedOOT(gie);
+        }
+        if (SOH_GetSharedTier(family) <= cur)
+            return; // didn't raise (e.g. no free trade slot) — stop instead of looping forever
+    }
+} catch (const std::exception& e) { SPDLOG_ERROR("[ComboShip] SOH_RaiseSharedTier threw: {}", e.what()); } catch (...) {
+    SPDLOG_ERROR("[ComboShip] SOH_RaiseSharedTier threw a non-std exception");
+}
+
+// Shared Items pokes: fired after every tier change and every frame (drain seam). See deviations/rando.md.
+extern "C" void (*gComboSharedChanged)(int game, int fileNum) = nullptr;
+extern "C" COMBO_EXPORT void SOH_SetSharedChangedCb(void (*cb)(int, int)) {
+    gComboSharedChanged = cb;
+}
+extern "C" void (*gComboSharedTick)(void) = nullptr;
+extern "C" COMBO_EXPORT void SOH_SetSharedTickCb(void (*cb)(void)) {
+    gComboSharedTick = cb;
 }
 
 extern "C" COMBO_EXPORT int SOH_GetTriforcePieceCount(void) {
@@ -4175,6 +4365,8 @@ extern "C" COMBO_EXPORT const char* SOH_DumpRandoStaticData(void) {
         accessibility["noLogic"] = ctx->GetOption(RSK_LOGIC_RULES).Is(RO_LOGIC_NO_LOGIC);
         accessibility["allLocationsReachable"] = static_cast<bool>(ctx->GetOption(RSK_ALL_LOCATIONS_REACHABLE));
         accessibility["lockOverworldDoors"] = static_cast<bool>(ctx->GetOption(RSK_LOCK_OVERWORLD_DOORS));
+        // ComboShip: Shared Items masks need OOT's masks to be real rando items.
+        accessibility["maskQuestShuffle"] = ctx->GetOption(RSK_MASK_QUEST).Is(RO_MASK_QUEST_SHUFFLE);
 
         usedPool = true;
 #else

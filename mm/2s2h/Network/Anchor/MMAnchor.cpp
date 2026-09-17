@@ -1,5 +1,6 @@
 #include "MMAnchor.h"
 #ifdef COMBO_BUILD
+#include "ComboExport.h"
 
 #include <spdlog/spdlog.h>
 #include "rando/ComboAnchorToast.h" // shared cross-game resync-toast debounce
@@ -95,6 +96,10 @@ void MMAnchor::Deactivate() {
 
 bool MMAnchor::IsSaveLoaded() {
     return gPlayState != nullptr && GET_PLAYER(gPlayState) != nullptr;
+}
+
+bool MMAnchor::HasLoadedRandoSave() {
+    return gSaveContext.fileNum >= 0 && gSaveContext.fileNum <= 2 && IS_RANDO;
 }
 
 void MMAnchor::RegisterHooks() {
@@ -260,6 +265,17 @@ void MMAnchor::PumpDormant() {
         std::lock_guard<std::mutex> lock(incomingMutex);
         toProcess.swap(incomingQueue);
     }
+    dormantDidApply = false; // reset once per pump, not per-packet — mirrors soh's Anchor
+    // Exception-safe: the surrounding try/catch alone would skip a plain reset-after-call line.
+    struct DormantApplyGuard {
+        MMAnchor* self;
+        explicit DormantApplyGuard(MMAnchor* s) : self(s) {
+            self->isDormantApply = true;
+        }
+        ~DormantApplyGuard() {
+            self->isDormantApply = false;
+        }
+    };
     while (!toProcess.empty()) {
         nlohmann::json payload = toProcess.front();
         toProcess.pop();
@@ -277,18 +293,16 @@ void MMAnchor::PumpDormant() {
                 // Bug: previously dropped entirely while dormant. The merge itself only touches
                 // gSaveContext.save, so it's dormant-safe once the scene-bound post-steps are skipped
                 // (guarded by isDormantApply inside the handler).
-                bool willApply = roomState.syncItemsAndFlags && payload.contains("state") &&
-                                 payload["state"].contains("shipSaveInfo");
-                SPDLOG_INFO("[MMAnchor] dormant UPDATE_TEAM_STATE applying={}", willApply);
-                isDormantApply = true;
-                HandlePacket_UpdateTeamState(payload);
-                isDormantApply = false;
-                if (willApply && gSaveContext.fileNum != 0xFF) {
-                    SaveManager_SaveCurrentForCombo();
-                    SPDLOG_INFO("[MMAnchor] dormant MM save persisted after team-state apply");
-                }
+                SPDLOG_INFO("[MMAnchor] dormant UPDATE_TEAM_STATE received");
+                DormantApplyGuard guard(this);
+                HandlePacket_UpdateTeamState(payload); // sets dormantDidApply only on a true commit
             }
         } catch (const std::exception& e) { SPDLOG_ERROR("[MMAnchor] dormant apply exception: {}", e.what()); }
+    }
+    // Persist iff something actually merged AND a real slot is loaded — not merely "looked applyable".
+    if (dormantDidApply && HasLoadedRandoSave()) {
+        SaveManager_SaveCurrentForCombo();
+        SPDLOG_INFO("[MMAnchor] dormant MM save persisted after team-state apply");
     }
 }
 
@@ -762,8 +776,7 @@ void MMAnchor::SendTeamStateFromSave(const std::string& targetTeamId) {
     // Bug 2: IsSaveLoaded() requires gPlayState (foreground only) — a dormant MM has none, so the
     // dormant answer path silently dropped every request. Judge by the resident save instead
     // (mirrors OOT's isDormantApply branch of Anchor::IsSaveLoaded).
-    bool saveOnDisk = gSaveContext.fileNum >= 0 && gSaveContext.fileNum <= 2;
-    if (!saveOnDisk || !roomState.syncItemsAndFlags) {
+    if (!HasLoadedRandoSave() || !roomState.syncItemsAndFlags) {
         return;
     }
     nlohmann::json payload;
@@ -803,8 +816,9 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     // ComboShip: both guards must hold on the dormant path too (PumpDormant persists right after), so
     // neither may be conditioned on IS_RANDO. No vanilla mode here: a non-rando local save means nothing
     // usable is loaded, and preserving that saveType through the merge is the original key-eating bug.
-    if (!IS_RANDO) {
-        SPDLOG_WARN("[MMAnchor] dropping team state: local save is not SAVETYPE_RANDO");
+    if (!HasLoadedRandoSave()) {
+        SPDLOG_WARN("[MMAnchor] dropping team state: no loaded rando save (fileNum={}, IS_RANDO={})",
+                    gSaveContext.fileNum, IS_RANDO);
         return;
     }
     // A non-rando peer serializes a zeroed rando struct, and the wholesale shipSaveInfo assign below
@@ -1027,7 +1041,9 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     // ComboShip: dormant apply has no gPlayState/scene — CheckTracker/ActorBehavior/ShipInit re-derive
     // scene-bound state and aren't dormant-safe, and a backgrounded apply shouldn't toast. MM's own
     // OnSaveLoad re-requests a resync on activation, which re-runs this block in the foreground.
-    if (!isDormantApply) {
+    if (isDormantApply) {
+        dormantDidApply = true; // let PumpDormant persist; scene-bound re-derivation below is skipped
+    } else {
         if (ComboAnchor_ShouldToastResync()) {
             Notification::Emit({
                 .message = "Save updated from team",
@@ -1146,7 +1162,7 @@ void MMAnchor::HandlePacket_TeleportTo(const nlohmann::json& payload) {
 
 // MARK: - Launcher-facing C ABI (mirrors soh's SOH_Anchor_* exports)
 
-extern "C" __declspec(dllexport) void MM_SetAnchorSend(void (*cb)(const char*)) {
+extern "C" COMBO_EXPORT void MM_SetAnchorSend(void (*cb)(const char*)) {
     gMMComboAnchorSend = cb;
     // Create the adapter now (launcher startup, pre-connect). It used to be created on first
     // Activate, so a client that never entered MM had no instance and RecvJson/PumpDormant dropped
@@ -1157,12 +1173,12 @@ extern "C" __declspec(dllexport) void MM_SetAnchorSend(void (*cb)(const char*)) 
 }
 
 // A6: launcher registers its per-frame dormant-pump fn; MM calls it each active frame (see hook).
-extern "C" __declspec(dllexport) void MM_SetPumpDormant(void (*cb)()) {
+extern "C" COMBO_EXPORT void MM_SetPumpDormant(void (*cb)()) {
     gMMComboPumpDormant = cb;
 }
 
 // A6: launcher calls this (on the active sibling's thread) when MM is the dormant game.
-extern "C" __declspec(dllexport) void MM_Anchor_PumpDormant(void) {
+extern "C" COMBO_EXPORT void MM_Anchor_PumpDormant(void) {
     if (MMAnchor::Instance) {
         MMAnchor::Instance->PumpDormant();
     }
@@ -1170,7 +1186,7 @@ extern "C" __declspec(dllexport) void MM_Anchor_PumpDormant(void) {
 
 // Bug 2: launcher-orchestrated resync (auto on connect + combo menu button), dormant-safe.
 // Finding 3: never let an exception unwind across this extern "C" boundary.
-extern "C" __declspec(dllexport) void MM_Anchor_RequestResync(void) {
+extern "C" COMBO_EXPORT void MM_Anchor_RequestResync(void) {
     try {
         if (MMAnchor::Instance) {
             MMAnchor::Instance->RequestResyncDormantSafe();
@@ -1180,20 +1196,20 @@ extern "C" __declspec(dllexport) void MM_Anchor_RequestResync(void) {
     }
 }
 
-extern "C" __declspec(dllexport) void MM_Anchor_RecvJson(const char* json) {
+extern "C" COMBO_EXPORT void MM_Anchor_RecvJson(const char* json) {
     if (MMAnchor::Instance && json) {
         MMAnchor::Instance->OnIncomingJson(json);
     }
 }
 
-extern "C" __declspec(dllexport) void MM_Anchor_Activate(void) {
+extern "C" COMBO_EXPORT void MM_Anchor_Activate(void) {
     if (MMAnchor::Instance == nullptr) {
         MMAnchor::Instance = new MMAnchor();
     }
     MMAnchor::Instance->Activate();
 }
 
-extern "C" __declspec(dllexport) void MM_Anchor_Deactivate(void) {
+extern "C" COMBO_EXPORT void MM_Anchor_Deactivate(void) {
     if (MMAnchor::Instance) {
         MMAnchor::Instance->Deactivate();
     }
@@ -1201,7 +1217,7 @@ extern "C" __declspec(dllexport) void MM_Anchor_Deactivate(void) {
 
 // ComboShip: stateless MM scene-name lookup for the combo room window. The launcher owns the roster
 // now; comboui resolves each MM peer's area name from its raw scene id via this (works while dormant).
-extern "C" __declspec(dllexport) const char* MM_Anchor_ResolveScene(int rawScene) {
+extern "C" COMBO_EXPORT const char* MM_Anchor_ResolveScene(int rawScene) {
     static std::string cached;
     cached = Ship_GetSceneName((s16)rawScene);
     return cached.c_str();
@@ -1209,7 +1225,7 @@ extern "C" __declspec(dllexport) const char* MM_Anchor_ResolveScene(int rawScene
 
 // Same-game teleport trigger for the combo room window (MM active + MM peer). Wraps
 // SendPacket_RequestTeleport, which re-validates via CanTeleportTo and no-ops if disallowed.
-extern "C" __declspec(dllexport) void MM_Anchor_RequestTeleport(uint32_t clientId) {
+extern "C" COMBO_EXPORT void MM_Anchor_RequestTeleport(uint32_t clientId) {
     try {
         if (MMAnchor::Instance) {
             MMAnchor::Instance->SendPacket_RequestTeleport(clientId);

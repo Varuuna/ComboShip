@@ -2,6 +2,9 @@
 #include <Windows.h>
 #include <locale.h>
 #endif
+#ifdef COMBO_BUILD
+#include "ComboExport.h"
+#endif
 
 #include "global.h"
 #include "vt.h"
@@ -44,10 +47,10 @@ void Main_LogSystemHeap(void) {
 }
 
 // ComboShip: export that runs the OOT game loop. SOH_Init() must be called first. Blocks until OOT exits.
-#ifdef _WIN32
-__declspec(dllexport)
+#ifdef COMBO_BUILD
+COMBO_EXPORT
 #endif
-    void SOH_RunMain(int argc, char** argv) {
+void SOH_RunMain(int argc, char** argv) {
     GameConsole_Init();
     // ComboShip: SOH_Init() (i.e. InitOTR) was already called by the launcher before this.
     // TODO: Was moved to below InitOTR because it requires window to be setup. But will be late to catch crashes.
@@ -63,10 +66,8 @@ __declspec(dllexport)
 }
 
 #ifdef COMBO_BUILD
-#ifdef _WIN32
-__declspec(dllexport)
-#endif
-    void SOH_Deinit(void) {
+COMBO_EXPORT
+void SOH_Deinit(void) {
     DeinitOTR();
     Heaps_Free();
 }
@@ -75,10 +76,8 @@ __declspec(dllexport)
 // heap/thread/IRQ setup from Main() persists for the process lifetime, so we must NOT re-run
 // Heaps_Alloc()/Main(). Main() itself calls Graph_ThreadEntry(0) after its setup; re-entering only
 // that loop mirrors that call and returns once the shared window's running flag is cleared.
-#ifdef _WIN32
-__declspec(dllexport)
-#endif
-    void SOH_RunGameLoop(void) {
+COMBO_EXPORT
+void SOH_RunGameLoop(void) {
     Graph_ThreadEntry(0);
 }
 #endif

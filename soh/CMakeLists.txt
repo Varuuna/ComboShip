@@ -256,9 +256,19 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         OUTPUT_NAME "soh-macos"
     )
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # ComboShip: the target is SHARED (upstream built an executable named soh.elf); the launcher
+    # dlopens libsoh.so, so keep the default lib prefix and a plain name.
     set_target_properties(${PROJECT_NAME} PROPERTIES
-    OUTPUT_NAME "soh.elf"
+    OUTPUT_NAME "soh"
     )
+endif()
+
+# ComboShip: on ELF platforms both game libraries define identical engine symbols; hidden default
+# visibility keeps them out of the global namespace (no cross-game interposition) — only the combo
+# ABI opts back in via COMBO_EXPORT (combo/ComboExport.h). PE gets this per-DLL binding for free.
+if (NOT MSVC)
+    target_compile_options(${PROJECT_NAME} PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
+    target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_DL_LIBS}) # Combo_ResolveSym uses dlsym
 endif()
 ################################################################################
 # MSVC runtime library

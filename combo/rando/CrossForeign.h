@@ -283,6 +283,8 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray, uint
             continue;
         std::string itemGame = fm.value("itemGame", "");
         std::string itemName = fm.value("itemName", "");
+        // Junk keeps the tag too: "10 Arrows" that turn out to be MM's grant no OOT ammo, and the
+        // suffix is the only thing that tells the player why.
         // Shared Items: the marker is an OOT item whose name is an effective family's ootName — the
         // family carries no suffix anywhere, disguise included (decision 3).
         bool shared = false;

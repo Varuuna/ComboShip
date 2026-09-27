@@ -83,7 +83,7 @@ renders remote players' Link across all five transformation forms.
 - `mm/2s2h/Network/Anchor/MMAnchor.{h,cpp}` extended to the canonical Anchor field set + `PLAYER_UPDATE`
   send/receive, `RefreshClientActors`, and the `ShouldActorInit`/`OnActorUpdate` hooks.
 - `mm/2s2h/Network/Anchor/DummyPlayer.cpp` (new) — the puppet actor. **Ported from the canonical
-  2S2H Anchor PR (HarbourMasters/2ship2harkinian#1349, by the SoH Anchor author)**, adapted to
+  2S2H Anchor PR (2ship2harkinian/2ship2harkinian#1349, by the SoH Anchor author)**, adapted to
   ComboShip's launcher-owned transport (`MMAnchor` instead of a socket-owning `Anchor`) and
   `gRemote.Anchor.*` CVar keys. Spawns `ACTOR_PLAYER` → re-tags to `ACTOR_ITEM_INBOX`/`ACTORCAT_NPC`
   with `DummyPlayer_*` funcs; inits with `gPlayerSkeletons[transformation]` + a mask segment; reuses

@@ -3112,7 +3112,10 @@ extern "C" COMBO_EXPORT void SOH_GrantCrossItem(const char* itemName) {
         }
         rg = it->second;
     }
-    GetItemEntry gie = Rando::StaticData::RetrieveItem(rg).GetGIEntry_Copy();
+    // Convert unobtainable items to a blue rupee
+    GetItemEntry gie = OTRGlobals::Instance->gRandomizer->GetItemObtainabilityFromRandomizerGet(rg) != CAN_OBTAIN
+                           ? ItemTableManager::Instance->RetrieveItemEntry(MOD_NONE, GI_RUPEE_BLUE)
+                           : Rando::StaticData::RetrieveItem(rg).GetGIEntry_Copy();
     Combo_GrantResolvedOOT(gie);
     SPDLOG_INFO("[ComboShip] SOH_GrantCrossItem: granted '{}' into OOT save", itemName);
 }

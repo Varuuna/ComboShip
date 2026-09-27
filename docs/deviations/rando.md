@@ -388,6 +388,18 @@ null-`gPlayState` branch skips the wallet cap, so MM-found OOT rupees could push
 and crash `Interface_Draw` (`digitTextures[]` out of bounds). It now clamps to `CUR_CAPACITY(UPG_WALLET)`,
 and `Interface_Update` clamps again so already-overflowed saves recover.
 
+**Paused-save flush (#214, `soh/soh/OTRGlobals.cpp`, `soh/soh/Network/Anchor/Anchor.cpp`,
+`mm/2s2h/BenPort.cpp`, COMBO_BUILD-guarded):** when a game was played and then parked behind the other,
+its play state is still live, so rupee grants go into `rupeeAccumulator` (OOT: magic upgrades into a
+pending `MAGIC_STATE_FILL`; MM: refills into `magicToAdd`). Only the interface tick drains these, it never
+runs while parked, and saves skip them — so quitting from the other game lost the grant. Rule: **every
+save taken while a game is not foreground calls its flush helper first.** OOT's
+`Combo_FlushDormantAccumulators` (rupees clamped to the wallet, magic set to the fill target) runs in
+`Combo_GrantResolvedOOT` (when OOT isn't foreground), `Anchor::PumpDormant`, and the Mask Shop switch
+save. MM's `Combo_MM_FlushAccumulators` (lifted out of `Combo_MM_GiveDormantResolved`, unchanged) runs
+there, in `MM_RaiseSharedTier`'s live-play-state branch (when MM isn't foreground), and in the Clock Tower
+portal return save.
+
 **`soh/soh/OTRGlobals.cpp` (vendored, COMBO_BUILD-guarded):** four new exports —
 `SOH_GrantCrossItem` (resolve OOT English name → `Randomizer_Item_Give` → `SaveManager::SaveFile`),
 `SOH_MarkForeignObtained` (mark a foreign OOT check collected, save-only, for network idempotency),

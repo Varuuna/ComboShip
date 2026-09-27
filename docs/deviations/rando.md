@@ -383,6 +383,11 @@ sides and never touch `gPlayState`, so a frozen dormant play state is safe — M
 `gPlayState`). We deliberately do **not** use `Rando::GiveItem`/`GiveItemEntryWithoutActor` (their
 `Item_Give` paths stage onto a live play state).
 
+**Dormant rupee cap (`soh/src/code/z_parameter.c`, COMBO_BUILD-guarded):** `Rupees_ChangeBy`'s
+null-`gPlayState` branch skips the wallet cap, so MM-found OOT rupees could push the balance past 1900
+and crash `Interface_Draw` (`digitTextures[]` out of bounds). It now clamps to `CUR_CAPACITY(UPG_WALLET)`,
+and `Interface_Update` clamps again so already-overflowed saves recover.
+
 **`soh/soh/OTRGlobals.cpp` (vendored, COMBO_BUILD-guarded):** four new exports —
 `SOH_GrantCrossItem` (resolve OOT English name → `Randomizer_Item_Give` → `SaveManager::SaveFile`),
 `SOH_MarkForeignObtained` (mark a foreign OOT check collected, save-only, for network idempotency),

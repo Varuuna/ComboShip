@@ -2956,6 +2956,14 @@ s32 Health_ChangeBy(PlayState* play, s16 healthChange) {
 void Rupees_ChangeBy(s16 rupeeChange) {
     if (gPlayState == NULL) {
         gSaveContext.rupees += rupeeChange;
+#ifdef COMBO_BUILD
+        // ComboShip: Clamp rupees value to prevent interface crashing.
+        if (gSaveContext.rupees > CUR_CAPACITY(UPG_WALLET)) {
+            gSaveContext.rupees = CUR_CAPACITY(UPG_WALLET);
+        } else if (gSaveContext.rupees < 0) {
+            gSaveContext.rupees = 0;
+        }
+#endif
     } else {
         gSaveContext.rupeeAccumulator += rupeeChange;
     }
@@ -6698,6 +6706,13 @@ void Interface_Update(PlayState* play) {
         !(player->stateFlags2 & PLAYER_STATE2_ATTEMPT_PLAY_FOR_ACTOR) &&
         (play->transitionTrigger == TRANS_TRIGGER_OFF) && (play->transitionMode == TRANS_MODE_OFF) &&
         !Play_InCsMode(play)) {}
+
+#ifdef COMBO_BUILD
+    // ComboShip: repair any latent unclamped rupee value.
+    if (gSaveContext.rupees > CUR_CAPACITY(UPG_WALLET)) {
+        gSaveContext.rupees = CUR_CAPACITY(UPG_WALLET);
+    }
+#endif
 
     if (gSaveContext.rupeeAccumulator != 0) {
         if (gSaveContext.rupeeAccumulator > 0) {

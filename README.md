@@ -24,6 +24,7 @@ Check out the nightly builds to see if your issue has already been fixed for an 
 - [Windows](https://nightly.link/Varuuna/ComboShip/workflows/build-artifacts/develop/ComboShip-windows.zip)
 - [Linux](https://nightly.link/Varuuna/ComboShip/workflows/build-artifacts/develop/ComboShip-linux.zip) / [Linux AppImage](https://nightly.link/Varuuna/ComboShip/workflows/build-artifacts/develop/ComboShip-linux-appimage.zip)
 - [macOS](https://nightly.link/Varuuna/ComboShip/workflows/build-artifacts/develop/ComboShip-macos.zip)
+
 If you can still reproduce it, please create an issue.
 
 ## Building

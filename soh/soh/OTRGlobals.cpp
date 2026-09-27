@@ -3018,9 +3018,9 @@ extern "C" COMBO_EXPORT void SOH_Anchor_RequestTeleport(uint32_t clientId) {
 // item belongs to OOT, the launcher calls SOH_GrantCrossItem to grant it straight into OOT's
 // resident save — even when OOT is the dormant (frozen) game. We use Randomizer_Item_Give, which
 // writes gSaveContext directly and is play-state-independent (Magic_Fill ignores `play`,
-// Rupees_ChangeBy null-guards gPlayState), so it is safe against a frozen gPlayState. The save is
-// persisted immediately so the item survives quitting before ever switching into OOT. See
-// docs/UPSTREAM_MERGES.md.
+// Rupees_ChangeBy null-guards gPlayState and clamps to the wallet), so it is safe against a frozen
+// gPlayState. The save is persisted immediately so the item survives quitting before ever switching
+// into OOT. See docs/UPSTREAM_MERGES.md.
 // ComboShip: save-only side effects RandomizerOnItemReceiveHandler applies on a normal pickup
 // (hook_handlers.cpp); grants that bypass the receive hook must mirror them or they're lost.
 void Combo_ApplyItemReceiveSideEffects(const GetItemEntry& gie) {

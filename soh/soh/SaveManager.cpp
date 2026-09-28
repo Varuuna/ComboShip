@@ -610,25 +610,17 @@ void SaveManager::StartupCheckAndInitMeta(int fileNum) {
 #endif
 
     nlohmann::json metaSaveBlock = nlohmann::json::object();
-<<<<<<< HEAD
 #ifdef COMBO_BUILD
     if (comboSrc) {
         try {
             metaSaveBlock = nlohmann::json::parse(comboMeta);
-        } catch (...) {}
+        } catch (const std::exception& e) {
+            // ComboShip: a corrupt container section skips the slot; never abort boot on it.
+            SPDLOG_ERROR("Save section for slot {} could not be parsed: {}", fileNum + 1, e.what());
+            return;
+        }
     } else
 #endif
-        input >> metaSaveBlock;
-    input.close();
-    saveMtx.unlock();
-    if (!metaSaveBlock.contains("version")) {
-        SPDLOG_ERROR("Save at " + fileName.string() + " contains no version");
-#ifdef COMBO_BUILD
-        // ComboShip: a corrupt container section skips the slot; never abort boot on it.
-        if (comboSrc)
-            return;
-#endif
-=======
     {
         std::lock_guard<std::mutex> guard(saveMtx);
         std::ifstream input(fileName);
@@ -642,7 +634,11 @@ void SaveManager::StartupCheckAndInitMeta(int fileNum) {
     }
     if (!metaSaveBlock.contains("version")) {
         SPDLOG_ERROR("Save at {} contains no version", fileName.string());
->>>>>>> vendor-soh
+#ifdef COMBO_BUILD
+        if (comboSrc) {
+            return;
+        }
+#endif
         assert(false);
         return;
     }
@@ -671,48 +667,31 @@ void SaveManager::StartupCheckAndInitMeta(int fileNum) {
                     "If this was a randomizer file, the file will not work, and should be deleted.");
             sections.erase("randomizer");
             metaSaveBlock["fileType"] = FILE_TYPE_SAVE_VANILLA;
-<<<<<<< HEAD
 #ifdef COMBO_BUILD
             // ComboShip: legacy old-format rewrite is dead on the container path (no file{N}.sav).
             if (!comboSrc)
 #endif
             {
-                saveMtx.lock();
-                std::ofstream output(GetFileName(fileNum));
+                std::lock_guard<std::mutex> guard(saveMtx);
+                std::ofstream output(fileName);
                 output << metaSaveBlock.dump(1);
                 output.close();
-                saveMtx.unlock();
             }
-        }
-        s16 major = metaSaveBlock["sections"]["sohStats"]["data"]["buildVersionMajor"];
-        s16 minor = metaSaveBlock["sections"]["sohStats"]["data"]["buildVersionMinor"];
-        s16 patch = metaSaveBlock["sections"]["sohStats"]["data"]["buildVersionPatch"];
-        // block loading outdated rando save
-        if (!(major == gBuildVersionMajor && minor == gBuildVersionMinor && patch == gBuildVersionPatch)
-#ifdef COMBO_BUILD
-            // ComboShip: no .bak eviction on the container path; broken cross-version saves are expected.
-            && !comboSrc
-#endif
-        ) {
-            std::string newFileName =
-                Ship::Context::GetPathRelativeToAppDirectory("Save") +
-                ("/file" + std::to_string(fileNum + 1) + "-" + std::to_string(GetUnixTimestamp()) + ".bak");
-=======
-            std::lock_guard<std::mutex> guard(saveMtx);
-            std::ofstream output(fileName);
-            output << metaSaveBlock.dump(1);
-            output.close();
         } else {
             nlohmann::json& statsBlock = sections["sohStats"]["data"];
             s16 major = statsBlock.value("buildVersionMajor", 0);
             s16 minor = statsBlock.value("buildVersionMinor", 0);
             s16 patch = statsBlock.value("buildVersionPatch", 0);
             // block loading outdated rando save
-            if (!(major == gBuildVersionMajor && minor == gBuildVersionMinor && patch == gBuildVersionPatch)) {
+            if (!(major == gBuildVersionMajor && minor == gBuildVersionMinor && patch == gBuildVersionPatch)
+#ifdef COMBO_BUILD
+                // ComboShip: no .bak eviction on the container path; broken cross-version saves are expected.
+                && !comboSrc
+#endif
+            ) {
                 std::string newFileName =
                     Ship::Context::GetPathRelativeToAppDirectory("Save") +
                     ("/file" + std::to_string(fileNum + 1) + "-" + std::to_string(GetUnixTimestamp()) + ".bak");
->>>>>>> vendor-soh
 #if defined(__SWITCH__) || defined(__WIIU__)
                 copy_file(fileName.c_str(), newFileName.c_str());
                 std::filesystem::remove(fileName);
@@ -802,7 +781,11 @@ void SaveManager::StartupCheckAndInitMeta(int fileNum) {
     } catch (const std::exception& e) {
         SPDLOG_ERROR("Save at {} could not be read: {}", fileName.string(), e.what());
         fileMetaInfo[fileNum].valid = false;
-        RegisterUnreadableSavePopup(fileNum);
+#ifdef COMBO_BUILD
+        // ComboShip: the popup names file{N}.sav; a container section is logged and skipped instead.
+        if (!comboSrc)
+#endif
+            RegisterUnreadableSavePopup(fileNum);
     }
 }
 

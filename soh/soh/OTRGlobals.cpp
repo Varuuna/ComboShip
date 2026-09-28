@@ -142,7 +142,7 @@
 
 #include "soh/config/ConfigUpdaters.h"
 #include "soh/ShipInit.hpp"
-<<<<<<< HEAD
+#include "soh/SohGui/SohModals.h"
 #ifdef COMBO_BUILD
 #include "ComboMenuSharedContext.h" // ComboShip: shared per-DLL ImGui context helper (combo-owned)
 #include "rando/CrossForeign.h"     // ComboShip (#164): g_comboForeignJson for the hint-key map replay
@@ -150,25 +150,6 @@
 #include "soh/Enhancements/randomizer/hook_handlers.h" // ComboShip (#164): OOT_ForeignMapGen
 #include <functional>                                  // ComboShip (#164): shared hint-resolution callbacks
 #endif
-
-#ifdef _MSC_VER
-#define strdup _strdup
-#endif
-
-#ifdef _MSC_VER
-#define strdup _strdup
-#endif
-
-#ifdef _MSC_VER
-#define strdup _strdup
-#endif
-
-#ifdef _MSC_VER
-#define strdup _strdup
-#endif
-=======
-#include "soh/SohGui/SohModals.h"
->>>>>>> vendor-soh
 
 #ifdef _MSC_VER
 #define strdup _strdup
@@ -1660,7 +1641,6 @@ bool VerifyArchiveVersion(OTRVersion version) {
     return version.major != INT16_MAX && version.major != gBuildVersionMajor;
 }
 
-<<<<<<< HEAD
 // ComboShip: forward declarations — defined further down with the combo exports.
 extern "C" void (*gComboSceneSwitchCallback)(int fileNum);
 // Launcher poll: returns the next save slot backed up for a release mismatch, or -1 if none.
@@ -1675,7 +1655,6 @@ extern "C" void (*gComboSharedTick)(void);
 // ImGui + SohGui::SetupMenu). Combo_FinishInit() = everything that needs the ROM archives. The
 // non-combo InitOTR keeps the original ctor -> RunExtract -> finish ordering. See docs/UPSTREAM_MERGES.md.
 static void Combo_FinishInit();
-=======
 #ifdef __linux__
 // When run as an AppImage, keep user data in ~/.local/share/soh instead of the launch folder.
 // Keep using the launch folder if it already has data from older versions.
@@ -1709,7 +1688,6 @@ static void SetAppImageHome() {
     }
 }
 #endif
->>>>>>> vendor-soh
 
 extern "C" void InitOTR(int argc, char* argv[]) {
 #ifdef __linux__
@@ -3754,10 +3732,8 @@ extern "C" COMBO_EXPORT bool SOH_Extract(const char* searchPath) {
     if (!extract.Run(path)) {
         return false;
     }
-    // Upstream merge: CallZapd gained two atomic progress counters (extracted / total).
     std::atomic<size_t> extractCount = 0, totalExtract = 0;
-    extract.CallZapd(installPath, path, &extractCount, &totalExtract);
-    return true;
+    return extract.CallTorch(installPath, path, &extractCount, &totalExtract);
 }
 
 // ComboShip: UI-less extraction primitives. The launcher's combo-owned extraction screen (comboui)
@@ -3788,7 +3764,7 @@ extern "C" COMBO_EXPORT int SOH_ClassifyRom(const char* romPath) {
     return extract.ClassifyRom(romPath) ? 1 : 0;
 }
 
-// Kicks ZAPD extraction of romPath on a background task. Non-blocking; returns 0 if a job is already
+// Kicks Torch extraction of romPath on a background task. Non-blocking; returns 0 if a job is already
 // running or the arg is null. Poll SOH_GetExtractionProgress for completion.
 extern "C" COMBO_EXPORT int SOH_StartExtraction(const char* romPath) {
     if (!romPath) {
@@ -3805,15 +3781,25 @@ extern "C" COMBO_EXPORT int SOH_StartExtraction(const char* romPath) {
     gComboExtractSuccess = false;
     gComboExtractFuture = std::async(std::launch::async, []() {
         bool ok = false;
+        std::string why = "not a recognized OoT ROM";
         try {
             Extractor extract;
             if (extract.RunFileStandalone(gComboExtractRomPath)) {
                 std::string installPath = Ship::Context::GetAppBundlePath();
                 std::string exportPath = Ship::Context::GetAppDirectoryPath(appShortName);
-                ok = extract.CallZapd(installPath, exportPath, &gComboExtractCount, &gComboExtractTotal);
+                ok = extract.CallTorch(installPath, exportPath, &gComboExtractCount, &gComboExtractTotal);
+                why = "Torch produced no archive (see the log)";
             }
-        } catch (...) {
-            ok = false; // a ZAPD failure surfaces as done && !success, never crashes the launcher
+        } catch (const std::exception& e) {
+            ok = false; // a Torch failure surfaces as done && !success, never crashes the launcher
+            why = e.what();
+        } catch (...) { ok = false; }
+        // ComboShip: Torch logs before InitLogging are invisible in Release; leave a note beside the exe.
+        if (!ok) {
+            if (FILE* ef = fopen((std::filesystem::current_path().string() + "/soh_extract_error.log").c_str(), "w")) {
+                fprintf(ef, "OoT extraction failed for %s: %s\n", gComboExtractRomPath.c_str(), why.c_str());
+                fclose(ef);
+            }
         }
         gComboExtractSuccess = ok;
         gComboExtractDone = true;

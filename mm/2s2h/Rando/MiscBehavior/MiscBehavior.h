@@ -44,6 +44,9 @@ void OnSceneFlagSet(s16 sceneId, FlagType flagType, u32 flag);
 void OnSceneInit(s16 sceneId, s8 spawnNum);
 void OfferTrapItem();
 void SariasSongHint();
+#ifdef COMBO_BUILD
+void WarpSongs(); // ComboShip (teleport songs): OOT warp songs played in MM soar to Hyrule
+#endif
 void BankSignHint();
 void InitTycoonWallet();
 

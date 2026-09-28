@@ -24,6 +24,17 @@
 
 namespace ComboRando {
 
+// Shared Items: MM pool names OOT's starting items
+inline std::vector<std::string> SharedStartingMmFromSpoiler(const std::string& spoilerJson) {
+    std::vector<std::string> out;
+    try {
+        for (const auto& n : nlohmann::json::parse(spoilerJson).value("sharedStartingMm", nlohmann::json::array()))
+            if (n.is_string())
+                out.push_back(n.get<std::string>());
+    } catch (...) {}
+    return out;
+}
+
 // Shared Items mirror: pushes newly-owed mmOwned copies per ootOwned's count; `given` tracks what's
 // already pushed so repeat calls don't duplicate.
 inline void ApplySharedMirror(uint32_t sharedMask, const std::vector<std::string>& ootOwned,
@@ -163,6 +174,7 @@ using ReachSet = std::shared_ptr<const std::unordered_set<std::string>>;
 struct ReachResult {
     ReachSet reach;
     bool portalOpen = true;
+    uint32_t crossOut = 0; // cross-game teleport-song bits
 };
 
 // Memo key for an owned-item MULTISET: reachability depends on which items and HOW MANY (1 vs 2
@@ -188,6 +200,7 @@ inline ReachResult QueryReachableMemo(const OracleFns& o, const std::vector<std:
     // Cache the portal bit with the set: a memo hit runs no search, so reading it later would be stale.
     ReachResult r{ std::make_shared<const std::unordered_set<std::string>>(QueryReachable(o, owned)), false };
     r.portalOpen = OraclePortalOpen(o);
+    r.crossOut = OracleCrossOut(o);
     memo.emplace(std::move(key), r);
     return r;
 }
@@ -269,6 +282,13 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
         return std::string(p.checkGame == GAME_OOT ? "oot:" : "mm:") + p.check;
     };
 
+    // Shared Items: the fill's effective mask (0 = off).
+    uint32_t sharedMask = 0;
+    try {
+        sharedMask =
+            SharedMaskFromKeys(nlohmann::json::parse(spoilerJson).value("sharedItems", nlohmann::json::array()));
+    } catch (...) {}
+
     // Per-invocation reachability memo (one per oracle): the same owned-set prefixes recur across
     // every counterfactual replay (sphere 0 is identical in all), so caching collapses the repeats.
     std::unordered_map<std::string, ReachResult> ootMemo, mmMemo;
@@ -277,19 +297,34 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
     // Excludes a SET of placements from ever crediting their items, then sphere-collects everything
     // else from empty until stable. creditedOut (optional) reports what was credited when the run
     // ended (at a win: exactly what was collected strictly before the goal first held).
+    const std::vector<std::string> sharedStartingMm = SharedStartingMmFromSpoiler(spoilerJson);
     auto winsWithout = [&](const std::unordered_set<size_t>& excludeIdx, std::vector<char>* creditedOut) {
-        std::vector<std::string> ootOwned, mmOwned;
+        std::vector<std::string> ootOwned, mmOwned = sharedStartingMm;
         std::vector<char> credited(placements.size(), 0);
         ReachSet ootReach, mmReach;
         bool won = false;
         // Latched: MM stays open once OOT can reach the Happy Mask Shop. Ungated (NO_LOGIC) = open,
         // and an MM start (#135) roots MM from the beginning.
         bool portalOpen = !portalGated || mmStart;
+        CrossWarpLatch crossLatch; // cross-game teleport songs
+        size_t sharedGiven[SF_COUNT] = { 0 };
         for (;;) {
             auto ootQ = QueryReachableMemo(ootOracle, ootOwned, ootMemo);
             ootReach = ootQ.reach;
             portalOpen = portalOpen || ootQ.portalOpen;
-            mmReach = portalOpen ? QueryReachableMemo(mmOracle, mmOwned, mmMemo).reach : kEmptyReach;
+            // Shared Items: same mirror as the fill and RunPlaythrough.
+            ApplySharedMirror(sharedMask, ootOwned, mmOwned, sharedGiven);
+            uint32_t mmCrossOut = 0;
+            if (portalOpen) {
+                auto mmQ = QueryReachableMemo(mmOracle, mmOwned, mmMemo);
+                mmReach = mmQ.reach;
+                mmCrossOut = mmQ.crossOut;
+            } else {
+                mmReach = kEmptyReach;
+            }
+            // A new cross ability changes what is reachable: re-query before testing the goal.
+            if (ApplyCrossWarps(ootQ.crossOut, mmCrossOut, portalOpen, mmStart, ootOwned, mmOwned, crossLatch))
+                continue;
             // Test the goal per sphere and stop at the first win: we only break when the goal IS met
             // and never un-credit an item, so an early win is final regardless of oracle monotonicity.
             if (goalReached(*ootReach, *mmReach, ootOwned, mmOwned)) {
@@ -426,7 +461,7 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
 
     auto queryReachable = QueryReachable;
 
-    std::vector<std::string> ownedOot, ownedMm;
+    std::vector<std::string> ownedOot, ownedMm = SharedStartingMmFromSpoiler(spoilerJson);
     std::unordered_set<std::string> collected; // "<cg>:<cn>"
     std::ostringstream log;
     log << "Cross-world playthrough - seed '" << seedLabel << "'\n";
@@ -443,12 +478,22 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
     // MM start (#135) roots MM from the beginning.
     bool portalOpen = !portalGated || mmStart;
     size_t sharedGiven[SF_COUNT] = { 0 };
+    CrossWarpLatch crossLatch; // cross-game teleport
     for (int sphere = 0; sphere < kMaxSpheres; ++sphere) {
         auto ootReach = queryReachable(ootOracle, ownedOot);
         // Portal bit belongs to the OOT query just made; read it before crediting any MM check.
         portalOpen = portalOpen || OraclePortalOpen(ootOracle);
         ApplySharedMirror(sharedMask, ownedOot, ownedMm, sharedGiven);
+        uint32_t ootCrossOut = OracleCrossOut(ootOracle);
         auto mmReach = portalOpen ? queryReachable(mmOracle, ownedMm) : std::unordered_set<std::string>{};
+        // Cross-game teleport: settle what each side now does for the other inside this sphere
+        while (ApplyCrossWarps(ootCrossOut, portalOpen ? OracleCrossOut(mmOracle) : 0u, portalOpen, mmStart, ownedOot,
+                               ownedMm, crossLatch)) {
+            ootReach = queryReachable(ootOracle, ownedOot);
+            portalOpen = portalOpen || OraclePortalOpen(ootOracle);
+            ootCrossOut = OracleCrossOut(ootOracle);
+            mmReach = portalOpen ? queryReachable(mmOracle, ownedMm) : std::unordered_set<std::string>{};
+        }
         bool canGanon = ootReach.count(kOotGanon) > 0;
         bool canMajora = mmReach.count(kMmWin) > 0;
         if (goal.hunt ? CountOwnedTriforcePieces(ownedOot, ownedMm) >= goal.required : (canGanon && canMajora)) {
@@ -505,14 +550,23 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
 
     // True "ever reachable" sets — full placed-item inventory yields the maximal (monotonic) reachable
     // set. Differs from `collected`, which stops at the beatable sphere. Runs before the MM restore.
-    std::vector<std::string> allOot, allMm;
+    std::vector<std::string> allOot, allMm = SharedStartingMmFromSpoiler(spoilerJson);
     for (auto& p : placements)
         (p.itemGame == GAME_OOT ? allOot : allMm).push_back(p.item);
     auto everReachOot = queryReachable(ootOracle, allOot);
     bool everPortalOpen = OraclePortalOpen(ootOracle) || mmStart;
     size_t everSharedGiven[SF_COUNT] = { 0 };
     ApplySharedMirror(sharedMask, allOot, allMm, everSharedGiven);
+    uint32_t everOotCrossOut = OracleCrossOut(ootOracle);
     auto everReachMm = everPortalOpen ? queryReachable(mmOracle, allMm) : std::unordered_set<std::string>{};
+    CrossWarpLatch everCrossLatch;
+    while (ApplyCrossWarps(everOotCrossOut, everPortalOpen ? OracleCrossOut(mmOracle) : 0u, everPortalOpen, mmStart,
+                           allOot, allMm, everCrossLatch)) {
+        everReachOot = queryReachable(ootOracle, allOot);
+        everPortalOpen = everPortalOpen || OraclePortalOpen(ootOracle);
+        everOotCrossOut = OracleCrossOut(ootOracle);
+        everReachMm = everPortalOpen ? queryReachable(mmOracle, allMm) : std::unordered_set<std::string>{};
+    }
     result.ganonReachable = everReachOot.count(kOotGanon) > 0;
     result.majoraReachable = everReachMm.count(kMmWin) > 0;
     if (goal.hunt) {

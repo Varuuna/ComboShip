@@ -209,11 +209,14 @@ int main(int argc, char** argv) {
                                Sym<FnOracleSetItems>(soh, "Combo_SOH_Rando_SetOwnedItems"),
                                Sym<FnOracleGetChecks>(soh, "Combo_SOH_Rando_GetReachableChecks"),
                                Sym<FnOraclePlaceItem>(soh, "Combo_SOH_Rando_PlaceItem"),
-                               Sym<FnOracleGetPortalOpen>(soh, "Combo_SOH_Rando_GetPortalOpen") };
+                               Sym<FnOracleGetPortalOpen>(soh, "Combo_SOH_Rando_GetPortalOpen"),
+                               Sym<uint32_t (*)(void)>(soh, "Combo_SOH_Rando_GetCrossOut") };
     ComboRando::OracleFns mmO{ Sym<FnOracleVoid>(mm, "Combo_MM_Rando_Reset"),
                                Sym<FnOracleSetItems>(mm, "Combo_MM_Rando_SetOwnedItems"),
                                Sym<FnOracleGetChecks>(mm, "Combo_MM_Rando_GetReachableChecks"),
-                               Sym<FnOraclePlaceItem>(mm, "Combo_MM_Rando_PlaceItem") };
+                               Sym<FnOraclePlaceItem>(mm, "Combo_MM_Rando_PlaceItem"),
+                               nullptr,
+                               Sym<uint32_t (*)(void)>(mm, "Combo_MM_Rando_GetCrossOut") };
 
     if (!SOH_InitRandoHeadless || !MM_InitRandoHeadless || !SOH_Dump || !MM_Dump || !oot.Reset || !oot.SetOwnedItems ||
         !oot.GetReachableChecks || !oot.PlaceItem || !oot.GetPortalOpen || !mmO.Reset || !mmO.SetOwnedItems ||
@@ -245,6 +248,9 @@ int main(int argc, char** argv) {
         flat["oot"] = spoiler.value("oot", nlohmann::json::object()).value("placements", nlohmann::json::object());
         flat["mm"] = spoiler.value("mm", nlohmann::json::object()).value("placements", nlohmann::json::object());
         flat["foreign"] = spoiler.value("foreign", nlohmann::json::array());
+        // Shared Items: MM copies OOT starts with.
+        if (spoiler.contains("sharedStartingMm"))
+            flat["sharedStartingMm"] = spoiler["sharedStartingMm"];
         std::string label = SeedLabel(spoiler);
         uint32_t masterSeed = spoiler.value("masterSeed", 0u);
         // #136: the seed's own goal drives both the traversal win test and the pool shaping below.
@@ -682,6 +688,8 @@ int main(int argc, char** argv) {
                     nlohmann::json sharedItemsJson = fillSpoiler.value("sharedItems", nlohmann::json::array());
                     const uint32_t effectiveSharedMask = ComboRando::SharedMaskFromKeys(sharedItemsJson);
                     consolidated["sharedItems"] = sharedItemsJson;
+                    if (fillSpoiler.contains("sharedStartingMm"))
+                        consolidated["sharedStartingMm"] = fillSpoiler["sharedStartingMm"];
                     // ComboShip: suffix cross-game item-name collisions in the placements (parity with
                     // RunComboFill's consolidated writer) so the headless spoiler shows "(OOT)"/"(MM)".
                     nlohmann::json ootPl = fillSpoiler.value("oot", nlohmann::json::object());

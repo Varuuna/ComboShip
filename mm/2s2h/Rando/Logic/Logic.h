@@ -25,6 +25,12 @@ extern "C" {
     {}
 #endif
 
+#ifdef COMBO_BUILD
+// ComboShip (teleport songs): 1 while the combined fill's oracle knows OOT can play Song of Soaring.
+extern "C" int gMMComboOracleOotSoaring;
+#define CAN_SOAR_TO_OWL (CAN_PLAY_SONG(SOARING) || gMMComboOracleOotSoaring != 0)
+#endif
+
 namespace Rando {
 
 namespace Logic {

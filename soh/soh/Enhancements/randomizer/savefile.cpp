@@ -367,6 +367,14 @@ void SetStartingItems() {
         }
     }
 
+#ifdef COMBO_BUILD
+    // ComboShip (teleport songs): the Song of Soaring is RandoInf-backed, so starting with it is one flag.
+    if (Randomizer_GetSettingValue(RSK_SONG_OF_SOARING_OOT) &&
+        Randomizer_GetSettingValue(RSK_STARTING_SONG_OF_SOARING)) {
+        Flags_SetRandomizerInf(RAND_INF_HAS_SONG_OF_SOARING);
+    }
+#endif
+
     // Giant's Knife and Biggoron's Sword share an item slot, bgsFlag marks unbreakable
     switch (Randomizer_GetSettingValue(RSK_STARTING_BIGGORON_SWORD)) {
         case RO_STARTING_BGS_BIGGORON_SWORD:

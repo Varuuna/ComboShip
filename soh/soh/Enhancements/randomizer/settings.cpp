@@ -220,6 +220,10 @@ void Settings::CreateOptions() {
     });
     // ComboShip: (#133)
     OPT_BOOL(RSK_EXCLUDE_MASK_SHOP_KEY, "Exclude Mask Shop Key", {"Off", "On"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("ExcludeMaskShopKey"), mOptionDescriptions[RSK_EXCLUDE_MASK_SHOP_KEY], WIDGET_CVAR_CHECKBOX, RO_GENERIC_OFF, true);
+#ifdef COMBO_BUILD
+    // ComboShip (teleport songs)
+    OPT_BOOL(RSK_SONG_OF_SOARING_OOT, "Song of Soaring (soar to Termina)", {"Off", "On"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("ComboSongOfSoaring"), mOptionDescriptions[RSK_SONG_OF_SOARING_OOT], WIDGET_CVAR_CHECKBOX, RO_GENERIC_OFF, false);
+#endif
     OPT_U8(RSK_GERUDO_FORTRESS, "Fortress Carpenters", {"Normal", "Fast", "Free"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("FortressCarpenters"), mOptionDescriptions[RSK_GERUDO_FORTRESS]);
     OPT_CALLBACK(RSK_GERUDO_FORTRESS, {
         const uint8_t maxKeyringCount =
@@ -1523,6 +1527,10 @@ void Settings::CreateOptions() {
     OPT_BOOL(RSK_STARTING_CLAIM_CHECK, "Start with Claim Check", CVAR_RANDOMIZER_SETTING("StartingClaimCheck"));
     OPT_BOOL(RSK_STARTING_GERUDO_CARD, "Start with Gerudo Card", CVAR_RANDOMIZER_SETTING("StartingGerudoCard"));
     OPT_BOOL(RSK_STARTING_BUNNY_HOOD, "Start with Bunny Hood", CVAR_RANDOMIZER_SETTING("StartingBunnyHood"));
+#ifdef COMBO_BUILD
+    // ComboShip (teleport songs)
+    OPT_BOOL(RSK_STARTING_SONG_OF_SOARING, "Start with Song of Soaring", CVAR_RANDOMIZER_SETTING("StartingSongOfSoaring"));
+#endif
     OPT_U8(RSK_STARTING_BIGGORON_SWORD, "Start with Biggoron's Sword", {"Off", "Giant's Knife", "Biggoron's Sword"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("StartingBiggoronSword"), "", WIDGET_CVAR_COMBOBOX, 0);
     OPT_BOOL(RSK_FULL_WALLETS, "Full Wallets", {"No", "Yes"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("FullWallets"), mOptionDescriptions[RSK_FULL_WALLETS], WIDGET_CVAR_CHECKBOX, RO_GENERIC_OFF);
     OPT_BOOL(RSK_STARTING_ZELDAS_LULLABY, "Start with Zelda's Lullaby", CVAR_RANDOMIZER_SETTING("StartingZeldasLullaby"), "", IMFLAG_NONE);
@@ -2003,6 +2011,10 @@ void Settings::CreateOptions() {
                                   &mOptions[RSK_LOCK_OVERWORLD_DOORS],
                                   // ComboShip: (#133)
                                   &mOptions[RSK_EXCLUDE_MASK_SHOP_KEY],
+#ifdef COMBO_BUILD
+                                  // ComboShip (teleport songs)
+                                  &mOptions[RSK_SONG_OF_SOARING_OOT],
+#endif
                                   &mOptions[RSK_GERUDO_FORTRESS],
                                   &mOptions[RSK_RAINBOW_BRIDGE],
                                   &mOptions[RSK_BRIDGE_OPTIONS],
@@ -2258,6 +2270,10 @@ void Settings::CreateOptions() {
                                                                &mOptions[RSK_LOCK_OVERWORLD_DOORS],
                                                                // ComboShip: (#133)
                                                                &mOptions[RSK_EXCLUDE_MASK_SHOP_KEY],
+#ifdef COMBO_BUILD
+                                                               // ComboShip (teleport songs)
+                                                               &mOptions[RSK_SONG_OF_SOARING_OOT],
+#endif
                                                                &mOptions[RSK_GERUDO_FORTRESS],
                                                                &mOptions[RSK_RAINBOW_BRIDGE],
                                                                &mOptions[RSK_RAINBOW_BRIDGE_STONE_COUNT],
@@ -2437,6 +2453,7 @@ void Settings::CreateOptions() {
                                                  &mOptions[RSK_KEYRINGS_GTG],
                                                  &mOptions[RSK_KEYRINGS_GANONS_CASTLE],
                                              });
+    // clang-format off
     mOptionGroups[RSG_STARTING_ITEMS] =
         OptionGroup::SubGroup("Items", { &mOptions[RSK_STARTING_OCARINA],        &mOptions[RSK_STARTING_KOKIRI_SWORD],
                                          &mOptions[RSK_STARTING_MASTER_SWORD],   &mOptions[RSK_STARTING_DEKU_SHIELD],
@@ -2457,7 +2474,13 @@ void Settings::CreateOptions() {
                                          &mOptions[RSK_STARTING_BOTTLE_4],       &mOptions[RSK_STARTING_WEIRD_EGG],
                                          &mOptions[RSK_STARTING_ZELDAS_LETTER],  &mOptions[RSK_STARTING_CLAIM_CHECK],
                                          &mOptions[RSK_STARTING_GERUDO_CARD],    &mOptions[RSK_STARTING_BIGGORON_SWORD],
+#ifdef COMBO_BUILD
+                                         &mOptions[RSK_STARTING_BUNNY_HOOD],
+                                         &mOptions[RSK_STARTING_SONG_OF_SOARING] }); // ComboShip (teleport songs)
+#else
                                          &mOptions[RSK_STARTING_BUNNY_HOOD] });
+#endif
+    // clang-format on
     mOptionGroups[RSG_STARTING_SONGS] =
         OptionGroup::SubGroup("Ocarina Songs", {
                                                    &mOptions[RSK_STARTING_ZELDAS_LULLABY],
@@ -3294,6 +3317,11 @@ void Settings::RandomizeAllSettings() {
             // ComboShip: (#133/#134) opt-outs, never randomized
             case RSK_EXCLUDE_MASK_SHOP_KEY:
             case RSK_EXCLUDE_MASK_SHOP_ENTRANCE:
+#ifdef COMBO_BUILD
+            // ComboShip (teleport songs): a cross-game feature toggle and its starting item, never randomized
+            case RSK_SONG_OF_SOARING_OOT:
+            case RSK_STARTING_SONG_OF_SOARING:
+#endif
                 continue;
             default:
                 break;

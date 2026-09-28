@@ -38,6 +38,9 @@ class Logic {
     SaveContext* mSaveContext = nullptr;
     Logic();
     bool CanUse(RandomizerGet itemName);
+#ifdef COMBO_BUILD
+    bool ComboCrossWarp(int warpIndex); // ComboShip (teleport songs): MM's warp-song copy reaches the pad
+#endif
     bool HasProjectile(HasProjectileAge age);
     bool HasItem(RandomizerGet itemName);
     bool ItemUseAllowed(RandomizerGet itemName);

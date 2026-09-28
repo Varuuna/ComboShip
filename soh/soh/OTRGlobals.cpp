@@ -148,6 +148,7 @@
 #include "ComboMenuSharedContext.h" // ComboShip: shared per-DLL ImGui context helper (combo-owned)
 #include "rando/CrossForeign.h"     // ComboShip (#164): g_comboForeignJson for the hint-key map replay
 #include "rando/SharedItems.h"      // ComboShip: Shared Items family table
+#include "rando/CrossWarpLogic.h"   // ComboShip (teleport songs): cross-game warp logic bits
 #include "soh/Enhancements/randomizer/hook_handlers.h" // ComboShip (#164): OOT_ForeignMapGen
 #include <functional>                                  // ComboShip (#164): shared hint-resolution callbacks
 #endif
@@ -1637,6 +1638,17 @@ bool VerifyArchiveVersion(OTRVersion version) {
 
 // ComboShip: forward declarations — defined further down with the combo exports.
 extern "C" void (*gComboSceneSwitchCallback)(int fileNum);
+#ifdef COMBO_BUILD
+// ComboShip (teleport songs): pending switch to MM, acted on at the next clean frame.
+static bool sComboSwitchPending = false;
+static int sComboSwitchFileNum = -1;
+// MM arrival entrance for the pending switch (-1 = South Clock Town).
+static int sComboCrossTargetMM = -1;
+// Arrival override pushed by the launcher, consumed once by TitleSetup (-1 = outside the Mask Shop).
+extern "C" s32 gComboTargetEntrance = -1;
+// Set on an override arrival, cleared by the next OnSceneInit.
+extern "C" s32 gComboCrossArrival = 0;
+#endif
 // Launcher poll: returns the next save slot backed up for a release mismatch, or -1 if none.
 extern "C" int (*gComboOutdatedSaveNotice)();
 // Shared Items pokes (defined with the rest of the Shared Items ABI further down).
@@ -1815,11 +1827,9 @@ static void Combo_FinishInit() {
     Ship::Context::GetRawInstance()->GetFileDropMgr()->RegisterDropHandler(SoH_HandleConfigDrop);
 
 #ifdef COMBO_BUILD
-    // Flag set when we want to switch to MM. Acted on at the start of the next clean frame.
-    static bool sComboSwitchPending = false;
-    static int sComboSwitchFileNum = -1;
-
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnSceneInit>([](int16_t sceneNum) {
+        // A combo-driven arrival is over once the first scene has loaded.
+        gComboCrossArrival = 0;
         // Cross-game OOT->MM trigger: entering the Happy Mask Shop.
         if (sceneNum == SCENE_HAPPY_MASK_SHOP) {
             sComboSwitchFileNum = (int)gSaveContext.fileNum;
@@ -3280,6 +3290,17 @@ extern "C" COMBO_EXPORT int SOH_GetSharedTier(int family) try {
             return Flags_GetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_MASK_BUNNY) ? 1 : 0;
         case ComboRando::SF_MASK_OF_TRUTH:
             return Flags_GetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_MASK_TRUTH) ? 1 : 0;
+        // Teleport songs: OOT's Song of Soaring is RandInf-backed, the warp songs are its own quest bits.
+        case ComboRando::SF_SONG_OF_SOARING:
+            return Flags_GetRandomizerInf(RAND_INF_HAS_SONG_OF_SOARING) ? 1 : 0;
+        case ComboRando::SF_MINUET_OF_FOREST:
+        case ComboRando::SF_BOLERO_OF_FIRE:
+        case ComboRando::SF_SERENADE_OF_WATER:
+        case ComboRando::SF_REQUIEM_OF_SPIRIT:
+        case ComboRando::SF_NOCTURNE_OF_SHADOW:
+        case ComboRando::SF_PRELUDE_OF_LIGHT:
+            // QUEST_SONG_MINUET..PRELUDE and the SF_ rows are both contiguous in OOT warp-index order.
+            return CHECK_QUEST_ITEM(QUEST_SONG_MINUET + (family - ComboRando::SF_MINUET_OF_FOREST)) ? 1 : 0;
         default:
             return 0;
     }
@@ -3353,6 +3374,27 @@ extern "C" COMBO_EXPORT void SOH_RaiseSharedTier(int family, int tier) try {
             case ComboRando::SF_MASK_OF_TRUTH:
                 rg = RG_MASK_OF_TRUTH;
                 break;
+            case ComboRando::SF_SONG_OF_SOARING:
+                rg = RG_SONG_OF_SOARING;
+                break;
+            case ComboRando::SF_MINUET_OF_FOREST:
+                rg = RG_MINUET_OF_FOREST;
+                break;
+            case ComboRando::SF_BOLERO_OF_FIRE:
+                rg = RG_BOLERO_OF_FIRE;
+                break;
+            case ComboRando::SF_SERENADE_OF_WATER:
+                rg = RG_SERENADE_OF_WATER;
+                break;
+            case ComboRando::SF_REQUIEM_OF_SPIRIT:
+                rg = RG_REQUIEM_OF_SPIRIT;
+                break;
+            case ComboRando::SF_NOCTURNE_OF_SHADOW:
+                rg = RG_NOCTURNE_OF_SHADOW;
+                break;
+            case ComboRando::SF_PRELUDE_OF_LIGHT:
+                rg = RG_PRELUDE_OF_LIGHT;
+                break;
             default:
                 break;
         }
@@ -3393,6 +3435,15 @@ extern "C" COMBO_EXPORT int SOH_GetTriforcePieceCount(void) {
 extern "C" int (*gComboOtherTriforceCount)(void) = nullptr;
 extern "C" COMBO_EXPORT void SOH_SetOtherTriforceCountCb(int (*cb)(void)) {
     gComboOtherTriforceCount = cb;
+}
+// ComboShip (teleport songs): launcher-provided MM owl flags and owl entrances (-1 = unavailable).
+extern "C" int (*gComboOwlFlagsProvider)(void) = nullptr;
+extern "C" int (*gComboOwlWarpEntranceProvider)(int owlId) = nullptr;
+extern "C" COMBO_EXPORT void SOH_SetOwlFlagsProvider(int (*cb)(void)) {
+    gComboOwlFlagsProvider = cb;
+}
+extern "C" COMBO_EXPORT void SOH_SetOwlWarpEntranceProvider(int (*cb)(int)) {
+    gComboOwlWarpEntranceProvider = cb;
 }
 // Poked after every piece grant (active or dormant); the launcher evaluates the combined total.
 extern "C" void (*gComboTriforceProgress)(int game, int fileNum) = nullptr;
@@ -3631,6 +3682,29 @@ extern "C" COMBO_EXPORT int32_t SOH_MenuDrawWidget(int32_t i, int32_t width) {
 // Forest. Counterpart to MM's reuse path in BenPort.cpp.
 extern "C" bool WindowIsRunning(void);
 
+// ComboShip (teleport songs): switch to MM and arrive at this entrance. Console: combo_warp_mm.
+extern "C" void Combo_RequestCrossSwitch(int mmEntrance) {
+    if (gSaveContext.fileNum > 2) {
+        SPDLOG_WARN("[ComboShip] Combo_RequestCrossSwitch: no save loaded (fileNum={})", (int)gSaveContext.fileNum);
+        return;
+    }
+    sComboCrossTargetMM = mmEntrance;
+    sComboSwitchFileNum = (int)gSaveContext.fileNum;
+    sComboSwitchPending = true;
+}
+
+// Launcher drain: the MM entrance the pending switch should arrive at, consumed on read (-1 = none).
+extern "C" COMBO_EXPORT int SOH_GetPendingCrossTarget(void) {
+    const int t = sComboCrossTargetMM;
+    sComboCrossTargetMM = -1;
+    return t;
+}
+
+// Launcher push: arrive at this OOT entrance on the next resume instead of outside the Mask Shop.
+extern "C" COMBO_EXPORT void SOH_SetTargetEntrance(int entrance) {
+    gComboTargetEntrance = entrance;
+}
+
 extern "C" COMBO_EXPORT void SOH_ResumeGame(void) {
     auto ctx = Ship::Context::GetRawInstance();
     // Flush every log line immediately so the resume diagnostics survive a hard crash (the console
@@ -3658,6 +3732,9 @@ extern "C" COMBO_EXPORT void SOH_ResumeGame(void) {
     // ComboShip: on a reset return, leave gComboReturnFileNum < 0 so TitleSetup boots to the title
     // sequence (first-boot) instead of jumping straight back into Play on the saved slot.
     gComboReturnFileNum = sComboResetPending ? -1 : (s32)gSaveContext.fileNum;
+    if (sComboResetPending) {
+        gComboTargetEntrance = -1; // a reset return boots to the title; never carry an armed target there
+    }
     sComboResetPending = false;
     SOH_ResetFrameLoopForResume();
     SPDLOG_INFO("[ComboShip] SOH_ResumeGame: entering OOT loop (gComboReturnFileNum={}, WindowIsRunning={})",
@@ -4173,6 +4250,7 @@ extern "C" COMBO_EXPORT const char* SOH_DumpRandoStaticData(void) {
     nlohmann::json iceTrapModels = nlohmann::json::array();
     // ComboShip: OOT accessibility settings the combo fill honors per-game. Defaults = ALL_REACHABLE
     // (safe: unchanged fill behavior) if the prep throws before these are read.
+    nlohmann::json startingItems = nlohmann::json::array(); // ComboShip: Shared Items (see below)
     nlohmann::json accessibility = { { "noLogic", false },
                                      { "allLocationsReachable", true },
                                      { "lockOverworldDoors", false } };
@@ -4319,6 +4397,14 @@ extern "C" COMBO_EXPORT const char* SOH_DumpRandoStaticData(void) {
         accessibility["lockOverworldDoors"] = static_cast<bool>(ctx->GetOption(RSK_LOCK_OVERWORLD_DOORS));
         // ComboShip: Shared Items masks need OOT's masks to be real rando items.
         accessibility["maskQuestShuffle"] = ctx->GetOption(RSK_MASK_QUEST).Is(RO_MASK_QUEST_SHUFFLE);
+        // ComboShip: Shared Items — starting items by pool name, plus the RandInf-backed Song of Soaring.
+        for (RandomizerGet rg : StartingInventory) {
+            const std::string& sn = Rando::StaticData::RetrieveItem(rg).GetName().GetEnglish();
+            if (!sn.empty())
+                startingItems.push_back(sn);
+        }
+        if (ctx->GetOption(RSK_SONG_OF_SOARING_OOT) && ctx->GetOption(RSK_STARTING_SONG_OF_SOARING).Get())
+            startingItems.push_back(Rando::StaticData::RetrieveItem(RG_SONG_OF_SOARING).GetName().GetEnglish());
 
         usedPool = true;
 #else
@@ -4400,7 +4486,8 @@ extern "C" COMBO_EXPORT const char* SOH_DumpRandoStaticData(void) {
         { "items", std::move(items) },
         { "prices", std::move(prices) },
         { "iceTrapModels", std::move(iceTrapModels) },
-        { "accessibility", std::move(accessibility) }
+        { "accessibility", std::move(accessibility) },
+        { "startingItems", std::move(startingItems) }
     }.dump();
     return cached.c_str();
 }
@@ -5320,9 +5407,18 @@ static void EnsureOracleInit() {
     sOracleInitialized = true;
 }
 
+#ifdef COMBO_BUILD
+// ComboShip (teleport songs): cross-game warp inputs for the next search (cleared after it), CW_OOT_OUT_* output.
+extern "C" int gComboOracleCrossIn = 0;
+static uint32_t sComboCrossOut = 0;
+#endif
+
 extern "C" COMBO_EXPORT void Combo_SOH_Rando_Reset(void) {
     auto ctx = OTRGlobals::Instance->gRandoContext;
     EnsureOracleInit();
+#ifdef COMBO_BUILD
+    gComboOracleCrossIn = 0; // ComboShip (teleport songs): inputs belong to one query
+#endif
     ctx->GetLogic()->Reset();
     Regions::AccessReset();
     ctx->LocationReset();
@@ -5343,6 +5439,13 @@ extern "C" COMBO_EXPORT void Combo_SOH_Rando_SetOwnedItems(const char* itemNames
     try {
         auto items = nlohmann::json::parse(itemNamesJson);
         for (const auto& name : items) {
+#ifdef COMBO_BUILD
+            // ComboShip (teleport songs): pseudo names carry MM's cross-warp bits (rando/CrossWarpLogic.h).
+            if (const uint32_t crossBit = ComboRando::CrossWarpOotInBit(name.get<std::string>())) {
+                gComboOracleCrossIn |= static_cast<int>(crossBit);
+                continue;
+            }
+#endif
             auto it = Rando::StaticData::itemNameToEnum.find(name.get<std::string>());
             if (it == Rando::StaticData::itemNameToEnum.end())
                 continue;
@@ -5366,6 +5469,15 @@ extern "C" COMBO_EXPORT const char* Combo_SOH_Rando_GetReachableChecks(void) {
     // the requirement lives in the entrance condition, so this survives entrance shuffle moving it.
     Region* portal = RegionTable(RR_MARKET_MASK_SHOP);
     sComboPortalOpen = portal->Child() || portal->Adult();
+    // ComboShip (teleport songs): can this owned-set play Song of Soaring? Item-only.
+    {
+        auto logic = ctx->GetLogic();
+        const bool canSoar = logic->HasItem(RG_SONG_OF_SOARING) && logic->HasItem(RG_FAIRY_OCARINA) &&
+                             logic->HasItem(RG_OCARINA_C_DOWN_BUTTON) && logic->HasItem(RG_OCARINA_C_LEFT_BUTTON) &&
+                             logic->HasItem(RG_OCARINA_C_UP_BUTTON);
+        sComboCrossOut = canSoar ? ComboRando::CW_OOT_OUT_CAN_SOAR : 0u;
+    }
+    gComboOracleCrossIn = 0;
 #endif
     nlohmann::json out = nlohmann::json::array();
     for (RandomizerCheck rc : reachable) {
@@ -5382,6 +5494,10 @@ extern "C" COMBO_EXPORT const char* Combo_SOH_Rando_GetReachableChecks(void) {
 // it right after that call. Piggybacks on that search; a second traversal would double oracle gen cost.
 extern "C" COMBO_EXPORT uint8_t Combo_SOH_Rando_GetPortalOpen(void) {
     return sComboPortalOpen ? 1 : 0;
+}
+// ComboShip (teleport songs): CW_OOT_OUT_* for the owned-set of the LAST GetReachableChecks call.
+extern "C" COMBO_EXPORT uint32_t Combo_SOH_Rando_GetCrossOut(void) {
+    return sComboCrossOut;
 }
 #endif
 

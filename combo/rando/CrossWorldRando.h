@@ -21,6 +21,7 @@
 #include "gui/ComboGenProgress.h"
 #include "CrossForeign.h" // for ComboRando::GameId
 #include "SharedItems.h"
+#include "CrossWarpLogic.h"
 
 namespace ComboRando {
 
@@ -69,7 +70,13 @@ struct OracleFns {
     // OOT only (null for MM): is the OOT->MM portal region reachable? Valid only immediately after a
     // GetReachableChecks call, whose owned-set it describes (the DLL piggybacks on that search).
     uint8_t (*GetPortalOpen)(void) = nullptr;
+    // Teleport-song bits for the last GetReachableChecks. Null = out of logic.
+    uint32_t (*GetCrossOut)(void) = nullptr;
 };
+
+inline uint32_t OracleCrossOut(const OracleFns& o) {
+    return o.GetCrossOut ? o.GetCrossOut() : 0u;
+}
 
 // ---------- Data types ----------
 
@@ -434,12 +441,17 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     // Shared Items (OoTMM-style): trim MM's copies of each effective family; the fixpoint below
     // mirrors the OOT-owned count back onto MM's oracle. See deviations/rando.md.
     uint32_t effectiveSharedMask = 0;
+    // Shared items OOT starts with (MM names); MM logic starts with them too.
+    std::vector<std::string> sharedStartingMm;
     if (sharedMask != 0) {
         bool maskQuestShuffle = false;
+        std::vector<std::string> ootStarting;
         try {
-            maskQuestShuffle = nlohmann::json::parse(sohDumpJson)
-                                   .value("accessibility", nlohmann::json::object())
-                                   .value("maskQuestShuffle", false);
+            auto dump = nlohmann::json::parse(sohDumpJson);
+            maskQuestShuffle = dump.value("accessibility", nlohmann::json::object()).value("maskQuestShuffle", false);
+            for (const auto& n : dump.value("startingItems", nlohmann::json::array()))
+                if (n.is_string())
+                    ootStarting.push_back(n.get<std::string>());
         } catch (...) {}
         for (int i = 0; i < SF_COUNT; ++i) {
             if (!(sharedMask & (1u << i)))
@@ -456,10 +468,18 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
             for (const auto& p : lockedPlacements)
                 if (p.item.game == GAME_OOT && p.item.name == def.ootName)
                     ++ootCopies;
-            if (ootCopies == 0) {
+            const size_t ootStartingCopies =
+                static_cast<size_t>(std::count(ootStarting.begin(), ootStarting.end(), std::string(def.ootName)));
+            if (ootCopies == 0 && ootStartingCopies == 0) {
                 std::cout << "[ComboShip] Shared " << def.key << ": OOT pool has none, left MM copies alone\n";
                 continue;
             }
+            if (ootCopies == 0)
+                std::cout << "[ComboShip] Shared " << def.key << ": OOT starts with it (" << ootStartingCopies
+                          << "), MM gets it at save creation\n";
+            if (def.mmHasItem)
+                for (size_t n = 0; n < std::min<size_t>(ootStartingCopies, static_cast<size_t>(def.mmTierCap)); ++n)
+                    sharedStartingMm.push_back(def.mmName);
             if (!def.mmHasItem) {
                 // MM has no pool copy of this item — nothing to trim, just mark the family effective.
                 effectiveSharedMask |= (1u << i);
@@ -488,6 +508,15 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
             std::cout << "[ComboShip] Shared " << def.key << ": trimmed " << removed << " MM '" << def.mmName
                       << "' (balancer will pad with junk)\n";
         }
+        // Keep only the families that ended up effective (a bail-out above may follow the push).
+        std::erase_if(sharedStartingMm, [&](const std::string& mmName) {
+            for (int i = 0; i < SF_COUNT; ++i)
+                if ((effectiveSharedMask & (1u << i)) && mmName == SharedFamilyByIndex(i).mmName)
+                    return false;
+            return true;
+        });
+        // MM logic owns these from the start (the OOT oracle already applies OOT's own starting kit).
+        mmForcedOwned.insert(mmForcedOwned.end(), sharedStartingMm.begin(), sharedStartingMm.end());
     }
 
     // --- Balance each game's pool against its checks: P_g == C_g ---
@@ -739,6 +768,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     struct FixResult {
         std::unordered_set<std::string> ootReachable, mmReachable;
         std::vector<std::string> ootOwned;
+        CrossWarpLatch cross; // which cross-game teleport-song abilities logic ended up using
     };
     auto reachableFixpoint = [&](const std::vector<std::string>& ootBase,
                                  const std::vector<std::string>& mmBase) -> FixResult {
@@ -753,8 +783,11 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         // Shared Items mirror: how many copies of each effective family have already been pushed onto
         // mmOwned this call, so re-querying doesn't duplicate them as ootOwned grows.
         size_t sharedGiven[SF_COUNT] = { 0 };
+        // Cross-game teleport songs: what each side can do for the other, latched.
+        CrossWarpLatch crossLatch;
         for (;;) {
             ootReachable = queryReachable(ootOracle, ootOwned);
+            const uint32_t ootCrossOut = OracleCrossOut(ootOracle);
             // Read the portal off THIS OOT query, before any MM check is credited below — that ordering
             // is what stops the fill proving the portal with an item that lives behind it.
             if (!portalOpen)
@@ -775,7 +808,9 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                 }
             }
             mmReachable = portalOpen ? queryReachable(mmOracle, mmOwned) : std::unordered_set<std::string>{};
-            bool changed = false;
+            // Push each side's new warp abilities onto the other's owned list and repeat.
+            bool changed = ApplyCrossWarps(ootCrossOut, portalOpen ? OracleCrossOut(mmOracle) : 0u, portalOpen, mmStart,
+                                           ootOwned, mmOwned, crossLatch);
             for (size_t i = 0; i < placements.size(); ++i) {
                 if (credited[i])
                     continue;
@@ -788,7 +823,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                 }
             }
             if (!changed)
-                return { std::move(ootReachable), std::move(mmReachable), std::move(ootOwned) };
+                return { std::move(ootReachable), std::move(mmReachable), std::move(ootOwned), crossLatch };
         }
     };
 
@@ -1085,6 +1120,11 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         // oracle-unreachable (oracles under-model, e.g. MM with zeroed save options) — count and log
         // those, don't fail.
         auto vf = reachableFixpoint({}, {});
+        if ((vf.cross.ootIn & CW_OOT_IN_WARP_MASK) || vf.cross.mmIn) {
+            std::cout << "[ComboShip] CrossWorldCombinedFill: cross-game teleport songs in logic — MM warp songs "
+                      << "reaching OOT pads: mask 0x" << std::hex << (vf.cross.ootIn & CW_OOT_IN_WARP_MASK) << std::dec
+                      << ", OOT Song of Soaring reaching MM owls: " << (vf.cross.mmIn ? "yes" : "no") << "\n";
+        }
         auto& ootFinal = vf.ootReachable;
         auto& mmFinal = vf.mmReachable;
         // Classify unreachable advancement by ITEM game: MM adv unreachable is always fatal (MM must
@@ -1241,6 +1281,8 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                              { "checks", static_cast<uint32_t>(allChecks.size()) },
                              { "passes", passesUsed } };
     spoiler["sharedItems"] = SharedKeysFromMask(effectiveSharedMask);
+    if (!sharedStartingMm.empty())
+        spoiler["sharedStartingMm"] = sharedStartingMm;
 
     nlohmann::json ootPlacements = nlohmann::json::object();
     nlohmann::json mmPlacements = nlohmann::json::object();

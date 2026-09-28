@@ -1695,11 +1695,16 @@ void ComboMenu::DrawComboPanel() {
     {
         const ImGuiTableFlags sharedTableFlags = ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings;
         if (ImGui::BeginTable("##sharedcols", 2, sharedTableFlags)) {
+            int cell = 0;
             for (int i = 0; i < ComboRando::SF_COUNT; ++i) {
                 const auto& def = ComboRando::SharedFamilyByIndex(i);
-                if (i % 2 == 0)
+                // Rows sharing the previous row's CVar are one toggle (the six warp songs): draw it once.
+                if (i > 0 && strcmp(def.cvar, ComboRando::SharedFamilyByIndex(i - 1).cvar) == 0)
+                    continue;
+                if (cell % 2 == 0)
                     ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(i % 2);
+                ImGui::TableSetColumnIndex(cell % 2);
+                ++cell;
                 bool on = CVarGetInteger(def.cvar, 0) != 0;
                 ComboRando::ComboMenu_PushCheckbox(goalTheme);
                 if (ImGui::Checkbox(def.label, &on)) {
@@ -1712,7 +1717,9 @@ void ComboMenu::DrawComboPanel() {
         }
     }
     ImGui::TextDisabled("One item counts for both games. Applied at generation. Masks need Ocarina of\n"
-                        "Time's Mask Quest set to Shuffle. Shared Wallets turns off Shuffle Child Wallet.");
+                        "Time's Mask Quest set to Shuffle. Shared Wallets turns off Shuffle Child Wallet.\n"
+                        "Song of Soaring needs Ocarina of Time's Song of Soaring setting; Warp Songs need\n"
+                        "Majora's Mask's OoT Warp Songs.");
     ImGui::Separator();
 
     // Cosmetics (#169): each game randomizes on its own by default; sync makes MM take OOT's colors.

@@ -537,6 +537,16 @@ bool Rando::IsItemObtainable(RandoItemId randoItemId, RandoCheckId randoCheckId)
             return !CHECK_QUEST_ITEM(QUEST_SONG_HEALING);
         case RI_SONG_INVERTED_TIME:
             return !Flags_GetRandoInf(RANDO_INF_OBTAINED_SONG_INVERTED_TIME);
+#ifdef COMBO_BUILD
+        case RI_SONG_MINUET:
+        case RI_SONG_BOLERO:
+        case RI_SONG_SERENADE:
+        case RI_SONG_REQUIEM:
+        case RI_SONG_NOCTURNE:
+        case RI_SONG_PRELUDE:
+            // ComboShip (teleport songs): an already-known warp song converts to junk like any other song.
+            return !Flags_GetRandoInf((RandoInf)(RANDO_INF_OBTAINED_SONG_MINUET + (randoItemId - RI_SONG_MINUET)));
+#endif
         case RI_SONG_LULLABY_INTRO:
             return !CHECK_QUEST_ITEM(QUEST_SONG_LULLABY_INTRO);
         case RI_SONG_LULLABY:

@@ -24,8 +24,8 @@
 #include "soh/Enhancements/cosmetics/cosmeticsTypes.h" // COLORSCHEME_*
 #include "soh/OTRGlobals.h"                            // rando-context null guards (MM calls us while OOT is dormant)
 #include <string>
-#include "objects/object_gi_fire/object_gi_fire.h" // gGiBlueFireFlameDL (boss-soul flame)
-#include "objects/object_gi_key/object_gi_key.h"   // gGiSmallKeyDL
+#include "objects/object_gi_fire/object_gi_fire.h"           // gGiBlueFireFlameDL (boss-soul flame)
+#include "objects/object_gi_key/object_gi_key.h"             // gGiSmallKeyDL
 #include "objects/object_gi_bosskey/object_gi_bosskey.h"     // gGiBossKeyDL / gGiBossKeyGemDL
 #include "objects/object_gi_map/object_gi_map.h"             // gGiDungeonMapDL
 #include "objects/object_gi_compass/object_gi_compass.h"     // gGiCompassDL / gGiCompassGlassDL

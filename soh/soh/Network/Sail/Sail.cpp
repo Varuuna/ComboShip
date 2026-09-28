@@ -4,6 +4,10 @@
 #include <ship/window/Window.h>
 #include <ship/window/gui/ConsoleWindow.h>
 #include <spdlog/spdlog.h>
+<<<<<<< HEAD
+=======
+#include <libultraship/bridge/consolevariablebridge.h>
+>>>>>>> vendor-soh
 #include "soh/ShipInit.hpp"
 #include "soh/ShipUtils.h"
 #include "soh/cvar_prefixes.h"

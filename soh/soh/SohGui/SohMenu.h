@@ -1,5 +1,4 @@
-#ifndef SOHMENU_H
-#define SOHMENU_H
+#pragma once
 
 #include "Menu.h"
 #include <fast/backends/gfx_rendering_api.h>
@@ -69,5 +68,3 @@ class SohMenu : public Ship::Menu {
     ComboMenuExport::State<WidgetInfo> mComboExport;
 };
 } // namespace SohGui
-
-#endif // SOHMENU_H

@@ -1,44 +1,28 @@
-#ifndef FISHSANITY_H
-#define FISHSANITY_H
 #pragma once
 
-#include <z64.h>
-#include "randomizerTypes.h"
-#include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
-
-typedef struct {
-    u8 mode;
-    u8 numFish;
-    bool ageSplit;
-} FishsanityPondOptions;
+#include "soh/Enhancements/randomizer/location.h"
 
 typedef enum {
     FSO_SOURCE_RANDO,
     FSO_SOURCE_CVARS,
 } FishsanityOptionsSource;
 
-typedef enum {
-    FSC_NONE,
-    FSC_POND,
-    FSC_GROTTO,
-    FSC_ZD,
-} FishsanityCheckType;
-
-#ifdef __cplusplus
-#include "soh/Enhancements/randomizer/location.h"
-
-namespace Rando {
+namespace Rando::Fishsanity {
 
 /**
- * @brief Class to provide an interface for and direct Fishsanity features
+ * @brief Returns true if the given fish location is active
+ *
+ * @param loc The Location to check
+ * @param optionsSource Optionally declare from which source to pull settings
  */
-class Fishsanity {
-  public:
-    Fishsanity();
-    ~Fishsanity();
+bool GetFishLocationIncluded(Rando::Location* loc, FishsanityOptionsSource optionsSource = FSO_SOURCE_RANDO);
 
-    static const CheckIdentity defaultIdentity;
+/**
+ * @brief Initializes pond fish state from save
+ */
+void InitializeFromSave();
 
+<<<<<<< HEAD
     /**
      * @brief Gets the type of a fishsanity check
      * @param rc The RandomizerCheck to categorize
@@ -211,3 +195,6 @@ void Fishsanity_CloseGreyscaleColor(PlayState* play);
 #endif
 
 #endif // FISHSANITY_H
+=======
+} // namespace Rando::Fishsanity
+>>>>>>> vendor-soh

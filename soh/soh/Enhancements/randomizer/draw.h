@@ -1,5 +1,3 @@
-#ifndef RANDODRAW_H
-#define RANDODRAW_H
 #pragma once
 
 #include "../item-tables/ItemTableTypes.h"
@@ -27,12 +25,15 @@ void Randomizer_DrawLadder(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawKneePads(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawJabberNut(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawOpenChest(PlayState* play, GetItemEntry* getItemEntry);
+void Randomizer_DrawSilverRupee(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawFishingPoleGI(PlayState* play, GetItemEntry* getItemEntry);
+void Randomizer_DrawScarecrowsSong(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawSkeletonKey(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawMysteryItem(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawBombchuBag(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawOverworldKey(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawRocsFeather(PlayState* play, GetItemEntry* getItemEntry);
+<<<<<<< HEAD
 #ifdef COMBO_BUILD
 // ComboShip: render a foreign (MM-bound) check with the real MM item model via "@mm:" cross-RM
 // routing; falls back to the blue-rupee sentinel when the model can't be resolved. The check
@@ -45,6 +46,10 @@ void Randomizer_LatchComboForeign(int32_t rc); // RandomizerCheck, as int32_t li
 const char* Randomizer_ComboForeignLatchedName(int32_t rc);
 const char* Randomizer_ComboForeignLiveName(int32_t rc);
 #endif
+=======
+void Randomizer_DrawNutBag(PlayState* play, GetItemEntry* getItemEntry);
+void Randomizer_DrawStickBag(PlayState* play, GetItemEntry* getItemEntry);
+>>>>>>> vendor-soh
 
 #define GET_ITEM_MYSTERY                                                                                 \
     {                                                                                                    \
@@ -53,6 +58,4 @@ const char* Randomizer_ComboForeignLiveName(int32_t rc);
     }
 #ifdef __cplusplus
 };
-#endif
-
 #endif

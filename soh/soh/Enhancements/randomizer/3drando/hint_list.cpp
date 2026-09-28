@@ -1,4 +1,3 @@
-#include "../SeedContext.h"
 #include "../static_data.h"
 
 using namespace std::literals::string_literals;
@@ -459,6 +458,14 @@ void StaticData::HintTable_Init() {
                                                                         /*german*/ "Man erzählt sich, daß die #neunte oder zehnte Spieltruhe# #[[1]]# enthielte.",
                                                                         /*french*/ "Selon moi, le #neuvième ou dixième coffre à jeu# contient #[[1]]#.", {QM_RED, QM_GREEN})});
                                                                      // /*spanish*/#el noveno o décimo cofre del azar# revela #[[1]]#.
+
+    hintTextTable[RHT_MARKET_TREASURE_CHEST_GAME_SHOPKEEPER] = HintText(CustomMessage("They say that the #chest game host# is holding on to #[[1]]#.",
+                                                                           /*german*/ "Man erzählt sich, daß der #Truhenlotterie-Veranstalter# #[[1]]# bereithielte.",
+                                                                           /*french*/ "Selon moi, l'#hôte de la Chasse-aux-Trésors# détient #[[1]]#.", {QM_RED, QM_GREEN}),
+                                                                        {},
+                                                                        {CustomMessage("They say that #paying to play the chest game# grants #[[1]]#.",
+                                                                            /*german*/ "Man erzählt sich, daß #ein Spiel der Truhenlotterie# #[[1]]# gewähre.",
+                                                                            /*french*/ "Selon moi, #payer pour la Chasse-aux-Trésors# donne #[[1]]#.", {QM_RED, QM_GREEN})});
 
     hintTextTable[RHT_GF_HBA_1500_POINTS] = HintText(CustomMessage("They say that scoring 1500 in #horseback archery# grants #[[1]]#.",
                                                         /*german*/ "Man erzählt sich, daß das Erzielen von 1.500 Punkten beim #Bogenschießen zu Pferde# #[[1]]# gewähre.",
@@ -975,8 +982,13 @@ void StaticData::HintTable_Init() {
 
     hintTextTable[RHT_GERUDO_FORTRESS] = HintText(CustomMessage("Gerudo's Fortress",
                                                      /*german*/ "in der Gerudo-Festung",
-                                                     /*french*/ "le Repaire des Voleurs"));
+                                                     /*french*/ "la Forteresse Gerudo"));
                                                   // /*spanish*/la Fortaleza Gerudo
+
+    hintTextTable[RHT_THIEVES_HIDEOUT] = HintText(CustomMessage("the Thieves' Hideout",
+                                                     /*german*/ "im Diebesversteck",
+                                                     /*french*/ "le Repaire des Voleurs"));
+                                                  // /*spanish*/la Guarida de los Ladrones
 
     hintTextTable[RHT_HAUNTED_WASTELAND] = HintText(CustomMessage("Haunted Wasteland",
                                                        /*german*/ "in der Gespensterwüste",
@@ -1678,7 +1690,7 @@ void StaticData::HintTable_Init() {
     hintTextTable[RHT_JUNK57] = HintText(CustomMessage("They say Ganon's tail is vulnerable to nuts, arrows, swords, explosives, hammers...^...sticks, seeds, "
                                                        "boomerangs...^...rods, shovels, iron balls, angry bees...",
                                             /*german*/ "Man erzählt sich, Ganons Schwanz sei verwundbar durch Nüsse, Pfeile, Schwerter...^...Explosives, Hämmer, "
-													   "Stöcke...^...Kerne, Bumerangs, Schaufeln, Eisenkugeln, wütende Bienen...",
+                                                       "Stöcke...^...Kerne, Bumerangs, Schaufeln, Eisenkugeln, wütende Bienen...",
                                             /*french*/ "Selon moi, la queue de Ganon est vulnérable aux noix, flèches, épées, bombes, marteaux...^...bâtons, "
                                                        "graines, boomerangs...^...baguettes, pelles, boulets de fer, abeilles enragées..."));
 
@@ -2019,7 +2031,7 @@ void StaticData::HintTable_Init() {
                                                                             {QM_YELLOW}, {}, TEXTBOX_TYPE_BLUE));
 
     hintTextTable[RHT_BRIDGE_GREG_HINT] = HintText(CustomMessage("$gThe awakened ones will await for the Hero to find #Greg#.^",
-	                                                   /*german*/ "$gDie Weisen werden darauf&warten, daß der Held&#Greg# findet.^",
+                                                       /*german*/ "$gDie Weisen werden darauf&warten, daß der Held&#Greg# findet.^",
                                                       /*french*/ "$gLes êtres de sagesse attendront le héros muni de #Greg#.^",
                                                                  {QM_GREEN}, {}, TEXTBOX_TYPE_BLUE));
 
@@ -2330,13 +2342,17 @@ void StaticData::HintTable_Init() {
                                                           {QM_GREEN, QM_RED}));
 
     hintTextTable[RHT_LOACH_HINT] = HintText(CustomMessage("What?^You wanna know about the&%rHyrule Loach%w?^It's a big fish, but it's so rare that I'll give %g[[1]]%w to anyone who catches it. Seriously!",
+<<<<<<< HEAD
 	                                            /*german*/ "Was?^Du willst etwas über die&%rhylianische Forelle%w wissen?&Es ist ein riesiger Fisch,&der unfassbar selten ist!^Wenn Du mir eine bringst, |springt|springen| für Dich&%g[[1]]%w dabei raus.&Ganz im Ernst!",
+=======
+                                                /*german*/ "Was?^Du willst etwas über die&%rhylianische Forelle%w wissen?&Es ist ein riesiger Fisch,&der unfassbar selten ist!^Wenn Du mir eine bringst, |springt|springen| für Dich&%g[[1]]%w dabei raus.&Ganz im Ernst!",
+>>>>>>> vendor-soh
                                                 /*french*/ "Quoi?&Tu veux en savoir plus sur le&%rBrochet d'Hyrule%w?^C'est un gros poisson, mais il&est si rare que je donne&%g[[1]]%w&à celui qui l'attrape.^Ouais, j'suis sérieux!",
                                                            {QM_RED}));
 
     hintTextTable[RHT_FISHING_POLE_HINT] = HintText(CustomMessage("^If I remember correctly, I lost it somewhere in #[[1]]#...&Let me know if you find it!",
-	                                                    /*german*/ "Wenn ich mich recht erinnere,&habe ich sie irgendwo&#[[1]]#&verloren...&Sag mir Bescheid, wenn Du sie findest!",
-													    /*french*/ "Si je me souviens bien, il me&semble que je l'ai perdue&quelque part dans&#[[1]]#...^Fais-moi signe si jamais&tu la trouves!",
+                                                        /*german*/ "Wenn ich mich recht erinnere,&habe ich sie irgendwo&#[[1]]#&verloren...&Sag mir Bescheid, wenn Du sie findest!",
+                                                        /*french*/ "Si je me souviens bien, il me&semble que je l'ai perdue&quelque part dans&#[[1]]#...^Fais-moi signe si jamais&tu la trouves!",
                                                                    {QM_RED}));
 
     /*--------------------------
@@ -2353,7 +2369,7 @@ void StaticData::HintTable_Init() {
     ---------------------------*/
 
     hintTextTable[RHT_HBA_HINT_SIGN] = HintText(CustomMessage("#Horseback Archery# Range Prizes:&1000: #[[1]]#&1500: #[[2]]#^@'s Record: #" + CustomMessage::POINTS(HS_HORSE_ARCHERY) + "#",
-												   /*german*/ "#Bogenschießen zu Pferde#&Schießstandpreise:&1000: #[[1]]#^1500: #[[2]]#^@'s Rekord: #" + CustomMessage::POINTS(HS_HORSE_ARCHERY) + "#",
+                                                   /*german*/ "#Bogenschießen zu Pferde#&Schießstandpreise:&1000: #[[1]]#^1500: #[[2]]#^@'s Rekord: #" + CustomMessage::POINTS(HS_HORSE_ARCHERY) + "#",
                                                    /*french*/ "Récompenses de l'#Archerie Montée#:&1000: #[[1]]#&1500: #[[2]]#^Record de @: #" + CustomMessage::POINTS(HS_HORSE_ARCHERY) + "#",
                                                               {QM_RED, QM_GREEN, QM_GREEN, QM_GREEN}, {}, TEXTBOX_TYPE_WOODEN));
 
@@ -2481,7 +2497,7 @@ void StaticData::HintTable_Init() {
     hintTextTable[RHT_GANON_JOKE06] = HintText(CustomMessage("Zelda is probably going to do something stupid, like send you back to your own timeline.^So this is "
                                                              "quite meaningless. Do you really want to save this moron?",
                                                   /*german*/ "Zelda wird wahrscheinlich wieder etwas Dummes tun, wie Dich in Deine eigene Zeit zurück zu schicken."
-												             "^Ziemlich sinnlos wenn Du mich fragst. Willst Du diesen Schwachkopf wirklich retten?",
+                                                             "^Ziemlich sinnlos wenn Du mich fragst. Willst Du diesen Schwachkopf wirklich retten?",
                                                   /*french*/ "Même si je suis vaincu... Zelda te renverra dans ton ère, et je reviendrai conquérir!^Telle est la "
                                                              "prophécie d'Hyrule Historia!"));
                                                // /*spanish*/Seguro que Zelda trata de hacer alguna tontería, como enviarte de vuelta a tu línea temporal.^No tiene

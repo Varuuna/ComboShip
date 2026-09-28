@@ -1,5 +1,4 @@
-#ifndef MENU_H
-#define MENU_H
+#pragma once
 
 #include <libultraship/libultra.h>
 #include <ship/audio/Audio.h>
@@ -30,8 +29,12 @@ class Menu : public GuiWindow {
     bool IsMenuPopped();
     UIWidgets::Colors GetMenuThemeColor();
 
+<<<<<<< HEAD
     void MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors menuThemeIndex);
     void DrawContent(const std::set<std::string>& onlyPaths, const std::set<std::string>& skipPaths);
+=======
+    void MenuDrawItem(WidgetInfo& widget, UIWidgets::Colors menuThemeIndex);
+>>>>>>> vendor-soh
     void AddMenuEntry(std::string entryName, const char* entryCvar);
     void AddSearchWidget(SearchWidget widget);
     std::unordered_map<uint32_t, disabledInfo>& GetDisabledMap();
@@ -72,5 +75,3 @@ class Menu : public GuiWindow {
     UIWidgets::Colors menuThemeIndex;
 };
 } // namespace Ship
-
-#endif // MENU_H

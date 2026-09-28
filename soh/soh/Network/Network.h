@@ -1,5 +1,5 @@
-#ifndef NETWORK_H
-#define NETWORK_H
+#pragma once
+
 #ifdef __cplusplus
 
 #include <thread>
@@ -65,4 +65,3 @@ class Network {
 };
 
 #endif // __cplusplus
-#endif // NETWORK_H

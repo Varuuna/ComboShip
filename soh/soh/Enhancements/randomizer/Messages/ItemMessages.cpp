@@ -4,9 +4,12 @@
  * Vanilla/MQ hints when collecting Maps, Ice Trap messages,
  * etc.
  */
+
+#include <cstdarg>
+#include <algorithm>
+
 #include <soh/OTRGlobals.h>
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
-#include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/custom-message/CustomMessageTypes.h"
 #include "soh/Enhancements/randomizer/Traps.h"
 #include "soh/Enhancements/randomizer/item.h"
@@ -20,9 +23,6 @@
 extern "C" int gComboGoalRequired;
 extern "C" int (*gComboOtherTriforceCount)(void);
 #endif
-
-#include <cstdarg>
-#include <algorithm>
 
 extern "C" {
 #include "variables.h"
@@ -310,7 +310,11 @@ void BuildMapMessage(uint16_t* textId, bool* loadFromMessageTable) {
     CustomMessage msg =
         CustomMessage("You found the %g[[name]]%w! [[typeHint]]", "Du erhältst das %g[[name]]%w! [[typeHint]]",
                       "Vous obtenez %g[[name]]%w! [[typeHint]]", TEXTBOX_TYPE_BLUE);
+<<<<<<< HEAD
     int sceneNum;
+=======
+    int sceneNum = -1;
+>>>>>>> vendor-soh
     switch (itemEntry.getItemId) {
         case RG_DEKU_TREE_MAP:
             sceneNum = SCENE_DEKU_TREE;

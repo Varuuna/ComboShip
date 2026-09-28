@@ -9,6 +9,7 @@
 #include "z64save.h"
 #include "BenPort.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
+#include "2s2h/BenGui/CosmeticEditor.h"
 #include "assets/archives/schedule_dma_static/schedule_dma_static_yar.h"
 #include "assets/archives/icon_item_static/icon_item_static_yar.h"
 #include "assets/archives/icon_item_24_static/icon_item_24_static_yar.h"
@@ -4331,7 +4332,7 @@ void Message_DrawSceneTitleCard(PlayState* play, Gfx** gfxP) {
     gDPSetTextureFilter(gfx++, G_TF_BILERP);
     gDPSetAlphaDither(gfx++, G_AD_NOTPATTERN);
     gDPSetPrimColor(gfx++, 0, 0, 0, 0, 0, msgCtx->textboxColorAlphaCurrent);
-    gDPSetEnvColor(gfx++, 140, 40, 160, 255);
+    gDPSetEnvColorOverride(gfx++, 140, 40, 160, 255, COSMETIC_ID("Menus.SceneTitleCard"));
     gDPLoadTextureBlock(gfx++, gSceneTitleCardGradientTex, G_IM_FMT_I, G_IM_SIZ_8b, 64, 1, 0, G_TX_NOMIRROR | G_TX_WRAP,
                         G_TX_NOMIRROR | G_TX_WRAP, 6, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
     // #region 2S2H [Cosmetic] Account for different aspect ratios than 4:3 for title card

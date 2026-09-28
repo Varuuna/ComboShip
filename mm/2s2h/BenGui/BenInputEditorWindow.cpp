@@ -1397,6 +1397,14 @@ void BenInputEditorWindow::DrawPortTabContents(uint8_t portIndex) {
         DrawButtonLine(StringHelper::Sprintf("%s##DPad", ICON_FA_ARROW_RIGHT).c_str(), portIndex, BTN_DRIGHT);
     }
 
+    if (ImGui::CollapsingHeader("Z-Targeting Mode", NULL, ImGuiTreeNodeFlags_DefaultOpen)) {
+        u8* zTargetSetting = &gSaveContext.options.zTargetSetting;
+        if (ImGui::Checkbox("Hold", reinterpret_cast<bool*>(zTargetSetting))) {
+            CVarSetInteger("gSettings.ZTargetSetting", *zTargetSetting);
+            Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+        }
+    }
+
     if (ImGui::CollapsingHeader("Modifier Buttons", NULL, ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::TextWrapped("These can be bound to physical buttons and be selected for use in various\nenhancements, "
                            "but otherwise have no use on their own.");

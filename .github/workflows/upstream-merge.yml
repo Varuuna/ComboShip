@@ -234,35 +234,20 @@ jobs:
             echo "::endgroup::"
           done
 
-          # When soh moved on develop, cross-check the libultraship commit soh pins (its git submodule)
-          # against the one we vendor. Both track Kenix3 `port-maintenance`, so a mismatch is a pin
-          # LAG, not a line divergence — but soh code in this range may need a LUS fix we don't have
-          # yet. Surface the delta so cherry-picks (or a pin bump) happen up front instead of via a
-          # cryptic /WX build failure. Lands in the develop soh PR only. See docs/UPSTREAM_MERGES.md.
+          # Warn only when soh's libultraship submodule isn't covered by the libultraship this run
+          # lands (being behind is normal: the libultraship PR fixes it). See docs/UPSTREAM_MERGES.md.
           if [ -n "${TIP[soh]:-}" ] && [ -f "$REPORTS/tips-soh.md" ]; then
             lus_expected=$(git ls-tree "${TIP[soh]}" libultraship 2>/dev/null | awk '{print $3}' || true)
-            lus_ours=$(jq -r '.upstreams.libultraship.mergedSha' upstream-pins.json)
-            if [ -n "$lus_expected" ] && [ "${lus_expected:0:9}" != "${lus_ours:0:9}" ]; then
+            lus_target=${TIP[libultraship]:-$(jq -r '.upstreams.libultraship.mergedSha' upstream-pins.json)}
+            if [ -n "$lus_expected" ] && ! git merge-base --is-ancestor "$lus_expected" "$lus_target" 2>/dev/null; then
               {
                 echo ""
-                echo "### ⚠️ libultraship pin lag: soh expects a newer LUS"
+                echo "### ⚠️ soh needs a libultraship we can't get from \`port-maintenance\`"
                 echo ""
-                echo "soh pins libultraship \`${lus_expected:0:9}\`; ComboShip vendors \`${lus_ours}\`."
-                echo "Both are on Kenix3 \`port-maintenance\`, so this is a pin lag, not a line divergence —"
-                echo "but soh code in this range may need a LUS fix we do not have. Either **cherry-pick the"
-                echo "fixes you need** into \`libultraship/\` or **advance our libultraship pin** to cover them."
-                echo "We never adopt soh's submodule pin wholesale."
+                echo "soh pins libultraship \`${lus_expected:0:9}\`, which is not in \`${lus_target:0:9}\` (the newest we can take)."
+                echo "soh may be on another libultraship line. Cherry-pick what it needs into \`libultraship/\`, or wait."
                 echo ""
-                echo "<https://github.com/Kenix3/libultraship/compare/${lus_ours}...${lus_expected}>"
-                echo ""
-                echo '<details><summary>LUS commits soh expects that you may be missing</summary>'
-                echo ""
-                echo '```'
-                gh api "repos/Kenix3/libultraship/compare/${lus_ours}...${lus_expected}" \
-                  -q '.commits[:40][] | "\(.sha[0:9])  \(.commit.message | split("\n")[0])"' 2>/dev/null \
-                  || echo "(compare unavailable — open the link above)"
-                echo '```'
-                echo '</details>'
+                echo "<https://github.com/Kenix3/libultraship/compare/${lus_target}...${lus_expected}>"
               } >> "$REPORTS/tips-soh.md"
             fi
           fi

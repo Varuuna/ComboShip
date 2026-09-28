@@ -7,6 +7,8 @@
 #include "z_en_bb.h"
 #include "overlays/actors/ovl_En_Clear_Tag/z_en_clear_tag.h"
 #include "objects/gameplay_keep/gameplay_keep.h"
+#include "2s2h/BenGui/CosmeticEditor.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 
 #define FLAGS (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_HOSTILE | ACTOR_FLAG_HOOKSHOT_PULLS_ACTOR)
 
@@ -703,7 +705,7 @@ void EnBb_Draw(Actor* thisx, PlayState* play) {
                         MTXMODE_APPLY);
         Matrix_Scale(this->flameScaleX, this->flameScaleY, 1.0f, MTXMODE_APPLY);
         gDPSetPrimColor(POLY_XLU_DISP++, 0x80, 0x80, 255, 255, 255, 255);
-        gDPSetEnvColor(POLY_XLU_DISP++, 0, 0, 255, 0);
+        gDPSetEnvColorOverride(POLY_XLU_DISP++, 0, 0, 255, 0, COSMETIC_ID("Effects.SkullBubbleFlame"));
         gSPSegment(POLY_XLU_DISP++, 0x08,
                    Gfx_TwoTexScrollEx(play->state.gfxCtx, 0, 0, 0, 32, 64, 1, 0, (play->gameplayFrames * -20) & 0x1FF,
                                       32, 128, 0, 0, 0, -20));

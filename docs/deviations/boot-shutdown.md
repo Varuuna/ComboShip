@@ -99,6 +99,10 @@ BEFORE `SOH_Deinit` (BenGui::Destroy dereferences the live Context), so soh's `D
 the LAST reference and `~Context` runs on the main thread. This is what fixed window-resize
 persistence.
 
+2Ship 5.0.1 added `Ship::Context::DestroyInstance()` to MM's `DeinitOTR`. It is skipped under
+`COMBO_BUILD`: MM must not destroy the shared Context, or soh's teardown runs on a dead one. After
+`MM_Deinit()` the Context is still alive; `SOH_Deinit()` is the only place that destroys it.
+
 **`soh/soh/OTRGlobals.cpp` + `mm/2s2h/BenPort.cpp` (`DeinitOTR`), `libultraship`
 (`CrossRMRegistry::Unregister`, new):** both resident ResourceManagers were pinned by the
 `sOOT/sMMResourceManager` statics and the `CrossRMRegistry` map, deferring their destruction to
@@ -453,18 +457,12 @@ compounding defects in `PrintStack`:
    export, and 2ship.dll exports only its handful of `MM_*` combo entry points — so an entire MM call
    chain reports as ~3 names, each wildly far from the real function.
 
-**`libultraship/src/ship/debug/CrashHandler.cpp` (COMBO_BUILD-guarded; upstream preserved verbatim
-under `#else` so future lus merges stay mechanical):**
-- `SymSetOptions` gains `SYMOPT_LOAD_LINES | SYMOPT_UNDNAME`. Without `LOAD_LINES`,
-  `SymGetLineFromAddr` can fail even when PDBs are present, silently degrading Debug builds too.
-- Per frame: reset `displacement` and `symbol->Name[0]`, keep `SymFromAddr`'s result, and print
-  `<unresolved>` when it fails — never a stale name.
-- `symbol->Flags & SYMFLAG_EXPORT` is surfaced as a `~export(approx)` marker. That flag is set exactly
-  when dbghelp invented the name from the export table, i.e. on every Release frame. Defect 3 is
-  unfixable without shipping PDBs, so the fix is to make it *visible* rather than silently trusted.
-- The module lookup is hoisted so **both** print branches carry the real PC, the module path and an
-  RVA. The file/line branch had the same stale-name hazard (it printed `symbol->Name` too), which was
-  the most misleading output of the three: this frame's file and line beside the previous frame's name.
+**RETIRED 2026-09-28 (PrintStack parts):** upstream #1190 fixed defects 1 and 2 the same way (checks
+`SymFromAddr`, clears the name, loads line info, prints `[pc base rva]` on every frame, searches the
+exe dir for PDBs). We took upstream's `PrintStack` as-is and dropped our `~export(approx)` flag, so
+defect 3 (export-table guesses in PDB-less builds) is no longer marked. Only the buffer guards remain.
+
+**`libultraship/src/ship/debug/CrashHandler.cpp` (COMBO_BUILD-guarded, still active):**
 - `AppendStrTrunc` no longer reads past the source string's terminator, and `AppendLine` no longer
   writes its newline unchecked. The latter was a genuine 1-byte heap overflow: `AppendStr` caps the
   index at `gMaxBufferSize - 1`, so `AppendLine` could push it to `gMaxBufferSize` and the next

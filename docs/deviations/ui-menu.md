@@ -245,6 +245,7 @@ file (the `ofstream` opened before `unflatten`).
   `SetBlock`, `EraseBlock`) route through a `TryUnflatten` helper that logs instead of throwing
   (the exception would unwind across the game-DLL boundary); `Save()` unflattens **before**
   opening/truncating the file; `Nested()` falls back to the last-good nested state on failure.
+  Since 2026-09-28 `Save()` sits on upstream's atomic temp-file write (#1183); only the guard is ours.
 
 **On future merges:** if upstream SoH renames the CVar or grows its own `.Enable`, drop the macro
 seam and re-check the migration. Audited 2026-08-04: this was the only cross-game leaf-vs-subtree

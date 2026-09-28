@@ -78,10 +78,20 @@ static bool IsTradeItemObtained(RandoItemId randoItemId) {
 // When the file isn't loaded everythin is ocarinas, so we fall back to the first safe item
 u32 GetVanillaItemIdForSlot(u32 slot) {
     bool isSaveLoaded = gPlayState != NULL && gSaveContext.gameMode == GAMEMODE_NORMAL;
+#ifdef COMBO_BUILD
+    // ComboShip: dormant MM peek has no play state but its save is loaded.
+    isSaveLoaded = isSaveLoaded || (!Combo_MmIsForeground() && gSaveContext.fileNum >= 0);
+#endif
     u32 vanillaItemId = isSaveLoaded ? gSaveContext.save.saveInfo.inventory.items[slot] : ITEM_NONE;
 
     if (vanillaItemId == ITEM_NONE || vanillaItemId >= ITEM_RECOVERY_HEART) {
+#ifdef COMBO_BUILD
+        // ComboShip: the safe-item list fills lazily and can still be empty on the first draw.
+        const auto& safe = safeItemsForInventorySlot[slot];
+        vanillaItemId = safe.empty() ? ITEM_NONE : safe[0];
+#else
         vanillaItemId = safeItemsForInventorySlot[slot][0];
+#endif
     }
 
     return vanillaItemId;
@@ -175,15 +185,7 @@ TrackerImageObject GetImageObject(TrackerItemType itemType, u32 itemId) {
         } break;
         case TRACKER_ITEM_SLOT: {
             itemObtained = gSaveContext.save.saveInfo.inventory.items[itemId] != ITEM_NONE;
-<<<<<<< HEAD
-            auto vanillaItemId = isSaveLoaded ? gSaveContext.save.saveInfo.inventory.items[itemId] : ITEM_NONE;
-            if (vanillaItemId == ITEM_NONE || vanillaItemId >= ITEM_RECOVERY_HEART) {
-                const auto& safe = safeItemsForInventorySlot[itemId];
-                vanillaItemId = safe.empty() ? ITEM_NONE : safe[0];
-            }
-=======
             auto vanillaItemId = GetVanillaItemIdForSlot(itemId);
->>>>>>> vendor-mm
 
             trackerImageObject.textureId =
                 std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui())

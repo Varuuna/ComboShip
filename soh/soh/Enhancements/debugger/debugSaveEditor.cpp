@@ -959,19 +959,6 @@ static void SyncButtonItemsForSlot(uint8_t slot) {
     }
 }
 
-// Re-sync any C/D-pad button that mirrors an edited inventory slot (buttonItems[i] == items[cButtonSlots[i-1]]),
-// so a raw item edit doesn't leave the button showing stale contents.
-static void SyncButtonItemsForSlot(uint8_t slot) {
-    for (size_t i = 1; i < ARRAY_COUNT(gSaveContext.equips.buttonItems); i++) {
-        if (gSaveContext.equips.cButtonSlots[i - 1] == slot) {
-            gSaveContext.equips.buttonItems[i] = gSaveContext.inventory.items[slot];
-            if (gPlayState != nullptr) {
-                Interface_LoadItemIcon1(gPlayState, static_cast<u16>(i));
-            }
-        }
-    }
-}
-
 void DrawInventoryTab() {
     auto gui = std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui());
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 3.0f);
@@ -992,11 +979,6 @@ void DrawInventoryTab() {
 
     // Check if D-pad is enabled for border coloring
     bool dpadEnabled = CVarGetInteger(CVAR_ENHANCEMENT("DpadEquips"), 0);
-
-    static bool syncButtons = true;
-    Checkbox("Keep C/D-pad buttons in sync", &syncButtons,
-             checkboxOptionsBase.Tooltip("Refresh a C or D-pad button when its inventory slot is edited. Disable to "
-                                         "leave a slot and its button out of sync (e.g. to set up RBA)."));
 
     static bool syncButtons = true;
     Checkbox("Keep C/D-pad buttons in sync", &syncButtons,

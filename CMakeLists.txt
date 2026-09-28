@@ -379,11 +379,19 @@ endif()
 
 target_compile_definitions(torch INTERFACE YAML_CPP_STATIC_DEFINE)
 
+# ComboShip: libultraship.dll exports the same StringHelper (LNK2005 in soh.dll), so torch drops its
+# copy (as Torch does under BUILD_UI); the packer, which has no libultraship, links it separately.
+get_target_property(_torch_srcs torch SOURCES)
+list(FILTER _torch_srcs EXCLUDE REGEX "src/utils/StringHelper\\.cpp$")
+set_target_properties(torch PROPERTIES SOURCES "${_torch_srcs}")
+add_library(torch-stringhelper STATIC EXCLUDE_FROM_ALL ${CMAKE_CURRENT_SOURCE_DIR}/torch/src/utils/StringHelper.cpp)
+set_target_properties(torch-stringhelper PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+
 add_executable(soh-o2r-packer EXCLUDE_FROM_ALL
     ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/tools/soh-o2r-packer/main.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/tools/soh-o2r-packer/PngTexture.cpp
 )
-target_link_libraries(soh-o2r-packer PRIVATE torch)
+target_link_libraries(soh-o2r-packer PRIVATE torch torch-stringhelper)
 
 ################################################################################
 # Sub-projects - Game-specific builds

@@ -1000,15 +1000,8 @@ void SohMenu::AddMenuEnhancements() {
     AddWidget(path, "Mask Select in Inventory", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_ENHANCEMENT("MaskSelect"))
         .PreFunc([](WidgetInfo& info) {
-<<<<<<< HEAD
-            info.options->disabled =
-                OTRGlobals::Instance->gRandoContext->GetOption(RSK_MASK_QUEST).IsNot(RO_MASK_QUEST_VANILLA);
-            info.options->disabledTooltip =
-                "This setting is forcefully enabled when Mask Quest is Completed from the start or Shuffled.";
-=======
             info.options->disabled = IS_RANDO;
             info.options->disabledTooltip = "This setting is forcefully enabled in randomizer.";
->>>>>>> vendor-soh
         })
         .Options(CheckboxOptions().Tooltip(
             "After completing the mask trading sub-quest, press A and any direction on the mask "
@@ -2204,34 +2197,30 @@ void SohMenu::AddMenuEnhancements() {
     // Time Splits
     path.sidebarName = "Time Splits";
     AddSidebarEntry("Enhancements", path.sidebarName, 1);
-<<<<<<< HEAD
-    AddWidget(path, "Popout Time Splits Window", WIDGET_WINDOW_BUTTON)
-        .CVar(CVAR_WINDOW("TimeSplits"))
-        .RaceDisable(false)
-        .WindowName("Time Splits")
-        .HideInSearch(true)
-        .Options(WindowButtonOptions().Tooltip("Enables the separate Time Splits Window."));
+    AddWidget(path, "Popout Timesplits Settings", WIDGET_WINDOW_BUTTON)
 #ifdef COMBO_BUILD
-    // ComboShip: draw the window inline (see "Cosmetics Editor Inline"); skipped when popped out.
-    AddWidget(path, "Time Splits Inline", WIDGET_CUSTOM)
+        // ComboShip: the window's own CVar; upstream's "gWindows.Timesplits.Settings" is MM's subtree key.
+        .CVar(CVAR_WINDOW("TimeSplitSettings"))
+#else
+        .CVar("gWindows.Timesplits.Settings")
+#endif
+        .WindowName("Time Splits Settings Window");
+#ifdef COMBO_BUILD
+    // ComboShip: draw the settings window inline (see "Cosmetics Editor Inline"); skipped when popped out.
+    AddWidget(path, "Time Splits Settings Inline", WIDGET_CUSTOM)
         .RaceDisable(false)
         .HideInSearch(true)
         .CustomFunction([](WidgetInfo&) {
             auto ctx = Ship::Context::GetRawInstance();
             if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui())
                 return;
-            auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Time Splits");
+            auto win = ctx->GetWindow()->GetGui()->GetGuiWindow("Time Splits Settings Window");
             if (!win || win->IsVisible())
                 return;
             win->Update();
             win->DrawElement();
         });
 #endif
-=======
-    AddWidget(path, "Popout Timesplits Settings", WIDGET_WINDOW_BUTTON)
-        .CVar("gWindows.Timesplits.Settings")
-        .WindowName("Time Splits Settings Window");
->>>>>>> vendor-soh
 
 #ifndef COMBO_BUILD
     // ComboShip (#173): combo owns the timer overlay, so this section is gone. The menu search

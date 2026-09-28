@@ -35,16 +35,18 @@ constexpr int kSettingsColumns[2] = { 1, 3 };
 // leaves the loaded config value untouched on the very first call).
 int sIntent[2][2] = { { -1, -1 }, { -1, -1 } };
 
-// Notification windows: OOT registers the plain name; MM appends "##MM" (BenGui.cpp). Indexed by
-// game: 0 = OOT, 1 = MM. These are gated by Gui-map presence, NOT visibility — see the file header.
-const char* const kNotificationWin[2] = {
-    "Notifications Window",     // OOT (soh)
-    "Notifications Window##MM", // MM (2ship)
+// Foreground-only windows, indexed [window][game] (0 = OOT, 1 = MM; MM's names carry "##MM", see
+// BenGui.cpp). Gated by Gui-map presence, NOT visibility — see the file header. Time Splits is an
+// overlay whose Draw() ignores visibility (it shows whenever splits are enabled), so it needs this too.
+const char* const kForegroundOnlyWin[][2] = {
+    { "Notifications Window", "Notifications Window##MM" },
+    { "Time Splits", "Time Splits Window##MM" },
 };
+constexpr int kForegroundOnlyCount = sizeof(kForegroundOnlyWin) / sizeof(kForegroundOnlyWin[0]);
 
-// weak_ptr handles so the windows stay owned solely by their own game DLL (their mNotificationWindow
-// member keeps them alive); we only need a handle to re-add the backgrounded one later.
-std::weak_ptr<Ship::GuiWindow> sNotif[2];
+// weak_ptr handles so the windows stay owned solely by their own game DLL (its member keeps them
+// alive); we only need a handle to re-add the backgrounded one later.
+std::weak_ptr<Ship::GuiWindow> sForegroundOnly[kForegroundOnlyCount][2];
 
 // Reload MM's controller bindings from the shared gSettings.Controllers.* CVars. Resolved once from
 // 2ship.dll. Called on MM entry so rebinds made via the Shared (OOT) controls UI while MM was dormant
@@ -61,7 +63,7 @@ void ReloadMmControls() {
     }
 }
 
-// Keep only the foreground game's notification window in the shared Gui's draw loop.
+// Keep only the foreground game's copy of each foreground-only window in the shared Gui's draw loop.
 void SetForegroundNotification(int fg) {
     auto ctx = Ship::Context::GetRawInstance();
     if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
@@ -70,16 +72,18 @@ void SetForegroundNotification(int fg) {
     auto gui = ctx->GetWindow()->GetGui();
     const int bg = fg ^ 1;
 
-    // Background game: capture a handle (so we can re-add it on return) and drop it from the draw loop.
-    if (auto win = gui->GetGuiWindow(kNotificationWin[bg])) {
-        sNotif[bg] = win;
-        gui->RemoveGuiWindow(kNotificationWin[bg]);
-    }
-    // Foreground game: re-add the SAME (already-initialized) object if it was previously removed and is
-    // not currently present. Init() on re-add is a guarded no-op; no fresh window is ever created.
-    if (!gui->GetGuiWindow(kNotificationWin[fg])) {
-        if (auto win = sNotif[fg].lock()) {
-            gui->AddGuiWindow(win);
+    for (int w = 0; w < kForegroundOnlyCount; ++w) {
+        // Background game: capture a handle (so we can re-add it on return) and drop it from the loop.
+        if (auto win = gui->GetGuiWindow(kForegroundOnlyWin[w][bg])) {
+            sForegroundOnly[w][bg] = win;
+            gui->RemoveGuiWindow(kForegroundOnlyWin[w][bg]);
+        }
+        // Foreground game: re-add the SAME (already-initialized) object if it was previously removed and
+        // is not currently present. Init() on re-add is a guarded no-op; no fresh window is created.
+        if (!gui->GetGuiWindow(kForegroundOnlyWin[w][fg])) {
+            if (auto win = sForegroundOnly[w][fg].lock()) {
+                gui->AddGuiWindow(win);
+            }
         }
     }
 }

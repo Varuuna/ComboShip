@@ -320,6 +320,18 @@ src/overlays/misc/ovl_kaleido_scope/z_kaleido_scope_PAL.c
   suppresses the save.
 - **RM scope:** Gamepad Mapper diagram and mod menu Cancel read/mount through OOT's resource manager.
 
+## Post-merge build fixes
+
+- Torch's own `StringHelper.cpp` duplicated libultraship.dll's exports (LNK2005 in soh.dll): our root
+  CMake drops it from the torch target's sources (Torch does the same under `BUILD_UI`); the packer,
+  which has no libultraship, links it through a small `torch-stringhelper` lib. No `torch/` edits.
+- `GIMMCMD` is defined by both LUS `fast/lus_gbi.h` and `libultra/gbi.h`; upstream's slimmer soh
+  includes now reach `lus_gbi.h` first, so the second define warned under `/WX`. `libultra/gbi.h`
+  `#undef`s it first under `COMBO_BUILD` (same resulting definition as before).
+- `debugSaveEditor.cpp`: our PR #174 cherry-pick of upstream's button-sync fix was merged a second
+  time by git (duplicate function); took upstream's file.
+- The CRT walker's regex backreference must be written `\\1` inside the CMake string.
+
 ## Deferred (follow-up issues)
 
 - Hide-quest options that are no-ops in combo (`SohMenuEnhancements.cpp` quest hiding).

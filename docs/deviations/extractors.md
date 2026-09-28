@@ -5,6 +5,8 @@ packs `soh.o2r` with `soh-o2r-packer`; ZAPDTR/OTRExporter below are **MM-only** 
 static CRT, so root `CMakeLists.txt` sets `CMAKE_POLICY_DEFAULT_CMP0091 NEW` and `combo_dynamic_crt_tree`
 puts every torch-tree target (incl. fetched tinyxml2/zlib/yaml-cpp) back on `MultiThreaded[Debug]DLL`.
 On Linux `torch yaml-cpp BinaryTools N64Graphics` get hidden visibility (own StringHelper/CRC64/stbi).
+Torch's `src/utils/StringHelper.cpp` is dropped from the torch target in root CMake (libultraship.dll
+exports the same class); `soh-o2r-packer` links it via `torch-stringhelper`. No edits under `torch/`.
 Bump Torch by hand to soh's `torch` gitlink (`git ls-tree <soh sha> torch`) with `read-tree`.
 
 ComboShip vendors **one shared copy** of each extractor (`ZAPDTR/`, `OTRExporter/`), wired at

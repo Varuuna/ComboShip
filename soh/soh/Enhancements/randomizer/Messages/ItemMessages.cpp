@@ -4,18 +4,18 @@
  * Vanilla/MQ hints when collecting Maps, Ice Trap messages,
  * etc.
  */
+
+#include <cstdarg>
+#include <algorithm>
+
 #include <soh/OTRGlobals.h>
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
-#include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/custom-message/CustomMessageTypes.h"
 #include "soh/Enhancements/randomizer/Traps.h"
 #include "soh/Enhancements/randomizer/item.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
 #include "soh/ShipInit.hpp"
 #include <soh/ResourceManagerHelpers.h>
-
-#include <cstdarg>
-#include <algorithm>
 
 extern "C" {
 #include "variables.h"
@@ -136,8 +136,7 @@ void BuildTriforceMessage(CustomMessage& msg) {
 
 void BuildCustomItemMessage(Player* player, CustomMessage& msg) {
     int16_t rgid;
-    msg = CustomMessage("You found [[article]][[color]][[name]]%w!",
-                        "Du erhältst [[article]][[color]][[name]]%w gefunden!",
+    msg = CustomMessage("You found [[article]][[color]][[name]]%w!", "Du hast [[article]][[color]][[name]]%w gefunden!",
                         "Vous avez trouvé [[article]][[color]][[name]]%w!", TEXTBOX_TYPE_BLUE);
     if (player->getItemEntry.objectId != OBJECT_INVALID) {
         rgid = player->getItemEntry.getItemId;
@@ -243,8 +242,8 @@ void BuildMapMessage(uint16_t* textId, bool* loadFromMessageTable) {
     auto ctx = OTRGlobals::Instance->gRandoContext;
     CustomMessage msg =
         CustomMessage("You found the %g[[name]]%w! [[typeHint]]", "Du erhältst das %g[[name]]%w! [[typeHint]]",
-                      "Vous ebtenez %g[[name]]%w! [[typeHint]]", TEXTBOX_TYPE_BLUE);
-    int sceneNum;
+                      "Vous obtenez %g[[name]]%w! [[typeHint]]", TEXTBOX_TYPE_BLUE);
+    int sceneNum = -1;
     switch (itemEntry.getItemId) {
         case RG_DEKU_TREE_MAP:
             sceneNum = SCENE_DEKU_TREE;

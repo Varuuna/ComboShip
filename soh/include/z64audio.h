@@ -468,7 +468,7 @@ typedef struct {
     /* 0x00F0 */ s16 dummyResampleState[0x10];
 } NoteSynthesisBuffers; // size = 0x110
 
-struct OggOpusFile;
+struct OpusDecState;
 
 typedef struct {
     /* 0x00 */ u8 restart;
@@ -488,7 +488,7 @@ typedef struct {
     /* 0x1A */ u8 unk_1A;
     /* 0x1C */ u16 unk_1C;
     /* 0x1E */ u16 unk_1E;
-    struct OggOpusFile* opusFile; // Only for streamed opus audio
+    struct OpusDecState* opusFile; // Only for streamed opus audio
 } NoteSynthesisState; // size = 0x20
 
 typedef struct {
@@ -915,7 +915,8 @@ typedef struct {
     /* 0x2B30 */ AudioCache fontCache;
     /* 0x2C40 */ AudioCache sampleBankCache;
     /* 0x2D50 */ AudioAllocPool permanentPool;
-    /* 0x2D60 */ AudioCacheEntry permanentCache[32];
+    // SOH [Bugfix] 32 -> 512: large custom-music packs overflowed this (see AudioHeap_AllocPermanent).
+    /* 0x2D60 */ AudioCacheEntry permanentCache[512];
     /* 0x2EE0 */ AudioSampleCache persistentSampleCache;
     /* 0x3174 */ AudioSampleCache temporarySampleCache;
     /* 0x3408 */ AudioPoolSplit4 sessionPoolSplit;

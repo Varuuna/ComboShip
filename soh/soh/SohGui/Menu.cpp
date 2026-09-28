@@ -10,13 +10,7 @@
 #include "UIWidgets.hpp"
 #include "soh/OTRGlobals.h"
 #include "SohModals.h"
-<<<<<<< HEAD
-#include <variant>
-#include <spdlog/fmt/fmt.h>
-#include <tuple>
 #include "ComboMenuDrawContent.h" // ComboShip: shared DrawContent body (combo-owned)
-=======
->>>>>>> vendor-soh
 
 extern "C" {
 #include "z64.h"

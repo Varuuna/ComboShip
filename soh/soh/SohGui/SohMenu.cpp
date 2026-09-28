@@ -1,12 +1,8 @@
 #include <libultraship/bridge/consolevariablebridge.h>
 #include <ship/Context.h>
-<<<<<<< HEAD
-#include <ship/utils/StringHelper.h>
-#include "soh/OTRGlobals.h" // ComboShip: EvalDisabledByIndex foreground guard mirrors Menu::DrawElement
-=======
 
 #include "SohMenu.h"
->>>>>>> vendor-soh
+#include "soh/OTRGlobals.h" // ComboShip: EvalDisabledByIndex foreground guard mirrors Menu::DrawElement
 
 extern "C" {
 extern PlayState* gPlayState;

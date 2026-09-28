@@ -7,8 +7,8 @@
       "branch": "port-maintenance",
       "prefix": "libultraship",
       "subtree": "",
-      "mergedSha": "bbb565bd9",
-      "mergedDate": "2026-08-01"
+      "mergedSha": "7cb10226e",
+      "mergedDate": "2026-09-28"
     },
     "soh": {
       "remote": "https://github.com/HarbourMasters/Shipwright.git",

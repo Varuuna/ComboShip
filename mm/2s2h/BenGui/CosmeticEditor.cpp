@@ -3,15 +3,12 @@
 #include "CosmeticEditor.h"
 #include "CosmeticShading.h"
 #include "2s2h/ShipInit.hpp"
-<<<<<<< HEAD
 #ifdef COMBO_BUILD
 #include <ship/resource/CrossRMRegistry.h>
 #include <ship/resource/ResourceManagerScope.h>
 #endif
-=======
 
 #include <cstring>
->>>>>>> vendor-mm
 #include "2s2h/GameInteractor/GameInteractor.h"
 
 extern "C" {

@@ -92,15 +92,7 @@ s32 GetNormalizedCost() {
     return MAX(10, MIN(250, 10 + (obtainedChecks * (250 - 10)) / (maxChecks)));
 }
 
-<<<<<<< HEAD
-// outForeignText: ComboShip out-param — set when the pick lands on a cross-game (OOT) hint, which
-// has no RandoCheckId. Caller must display it directly instead of resolving a check/item name.
-// outForeignIndex: ComboShip (#164) report-only out-param — that hint's gossipPool index.
-RandoCheckId GetRandomCheck(bool repeatableOnlyObtained = false, std::string* outForeignText = nullptr,
-                            int* outForeignIndex = nullptr) {
-=======
 EnGs* GetGossipStone() {
->>>>>>> vendor-mm
     Player* player = GET_PLAYER(gPlayState);
     if (player->talkActor == nullptr || player->talkActor->id != ACTOR_EN_GS) {
         return nullptr;
@@ -113,7 +105,11 @@ bool ShouldHintMoonMask(EnGs* enGs) {
            enGs->unk_195 >= 1 && enGs->unk_195 <= 20; // 20 moon gossip stones
 }
 
-RandoCheckId GetRandomCheck(bool repeatableOnlyObtained = false) {
+// outForeignText: ComboShip out-param — set when the pick lands on a cross-game (OOT) hint, which
+// has no RandoCheckId. Caller must display it directly instead of resolving a check/item name.
+// outForeignIndex: ComboShip (#164) report-only out-param — that hint's gossipPool index.
+RandoCheckId GetRandomCheck(bool repeatableOnlyObtained = false, std::string* outForeignText = nullptr,
+                            int* outForeignIndex = nullptr) {
     EnGs* enGs = GetGossipStone();
     if (enGs == nullptr) {
         return RC_UNKNOWN;

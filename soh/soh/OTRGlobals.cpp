@@ -416,6 +416,17 @@ OTRGlobals::OTRGlobals() {
         fontStandardLargest = CreateFontWithSize(24.0f, "fonts/Montserrat-Regular.ttf");
         fontJapanese = CreateFontWithSize(24.0f, "fonts/NotoSansJP-Regular.ttf", true);
         ImGui::GetIO().FontDefault = fontStandardLarger;
+#ifdef COMBO_BUILD
+        // ComboShip: OOT just added 11 fonts to the shared ImGui atlas (TexReady=false). On the
+        // post-extraction path the ROM Setup screen already created the window AND drew frames, so the
+        // renderer backend's font texture is already built and will not rebuild on its own — the next
+        // ImGui::NewFrame() then runs against an unbuilt atlas. In Debug that is the "Font Atlas not
+        // built!" assert; in Release NDEBUG compiles the assert out and it segfaults instead.
+        // Mirrors the same deviation MM already carries after its own font loads (BenPort.cpp).
+        // Unconditional on purpose: invalidating before the texture exists is a no-op, and the normal
+        // boot path (no frames drawn yet) costs at most one extra rebuild.
+        Ship::Context::GetRawInstance()->GetWindow()->GetGui()->RebuildFontTexture();
+#endif
     }
 
     previousImGuiScaleIndex = -1;

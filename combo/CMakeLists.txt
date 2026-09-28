@@ -221,5 +221,61 @@ endif()
         message(STATUS "ComboShip: mm/2ship.o2r not found — skipping .o2r deploy (run Generate2ShipOtr to produce it).")
     endif()
 
-# Install
-install(TARGETS ComboShip DESTINATION . COMPONENT combo)
+# ─── macOS ──────────────────────────────────────────────────────────────────────────────────────
+# Everything the ELF port already handles is deliberately absent here: hidden visibility and the
+# COMBO_EXPORT ABI (soh/mm/comboui CMakeLists) apply to Mach-O unchanged and remove the need for a
+# -exported_symbols_list, the module symlink staging above works as-is, and the lib* prefix on
+# libsoh.dylib / lib2ship.dylib matches what ComboShip.cpp dlopens. Only these three are Darwin-only.
+if(APPLE)
+    # RPATH. On Linux the AppImage's AppRun sets LD_LIBRARY_PATH (combo/linux/AppRun, which notes
+    # the built libraries carry no usable RUNPATH); macOS has no equivalent — SIP strips
+    # DYLD_LIBRARY_PATH from a Finder launch — so the search path has to be baked into the images.
+    # Each module reaches its siblings through @loader_path and the exe through @executable_path,
+    # so one flat directory works both in the build tree and inside a .app's Contents/MacOS.
+    foreach(_combo_mod soh 2ship comboui libultraship)
+        if(TARGET ${_combo_mod})
+            set_target_properties(${_combo_mod} PROPERTIES
+                BUILD_WITH_INSTALL_RPATH FALSE
+                BUILD_RPATH "@loader_path"
+                INSTALL_RPATH "@loader_path")
+        endif()
+    endforeach()
+    foreach(_combo_exe ComboShip comborando)
+        if(TARGET ${_combo_exe})
+            set_target_properties(${_combo_exe} PROPERTIES
+                BUILD_WITH_INSTALL_RPATH FALSE
+                BUILD_RPATH "@executable_path"
+                INSTALL_RPATH "@executable_path")
+        endif()
+    endforeach()
+
+    # Apple frameworks for soh's own ObjC++ TU (DarwinSpeechSynthesizer.mm -> AVSpeechSynthesizer,
+    # NSString, and the objc runtime Foundation pulls in). libultraship links these too, but
+    # PRIVATE — which is why upstream never needed this: there libultraship is STATIC, so its
+    # PRIVATE deps still propagate to whatever links it. ComboShip builds it SHARED (COMBO_BUILD),
+    # and a shared library resolves its own PRIVATE deps and propagates nothing, leaving soh with
+    # undefined _OBJC_CLASS_$_AVSpeechSynthesizer at link.
+    if(TARGET soh)
+        find_library(COMBO_FOUNDATION Foundation REQUIRED)
+        find_library(COMBO_AVFOUNDATION AVFoundation REQUIRED)
+        target_link_libraries(soh PRIVATE ${COMBO_FOUNDATION} ${COMBO_AVFOUNDATION})
+    endif()
+
+    # SDL controller mapping database. soh/mm only INSTALL this (into the package), so a plain dev
+    # build never gets it and libultraship logs "Failed to add SDL game controller mappings from
+    # ./gamecontrollerdb.txt" on every launch, leaving anything not covered by SDL's built-in
+    # mappings unusable. Deploy it beside the exe like the rest of the runtime.
+    # ponytail: Darwin-gated to keep this diff attributable to the macOS port, but nothing here is
+    # Darwin-specific — the Linux build has the same gap. Drop the if(APPLE) to fix both.
+    add_custom_command(TARGET ComboShip POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/gamecontrollerdb.txt $<TARGET_FILE_DIR:ComboShip>/gamecontrollerdb.txt
+    )
+endif()
+
+# Install — flat layout for the Windows ZIP and the Linux AppImage. NOT on Apple: the macOS block
+# in the top-level CMakeLists installs the exe to Contents/MacOS, and this rule would additionally
+# drop a duplicate copy into Contents/Resources (CPack's Bundle install prefix).
+if(NOT APPLE)
+    install(TARGETS ComboShip DESTINATION . COMPONENT combo)
+endif()

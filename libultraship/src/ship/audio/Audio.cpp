@@ -8,6 +8,8 @@
 #include "ship/config/Config.h"
 #include "ship/controller/controldeck/ControlDeck.h"
 
+#include <cstdlib> // ComboShip: std::getenv, for the SHIP_AUDIO_BACKEND override
+
 namespace Ship {
 
 Audio::~Audio() {
@@ -68,6 +70,21 @@ AudioBackend Audio::GetCurrentAudioBackend() {
 
 AudioBackend Audio::GetSavedAudioBackend() {
     std::string backendName = mConfig->GetString("Window.AudioBackend");
+
+    // ComboShip: env override, checked before the config so it wins over the macOS coreaudio
+    // migration below — which is otherwise a standing override with no way out of it. Same
+    // environment-as-config pattern libultraship already uses for SHIP_HOME.
+    //
+    // It does NOT stay contained to the one run: whatever backend the game ends up on is written
+    // back to config by SetCurrentAudioBackend() below, as it is for any other selection. On macOS
+    // that self-corrects for the dangerous case — a config left saying "coreaudio" is migrated back
+    // to "sdl" on the next launch unless the variable is set again — so forcing CoreAudio stays an
+    // opt-in you have to keep making. Any other value simply sticks, like picking it in the menu.
+    const char* env = std::getenv("SHIP_AUDIO_BACKEND");
+    const bool fromEnv = env != nullptr && *env != '\0';
+    if (fromEnv) {
+        backendName = env;
+    }
     if (backendName == "wasapi") {
         return AudioBackend::WASAPI;
     }
@@ -80,6 +97,28 @@ AudioBackend Audio::GetSavedAudioBackend() {
     }
 
     if (backendName == "coreaudio") {
+#ifdef __APPLE__
+        // ComboShip: migrate coreaudio -> sdl on macOS, in the same shape as the pulse migration
+        // above. A saved "coreaudio" is almost never a deliberate choice — it is what libultraship's
+        // own pre-fix default wrote on first launch — and honouring it leaves every existing macOS
+        // user one launch away from the device-rate damage described at the fallback below.
+        //
+        // BE CLEAR ABOUT WHAT THIS COSTS: this runs on every read, so it is not a one-time migration
+        // but a standing override. Selecting CoreAudio in the Audio settings appears to work for the
+        // session and is silently reverted on the next launch — i.e. CoreAudio is effectively
+        // UNSELECTABLE on macOS for as long as this deviation stands. That is deliberate: the failure
+        // mode is permanent, system-wide, and hits applications other than this one, so it is not a
+        // choice worth honouring until the player itself is fixed. Anyone who truly needs it can set
+        // SHIP_AUDIO_BACKEND=coreaudio (checked at the top of this function) on each run.
+        if (!fromEnv) {
+            mConfig->SetString("Window.AudioBackend", "sdl");
+            mConfig->Save();
+            SPDLOG_WARN("macOS: forcing Window.AudioBackend sdl (was coreaudio). The CoreAudio player "
+                        "reconfigures the output device's sample rate system-wide and persistently. "
+                        "Set SHIP_AUDIO_BACKEND=coreaudio to override.");
+            return AudioBackend::SDL;
+        }
+#endif
         return AudioBackend::COREAUDIO;
     }
 
@@ -98,7 +137,16 @@ AudioBackend Audio::GetSavedAudioBackend() {
 #endif
 
 #ifdef __APPLE__
-    return AudioBackend::COREAUDIO;
+    // ComboShip: default macOS to SDL, not CoreAudio, until the CoreAudio player stops reconfiguring
+    // the user's output device. CoreAudioAudioPlayer opens a kAudioUnitSubType_HALOutput unit — which
+    // binds the device directly, unlike DefaultOutput, which converts — and sets a client format at
+    // AudioPlayer.h's hardcoded default SampleRate = 44100. macOS PERSISTS a device's chosen format,
+    // so first launch left a DisplayPort display stuck at 44100 (it expects 48000) and every other
+    // app on the system cut out — surviving both quitting the game and a reboot. A saved "coreaudio"
+    // is migrated to "sdl" above on every launch, so only SHIP_AUDIO_BACKEND=coreaudio reaches it.
+    // Revert once the player uses DefaultOutput or queries the device's nominal rate. See
+    // docs/deviations/resource-mgmt.md.
+    return AudioBackend::SDL;
 #endif
 
     return AudioBackend::SDL;

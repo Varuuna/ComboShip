@@ -216,8 +216,8 @@ layout, re-check the func→order mapping here.
   `soh/soh/Enhancements/randomizer/item_list.cpp` under COMBO_BUILD (mirror of the `ComboItemDrawMM.h`
   include in `mm/2s2h/BenPort.cpp`).
 - `combo/menu/ComboForeignDrawMM.h` — 2ship.dll consumer `MM_DrawComboForeign(RandoCheckId)`. Mirror
-  of `Randomizer_DrawComboForeign` (`soh/.../draw.cpp`): `MM_LookupForeign` → `GetProcAddress(soh.dll,
-  OOT_GetItemDrawInfo)` → route paths with `"__OTR__@oot:"` → submit OPA/XLU layers (per-check
+  of `Randomizer_DrawComboForeign` (`soh/.../draw.cpp`): `MM_LookupForeign` → `Combo_ResolveSym("soh",
+  "OOT_GetItemDrawInfo")` → route paths with `"__OTR__@oot:"` → submit OPA/XLU layers (per-check
   per-slot cache + sentinel fallback). MM passes the `RandoCheckId` straight into `Rando::DrawItem`,
   so no GetItemEntry-stamping analog is needed.
 
@@ -1685,7 +1685,7 @@ the next file creation.
 `MM_InitRandoSaveFile` returns 0 — MM has just rolled its own, so this overwrites it. OOT is the source
 of truth because its roll is seed-derived and MM's is not. It lives in comboui (not the launcher exe)
 because comboui already links libultraship, so the CVar API is called directly instead of through a
-hand-cast `GetProcAddress` shim; the launcher drives it through three exports,
+hand-cast `Combo_ResolveSym` shim; the launcher drives it through three exports,
 `ComboUI_SyncRandomizedCosmetics`, `ComboUI_CosmeticsSyncGateEnabled` (one predicate, so the gate's CVar
 reads are never duplicated) and `ComboUI_ClaimGenRollSeed` (the latch above). The CVar store is one
 shared instance across the exe and every DLL (shared `libultraship.dll`), so this is plain CVar

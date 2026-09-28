@@ -1,8 +1,8 @@
 name: pr-artifacts
 
 # After "Build Artifacts" finishes for a PR, post (or update) a comment on that PR with
-# nightly.link download links for each uploaded artifact (Windows + Linux both come from the
-# single run). Runs in the base-repo context via workflow_run, so it can comment even on fork PRs.
+# nightly.link download links for each uploaded artifact (Windows, Linux and macOS all come from
+# the single run). Runs in the base-repo context via workflow_run, so it can comment even on fork PRs.
 # Mirrors HarbourMasters/Shipwright/pr-artifacts.yml.
 
 on:

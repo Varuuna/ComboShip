@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -112,7 +113,7 @@ std::string SeedLabel(const nlohmann::json& spoiler) {
 
 } // namespace
 
-int main(int argc, char** argv) {
+static int Run(int argc, char** argv) {
     std::string seed = "1";
     int count = 1;
     std::string playthroughFile;
@@ -739,4 +740,16 @@ int main(int argc, char** argv) {
     std::cout << "[comborando] RESULT: " << (failures ? "FAIL" : "PASS") << " — " << (count - failures) << "/" << count
               << " completable, " << ms << " ms\n";
     return failures == 0 ? 0 : 1;
+}
+
+// Exit without running static destructors. The headless init leaves the shared Ship::Context to die
+// in them, and their order across the dylibs is unspecified: on macOS spdlog's registry goes first,
+// so ~Context logs through a freed logger and every run ends in SIGSEGV after printing its verdict,
+// turning a PASS into exit 139. Every file is closed by now.
+// ponytail: skips teardown rather than doing it. The upgrade is a SOH_DeinitRandoHeadless export that
+// calls Context::DestroyInstance(), as the game's DeinitOTR does, invoked before returning.
+int main(int argc, char** argv) {
+    const int rc = Run(argc, argv);
+    std::cout.flush();
+    std::_Exit(rc);
 }

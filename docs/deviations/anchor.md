@@ -203,8 +203,8 @@ Fixes, all `COMBO_BUILD`:
   orchestration happens at the launcher, not inside either game's filter.
 - Manual control: a "Resync team state" button in the combo-owned Shared > Settings > Network panel
   (`combo/gui/ComboMenu.cpp`), resolving both exports the same way the existing combo-gen syms are
-  resolved (`GetModuleHandleA`/`GetProcAddress` — comboui.dll has no other way to call into the game
-  DLLs) and calling both. This is NOT the full "Ship of Harkinian -> Network settings" migration to
+  resolved (`Combo_ResolveSym` — comboui has no other way to call into the game
+  modules; see `combo/ComboResolve.h`) and calling both. This is NOT the full "Ship of Harkinian -> Network settings" migration to
   combo-owned UI (separate follow-up) — just the resync control. The existing OOT Menu.cpp button is
   unchanged and still works.
 

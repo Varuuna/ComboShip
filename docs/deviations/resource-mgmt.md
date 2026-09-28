@@ -2,6 +2,81 @@
 
 Preserved deviations — keep across upstream merges. See [../UPSTREAM_MERGES.md](../UPSTREAM_MERGES.md) for the merge mechanism.
 
+## macOS: default to the SDL audio backend, not CoreAudio (2026-09-08)
+
+**Why:** libultraship defaults macOS to `AudioBackend::COREAUDIO` when nothing is saved
+(`Audio.cpp`, both the available-backends list and the `GetSavedAudioBackend()` fallback). Its
+`CoreAudioAudioPlayer` opens a **`kAudioUnitSubType_HALOutput`** unit — which binds the output device
+directly, unlike `DefaultOutput`, which simply converts — and sets a client stream format using
+`AudioPlayer.h`'s hardcoded `SampleRate = 44100`. macOS **persists a device's chosen format**, so a
+single launch left a DisplayPort display pinned at 44100 (displays expect 48000) and audio cut out
+system-wide *in every other application*, surviving both quitting the game and a full reboot. Found
+only because the .app was installed to /Applications and used across a reboot.
+
+**`libultraship/src/ship/audio/Audio.cpp` (vendored — preserve on future LUS merges):** three
+changes to `GetSavedAudioBackend()`, all `__APPLE__`-gated except the first:
+
+1. A `SHIP_AUDIO_BACKEND` env override read before the config — the same environment-as-config
+   pattern libultraship already uses for `SHIP_HOME`.
+2. The `__APPLE__` fallback returns `AudioBackend::SDL` instead of `COREAUDIO`.
+3. A saved `"coreaudio"` is rewritten to `"sdl"`, in the same shape as the existing `pulse` → `sdl`
+   migration a few lines above — unless the value came from (1), which is honoured as-is.
+
+**(3) is the part that matters, and it is stronger than it looks.** Changing only the *default*
+protects nobody who has already launched ComboShip on macOS — which is every existing user, since
+`"coreaudio"` is exactly what libultraship's own pre-fix default wrote on their first run. Because
+the rewrite runs on every read, it is a standing override rather than a one-time migration:
+**selecting CoreAudio in the Audio settings works for the session and is silently reverted on the
+next launch, so CoreAudio is effectively unselectable on macOS while this deviation stands.** That
+is deliberate — the failure mode is permanent, system-wide, and damages applications other than this
+one — but it is a real capability removed, and `SHIP_AUDIO_BACKEND=coreaudio` on each run is the
+documented way back. Note the env value is itself persisted by `SetCurrentAudioBackend()` like any
+other selection; on macOS that self-corrects, since a config left saying `"coreaudio"` is migrated
+again next launch.
+
+> **UPSTREAM CANDIDATE — temporary carry.** This is a mitigation, not the fix. The real fix is in
+> `CoreAudioAudioPlayer`: use `kAudioUnitSubType_DefaultOutput`, or query the device's current
+> nominal sample rate instead of forcing 44100. Nothing here is ComboShip-specific — any libultraship
+> consumer on macOS with a fresh config reconfigures the user's audio device. Revert this deviation
+> once a pin bump carries the real fix.
+
+## macOS/Metal: font atlas never rebuilt after a late AddFont (2026-09-07)
+
+**Why:** `Fast3dGui::RebuildFontTexture()` exists because the renderer backends build their font
+texture once, lazily; a font added to the shared ImGui atlas *after* that leaves it with
+`TexReady=false`. The function enumerates backends — OpenGL `ImGui_ImplOpenGL3_DestroyFontsTexture()`,
+DX11 `ImGui_ImplDX11_InvalidateDeviceObjects()` — but **had no `FAST3D_SDL_METAL` case** and fell
+through to `default: break;`. The next `ImGui::NewFrame()` then ran on an unbuilt atlas: the
+`"Font Atlas not built!"` assert in Debug, and a **segfault in Release**, where `NDEBUG` compiles that
+assert out. Two ComboShip paths add fonts late — MM's eager boot (`mm/2s2h/BenPort.cpp`) and, on the
+post-extraction boot, OOT's own font load once the ROM Setup screen has already created the window
+*and drawn frames*.
+
+**THE OBVIOUS FIX DOES NOT WORK — do not "simplify" this back.** `ImGui_ImplMetal_NewFrame()`
+recreates device objects only when `depthStencilState == nil`, and
+`ImGui_ImplMetal_DestroyDeviceObjects()` **never nils it** (it drops the font texture, clears the
+pipeline cache, and returns). Calling it therefore destroys the font texture and guarantees nothing
+rebuilds it — strictly worse than the fall-through. The atlas has to be re-uploaded through
+`ImGui_ImplMetal_CreateFontsTexture()`, whose `GetTexDataAsRGBA32()` both builds the atlas and sets
+`TexID`. That needs the `MTL::Device*`, which is private to the backend.
+
+**`libultraship/include/fast/backends/gfx_metal.h` + `src/fast/backends/gfx_metal.cpp` (vendored —
+preserve on future LUS merges):** add `GfxRenderingAPIMetal::RebuildFontsTexture()`, which calls
+`ImGui_ImplMetal_DestroyFontsTexture()` then `ImGui_ImplMetal_CreateFontsTexture(mDevice)`.
+
+**`libultraship/src/fast/Fast3dGui.cpp` (vendored):** the `#ifdef __APPLE__` /
+`FAST3D_SDL_METAL` case resolves the current rendering API and calls that method.
+
+**`soh/soh/OTRGlobals.cpp` (vendored, COMBO_BUILD-guarded):** call
+`GetGui()->RebuildFontTexture()` after OOT's font loads. MM already carried this deviation after its
+own font loads; OOT had no equivalent, which is why only the post-extraction boot crashed and a
+normal boot did not. Unconditional by design — invalidating before the texture exists is a no-op.
+
+> **UPSTREAM CANDIDATE — temporary carry.** The missing Metal case and the `DestroyDeviceObjects()`
+> trap are upstream issues: any Metal consumer adding a font post-init hits them. Send to
+> Kenix3/libultraship and drop the LUS half of this deviation on a pin bump that contains the fix.
+> The `soh` call is ComboShip-specific and stays. Not yet submitted.
+
 ## MM cross-RM display lists must not be eagerly resolved (foreign-draw crash fix) (2026-06-17)
 
 **Why:** entering MM with a cross-world seed that placed a foreign OOT item at an MM check crashed on

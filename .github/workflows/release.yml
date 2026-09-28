@@ -1,8 +1,9 @@
 name: Release
 
 # Cut a stable release from a v* tag (pushed on the main branch): runs the SAME reusable build
-# pipelines as nightly (build.yml, build-linux.yml — no gate, this is already-merged code), then
-# publishes a DRAFT GitHub Release with the packaged Windows ZIP and Linux AppImage attached.
+# pipelines as nightly (build.yml, build-linux.yml, build-macos.yml — no gate, this is
+# already-merged code), then publishes a DRAFT GitHub Release with the packaged Windows ZIP, Linux
+# AppImage and macOS DMG attached.
 # Draft so you can review/edit notes before publishing. See docs/UPSTREAM_MERGES.md.
 
 on:
@@ -19,8 +20,11 @@ jobs:
   linux:
     uses: ./.github/workflows/build-linux.yml
 
+  macos:
+    uses: ./.github/workflows/build-macos.yml
+
   publish:
-    needs: [windows, linux]
+    needs: [windows, linux, macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the GitHub Release
@@ -37,6 +41,12 @@ jobs:
           name: ComboShip-linux-appimage
           path: dist
 
+      - name: Download macOS DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: ComboShip-macos
+          path: dist
+
       - name: Name the assets after the tag
         shell: bash
         run: |
@@ -45,6 +55,8 @@ jobs:
           mv "$zip" "dist/ComboShip-${GITHUB_REF_NAME}-windows.zip"
           appimage=$(ls dist/ComboShip-*-linux-x86_64.AppImage | head -1)
           mv "$appimage" "dist/ComboShip-${GITHUB_REF_NAME}-linux-x86_64.AppImage"
+          dmg=$(ls dist/*.dmg | head -1)
+          mv "$dmg" "dist/ComboShip-${GITHUB_REF_NAME}-macos.dmg"
 
       - name: Publish draft release
         uses: softprops/action-gh-release@v2
@@ -54,3 +66,4 @@ jobs:
           files: |
             dist/ComboShip-${{ github.ref_name }}-windows.zip
             dist/ComboShip-${{ github.ref_name }}-linux-x86_64.AppImage
+            dist/ComboShip-${{ github.ref_name }}-macos.dmg

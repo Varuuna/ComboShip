@@ -1,0 +1,121 @@
+name: Build (macOS)
+
+# Reusable macOS build pipeline: full Release build (Ninja + AppleClang), port o2r generation, a
+# headless comborando seed-generation smoke test, and cpack's .app/.dmg. The .app is
+# self-contained — the install step runs fixup_bundle over it, the same mechanism upstream
+# Shipwright's macOS package uses — so it launches on a Mac without Homebrew. Called by
+# build-artifacts.yml (gate runs there) and release.yml (v* tags, no gate — merged code).
+
+on:
+  workflow_call:
+
+env:
+  # Genuine SDL2, built from source: Homebrew's `sdl2` is sdl2-compat (SDL2 on SDL3), which loads
+  # SDL3 with dlopen at run time — invisible to fixup_bundle, so a bundle built against it cannot
+  # start anywhere. Same pin as HarbourMasters' Linux CI; SDL2_net must be built too, because
+  # Homebrew's sdl2_net links sdl2-compat.
+  SDL2_VERSION: 2.30.3
+  SDL2_NET_VERSION: 2.2.0
+
+jobs:
+  build:
+    # arm64, matching upstream Shipwright's macOS runner.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+
+      # The README's macOS dependency set, minus sdl2/sdl2_net (built below). cmake ships on the
+      # runner image; ninja does not.
+      - name: Install dependencies
+        run: >
+          brew install ninja libpng glew tinyxml2 nlohmann-json libzip
+          opusfile libvorbis libogg opus spdlog glfw
+
+      - name: Cache SDL2
+        id: sdl2-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/sdl2-prefix
+          key: ${{ runner.os }}-macos-sdl2-${{ env.SDL2_VERSION }}-net-${{ env.SDL2_NET_VERSION }}
+
+      - name: Build SDL2 + SDL2_net
+        if: steps.sdl2-cache.outputs.cache-hit != 'true'
+        env:
+          PREFIX: ${{ runner.temp }}/sdl2-prefix
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/libsdl-org/SDL/releases/download/release-${SDL2_VERSION}/SDL2-${SDL2_VERSION}.tar.gz" | tar xz
+          cmake -S "SDL2-${SDL2_VERSION}" -B sdl2-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PREFIX" -DSDL_TEST=OFF
+          cmake --build sdl2-build && cmake --install sdl2-build
+          curl -fsSL "https://github.com/libsdl-org/SDL_net/releases/download/release-${SDL2_NET_VERSION}/SDL2_net-${SDL2_NET_VERSION}.tar.gz" | tar xz
+          cmake -S "SDL2_net-${SDL2_NET_VERSION}" -B sdl2-net-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_PREFIX_PATH="$PREFIX" -DSDL2NET_SAMPLES=OFF
+          cmake --build sdl2-net-build && cmake --install sdl2-net-build
+
+      - name: Configure ccache
+        uses: hendrikmuhs/ccache-action@v1.2.22
+        with:
+          save: ${{ github.event_name == 'push' }}
+          key: ${{ runner.os }}-macos-ccache-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-macos-ccache-${{ github.ref }}
+            ${{ runner.os }}-macos-ccache
+
+      # The GenerateSohOtr / Generate2ShipOtr targets run OTRExporter/extract_assets.py via Python3.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # SDL2_DIR / SDL2_net_DIR explicitly, not just CMAKE_PREFIX_PATH: see the README's SDL2 note.
+      - name: Configure
+        env:
+          PREFIX: ${{ runner.temp }}/sdl2-prefix
+        run: >
+          cmake -B build-cmake -S . -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          -DCMAKE_PREFIX_PATH="$PREFIX"
+          -DSDL2_DIR="$PREFIX/lib/cmake/SDL2" -DSDL2_net_DIR="$PREFIX/lib/cmake/SDL2_net"
+
+      # Same order as the Windows/Linux pipelines. -j 3 matches the runner's cores and keeps peak
+      # memory inside its 7 GB (some soh/2ship TUs are >1 GB each at peak).
+      - name: Build libultraship
+        run: cmake --build build-cmake --target libultraship -j 3
+      - name: Build soh
+        run: cmake --build build-cmake --target soh -j 3
+      - name: Build 2ship
+        run: cmake --build build-cmake --target 2ship -j 3
+      - name: Build comborando
+        run: cmake --build build-cmake --target comborando -j 3
+      - name: Build comboui
+        run: cmake --build build-cmake --target comboui -j 3
+      - name: Build ComboShip
+        run: cmake --build build-cmake --target ComboShip -j 3
+
+      # Port asset archives (--norom). The .app's install rules copy them from the source tree
+      # (where these targets write), and fail the package if they are missing.
+      - name: Generate soh.o2r
+        run: cmake --build build-cmake --target GenerateSohOtr -j 3
+      - name: Generate 2ship.o2r
+        run: cmake --build build-cmake --target Generate2ShipOtr -j 3
+
+      # Same smoke test as the Linux pipeline: both games' logic oracles loaded in-process, which
+      # exercises the Mach-O combo ABI (hidden visibility + COMBO_EXPORT) without ROMs.
+      - name: Smoke-test seed generation (comborando)
+        working-directory: build-cmake/combo
+        run: ./comborando --seed ci-macos-smoke --count 1
+
+      # Spotlight indexing the disk image cpack just created keeps hdiutil from detaching it
+      # ("Resource busy"); upstream Shipwright's macOS job disables it the same way.
+      - name: Package (.app / .dmg)
+        run: |
+          sudo mdutil -a -i off || true
+          cd build-cmake && cpack
+
+      - name: Upload ComboShip-macos artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ComboShip-macos
+          path: _packages/*.dmg
+          if-no-files-found: error

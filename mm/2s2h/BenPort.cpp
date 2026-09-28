@@ -2928,7 +2928,7 @@ extern "C" COMBO_EXPORT int MM_InitRandoSaveFile(int fileNum, const char* placem
 
         // ComboShip: the apply stamps shuffled=true on every payload check incl. non-shuffled Remains;
         // restore native state (delivery reads randoItemId, not shuffled) so stones/tracker skip them.
-        if (RANDO_SAVE_OPTIONS[RO_SHUFFLE_BOSS_REMAINS] == RO_GENERIC_NO) {
+        if (RANDO_SAVE_OPTIONS[RO_SHUFFLE_BOSS_REMAINS] == RO_REMAINS_SHUFFLE_VANILLA) {
             for (auto& [id, chk] : Rando::StaticData::Checks) {
                 if (chk.randoCheckType == RCTYPE_REMAINS)
                     RANDO_SAVE_CHECKS[id].shuffled = false;
@@ -3349,7 +3349,7 @@ extern "C" COMBO_EXPORT const char* MM_DumpRandoStaticData(void) {
     // (GeneratePools.cpp), so the Remains never reach the oracle — yet Moon/Majora access gates on
     // RemainsCount(). Emit each as a fixed placement of its vanilla remains so the fill/oracle credit it
     // once the boss-warp check is reachable (i.e. the temple is beaten). Mirrors the OOT vanilla-shop fix.
-    if (saveInfo.randoSaveOptions[RO_SHUFFLE_BOSS_REMAINS] == RO_GENERIC_NO) {
+    if (saveInfo.randoSaveOptions[RO_SHUFFLE_BOSS_REMAINS] == RO_REMAINS_SHUFFLE_VANILLA) {
         for (auto& [id, chk] : Rando::StaticData::Checks) {
             if (chk.randoCheckType != RCTYPE_REMAINS || !chk.name || chk.name[0] == '\0')
                 continue;
@@ -3365,23 +3365,20 @@ extern "C" COMBO_EXPORT const char* MM_DumpRandoStaticData(void) {
         }
     }
 
-    // ComboShip: 5.0.0's per-house skulltula shuffle keeps 30-N tokens vanilla: GeneratePools marks
-    // them shuffled=true with their own token in the (discarded) local saveInfo and drops them from
-    // checkPool. Emit them as fixed so the oracle credits the tokens and the apply stamps them like
-    // native (shuffled=true, so they stay hintable, mirroring native).
-    if (saveInfo.randoSaveOptions[RO_SHUFFLE_GOLD_SKULLTULAS] == RO_GENERIC_YES) {
-        for (auto& [id, chk] : Rando::StaticData::Checks) {
-            if (chk.randoCheckType != RCTYPE_SKULL_TOKEN || !saveInfo.randoSaveChecks[id].shuffled ||
-                stillFillable.count(id))
-                continue;
-            auto iit = Rando::StaticData::Items.find(chk.randoItemId);
-            if (iit == Rando::StaticData::Items.end() || !iit->second.spoilerName || iit->second.spoilerName[0] == '\0')
-                continue;
-            fixed.push_back({ { "check", Rando::StaticData::GetCheckDisplayName(id) },
-                              { "item", Rando::StaticData::GetItemDisplayName(iit->first) },
-                              { "advancement", isAdvancement(iit->second) },
-                              { "hintable", true } });
-        }
+    // ComboShip: GeneratePools also stamps shuffled=true in the discarded saveInfo and drops from checkPool
+    // (vanilla skulltulas, vanilla dungeon items, song-location surplus, exclusions). Emit them like native.
+    std::set<RandoCheckId> alreadyFixed(checkPoolBefore.begin(), checkPoolBefore.end());
+    for (auto& [id, chk] : Rando::StaticData::Checks) {
+        if (!saveInfo.randoSaveChecks[id].shuffled || stillFillable.count(id) || alreadyFixed.count(id) || !chk.name ||
+            chk.name[0] == '\0')
+            continue;
+        auto iit = Rando::StaticData::Items.find(saveInfo.randoSaveChecks[id].randoItemId);
+        if (iit == Rando::StaticData::Items.end() || !iit->second.spoilerName || iit->second.spoilerName[0] == '\0')
+            continue;
+        fixed.push_back({ { "check", Rando::StaticData::GetCheckDisplayName(id) },
+                          { "item", Rando::StaticData::GetItemDisplayName(iit->first) },
+                          { "advancement", isAdvancement(iit->second) },
+                          { "hintable", true } });
     }
 
     // Fillable checks -> checks[] (name only; pool[] feeds the items).

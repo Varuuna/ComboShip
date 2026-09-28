@@ -27,6 +27,7 @@ static constexpr const char* RAINBOW_SYNC_CVAR = "gCosmetics.RainbowSync";
 
 struct CustomCosmeticBinding {
     std::string materialPath;
+    std::shared_ptr<Fast::DisplayList> material;
     size_t commandIndex = 0;
     bool isPrimColor = true;
     uint8_t defaultA = 255;
@@ -68,7 +69,6 @@ static bool customGoronCosmeticsAvailable = false;
 static bool customZoraCosmeticsAvailable = false;
 static bool customFierceDeityCosmeticsAvailable = false;
 static bool customKafeiCosmeticsAvailable = false;
-static std::string sLastDynamicCosmeticsStateSignature;
 
 enum class DynamicCosmeticForm {
     Human = 0,
@@ -124,6 +124,11 @@ static int GetDynamicMaterialFormSortOrder(DynamicCosmeticForm form) {
 static bool IsSkeletonOverriddenByCustomArchive(Ship::ArchiveManager* archiveManager, const char* path) {
     if (archiveManager == nullptr) {
         return false;
+    }
+
+    if (Ship::Context::GetRawInstance()->GetResourceManager()->IsAltAssetsEnabled() &&
+        IsCustomArchive(archiveManager->GetArchiveFromFile("alt/" + std::string(path)))) {
+        return true;
     }
 
     return IsCustomArchive(archiveManager->GetArchiveFromFile(path));
@@ -200,11 +205,11 @@ static bool TryLoadCustomDisplayListXml(Ship::ArchiveManager* archiveManager, Sh
     return material != nullptr;
 }
 
-static size_t FindDisplayListInstructionIndex(const Fast::DisplayList& displayList, const Gfx& expected,
-                                              size_t searchStart) {
+static size_t FindDisplayListColorCommandIndex(const Fast::DisplayList& displayList, bool isPrimColor,
+                                               size_t searchStart) {
+    const u8 opcode = isPrimColor ? G_SETPRIMCOLOR : G_SETENVCOLOR;
     for (size_t i = searchStart; i < displayList.Instructions.size(); i++) {
-        const Gfx& current = displayList.Instructions[i];
-        if (current.words.w0 == expected.words.w0 && current.words.w1 == expected.words.w1) {
+        if ((u8)(displayList.Instructions[i].words.w0 >> 24) == opcode) {
             return i;
         }
     }
@@ -233,22 +238,6 @@ static void ClearCustomCosmeticValueCvars(const char* valuesCvar) {
     CVarClear((std::string(valuesCvar) + ".B").c_str());
     CVarClear((std::string(valuesCvar) + ".A").c_str());
     CVarClear((std::string(valuesCvar) + ".Type").c_str());
-}
-
-static std::string BuildDynamicCosmeticsStateSignature() {
-    auto resourceManager = Ship::Context::GetRawInstance()->GetResourceManager();
-    auto archiveManager = resourceManager->GetArchiveManager();
-    std::string signature = std::to_string(CVarGetInteger("gEnhancements.Mods.AlternateAssets", 0));
-
-    auto archives = archiveManager->GetArchives();
-    if (archives != nullptr) {
-        for (const auto& archive : *archives) {
-            signature += '|';
-            signature += archive != nullptr ? archive->GetPath() : "";
-        }
-    }
-
-    return signature;
 }
 
 static void RefreshBuiltInSuppressedCosmetics() {
@@ -326,28 +315,19 @@ bool IsCustomKafeiModelActive() {
 }
 
 void ApplyDynamicCosmetics() {
-    auto resourceManager = Ship::Context::GetRawInstance()->GetResourceManager();
-    auto archiveManager = resourceManager->GetArchiveManager();
-
     for (const auto& entry : customCosmeticEntries) {
         Color_RGBA8 color = GetCustomCosmeticColor(entry);
 
         for (const auto& binding : entry.bindings) {
-            if (!IsCustomArchive(archiveManager->GetArchiveFromFile(binding.materialPath))) {
-                continue;
-            }
-
-            auto material =
-                std::dynamic_pointer_cast<Fast::DisplayList>(resourceManager->LoadResource(binding.materialPath));
-            if (material == nullptr || binding.commandIndex >= material->Instructions.size()) {
+            if (binding.material == nullptr || binding.commandIndex >= binding.material->Instructions.size()) {
                 continue;
             }
 
             if (binding.isPrimColor) {
-                material->Instructions[binding.commandIndex] =
+                binding.material->Instructions[binding.commandIndex] =
                     gsDPSetPrimColor(binding.primM, binding.primL, color.r, color.g, color.b, binding.defaultA);
             } else {
-                material->Instructions[binding.commandIndex] =
+                binding.material->Instructions[binding.commandIndex] =
                     gsDPSetEnvColor(color.r, color.g, color.b, binding.defaultA);
             }
         }
@@ -499,11 +479,23 @@ void ScanDynamicCosmetics() {
             continue;
         }
 
-        size_t searchStart = 0;
+        size_t primSearchStart = 0;
+        size_t envSearchStart = 0;
         for (auto* child = root->FirstChildElement(); child != nullptr; child = child->NextSiblingElement()) {
             std::string childName = child->Name();
             bool isPrimColor = childName == "SetPrimColor";
-            if ((!isPrimColor && childName != "SetEnvColor") || isPrimColor != manifestEntry.isPrimColor) {
+            if (!isPrimColor && childName != "SetEnvColor") {
+                continue;
+            }
+
+            size_t& searchStart = isPrimColor ? primSearchStart : envSearchStart;
+            size_t commandIndex = FindDisplayListColorCommandIndex(*material, isPrimColor, searchStart);
+            if (commandIndex == SIZE_MAX) {
+                continue;
+            }
+            searchStart = commandIndex + 1;
+
+            if (isPrimColor != manifestEntry.isPrimColor) {
                 continue;
             }
 
@@ -515,22 +507,6 @@ void ScanDynamicCosmetics() {
                                                                              : child->Attribute("CosmeticCategory");
 
             const auto& key = manifestEntry.key;
-
-            Gfx expectedInstruction;
-            if (isPrimColor) {
-                expectedInstruction =
-                    gsDPSetPrimColor(child->IntAttribute("M"), child->IntAttribute("L"), child->IntAttribute("R"),
-                                     child->IntAttribute("G"), child->IntAttribute("B"), child->IntAttribute("A"));
-            } else {
-                expectedInstruction = gsDPSetEnvColor(child->IntAttribute("R"), child->IntAttribute("G"),
-                                                      child->IntAttribute("B"), child->IntAttribute("A"));
-            }
-
-            size_t commandIndex = FindDisplayListInstructionIndex(*material, expectedInstruction, searchStart);
-            if (commandIndex == SIZE_MAX) {
-                continue;
-            }
-            searchStart = commandIndex + 1;
 
             MarkCustomCosmeticsAvailable(materialPath);
 
@@ -563,6 +539,9 @@ void ScanDynamicCosmetics() {
 
             CustomCosmeticBinding binding;
             binding.materialPath = materialPath;
+            if (IsCustomArchive(archiveManager->GetArchiveFromFile(materialPath))) {
+                binding.material = material;
+            }
             binding.commandIndex = commandIndex;
             binding.isPrimColor = isPrimColor;
             binding.defaultA = static_cast<uint8_t>(child->IntAttribute("A"));
@@ -661,16 +640,6 @@ bool HasCustomCosmetics() {
     return !customCosmeticEntries.empty();
 }
 
-bool HasCustomCosmeticsRainbowEnabled() {
-    for (const auto& entry : customCosmeticEntries) {
-        if (CVarGetInteger(entry.option.rainbowCvar, 0)) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
 void DrawDynamicCosmetics() {
     if (customCosmeticEntries.empty()) {
         return;
@@ -700,21 +669,27 @@ void DrawDynamicCosmetics() {
     flushCategory();
 }
 
-void UpdateCustomCosmeticsRainbow(int hue, float rainbowSpeed, int& index) {
+bool UpdateCustomCosmeticsRainbow(int hue, float rainbowSpeed, int& index) {
+    const bool syncRainbow = CVarGetInteger(RAINBOW_SYNC_CVAR, 0);
+    const double frequency = 2 * M_PI / (360 * rainbowSpeed);
+    bool updatedAny = false;
+
     for (const auto& entry : customCosmeticEntries) {
         if (CVarGetInteger(entry.option.rainbowCvar, 0)) {
-            double frequency = 2 * M_PI / (360 * rainbowSpeed);
             Color_RGBA8 newColor;
-            newColor.r = static_cast<uint8_t>(sin(frequency * (hue + index) + 0) * 127) + 128;
-            newColor.g = static_cast<uint8_t>(sin(frequency * (hue + index) + (2 * M_PI / 3)) * 127) + 128;
-            newColor.b = static_cast<uint8_t>(sin(frequency * (hue + index) + (4 * M_PI / 3)) * 127) + 128;
+            newColor.r = static_cast<uint8_t>(sin(frequency * (hue + index) + 0) * 127 + 128);
+            newColor.g = static_cast<uint8_t>(sin(frequency * (hue + index) + (2 * M_PI / 3)) * 127 + 128);
+            newColor.b = static_cast<uint8_t>(sin(frequency * (hue + index) + (4 * M_PI / 3)) * 127 + 128);
             newColor.a = 255;
             CVarSetColor(entry.option.valuesCvar, newColor);
+            updatedAny = true;
         }
-        if (!CVarGetInteger(RAINBOW_SYNC_CVAR, 0)) {
+        if (!syncRainbow) {
             index += static_cast<int>(60 * rainbowSpeed);
         }
     }
+
+    return updatedAny;
 }
 
 void RandomizeAllDynamicCosmetics() {
@@ -771,12 +746,23 @@ void SetAllDynamicCosmeticsRainbow(bool enabled) {
 }
 
 void RefreshDynamicCosmeticsStateIfNeeded() {
-    const std::string signature = BuildDynamicCosmeticsStateSignature();
-    if (signature == sLastDynamicCosmeticsStateSignature) {
+    static int sLastAltAssets = -1;
+    static size_t sLastArchiveCount = 0;
+
+    auto resourceManager = Ship::Context::GetRawInstance()->GetResourceManager();
+    size_t archiveCount = 0;
+    auto archives = resourceManager->GetArchiveManager()->GetArchives();
+    if (archives != nullptr) {
+        archiveCount = archives->size();
+    }
+
+    const int altAssets = resourceManager->IsAltAssetsEnabled();
+    if (altAssets == sLastAltAssets && archiveCount == sLastArchiveCount) {
         return;
     }
 
-    sLastDynamicCosmeticsStateSignature = signature;
+    sLastAltAssets = altAssets;
+    sLastArchiveCount = archiveCount;
     ScanDynamicCosmetics();
     RefreshBuiltInSuppressedCosmetics();
 }

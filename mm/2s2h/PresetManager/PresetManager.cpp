@@ -1,5 +1,6 @@
 #include "PresetManager.h"
 #include <libultraship/bridge/consolevariablebridge.h>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -821,6 +822,32 @@ void PresetManager_CreatePreset(std::string presetName) {
 
         PresetManager_RefreshPresets();
     } catch (...) { Notification::Emit({ .suffix = "Failed to create preset" }); }
+}
+
+std::vector<std::string> PresetManager_GetPresetNames() {
+    std::vector<std::string> names;
+    names.reserve(presets.size());
+
+    for (const auto& [name, pair] : presets) {
+        names.push_back(name);
+    }
+
+    // presets is an unordered map, sort it
+    std::sort(names.begin(), names.end());
+
+    return names;
+}
+
+bool PresetManager_ApplyPresetByName(const std::string& name) {
+    auto it = presets.find(name);
+
+    if (it == presets.end()) {
+        return false;
+    }
+
+    PresetManager_ApplyPreset(it->second.first);
+
+    return true;
 }
 
 bool PresetManager_HandleFileDropped(char* filePath) {

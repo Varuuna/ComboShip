@@ -76,6 +76,7 @@ This document is the authoritative checklist. **Statuses:**
 | 8 | Spoiler apply restores price for object-shaped checks (`Apply.cpp:54`) | in-game prices from spoiler | combo placements are bare strings → string branch, price never set | **GAP-5/6** (same fix: emit object shape) |
 | 9 | Confined pre-placement (`PreplaceConfinedItems`, `PlacementConstraints.cpp:106`) | keys/remains confinement → `fixed[]` | `MM_DumpRandoStaticData:2940` | replicated |
 | 10 | Boss remains emitted as fixed when unshuffled | oracle models Remains gates | dump `fixed[]` (`BenPort.cpp:2952`) | replicated (fixed 2026-07-08, `--playthrough` PR #54) |
+| 10b | 5.0.0 per-house skulltula shuffle: `GeneratePools` marks the 30−N vanilla tokens `shuffled=true` + own token in **saveInfo** and drops them from `checkPool` | vanilla tokens still count toward the Spider House gates | dump emits them as `fixed[]` vanilla-token placements (`hintable=true`, mirrors native shuffled state) | replicated (2026-08-19 merge; verified: shuffled=10/required=20 seed PASS, 20 vanilla + 10 shuffled per house) |
 | 11 | Oracle starting state (`Combo_MM_Rando_Reset:3439`) | snapshot + rebuild save, grant via `GiveItemForOracle` | grant-field parity (powder keg / keys / mirror shield) fixed | replicated (see MM-oracle fix, 2310/2311 reachable) |
 
 ## GAP register

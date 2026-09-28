@@ -99,6 +99,10 @@ BEFORE `SOH_Deinit` (BenGui::Destroy dereferences the live Context), so soh's `D
 the LAST reference and `~Context` runs on the main thread. This is what fixed window-resize
 persistence.
 
+2Ship 5.0.1 added `Ship::Context::DestroyInstance()` to MM's `DeinitOTR`. It is skipped under
+`COMBO_BUILD`: MM must not destroy the shared Context, or soh's teardown runs on a dead one. After
+`MM_Deinit()` the Context is still alive; `SOH_Deinit()` is the only place that destroys it.
+
 **`soh/soh/OTRGlobals.cpp` + `mm/2s2h/BenPort.cpp` (`DeinitOTR`), `libultraship`
 (`CrossRMRegistry::Unregister`, new):** both resident ResourceManagers were pinned by the
 `sOOT/sMMResourceManager` statics and the `CrossRMRegistry` map, deferring their destruction to

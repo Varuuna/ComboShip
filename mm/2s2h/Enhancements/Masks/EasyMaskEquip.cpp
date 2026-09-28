@@ -17,8 +17,6 @@ PlayerItemAction Player_ItemToItemAction(Player* player, ItemId item);
 #define CVAR_FAST_TRANSFORMATION_NAME "gEnhancements.Masks.FastTransformation"
 #define CVAR_FAST_TRANSFORMATION CVarGetInteger(CVAR_FAST_TRANSFORMATION_NAME, 0)
 
-static constexpr EquipSlot GHOST_EQUIP_SLOT = EQUIP_SLOT_C_LEFT;
-
 typedef enum PendingMode {
     PENDING_NONE,
     PENDING_REGULAR_MASK,
@@ -26,12 +24,6 @@ typedef enum PendingMode {
     PENDING_RETURN_TO_HUMAN_THEN_REGULAR,
     PENDING_RETURN_TO_HUMAN_THEN_GIANT,
 } PendingMode;
-
-struct ButtonGhostState {
-    bool active = false;
-    ItemId originalItem = ITEM_NONE;
-    PlayerMask mask = PLAYER_MASK_NONE;
-};
 
 struct VisualMaskOverride {
     PlayerMask mask = PLAYER_MASK_NONE;
@@ -52,7 +44,7 @@ struct PendingActionState {
 struct EasyMaskEquipStateSnapshot {
     PendingActionState pendingAction = {};
     VisualMaskOverride visualMaskOverride = {};
-    ButtonGhostState buttonGhost = {};
+    PlayerMask maskEquippedWithoutButton = PLAYER_MASK_NONE;
     PlayerItemAction playerItemAction = PLAYER_IA_NONE;
     PlayerUnkAA5 playerUnkAA5 = PLAYER_UNKAA5_0;
     PlayerMask equippedMask = PLAYER_MASK_NONE;
@@ -61,9 +53,9 @@ struct EasyMaskEquipStateSnapshot {
 };
 
 static bool sShowingAButtonPrompt = false;
-static ButtonGhostState sButtonGhost = {};
 static VisualMaskOverride sVisualMaskOverride = {};
 static PendingActionState sPendingAction = {};
+static PlayerMask sMaskEquippedWithoutButton = PLAYER_MASK_NONE;
 
 static bool IsMaskItem(ItemId item) {
     return (item >= ITEM_MASK_DEKU) && (item <= ITEM_MASK_GIANT);
@@ -73,7 +65,7 @@ static bool IsRegularMask(PlayerMask mask) {
     return (mask >= PLAYER_MASK_TRUTH) && (mask < PLAYER_MASK_GIANT);
 }
 
-static bool ShouldMaintainMaskOnButton(PlayerMask mask) {
+static bool ShouldMaintainMaskWithoutButton(PlayerMask mask) {
     return IsRegularMask(mask) || (mask == PLAYER_MASK_GIANT);
 }
 
@@ -110,7 +102,7 @@ static EasyMaskEquipStateSnapshot CaptureEasyMaskEquipState(Player* player) {
 
     snapshot.pendingAction = sPendingAction;
     snapshot.visualMaskOverride = sVisualMaskOverride;
-    snapshot.buttonGhost = sButtonGhost;
+    snapshot.maskEquippedWithoutButton = sMaskEquippedWithoutButton;
     snapshot.equippedMask = static_cast<PlayerMask>(gSaveContext.save.equippedMask);
     snapshot.hasPendingAction = HasPendingAction();
     snapshot.hasPlayer = player != nullptr;
@@ -125,7 +117,7 @@ static EasyMaskEquipStateSnapshot CaptureEasyMaskEquipState(Player* player) {
 static void RestoreEasyMaskEquipState(Player* player, const EasyMaskEquipStateSnapshot& snapshot) {
     sPendingAction = snapshot.pendingAction;
     sVisualMaskOverride = snapshot.visualMaskOverride;
-    sButtonGhost = snapshot.buttonGhost;
+    sMaskEquippedWithoutButton = snapshot.maskEquippedWithoutButton;
     gSaveContext.save.equippedMask = snapshot.equippedMask;
 
     if (snapshot.hasPlayer && (player != nullptr)) {
@@ -200,7 +192,7 @@ static void ApplyRegularMaskTarget(Player* player, PlayerMask targetMask, bool p
     player->prevMask = player->currentMask;
     player->currentMask = targetMask;
     gSaveContext.save.equippedMask = targetMask;
-    sButtonGhost.mask = IsRegularMask(targetMask) ? targetMask : PLAYER_MASK_NONE;
+    sMaskEquippedWithoutButton = IsRegularMask(targetMask) ? targetMask : PLAYER_MASK_NONE;
     if (playSfx) {
         PlayAppliedMaskSfx(player, targetMask);
     }
@@ -454,38 +446,8 @@ static void DrawActiveMaskSelection(PauseContext* pauseCtx, u16) {
     DrawActiveMaskOutline(pauseCtx, slot);
 }
 
-static void RestoreButtonGhost() {
-    if (!sButtonGhost.active) {
-        return;
-    }
-
-    BUTTON_ITEM_EQUIP(0, GHOST_EQUIP_SLOT) = sButtonGhost.originalItem;
-    sButtonGhost.originalItem = ITEM_NONE;
-    sButtonGhost.active = false;
-}
-
-static void MaintainMaskButtonGhostBeforePlayerUpdate(Actor* actor, bool* should) {
-    RestoreButtonGhost();
-
-    if (!*should || (actor == nullptr) || (sButtonGhost.mask == PLAYER_MASK_NONE)) {
-        return;
-    }
-
-    Player* player = GET_PLAYER(gPlayState);
-    if ((player == nullptr) || (actor != &player->actor) || (player->transformation != PLAYER_FORM_HUMAN) ||
-        (player->currentMask != sButtonGhost.mask) || !ShouldMaintainMaskOnButton(sButtonGhost.mask)) {
-        return;
-    }
-
-    sButtonGhost.originalItem = static_cast<ItemId>(BUTTON_ITEM_EQUIP(0, GHOST_EQUIP_SLOT));
-    BUTTON_ITEM_EQUIP(0, GHOST_EQUIP_SLOT) = Player_MaskIdToItemId(sButtonGhost.mask - 1);
-    sButtonGhost.active = true;
-}
-
 static void ProcessPendingMaskEquip(Actor* actor) {
     Player* player = GET_PLAYER(gPlayState);
-
-    RestoreButtonGhost();
 
     if (player == nullptr) {
         return;
@@ -507,7 +469,7 @@ static void ProcessPendingMaskEquip(Actor* actor) {
                 if (player->currentMask != sPendingAction.targetMask) {
                     ApplyRegularMaskTarget(player, sPendingAction.targetMask, CVAR_FAST_TRANSFORMATION);
                 } else {
-                    sButtonGhost.mask =
+                    sMaskEquippedWithoutButton =
                         IsRegularMask(sPendingAction.targetMask) ? sPendingAction.targetMask : PLAYER_MASK_NONE;
                     if (CVAR_FAST_TRANSFORMATION) {
                         PlayAppliedMaskSfx(player, sPendingAction.targetMask);
@@ -530,8 +492,9 @@ static void ProcessPendingMaskEquip(Actor* actor) {
             break;
         case PENDING_PLAYER_ACTION:
             if (PlayerActionReachedTarget(player)) {
-                sButtonGhost.mask = ShouldMaintainMaskOnButton(sPendingAction.targetMask) ? sPendingAction.targetMask
-                                                                                          : PLAYER_MASK_NONE;
+                sMaskEquippedWithoutButton = ShouldMaintainMaskWithoutButton(sPendingAction.targetMask)
+                                                 ? sPendingAction.targetMask
+                                                 : PLAYER_MASK_NONE;
                 if (CVAR_FAST_TRANSFORMATION && (sPendingAction.targetMask != PLAYER_MASK_GIANT)) {
                     PlayAppliedMaskSfx(player, sPendingAction.targetMask);
                 }
@@ -548,17 +511,20 @@ static void ProcessPendingMaskEquip(Actor* actor) {
             break;
     }
 
-    if ((sButtonGhost.mask != PLAYER_MASK_NONE) && (player->currentMask != sButtonGhost.mask)) {
-        sButtonGhost.mask = PLAYER_MASK_NONE;
+    if ((sMaskEquippedWithoutButton != PLAYER_MASK_NONE) && (player->currentMask != sMaskEquippedWithoutButton)) {
+        sMaskEquippedWithoutButton = PLAYER_MASK_NONE;
     }
 }
 
-static void HideMaskButtonGhostFromItemLookup(bool*, va_list args) {
-    EquipSlot slot = static_cast<EquipSlot>(va_arg(args, int));
-    ItemId* item = va_arg(args, ItemId*);
+static void PreventButtonlessMaskUnequip(bool* should, va_list args) {
+    Player* player = va_arg(args, Player*);
+    s32* button = va_arg(args, s32*);
 
-    if (sButtonGhost.active && (slot == GHOST_EQUIP_SLOT)) {
-        *item = sButtonGhost.originalItem;
+    if (*should && (player != nullptr) && (player->transformation == PLAYER_FORM_HUMAN) &&
+        (player->currentMask == sMaskEquippedWithoutButton) &&
+        ShouldMaintainMaskWithoutButton(sMaskEquippedWithoutButton)) {
+        *should = false;
+        *button = EQUIP_SLOT_C_LEFT;
     }
 }
 
@@ -758,17 +724,15 @@ void RegisterEasyMaskEquip() {
         Player* player = (gPlayState != nullptr) ? GET_PLAYER(gPlayState) : nullptr;
 
         RestoreAButtonPrompt();
-        RestoreButtonGhost();
         CancelPendingAction(player);
-        sButtonGhost.mask = PLAYER_MASK_NONE;
+        sMaskEquippedWithoutButton = PLAYER_MASK_NONE;
     }
 
     COND_HOOK(OnKaleidoUpdate, CVAR, UpdateMaskPageAButtonPrompt);
     COND_ID_HOOK(BeforeKaleidoDrawPage, PAUSE_MASK, CVAR, DrawActiveMaskSelection);
-    COND_ID_HOOK(ShouldActorUpdate, ACTOR_PLAYER, CVAR, MaintainMaskButtonGhostBeforePlayerUpdate);
     COND_ID_HOOK(OnActorUpdate, ACTOR_PLAYER, CVAR, ProcessPendingMaskEquip);
     COND_VB_SHOULD(VB_DRAW_ITEM_EQUIPPED_OUTLINE, CVAR, SuppressDefaultActiveMaskOutline(should, args));
-    COND_VB_SHOULD(VB_GET_ITEM_ON_BUTTON, CVAR, HideMaskButtonGhostFromItemLookup(should, args));
+    COND_VB_SHOULD(VB_UNEQUIP_MASK_NOT_ON_BUTTON, CVAR, PreventButtonlessMaskUnequip(should, args));
     COND_VB_SHOULD(VB_KALEIDO_DISPLAY_ITEM_TEXT, CVAR, HandleMaskPageSelection(should, args));
 }
 

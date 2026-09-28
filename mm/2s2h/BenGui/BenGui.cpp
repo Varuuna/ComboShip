@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <libultraship/window/gui/GfxDebuggerWindow.h>
 #include "UIWidgets.hpp"
 #include "HudEditor.h"
 #include "2s2h/Enhancements/Audio/AudioEditor.h"
@@ -39,8 +40,8 @@
 // ComboShip: in the combo build, OOT (soh) registers identically-named tracker windows FIRST into
 // the single shared libultraship Gui. Gui::AddGuiWindow keys by display name and rejects duplicates,
 // so any MM window whose name matches an OOT one (trackers, plus dev tools like "Save Editor",
-// "Actor Viewer", "Audio Editor", "Mod Menu", "Input Viewer"...) would be silently dropped and never
-// drawn — that is why MM's "Save Editor" used to show OOT's. Suffix MM's window keys with "##MM":
+// "Actor Viewer", "Audio Editor", "Mod Menu", "Input Viewer", "Modal Window") would be silently
+// dropped and never drawn — that is why MM's "Save Editor" used to show OOT's. Suffix the keys "##MM":
 // ImGui shows only the text before "##", so the visible title stays "Save Editor", but the map key
 // (and ImGui window ID) is unique and both games coexist. The popout WindowName() references in
 // BenMenu.cpp / 2s2h/Rando/Menu.cpp use the same suffix. The active-game gating in
@@ -106,7 +107,9 @@ void SetupMenu() {
     style.ItemSpacing = ImVec2(8.0f, 6.0f);
     style.Colors[ImGuiCol_MenuBarBg] = UIWidgets::ColorValues.at(UIWidgets::Colors::DarkGray);
 
-    mModalWindow = std::make_shared<BenModalWindow>("gWindows.ModalWindow", "Modal Window");
+    // ComboShip: OOT registers "Modal Window" first, so an unsuffixed MM one is rejected and never
+    // drawn — every BenGui::RegisterPopup would queue a popup nothing can show or dismiss.
+    mModalWindow = std::make_shared<BenModalWindow>("gWindows.ModalWindow", "Modal Window" COMBO_MM_TRACKER_SUFFIX);
     gui->AddGuiWindow(mModalWindow);
     mModalWindow->Show();
 }
@@ -146,10 +149,9 @@ void SetupGuiElements() {
         SPDLOG_ERROR("Could not find console window");
     }
 
-    mGfxDebuggerWindow = gui->GetGuiWindow("GfxDebuggerWindow");
-    if (mGfxDebuggerWindow == nullptr) {
-        SPDLOG_ERROR("Could not find input GfxDebuggerWindow");
-    }
+    mGfxDebuggerWindow =
+        std::make_shared<LUS::GfxDebuggerWindow>("gOpenWindows.GfxDebugger", "Gfx Debugger", ImVec2(520, 600));
+    gui->AddGuiWindow(mGfxDebuggerWindow);
 
     mInputEditorWindow = gui->GetGuiWindow("2S2H Input Editor");
     if (mInputEditorWindow == nullptr) {

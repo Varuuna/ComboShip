@@ -319,6 +319,8 @@ comboPeekRefresh:;
     std::unordered_map<RandoRegionId, Rando::Logic::RegionTimeState> regionTimeStates =
         Rando::Logic::InitializeRegionTimeStates(RR_MAX);
 
+    std::set<std::pair<RandoEvent, std::function<bool()>>*> appliedEvents;
+
     // Iteratively explore until no new regions/events discovered
     bool changed = true;
     while (changed) {
@@ -337,8 +339,9 @@ comboPeekRefresh:;
             Rando::Logic::SetCurrentRegionTime(regionTimeStates, regionId);
 
             for (auto& event : randoRegion.events) {
-                if (!RANDO_EVENTS[event.first] && event.second()) {
+                if (!appliedEvents.contains(&event) && event.second()) {
                     RANDO_EVENTS[event.first]++;
+                    appliedEvents.insert(&event);
                     changed = true;
                 }
             }

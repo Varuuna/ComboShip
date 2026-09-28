@@ -47,13 +47,13 @@ Two files had conflicts; the other three auto-merged and match upstream's diff e
 - **Config save (#1183):** a failed write now keeps the old `comboship.json` instead of truncating
   it. OOT and MM save the one shared config on the main thread, one after the other, so the shared
   `.tmp` name never races.
-- **Crash minidump (#1190):** a crash now also writes `logs/<game name>-crash.dmp` (last crash only,
-  can be hundreds of MB). The name follows the active game. Accepted as-is; `ComboLateCrashFilter`
+- **Crash minidump (#1190):** a crash now also writes `logs/<game name>-crash.dmp` (last crash per
+  game, so two files at most; each can be hundreds of MB). Accepted as-is; `ComboLateCrashFilter`
   is separate and unchanged. Packages are built by cpack install rules, so a runtime `logs/*.dmp`
   never ships.
 - **Linux Ctrl+C / SIGTERM (#1188):** now pushes `SDL_QUIT` instead of `exit(1)`. That hits the same
   `Close()` as the window's X button, so the launcher runs the normal shutdown order. If the game
   loop is not pumping events (hung frame, before the window exists) the signal does nothing; use
-  `kill -9`. Compiled by the Linux CI job; not exercised at runtime there.
+  `kill -9`. CI only compiles it; Linux playtest covers the runtime path.
 - **Shader push/pop (#1247)** and **pyramid-like test (#1239):** no combo code uses `PushShader`;
   the pyramid change only affects HD texture packs.

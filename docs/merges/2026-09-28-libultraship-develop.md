@@ -49,7 +49,8 @@ Two files had conflicts; the other three auto-merged and match upstream's diff e
   `.tmp` name never races.
 - **Crash minidump (#1190):** a crash now also writes `logs/<game name>-crash.dmp` (last crash only,
   can be hundreds of MB). The name follows the active game. Accepted as-is; `ComboLateCrashFilter`
-  is separate and unchanged.
+  is separate and unchanged. Packages are built by cpack install rules, so a runtime `logs/*.dmp`
+  never ships.
 - **Linux Ctrl+C / SIGTERM (#1188):** now pushes `SDL_QUIT` instead of `exit(1)`. That hits the same
   `Close()` as the window's X button, so the launcher runs the normal shutdown order. If the game
   loop is not pumping events (hung frame, before the window exists) the signal does nothing; use

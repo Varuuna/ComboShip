@@ -235,7 +235,7 @@ since CI now pulls each upstream in its own PR — listing every file we had to 
 mechanical 3-way merge and why. This keeps the per-merge required changes easy to track (and to diff
 against the recurring-deviation list below). Newest first:
 
-- [2026-09-28 libultraship](merges/2026-09-28-libultraship.md) — libultraship `7cb10226e` →
+- [2026-09-28 libultraship](merges/2026-09-28-libultraship-develop.md) — libultraship `7cb10226e` →
   `7f9b86a59` (`port-maintenance`). `Config::Save` keeps our unflatten guard on top of upstream's
   atomic write; the PrintStack traceback deviation is retired (upstream #1190), buffer guards kept.
 - [2026-08-22](merges/2026-08-22.md) — **not a merge pass**: 18 soh fix commits cherry-picked ahead

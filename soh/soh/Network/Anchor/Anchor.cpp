@@ -350,6 +350,8 @@ void Anchor::PumpDormant() {
     }
     // Persist the dormant save so the item survives quitting without ever entering OOT.
     if (dormantDidApply && SaveManager::Instance && gSaveContext.fileNum != 0xFF) {
+        extern void Combo_FlushDormantAccumulators(); // ComboShip (#214): bank rupee/magic grants first
+        Combo_FlushDormantAccumulators();
         SaveManager::Instance->SaveFile(gSaveContext.fileNum);
         SPDLOG_INFO("[Anchor] dormant OOT save persisted (file {})", gSaveContext.fileNum);
     }

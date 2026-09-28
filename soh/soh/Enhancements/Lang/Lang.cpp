@@ -24,25 +24,18 @@ static std::unordered_map<std::string, std::string> cache;
 #define LANGUAGE_CVAR CVAR_SETTING("Language")
 #define DEFAULT_LANGUAGE "en_US"
 
-<<<<<<< HEAD
 #ifdef COMBO_BUILD
 extern bool gComboHeadlessRando; // defined in OTRGlobals.cpp; true ONLY during a headless rando run (ComboShip)
 #endif
 
-std::string Lang::Translate(const char* path) {
-#ifdef COMBO_BUILD
-    // ComboShip: a headless rando run (comborando) has no ResourceManager, so language data is never
-    // loaded. Return the raw key instead of asserting so the rando option/trick tables can be built
-    // without assets. gComboHeadlessRando is set ONLY by SOH_InitRandoHeadless (never the game), so
-    // in-game this is skipped and the assert below is unchanged. See docs/UPSTREAM_MERGES.md.
-    if (!initialized && ::gComboHeadlessRando) {
-        return std::string(path);
-    }
-#endif
-=======
 std::variant<std::reference_wrapper<const std::string>, Lang::Error> Lang::TryTranslate(const char* path) {
->>>>>>> vendor-soh
     if (!initialized) {
+#ifdef COMBO_BUILD
+        // ComboShip: headless rando (comborando) never loads language data; report it without asserting.
+        if (::gComboHeadlessRando) {
+            return Lang::Error::LanguageDataNotInitialized;
+        }
+#endif
         SPDLOG_ERROR("Tried to obtain a translation before the translation data is initialized");
         assert(false);
         return Lang::Error::LanguageDataNotInitialized;
@@ -120,6 +113,12 @@ const std::string errorMessage =
     "[ERROR] Couldn't retrieve language data for this item, check the log for more information.";
 
 const std::string& Lang::Translate(const char* path) {
+#ifdef COMBO_BUILD
+    // ComboShip: headless rando has no ResourceManager; hand back the raw key (cached: the return is a ref).
+    if (!initialized && ::gComboHeadlessRando) {
+        return cache.try_emplace(path, path).first->second;
+    }
+#endif
     auto value = Lang::TryTranslate(path);
 
     if (std::holds_alternative<std::reference_wrapper<const std::string>>(value)) {

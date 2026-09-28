@@ -4,15 +4,12 @@
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 
 #include <ship/controller/controldeck/ControlDeck.h>
-<<<<<<< HEAD
 #ifdef COMBO_BUILD
 #include <ship/resource/CrossRMRegistry.h>
 #include <ship/resource/ResourceManagerScope.h>
 #endif
-=======
 #include <ship/Context.h>
 #include <algorithm>
->>>>>>> vendor-soh
 #include <string>
 
 #include "soh/SohGui/UIWidgets.hpp"

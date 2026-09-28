@@ -12,10 +12,7 @@ extern "C" {
 #include "src/overlays/actors/ovl_En_Test/z_en_test.h"
 #include "src/overlays/actors/ovl_En_Horse/z_en_horse.h"
 #include "src/overlays/actors/ovl_Mir_Ray/z_mir_ray.h"
-<<<<<<< HEAD
-=======
 void UnregisterActorSkeletons(struct Actor* actor);
->>>>>>> vendor-soh
 extern void Player_UseItem(PlayState*, Player*, s32);
 extern PlayState* gPlayState;
 }

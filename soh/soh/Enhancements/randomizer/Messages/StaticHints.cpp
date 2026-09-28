@@ -10,13 +10,10 @@
 #include "soh/Enhancements/randomizer/SeedContext.h"
 #include <soh/OTRGlobals.h>
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
-<<<<<<< HEAD
 #ifdef COMBO_BUILD
 #include "soh/Enhancements/randomizer/hook_handlers.h" // ComboShip: OOT_LookupForeign
 #endif
-=======
 #include "soh/ShipInit.hpp"
->>>>>>> vendor-soh
 
 extern "C" {
 #include "z64scene.h"

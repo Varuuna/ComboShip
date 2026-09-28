@@ -1334,8 +1334,6 @@ void DrawInventoryTab() {
     ImGui::PopStyleVar(2);
 }
 
-<<<<<<< HEAD
-=======
 // Draw flag array with tooltips for player state
 template <typename T, typename N>
 void DrawFlagArrayWithTooltips(const std::string& name, T& flags, Colors color, const N& names) {
@@ -1409,7 +1407,6 @@ static const char* GetFlagDescription(const FlagTable& flagTable, uint16_t index
     return it != flagTable.flagDescriptions.end() ? it->second : "";
 }
 
->>>>>>> vendor-soh
 // Draw a flag bitfield as a grid of checkboxes
 void DrawFlagTableArray16(const FlagTable& flagTable, uint16_t row, uint16_t& flags) {
     ImGui::PushID((std::to_string(row) + flagTable.name).c_str());

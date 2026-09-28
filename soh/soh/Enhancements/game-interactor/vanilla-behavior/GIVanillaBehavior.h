@@ -928,8 +928,6 @@ typedef enum {
 
     // #### `result`
     // ```c
-<<<<<<< HEAD
-=======
     // gSaveContext.health < STARTING_HEALTH
     // ```
     // #### `args`
@@ -938,7 +936,6 @@ typedef enum {
 
     // #### `result`
     // ```c
->>>>>>> vendor-soh
     // true
     // ```
     // #### `args`

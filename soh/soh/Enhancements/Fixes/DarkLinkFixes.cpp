@@ -1,8 +1,5 @@
-<<<<<<< HEAD
-=======
 #include <libultraship/bridge/consolevariablebridge.h>
 
->>>>>>> vendor-soh
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/enhancementTypes.h"
 #include "soh/ShipInit.hpp"

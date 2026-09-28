@@ -45,6 +45,9 @@ extern "C" {
 bool GenerateRandomizer(std::string seed = "");
 bool IsRandoGenerating();
 void WaitForRandoGeneration();
+#ifdef COMBO_BUILD
+void SetComboRandoGenerating(bool on); // ComboShip: set while the combo worker runs (OTRGlobals.cpp)
+#endif
 
 #ifdef __cplusplus
 }

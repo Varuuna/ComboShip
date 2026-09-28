@@ -5210,7 +5210,11 @@ extern "C" COMBO_EXPORT void SOH_SetOnComboFinalizeCallback(int (*cb)()) {
 // Called every frame on the main thread from the file-select loop. Runs the launcher's pending
 // main-thread apply; returns nonzero once generation is fully resolved (finalized or failed).
 extern "C" COMBO_EXPORT int SOH_PollComboFinalize(void) {
-    return gComboFinalizeCallback ? gComboFinalizeCallback() : 1;
+    const int resolved = gComboFinalizeCallback ? gComboFinalizeCallback() : 1;
+    if (resolved) {
+        SetComboRandoGenerating(false); // finalized or failed: the file-select loop plays the result sfx
+    }
+    return resolved;
 }
 
 // ComboShip: reload a consolidated seed file so it's playable without regenerating (remember-seed +
@@ -5312,16 +5316,16 @@ extern "C" COMBO_EXPORT const char* Combo_SOH_GetObtainedChecks(void) {
     return cached.c_str();
 }
 
-// Trigger combo generation. Gated on RandoGenerating so a second press during generation is a no-op;
-// reads the seed from the shared CVar (written by the comboui seed field). Sets RandoGenerating=1 so
-// the file-select loop swaps to gallop music + shows progress; the finalize poll clears it.
+// Trigger combo generation. Gated on IsRandoGenerating so a second press during generation is a no-op;
+// reads the seed from the shared CVar (written by the comboui seed field). Marks combo generation so
+// the file-select loop swaps to gallop music + shows progress; SOH_PollComboFinalize clears it.
 extern "C" COMBO_EXPORT void SOH_TriggerComboGenerate(void) {
-    if (CVarGetInteger(CVAR_GENERAL("RandoGenerating"), 0) != 0)
+    if (IsRandoGenerating())
         return; // already generating
     if (!gComboGenerateRequestCallback)
         return;
     const char* seed = CVarGetString(CVAR_GENERAL("ComboSeed"), "");
-    CVarSetInteger(CVAR_GENERAL("RandoGenerating"), 1);
+    SetComboRandoGenerating(true);
     gComboGenerateRequestCallback(seed);
 }
 

@@ -988,7 +988,20 @@ void GenerateRandomizerImgui(std::string seed = "") {
     randoGenerating = false;
 }
 
+#ifdef COMBO_BUILD
+// ComboShip: the launcher's combo worker generates outside GenerateRandomizer; count it as generating.
+static std::atomic<bool> sComboGenerating{ false };
+void SetComboRandoGenerating(bool on) {
+    sComboGenerating = on;
+}
+#endif
+
 bool IsRandoGenerating() {
+#ifdef COMBO_BUILD
+    if (sComboGenerating) {
+        return true;
+    }
+#endif
     return randoGenerating;
 }
 

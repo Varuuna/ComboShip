@@ -2213,7 +2213,7 @@ static void Combo_OnGenerateRequest(const char* inputSeed, ComboRando::ComboGenP
 // ComboShip: UI-driven (non-blocking) generate — registered as the generate-request callback and
 // invoked on the main thread from SOH_TriggerComboGenerate. Spawns the worker so the main loop keeps
 // rendering + playing music + animating progress. The previous worker is always finished by now
-// (reentry is gated on RandoGenerating in soh + g_GenerateBusy here), but join it to recycle the
+// (reentry is gated on soh's combo generating flag + g_GenerateBusy here), but join it to recycle the
 // std::thread object. The gSaveContext apply happens later on the main thread (Combo_PollFinalize).
 static void Combo_OnGenerateThreaded(const char* inputSeed) {
     // Reject if a worker is running OR a finalize is still pending (apply not yet run on main thread).
@@ -2277,7 +2277,7 @@ static void Combo_FinalizeGenerate() {
 
 // ComboShip: poll callback the file-select loop calls each frame on the main thread. Runs the
 // pending finalize (apply) when the worker has succeeded. Returns 1 once generation is fully
-// resolved (finalized or failed) so the caller can clear RandoGenerating; 0 while still working.
+// resolved (finalized or failed) so soh clears its generating flag; 0 while still working.
 static int Combo_PollFinalize() {
     if (g_ComboPendingFinalize.exchange(false)) {
         Combo_FinalizeGenerate();

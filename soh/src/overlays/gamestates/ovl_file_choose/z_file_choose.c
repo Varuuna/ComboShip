@@ -410,11 +410,9 @@ void FileChoose_UpdateRandomizer() {
         return;
     } else if (generating) {
 #ifdef COMBO_BUILD
-        // ComboShip: drive the main-thread apply each frame while the worker runs. When it reports the
-        // generation fully resolved, clear RandoGenerating so the branch above fires the fanfare/error.
-        if (SOH_PollComboFinalize()) {
-            CVarSetInteger(CVAR_GENERAL("RandoGenerating"), 0);
-        }
+        // ComboShip: drive the main-thread apply each frame while the worker runs. Once resolved it clears
+        // the combo generating flag, so the branch above fires the fanfare/error next frame.
+        SOH_PollComboFinalize();
 #endif
         return;
     }

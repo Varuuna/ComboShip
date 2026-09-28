@@ -20,7 +20,7 @@ After every merge that touches either randomizer, re-walk the fill-parity checkl
 |--------|---------------|-----------------|---------|
 | `libultraship` | `github.com/Kenix3/libultraship` | `port-maintenance` (**not** `main` — see [policy](#standing-policy-libultraship-branch-kenix3-port-maintenance)) | repo root |
 | `soh` | `github.com/HarbourMasters/Shipwright` | `develop` | `soh/` subdir |
-| `mm` | `github.com/HarbourMasters/2ship2harkinian` | `develop` | `mm/` subdir |
+| `mm` | `github.com/2ship2harkinian/2ship2harkinian` | `develop` | `mm/` subdir |
 
 These three are **coupled**: `soh@develop` and `mm@develop` track libultraship as a submodule and
 already expect a recent libultraship (and its current header layout). Updating libultraship alone

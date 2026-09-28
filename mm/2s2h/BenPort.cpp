@@ -765,11 +765,6 @@ void OTRGlobals::Initialize() {
     context->InitFileDropMgr();
 
     // tell LUS to reserve 3 2S2H specific threads (Game, Audio, Save)
-<<<<<<< HEAD
-    // ComboShip: default Alternate Assets OFF — combo ships no HD/alt pack, so upstream's ON just
-    // spams per-frame probes. See docs/UPSTREAM_MERGES.md.
-=======
->>>>>>> vendor-mm
     prevAltAssets = CVarGetInteger("gEnhancements.Mods.AlternateAssets", 0);
     context->GetResourceManager()->SetAltAssetsEnabled(prevAltAssets);
 

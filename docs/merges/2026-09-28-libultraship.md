@@ -24,3 +24,35 @@ src/fast/interpreter.cpp
 src/ship/config/Config.cpp
 src/ship/debug/CrashHandler.cpp
 ```
+
+## Post-merge changes
+
+Two files had conflicts; the other three auto-merged and match upstream's diff exactly.
+
+- **`src/ship/config/Config.cpp`** (`Config::Save`) — took upstream #1183 (write to `<path>.tmp`,
+  then rename over the real file) and put our `TryUnflatten` guard back as its first line. A
+  leaf-vs-subtree key clash now logs and skips the save. The other three `TryUnflatten` sites and
+  the SetBlock missing-key fix were not conflicted and are unchanged.
+- **`src/ship/debug/CrashHandler.cpp`** (`PrintStack`) — took upstream in all 4 hunks. Upstream
+  #1190 fixes the same bugs as our 2026-08-03 deviation (checks `SymFromAddr`, clears the name,
+  prints PC + base + RVA on every frame, loads line info), so that deviation is **retired**. Our
+  `~export(approx)` flag is dropped with it. The COMBO_BUILD `AppendStrTrunc` / `AppendLine`
+  buffer-overflow guards are kept: upstream still has the 1-byte overflow.
+- `src/fast/interpreter.cpp`, `src/fast/backends/gfx_direct3d11.cpp`,
+  `src/fast/resource/factory/DisplayListFactory.cpp` — clean; all cross-RM (`ActiveResMgr`,
+  `g_crossRMStack`, `ComboIsUnresolvedSegmentTarget`) blocks intact.
+
+## Behaviour changes to know about
+
+- **Config save (#1183):** a failed write now keeps the old `comboship.json` instead of truncating
+  it. OOT and MM save the one shared config on the main thread, one after the other, so the shared
+  `.tmp` name never races.
+- **Crash minidump (#1190):** a crash now also writes `logs/<game name>-crash.dmp` (last crash only,
+  can be hundreds of MB). The name follows the active game. Accepted as-is; `ComboLateCrashFilter`
+  is separate and unchanged.
+- **Linux Ctrl+C / SIGTERM (#1188):** now pushes `SDL_QUIT` instead of `exit(1)`. That hits the same
+  `Close()` as the window's X button, so the launcher runs the normal shutdown order. If the game
+  loop is not pumping events (hung frame, before the window exists) the signal does nothing; use
+  `kill -9`. Compiled by the Linux CI job; not exercised at runtime there.
+- **Shader push/pop (#1247)** and **pyramid-like test (#1239):** no combo code uses `PushShader`;
+  the pyramid change only affects HD texture packs.

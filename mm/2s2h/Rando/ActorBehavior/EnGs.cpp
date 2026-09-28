@@ -225,6 +225,17 @@ static void ComboReportStoneHint(int, RandoCheckId, bool) {
 }
 #endif
 
+// ComboShip: the mask may sit in OOT; resolve it combo-aware and report to the Hint Tracker. Kept
+// out of the hook macro: an #ifdef inside a macro argument doesn't compile on MSVC.
+static std::string MoonMaskLocationHint(RandoItemId randoItemId, RandoCheckId randoCheckId) {
+#ifdef COMBO_BUILD
+    ComboReportStoneHint(-1, randoCheckId, false);
+    return Rando::GetItemLocationHintName(randoItemId, false);
+#else
+    return Rando::StaticData::GetLocationNameForHint(randoCheckId, false);
+#endif
+}
+
 void Rando::ActorBehavior::InitEnGsBehavior() {
     bool randomHints =
         IS_RANDO && (RANDO_SAVE_OPTIONS[RO_HINTS_GOSSIP_STONES] || RANDO_SAVE_OPTIONS[RO_HINTS_PURCHASEABLE]);
@@ -373,8 +384,7 @@ void Rando::ActorBehavior::InitEnGsBehavior() {
         entry.msg = "They say %g{{item}}%w is hidden %y{{location}}%w...";
 
         CustomMessage::Replace(&entry.msg, "{{item}}", Rando::StaticData::GetItemName(randoItemId));
-        CustomMessage::Replace(&entry.msg, "{{location}}",
-                               Rando::StaticData::GetLocationNameForHint(randoCheckId, false));
+        CustomMessage::Replace(&entry.msg, "{{location}}", MoonMaskLocationHint(randoItemId, randoCheckId));
 
         CustomMessage::LoadCustomMessageIntoFont(entry);
         *loadFromMessageTable = false;

@@ -10,11 +10,6 @@
 #include "soh/Enhancements/randomizer/rng.h"
 #include "soh/OTRGlobals.h"
 
-<<<<<<< HEAD
-#include <spdlog/spdlog.h>
-#include <libultraship/bridge/consolevariablebridge.h>
-#include <ship/Context.h>
-#include <ship/window/Window.h>
 #include <ship/window/gui/Gui.h>
 
 #ifdef COMBO_BUILD
@@ -48,8 +43,6 @@ static uint8_t ComboOotTriforceTotal() {
 }
 #endif
 
-=======
->>>>>>> vendor-soh
 namespace Rando {
 std::shared_ptr<Settings> Settings::mInstance;
 
@@ -236,11 +229,10 @@ void Settings::CreateOptions() {
     OPT_CALLBACK(RSK_DOOR_OF_TIME, {
         HandleStartingAgeUI();
     });
-<<<<<<< HEAD
-    OPT_U8(RSK_ZORAS_FOUNTAIN, "Zora's Fountain", {"Closed", "Closed as child", "Open"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("ZorasFountain"), mOptionDescriptions[RSK_ZORAS_FOUNTAIN]);
-    OPT_U8(RSK_SLEEPING_WATERFALL, "Sleeping Waterfall", {"Closed", "Open"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("SleepingWaterfall"), mOptionDescriptions[RSK_SLEEPING_WATERFALL]);
-    OPT_U8(RSK_JABU_OPEN, "Jabu-Jabu", {"Closed", "Open"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("JabuJabu"), mOptionDescriptions[RSK_JABU_OPEN]);
-    OPT_BOOL(RSK_LOCK_OVERWORLD_DOORS, "Lock Overworld Doors", CVAR_RANDOMIZER_SETTING("LockOverworldDoors"), mOptionDescriptions[RSK_LOCK_OVERWORLD_DOORS]);
+    OPT_U8(RSK_ZORAS_FOUNTAIN, {"Closed", "Closed as child", "Open"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("ZorasFountain"));
+    OPT_U8(RSK_SLEEPING_WATERFALL, {"Closed", "Open"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("SleepingWaterfall"));
+    OPT_U8(RSK_JABU_OPEN, {"Closed", "Open"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("JabuJabu"));
+    OPT_BOOL(RSK_LOCK_OVERWORLD_DOORS, CVAR_RANDOMIZER_SETTING("LockOverworldDoors"));
     // ComboShip: (#133)
     OPT_CALLBACK(RSK_LOCK_OVERWORLD_DOORS, {
         if (CVarGetInteger(CVAR_RANDOMIZER_SETTING("LockOverworldDoors"), RO_GENERIC_OFF) == RO_GENERIC_OFF) {
@@ -250,15 +242,8 @@ void Settings::CreateOptions() {
         }
     });
     // ComboShip: (#133)
-    OPT_BOOL(RSK_EXCLUDE_MASK_SHOP_KEY, "Exclude Mask Shop Key", {"Off", "On"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("ExcludeMaskShopKey"), mOptionDescriptions[RSK_EXCLUDE_MASK_SHOP_KEY], WIDGET_CVAR_CHECKBOX, RO_GENERIC_OFF, true);
-    OPT_U8(RSK_GERUDO_FORTRESS, "Fortress Carpenters", {"Normal", "Fast", "Free"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("FortressCarpenters"), mOptionDescriptions[RSK_GERUDO_FORTRESS]);
-=======
-    OPT_U8(RSK_ZORAS_FOUNTAIN, {"Closed", "Closed as child", "Open"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("ZorasFountain"));
-    OPT_U8(RSK_SLEEPING_WATERFALL, {"Closed", "Open"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("SleepingWaterfall"));
-    OPT_U8(RSK_JABU_OPEN, {"Closed", "Open"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("JabuJabu"));
-    OPT_BOOL(RSK_LOCK_OVERWORLD_DOORS, CVAR_RANDOMIZER_SETTING("LockOverworldDoors"));
+    OPT_BOOL(RSK_EXCLUDE_MASK_SHOP_KEY, {"Off", "On"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("ExcludeMaskShopKey"), WIDGET_CVAR_CHECKBOX, RO_GENERIC_OFF, true);
     OPT_U8(RSK_GERUDO_FORTRESS, {"Normal", "Fast", "Free"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("FortressCarpenters"));
->>>>>>> vendor-soh
     OPT_CALLBACK(RSK_GERUDO_FORTRESS, {
         HandleKeyringUI();
     });
@@ -395,7 +380,6 @@ void Settings::CreateOptions() {
             mOptions[RSK_MIX_INTERIOR_ENTRANCES].Unhide();
         }
 
-<<<<<<< HEAD
         // ComboShip: (#134)
         if (CVarGetInteger(CVAR_RANDOMIZER_SETTING("ShuffleInteriorsEntrances"), RO_GENERIC_OFF) == RO_GENERIC_OFF) {
             mOptions[RSK_EXCLUDE_MASK_SHOP_ENTRANCE].Hide();
@@ -406,13 +390,8 @@ void Settings::CreateOptions() {
         HandleStartingAgeUI();
     });
     // ComboShip: (#134)
-    OPT_BOOL(RSK_EXCLUDE_MASK_SHOP_ENTRANCE, "Exclude Mask Shop", {"Off", "On"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("ExcludeMaskShopEntrance"), mOptionDescriptions[RSK_EXCLUDE_MASK_SHOP_ENTRANCE], WIDGET_CVAR_CHECKBOX, RO_GENERIC_OFF, true);
-    OPT_BOOL(RSK_SHUFFLE_THIEVES_HIDEOUT_ENTRANCES, "Thieves' Hideout Entrances", CVAR_RANDOMIZER_SETTING("ShuffleThievesHideoutEntrances"), mOptionDescriptions[RSK_SHUFFLE_THIEVES_HIDEOUT_ENTRANCES]);
-=======
-        HandleStartingAgeUI();
-    });
+    OPT_BOOL(RSK_EXCLUDE_MASK_SHOP_ENTRANCE, {"Off", "On"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("ExcludeMaskShopEntrance"), WIDGET_CVAR_CHECKBOX, RO_GENERIC_OFF, true);
     OPT_BOOL(RSK_SHUFFLE_THIEVES_HIDEOUT_ENTRANCES, CVAR_RANDOMIZER_SETTING("ShuffleThievesHideoutEntrances"));
->>>>>>> vendor-soh
     OPT_CALLBACK(RSK_SHUFFLE_THIEVES_HIDEOUT_ENTRANCES, {
         HandleMixedEntrancePoolsUI();
 
@@ -510,17 +489,13 @@ void Settings::CreateOptions() {
         } else {
             mOptions[RSK_TRIFORCE_HUNT_PIECES_LOCATION].Unhide();
         }
-<<<<<<< HEAD
         // ComboShip (#136): the combo menu owns the total, so hide this slider and range the dependent
         // counts below against OOT's forced share instead of this (now dead) CVar.
         if (kComboOwnsWincon) {
             mOptions[RSK_TRIFORCE_HUNT_PIECES_TOTAL].Hide();
             triforceTotal = ComboOotTriforceTotal();
         }
-        if (mOptions[RSK_RAINBOW_BRIDGE_TRIFORCE_COUNT].GetOptionCount() != triforceTotal + 1) {
-=======
         if (mOptions[RSK_RAINBOW_BRIDGE_TRIFORCE_COUNT].GetOptionCount() != static_cast<size_t>(triforceTotal) + 1) {
->>>>>>> vendor-soh
             mOptions[RSK_RAINBOW_BRIDGE_TRIFORCE_COUNT].ChangeOptions(NumOpts(0, triforceTotal));
         }
         if (mOptions[RSK_GBK_TRIFORCE_COUNT].GetOptionCount() != static_cast<size_t>(triforceTotal) + 1) {
@@ -1458,41 +1433,6 @@ void Settings::CreateOptions() {
             mOptions[RSK_HINT_DISTRIBUTION].Unhide();
         }
     });
-<<<<<<< HEAD
-    OPT_U8(RSK_HINT_CLARITY, "Hint Clarity", {"Obscure", "Ambiguous", "Clear"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("HintClarity"), mOptionDescriptions[RSK_HINT_CLARITY], WIDGET_CVAR_COMBOBOX, RO_HINT_CLARITY_CLEAR, true, nullptr, IMFLAG_INDENT);
-    OPT_U8(RSK_HINT_DISTRIBUTION, "Hint Distribution", {"Useless", "Balanced", "Strong", "Very Strong"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("HintDistribution"), mOptionDescriptions[RSK_HINT_DISTRIBUTION], WIDGET_CVAR_COMBOBOX, RO_HINT_DIST_BALANCED, true, nullptr, IMFLAG_UNINDENT);
-    OPT_BOOL(RSK_TOT_ALTAR_HINT, "ToT Altar Hint", {"Off", "On"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("AltarHint"), mOptionDescriptions[RSK_TOT_ALTAR_HINT], WIDGET_CVAR_CHECKBOX, RO_GENERIC_ON, false, nullptr, IMFLAG_INDENT);
-    OPT_BOOL(RSK_GANONDORF_HINT, "Ganondorf Hint", {"Off", "On"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("GanondorfHint"), mOptionDescriptions[RSK_GANONDORF_HINT], WIDGET_CVAR_CHECKBOX, RO_GENERIC_ON, false, nullptr, IMFLAG_NONE);
-    OPT_BOOL(RSK_SHEIK_LA_HINT, "Sheik Light Arrow Hint", {"Off", "On"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("SheikLAHint"), mOptionDescriptions[RSK_SHEIK_LA_HINT], WIDGET_CVAR_CHECKBOX, RO_GENERIC_ON, false, nullptr, IMFLAG_NONE);
-    OPT_BOOL(RSK_BOSS_KEY_HINT, "Boss Door Hints", CVAR_RANDOMIZER_SETTING("BossKeyHint"), mOptionDescriptions[RSK_BOSS_KEY_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_DAMPES_DIARY_HINT, "Dampe's Diary Hint", CVAR_RANDOMIZER_SETTING("DampeHint"), mOptionDescriptions[RSK_DAMPES_DIARY_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_GREG_HINT, "Greg the Green Rupee Hint", CVAR_RANDOMIZER_SETTING("GregHint"), mOptionDescriptions[RSK_GREG_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_LOACH_HINT, "Hyrule Loach Hint", CVAR_RANDOMIZER_SETTING("LoachHint"), mOptionDescriptions[RSK_LOACH_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_SARIA_HINT, "Saria's Hint", CVAR_RANDOMIZER_SETTING("SariaHint"), mOptionDescriptions[RSK_SARIA_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_MIDO_HINT, "Mido's Hint", CVAR_RANDOMIZER_SETTING("MidoHint"), mOptionDescriptions[RSK_MIDO_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_FISHING_POLE_HINT, "Fishing Pole Hint", CVAR_RANDOMIZER_SETTING("FishingPoleHint"), mOptionDescriptions[RSK_FISHING_POLE_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_FROGS_HINT, "Frog Ocarina Game Hint", CVAR_RANDOMIZER_SETTING("FrogsHint"), mOptionDescriptions[RSK_FROGS_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_OOT_HINT, "Ocarina of Time Hint", CVAR_RANDOMIZER_SETTING("OoTHint"), mOptionDescriptions[RSK_OOT_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_BIGGORON_HINT, "Biggoron's Hint", CVAR_RANDOMIZER_SETTING("BiggoronHint"), mOptionDescriptions[RSK_BIGGORON_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_BIG_POES_HINT, "Big Poes Hint", CVAR_RANDOMIZER_SETTING("BigPoesHint"), mOptionDescriptions[RSK_BIG_POES_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_CHICKENS_HINT, "Chickens Hint", CVAR_RANDOMIZER_SETTING("ChickensHint"), mOptionDescriptions[RSK_CHICKENS_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_MALON_HINT, "Malon Hint", CVAR_RANDOMIZER_SETTING("MalonHint"), mOptionDescriptions[RSK_MALON_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_HBA_HINT, "Horseback Archery Hint", CVAR_RANDOMIZER_SETTING("HBAHint"), mOptionDescriptions[RSK_HBA_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_WARP_SONG_HINTS, "Warp Song Hints", CVAR_RANDOMIZER_SETTING("WarpSongText"), mOptionDescriptions[RSK_WARP_SONG_HINTS], IMFLAG_NONE, WIDGET_CVAR_CHECKBOX, RO_GENERIC_ON);
-    OPT_BOOL(RSK_SCRUB_TEXT_HINT, "Scrub Hint Text", CVAR_RANDOMIZER_SETTING("ScrubText"), mOptionDescriptions[RSK_SCRUB_TEXT_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_MERCHANT_TEXT_HINT, "Merchant Hint Text", CVAR_RANDOMIZER_SETTING("MerchantText"), mOptionDescriptions[RSK_MERCHANT_TEXT_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_KAK_10_SKULLS_HINT, "10 GS Hint", CVAR_RANDOMIZER_SETTING("10GSHint"), mOptionDescriptions[RSK_KAK_10_SKULLS_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_KAK_20_SKULLS_HINT, "20 GS Hint", CVAR_RANDOMIZER_SETTING("20GSHint"), mOptionDescriptions[RSK_KAK_20_SKULLS_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_KAK_30_SKULLS_HINT, "30 GS Hint", CVAR_RANDOMIZER_SETTING("30GSHint"), mOptionDescriptions[RSK_KAK_30_SKULLS_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_KAK_40_SKULLS_HINT, "40 GS Hint", CVAR_RANDOMIZER_SETTING("40GSHint"), mOptionDescriptions[RSK_KAK_40_SKULLS_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_KAK_50_SKULLS_HINT, "50 GS Hint", CVAR_RANDOMIZER_SETTING("50GSHint"), mOptionDescriptions[RSK_KAK_50_SKULLS_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_KAK_100_SKULLS_HINT, "100 GS Hint", CVAR_RANDOMIZER_SETTING("100GSHint"), mOptionDescriptions[RSK_KAK_100_SKULLS_HINT], IMFLAG_NONE);
-    OPT_BOOL(RSK_MASK_SHOP_HINT, "Mask Shop Hint", CVAR_RANDOMIZER_SETTING("MaskShopHint"), mOptionDescriptions[RSK_MASK_SHOP_HINT]);
-#ifdef COMBO_BUILD
-    // ComboShip: unreadable (portal scene) and force-disabled in FinalizeSettings — don't offer the toggle.
-    mOptions[RSK_MASK_SHOP_HINT].Hide();
-#endif
-=======
     OPT_U8(RSK_HINT_CLARITY, {"Obscure", "Ambiguous", "Clear"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("HintClarity"), WIDGET_CVAR_COMBOBOX, RO_HINT_CLARITY_CLEAR, true, nullptr, IMFLAG_INDENT);
     OPT_U8(RSK_HINT_DISTRIBUTION, {"Useless", "Balanced", "Strong", "Very Strong"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("HintDistribution"), WIDGET_CVAR_COMBOBOX, RO_HINT_DIST_BALANCED, true, nullptr, IMFLAG_UNINDENT);
     OPT_BOOL(RSK_TOT_ALTAR_HINT, {"Off", "On"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("AltarHint"), WIDGET_CVAR_CHECKBOX, RO_GENERIC_ON, false, nullptr, IMFLAG_INDENT);
@@ -1523,7 +1463,10 @@ void Settings::CreateOptions() {
     OPT_BOOL(RSK_KAK_50_SKULLS_HINT, CVAR_RANDOMIZER_SETTING("50GSHint"), IMFLAG_NONE);
     OPT_BOOL(RSK_KAK_100_SKULLS_HINT, CVAR_RANDOMIZER_SETTING("100GSHint"), IMFLAG_NONE);
     OPT_BOOL(RSK_MASK_SHOP_HINT, CVAR_RANDOMIZER_SETTING("MaskShopHint"));
->>>>>>> vendor-soh
+#ifdef COMBO_BUILD
+    // ComboShip: unreadable (portal scene) and force-disabled in FinalizeSettings — don't offer the toggle.
+    mOptions[RSK_MASK_SHOP_HINT].Hide();
+#endif
     // TODO: Compasses show rewards/woth, maps show dungeon mode
     OPT_BOOL(RSK_BLUE_FIRE_ARROWS, CVAR_RANDOMIZER_SETTING("BlueFireArrows"));
     OPT_BOOL(RSK_SUNLIGHT_ARROWS, CVAR_RANDOMIZER_SETTING("SunlightArrows"));
@@ -3382,11 +3325,6 @@ void Settings::RandomizeAllSettings() {
             case RSK_STARTING_GERUDO_CARD:
             case RSK_STARTING_BIGGORON_SWORD:
             case RSK_STARTING_BUNNY_HOOD:
-<<<<<<< HEAD
-            // ComboShip: (#133/#134) opt-outs, never randomized
-            case RSK_EXCLUDE_MASK_SHOP_KEY:
-            case RSK_EXCLUDE_MASK_SHOP_ENTRANCE:
-=======
             case RSK_STARTING_KEATON_MASK:
             case RSK_STARTING_SKULL_MASK:
             case RSK_STARTING_SPOOKY_MASK:
@@ -3394,7 +3332,9 @@ void Settings::RandomizeAllSettings() {
             case RSK_STARTING_ZORA_MASK:
             case RSK_STARTING_GERUDO_MASK:
             case RSK_STARTING_MASK_OF_TRUTH:
->>>>>>> vendor-soh
+            // ComboShip: (#133/#134) opt-outs, never randomized
+            case RSK_EXCLUDE_MASK_SHOP_KEY:
+            case RSK_EXCLUDE_MASK_SHOP_ENTRANCE:
                 continue;
             default:
                 break;

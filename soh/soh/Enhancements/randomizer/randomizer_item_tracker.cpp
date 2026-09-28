@@ -1869,26 +1869,15 @@ void ItemTrackerWindow::DrawElement() {
              SECTION_DISPLAY_MAIN_WINDOW) ||
             (CVarGetInteger(CVAR_TRACKER_ITEM("DisplayType.DungeonItems"), SECTION_DISPLAY_HIDDEN) ==
              SECTION_DISPLAY_MAIN_WINDOW) ||
-<<<<<<< HEAD
-            (CVarGetInteger(CVAR_TRACKER_ITEM("DisplayType.Greg"), SECTION_DISPLAY_EXTENDED_HIDDEN) ==
-             SECTION_DISPLAY_EXTENDED_MAIN_WINDOW) ||
-            (CVarGetInteger(CVAR_TRACKER_ITEM("DisplayType.TriforcePieces"), SECTION_DISPLAY_HIDDEN) ==
-             SECTION_DISPLAY_MAIN_WINDOW) ||
-            (CVarGetInteger(CVAR_TRACKER_ITEM("DisplayType.FishingPole"), SECTION_DISPLAY_EXTENDED_HIDDEN) ==
-             SECTION_DISPLAY_EXTENDED_MAIN_WINDOW)
+            (GregDisplay() == SECTION_DISPLAY_EXTENDED_MAIN_WINDOW) ||
+            (TriforcePiecesDisplay() == SECTION_DISPLAY_MAIN_WINDOW) ||
+            (FishingPoleDisplay() == SECTION_DISPLAY_EXTENDED_MAIN_WINDOW)
 // ComboShip (#165): native notes replaced by the combo-owned cross-game Personal Notes window.
 #ifndef COMBO_BUILD
             || (CVarGetInteger(CVAR_TRACKER_ITEM("DisplayType.Notes"), SECTION_DISPLAY_HIDDEN) ==
                 SECTION_DISPLAY_MAIN_WINDOW)
 #endif
         ) {
-=======
-            (GregDisplay() == SECTION_DISPLAY_EXTENDED_MAIN_WINDOW) ||
-            (TriforcePiecesDisplay() == SECTION_DISPLAY_MAIN_WINDOW) ||
-            (FishingPoleDisplay() == SECTION_DISPLAY_EXTENDED_MAIN_WINDOW) ||
-            (CVarGetInteger(CVAR_TRACKER_ITEM("DisplayType.Notes"), SECTION_DISPLAY_HIDDEN) ==
-             SECTION_DISPLAY_MAIN_WINDOW)) {
->>>>>>> vendor-soh
             BeginFloatingWindows("Item Tracker");
             DrawItemsInRows(mainWindowItems, 6);
 
@@ -1898,12 +1887,8 @@ void ItemTrackerWindow::DrawElement() {
                 SECTION_DISPLAY_MAIN_WINDOW) {
                 DrawNotes();
             }
-<<<<<<< HEAD
 #endif
-            EndFloatingWindows();
-=======
             Trackers::EndFloatWindows();
->>>>>>> vendor-soh
         }
 
         if (CVarGetInteger(CVAR_TRACKER_ITEM("DisplayType.Inventory"), SECTION_DISPLAY_MAIN_WINDOW) ==
@@ -2243,18 +2228,12 @@ void ItemTrackerSettingsWindow::DrawElement() {
             RefreshItemTrackerMainWindow();
         }
 
-<<<<<<< HEAD
 // ComboShip (#165): native notes replaced by the combo-owned cross-game Personal Notes window.
 #ifndef COMBO_BUILD
-        SohGui::mSohMenu->MenuDrawItem(personalNotesWiget, 250, THEME_COLOR);
-#endif
-        SohGui::mSohMenu->MenuDrawItem(hookshotIdentWidget, 250, THEME_COLOR);
-        SohGui::mSohMenu->MenuDrawItem(openChestIdentWidget, 250, THEME_COLOR);
-=======
         SohGui::mSohMenu->MenuDrawItem(personalNotesWiget, THEME_COLOR);
+#endif
         SohGui::mSohMenu->MenuDrawItem(hookshotIdentWidget, THEME_COLOR);
         SohGui::mSohMenu->MenuDrawItem(openChestIdentWidget, THEME_COLOR);
->>>>>>> vendor-soh
 
         ImGui::PopStyleVar(1);
         ImGui::EndTable();
@@ -2437,10 +2416,6 @@ void RegisterItemTrackerWidgets() {
     SohGui::mSohMenu->AddSearchWidget(
         { fishingPoleTracking, "Randomizer", "Item Tracker", "General Settings", "icon" });
 
-<<<<<<< HEAD
-// ComboShip (#165): native notes replaced by the combo-owned cross-game Personal Notes window.
-#ifndef COMBO_BUILD
-=======
     silverRupeeTracking = { .name = "Silver Rupees", .type = WidgetType::WIDGET_CVAR_COMBOBOX };
     silverRupeeTracking.CVar(CVAR_TRACKER_ITEM("DisplayType.SilverRupees"))
         .Options(ComboboxOptions()
@@ -2454,7 +2429,8 @@ void RegisterItemTrackerWidgets() {
     SohGui::mSohMenu->AddSearchWidget(
         { silverRupeeTracking, "Randomizer", "Item Tracker", "General Settings", "icon" });
 
->>>>>>> vendor-soh
+// ComboShip (#165): native notes replaced by the combo-owned cross-game Personal Notes window.
+#ifndef COMBO_BUILD
     personalNotesWiget = { .name = "Personal notes", .type = WidgetType::WIDGET_CVAR_COMBOBOX };
     static const char* notesDisabledTooltip =
         "Disabled because tracker is set to floating and display combo is enabled.";

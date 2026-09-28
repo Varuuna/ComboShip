@@ -2890,20 +2890,7 @@ void Logic::SetQuestItem(uint32_t item, bool state) {
 }
 
 int8_t Logic::GetSmallKeyCount(SceneID sceneId) {
-<<<<<<< HEAD
-    if (sceneId == SCENE_THIEVES_HIDEOUT) {
-        std::vector<uint8_t> DoorFlags = THIEVES_HIDEOUT_DOOR_FLAGS;
-        return FindTotalSmallKeys(mSaveContext, SCENE_THIEVES_HIDEOUT, &DoorFlags);
-    }
-
-    if (auto* dungeon = Rando::Context::GetInstance()->GetDungeons()->GetDungeonFromScene(sceneId)) {
-        return dungeon->GetTotalSmallKeys(mSaveContext);
-    }
-
-    return FindTotalSmallKeys(mSaveContext, sceneId, nullptr);
-=======
     return GetSceneTotalSmallKeys(mSaveContext, sceneId);
->>>>>>> vendor-soh
 }
 
 void Logic::SetSmallKeyCount(uint32_t dungeonIndex, uint8_t count) {

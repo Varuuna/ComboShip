@@ -3,13 +3,10 @@
 #include "SeedContext.h"
 #include "static_data.h"
 #include "rng.h"
-<<<<<<< HEAD
 #ifdef COMBO_BUILD
 #include "soh/Enhancements/randomizer/hook_handlers.h" // ComboShip: OOT_LookupForeignByCheck
 #endif
-=======
 #include "soh/Enhancements/randomizer/trial.h"
->>>>>>> vendor-soh
 
 namespace Rando {
 Hint::Hint() {
@@ -541,7 +538,6 @@ const HintText Hint::GetItemHintText(uint8_t slot, bool mysterious) const {
         // item hints read as sentences, so the fake name needs its article like a real item's hint has
         return HintText(CustomMessage(
             { ctx->overrides[hintedCheck].GetTrickArticle() + ctx->overrides[hintedCheck].GetTrickName() }));
-<<<<<<< HEAD
 #ifdef COMBO_BUILD
     } else if (targetRG == RG_COMBO_FOREIGN) {
         // ComboShip: the sentinel's own hint text is "No Hint" — name the real MM item instead.
@@ -553,8 +549,6 @@ const HintText Hint::GetItemHintText(uint8_t slot, bool mysterious) const {
         }
         return HintText(CustomMessage(shown, shown, shown));
 #endif
-=======
->>>>>>> vendor-soh
     } else {
         return ctx->GetItemLocation(hintedCheck)->GetPlacedItem().GetHint();
     }

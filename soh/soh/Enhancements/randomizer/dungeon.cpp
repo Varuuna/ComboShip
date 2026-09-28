@@ -107,15 +107,7 @@ RandomizerSettingKey DungeonInfo::GetMQSetting() const {
     return mqSetting;
 }
 
-<<<<<<< HEAD
-int8_t FindUsedSmallKeys(const SaveContext* saveContext, const SceneID scene, const std::vector<uint8_t>* DoorFlags) {
-    if (DoorFlags == nullptr) {
-        return 0;
-    }
-
-=======
 int8_t FindUsedSmallKeys(const SaveContext* saveContext, const SceneID scene, std::span<const uint8_t> doorFlags) {
->>>>>>> vendor-soh
     // Get the swch value for the scene
     uint32_t swch;
     if (gPlayState != nullptr && gPlayState->sceneNum == scene) {

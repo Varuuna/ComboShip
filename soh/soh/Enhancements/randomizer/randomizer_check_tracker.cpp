@@ -32,11 +32,9 @@
 #include "item_location.h"
 #include "randomizer_check_objects.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
-<<<<<<< HEAD
-#include "soh/Enhancements/randomizer/hook_handlers.h"
-#include "z64item.h"
-=======
->>>>>>> vendor-soh
+#ifdef COMBO_BUILD
+#include "soh/Enhancements/randomizer/hook_handlers.h" // ComboShip: OOT_LookupForeign
+#endif
 
 #ifdef COMBO_BUILD
 #include "ComboMenuSharedContext.h"        // ComboShip: per-DLL ImGui context helper (combo-owned)

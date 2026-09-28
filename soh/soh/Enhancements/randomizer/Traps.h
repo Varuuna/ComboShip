@@ -7,6 +7,10 @@
 #include "soh/Enhancements/custom-message/text.h"
 #include "soh/Enhancements/item-tables/ItemTableTypes.h"
 #include "soh/Enhancements/randomizer/randomizerTypes.h"
+#ifdef COMBO_BUILD
+#include <string>
+#include <vector>
+#endif
 
 class CustomMessage;
 
@@ -17,14 +21,10 @@ struct TrickName {
     Text name;
     Text article;
 };
-<<<<<<< HEAD
-TrickName GetTrapName(uint16_t id, uint64_t* state = nullptr);
-=======
 TrickName GetTrapName(RandomizerGet id, RandoIceTrapNames iceTrapNamesOption, uint64_t* state = nullptr);
->>>>>>> vendor-soh
 RandomizerGet GetTrapTrickModel(uint64_t* state = nullptr);
 // ComboShip: true if an item id has a fake ice-trap name (i.e. is a valid disguise) — guards the dump
-// export, curated-set restore, and old-seed placed-item fallback, since GetTrapName asserts on unnamed items.
+// export, curated-set restore, and old-seed placed-item fallback (unnamed items have no disguise).
 bool CanBeTrapModel(uint16_t id);
 bool ShouldJunkItemBeTrap();
 void BuildIceTrapMessage(CustomMessage& msg, GetItemEntry getItemEntry);

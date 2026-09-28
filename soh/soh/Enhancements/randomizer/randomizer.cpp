@@ -23,16 +23,13 @@
 #include "soh/ObjectExtension/ObjectExtension.h"
 #include "soh/Enhancements/randomizer/RCToRandInf.h"
 #include "dungeon.h"
-<<<<<<< HEAD
 #ifdef COMBO_BUILD
 #include "hook_handlers.h" // ComboShip: OOT_DeliverForeign for RG_COMBO_FOREIGN grant divert
 extern "C" void (*gComboTriforceProgress)(int game, int fileNum);
 #endif
-=======
 #include "logic.h"
 #include "soh/SohGui/UIWidgets.hpp"
 #include "soh/Enhancements/randomizer/trial.h"
->>>>>>> vendor-soh
 
 extern "C" {
 #include <variables.h>

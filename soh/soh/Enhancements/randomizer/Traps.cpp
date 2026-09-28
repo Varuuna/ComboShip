@@ -981,14 +981,11 @@ static void InitTrickNames() {
         { Text{ "Fish Tickler", "Fish Tickler", "Fischkitzler" }, Text{ "a ", "un ", "einen " } },
         { Text{ "Floating Lure", "Floating Lure", "Schwimmer" }, Text{ "a ", "un ", "einen " } },
         { Text{ "Fishing Reel", "Fishing Reel", "Angelschnur" }, Text{ "a ", "un ", "eine " } },
-<<<<<<< HEAD
-=======
     };
     trickNameTable[RG_SCARECROWS_SONG] = {
         { Text{ "Pierre's Polka", "Polka de Pierre", "Pierres Polka" }, Text{ "", "la ", "" } },
         { Text{ "Crow's Song", "Chant du corbeau", "Krähenlied" }, Text{ "the ", "le ", "das " } },
         { Text{ "Bonooru's Ballad", "Ballade de Bonooru", "Bonoorus Ballade" }, Text{ "", "la ", "" } },
->>>>>>> vendor-soh
     };
     trickNameTable[RG_SKELETON_KEY] = {
         // TODO_TRANSLATE
@@ -1871,19 +1868,6 @@ static void InitTrickNames() {
     */
 }
 
-<<<<<<< HEAD
-// Generate a fake name for the ice trap based on the item it's displayed as
-Rando::Traps::TrickName Rando::Traps::GetTrapName(uint16_t id, uint64_t* state) {
-    // If the trick names table has not been initialized, do so
-    if (!initTrickNames) {
-        InitTrickNames();
-        initTrickNames = true;
-    }
-
-    if (trickNameTable[id].empty()) {
-        assert(false);
-        return { Text{ "not an Ice Trap" }, Text{ "", "", "" } };
-=======
 /// @brief Gets the "trick name" for an Ice Trap
 /// @param id The RandomizerGet of the item the Ice Trap is disguised as
 /// @param iceTrapNamesOption The current value of the RSK_ICE_TRAP_NAMES setting
@@ -1915,7 +1899,6 @@ Rando::Traps::TrickName Rando::Traps::GetTrapName(RandomizerGet id, RandoIceTrap
         name.ReplaceRandomVowel(state);
     } else if (iceTrapNamesOption == RO_ICE_TRAP_NAMES_MISSPELLED_DUPLICATED_LETTER) {
         name.DuplicateRandomLetter(state);
->>>>>>> vendor-soh
     }
 
     return { name, item.GetArticle() };

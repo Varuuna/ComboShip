@@ -32,6 +32,9 @@
 .PARAMETER RepoRoot
     Repo to operate on (default: this script's repo). Lets CI run a newer copy of the engine.
 
+.PARAMETER Branch
+    Tracked branch to use instead of the pins file's (CI passes develop's on the release track).
+
 .PARAMETER Depth
     Refetch depth for blob hydration (default 50). Increase if the fork is far behind the tip.
 
@@ -46,6 +49,7 @@ param(
     [ValidateSet('libultraship', 'soh', 'mm')]
     [string]$Only,
     [string]$Target,
+    [string]$Branch,
     [int]$Depth = 50,
     [string]$RepoRoot = (Join-Path $PSScriptRoot '..')
 )
@@ -67,7 +71,7 @@ $keys = if ($Only) { @($Only) } else { @('libultraship', 'soh', 'mm') }
 foreach ($key in $keys) {
     $u = $pins.upstreams.$key
     $remote = $remotes[$key]
-    $branch = $u.branch
+    $branch = if ($Branch) { $Branch } else { $u.branch }
     $prefix = $u.prefix
     $subtree = $u.subtree   # '' means the upstream repo root maps to our prefix
     $vendorBranch = "vendor-$key"
@@ -125,7 +129,7 @@ foreach ($key in $keys) {
         Remove-Item Env:GIT_INDEX_FILE -ErrorAction SilentlyContinue
         Remove-Item $tmpIndex -ErrorAction SilentlyContinue
     }
-    $newCommit = (git commit-tree $newTree -p $vendorBranch -m "vendor: $key $(if ($Target) { $Target } else { $branch }) $($tip.Substring(0,9))").Trim()
+    $newCommit = (git commit-tree $newTree -p $vendorBranch -m "vendor: $key $(if ($Target) { 'target' } else { $branch }) $($tip.Substring(0,9))").Trim()
     git branch -f $vendorBranch $newCommit | Out-Null
     Write-Host "  rebuilt $vendorBranch @ $($newCommit.Substring(0,9))"
 

@@ -83,10 +83,12 @@ jobs:
         if: github.event_name == 'pull_request' && github.base_ref == 'main'
         env:
           HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
-          # HEAD is the PR merge commit, so HEAD^1 is main's tip.
-          if ! git diff --quiet HEAD^1 HEAD -- upstream-pins.json && [[ "$HEAD_REF" != bot/upstream-release-* ]]; then
-            echo "::error file=upstream-pins.json::Only bot/upstream-release-* PRs may change upstream-pins.json on main (see docs/UPSTREAM_MERGES.md)"
+          # HEAD is the PR merge commit, so HEAD^1 is main's tip. A fork can name any branch, so require in-repo.
+          if ! git diff --quiet HEAD^1 HEAD -- upstream-pins.json \
+             && { [[ "$HEAD_REF" != bot/upstream-release-* ]] || [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; }; then
+            echo "::error file=upstream-pins.json::Only in-repo bot/upstream-release-* PRs may change upstream-pins.json on main (see docs/UPSTREAM_MERGES.md)"
             exit 1
           fi
 

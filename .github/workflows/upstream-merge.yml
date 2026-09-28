@@ -38,7 +38,7 @@ jobs:
   detect:
     runs-on: ubuntu-latest
     outputs:
-      # JSON arrays of {track, key, base, head, url, target, targetRef, targetName}, in pins order.
+      # JSON arrays of {track, key, base, head, url, branch, target, targetName}, in pins order.
       keys: ${{ steps.plan.outputs.keys }}     # moved AND not already covered by an open PR
       stale: ${{ steps.plan.outputs.stale }}   # up to date — cleanup closes their old PR/branch
       date: ${{ steps.report.outputs.date }}
@@ -81,23 +81,33 @@ jobs:
           # Remote/branch come from develop's pins on both tracks; only mergedSha is per base branch.
           mapfile -t rows < <(jq -r '.upstreams | to_entries[] | select(.value.manual != true) | "\(.key)|\(.value.remote)|\(.value.branch)|\(.value.prefix)|\(.value.subtree)|\(.value.mergedSha)"' upstream-pins.json)
 
+          # A skipped release key is never cleaned up, so flag a PR still open for it.
+          skip_release() {
+            local pr
+            pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&head=${GITHUB_REPOSITORY%%/*}:bot/upstream-release-$1" \
+                   -q '.[0].number // empty' 2>/dev/null || true)
+            echo "- **$1**: ⏸️ skipped — $2${pr:+ (PR #$pr is still open — left alone, review it by hand)}" >> "$SUM_REL"
+            echo "::warning::release $1: $2"
+          }
+
           # Classify one key against its resolved target, and write its report when it moved.
-          # Args: track key url prefix subtree merged tip targetRef targetName via
+          # Args: track key url branch prefix subtree merged tip targetName via
           check() {
-            local track=$1 key=$2 url=$3 prefix=$4 subtree=$5 merged=$6 tip=$7 ref=$8 name=$9 via=${10}
+            local track=$1 key=$2 url=$3 branch=$4 prefix=$5 subtree=$6 merged=$7 tip=$8 name=$9 via=${10}
             local base head sum ours_ref label obj short count ours theirs surface
             if [ "$track" = tips ]; then base=develop; head="bot/upstream-merge-$key"; sum=$SUM_TIPS; ours_ref=HEAD
             else base=main; head="bot/upstream-release-$key"; sum=$SUM_REL; ours_ref=origin/main; fi
             short=$(git rev-parse --short=9 "$tip")
             if [ "$name" = "$short" ]; then label="\`$short\`"; else label="$name (\`$short\`)"; fi
             obj=$(jq -cn --arg track "$track" --arg key "$key" --arg base "$base" --arg head "$head" \
-                    --arg url "$url" --arg target "$tip" --arg targetRef "$ref" --arg targetName "$name" \
+                    --arg url "$url" --arg branch "$branch" --arg target "$tip" --arg targetName "$name" \
                     '$ARGS.named')
 
             if ! git rev-parse -q --verify "$merged^{commit}" > /dev/null; then
-              echo "- **$key**: ⏸️ skipped — pinned \`$merged\` not found upstream" >> "$sum"
-              echo "::warning::$track $key: pinned $merged not found upstream"
-              [ "$track" = tips ] && FAIL=1
+              if [ "$track" = release ]; then skip_release "$key" "pinned \`$merged\` not found upstream"; return 0; fi
+              echo "- **$key**: ⛔ pinned \`$merged\` not found upstream" >> "$sum"
+              echo "::error::$key: pinned $merged not found upstream"
+              FAIL=1
               return 0
             fi
             if [ "$(git rev-parse "$merged^{commit}")" = "$tip" ]; then
@@ -112,8 +122,10 @@ jobs:
                 echo "- **$key**: ⛔ \`$merged\` is not an ancestor of the \`$short\` tip — tracked branch rewritten?" >> "$sum"
                 echo "::error::$key: pinned $merged is not an ancestor of the tracked tip $short"
                 FAIL=1
+              elif git merge-base --is-ancestor "$tip" "$merged"; then
+                skip_release "$key" "$label is behind main's \`$merged\`; waiting for a newer release"
               else
-                echo "- **$key**: ⏸️ skipped — $label is not ahead of main's \`$merged\`; waiting for a newer release" >> "$sum"
+                skip_release "$key" "$label is on another line than main's \`$merged\` (not a descendant); check by hand"
               fi
               return 0
             fi
@@ -162,13 +174,13 @@ jobs:
             git -c remote.up-$key.promisor=true fetch --filter=blob:none --no-tags "up-$key" "$branch"
             tip=$(git rev-parse FETCH_HEAD)
             TIP[$key]=$tip
-            check tips "$key" "$url" "$prefix" "$subtree" "$merged" "$tip" "" "$(git rev-parse --short=9 "$tip")" ""
+            check tips "$key" "$url" "$branch" "$prefix" "$subtree" "$merged" "$tip" "$(git rev-parse --short=9 "$tip")" ""
             echo "::endgroup::"
           done
 
           # --- release track (main) ---
           # Errors here are soft (key skipped with a warning), so an API hiccup never blocks develop.
-          declare -A RT=() RREF=() RNAME=() RVIA=() RWHY=()
+          declare -A RT=() RNAME=() RVIA=() RWHY=()
           for key in soh mm; do
             url=$(jq -r --arg k "$key" '.upstreams[$k].remote' upstream-pins.json)
             slug=${url#https://github.com/}; slug=${slug%.git}
@@ -181,7 +193,7 @@ jobs:
               RWHY[$key]="could not fetch tag \`$tag\`"; continue
             fi
             RT[$key]=$(git rev-parse 'FETCH_HEAD^{commit}')
-            RREF[$key]="refs/tags/$tag"; RNAME[$key]=$tag
+            RNAME[$key]=$tag
             RVIA[$key]="Release notes: <https://github.com/$slug/releases/tag/$tag>"
           done
 
@@ -202,7 +214,7 @@ jobs:
             fi
           done
           if [ -n "$lus" ]; then
-            RT[libultraship]=$lus; RREF[libultraship]=$lus; RNAME[libultraship]=${lus:0:9}
+            RT[libultraship]=$lus; RNAME[libultraship]=${lus:0:9}
             via=$(printf '%s, ' "${by[@]}")
             RVIA[libultraship]="Newest libultraship pinned by: ${via%, }"
           elif [ -z "${RWHY[libultraship]:-}" ]; then
@@ -214,12 +226,10 @@ jobs:
             IFS='|' read -r key url branch prefix subtree _ <<< "$row"
             echo "::group::release $key"
             if [ -n "${RWHY[$key]:-}" ] || [ -z "${RT[$key]:-}" ]; then
-              why=${RWHY[$key]:-no release target}
-              echo "- **$key**: ⏸️ skipped — $why" >> "$SUM_REL"
-              echo "::warning::release $key: $why"
+              skip_release "$key" "${RWHY[$key]:-no release target}"
             else
               merged=$(jq -r --arg k "$key" '.upstreams[$k].mergedSha' "$PINS_MAIN")
-              check release "$key" "$url" "$prefix" "$subtree" "$merged" "${RT[$key]}" "${RREF[$key]}" "${RNAME[$key]}" "${RVIA[$key]}"
+              check release "$key" "$url" "$branch" "$prefix" "$subtree" "$merged" "${RT[$key]}" "${RNAME[$key]}" "${RVIA[$key]}"
             fi
             echo "::endgroup::"
           done
@@ -352,7 +362,7 @@ jobs:
       U_HEAD: ${{ matrix.head }}
       U_URL: ${{ matrix.url }}
       U_TARGET: ${{ matrix.target }}
-      U_TARGET_REF: ${{ matrix.targetRef }}
+      U_TRACKED: ${{ matrix.branch }}
       U_TARGET_NAME: ${{ matrix.targetName }}
     steps:
       - uses: actions/checkout@v5
@@ -390,7 +400,7 @@ jobs:
             mm)           remote=up-mm  ;;
             *) echo "::error::unknown upstream key '$key'"; exit 1 ;;
           esac
-          branch=$(jq -r ".upstreams.\"$key\".branch"   upstream-pins.json)
+          branch=$U_TRACKED   # develop's pins: main's may name an old branch
           prefix=$(jq -r ".upstreams.\"$key\".prefix"   upstream-pins.json)
           subtree=$(jq -r ".upstreams.\"$key\".subtree" upstream-pins.json)
           merged=$(jq -r ".upstreams.\"$key\".mergedSha" upstream-pins.json)
@@ -403,7 +413,7 @@ jobs:
             git config "remote.$remote.partialclonefilter" 'blob:none'
           fi
           git fetch "$remote" "$branch"
-          [ -z "$U_TARGET_REF" ] || git fetch "$remote" "$U_TARGET_REF"
+          [ "$U_TRACK" != release ] || git fetch "$remote" "$U_TARGET"   # the exact SHA detect classified
 
           # vendor-<key> starts at a base commit whose tree = upstream at the last-merged SHA grafted
           # under our prefix (the same mktree construction the engine uses for tips).
@@ -438,9 +448,9 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $false
           $engine = Join-Path $env:RUNNER_TEMP 'upstream-merge.ps1'
           if ($env:U_TRACK -eq 'release') {
-            & $engine -Only $env:U_KEY -Target $env:U_TARGET_REF -Depth 1000 -RepoRoot $PWD
+            & $engine -Only $env:U_KEY -Branch $env:U_TRACKED -Target $env:U_TARGET -Depth 1000 -RepoRoot $PWD
           } else {
-            & $engine -Only $env:U_KEY -Depth 1000 -RepoRoot $PWD
+            & $engine -Only $env:U_KEY -Branch $env:U_TRACKED -Depth 1000 -RepoRoot $PWD
           }
 
       # Mechanical 3-way merge via merge-tree with the pins-derived base passed explicitly (the base
@@ -456,7 +466,7 @@ jobs:
           if [ "$U_TRACK" = release ]; then tip=$U_TARGET; else tip=$(git rev-parse "$U_REMOTE/$U_BRANCH"); fi
           new=$(git rev-parse --short=9 "$tip")
 
-          # The engine resolved the target again; refuse if it no longer matches (tag re-pointed mid-run).
+          # Belt and braces: the vendor tree must be the target detect classified (a tip can move mid-run).
           if [ -n "$U_SUBTREE" ]; then want=$(git rev-parse "$tip:$U_SUBTREE"); else want=$(git rev-parse "$tip^{tree}"); fi
           if [ "$(git rev-parse "vendor-$U_KEY:$U_PREFIX")" != "$want" ]; then
             echo "::error::vendor-$U_KEY does not match target $new — upstream moved during the run; re-run"

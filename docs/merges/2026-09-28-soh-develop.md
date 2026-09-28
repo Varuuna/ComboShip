@@ -328,6 +328,9 @@ src/overlays/misc/ovl_kaleido_scope/z_kaleido_scope_PAL.c
 - `GIMMCMD` is defined by both LUS `fast/lus_gbi.h` and `libultra/gbi.h`; upstream's slimmer soh
   includes now reach `lus_gbi.h` first, so the second define warned under `/WX`. `libultra/gbi.h`
   `#undef`s it first under `COMBO_BUILD` (same resulting definition as before).
+- Asset collisions: upstream changed soh's `accessibility/texts/misc_eng.json` (it matched mm's
+  before), so it joins the three other TTS text files in `asset-collisions.json`. Each game loads its
+  own through its own resource manager; never drawn cross-game.
 - `debugSaveEditor.cpp`: our PR #174 cherry-pick of upstream's button-sync fix was merged a second
   time by git (duplicate function); took upstream's file.
 - The CRT walker's regex backreference must be written `\\1` inside the CMake string.

@@ -4366,11 +4366,13 @@ extern "C" COMBO_EXPORT const char* SOH_DumpRandoStaticData(void) {
         }
 
         // ComboShip: accessibility settings the combo fill maps to an OotAccess mode (per-game relax).
-        accessibility["noLogic"] = ctx->GetOption(RSK_LOGIC_RULES).Is(RO_LOGIC_NO_LOGIC);
-        accessibility["allLocationsReachable"] = static_cast<bool>(ctx->GetOption(RSK_ALL_LOCATIONS_REACHABLE));
+        accessibility["noLogic"] = ctx->GetOption(RSK_NO_LOGIC).Is(RO_GENERIC_ON);
+        accessibility["allLocationsReachable"] = static_cast<bool>(ctx->GetOption(RSK_ALL_CHECKS_REACHABLE));
         accessibility["lockOverworldDoors"] = static_cast<bool>(ctx->GetOption(RSK_LOCK_OVERWORLD_DOORS));
         // ComboShip: Shared Items masks need OOT's masks to be real rando items.
-        accessibility["maskQuestShuffle"] = ctx->GetOption(RSK_MASK_QUEST).Is(RO_MASK_QUEST_SHUFFLE);
+        accessibility["maskQuestShuffle"] = static_cast<bool>(ctx->GetOption(RSK_SHUFFLE_MASKS));
+        // ComboShip: foreign traps keep the baked "Similar" name; recorded so a follow-up can honor it.
+        accessibility["iceTrapNames"] = static_cast<int>(ctx->GetOption(RSK_ICE_TRAP_NAMES).Get());
 
         usedPool = true;
 #else
@@ -4768,9 +4770,9 @@ extern "C" COMBO_EXPORT const char* SOH_DumpRandoHintData(void) {
         for (int k = 0; k < RHT_MAX; ++k) {
             auto key = static_cast<RandomizerHintTextKey>(k);
             auto name = EnumToString(key);
-            if (!name.has_value() || !Combo_IsUsedHintTemplate(std::string(*name)))
+            if (name.empty() || !Combo_IsUsedHintTemplate(std::string(name)))
                 continue;
-            templates[std::string(*name)] = Combo_HintTextToJson(Rando::StaticData::hintTextTable[key]);
+            templates[std::string(name)] = Combo_HintTextToJson(Rando::StaticData::hintTextTable[key]);
         }
         out["hintTextTable"] = std::move(templates);
 

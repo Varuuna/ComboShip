@@ -24,7 +24,6 @@
 #include "soh/Enhancements/cosmetics/cosmeticsTypes.h" // COLORSCHEME_*
 #include "soh/OTRGlobals.h"                            // rando-context null guards (MM calls us while OOT is dormant)
 #include <string>
-#include "soh/Enhancements/randomizer/dungeon.h"   // Rando::DungeonKey / GetDungeon()->IsMQ() (key-ring MQ variants)
 #include "objects/object_gi_fire/object_gi_fire.h" // gGiBlueFireFlameDL (boss-soul flame)
 #include "objects/object_gi_key/object_gi_key.h"   // gGiSmallKeyDL
 #include "objects/object_gi_bosskey/object_gi_bosskey.h"     // gGiBossKeyDL / gGiBossKeyGemDL
@@ -147,8 +146,6 @@ static int32_t OOT_DescribeCustomDraw(RandomizerGet rg, CwItemDrawInfo* out) {
         return 1;
     }
 
-    bool customKeys = CVarGetInteger(CVAR_RANDOMIZER_ENHANCEMENT("CustomKeyModels"), 1) != 0;
-
     // Boss keys: custom body (env keyColor, OPA) + dungeon gem icon (env gemColor, XLU).
     if (rg >= RG_FOREST_TEMPLE_BOSS_KEY && rg <= RG_GANONS_CASTLE_BOSS_KEY) {
         static const char* icons[6] = {
@@ -162,12 +159,6 @@ static int32_t OOT_DescribeCustomDraw(RandomizerGet rg, CwItemDrawInfo* out) {
         int slot = rg - RG_FOREST_TEMPLE_BOSS_KEY;
         out->dlistCount = 2;
         out->xluStartIndex = 1;
-        if (!customKeys) { // vanilla models; the func's optional grayscale recolor is dropped
-            out->drawKind = CW_DRAW_KIND_SIMPLE;
-            out->dlists[0] = gGiBossKeyDL;
-            out->dlists[1] = gGiBossKeyGemDL;
-            return 1;
-        }
         out->drawKind = CW_DRAW_KIND_COLOR_LAYERS;
         out->dlists[0] = gBossKeyCustomDL;
         out->dlists[1] = icons[slot];
@@ -177,7 +168,7 @@ static int32_t OOT_DescribeCustomDraw(RandomizerGet rg, CwItemDrawInfo* out) {
     }
 
     // Small keys: custom body (env keyColor, OPA) + dungeon emblem (env emblemColor, XLU).
-    if (rg >= RG_FOREST_TEMPLE_SMALL_KEY && rg <= RG_GANONS_CASTLE_SMALL_KEY) {
+    if (rg >= RG_FOREST_TEMPLE_SMALL_KEY && rg <= RG_TREASURE_GAME_SMALL_KEY) {
         static const char* icons[10] = {
             gSmallKeyIconForestTempleDL,         gSmallKeyIconFireTempleDL,     gSmallKeyIconWaterTempleDL,
             gSmallKeyIconSpiritTempleDL,         gSmallKeyIconShadowTempleDL,   gSmallKeyIconBottomoftheWellDL,
@@ -185,9 +176,6 @@ static int32_t OOT_DescribeCustomDraw(RandomizerGet rg, CwItemDrawInfo* out) {
             gSmallKeyIconTreasureChestGameDL,
         };
         int slot = rg - RG_FOREST_TEMPLE_SMALL_KEY;
-        if (!customKeys) { // vanilla key; the func's grayscale recolor is dropped
-            return CwSimple(out, gGiSmallKeyDL, false, 0.0f);
-        }
         out->drawKind = CW_DRAW_KIND_COLOR_LAYERS;
         out->dlistCount = 2;
         out->xluStartIndex = 1;
@@ -198,7 +186,8 @@ static int32_t OOT_DescribeCustomDraw(RandomizerGet rg, CwItemDrawInfo* out) {
         return 1;
     }
 
-    // Key rings: key bunch + ring + emblem, each with its own env color, all OPA.
+    // Key rings: ring + emblem + ONE key, each with its own env color, all OPA. The native draw repeats
+    // gKeyringKeyDL per key with its own matrix; a single-matrix layer model can only show one.
     if (rg >= RG_FOREST_TEMPLE_KEY_RING && rg <= RG_TREASURE_GAME_KEY_RING) {
         static const char* icons[10] = {
             gKeyringIconForestTempleDL,         gKeyringIconFireTempleDL,     gKeyringIconWaterTempleDL,
@@ -206,33 +195,11 @@ static int32_t OOT_DescribeCustomDraw(RandomizerGet rg, CwItemDrawInfo* out) {
             gKeyringIconGerudoTrainingGroundDL, gKeyringIconGerudoFortressDL, gKeyringIconGanonsCastleDL,
             gKeyringIconTreasureChestGameDL,
         };
-        static const char* keys[10] = {
-            gKeyringKeysForestTempleDL,         gKeyringKeysFireTempleDL,     gKeyringKeysWaterTempleDL,
-            gKeyringKeysSpiritTempleDL,         gKeyringKeysShadowTempleDL,   gKeyringKeysBottomoftheWellDL,
-            gKeyringKeysGerudoTrainingGroundDL, gKeyringKeysGerudoFortressDL, gKeyringKeysGanonsCastleDL,
-            gKeyringKeysTreasureChestGameDL,
-        };
-        static const char* keysMQ[10] = {
-            gKeyringKeysForestTempleMQDL,         gKeyringKeysFireTempleMQDL,   gKeyringKeysWaterTempleMQDL,
-            gKeyringKeysSpiritTempleMQDL,         gKeyringKeysShadowTempleMQDL, gKeyringKeysBottomoftheWellMQDL,
-            gKeyringKeysGerudoTrainingGroundMQDL, gKeyringKeysGerudoFortressDL, gKeyringKeysGanonsCastleMQDL,
-            gKeyringKeysTreasureChestGameDL,
-        };
-        // 0 = not tied to a dungeon (Gerudo Fortress / Treasure Chest Game), so never MQ.
-        static const Rando::DungeonKey slotDungeon[10] = {
-            Rando::FOREST_TEMPLE, Rando::FIRE_TEMPLE,        Rando::WATER_TEMPLE,           Rando::SPIRIT_TEMPLE,
-            Rando::SHADOW_TEMPLE, Rando::BOTTOM_OF_THE_WELL, Rando::GERUDO_TRAINING_GROUND, (Rando::DungeonKey)0,
-            Rando::GANONS_CASTLE, (Rando::DungeonKey)0,
-        };
         int slot = rg - RG_FOREST_TEMPLE_KEY_RING;
-        if (!customKeys) { // the vanilla path stacks five keys via matrix chaining — not portable
-            return CwSimple(out, gGiSmallKeyDL, false, 0.0f);
-        }
-        bool mq = slotDungeon[slot] != 0 && Rando::Context::GetInstance()->GetDungeon(slotDungeon[slot])->IsMQ();
         out->drawKind = CW_DRAW_KIND_COLOR_LAYERS;
         out->dlistCount = 3;
         out->xluStartIndex = -1;
-        out->dlists[0] = mq ? keysMQ[slot] : keys[slot];
+        out->dlists[0] = gKeyringKeyDL;
         out->dlists[1] = gKeyringRingDL;
         out->dlists[2] = icons[slot];
         CwLayerEnv(out, 0, CVarGetColor24(SmallBodyCvarValue[slot], { 255, 255, 255 }));

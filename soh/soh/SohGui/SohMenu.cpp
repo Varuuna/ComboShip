@@ -434,7 +434,7 @@ int32_t SohMenu::DrawWidgetByIndex(int32_t i, int32_t width) {
     bool hasCvar = (w->cVar && w->cVar[0]);
     int32_t beforeI = hasCvar ? CVarGetInteger(w->cVar, 0) : 0;
     float beforeF = hasCvar ? CVarGetFloat(w->cVar, 0.0f) : 0.0f;
-    MenuDrawItem(*w, (uint32_t)(width > 0 ? width : 90), GetMenuThemeColor());
+    MenuDrawItem(*w, GetMenuThemeColor());
     if (!hasCvar) {
         return 0;
     }

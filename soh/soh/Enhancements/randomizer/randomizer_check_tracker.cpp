@@ -1301,11 +1301,9 @@ bool AreAllSilversSpoiled() {
 void SetAreaSpoiled(RandomizerCheckArea rcArea) {
     areasSpoiled |= (1 << rcArea);
 #ifdef COMBO_BUILD
-    if (sSuppressSpoilSave) {
-        return;
-    }
+    if (!sSuppressSpoilSave)
 #endif
-    SaveManager::Instance->SaveSection(gSaveContext.fileNum, sectionId, true);
+        SaveManager::Instance->SaveSection(gSaveContext.fileNum, sectionId, true);
     RefreshItemTrackerMainWindow();
 }
 

@@ -996,7 +996,7 @@ struct SohDrawHooks {
         UIWidgets::PopStyleButton();
     }
     static void DrawItem(WidgetInfo& w, int labelWidth, UIWidgets::Colors theme) {
-        gSohDrawHooksMenu->MenuDrawItem(w, labelWidth, theme);
+        gSohDrawHooksMenu->MenuDrawItem(w, theme);
     }
     static void RunUpdateFuncs(const std::string& header, const std::string& section) {
         if (MenuInit::GetUpdateFuncs().contains(header)) {

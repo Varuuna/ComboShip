@@ -63,6 +63,14 @@
                 "name": "Lock Overworld Doors",
                 "description": "Add locks to all wooden overworld doors, requiring specific small keys to open them"
             },
+            "exclude_mask_shop_key": {
+                "name": "Exclude Mask Shop Key",
+                "description": "The Mask Shop Key is not shuffled; you start with it. The door stays closed until you open it."
+            },
+            "exclude_mask_shop_entrance": {
+                "name": "Exclude Mask Shop",
+                "description": "The Happy Mask Shop entrance is not shuffled and leads to the Mask Shop as in vanilla."
+            },
             "starting_age": {
                 "name": "Starting Age",
                 "description": [

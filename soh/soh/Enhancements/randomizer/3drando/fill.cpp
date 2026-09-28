@@ -950,7 +950,7 @@ static std::vector<RandomizerGet> ComboFillPortalClosed(const std::vector<Random
                                                         const std::vector<RandomizerCheck>& allowedLocations,
                                                         const char* what, bool setLocationsAsHintable = false) {
     auto ctx = Rando::Context::GetInstance();
-    if (ctx->GetOption(RSK_LOGIC_RULES).Is(RO_LOGIC_NO_LOGIC))
+    if (ctx->GetOption(RSK_NO_LOGIC).Is(RO_GENERIC_ON))
         return items;
     std::vector<RandomizerGet> toPlace = items;
     Shuffle(toPlace);

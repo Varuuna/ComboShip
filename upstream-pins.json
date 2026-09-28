@@ -19,7 +19,7 @@
       "mergedDate": "2026-08-01"
     },
     "mm": {
-      "remote": "https://github.com/HarbourMasters/2ship2harkinian.git",
+      "remote": "https://github.com/2ship2harkinian/2ship2harkinian.git",
       "branch": "develop",
       "prefix": "mm",
       "subtree": "mm",

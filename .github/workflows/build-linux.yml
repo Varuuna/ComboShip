@@ -42,7 +42,8 @@ jobs:
             ${{ runner.os }}-linux-ccache-${{ github.ref }}
             ${{ runner.os }}-linux-ccache
 
-      # The GenerateSohOtr / Generate2ShipOtr targets run OTRExporter/extract_assets.py via Python3.
+      # Python3: Generate2ShipOtr (OTRExporter/extract_assets.py) and the asset-collision gate. soh packs
+      # with Torch (soh-o2r-packer), whose configure step fetches tinyxml2/zlib/yaml-cpp (needs network).
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

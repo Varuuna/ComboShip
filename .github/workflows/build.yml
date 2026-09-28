@@ -31,7 +31,8 @@ jobs:
         with:
           arch: x64
 
-      # The GenerateSohOtr / Generate2ShipOtr targets run OTRExporter/extract_assets.py via Python3.
+      # Python3: Generate2ShipOtr (OTRExporter/extract_assets.py) and the asset-collision gate. soh packs
+      # with Torch (soh-o2r-packer), whose configure step fetches tinyxml2/zlib/yaml-cpp (needs network).
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -42,7 +43,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: build/x64
-          key: build-x64-${{ hashFiles('CMakeLists.txt', 'CMake/**', 'libultraship/cmake/**') }}
+          key: build-x64-${{ hashFiles('CMakeLists.txt', 'CMake/**', 'libultraship/cmake/**', 'torch/CMakeLists.txt') }}
           restore-keys: build-x64-
 
       - name: Configure
@@ -52,7 +53,7 @@ jobs:
           VCPKG_ROOT: ${{ github.workspace }}/build/x64/vcpkg
         run: cmake -B build/x64 -S . -G "Visual Studio 17 2022" -A x64
 
-      # Order matters: libultraship -> soh -> 2ship (soh before 2ship; they share OTRExporter/ZAPD).
+      # Order matters: libultraship -> soh -> 2ship (2ship builds ZAPD/OTRExporter; soh builds Torch).
       # comboui + ComboShip pull the rest of the runtime in as dependencies.
       - name: Build libultraship
         run: cmake --build build/x64 --target libultraship --config Release

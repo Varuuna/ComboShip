@@ -239,6 +239,9 @@ against the recurring-deviation list below). Newest first:
   develop, past 5.0.1). Code resolutions match main's 5.0.1 PR; MM's `DeinitOTR` no longer destroys
   the shared Context; new `GeneratePools` drops (vanilla dungeon items, song surplus) emitted as
   `fixed[]`; Moon mask hints find OOT placements.
+- [2026-09-28 libultraship](merges/2026-09-28-libultraship-develop.md) — libultraship `7cb10226e` →
+  `7f9b86a59` (`port-maintenance`). `Config::Save` keeps our unflatten guard on top of upstream's
+  atomic write; the PrintStack traceback deviation is retired (upstream #1190), buffer guards kept.
 - [2026-08-22](merges/2026-08-22.md) — **not a merge pass**: 18 soh fix commits cherry-picked ahead
   of the pin from the pending `5a57a0cbc` → `55b52a26a` range (PR #144); pin unchanged. Lists the
   skipped-feature collateral dropped during conflict resolution.

@@ -112,6 +112,9 @@ resolutions match main's text so a later develop→main merge does not re-confli
   now get junk like native instead of keeping their vanilla item. Surplus song checks show as
   junk, not "skipped", in MM's check tracker. The two remains checks now read
   `RO_REMAINS_SHUFFLE_VANILLA` (same value as before). See `docs/COMBO_FILL_PARITY.md` 10b–10d.
+- **Known gap (not fixed here):** MM own-dungeon and song-location confinement is not honoured in
+  combo seeds (pre-existing for keys; see `docs/COMBO_FILL_PARITY.md` GAP-9). Fix parked on
+  `wip/mm220-dump-confinement` for a follow-up PR.
 - **Moon gossip-stone mask hints (#1903, `EnGs.cpp`).** Upstream only searches MM checks, so a
   mask placed in OOT read "in an Unknown Location". Under `COMBO_BUILD` the hook uses
   `Rando::GetItemLocationHintName` (the helper other MM NPC hints already use), which also finds
@@ -131,6 +134,10 @@ Absorbed without changes:
   (follow-up; REQUIRED ≤ 15 is always reachable).
 - 15 new custom assets (dungeon-key DLs, `flatavg` shaders): regenerate `2ship.o2r`. The asset
   collision check passes.
+
+Headless matrix (`comborando` gen + `--playthrough`): 7/7 PASS — defaults, dungeon items Vanilla,
+remains Own Dungeon, songs on Song Locations, stray fairies Start With, those combined, keys/fairies
+Own Dungeon.
 
 ## Post-merge build fixes
 

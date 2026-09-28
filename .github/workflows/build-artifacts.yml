@@ -40,6 +40,8 @@ jobs:
       code: ${{ github.event_name != 'pull_request' || steps.filter.outputs.code == 'true' }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2   # the pin gate diffs the PR merge commit against its base parent
 
       - name: Scan for conflict markers
         shell: bash
@@ -75,6 +77,20 @@ jobs:
 
           echo "::error::Found $count conflict-marker line(s). See annotations and the job summary."
           exit 1
+
+      # main = release track: only the bot's release PRs may move main's upstream pins.
+      - name: Only release PRs change main's upstream pins
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          # HEAD is the PR merge commit, so HEAD^1 is main's tip. A fork can name any branch, so require in-repo.
+          if ! git diff --quiet HEAD^1 HEAD -- upstream-pins.json \
+             && { [[ "$HEAD_REF" != bot/upstream-release-* ]] || [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; }; then
+            echo "::error file=upstream-pins.json::Only in-repo bot/upstream-release-* PRs may change upstream-pins.json on main (see docs/UPSTREAM_MERGES.md)"
+            exit 1
+          fi
 
       - name: Check custom asset trees for new path collisions
         run: python3 scripts/check-asset-collisions.py

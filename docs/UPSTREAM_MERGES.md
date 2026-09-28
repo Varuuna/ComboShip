@@ -67,15 +67,27 @@ manual (it's judgement work). Three pieces:
   **conflict-surface report** (which of *our* customized files upstream touched). With `-Merge` it
   also runs the 3-way merges (`-c merge.renames=false` for mm), leaving conflicts for a human.
 - **CI** (`.github/workflows/upstream-merge.yml`, weekly + manual) — **auto-opens the merge PRs, one
-  per upstream.** Every run writes a Step Summary (up-to-date vs updates-found, so the result is
-  never ambiguous). Each upstream that moved gets its own `bot/upstream-merge-<key>` branch and its
-  own PR to `develop`, carrying only that folder's merge (**conflict markers committed** — the PR is
-  labelled `has-conflicts`), only that key's `upstream-pins.json` bump, and its own
+  per upstream, on two tracks.** Every run writes a Step Summary covering both (up-to-date,
+  updates-found, or skipped, so the result is never ambiguous).
+  - **tips → `develop`**: each upstream's tracked branch tip, on `bot/upstream-merge-<key>`.
+  - **release → `main`**: upstream **releases** only, on `bot/upstream-release-<key>` (labelled
+    `upstream-release`). soh/mm target their GitHub `releases/latest` tag, fetched directly (a
+    release may be tagged off the tracked branch, like mm 5.0.1 on `develop-battler`).
+    libultraship has no release tags, so its target is the newest LUS commit those game releases
+    pin. main's pins are read from `origin/main`; the pin bump also records `mergedTag`
+    (informational — `mergedSha` stays the truth).
+
+  Each PR carries only that folder's merge (**conflict markers committed** — the PR is labelled
+  `has-conflicts`), only that key's `upstream-pins.json` bump, and its own
   `docs/merges/<date>-<key>.md` scaffold. An upstream with nothing new gets no PR, and one whose PR
-  is already open is left untouched while its siblings proceed. You finish each on its branch:
-  resolve markers, work the build-fix chain, flesh out the merge log.
-  `build-artifacts.yml`'s single `gate` job (conflict markers, asset collisions, clang-format) is
-  the PR gate.
+  is already open is left untouched while its siblings proceed. **A pin only ever moves to a
+  descendant:** a release that is not ahead of main's pin is skipped (soh 9.2.3 today — main is
+  already past it) until a newer one ships; on develop a non-ancestor pin fails the run. Release
+  lookup errors skip that key only, never the develop track. A manual run with `dry_run` writes
+  the summary and stops. You finish each PR on its branch: resolve markers, work the build-fix
+  chain, flesh out the merge log.
+  `build-artifacts.yml`'s single `gate` job (conflict markers, main's pin guard, asset collisions,
+  clang-format) is the PR gate.
   - **Merge the libultraship PR first** — soh/mm `#include` libultraship by path (see the coupling
     note above). Nothing enforces it mechanically; the soh/mm PR bodies say so, and each PR in a
     pass links its siblings.
@@ -190,21 +202,30 @@ introduces it, with the understanding that the asset must never be submitted cro
 route marker. Upstream merges are the main source of new collisions, so expect the gate to fire on
 merge PRs — treat each hit as a real review decision, not noise to baseline away.
 
-## Standing policy: the `2ship-stable` branch
+## Standing policy: `main` = release track
 
-`2ship-stable` is a long-lived branch whose vendored `mm/` is only ever updated to **official 2Ship
-release tags** (created 2026-08-19 at exactly 5.0.0 "Battler Alfa"). It is the clear stable
-reference — release functionality *and* release bugs — while `develop` keeps tracking upstream's
-develop branch (newer/experimental). No CI builds from it yet; build locally when needed.
+`main`'s vendored `libultraship/`, `soh/` and `mm/` move **only to upstream release pins**, via the
+bot's `bot/upstream-release-<key>` PRs; `develop` keeps every upstream update. The gate enforces
+it: a PR to `main` that changes `upstream-pins.json` fails unless its head is
+`bot/upstream-release-*`.
 
-Per-release update procedure:
+- **develop → main merges are allowed only when every develop pin is at or behind main's pins.**
+  Otherwise the merge drags post-release upstream code into main. When develop is past (the usual
+  case — soh releases are months apart), **cherry-pick** the combo commits to main instead, and
+  accept that main's combo code lags develop.
+- Release-track PRs move a pin, so they need at least a **minor** `COMBO_RELEASE_VERSION` bump
+  before the next `v*` tag (see the version section above). The derived build version follows
+  main's pins on its own.
+- To merge a release by hand: `scripts/upstream-merge.ps1 -Only <key> -Target refs/tags/<tag> -Merge`
+  (`-Target` also takes a SHA; it must be a descendant of the current pin).
+- main's soh stays at `5a57a0cbc` (develop-line, already past 9.2.3) until soh ships a newer release.
 
-- If the branch's mm pin is **behind** the new tag (the normal case): run the standard merge pass
-  with `scripts/upstream-merge.ps1 -Only mm -Target <tag-sha> -Merge` (plus the LUS bump the release
-  pins, see the coupling rule above).
-- Combo features come to the branch via merges from `develop` **only while develop's mm pin is at or
-  behind the release tag** — never merge a develop whose mm has moved past the tag, that would drag
-  post-release upstream code in. If develop is already past, cherry-pick or wait for the next release.
+## The `2ship-stable` branch (to be retired)
+
+`2ship-stable` pins mm to official 2Ship release tags (created 2026-08-19 at 5.0.0 "Battler Alfa").
+The release track on `main` replaces it: **retire it after main's first release-track PRs land**,
+carrying over any unique commits first. Until then its old rule stands — merge `develop` into it
+only while develop's mm pin is at or behind the release tag, otherwise cherry-pick.
 
 ---
 # Merge log

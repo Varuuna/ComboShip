@@ -1,12 +1,14 @@
 name: Upstream merge (PRs)
 
-# Weekly (+ manual) sync of the three vendored upstreams (libultraship / soh / mm). Always reports
-# up-to-date vs updates-found in the run's Step Summary. Every upstream that moved gets its OWN PR
-# against develop on its own `bot/upstream-merge-<key>` branch: the mechanical 3-way merge (reusing
-# scripts/upstream-merge.ps1 for the git plumbing), conflict markers COMMITTED (PR flagged
-# `has-conflicts`), that key's pin bumped, and docs/merges/<date>-<key>.md scaffolded. An upstream
-# with nothing new gets no PR. The semantic conflict resolution + build-fix chain is finished by a
-# human on the branch — the build gate fails until then.
+# Weekly (+ manual) sync of the three vendored upstreams (libultraship / soh / mm), on two tracks:
+#   - tips:    develop follows each upstream's tracked branch; PRs on `bot/upstream-merge-<key>`.
+#   - release: main follows upstream RELEASES only; PRs on `bot/upstream-release-<key>`. soh/mm use
+#              their latest GitHub release tag; libultraship uses the newest LUS those tags pin.
+# Always reports both tracks in the run's Step Summary. Every upstream that moved gets its OWN PR:
+# the mechanical 3-way merge (reusing scripts/upstream-merge.ps1 for the git plumbing), conflict
+# markers COMMITTED (PR flagged `has-conflicts`), that key's pin bumped, and
+# docs/merges/<date>-<key>.md scaffolded. A pin never moves to a non-descendant. The semantic
+# conflict resolution + build-fix chain is finished by a human on the branch — the gate fails until then.
 #
 # soh/mm `#include` libultraship by path, so the libultraship PR must merge FIRST; their bodies say
 # so when it is open. See docs/UPSTREAM_MERGES.md.
@@ -15,6 +17,11 @@ on:
   schedule:
     - cron: '0 6 * * 1'   # Mondays 06:00 UTC
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Report only: no branches, PRs or cleanup'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -27,82 +34,126 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Always runs: reports every upstream, then decides which ones get a PR this pass.
+  # Always runs: reports every upstream on both tracks, then decides which ones get a PR this pass.
   detect:
     runs-on: ubuntu-latest
     outputs:
+      # JSON arrays of {track, key, base, head, url, branch, target, targetName}, in pins order.
       keys: ${{ steps.plan.outputs.keys }}     # moved AND not already covered by an open PR
-      stale: ${{ steps.report.outputs.stale }} # up to date — cleanup closes their old PR/branch
+      stale: ${{ steps.plan.outputs.stale }}   # up to date — cleanup closes their old PR/branch
       date: ${{ steps.report.outputs.date }}
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: develop     # PRs target develop; don't inherit whatever the schedule's default ref is
+          ref: develop     # tips PRs target develop; main's pins are read via `git show origin/main:`
           fetch-depth: 0   # full history: keeps prior vendor/upstream objects local for the pins diffs
 
       - name: Detect updates + changelog
         id: report
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}   # for the libultraship-pin compare (gh api)
+          GH_TOKEN: ${{ github.token }}   # releases/latest + the libultraship-pin compare (gh api)
         run: |
           set -euo pipefail
           git config gc.auto 0
 
-          # Each PR bumps only its own key's 2 pin lines, which is why the sibling PRs never collide
+          PINS_MAIN="$RUNNER_TEMP/pins-main.json"
+          git show origin/main:upstream-pins.json > "$PINS_MAIN"
+
+          # Each PR bumps only its own key's pin lines, which is why the sibling PRs never collide
           # on this file. That holds only while jq round-trips it byte-for-byte — assert it, rather
-          # than silently producing three whole-file rewrites.
-          jq . upstream-pins.json | diff -q upstream-pins.json - \
-            || { echo "::error::jq does not round-trip upstream-pins.json byte-for-byte — per-key pin bumps would conflict across the PRs"; exit 1; }
+          # than silently producing whole-file rewrites.
+          for f in upstream-pins.json "$PINS_MAIN"; do
+            jq . "$f" | diff -q "$f" - \
+              || { echo "::error::jq does not round-trip $f byte-for-byte — per-key pin bumps would conflict across the PRs"; exit 1; }
+          done
 
           REPORTS="$RUNNER_TEMP/reports"; mkdir -p "$REPORTS"
-          SUMMARY="$RUNNER_TEMP/summary.md"; : > "$SUMMARY"
-          MOVED=(); STALE=(); declare -A TIP=()
+          SUM_TIPS="$RUNNER_TEMP/summary-tips.md"; : > "$SUM_TIPS"
+          SUM_REL="$RUNNER_TEMP/summary-release.md"; : > "$SUM_REL"
+          ITEMS=(); STALE=(); FAIL=0; declare -A TIP=()
 
           # key|remote-url|branch|prefix|subtree|mergedSha   (subtree empty => repo root maps to prefix)
           # manual:true entries (the shared extractors) are bumped by hand — the merge job only handles
           # libultraship/soh/mm, so reporting them here would raise a PR forever.
           # Read into an array first: a `jq | while` pipe puts the loop in a subshell, so nothing it
           # collects survives (the old version had to re-derive its flag by grepping the report back).
+          # Remote/branch come from develop's pins on both tracks; only mergedSha is per base branch.
           mapfile -t rows < <(jq -r '.upstreams | to_entries[] | select(.value.manual != true) | "\(.key)|\(.value.remote)|\(.value.branch)|\(.value.prefix)|\(.value.subtree)|\(.value.mergedSha)"' upstream-pins.json)
 
-          for row in "${rows[@]}"; do
-            IFS='|' read -r key url branch prefix subtree merged <<< "$row"
-            echo "::group::$key"
-            git remote add "up-$key" "$url" 2>/dev/null || true
-            git -c remote.up-$key.promisor=true fetch --filter=blob:none --no-tags "up-$key" "$branch"
-            tip=$(git rev-parse FETCH_HEAD)
-            TIP[$key]=$tip
+          # A skipped release key is never cleaned up, so flag a PR still open for it.
+          skip_release() {
+            local pr
+            pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&head=${GITHUB_REPOSITORY%%/*}:bot/upstream-release-$1" \
+                   -q '.[0].number // empty' 2>/dev/null || true)
+            echo "- **$1**: ⏸️ skipped — $2${pr:+ (PR #$pr is still open — left alone, review it by hand)}" >> "$SUM_REL"
+            echo "::warning::release $1: $2"
+          }
 
-            if [ "$(git rev-parse "$merged")" = "$tip" ]; then
-              STALE+=("$key")
-              echo "- **$key**: up to date (\`$merged\`)" >> "$SUMMARY"
-              echo "::endgroup::"; continue
-            fi
-            MOVED+=("$key")
-
+          # Classify one key against its resolved target, and write its report when it moved.
+          # Args: track key url branch prefix subtree merged tip targetName via
+          check() {
+            local track=$1 key=$2 url=$3 branch=$4 prefix=$5 subtree=$6 merged=$7 tip=$8 name=$9 via=${10}
+            local base head sum ours_ref label obj short count ours theirs surface
+            if [ "$track" = tips ]; then base=develop; head="bot/upstream-merge-$key"; sum=$SUM_TIPS; ours_ref=HEAD
+            else base=main; head="bot/upstream-release-$key"; sum=$SUM_REL; ours_ref=origin/main; fi
             short=$(git rev-parse --short=9 "$tip")
+            if [ "$name" = "$short" ]; then label="\`$short\`"; else label="$name (\`$short\`)"; fi
+            obj=$(jq -cn --arg track "$track" --arg key "$key" --arg base "$base" --arg head "$head" \
+                    --arg url "$url" --arg branch "$branch" --arg target "$tip" --arg targetName "$name" \
+                    '$ARGS.named')
+
+            if ! git rev-parse -q --verify "$merged^{commit}" > /dev/null; then
+              if [ "$track" = release ]; then skip_release "$key" "pinned \`$merged\` not found upstream"; return 0; fi
+              echo "- **$key**: ⛔ pinned \`$merged\` not found upstream" >> "$sum"
+              echo "::error::$key: pinned $merged not found upstream"
+              FAIL=1
+              return 0
+            fi
+            if [ "$(git rev-parse "$merged^{commit}")" = "$tip" ]; then
+              STALE+=("$obj")
+              if [ "$track" = tips ]; then echo "- **$key**: up to date (\`$merged\`)" >> "$sum"
+              else echo "- **$key**: up to date at $label" >> "$sum"; fi
+              return 0
+            fi
+            # Monotonic guard: a pin only ever moves to a descendant.
+            if ! git merge-base --is-ancestor "$merged" "$tip"; then
+              if [ "$track" = tips ]; then
+                echo "- **$key**: ⛔ \`$merged\` is not an ancestor of the \`$short\` tip — tracked branch rewritten?" >> "$sum"
+                echo "::error::$key: pinned $merged is not an ancestor of the tracked tip $short"
+                FAIL=1
+              elif git merge-base --is-ancestor "$tip" "$merged"; then
+                skip_release "$key" "$label is behind main's \`$merged\`; waiting for a newer release"
+              else
+                skip_release "$key" "$label is on another line than main's \`$merged\` (not a descendant); check by hand"
+              fi
+              return 0
+            fi
+            ITEMS+=("$obj")
+
             count=$(git rev-list --count --first-parent "$merged..$tip")
-            echo "- **$key**: $count new merges → \`$short\`" >> "$SUMMARY"
+            echo "- **$key**: $count new merges → $label" >> "$sum"
 
             # One report file per upstream: it becomes that PR's body and its merge-log scaffold.
             {
-              echo "### $key — \`$merged\` → \`$short\` ($count merges)"
+              if [ "$track" = tips ]; then echo "### $key — \`$merged\` → \`$short\` ($count merges)"
+              else echo "### $key — \`$merged\` → $label → main ($count merges)"; fi
+              [ -n "$via" ] && { echo ""; echo "$via"; }
               echo ""
               echo '<details><summary>new commits</summary>'
               echo ""
               echo '```'
-              git log --oneline --first-parent "$merged..$tip" | head -100
+              git log --oneline --first-parent -n 100 "$merged..$tip"
               echo '```'
               echo '</details>'
-            } > "$REPORTS/$key.md"
+            } > "$REPORTS/$track-$key.md"
 
             # Conflict surface = our customized files INTERSECT upstream-changed files.
             if [ -n "$subtree" ]; then
-              ours=$(git diff --name-only "$merged:$subtree" "HEAD:$prefix" | sort)
+              ours=$(git diff --name-only "$merged:$subtree" "$ours_ref:$prefix" | sort)
               theirs=$(git diff --name-only "$merged:$subtree" "$tip:$subtree" | sort)
             else
-              ours=$(git diff --name-only "$merged^{tree}" "HEAD:$prefix" | sort)
+              ours=$(git diff --name-only "$merged^{tree}" "$ours_ref:$prefix" | sort)
               theirs=$(git diff --name-only "$merged^{tree}" "$tip^{tree}" | sort)
             fi
             surface=$(comm -12 <(echo "$ours") <(echo "$theirs") || true)
@@ -112,82 +163,153 @@ jobs:
               echo ""
               if [ -n "$surface" ]; then echo '```'; echo "$surface"; echo '```'
               else echo "_none — should auto-merge clean_"; fi
-            } >> "$REPORTS/$key.md"
+            } >> "$REPORTS/$track-$key.md"
+          }
+
+          # --- tips track (develop) ---
+          for row in "${rows[@]}"; do
+            IFS='|' read -r key url branch prefix subtree merged <<< "$row"
+            echo "::group::tips $key"
+            git remote add "up-$key" "$url" 2>/dev/null || true
+            git -c remote.up-$key.promisor=true fetch --filter=blob:none --no-tags "up-$key" "$branch"
+            tip=$(git rev-parse FETCH_HEAD)
+            TIP[$key]=$tip
+            check tips "$key" "$url" "$branch" "$prefix" "$subtree" "$merged" "$tip" "$(git rev-parse --short=9 "$tip")" ""
             echo "::endgroup::"
           done
 
-          # When soh moved, cross-check the libultraship commit soh pins (its git submodule) against
-          # the one we vendor. Both track Kenix3 `port-maintenance`, so a mismatch is a pin LAG, not a
-          # line divergence — but soh code in this range may need a LUS fix we don't have yet. Surface
-          # the delta so cherry-picks (or a pin bump) happen up front instead of via a cryptic /WX
-          # build failure. Lands in the soh PR only. See docs/UPSTREAM_MERGES.md.
-          if [ -n "${TIP[soh]:-}" ] && [ -f "$REPORTS/soh.md" ]; then
+          # --- release track (main) ---
+          # Errors here are soft (key skipped with a warning), so an API hiccup never blocks develop.
+          declare -A RT=() RNAME=() RVIA=() RWHY=()
+          for key in soh mm; do
+            url=$(jq -r --arg k "$key" '.upstreams[$k].remote' upstream-pins.json)
+            slug=${url#https://github.com/}; slug=${slug%.git}
+            # releases/latest skips drafts, prereleases and the non-release event tags.
+            if ! tag=$(gh api "repos/$slug/releases/latest" -q .tag_name) || [ -z "$tag" ]; then
+              RWHY[$key]="could not read the latest release of \`$slug\`"; continue
+            fi
+            # Fetch the tag itself: a release may be tagged off the tracked branch (mm 5.0.1).
+            if ! git -c remote.up-$key.promisor=true fetch --filter=blob:none --no-tags "up-$key" "refs/tags/$tag"; then
+              RWHY[$key]="could not fetch tag \`$tag\`"; continue
+            fi
+            RT[$key]=$(git rev-parse 'FETCH_HEAD^{commit}')
+            RNAME[$key]=$tag
+            RVIA[$key]="Release notes: <https://github.com/$slug/releases/tag/$tag>"
+          done
+
+          # libultraship has no release tags: take the newest LUS the game releases pin.
+          lus=""; by=()
+          for key in soh mm; do
+            [ -n "${RT[$key]:-}" ] || continue
+            c=$(git ls-tree "${RT[$key]}" libultraship | awk '$2 == "commit" {print $3}')
+            [ -n "$c" ] || continue
+            if ! git cat-file -e "$c^{commit}" 2>/dev/null \
+               && ! git -c remote.up-libultraship.promisor=true fetch --filter=blob:none --no-tags up-libultraship "$c"; then
+              RWHY[libultraship]="could not fetch \`${c:0:9}\` pinned by $key ${RNAME[$key]}"; lus=""; break
+            fi
+            by+=("$key ${RNAME[$key]}")
+            if [ -z "$lus" ] || git merge-base --is-ancestor "$lus" "$c"; then lus=$c
+            elif ! git merge-base --is-ancestor "$c" "$lus"; then
+              RWHY[libultraship]="soh and mm releases pin diverged libultraship commits"; lus=""; break
+            fi
+          done
+          if [ -n "$lus" ]; then
+            RT[libultraship]=$lus; RNAME[libultraship]=${lus:0:9}
+            via=$(printf '%s, ' "${by[@]}")
+            RVIA[libultraship]="Newest libultraship pinned by: ${via%, }"
+          elif [ -z "${RWHY[libultraship]:-}" ]; then
+            RWHY[libultraship]="no game release to derive a libultraship pin from"
+          fi
+
+          # Emit in pins order, so libultraship comes first (the LUS-first rule).
+          for row in "${rows[@]}"; do
+            IFS='|' read -r key url branch prefix subtree _ <<< "$row"
+            echo "::group::release $key"
+            if [ -n "${RWHY[$key]:-}" ] || [ -z "${RT[$key]:-}" ]; then
+              skip_release "$key" "${RWHY[$key]:-no release target}"
+            else
+              merged=$(jq -r --arg k "$key" '.upstreams[$k].mergedSha' "$PINS_MAIN")
+              check release "$key" "$url" "$branch" "$prefix" "$subtree" "$merged" "${RT[$key]}" "${RNAME[$key]}" "${RVIA[$key]}"
+            fi
+            echo "::endgroup::"
+          done
+
+          # Warn only when soh's libultraship submodule isn't covered by the libultraship this run
+          # lands (being behind is normal: the libultraship PR fixes it). See docs/UPSTREAM_MERGES.md.
+          if [ -n "${TIP[soh]:-}" ] && [ -f "$REPORTS/tips-soh.md" ]; then
             lus_expected=$(git ls-tree "${TIP[soh]}" libultraship 2>/dev/null | awk '{print $3}' || true)
-            lus_ours=$(jq -r '.upstreams.libultraship.mergedSha' upstream-pins.json)
-            if [ -n "$lus_expected" ] && [ "${lus_expected:0:9}" != "${lus_ours:0:9}" ]; then
+            lus_target=${TIP[libultraship]:-$(jq -r '.upstreams.libultraship.mergedSha' upstream-pins.json)}
+            if [ -n "$lus_expected" ] && ! git merge-base --is-ancestor "$lus_expected" "$lus_target" 2>/dev/null; then
               {
                 echo ""
-                echo "### ⚠️ libultraship pin lag: soh expects a newer LUS"
+                echo "### ⚠️ soh needs a libultraship we can't get from \`port-maintenance\`"
                 echo ""
-                echo "soh pins libultraship \`${lus_expected:0:9}\`; ComboShip vendors \`${lus_ours}\`."
-                echo "Both are on Kenix3 \`port-maintenance\`, so this is a pin lag, not a line divergence —"
-                echo "but soh code in this range may need a LUS fix we do not have. Either **cherry-pick the"
-                echo "fixes you need** into \`libultraship/\` or **advance our libultraship pin** to cover them."
-                echo "We never adopt soh's submodule pin wholesale."
+                echo "soh pins libultraship \`${lus_expected:0:9}\`, which is not in \`${lus_target:0:9}\` (the newest we can take)."
+                echo "soh may be on another libultraship line. Cherry-pick what it needs into \`libultraship/\`, or wait."
                 echo ""
-                echo "<https://github.com/Kenix3/libultraship/compare/${lus_ours}...${lus_expected}>"
-                echo ""
-                echo '<details><summary>LUS commits soh expects that you may be missing</summary>'
-                echo ""
-                echo '```'
-                gh api "repos/Kenix3/libultraship/compare/${lus_ours}...${lus_expected}" \
-                  -q '.commits[] | "\(.sha[0:9])  \(.commit.message | split("\n")[0])"' 2>/dev/null | head -40 \
-                  || echo "(compare unavailable — open the link above)"
-                echo '```'
-                echo '</details>'
-              } >> "$REPORTS/soh.md"
+                echo "<https://github.com/Kenix3/libultraship/compare/${lus_target}...${lus_expected}>"
+              } >> "$REPORTS/tips-soh.md"
             fi
           fi
 
-          # `jq -n '$ARGS.positional'` renders an empty array as [] — which is what gates the merge job.
-          echo "moved=$(jq -cn '$ARGS.positional' --args "${MOVED[@]}")" >> "$GITHUB_OUTPUT"
-          echo "stale=$(jq -cn '$ARGS.positional' --args "${STALE[@]}")" >> "$GITHUB_OUTPUT"
+          # printf of an empty array still emits one blank line, which `jq -s` renders as [].
+          echo "moved=$(printf '%s\n' "${ITEMS[@]}" | jq -cs .)" >> "$GITHUB_OUTPUT"
+          echo "stale=$(printf '%s\n' "${STALE[@]}" | jq -cs .)" >> "$GITHUB_OUTPUT"
           echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
 
           # Always make the result unambiguous on the run's summary page.
           {
-            if [ ${#MOVED[@]} -eq 0 ]; then echo "## ✅ Upstream check — all three up to date"; \
+            if [ ${#ITEMS[@]} -eq 0 ]; then echo "## ✅ Upstream check — nothing new to merge"; \
             else echo "## 🔔 Upstream updates found — opening one PR per upstream"; fi
             echo ""
-            cat "$SUMMARY"
-            for k in "${MOVED[@]}"; do echo ""; cat "$REPORTS/$k.md"; done
+            echo "### develop — upstream branch tips"
+            echo ""
+            cat "$SUM_TIPS"
+            echo ""
+            echo "### main — upstream releases"
+            echo ""
+            cat "$SUM_REL"
+            for obj in "${ITEMS[@]}"; do
+              echo ""; cat "$REPORTS/$(jq -r '"\(.track)-\(.key)"' <<< "$obj").md"
+            done
           } >> "$GITHUB_STEP_SUMMARY"
 
+          [ "$FAIL" -eq 0 ] || { echo "::error::develop track has a pin that is not an ancestor of its tip — see the summary"; exit 1; }
+
       # Never clobber in-progress work: an upstream whose PR is already open is dropped from this
-      # pass. Its siblings still proceed. (Pins on develop stay old until a PR merges, so a dropped
-      # key keeps showing as moved on later runs.)
+      # pass. Its siblings still proceed. (Pins stay old until a PR merges, so a dropped key keeps
+      # showing as moved on later runs.)
       - name: Drop upstreams with a PR already open
         id: plan
         uses: actions/github-script@v8
         env:
           MOVED: ${{ steps.report.outputs.moved }}
+          STALE: ${{ steps.report.outputs.stale }}
+          DRY_RUN: ${{ inputs.dry_run }}
         with:
           script: |
             const { owner, repo } = context.repo;
+            if (process.env.DRY_RUN === 'true') {
+              await core.summary.addRaw('\n> 🧪 **Dry run** — no branches, PRs or cleanup.\n').write();
+              core.setOutput('keys', '[]');
+              core.setOutput('stale', '[]');
+              return;
+            }
             const todo = [];
-            for (const key of JSON.parse(process.env.MOVED)) {
+            for (const it of JSON.parse(process.env.MOVED)) {
               const open = await github.rest.pulls.list({
-                owner, repo, state: 'open', head: `${owner}:bot/upstream-merge-${key}`
+                owner, repo, state: 'open', head: `${owner}:${it.head}`
               });
               if (open.data.length) {
                 const n = open.data[0].number;
-                core.notice(`${key}: PR #${n} already open — leaving it untouched.`);
-                await core.summary.addRaw(`\n> ℹ️ **${key}**: PR #${n} is already open — left untouched. New upstream commits may have landed since; close it (and delete the branch) to regenerate.\n`).write();
+                core.notice(`${it.track} ${it.key}: PR #${n} already open — leaving it untouched.`);
+                await core.summary.addRaw(`\n> ℹ️ **${it.key}** (${it.base}): PR #${n} is already open — left untouched. New upstream commits may have landed since; close it (and delete the branch) to regenerate.\n`).write();
               } else {
-                todo.push(key);
+                todo.push(it);
               }
             }
             core.setOutput('keys', JSON.stringify(todo));
+            core.setOutput('stale', process.env.STALE);
 
       # The summary is the whole point of the weekly run, so never leave the page blank: the detect
       # step writes it last, and anything that trips before then (the pins assert, a fetch) lands here.
@@ -204,23 +326,33 @@ jobs:
           path: ${{ runner.temp }}/reports
           if-no-files-found: error
 
-  # One leg per upstream that moved: its own branch, its own bookkeeping commit, its own PR.
+  # One leg per (track, upstream) that moved: its own branch, its own bookkeeping commit, its own PR.
   merge:
     needs: detect
     if: needs.detect.outputs.keys != '[]'
+    name: merge (${{ matrix.track }} ${{ matrix.key }})
     runs-on: ubuntu-latest
     strategy:
-      # max-parallel 1 keeps the documented libultraship -> soh -> mm order (detect emits keys in
-      # upstream-pins.json order), which also means the libultraship PR already exists by the time
-      # the soh/mm legs write their "merge that one first" note.
+      # max-parallel 1 keeps the documented libultraship -> soh -> mm order per track (detect emits
+      # keys in upstream-pins.json order), which also means the libultraship PR already exists by
+      # the time the soh/mm legs write their "merge that one first" note.
       fail-fast: false
       max-parallel: 1
       matrix:
-        key: ${{ fromJSON(needs.detect.outputs.keys) }}
+        include: ${{ fromJSON(needs.detect.outputs.keys) }}
+    env:
+      U_TRACK: ${{ matrix.track }}
+      U_KEY: ${{ matrix.key }}
+      U_BASE_BRANCH: ${{ matrix.base }}
+      U_HEAD: ${{ matrix.head }}
+      U_URL: ${{ matrix.url }}
+      U_TARGET: ${{ matrix.target }}
+      U_TRACKED: ${{ matrix.branch }}
+      U_TARGET_NAME: ${{ matrix.targetName }}
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: develop
+          ref: ${{ matrix.base }}
           fetch-depth: 0
           # PAT so the opened PR triggers build-artifacts.yml's gate (a PR opened by the
           # default GITHUB_TOKEN does NOT trigger other workflows). Falls back to GITHUB_TOKEN if
@@ -233,9 +365,9 @@ jobs:
           path: ${{ runner.temp }}/reports
 
       # Prepare this upstream's branch + the merge base. The base is synthesized from
-      # upstream-pins.json, NOT from develop's merge commits: pins are file content so they survive a
-      # squash-merged PR; merge commits don't (the 2026-07-13 run derived a stale pre-squash base and
-      # re-conflicted upstream ranges merged weeks earlier).
+      # upstream-pins.json, NOT from the base branch's merge commits: pins are file content so they
+      # survive a squash-merged PR; merge commits don't (the 2026-07-13 run derived a stale
+      # pre-squash base and re-conflicted upstream ranges merged weeks earlier).
       - name: Fetch upstream + synthesize merge base
         shell: bash
         run: |
@@ -244,7 +376,7 @@ jobs:
           git config user.name  'comboship-bot'
           git config user.email 'comboship-bot@users.noreply.github.com'
 
-          key='${{ matrix.key }}'
+          key=$U_KEY
           # Remote names must match scripts/upstream-merge.ps1's $remotes map, or the engine adds a
           # second remote for the same URL in the next step.
           case "$key" in
@@ -253,20 +385,20 @@ jobs:
             mm)           remote=up-mm  ;;
             *) echo "::error::unknown upstream key '$key'"; exit 1 ;;
           esac
-          branch=$(jq -r ".upstreams.\"$key\".branch"   upstream-pins.json)
+          branch=$U_TRACKED   # develop's pins: main's may name an old branch
           prefix=$(jq -r ".upstreams.\"$key\".prefix"   upstream-pins.json)
           subtree=$(jq -r ".upstreams.\"$key\".subtree" upstream-pins.json)
           merged=$(jq -r ".upstreams.\"$key\".mergedSha" upstream-pins.json)
-          url=$(jq -r ".upstreams.\"$key\".remote"      upstream-pins.json)
 
           # This job has its own checkout, so none of the detect job's fetched objects are here — and
           # the base below needs the upstream tree at mergedSha. Same remote setup the engine uses.
           if ! git remote | grep -qx "$remote"; then
-            git remote add --no-tags -t "$branch" "$remote" "$url"
+            git remote add --no-tags -t "$branch" "$remote" "$U_URL"
             git config "remote.$remote.promisor" true
             git config "remote.$remote.partialclonefilter" 'blob:none'
           fi
           git fetch "$remote" "$branch"
+          [ "$U_TRACK" != release ] || git fetch "$remote" "$U_TARGET"   # the exact SHA detect classified
 
           # vendor-<key> starts at a base commit whose tree = upstream at the last-merged SHA grafted
           # under our prefix (the same mktree construction the engine uses for tips).
@@ -277,30 +409,38 @@ jobs:
           git branch -f "vendor-$key" "$base"
           echo "vendor-$key base = $(git rev-parse --short=9 "$base") (upstream $merged)"
 
-          git switch -C "bot/upstream-merge-$key"
+          # Run the engine from the workflow's own commit: main's copy may predate the release track.
+          git show "$GITHUB_SHA:scripts/upstream-merge.ps1" > "$RUNNER_TEMP/upstream-merge.ps1"
+
+          git switch -C "$U_HEAD"
 
           {
-            echo "U_BASE=$(git rev-parse HEAD)"   # develop's tip, before this leg's commits
-            echo "U_KEY=$key"
+            echo "U_BASE=$(git rev-parse HEAD)"   # the base branch's tip, before this leg's commits
             echo "U_REMOTE=$remote"
             echo "U_BRANCH=$branch"
             echo "U_PREFIX=$prefix"
+            echo "U_SUBTREE=$subtree"
             echo "U_MERGED=$merged"
           } >> "$GITHUB_ENV"
 
       # Reuse the local merge engine for the hard git plumbing: blob-hydrate + rebuild vendor-<key>
-      # to the new upstream tip. NO -Merge (the merge/commit policy is below).
+      # to the new upstream target. NO -Merge (the merge/commit policy is below).
       - name: Rebuild vendor branch
         shell: pwsh
         run: |
           # Guard: PS 7.4 treats native-command stderr as terminating under ErrorActionPreference=Stop;
           # git writes progress to stderr. Keep the engine's own behavior identical to a local run.
           $PSNativeCommandUseErrorActionPreference = $false
-          ./scripts/upstream-merge.ps1 -Only '${{ matrix.key }}' -Depth 1000
+          $engine = Join-Path $env:RUNNER_TEMP 'upstream-merge.ps1'
+          if ($env:U_TRACK -eq 'release') {
+            & $engine -Only $env:U_KEY -Branch $env:U_TRACKED -Target $env:U_TARGET -Depth 1000 -RepoRoot $PWD
+          } else {
+            & $engine -Only $env:U_KEY -Branch $env:U_TRACKED -Depth 1000 -RepoRoot $PWD
+          }
 
-      # Mechanical 3-way merge via merge-tree with the pins-derived base passed explicitly (develop's
-      # ancestry is irrelevant, so squash-merged PRs can't stale it). Conflict markers land in the
-      # committed tree so the PR is always a complete unit; the human resolves them on the branch.
+      # Mechanical 3-way merge via merge-tree with the pins-derived base passed explicitly (the base
+      # branch's ancestry is irrelevant, so squash-merged PRs can't stale it). Conflict markers land
+      # in the committed tree so the PR is always a complete unit; the human resolves them on the branch.
       - name: Merge + bookkeeping
         id: merge
         shell: bash
@@ -308,8 +448,15 @@ jobs:
           DATE: ${{ needs.detect.outputs.date }}
         run: |
           set -euo pipefail
-          tip=$(git rev-parse "$U_REMOTE/$U_BRANCH")
+          if [ "$U_TRACK" = release ]; then tip=$U_TARGET; else tip=$(git rev-parse "$U_REMOTE/$U_BRANCH"); fi
           new=$(git rev-parse --short=9 "$tip")
+
+          # Belt and braces: the vendor tree must be the target detect classified (a tip can move mid-run).
+          if [ -n "$U_SUBTREE" ]; then want=$(git rev-parse "$tip:$U_SUBTREE"); else want=$(git rev-parse "$tip^{tree}"); fi
+          if [ "$(git rev-parse "vendor-$U_KEY:$U_PREFIX")" != "$want" ]; then
+            echo "::error::vendor-$U_KEY does not match target $new — upstream moved during the run; re-run"
+            exit 1
+          fi
 
           # Explicit-base 3-way merge. The base = the synthesized vendor commit from the previous step
           # (parent of the rebuilt vendor tip). renames=false for ALL folders — rename detection is
@@ -329,8 +476,9 @@ jobs:
             exit 1
           fi
 
-          commit=$(git commit-tree "$tree" -p HEAD -p "vendor-$U_KEY" \
-                     -m "merge($U_KEY): $U_BRANCH $U_MERGED -> $new")
+          if [ "$U_TRACK" = release ]; then msg="merge($U_KEY): release $U_TARGET_NAME $U_MERGED -> $new"
+          else msg="merge($U_KEY): $U_BRANCH $U_MERGED -> $new"; fi
+          commit=$(git commit-tree "$tree" -p HEAD -p "vendor-$U_KEY" -m "$msg")
           git reset --hard "$commit"
 
           # Tripwire: the merge must never touch files outside this upstream's own prefix —
@@ -360,11 +508,14 @@ jobs:
             echo "  $U_KEY: clean"
           fi
 
-          # Bump this key's pin only. jq is format-idempotent on this file, so the diff is 2 lines in
-          # its own region — sibling PRs never collide here.
+          # Bump this key's pin only; mergedTag records a release tag (informational, mergedSha is
+          # the truth). jq is format-idempotent on this file, so sibling PRs never collide here.
+          tag=""
+          if [ "$U_TRACK" = release ] && [ "$U_KEY" != libultraship ]; then tag=$U_TARGET_NAME; fi
           tmp=$(mktemp)
-          jq --arg k "$U_KEY" --arg sha "$new" --arg d "$DATE" \
-             '.upstreams[$k].mergedSha=$sha | .upstreams[$k].mergedDate=$d' \
+          jq --arg k "$U_KEY" --arg sha "$new" --arg d "$DATE" --arg tag "$tag" \
+             '.upstreams[$k].mergedSha=$sha | .upstreams[$k].mergedDate=$d
+              | if $tag == "" then del(.upstreams[$k].mergedTag) else .upstreams[$k].mergedTag=$tag end' \
              upstream-pins.json > "$tmp" && mv "$tmp" upstream-pins.json
 
           # Per-upstream merge log: a shared docs/merges/<date>.md would be an add/add conflict for
@@ -374,13 +525,14 @@ jobs:
           log="docs/merges/$DATE-$U_KEY.md"; n=2
           while [ -e "$log" ]; do log="docs/merges/$DATE-$U_KEY-$n.md"; n=$((n+1)); done
           {
-            echo "# Upstream merge — $U_KEY — $DATE"
+            if [ "$U_TRACK" = release ]; then echo "# Upstream release — $U_KEY $U_TARGET_NAME → main — $DATE"
+            else echo "# Upstream merge — $U_KEY — $DATE"; fi
             echo ""
             echo "> Auto-generated by \`upstream-merge.yml\`. Fill in the post-merge changes (build-fix"
             echo "> chain, COMBO_BUILD guards, runtime fixes) before merging, then link this file from"
             echo "> docs/UPSTREAM_MERGES.md. See that doc for the policy."
             echo ""
-            cat "$RUNNER_TEMP/reports/$U_KEY.md"
+            cat "$RUNNER_TEMP/reports/$U_TRACK-$U_KEY.md"
           } > "$log"
 
           git add -A
@@ -389,15 +541,15 @@ jobs:
           # The force-push regenerates the branch from scratch, so refuse if the remote tip carries
           # anything a human wrote. --force-with-lease can't help (we hold no lease for a branch we
           # never fetched), and the open-PR guard misses a branch whose PR was closed by hand.
-          if git fetch --no-tags origin "bot/upstream-merge-$U_KEY" 2>/dev/null; then
+          if git fetch --no-tags origin "$U_HEAD" 2>/dev/null; then
             authors=$(git log --format=%an FETCH_HEAD --not "$U_BASE" | sort -u)
             if [ -n "$(printf '%s\n' "$authors" | grep -v '^comboship-bot$' || true)" ]; then
-              echo "::error::bot/upstream-merge-$U_KEY has non-bot commits ahead of develop — refusing to force-push over them"
+              echo "::error::$U_HEAD has non-bot commits ahead of $U_BASE_BRANCH — refusing to force-push over them"
               printf '%s\n' "$authors"
               exit 1
             fi
           fi
-          git push --force origin "HEAD:bot/upstream-merge-$U_KEY"
+          git push --force origin "HEAD:$U_HEAD"
 
           if [ "$status" -eq 1 ]; then echo "had_conflicts=1" >> "$GITHUB_OUTPUT"
           else echo "had_conflicts=0" >> "$GITHUB_OUTPUT"; fi
@@ -408,7 +560,6 @@ jobs:
       - name: Open/update PR
         uses: actions/github-script@v8
         env:
-          KEY: ${{ matrix.key }}
           DATE: ${{ needs.detect.outputs.date }}
           REPORTS: ${{ runner.temp }}/reports
           CONFLICTS_PATH: ${{ steps.merge.outputs.conflicts_path }}
@@ -422,11 +573,14 @@ jobs:
           script: |
             const fs = require('fs');
             const { owner, repo } = context.repo;
-            const key = process.env.KEY;
-            const head = `bot/upstream-merge-${key}`;
-            const title = `Upstream merge: ${key} → ${process.env.DATE}`;
+            const { U_TRACK: track, U_KEY: key, U_HEAD: head, U_BASE_BRANCH: base } = process.env;
+            const release = track === 'release';
+            const prefix = release ? 'bot/upstream-release-' : 'bot/upstream-merge-';
+            const title = release
+              ? `Upstream release: ${key} ${process.env.U_TARGET_NAME} → ${base}`
+              : `Upstream merge: ${key} → ${process.env.DATE}`;
 
-            let body = fs.readFileSync(`${process.env.REPORTS}/${key}.md`, 'utf8');
+            let body = fs.readFileSync(`${process.env.REPORTS}/${track}-${key}.md`, 'utf8');
 
             if (process.env.HAD_CONFLICTS === '1') {
               let conf = '';
@@ -449,12 +603,12 @@ jobs:
             // soh/mm `#include` libultraship by path (docs/UPSTREAM_MERGES.md), so its PR lands first.
             if (key !== 'libultraship') {
               const lus = await github.rest.pulls.list({
-                owner, repo, state: 'open', head: `${owner}:bot/upstream-merge-libultraship`
+                owner, repo, state: 'open', head: `${owner}:${prefix}libultraship`
               });
               if (lus.data.length) {
                 body = `> ⚠️ **Merge #${lus.data[0].number} (libultraship) first** — \`${key}/\` `
                      + '`#include`s libultraship by path, so it expects the newer engine.\n\n' + body;
-              } else if (JSON.parse(process.env.KEYS).includes('libultraship')) {
+              } else if (JSON.parse(process.env.KEYS).some(k => k.track === track && k.key === 'libultraship')) {
                 // libultraship moved this pass but has no PR — its leg failed. Still warn: this
                 // branch expects the newer engine, so landing it alone can break the build.
                 body = '> ⚠️ **libultraship also moved this pass but its PR was not opened** (that leg '
@@ -463,6 +617,10 @@ jobs:
               }
             }
 
+            if (release) {
+              body += '\n\n> **main = release track.** Never merge develop into main while any develop pin '
+                    + 'is past main\'s; cherry-pick instead (docs/UPSTREAM_MERGES.md).';
+            }
             body += '\n\n---\n_Auto-generated by upstream-merge.yml. Pin bump + merge-log scaffold are already committed._';
 
             const existing = await github.rest.pulls.list({
@@ -474,14 +632,13 @@ jobs:
               number = existing.data[0].number;
               await github.rest.pulls.update({ owner, repo, pull_number: number, title, body });
             } else {
-              const pr = await github.rest.pulls.create({
-                owner, repo, head, base: 'develop', title, body
-              });
+              const pr = await github.rest.pulls.create({ owner, repo, head, base, title, body });
               number = pr.data.number;
             }
 
             await github.rest.issues.addLabels({
-              owner, repo, issue_number: number, labels: ['upstream-merge']
+              owner, repo, issue_number: number,
+              labels: release ? ['upstream-merge', 'upstream-release'] : ['upstream-merge']
             });
             if (process.env.HAD_CONFLICTS === '1') {
               await github.rest.issues.addLabels({
@@ -496,7 +653,7 @@ jobs:
             }
             core.notice(`PR #${number} ready: ${title}`);
 
-  # Point this pass's PRs at each other, so resolving one shows what else is in flight.
+  # Point each track's open PRs at each other, so resolving one shows what else is in flight.
   crosslink:
     needs: [detect, merge]
     # !cancelled() rather than always(): run even when a leg failed (its siblings still have PRs),
@@ -512,20 +669,23 @@ jobs:
             const open = await github.paginate(github.rest.pulls.list, {
               owner, repo, state: 'open', per_page: 100
             });
-            const bots = open.filter(p => p.head.ref.startsWith('bot/upstream-merge-'));
-            if (bots.length < 2) return;
 
             // Rewrite a marked block rather than appending, so weekly re-runs don't stack copies.
             const START = '<!-- siblings -->', END = '<!-- /siblings -->';
             const re = new RegExp(`${START}[\\s\\S]*?${END}`);
-            for (const pr of bots) {
-              const others = bots.filter(o => o.number !== pr.number).map(o =>
-                `- #${o.number} — \`${o.head.ref.replace('bot/upstream-merge-', '')}\``).join('\n');
-              const block = `${START}\n**Other open upstream-merge PRs:**\n${others}\n${END}`;
-              const old = pr.body || '';
-              const body = re.test(old) ? old.replace(re, block) : `${old}\n\n${block}`;
-              if (body !== old) {
-                await github.rest.pulls.update({ owner, repo, pull_number: pr.number, body });
+            for (const [prefix, what] of [['bot/upstream-merge-', 'upstream-merge'],
+                                          ['bot/upstream-release-', 'upstream-release']]) {
+              const bots = open.filter(p => p.head.ref.startsWith(prefix));
+              if (bots.length < 2) continue;
+              for (const pr of bots) {
+                const others = bots.filter(o => o.number !== pr.number).map(o =>
+                  `- #${o.number} — \`${o.head.ref.replace(prefix, '')}\``).join('\n');
+                const block = `${START}\n**Other open ${what} PRs:**\n${others}\n${END}`;
+                const old = pr.body || '';
+                const body = re.test(old) ? old.replace(re, block) : `${old}\n\n${block}`;
+                if (body !== old) {
+                  await github.rest.pulls.update({ owner, repo, pull_number: pr.number, body });
+                }
               }
             }
 
@@ -544,25 +704,24 @@ jobs:
             const { owner, repo } = context.repo;
             // The pre-split 'bot/upstream-merge' branch is deliberately NOT swept here: it can hold
             // an in-flight PR, and "stale" is not evidence that its work landed. Delete it by hand.
+            // Skipped release keys are never in `stale`, so their branches are left alone too.
             const stale = JSON.parse(process.env.STALE || '[]');
 
-            for (const key of stale) {
-              const head = `bot/upstream-merge-${key}`;
-
+            for (const { key, base, head } of stale) {
               // An up-to-date pin does not prove this branch's work landed — someone may have merged
-              // that upstream by hand on develop while the bot branch still carried hand-resolved
-              // conflicts. Only discard a branch whose unlanded commits are all the bot's own.
+              // that upstream by hand while the bot branch still carried hand-resolved conflicts.
+              // Only discard a branch whose unlanded commits are all the bot's own.
               let regenerable = true;
               try {
                 const cmp = await github.rest.repos.compareCommitsWithBasehead({
-                  owner, repo, basehead: `develop...${head}`
+                  owner, repo, basehead: `${base}...${head}`
                 });
                 const human = cmp.data.commits.filter(c =>
                   c.commit.author.name !== 'comboship-bot' && c.author?.login !== 'comboship-bot');
                 if (human.length) {
                   regenerable = false;
-                  core.warning(`${key}: ${head} has ${human.length} non-bot commit(s) ahead of develop — leaving it alone.`);
-                  await core.summary.addRaw(`\n> ⚠️ \`${key}\` is up to date, but \`${head}\` carries hand-written commits that are not on develop — review and delete it yourself.\n`).write();
+                  core.warning(`${key}: ${head} has ${human.length} non-bot commit(s) ahead of ${base} — leaving it alone.`);
+                  await core.summary.addRaw(`\n> ⚠️ \`${key}\` is up to date on ${base}, but \`${head}\` carries hand-written commits that are not on ${base} — review and delete it yourself.\n`).write();
                 }
               } catch (e) {
                 if (e.status === 404) continue;   // branch already gone

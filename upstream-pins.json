@@ -45,6 +45,16 @@
       "subtree": "",
       "mergedSha": "c5465ba0b",
       "mergedDate": "2026-07-25"
+    },
+    "torch": {
+      "manual": true,
+      "_note": "Bumped by hand to soh's torch gitlink (soh's .gitmodules); soh-only, mm keeps ZAPDTR/OTRExporter.",
+      "remote": "https://github.com/HarbourMasters/Torch.git",
+      "branch": "main",
+      "prefix": "torch",
+      "subtree": "",
+      "mergedSha": "2ab12fe96",
+      "mergedDate": "2026-09-28"
     }
   }
 }

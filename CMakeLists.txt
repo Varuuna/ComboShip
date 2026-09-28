@@ -277,7 +277,8 @@ endif()
 # replacement for the Windows /DEF full-export pipeline), and the games resolve ImGui/storm/prism
 # through it.
 if (NOT MSVC)
-    foreach(combo_hidden_tgt ZAPDLib OTRExporter storm)
+    # ComboShip: torch/N64Graphics carry StringHelper/CRC64/stbi_* copies that must not bind to LUS's.
+    foreach(combo_hidden_tgt ZAPDLib OTRExporter storm torch yaml-cpp BinaryTools N64Graphics)
         if (TARGET ${combo_hidden_tgt})
             set_target_properties(${combo_hidden_tgt} PROPERTIES
                 C_VISIBILITY_PRESET hidden
@@ -286,6 +287,103 @@ if (NOT MSVC)
         endif()
     endforeach()
 endif()
+
+################################################################################
+# Torch (soh ROM asset extraction; mm keeps ZAPD)
+################################################################################
+# ComboShip: found at root so soh's libzip and tinyxml2 users get the vcpkg copies, not Torch's
+# OVERRIDE_FIND_PACKAGE fetches. No spdlog pre-declare (Torch#233): libultraship found it above.
+find_package(ZLIB REQUIRED)
+find_package(tinyxml2 CONFIG REQUIRED)
+
+include(FetchContent)
+
+set(USE_STANDALONE          OFF CACHE BOOL "" FORCE)  # static lib, no CLI
+set(PORT_VERSION_ENDIANNESS ON  CACHE BOOL "" FORCE)  # 7-byte portVersion
+set(ROM_CRC_BSWAP           OFF CACHE BOOL "" FORCE)
+set(BUILD_UI                OFF CACHE BOOL "" FORCE)  # would fetch a 2nd libultraship
+set(BUILD_STORMLIB          OFF CACHE BOOL "" FORCE)  # target name clashes with LUS's `storm`
+set(BUILD_NAUDIO            OFF CACHE BOOL "" FORCE)
+
+set(BUILD_OOT               ON  CACHE BOOL "" FORCE)
+foreach(_torch_game SM64 MK64 SF64 PM64 FZERO BK64 MARIO_ARTIST)
+    set(BUILD_${_torch_game} OFF CACHE BOOL "" FORCE)
+endforeach()
+
+# SYSTEM only covers headers we include; torch and the libraries it fetches still warn while
+# compiling their own sources. None of that is ours to fix.
+if(MSVC)
+    set(DEP_WARNING_OVERRIDE /w)
+else()
+    set(DEP_WARNING_OVERRIDE -w)
+endif()
+
+# Drops the target's own warning level before adding ours: cl warns (D9025) about the
+# conflict instead of just taking the last flag. /O3 goes too, MSVC does not know it
+# (D9002) and the -O2 in CMAKE_CXX_FLAGS_RELEASE is what these actually get.
+function(quiet_target target override)
+    if(NOT override)
+        return()
+    endif()
+    get_target_property(_opts ${target} COMPILE_OPTIONS)
+    if(_opts)
+        list(REMOVE_ITEM _opts /O3 /W0 /W1 /W2 /W3 /W4 /Wall -Wall)
+        set_target_properties(${target} PROPERTIES COMPILE_OPTIONS "${_opts}")
+    endif()
+    target_compile_options(${target} PRIVATE ${override})
+endfunction()
+
+function(quiet_dependency_tree dir)
+    get_property(_targets DIRECTORY "${dir}" PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(_target IN LISTS _targets)
+        get_target_property(_type ${_target} TYPE)
+        if(_type STREQUAL "INTERFACE_LIBRARY" OR _type STREQUAL "UTILITY")
+            continue()
+        endif()
+        quiet_target(${_target} "${DEP_WARNING_OVERRIDE}")
+    endforeach()
+    get_property(_subdirs DIRECTORY "${dir}" PROPERTY SUBDIRECTORIES)
+    foreach(_subdir IN LISTS _subdirs)
+        quiet_dependency_tree("${_subdir}")
+    endforeach()
+endfunction()
+
+# ComboShip: Torch pins the static CRT (and its cmake_minimum_required leaves CMP0091 unset), which
+# would clash (LNK2038) with the combo's one dynamic UCRT. Force every torch-tree target back.
+function(combo_dynamic_crt_tree dir)
+    get_property(_targets DIRECTORY "${dir}" PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(_target IN LISTS _targets)
+        get_target_property(_type ${_target} TYPE)
+        if(_type STREQUAL "INTERFACE_LIBRARY" OR _type STREQUAL "UTILITY")
+            continue()
+        endif()
+        set_target_properties(${_target} PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+        get_target_property(_opts ${_target} COMPILE_OPTIONS)
+        if(_opts)
+            string(REGEX REPLACE "/MT(d?)" "/MD\1" _opts "${_opts}")
+            set_target_properties(${_target} PROPERTIES COMPILE_OPTIONS "${_opts}")
+        endif()
+    endforeach()
+    get_property(_subdirs DIRECTORY "${dir}" PROPERTY SUBDIRECTORIES)
+    foreach(_subdir IN LISTS _subdirs)
+        combo_dynamic_crt_tree("${_subdir}")
+    endforeach()
+endfunction()
+
+set(CMAKE_POLICY_DEFAULT_CMP0091 NEW)
+add_subdirectory(torch ${CMAKE_BINARY_DIR}/torch SYSTEM)
+quiet_dependency_tree(${CMAKE_CURRENT_SOURCE_DIR}/torch)
+if(MSVC)
+    combo_dynamic_crt_tree(${CMAKE_CURRENT_SOURCE_DIR}/torch)
+endif()
+
+target_compile_definitions(torch INTERFACE YAML_CPP_STATIC_DEFINE)
+
+add_executable(soh-o2r-packer EXCLUDE_FROM_ALL
+    ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/tools/soh-o2r-packer/main.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/tools/soh-o2r-packer/PngTexture.cpp
+)
+target_link_libraries(soh-o2r-packer PRIVATE torch)
 
 ################################################################################
 # Sub-projects - Game-specific builds
@@ -318,11 +416,12 @@ add_custom_target(
     COMMAND ${CMAKE_COMMAND} -E rm -r -f ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/custom/shaders/
     # ComboShip: an upstream merge moved Fast3D shaders from src/graphic/Fast3D/ to src/fast/.
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/libultraship/src/fast/shaders/ ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/custom/shaders/
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/OTRExporter/extract_assets.py -z "$<TARGET_FILE:ZAPD>" --norom --custom-otr-file soh.o2r "--custom-assets-path" ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/custom --port-ver "${CMAKE_PROJECT_VERSION}"
-    COMMAND ${CMAKE_COMMAND} -DSYSTEM_NAME=${CMAKE_SYSTEM_NAME} -DTARGET_DIR="$<TARGET_FILE_DIR:ZAPD>" -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DBINARY_DIR=${CMAKE_BINARY_DIR} -DONLYSOHOTR=On -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/copy-existing-otrs.cmake
+    # ComboShip: Torch's packer replaced ZAPD here (mm still packs with ZAPD). Manual, not ALL.
+    COMMAND $<TARGET_FILE:soh-o2r-packer> ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/custom ${CMAKE_CURRENT_SOURCE_DIR}/soh/soh.o2r ${CMAKE_PROJECT_VERSION}
+    COMMAND ${CMAKE_COMMAND} -DSYSTEM_NAME=${CMAKE_SYSTEM_NAME} -DTARGET_DIR="$<TARGET_FILE_DIR:ComboShip>" -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DBINARY_DIR=${CMAKE_BINARY_DIR} -DONLYSOHOTR=On -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/copy-existing-otrs.cmake
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/soh
     COMMENT "Generating soh.o2r..."
-    DEPENDS ZAPD CheckAssetCollisions)
+    DEPENDS soh-o2r-packer CheckAssetCollisions)
 
 add_custom_target(
     Generate2ShipOtr
@@ -341,8 +440,7 @@ if("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
     install(FILES "${CMAKE_BINARY_DIR}/soh/soh.o2r" DESTINATION . COMPONENT ship)
     install(FILES "${CMAKE_BINARY_DIR}/mm/2ship.o2r" DESTINATION . COMPONENT ship)
     install(TARGETS ZAPD DESTINATION ./assets/extractor COMPONENT extractor)
-    install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/extractor/" DESTINATION ./assets/oot COMPONENT extractor)
-    install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/xml/" DESTINATION ./assets/xml/oot COMPONENT extractor)
+    install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/yml/" DESTINATION ./assets COMPONENT extractor)
     install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/extractor/" DESTINATION ./assets/mm COMPONENT extractor)
     install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/xml/" DESTINATION ./assets/xml/mm COMPONENT extractor)
 endif()
@@ -355,12 +453,10 @@ if ("${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
     install(FILES "$<TARGET_FILE:comboui>"      DESTINATION . COMPONENT combo)
     # (soh.o2r is installed by soh/CMakeLists.txt; 2ship.o2r by mm/CMakeLists.txt.)
 
-    # Extractor assets. These MUST match the flat, merged layout the runtime POST_BUILD produces
-    # (combo/CMakeLists.txt): both games' extractor dirs merged into assets/, both xml dirs into
-    # assets/xml/ — that is what CallZapd expects at extraction time. The previous rules split soh
-    # into assets/oot, which does NOT match the runtime layout and would break ROM extraction.
-    install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/extractor/" DESTINATION ./assets     COMPONENT combo)
-    install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/xml/"       DESTINATION ./assets/xml COMPONENT combo)
+    # Extractor assets. These MUST match the flat layout the runtime POST_BUILD produces
+    # (combo/CMakeLists.txt): soh's Torch ymls and mm's ZAPD extractor dir merged into assets/, mm's
+    # xml into assets/xml/. The previous rules split soh into assets/oot, which broke extraction.
+    install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/yml/"       DESTINATION ./assets     COMPONENT combo)
     install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/extractor/"  DESTINATION ./assets     COMPONENT combo)
     install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/xml/"        DESTINATION ./assets/xml COMPONENT combo)
 endif()

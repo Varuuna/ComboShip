@@ -125,10 +125,6 @@ bool Combobox(std::string label, T* value, const std::map<T, const char*>& combo
     ImGui::BeginDisabled(options.disabled);
     PushStyleCombobox(options.color);
 
-<<<<<<< HEAD
-    // ComboShip: must be initialized — comboMap can be empty, else CalcComboWidth derefs garbage.
-=======
->>>>>>> vendor-soh
     const char* longest = "";
     size_t length = 0;
     for (auto& [index, string] : comboMap) {
@@ -212,10 +208,6 @@ bool Combobox(std::string label, T* value, const std::vector<const char*>& combo
     ImGui::BeginDisabled(options.disabled);
     PushStyleCombobox(options.color);
 
-<<<<<<< HEAD
-    // ComboShip: must be initialized — comboVector can be empty, else CalcComboWidth derefs garbage.
-=======
->>>>>>> vendor-soh
     const char* longest = "";
     size_t length = 0;
     for (auto& string : comboVector) {
@@ -389,10 +381,6 @@ bool Combobox(std::string label, T* value, const char* (&comboArray)[N], const C
     ImGui::BeginDisabled(options.disabled);
     PushStyleCombobox(options.color);
 
-<<<<<<< HEAD
-    // ComboShip: must be initialized — comboArray can be empty (N == 0), else CalcComboWidth derefs garbage.
-=======
->>>>>>> vendor-soh
     const char* longest = "";
     size_t length = 0;
     for (size_t i = 0; i < N; i++) {

@@ -1,11 +1,9 @@
 #include <ship/Context.h>
 #include <ship/resource/archive/Archive.h>
 #include <ship/resource/ResourceManager.h>
-<<<<<<< HEAD
 #ifdef COMBO_BUILD
 #include <ship/resource/CrossRMRegistry.h>
 #endif
-=======
 
 #include "soh/resource/importer/AudioSampleFactory.h"
 #include "soh/resource/importer/AudioSoundFontFactory.h"
@@ -16,7 +14,6 @@ extern "C" {
 #include "z64audio.h"
 }
 
->>>>>>> vendor-soh
 #define DR_WAV_IMPLEMENTATION
 #include <dr_wav.h>
 

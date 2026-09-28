@@ -3,14 +3,12 @@
 #include "Anchor.h"
 #include "soh/Enhancements/nametag.h"
 #include "soh/ObjectExtension/ObjectExtension.h"
-<<<<<<< HEAD
-#include "soh/Enhancements/randomizer/randomizer.h"
-#include "soh/Notification/Notification.h"
 #ifdef COMBO_BUILD
+// ComboShip: used by the COMBO_CROSS_ITEM packet paths below.
+#include "soh/Enhancements/randomizer/static_data.h"
+#include "soh/Notification/Notification.h"
 #include "soh/SaveManager.h"
 #endif
-=======
->>>>>>> vendor-soh
 
 extern "C" {
 #include "macros.h"

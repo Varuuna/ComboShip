@@ -862,18 +862,13 @@ void FileChoose_UpdateRandomizerMenu(GameState* thisx) {
             Randomizer_GenerateRandomizer();
 #endif
         } else if (this->randomizerIndex == RSM_OPEN_RANDOMIZER_SETTINGS) {
-<<<<<<< HEAD
-            Audio_PlaySoundGeneral(NA_SE_SY_FSEL_DECIDE_L, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
-                                   &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+            Audio_PlaySfxGeneral(NA_SE_SY_FSEL_DECIDE_L, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
+                                 &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
 #ifdef COMBO_BUILD
             // ComboShip: open the shared comboui menu on its Randomizer tab (combo settings live
             // there). The menu's visibility is object-state, not a CVar, so route through the export.
             SOH_OpenComboRandoSettings();
 #else
-=======
-            Audio_PlaySfxGeneral(NA_SE_SY_FSEL_DECIDE_L, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
-                                 &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
->>>>>>> vendor-soh
             Randomizer_ShowRandomizerMenu();
 #endif
         }

@@ -186,6 +186,12 @@ TrackerImageObject GetImageObject(TrackerItemType itemType, u32 itemId) {
         case TRACKER_ITEM_SLOT: {
             itemObtained = gSaveContext.save.saveInfo.inventory.items[itemId] != ITEM_NONE;
             auto vanillaItemId = GetVanillaItemIdForSlot(itemId);
+#ifdef COMBO_BUILD
+            // ComboShip: ITEM_NONE (empty safe-item list) is past the end of gItemIcons; draw no icon.
+            if (vanillaItemId == ITEM_NONE) {
+                break;
+            }
+#endif
 
             trackerImageObject.textureId =
                 std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui())

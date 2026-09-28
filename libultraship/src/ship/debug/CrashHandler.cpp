@@ -357,15 +357,6 @@ void CrashHandler::PrintStack(CONTEXT* ctx) {
     process = GetCurrentProcess();
     thread = GetCurrentThread();
 
-<<<<<<< HEAD
-    SymSetOptions(SYMOPT_NO_IMAGE_SEARCH | SYMOPT_IGNORE_IMAGEDIR
-#ifdef COMBO_BUILD
-                  // ComboShip: LOAD_LINES or SymGetLineFromAddr can fail even with PDBs present.
-                  | SYMOPT_LOAD_LINES | SYMOPT_UNDNAME
-#endif
-    );
-    SymInitialize(process, "debug", true);
-=======
     SymSetOptions(SYMOPT_NO_IMAGE_SEARCH | SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
 
     // Search the directory the executable actually lives in, plus a "debug" subdirectory next to it,
@@ -380,7 +371,6 @@ void CrashHandler::PrintStack(CONTEXT* ctx) {
     }
 
     SymInitialize(process, searchPath.c_str(), true);
->>>>>>> vendor-libultraship
 
     constexpr DWORD machineType =
 #if defined(_M_AMD64)
@@ -400,34 +390,6 @@ void CrashHandler::PrintStack(CONTEXT* ctx) {
         }
         symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
         symbol->MaxNameLen = MAX_SYM_NAME;
-<<<<<<< HEAD
-#ifdef COMBO_BUILD
-        // ComboShip: a Release build ships no PDBs, so dbghelp invents names from the export table —
-        // statics collapse onto unrelated exports. Honour the lookup result, flag guesses, and always
-        // emit module+RVA so a log maps offline. See docs/deviations/boot-shutdown.md.
-        const DWORD64 pc = (DWORD64)stack.AddrPC.Offset;
-        displacement = 0;
-        symbol->Name[0] = '\0'; // never reprint the previous frame's name out of the shared buffer
-        const bool haveSym = SymFromAddr(process, pc, &displacement, symbol) != FALSE;
-        const char* symName = haveSym ? symbol->Name : "<unresolved>";
-        const bool exportOnly = haveSym && (symbol->Flags & SYMFLAG_EXPORT) != 0;
-
-        hModule = nullptr;
-        module[0] = '\0';
-        GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                          (LPCTSTR)pc, &hModule);
-        if (hModule == nullptr || GetModuleFileNameA(hModule, module, sizeof(module)) == 0) {
-            strcpy_s(module, sizeof(module), "???");
-        }
-
-        char frameInfo[160];
-        sprintf_s(frameInfo, std::size(frameInfo), "+0x%llX%s (0x%016llX, RVA 0x%llX)", displacement,
-                  exportOnly ? " ~export(approx)" : "", pc,
-                  (hModule != nullptr) ? pc - (DWORD64)hModule : 0);
-#else
-        SymFromAddr(process, (ULONG64)stack.AddrPC.Offset, &displacement, symbol);
-#endif
-=======
         symbol->Name[0] = '\0';
         symbol->Address = 0;
         displacement = 0;
@@ -448,7 +410,6 @@ void CrashHandler::PrintStack(CONTEXT* ctx) {
             strcpy_s(module, sizeof(module), "???");
         }
 
->>>>>>> vendor-libultraship
 #if defined(_M_AMD64)
         IMAGEHLP_LINE64 line;
         line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
@@ -456,32 +417,11 @@ void CrashHandler::PrintStack(CONTEXT* ctx) {
         IMAGEHLP_LINE line;
         line.SizeOfStruct = sizeof(IMAGEHLP_LINE);
 #endif
-<<<<<<< HEAD
-#ifdef COMBO_BUILD
-        // ComboShip: module+RVA on every frame; the file/line branch also used the shared name buffer.
-        AppendStr("    ");
-        AppendStr(symName);
-        AppendStr(" ");
-        AppendStr(frameInfo);
-        if (SymGetLineFromAddr(process, pc, &disp, &line)) {
-            AppendStr(" in ");
-            AppendStr(line.FileName);
-            char lineNumberStr[16];
-            sprintf_s(lineNumberStr, sizeof(lineNumberStr), " Line: %d", line.LineNumber);
-            AppendLine(lineNumberStr);
-        } else {
-            WRITE_VAR_LINE_M(" in ", module);
-        }
-#else
-        if (SymGetLineFromAddr(process, stack.AddrPC.Offset, &disp, &line)) {
-            AppendStr("    ");
-=======
 
         char addrString[80];
         AppendStr("    ");
 
         if (haveSymbol) {
->>>>>>> vendor-libultraship
             AppendStr(symbol->Name);
             sprintf_s(addrString, std::size(addrString), "+0x%llX", displacement);
             AppendStr(addrString);
@@ -495,9 +435,6 @@ void CrashHandler::PrintStack(CONTEXT* ctx) {
             sprintf_s(addrString, std::size(addrString), " Line: %d", line.LineNumber);
             AppendStr(addrString);
         }
-<<<<<<< HEAD
-#endif
-=======
 
         // PC, module base and RVA are always emitted, symbols or not.
         if (hModule != nullptr) {
@@ -510,7 +447,6 @@ void CrashHandler::PrintStack(CONTEXT* ctx) {
         AppendStr(addrString);
 
         WRITE_VAR_LINE_M(" in ", module);
->>>>>>> vendor-libultraship
     }
     PrintCommon();
     Context::GetRawInstance()->GetLogger()->flush();

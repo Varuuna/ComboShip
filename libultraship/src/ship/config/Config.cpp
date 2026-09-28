@@ -243,16 +243,10 @@ void Config::Reload() {
 }
 
 void Config::Save() {
-<<<<<<< HEAD
-    // ComboShip: unflatten before opening (and thereby truncating) the file, or a leaf-vs-subtree
-    // key clash both crashes and wipes the config.
+    // ComboShip: unflatten first; a leaf-vs-subtree key clash must not throw across the DLL boundary.
     if (!TryUnflatten(mNestedJson)) {
         return;
     }
-    std::ofstream file(mPath);
-    file << mNestedJson.dump(4);
-=======
-    mNestedJson = mFlattenedJson.unflatten();
     const fs::path configPath(mPath);
     const fs::path tempPath = configPath.parent_path() / (configPath.filename().string() + ".tmp");
     std::error_code ec;
@@ -277,7 +271,6 @@ void Config::Save() {
         std::error_code removeEc;
         fs::remove(tempPath, removeEc);
     }
->>>>>>> vendor-libultraship
 }
 
 template <typename T> std::vector<T> Config::GetArray(const std::string& key) {

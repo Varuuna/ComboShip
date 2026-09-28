@@ -267,3 +267,9 @@ Migration runs at container load, before any save could scrub the legacy field.
   (SoH's 40-idle-frame equivalent), `ComboUI_OnForegroundGame` (OOT<->MM switch), and
   `ComboUI_RestoreTrackerIntent` (launcher pre-shutdown). Every reload of the buffer flushes first,
   so the pending text always belongs to `sDirtySlot`.
+
+## Check tracker `SetAreaSpoiled` under the bulk-load batch (2026-09-28)
+
+`sSuppressSpoilSave` (the combo bulk load batches area spoils into one container write) now skips
+only the `SaveSection` call. Upstream added `RefreshItemTrackerMainWindow()` after it, which must
+still run.

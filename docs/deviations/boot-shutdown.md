@@ -415,6 +415,11 @@ Verified: fast path (archives present) boots straight to title unchanged; first-
 extraction screen (`OoT=1 MM=1`). The old `SOH_Extract`/`MM_Extract` exports remain for non-combo use
 but the launcher no longer calls them.
 
+**RETIRED for soh 2026-09-28:** upstream's `CallTorch` returns real success (archive produced AND
+copied) and no longer stages assets in a tempdir or `chdir`s, so Extract.cpp is upstream's. Kept:
+`SOH_StartExtraction` writes `soh_extract_error.log` on failure, and a failed copy removes the partial
+archive. MM's `CallZapd` note below still applies.
+
 **`CallZapd` must return `true` on success (re-survive on every re-vendor).** Upstream `CallZapd`
 returns `false` unconditionally (native flow gates on exceptions, not the return value), but
 `SOH_/MM_StartExtraction` use it as the combo screen's success flag — so a `false` return makes a

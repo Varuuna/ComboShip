@@ -4,6 +4,16 @@ Preserved deviations — keep across upstream merges. See [../UPSTREAM_MERGES.md
 
 ## UIWidgets empty-combobox UB + combo-rendered MM rando menu (2026-06-09)
 
+**soh side RETIRED 2026-09-28:** upstream now initializes `longest` in every soh overload; the MM
+fix below stands.
+
+**Time Splits (2026-09-28):** soh ported 2Ship's Time Splits, so both games registered the same window
+names and `ImGui::Begin("Timesplits")`, and soh's settings button wrote `gWindows.Timesplits.Settings`
+under MM's leaf `gWindows.Timesplits` (leaf-vs-subtree: config stops saving). Fix: soh's button uses
+`CVAR_WINDOW("TimeSplitSettings")` + an inline settings shim; MM's two windows get `##MM`, its overlay
+ID `Timesplits##MM`, its settings CVar `gWindows.TimesplitsSettings` (old key cleared on init), and
+`ComboTrackerVisibility` keeps only the foreground game's overlay in the Gui map.
+
 **`mm/2s2h/BenGui/UIWidgets.hpp` (and `soh/soh/SohGui/UIWidgets.hpp`) — fix to a vendored upstream
 bug:** every `UIWidgets::Combobox` template overload declared `const char* longest;` **uninitialized**,
 then assigned it only inside the loop that scans the options for the widest entry. If the options

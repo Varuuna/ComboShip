@@ -1,4 +1,11 @@
-# Extractors (ZAPDTR + OTRExporter)
+# Extractors (ZAPDTR + OTRExporter; Torch for soh)
+
+**Since 2026-09-28 soh extracts with Torch** (`torch/`, manual pin `2ab12fe96` = soh's gitlink) and
+packs `soh.o2r` with `soh-o2r-packer`; ZAPDTR/OTRExporter below are **MM-only** now. Torch forces the
+static CRT, so root `CMakeLists.txt` sets `CMAKE_POLICY_DEFAULT_CMP0091 NEW` and `combo_dynamic_crt_tree`
+puts every torch-tree target (incl. fetched tinyxml2/zlib/yaml-cpp) back on `MultiThreaded[Debug]DLL`.
+On Linux `torch yaml-cpp BinaryTools N64Graphics` get hidden visibility (own StringHelper/CRC64/stbi).
+Bump Torch by hand to soh's `torch` gitlink (`git ls-tree <soh sha> torch`) with `read-tree`.
 
 ComboShip vendors **one shared copy** of each extractor (`ZAPDTR/`, `OTRExporter/`), wired at
 `CMakeLists.txt:266-269` — not the per-game submodules soh and mm use. Both games extract through the

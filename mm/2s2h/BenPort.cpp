@@ -57,6 +57,7 @@ CrowdControl* CrowdControl::Instance;
 #include "2s2h/Enhancements/Enhancements.h"
 #include "2s2h/Enhancements/GfxPatcher/AuthenticGfxPatches.h"
 #include "2s2h/Enhancements/GfxPatcher/PlayerCustomFlipbooks.h"
+#include "2s2h/Enhancements/ModMenu/ModMenu.h"
 #include "2s2h/DeveloperTools/DebugConsole.h"
 #include "2s2h/Rando/Rando.h"
 #include "2s2h/Rando/Spoiler/Spoiler.h"
@@ -237,6 +238,19 @@ bool PathTestCleanup(FILE* tfile) {
     return true;
 }
 
+static bool RemoveArchiveAcrossAppDirs(const std::string& fileName) {
+    for (const std::string& path : { Ship::Context::GetPathRelativeToAppDirectory(fileName, appShortName),
+                                     Ship::Context::GetPathRelativeToAppBundle(fileName), "./" + fileName }) {
+        std::error_code err;
+        if (std::filesystem::remove(path, err)) {
+            SPDLOG_INFO("Removed outdated archive {}", path);
+        } else if (err) {
+            SPDLOG_ERROR("Failed to remove outdated archive {}: {}", path, err.message());
+        }
+    }
+    return !std::filesystem::exists(Ship::Context::LocateFileAcrossAppDirs(fileName, appShortName));
+}
+
 void CheckAndCreateModFolder() {
     try {
         std::string modsPath = Ship::Context::LocateFileAcrossAppDirs("mods", appShortName);
@@ -276,10 +290,11 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
     }
     Extractor extract;
     PromptSteps promptStep = PS_FILE_CHECK;
+    bool romsFromSearch = false;
     std::atomic<size_t> extractCount = 0, totalExtract = 0;
 
-    std::string installPath = Ship::Context::GetAppBundlePath();
-    std::string dataPath = Ship::Context::GetAppDirectoryPath(appShortName);
+    std::string installPath = std::filesystem::absolute(Ship::Context::GetAppBundlePath()).string();
+    std::string dataPath = std::filesystem::absolute(Ship::Context::GetAppDirectoryPath(appShortName)).string();
     std::string file;
 
 #if defined(__SWITCH__)
@@ -303,10 +318,16 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
                               "re-extract them from the download or.\n\nExiting...",
                               "OK", "", [&]() { exit(1); });
     } else if (shouldRegen) {
-        BenGui::RegisterPopup("Outdated ROM Archives",
-                              "Your mm.o2r was created with incompatible versions of 2Ship.\nYou will "
-                              "now be redirected to re-extract them.");
-        std::filesystem::remove("mm.o2r");
+        if (RemoveArchiveAcrossAppDirs("mm.o2r")) {
+            BenGui::RegisterPopup("Outdated ROM Archive",
+                                  "Your mm.o2r was created with incompatible versions of 2Ship.\nYou will "
+                                  "now be redirected to re-extract them.");
+        } else {
+            BenGui::RegisterPopup("Outdated ROM Archive",
+                                  "Your mm.o2r was created with incompatible versions of 2Ship, but it\n"
+                                  "could not be removed automatically. Please delete it and relaunch.\n\nExiting...",
+                                  "OK", "", [&]() { exit(1); });
+        }
     }
 
     std::shared_ptr<BS::thread_pool> threadPool = std::make_shared<BS::thread_pool>(1);
@@ -426,41 +447,29 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
             case ES_EXTRACT_ARGS: {
 #if !defined(__SWITCH__) && !defined(__WIIU__)
                 if (args.empty()) {
-                    BenGui::RegisterPopup(
-                        "Run 2 Ship 2 Harkinian", "All files have been processed. Run 2S2H?", "Yes", "No",
-                        [&]() {
-                            if (!std::filesystem::exists(Ship::Context::GetAppDirectoryPath(appShortName) +
-                                                         "/mm.o2r")) {
-                                extractStep = ES_EXTRACT;
-                                promptStep = PS_FILE_CHECK;
-                            } else {
-                                extractStep = ES_VERIFY;
-                            }
-                        },
-                        [&]() { exit(0); });
-                    break;
+                    if (!std::filesystem::exists(Ship::Context::LocateFileAcrossAppDirs("mm.o2r", appShortName))) {
+                        extractStep = ES_EXTRACT;
+                        promptStep = PS_FILE_CHECK;
+                    } else {
+                        extractStep = ES_VERIFY;
+                    }
+                    continue;
+                }
+                if (romsFromSearch &&
+                    std::filesystem::exists(Ship::Context::LocateFileAcrossAppDirs("mm.o2r", appShortName))) {
+                    SPDLOG_INFO("mm.o2r generated, skipping {} other ROM(s) found in the app folder", args.size());
+                    args.clear();
+                    continue;
                 }
                 file = args.at(0);
                 args.erase(args.begin());
                 extract = Extractor();
                 if (extract.RunFileStandalone(file)) {
-                    bool doExtract = true;
-                    if (std::filesystem::exists(Ship::Context::GetAppDirectoryPath(appShortName) + "/mm.o2r")) {
-                        std::string msg = "Archive for current ROM, mm.o2r, already exists.\nExtract again?";
-                        BenGui::RegisterPopup("Confirm Re-extract", msg.c_str(), "Yes", "No", [&]() {
-                            extractionTask = threadPool->submit_task([&]() -> void {
-                                extract.CallZapd(installPath, Ship::Context::GetAppDirectoryPath(appShortName),
-                                                 &extractCount, &totalExtract);
-                                extractCount = totalExtract = 0;
-                            });
-                        });
-                    } else {
-                        extractionTask = threadPool->submit_task([&]() -> void {
-                            extract.CallZapd(installPath, Ship::Context::GetAppDirectoryPath(appShortName),
-                                             &extractCount, &totalExtract);
-                            extractCount = totalExtract = 0;
-                        });
-                    }
+                    extractionTask = threadPool->submit_task([&]() -> void {
+                        extract.CallZapd(installPath, Ship::Context::GetAppDirectoryPath(appShortName), &extractCount,
+                                         &totalExtract);
+                        extractCount = totalExtract = 0;
+                    });
                 } else {
                     bool open = true;
                     std::string msg = "File\n" + std::string(file) + "\nis not a ROM or does not match supported ROMs.";
@@ -487,8 +496,11 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
                         extract = Extractor();
                         extract.SetSearchPath(installPath);
                         extract.GetRoms(args);
-                        extract.SetSearchPath(dataPath);
-                        extract.GetRoms(args);
+                        if (installPath != dataPath) {
+                            extract.SetSearchPath(dataPath);
+                            extract.GetRoms(args);
+                        }
+                        romsFromSearch = !args.empty();
                         if (!args.empty()) {
                             promptStep = PS_WAIT;
                             BenGui::RegisterPopup(
@@ -620,7 +632,7 @@ void OTRGlobals::Initialize() {
     context->InitFileDropMgr();
 
     // tell LUS to reserve 3 2S2H specific threads (Game, Audio, Save)
-    prevAltAssets = CVarGetInteger("gEnhancements.Mods.AlternateAssets", 1);
+    prevAltAssets = CVarGetInteger("gEnhancements.Mods.AlternateAssets", 0);
     context->GetResourceManager()->SetAltAssetsEnabled(prevAltAssets);
 
     context->InitCrashHandler();
@@ -961,6 +973,7 @@ extern "C" void InitOTR(int argc, char* argv[]) {
     GameInteractor::Instance = new GameInteractor();
     AudioCollection::Instance = new AudioCollection();
     LoadGuiTextures();
+    ModMenu_LoadArchives();
     BenGui::SetupGuiElements();
     ShipInit::InitAll();
     Rando::Init();
@@ -1021,6 +1034,7 @@ extern "C" void DeinitOTR() {
     benFast3dWindow = nullptr;
 
     OTRGlobals::Instance->context = nullptr;
+    Ship::Context::DestroyInstance();
     delete AudioCollection::Instance;
 }
 
@@ -1335,14 +1349,15 @@ extern "C" void ResourceMgr_UnloadResource(const char* resName) {
     Ship::Context::GetRawInstance()->GetResourceManager()->UnloadResource(path);
 }
 
-static void ResourceMgr_UnloadOriginalWhenAltExists(const char* resName) {
+static void ResourceMgr_PreloadAltWhenItExists(const char* resName) {
     std::string path = resName;
     if (path.starts_with("__OTR__")) {
         path = path.substr(7);
     }
 
     if (ResourceMgr_IsAltAssetsEnabled() && ExtensionCache.contains(Ship::IResource::gAltAssetPrefix + path)) {
-        ResourceMgr_UnloadResource(path.c_str());
+        Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(Ship::IResource::gAltAssetPrefix + path,
+                                                                            true);
     }
 }
 
@@ -1476,7 +1491,7 @@ extern "C" void ResourceMgr_PushCurrentDirectory(char* path) {
 }
 
 extern "C" Gfx* ResourceMgr_LoadGfxByName(const char* path) {
-    ResourceMgr_UnloadOriginalWhenAltExists(path);
+    ResourceMgr_PreloadAltWhenItExists(path);
 
     auto res = std::static_pointer_cast<Fast::DisplayList>(GetResourceByName(path));
     return (Gfx*)&res->Instructions[0];
@@ -1552,6 +1567,10 @@ extern "C" void ResourceMgr_UnpatchGfxByName(const char* path, const char* patch
     if (originalGfx.contains(path) && originalGfx[path].contains(patchName)) {
         auto res = std::static_pointer_cast<Fast::DisplayList>(
             Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path));
+
+        if (res->GetInitData()->IsCustom) {
+            return;
+        }
 
         Gfx* gfx = (Gfx*)&res->Instructions[originalGfx[path][patchName].index];
         *gfx = originalGfx[path][patchName].instruction;
@@ -2218,7 +2237,7 @@ extern "C" int32_t OTRConvertHUDXToScreenX(int32_t v) {
 
     float hudScreenRatio = (hudWidth / 320.0f);
     float hudCoord = v * hudScreenRatio;
-    float gameOffset = (gameWidth - hudWidth) / 2;
+    float gameOffset = (int32_t(gameWidth) - hudWidth) / 2;
     float gameCoord = hudCoord + gameOffset;
     float gameScreenRatio = (320.0f / gameWidth);
     float screenScaledCoord = gameCoord * gameScreenRatio;

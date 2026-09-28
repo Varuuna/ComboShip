@@ -198,7 +198,7 @@ uint32_t Menu::DrawSearchResults(std::string& menuSearchText) {
                 auto& column = sidebar.columnWidgets.at(i);
                 for (auto& info : column) {
                     if (info.type == WIDGET_SEARCH || info.type == WIDGET_SEPARATOR ||
-                        info.type == WIDGET_SEPARATOR_TEXT || info.isHidden) {
+                        info.type == WIDGET_SEPARATOR_TEXT || info.isHidden || info.hideInSearch) {
                         continue;
                     }
                     const char* tooltip = info.options->tooltip;
@@ -537,6 +537,9 @@ void Menu::Draw() {
 static bool freshOpen = true;
 void Menu::DrawElement() {
     if (OTRGlobals::Instance->fontStandardLargest == nullptr) {
+        return;
+    }
+    if (gGameState == nullptr) {
         return;
     }
     for (auto& [reason, info] : disabledMap) {

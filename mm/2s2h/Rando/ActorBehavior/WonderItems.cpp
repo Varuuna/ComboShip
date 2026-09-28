@@ -1,5 +1,6 @@
 #include "ActorBehavior.h"
 #include <libultraship/bridge/consolevariablebridge.h>
+#include "2s2h/CustomItem/CustomItem.h"
 #include "2s2h/ObjectExtension/ActorListIndex.h"
 
 extern "C" {
@@ -78,6 +79,47 @@ std::map<std::tuple<s16, s16, s16, s16>, RandoCheckId> enWonderItemMap = {
 };
 // clang-format on
 
+void Rando::ActorBehavior::SpawnWonderItemSparkle(Vec3f* pos) {
+    static Vec3f sVelocity = { 0.0f, 1.2f, 0.0f };
+    static Vec3f sAccel = { 0.0f, -0.05f, 0.0f };
+    static Color_RGBA8 sPrimColor = { 255, 255, 255, 255 };
+    static Color_RGBA8 sEnvColor = { 255, 200, 64, 255 };
+
+    Vec3f sparklePos = {
+        Rand_CenteredFloat(20.0f) + pos->x,
+        (Rand_ZeroOne() * 25.0f) + pos->y,
+        Rand_CenteredFloat(20.0f) + pos->z,
+    };
+
+    EffectSsKirakira_SpawnDispersed(gPlayState, &sparklePos, &sVelocity, &sAccel, &sPrimColor, &sEnvColor, 1600, 16);
+}
+
+void Rando::ActorBehavior::DrawWonderItemSparkle(Actor* actor, PlayState* play) {
+    if ((gGameState->frames % 4) != 0) {
+        return;
+    }
+
+    if (!RANDO_SAVE_CHECKS[CUSTOM_ITEM_PARAM].obtained) {
+        SpawnWonderItemSparkle(&actor->world.pos);
+    }
+}
+
+void EnHitTag_DrawWonderItemSparkle(Actor* actor, PlayState* play) {
+    if ((gGameState->frames % 4) != 0) {
+        return;
+    }
+
+    RandoCheckId baseRandoCheckId = Rando::ActorBehavior::GetObjectRandoCheckId(actor);
+    for (s32 i = 0; i < 3; i++) {
+        RandoSaveCheck& randoSaveCheck = RANDO_SAVE_CHECKS[baseRandoCheckId + i];
+        if (randoSaveCheck.shuffled && !randoSaveCheck.obtained) {
+            Rando::ActorBehavior::SpawnWonderItemSparkle(&actor->world.pos);
+            // (returning here cause we only want to render one sparkle)
+            return;
+        }
+    }
+}
+
 bool SpawnDroppedWonderItems(Vec3f position, u32 params) {
     Actor* dropActor = SubS_FindActorCustom(gPlayState, NULL, NULL, ACTORCAT_ITEMACTION, ACTOR_EN_HIT_TAG, &position,
                                             isDropActorAtPosition);
@@ -134,7 +176,7 @@ void WonderItemInit(Actor* actor, RandoCheckId randoCheckId, bool isInvisible, b
 
     Actor* customActor = (Actor*)spawnReplacementItem(actor->world.pos, Rando::StaticData::Checks[randoCheckId]);
     if (isInvisible) {
-        customActor->draw = NULL;
+        customActor->draw = Rando::ActorBehavior::DrawWonderItemSparkle;
     }
 
     *should = false;
@@ -157,6 +199,21 @@ void Rando::ActorBehavior::InitWonderItemsBehavior() {
             SpawnDropItem(objDora->actor.world.pos, RC_SWORDSMAN_SCHOOL_WONDER_ITEM);
             *should = false;
         }
+    });
+
+    COND_ID_HOOK(OnActorInit, ACTOR_EN_HIT_TAG, shouldRegister, [](Actor* actor) {
+        if (actor->update == NULL) {
+            return;
+        }
+
+        auto it =
+            enWonderItemMap.find({ ACTOR_EN_HIT_TAG, gPlayState->sceneId, actor->room, GetActorListIndex(actor) });
+        if (it == enWonderItemMap.end()) {
+            return;
+        }
+
+        SetObjectRandoCheckId(actor, it->second);
+        actor->draw = EnHitTag_DrawWonderItemSparkle;
     });
 
     COND_ID_HOOK(ShouldActorInit, ACTOR_EN_INVISIBLE_RUPPE, shouldRegister, [](Actor* actor, bool* should) {

@@ -39,15 +39,22 @@ std::vector<std::pair<TrackerItemType, u32>> GetItemsFromRange(TrackerItemType i
     return items;
 }
 
+// Some items don't have a 1:1 with rando items (eg ITEM_BOMB != RI_BOMBS_5) so we just handle them manually
+static const std::unordered_map<u32, const char*> sVanillaItemNames = {
+    { ITEM_BOMB, "Bombs" },
+    { ITEM_BOMBCHU, "Bombchus" },
+};
+
 std::string GetItemTrackerItemName(TrackerItemType itemType, u32 itemId) {
     switch (itemType) {
         case TRACKER_ITEM_RANDO: {
             return Rando::StaticData::Items[(RandoItemId)itemId].name;
         } break;
         case TRACKER_ITEM_SLOT: {
-            auto vanillaItemId = gSaveContext.save.saveInfo.inventory.items[itemId];
-            if (vanillaItemId == ITEM_NONE) {
-                vanillaItemId = safeItemsForInventorySlot[itemId][0];
+            u32 vanillaItemId = GetVanillaItemIdForSlot(itemId);
+            auto vanillaItemName = sVanillaItemNames.find(vanillaItemId);
+            if (vanillaItemName != sVanillaItemNames.end()) {
+                return vanillaItemName->second;
             }
             RandoItemId randoItemId = Rando::StaticData::GetItemIdFromVanillaItemId(vanillaItemId);
             return Rando::StaticData::Items[randoItemId].name;
@@ -322,6 +329,25 @@ void LoadAvailableWindows() {
             { TRACKER_ITEM_MAGIC, RI_PROGRESSIVE_MAGIC },
             { TRACKER_ITEM_RANDO, RI_DOUBLE_DEFENSE },
             { TRACKER_ITEM_WALLET, RI_PROGRESSIVE_WALLET },
+        },
+    });
+
+    // Ordered by the inventory slot each one shares, so the rows line up with the three trade slots
+    // the Inventory group shows.
+    itemTrackerGroupsAvailable.push_back(TrackerGroup{
+        .name = "Trade Items",
+        .columns = 5,
+        .scale = 1.0f,
+        .items = {
+            { TRACKER_ITEM_RANDO, RI_MOONS_TEAR },
+            { TRACKER_ITEM_RANDO, RI_DEED_LAND },
+            { TRACKER_ITEM_RANDO, RI_DEED_SWAMP },
+            { TRACKER_ITEM_RANDO, RI_DEED_MOUNTAIN },
+            { TRACKER_ITEM_RANDO, RI_DEED_OCEAN },
+            { TRACKER_ITEM_RANDO, RI_ROOM_KEY },
+            { TRACKER_ITEM_RANDO, RI_LETTER_TO_MAMA },
+            { TRACKER_ITEM_RANDO, RI_LETTER_TO_KAFEI },
+            { TRACKER_ITEM_RANDO, RI_PENDANT_OF_MEMORIES },
         },
     });
 

@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <libultraship/window/gui/GfxDebuggerWindow.h>
 #include "UIWidgets.hpp"
 #include "HudEditor.h"
 #include "2s2h/Enhancements/Audio/AudioEditor.h"
@@ -146,10 +147,9 @@ void SetupGuiElements() {
         SPDLOG_ERROR("Could not find console window");
     }
 
-    mGfxDebuggerWindow = gui->GetGuiWindow("GfxDebuggerWindow");
-    if (mGfxDebuggerWindow == nullptr) {
-        SPDLOG_ERROR("Could not find input GfxDebuggerWindow");
-    }
+    mGfxDebuggerWindow =
+        std::make_shared<LUS::GfxDebuggerWindow>("gOpenWindows.GfxDebugger", "Gfx Debugger", ImVec2(520, 600));
+    gui->AddGuiWindow(mGfxDebuggerWindow);
 
     mInputEditorWindow = gui->GetGuiWindow("2S2H Input Editor");
     if (mInputEditorWindow == nullptr) {

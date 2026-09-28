@@ -554,6 +554,14 @@ typedef enum {
     // true
     // ```
     // #### `args`
+    // - `*FileSelectState`
+    VB_FILE_SELECT_ROTATE_TO_NAME_ENTRY,
+
+    // #### `result`
+    // ```c
+    // true
+    // ```
+    // #### `args`
     // - `*ItemId`
     // - `s32` (slot)
     // - `s32` (isDpad)
@@ -1229,6 +1237,22 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // bubble != NULL
+    // ```
+    // #### `args`
+    // - `*Player`
+    VB_DEKU_COMMON_HEAD_OVERRIDE_HELD_ACTOR,
+
+    // #### `result`
+    // ```c
+    // player->heldActor != NULL
+    // ```
+    // #### `args`
+    // - `*Actor` (player->heldActor)
+    VB_DEKU_COMMON_UPPER_LIMB_OVERRIDE_HELD_ACTOR,
+
+    // #### `result`
+    // ```c
     // true
     // ```
     // #### `args`
@@ -1623,6 +1647,14 @@ typedef enum {
     // #### `args`
     // - `*OcarinaStaff` (the currently playing staff; state can be overridden to force a song)
     VB_OVERRIDE_OCARINA_STAFF_STATE,
+
+    // #### `result`
+    // ```c
+    // player->stateFlags3 & PLAYER_STATE3_10000000
+    // ```
+    // #### `args`
+    // - `*EnOwl`
+    VB_OWL_DESPAWN_FEATHER,
 
     // #### `result`
     // ```c
@@ -2431,6 +2463,15 @@ typedef enum {
     // #### `args`
     // - `*ObjYasi`
     VB_TREE_DROP_COLLECTIBLE,
+
+    // #### `result`
+    // ```c
+    // btn <= EQUIP_SLOT_NONE
+    // ```
+    // #### `args`
+    // - `*Player`
+    // - `*s32` (button)
+    VB_UNEQUIP_MASK_NOT_ON_BUTTON,
 
     // #### `result`
     // ```c

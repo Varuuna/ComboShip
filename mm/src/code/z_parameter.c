@@ -5713,8 +5713,8 @@ void Magic_DrawMeter(PlayState* play) {
             gDPPipeSync(OVERLAY_DISP++);
             if (CHECK_WEEKEVENTREG(WEEKEVENTREG_DRANK_CHATEAU_ROMANI)) {
                 // Blue magic
-                gDPSetPrimColorOverrideEx(OVERLAY_DISP++, 0, 0, 0, 0, 200, interfaceCtx->magicAlpha,
-                                          COSMETIC_ID("HUD.Magic"), COSMETIC_COLOR_MODE_ROTATE, 120.0f);
+                gDPSetPrimColorOverride(OVERLAY_DISP++, 0, 0, 0, 0, 200, interfaceCtx->magicAlpha,
+                                        COSMETIC_ID("HUD.MagicChateau"));
             } else {
                 // Green magic (default)
                 gDPSetPrimColorOverride(OVERLAY_DISP++, 0, 0, 0, 200, 0, interfaceCtx->magicAlpha,
@@ -5755,8 +5755,8 @@ void Magic_DrawMeter(PlayState* play) {
             // Fill the whole meter with the normal magic color
             if (CHECK_WEEKEVENTREG(WEEKEVENTREG_DRANK_CHATEAU_ROMANI)) {
                 // Blue magic
-                gDPSetPrimColorOverrideEx(OVERLAY_DISP++, 0, 0, 0, 0, 200, interfaceCtx->magicAlpha,
-                                          COSMETIC_ID("HUD.Magic"), COSMETIC_COLOR_MODE_ROTATE, 120.0f);
+                gDPSetPrimColorOverride(OVERLAY_DISP++, 0, 0, 0, 0, 200, interfaceCtx->magicAlpha,
+                                        COSMETIC_ID("HUD.MagicChateau"));
             } else {
                 // Green magic (default)
                 gDPSetPrimColorOverride(OVERLAY_DISP++, 0, 0, 0, 200, 0, interfaceCtx->magicAlpha,

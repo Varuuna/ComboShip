@@ -1,6 +1,7 @@
 #include "prevent_bss_reordering.h"
 #include "global.h"
 #include "BenPort.h"
+#include "2s2h/BenGui/CosmeticEditor.h"
 #include <string.h>
 
 s32 sMatAnimStep;
@@ -126,11 +127,13 @@ void AnimatedMat_SetColor(PlayState* play, s32 segment, F3DPrimColor* primColorR
     if (sMatAnimFlags & 2) { gSPSegment(POLY_XLU_DISP++, segment, gfx); }
     // clang-format on
 
-    gDPSetPrimColor(gfx++, 0, primColorResult->lodFrac, primColorResult->r, primColorResult->g, primColorResult->b,
-                    (u8)(primColorResult->a * sMatAnimAlphaRatio));
+    gDPSetPrimColorOverride(gfx++, 0, primColorResult->lodFrac, primColorResult->r, primColorResult->g,
+                            primColorResult->b, (u8)(primColorResult->a * sMatAnimAlphaRatio),
+                            CosmeticEditor_MatAnimPrimId(segment));
 
     if (envColor != NULL) {
-        gDPSetEnvColor(gfx++, envColor->r, envColor->g, envColor->b, envColor->a);
+        gDPSetEnvColorOverride(gfx++, envColor->r, envColor->g, envColor->b, envColor->a,
+                               CosmeticEditor_MatAnimEnvId());
     }
 
     gSPEndDisplayList(gfx++);
@@ -411,6 +414,7 @@ void AnimatedMat_DrawMain(PlayState* play, AnimatedMaterial* matAnim, f32 alphaR
             matAnim++;
         } while (segment >= 0);
     }
+    CosmeticEditor_ClearMatAnimCosmetics();
 }
 
 /**

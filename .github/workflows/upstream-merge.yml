@@ -92,7 +92,7 @@ jobs:
               echo '<details><summary>new commits</summary>'
               echo ""
               echo '```'
-              git log --oneline --first-parent "$merged..$tip" | head -100
+              git log --oneline --first-parent -n 100 "$merged..$tip"
               echo '```'
               echo '</details>'
             } > "$REPORTS/$key.md"
@@ -141,7 +141,7 @@ jobs:
                 echo ""
                 echo '```'
                 gh api "repos/Kenix3/libultraship/compare/${lus_ours}...${lus_expected}" \
-                  -q '.commits[] | "\(.sha[0:9])  \(.commit.message | split("\n")[0])"' 2>/dev/null | head -40 \
+                  -q '.commits[:40][] | "\(.sha[0:9])  \(.commit.message | split("\n")[0])"' 2>/dev/null \
                   || echo "(compare unavailable — open the link above)"
                 echo '```'
                 echo '</details>'

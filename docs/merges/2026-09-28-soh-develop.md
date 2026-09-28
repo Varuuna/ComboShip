@@ -302,6 +302,9 @@ src/overlays/misc/ovl_kaleido_scope/z_kaleido_scope_PAL.c
   unchanged). The dump also records `iceTrapNames`. `SOH_RestoreRandoSettings` applies upstream's
   ConfigVersion7 rename table (upstream appended it to an updater that existing configs already ran).
   Existing `comboship.json` files keep their old keys, so those settings fall back to defaults.
+  **Default change:** upstream's "All Checks Reachable" defaults Off (old "All Locations Reachable"
+  defaulted On), so combo OOT now defaults to beatable-only; the headless matrix shows the same
+  entrance-shuffle seeds failing before and after, just on the other gate.
 - **Lang keys:** `exclude_mask_shop_key`/`exclude_mask_shop_entrance` added to `en_US.json`
   (otherwise both labels read "[ERROR]" and collide).
 - **Headless:** `SOH_InitRandoHeadless` registers silver rupee locations; `comborando` accepts the

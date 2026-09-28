@@ -235,6 +235,10 @@ since CI now pulls each upstream in its own PR — listing every file we had to 
 mechanical 3-way merge and why. This keeps the per-merge required changes easy to track (and to diff
 against the recurring-deviation list below). Newest first:
 
+- [2026-09-28 mm](merges/2026-09-28-mm-develop.md) — mm `d35196ad7` (5.0.0) → `e8757c14a` (2Ship
+  develop, past 5.0.1). Code resolutions match main's 5.0.1 PR; MM's `DeinitOTR` no longer destroys
+  the shared Context; new `GeneratePools` drops (vanilla dungeon items, song surplus) emitted as
+  `fixed[]`; Moon mask hints find OOT placements.
 - [2026-08-22](merges/2026-08-22.md) — **not a merge pass**: 18 soh fix commits cherry-picked ahead
   of the pin from the pending `5a57a0cbc` → `55b52a26a` range (PR #144); pin unchanged. Lists the
   skipped-feature collateral dropped during conflict resolution.

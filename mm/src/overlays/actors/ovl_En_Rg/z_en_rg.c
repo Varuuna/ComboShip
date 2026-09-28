@@ -8,6 +8,8 @@
 #include "objects/gameplay_keep/gameplay_keep.h"
 
 #include "2s2h/GameInteractor/GameInteractor.h"
+#include "2s2h/BenGui/CosmeticEditor.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 
 #define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_MINIMAP_ICON_ENABLED)
 
@@ -830,6 +832,10 @@ void func_80BF547C(EnRg* this, PlayState* play) {
 s32 EnRg_OverrideLimbDraw(PlayState* play, s32 limbIndex, Gfx** dList, Vec3f* pos, Vec3s* rot, Actor* thisx) {
     EnRg* this = (EnRg*)thisx;
     s32 fidgetIndex;
+
+    if (limbIndex == GORON_LIMB_HEAD) {
+        Matrix_Translate(CVarGetFloat(CVAR_COSMETIC("Silly.GoronNeckLength"), 0.0f), 0.0f, 0.0f, MTXMODE_APPLY);
+    }
 
     switch (limbIndex) {
         case GORON_LIMB_BODY:

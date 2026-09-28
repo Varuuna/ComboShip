@@ -6,6 +6,8 @@
 
 #include "z_en_dg.h"
 #include "overlays/actors/ovl_En_Aob_01/z_en_aob_01.h"
+#include "2s2h/BenGui/CosmeticEditor.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 
 #define FLAGS \
     (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_FRIENDLY | ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_THROW_ONLY)
@@ -1414,7 +1416,7 @@ void EnDg_Draw(Actor* thisx, PlayState* play) {
                 break;
 
             case DOG_COLOR_BLUE:
-                gDPSetEnvColor(POLY_OPA_DISP++, 79, 79, 143, 0);
+                gDPSetEnvColorOverride(POLY_OPA_DISP++, 79, 79, 143, 0, COSMETIC_ID("World.RaceDogBlue"));
                 break;
 
             case DOG_COLOR_GOLD:

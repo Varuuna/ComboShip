@@ -41,6 +41,7 @@ std::unordered_map<int32_t, const char*> accessDungeonOptions = {
 };
 
 std::unordered_map<int32_t, const char*> accessTrialsOptions = {
+    { RO_ACCESS_TRIALS_VANILLA, "Vanilla" },
     { RO_ACCESS_TRIALS_20_MASKS, "2-6-12-20 Masks" },
     { RO_ACCESS_TRIALS_REMAINS, "Requires Associated Remains" },
     { RO_ACCESS_TRIALS_FORMS, "Requires Associated Transformation" },
@@ -61,6 +62,19 @@ std::unordered_map<int32_t, const char*> dungeonItemPlacementOptions = {
     { RO_DUNGEON_ITEM_ANYWHERE, "Anywhere" },
     { RO_DUNGEON_ITEM_OWN_DUNGEON, "Own Dungeon" },
     { RO_DUNGEON_ITEM_START_WITH, "Start With" },
+    { RO_DUNGEON_ITEM_VANILLA, "Vanilla" },
+};
+
+std::unordered_map<int32_t, const char*> remainsShuffleOptions = {
+    { RO_REMAINS_SHUFFLE_ANYWHERE, "Anywhere" },
+    { RO_REMAINS_SHUFFLE_OWN_DUNGEON, "Own Dungeon" },
+    { RO_REMAINS_SHUFFLE_VANILLA, "Vanilla" },
+};
+
+std::unordered_map<int32_t, const char*> songShuffleOptions = {
+    { RO_SONG_SHUFFLE_ANYWHERE, "Anywhere" },
+    { RO_SONG_SHUFFLE_SONG_LOCATIONS, "Song Locations" },
+    { RO_SONG_SHUFFLE_VANILLA, "Vanilla" },
 };
 
 // clang-format off
@@ -322,7 +336,7 @@ static uint32_t checkPoolGeneration = 0;
 void RefreshMetrics() {
     setOfItemsInPool.clear();
     setOfChecksInPool.clear();
-    RandoSaveInfo randoSaveInfo;
+    RandoSaveInfo randoSaveInfo{};
     std::vector<RandoCheckId> checkPool;
     std::vector<RandoItemId> itemPool;
 
@@ -415,6 +429,7 @@ static RegisterShipInitFunc refreshMetricsInit(RefreshMetrics, {
                                                                    "gRando.Options.RO_SHUFFLE_SHOPS",
                                                                    "gRando.Options.RO_SHUFFLE_SKELETON_KEY",
                                                                    "gRando.Options.RO_SHUFFLE_SNOWBALL_DROPS",
+                                                                   "gRando.Options.RO_SHUFFLE_SONGS",
                                                                    "gRando.Options.RO_SHUFFLE_SONG_DOUBLE_TIME",
                                                                    "gRando.Options.RO_SHUFFLE_SONG_INVERTED_TIME",
                                                                    "gRando.Options.RO_SHUFFLE_SONG_SARIA",
@@ -616,6 +631,7 @@ static void DrawGeneralTab() {
         "Container Style Matches Contents", "gRando.CSMC",
         UIWidgets::CheckboxOptions().Tooltip("This will make the contents of a container match the container itself. "
                                              "Eg chests, pots, crates, grass, etc."));
+
     UIWidgets::CVarCombobox(
         "Junk Items", "gRando.JunkItems", &junkItemsOptions,
         UIWidgets::ComboboxOptions()
@@ -655,6 +671,13 @@ static void DrawLogicConditionsTab() {
                        "Requires Only Song - Requires only the correct song.\n\n"
                        "Open - Dungeons will be open with no requirements.");
     UIWidgets::CVarCombobox("Trials Access", Rando::StaticData::Options[RO_ACCESS_TRIALS].cvar, &accessTrialsOptions);
+    UIWidgets::Tooltip("Moon trial access requirements:\n\n"
+                       "Vanilla - Masks are handed over as in the original game: 1, 2, 3 and 4 masks to get in.\n\n"
+                       "2-6-12-20 Masks - Each child sequentially requires that many masks in your inventory.\n\n"
+                       "Requires Associated Remains - Each child requires the remains of the boss they represent.\n\n"
+                       "Requires Associated Transformation - Each child requires the form their trial is built "
+                       "around, and the Link Trial is always open.\n\n"
+                       "Open - The trials have no requirements.");
     ImGui::EndChild();
     ImGui::SameLine();
     ImGui::BeginChild("randoLogicColumn2", ImVec2(columnWidth, 0));
@@ -711,11 +734,39 @@ static void DrawCheckPoolTab() {
 
     UIWidgets::BeginCard("checkPoolWorld");
     ImGui::SeparatorText("World & NPCs");
-    CVarCheckbox("Songs", "gPlaceholderBool",
-                 CheckboxOptions({ { .disabled = true,
-                                     .disabledTooltip = "Songs are currently always shuffled. The option to "
-                                                        "disable this is coming soon." } })
-                     .DefaultValue(true));
+    UIWidgets::CVarCombobox(
+        "Songs", Rando::StaticData::Options[RO_SHUFFLE_SONGS].cvar, &songShuffleOptions,
+        UIWidgets::ComboboxOptions()
+            .ComponentAlignment(UIWidgets::ComponentAlignment::Right)
+            .LabelPosition(UIWidgets::LabelPosition::Near)
+            .Tooltip("Where the songs taught in the world may be found. Extra songs have no location of their own, "
+                     "so they are always shuffled into the item pool like any other item.\n\n"
+                     "Anywhere - Song locations are checks, and their songs can be found anywhere in the world.\n\n"
+                     "Song Locations - Song locations are checks, and their songs are shuffled among them.\n\n"
+                     "Vanilla - Every song stays where it is, and song locations are not checks."));
+    if (CVarGetInteger(Rando::StaticData::Options[RO_SHUFFLE_SONGS].cvar, RO_SONG_SHUFFLE_ANYWHERE) !=
+        RO_SONG_SHUFFLE_VANILLA) {
+        auto& counts = GetCheckCountsByType();
+        auto it = counts.find(RCTYPE_SONG);
+        PoolCountSuffix(it != counts.end() ? it->second : 0);
+    }
+    UIWidgets::CVarCombobox(
+        "Boss Remains", Rando::StaticData::Options[RO_SHUFFLE_BOSS_REMAINS].cvar, &remainsShuffleOptions,
+        UIWidgets::ComboboxOptions()
+            .ComponentAlignment(UIWidgets::ComponentAlignment::Right)
+            .LabelPosition(UIWidgets::LabelPosition::Near)
+            .Tooltip("Where each temple boss's remains may be found.\n\n"
+                     "Anywhere - Defeating a boss rewards a shuffled item, and its remains can be found anywhere in "
+                     "the world.\n\n"
+                     "Own Dungeon - Defeating a boss rewards a shuffled item, and each boss's remains are somewhere "
+                     "inside that boss's own temple.\n\n"
+                     "Vanilla - Every boss still rewards its own remains, and the boss warps are not checks."));
+    if (CVarGetInteger(Rando::StaticData::Options[RO_SHUFFLE_BOSS_REMAINS].cvar, RO_REMAINS_SHUFFLE_VANILLA) !=
+        RO_REMAINS_SHUFFLE_VANILLA) {
+        auto& counts = GetCheckCountsByType();
+        auto it = counts.find(RCTYPE_REMAINS);
+        PoolCountSuffix(it != counts.end() ? it->second : 0);
+    }
     CheckPoolCheckbox("Owl Statues", RO_SHUFFLE_OWL_STATUES, RCTYPE_OWL,
                       "Activating an owl statue is a check. Song of Soaring destinations are unaffected.");
     CheckPoolCheckbox("Shops", RO_SHUFFLE_SHOPS, RCTYPE_SHOP,
@@ -723,8 +774,6 @@ static void DrawCheckPoolTab() {
                       "and the Bomb Shop's bomb bags are always shuffled, even with this off.");
     CheckPoolCheckbox("Tingle Maps", RO_SHUFFLE_TINGLE_SHOPS, RCTYPE_TINGLE_SHOP,
                       "Maps sold by Tingle are checks, with randomized prices.");
-    CheckPoolCheckbox("Boss Remains", RO_SHUFFLE_BOSS_REMAINS, RCTYPE_REMAINS,
-                      "Defeating each temple boss rewards a shuffled item instead of that boss's remains.");
     CheckPoolCheckbox("Cows", RO_SHUFFLE_COWS, RCTYPE_COW, "Playing Epona's Song to a cow is a check.");
     UIWidgets::EndCard();
 
@@ -1117,6 +1166,8 @@ static void DrawItemPoolTab() {
             "Where each dungeon's small keys may be placed.\n\n"
             "Anywhere - Small keys can be found anywhere in the world.\n\n"
             "Own Dungeon - Each dungeon's small keys are only found within that dungeon.\n\n"
+            "Vanilla - Small keys stay on the checks that hold them in the vanilla game, and none are added to "
+            "the item pool.\n\n"
             "Start With - You begin with every dungeon's small keys, and none are added to the item pool."));
     UIWidgets::CVarCombobox(
         "Boss Keys", Rando::StaticData::Options[RO_PLACEMENT_BOSS_KEYS].cvar, &dungeonItemPlacementOptions,
@@ -1124,27 +1175,41 @@ static void DrawItemPoolTab() {
             "Where each dungeon's boss key may be placed.\n\n"
             "Anywhere - Boss keys can be found anywhere in the world.\n\n"
             "Own Dungeon - Each dungeon's boss key is only found within that dungeon.\n\n"
+            "Vanilla - Boss keys stay on the checks that hold them in the vanilla game, and none are added to "
+            "the item pool.\n\n"
             "Start With - You begin with every dungeon's boss key, and none are added to the item pool."));
-    UIWidgets::CVarCombobox(
+    bool strayFairyPlacementChanged = UIWidgets::CVarCombobox(
         "Stray Fairies", Rando::StaticData::Options[RO_PLACEMENT_STRAY_FAIRIES].cvar, &dungeonItemPlacementOptions,
         UIWidgets::ComboboxOptions().Tooltip(
-            "Where each dungeon's Stray Fairies may be placed. The Clock Town Stray Fairy is unaffected.\n\n"
-            "Anywhere - Stray Fairies can be found anywhere in the world.\n\n"
-            "Own Dungeon - Each dungeon's Stray Fairies are only found within that dungeon.\n\n"
-            "Start With - You begin with every dungeon's Stray Fairies, and none are added to the item pool."));
-    if (CVarGetInteger(Rando::StaticData::Options[RO_PLACEMENT_STRAY_FAIRIES].cvar, RO_DUNGEON_ITEM_ANYWHERE) !=
-        RO_DUNGEON_ITEM_START_WITH) {
-        CVarSliderInt(
-            "Required Stray Fairies", Rando::StaticData::Options[RO_STRAY_FAIRIES_REQUIRED].cvar,
-            IntSliderOptions()
-                .Tooltip("Minimum Stray Fairies needed to obtain the corresponding Great Fairy check.\n"
-                         "Does not affect the Clock Town fairy.")
-                .LabelPosition(UIWidgets::LabelPosition::None)
-                .Min(1)
-                .Format("%d Fairies Required")
-                .Max(CVarGetInteger(Rando::StaticData::Options[RO_STRAY_FAIRIES_MAX].cvar, STRAY_FAIRY_SCATTERED_TOTAL))
-                .DefaultValue(STRAY_FAIRY_SCATTERED_TOTAL));
-        if (CVarSliderInt("Stray Fairies in Pool", Rando::StaticData::Options[RO_STRAY_FAIRIES_MAX].cvar,
+            "Where each dungeon's Stray Fairies may be placed.\n\n"
+            "Anywhere - Stray Fairies can be found anywhere in the world. The Clock Town Stray Fairy joins the "
+            "item pool with them.\n\n"
+            "Own Dungeon - Each dungeon's Stray Fairies are only found within that dungeon. The Clock Town Stray "
+            "Fairy is vanilla.\n\n"
+            "Vanilla - Stray Fairies stay on the checks that hold them in the vanilla game, and none are added to "
+            "the item pool.\n\n"
+            "Start With - You begin with every Stray Fairy, and none are added to the item pool."));
+    int32_t strayFairyPlacement =
+        CVarGetInteger(Rando::StaticData::Options[RO_PLACEMENT_STRAY_FAIRIES].cvar, RO_DUNGEON_ITEM_ANYWHERE);
+    if (strayFairyPlacementChanged && strayFairyPlacement != RO_DUNGEON_ITEM_VANILLA) {
+        ClampRequiredToMax(RO_STRAY_FAIRIES_REQUIRED, RO_STRAY_FAIRIES_MAX, STRAY_FAIRY_SCATTERED_TOTAL);
+    }
+    if (strayFairyPlacement != RO_DUNGEON_ITEM_START_WITH) {
+        int32_t strayFairiesAvailable =
+            strayFairyPlacement == RO_DUNGEON_ITEM_VANILLA
+                ? STRAY_FAIRY_SCATTERED_TOTAL
+                : CVarGetInteger(Rando::StaticData::Options[RO_STRAY_FAIRIES_MAX].cvar, STRAY_FAIRY_SCATTERED_TOTAL);
+        CVarSliderInt("Required Stray Fairies", Rando::StaticData::Options[RO_STRAY_FAIRIES_REQUIRED].cvar,
+                      IntSliderOptions()
+                          .Tooltip("Minimum Stray Fairies needed to obtain the corresponding Great Fairy check.\n"
+                                   "Does not affect the Clock Town fairy.")
+                          .LabelPosition(UIWidgets::LabelPosition::None)
+                          .Min(1)
+                          .Format("%d Fairies Required")
+                          .Max(strayFairiesAvailable)
+                          .DefaultValue(STRAY_FAIRY_SCATTERED_TOTAL));
+        if (strayFairyPlacement != RO_DUNGEON_ITEM_VANILLA &&
+            CVarSliderInt("Stray Fairies in Pool", Rando::StaticData::Options[RO_STRAY_FAIRIES_MAX].cvar,
                           IntSliderOptions()
                               .Tooltip("Maximum Stray Fairies that can appear in the item pool, per dungeon.")
                               .LabelPosition(UIWidgets::LabelPosition::None)
@@ -1640,6 +1705,9 @@ static void DrawHintsTab() {
         CheckboxOptions({ { .tooltip = "Gossip stones will offer a hint for a scaling rupee cost. This cost ranges "
                                        "from 10-250 rupees depending on how many checks are remaining in your seed. "
                                        "The hint will guaranteed be a check you have not obtained yet." } }));
+    CVarCheckbox("Moon Gossip Stones", Rando::StaticData::Options[RO_HINTS_MOON_GOSSIP_STONES].cvar,
+                 CheckboxOptions({ { .tooltip = "The gossip stones inside the Moon trials each hint the location of "
+                                                "the mask they describe in vanilla" } }));
     CVarCheckbox(
         "Boss Remains", Rando::StaticData::Options[RO_HINTS_BOSS_REMAINS].cvar,
         CheckboxOptions(

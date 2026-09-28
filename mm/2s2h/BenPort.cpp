@@ -360,6 +360,19 @@ bool PathTestCleanup(FILE* tfile) {
     return true;
 }
 
+static bool RemoveArchiveAcrossAppDirs(const std::string& fileName) {
+    for (const std::string& path : { Ship::Context::GetPathRelativeToAppDirectory(fileName, appShortName),
+                                     Ship::Context::GetPathRelativeToAppBundle(fileName), "./" + fileName }) {
+        std::error_code err;
+        if (std::filesystem::remove(path, err)) {
+            SPDLOG_INFO("Removed outdated archive {}", path);
+        } else if (err) {
+            SPDLOG_ERROR("Failed to remove outdated archive {}: {}", path, err.message());
+        }
+    }
+    return !std::filesystem::exists(Ship::Context::LocateFileAcrossAppDirs(fileName, appShortName));
+}
+
 void CheckAndCreateModFolder() {
     try {
         std::string modsPath = Ship::Context::LocateFileAcrossAppDirs("mods/" + appShortName, appShortName);
@@ -399,10 +412,11 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
     }
     Extractor extract;
     PromptSteps promptStep = PS_FILE_CHECK;
+    bool romsFromSearch = false;
     std::atomic<size_t> extractCount = 0, totalExtract = 0;
 
-    std::string installPath = Ship::Context::GetAppBundlePath();
-    std::string dataPath = Ship::Context::GetAppDirectoryPath(appShortName);
+    std::string installPath = std::filesystem::absolute(Ship::Context::GetAppBundlePath()).string();
+    std::string dataPath = std::filesystem::absolute(Ship::Context::GetAppDirectoryPath(appShortName)).string();
     std::string file;
 
 #if defined(__SWITCH__)
@@ -426,10 +440,16 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
                               "re-extract them from the download or.\n\nExiting...",
                               "OK", "", [&]() { exit(1); });
     } else if (shouldRegen) {
-        BenGui::RegisterPopup("Outdated ROM Archives",
-                              "Your mm.o2r was created with incompatible versions of 2Ship.\nYou will "
-                              "now be redirected to re-extract them.");
-        std::filesystem::remove("mm.o2r");
+        if (RemoveArchiveAcrossAppDirs("mm.o2r")) {
+            BenGui::RegisterPopup("Outdated ROM Archive",
+                                  "Your mm.o2r was created with incompatible versions of 2Ship.\nYou will "
+                                  "now be redirected to re-extract them.");
+        } else {
+            BenGui::RegisterPopup("Outdated ROM Archive",
+                                  "Your mm.o2r was created with incompatible versions of 2Ship, but it\n"
+                                  "could not be removed automatically. Please delete it and relaunch.\n\nExiting...",
+                                  "OK", "", [&]() { exit(1); });
+        }
     }
 
     std::shared_ptr<BS::thread_pool> threadPool = std::make_shared<BS::thread_pool>(1);
@@ -549,41 +569,29 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
             case ES_EXTRACT_ARGS: {
 #if !defined(__SWITCH__) && !defined(__WIIU__)
                 if (args.empty()) {
-                    BenGui::RegisterPopup(
-                        "Run 2 Ship 2 Harkinian", "All files have been processed. Run 2S2H?", "Yes", "No",
-                        [&]() {
-                            if (!std::filesystem::exists(Ship::Context::GetAppDirectoryPath(appShortName) +
-                                                         "/mm.o2r")) {
-                                extractStep = ES_EXTRACT;
-                                promptStep = PS_FILE_CHECK;
-                            } else {
-                                extractStep = ES_VERIFY;
-                            }
-                        },
-                        [&]() { exit(0); });
-                    break;
+                    if (!std::filesystem::exists(Ship::Context::LocateFileAcrossAppDirs("mm.o2r", appShortName))) {
+                        extractStep = ES_EXTRACT;
+                        promptStep = PS_FILE_CHECK;
+                    } else {
+                        extractStep = ES_VERIFY;
+                    }
+                    continue;
+                }
+                if (romsFromSearch &&
+                    std::filesystem::exists(Ship::Context::LocateFileAcrossAppDirs("mm.o2r", appShortName))) {
+                    SPDLOG_INFO("mm.o2r generated, skipping {} other ROM(s) found in the app folder", args.size());
+                    args.clear();
+                    continue;
                 }
                 file = args.at(0);
                 args.erase(args.begin());
                 extract = Extractor();
                 if (extract.RunFileStandalone(file)) {
-                    bool doExtract = true;
-                    if (std::filesystem::exists(Ship::Context::GetAppDirectoryPath(appShortName) + "/mm.o2r")) {
-                        std::string msg = "Archive for current ROM, mm.o2r, already exists.\nExtract again?";
-                        BenGui::RegisterPopup("Confirm Re-extract", msg.c_str(), "Yes", "No", [&]() {
-                            extractionTask = threadPool->submit_task([&]() -> void {
-                                extract.CallZapd(installPath, Ship::Context::GetAppDirectoryPath(appShortName),
-                                                 &extractCount, &totalExtract);
-                                extractCount = totalExtract = 0;
-                            });
-                        });
-                    } else {
-                        extractionTask = threadPool->submit_task([&]() -> void {
-                            extract.CallZapd(installPath, Ship::Context::GetAppDirectoryPath(appShortName),
-                                             &extractCount, &totalExtract);
-                            extractCount = totalExtract = 0;
-                        });
-                    }
+                    extractionTask = threadPool->submit_task([&]() -> void {
+                        extract.CallZapd(installPath, Ship::Context::GetAppDirectoryPath(appShortName), &extractCount,
+                                         &totalExtract);
+                        extractCount = totalExtract = 0;
+                    });
                 } else {
                     bool open = true;
                     std::string msg = "File\n" + std::string(file) + "\nis not a ROM or does not match supported ROMs.";
@@ -610,8 +618,11 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
                         extract = Extractor();
                         extract.SetSearchPath(installPath);
                         extract.GetRoms(args);
-                        extract.SetSearchPath(dataPath);
-                        extract.GetRoms(args);
+                        if (installPath != dataPath) {
+                            extract.SetSearchPath(dataPath);
+                            extract.GetRoms(args);
+                        }
+                        romsFromSearch = !args.empty();
                         if (!args.empty()) {
                             promptStep = PS_WAIT;
                             BenGui::RegisterPopup(
@@ -1236,6 +1247,10 @@ extern "C" void DeinitOTR() {
 #endif
 
     OTRGlobals::Instance->context = nullptr;
+#ifndef COMBO_BUILD
+    // ComboShip: the Context is shared; soh's DeinitOTR runs after this and destroys it.
+    Ship::Context::DestroyInstance();
+#endif
     delete AudioCollection::Instance;
 #ifdef COMBO_BUILD
     // ComboShip: this DLL's module-local GImGui still points at the shared ImGui context, which is
@@ -2913,7 +2928,7 @@ extern "C" COMBO_EXPORT int MM_InitRandoSaveFile(int fileNum, const char* placem
 
         // ComboShip: the apply stamps shuffled=true on every payload check incl. non-shuffled Remains;
         // restore native state (delivery reads randoItemId, not shuffled) so stones/tracker skip them.
-        if (RANDO_SAVE_OPTIONS[RO_SHUFFLE_BOSS_REMAINS] == RO_GENERIC_NO) {
+        if (RANDO_SAVE_OPTIONS[RO_SHUFFLE_BOSS_REMAINS] == RO_REMAINS_SHUFFLE_VANILLA) {
             for (auto& [id, chk] : Rando::StaticData::Checks) {
                 if (chk.randoCheckType == RCTYPE_REMAINS)
                     RANDO_SAVE_CHECKS[id].shuffled = false;
@@ -3334,7 +3349,7 @@ extern "C" COMBO_EXPORT const char* MM_DumpRandoStaticData(void) {
     // (GeneratePools.cpp), so the Remains never reach the oracle — yet Moon/Majora access gates on
     // RemainsCount(). Emit each as a fixed placement of its vanilla remains so the fill/oracle credit it
     // once the boss-warp check is reachable (i.e. the temple is beaten). Mirrors the OOT vanilla-shop fix.
-    if (saveInfo.randoSaveOptions[RO_SHUFFLE_BOSS_REMAINS] == RO_GENERIC_NO) {
+    if (saveInfo.randoSaveOptions[RO_SHUFFLE_BOSS_REMAINS] == RO_REMAINS_SHUFFLE_VANILLA) {
         for (auto& [id, chk] : Rando::StaticData::Checks) {
             if (chk.randoCheckType != RCTYPE_REMAINS || !chk.name || chk.name[0] == '\0')
                 continue;
@@ -3350,23 +3365,20 @@ extern "C" COMBO_EXPORT const char* MM_DumpRandoStaticData(void) {
         }
     }
 
-    // ComboShip: 5.0.0's per-house skulltula shuffle keeps 30-N tokens vanilla: GeneratePools marks
-    // them shuffled=true with their own token in the (discarded) local saveInfo and drops them from
-    // checkPool. Emit them as fixed so the oracle credits the tokens and the apply stamps them like
-    // native (shuffled=true, so they stay hintable, mirroring native).
-    if (saveInfo.randoSaveOptions[RO_SHUFFLE_GOLD_SKULLTULAS] == RO_GENERIC_YES) {
-        for (auto& [id, chk] : Rando::StaticData::Checks) {
-            if (chk.randoCheckType != RCTYPE_SKULL_TOKEN || !saveInfo.randoSaveChecks[id].shuffled ||
-                stillFillable.count(id))
-                continue;
-            auto iit = Rando::StaticData::Items.find(chk.randoItemId);
-            if (iit == Rando::StaticData::Items.end() || !iit->second.spoilerName || iit->second.spoilerName[0] == '\0')
-                continue;
-            fixed.push_back({ { "check", Rando::StaticData::GetCheckDisplayName(id) },
-                              { "item", Rando::StaticData::GetItemDisplayName(iit->first) },
-                              { "advancement", isAdvancement(iit->second) },
-                              { "hintable", true } });
-        }
+    // ComboShip: GeneratePools also stamps shuffled=true in the discarded saveInfo and drops from checkPool
+    // (vanilla skulltulas, vanilla dungeon items, song-location surplus, exclusions). Emit them like native.
+    std::set<RandoCheckId> alreadyFixed(checkPoolBefore.begin(), checkPoolBefore.end());
+    for (auto& [id, chk] : Rando::StaticData::Checks) {
+        if (!saveInfo.randoSaveChecks[id].shuffled || stillFillable.count(id) || alreadyFixed.count(id) || !chk.name ||
+            chk.name[0] == '\0')
+            continue;
+        auto iit = Rando::StaticData::Items.find(saveInfo.randoSaveChecks[id].randoItemId);
+        if (iit == Rando::StaticData::Items.end() || !iit->second.spoilerName || iit->second.spoilerName[0] == '\0')
+            continue;
+        fixed.push_back({ { "check", Rando::StaticData::GetCheckDisplayName(id) },
+                          { "item", Rando::StaticData::GetItemDisplayName(iit->first) },
+                          { "advancement", isAdvancement(iit->second) },
+                          { "hintable", true } });
     }
 
     // Fillable checks -> checks[] (name only; pool[] feeds the items).

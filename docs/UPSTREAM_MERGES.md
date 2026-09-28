@@ -173,6 +173,11 @@ Each merge pass gets its **own dated file** under [`merges/`](merges/) — one p
 file we had to touch after the mechanical 3-way merge and why. This keeps the per-merge required
 changes easy to track (and to diff against the recurring-deviation list below). Newest first:
 
+- [2026-09-28 mm](merges/2026-09-28-mm.md) — mm `ce4bf03ab` → 5.0.1 (`8a24047fb`) on main. Took
+  upstream's alt-assets default and tracker helper; skipped 5.0.1's Context destroy in `MM_Deinit`
+  under combo; cherry-picked develop's skulltula fill-parity and mod-order fixes.
+- [2026-09-28 libultraship](merges/2026-09-28-libultraship.md) — libultraship `bbb565bd9` →
+  `7cb10226e` on main, the LUS that soh 9.2.3 and mm 5.0.1 pin.
 - [2026-08-01](merges/2026-08-01.md) — libultraship `a3f1e102e` → `bbb565bd9`, **switching line from
   Kenix3 `main` to `port-maintenance`**; soh `2c5762a0f` → `5a57a0cbc`; mm `e3310fe1b` → `ce4bf03ab`.
   All three mutually compatible for the first time. Adopted #1103: LUS owns the `Context` via

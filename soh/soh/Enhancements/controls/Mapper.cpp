@@ -18,6 +18,10 @@
 #include <ship/utils/StringHelper.h>
 #include <ship/window/Window.h>
 #include <ship/window/gui/Gui.h>
+#ifdef COMBO_BUILD
+#include <ship/resource/CrossRMRegistry.h>
+#include <ship/resource/ResourceManagerScope.h>
+#endif
 
 #include "soh/OTRGlobals.h"
 #include "soh/SohGui/SohGui.hpp"
@@ -1658,6 +1662,10 @@ void MapperWindow::DrawElement() {
     static bool sDiagramTextureRequested = false;
     if (!sDiagramTextureRequested) {
         sDiagramTextureRequested = true;
+#ifdef COMBO_BUILD
+        // ComboShip: the diagram lives in soh.o2r; read it from OOT's RM even with MM in front.
+        Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("oot"));
+#endif
         auto gui = std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui());
         auto archives = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
         if (gui != nullptr && archives != nullptr && archives->HasFile(kDiagramTexturePath)) {

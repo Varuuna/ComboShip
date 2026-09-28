@@ -1712,7 +1712,7 @@ void ComboMenu::DrawComboPanel() {
         }
     }
     ImGui::TextDisabled("One item counts for both games. Applied at generation. Masks need Ocarina of\n"
-                        "Time's Mask Quest set to Shuffle. Shared Wallets turns off Shuffle Child Wallet.");
+                        "Time's Shuffle Masks on. Shared Wallets turns off Shuffle Child Wallet.");
     ImGui::Separator();
 
     // Cosmetics (#169): each game randomizes on its own by default; sync makes MM take OOT's colors.

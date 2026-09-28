@@ -1746,6 +1746,7 @@ extern "C" COMBO_EXPORT void SOH_InitRandoHeadless() {
     Rando::StaticData::RegisterBeggarLocations();
     Rando::StaticData::RegisterIcicleLocations();
     Rando::StaticData::RegisterRedIceLocations();
+    Rando::StaticData::RegisterSilverLocations();
     // Build the option/trick tables (normally the rando menu's job, which headless lacks) so a spoiler's
     // settings can reach the Context. Option/trick display names route through Lang::Translate, which
     // returns the raw key headless (via gComboHeadlessRando) — no assets needed.
@@ -4048,6 +4049,40 @@ extern "C" COMBO_EXPORT void SOH_RestoreRandoSettings(const char* json) {
         return;
     try {
         auto j = nlohmann::json::parse(json);
+        // Upstream appended these renames to the already-run ConfigVersion7 updater, so older snapshots
+        // still carry the old keys; rename them here (same table, values unchanged).
+        static const std::pair<const char*, const char*> kRenamed[] = {
+            { "gRandoSettings.LogicRules", "gRandoSettings.NoLogic" },
+            { "gRandoSettings.AllLocationsReachable", "gRandoSettings.AllChecksReachable" },
+            { "gRandoSettings.SkipScarecrowsSong", "gRandoSettings.StartingScarecrowsSong" },
+            { "gRandoSettings.LacsStoneCount", "gRandoSettings.GbkStoneCount" },
+            { "gRandoSettings.LacsMedallionCount", "gRandoSettings.GbkMedallionCount" },
+            { "gRandoSettings.LacsRewardCount", "gRandoSettings.GbkRewardCount" },
+            { "gRandoSettings.LacsDungeonCount", "gRandoSettings.GbkDungeonCount" },
+            { "gRandoSettings.LacsTokenCount", "gRandoSettings.GbkTokenCount" },
+            { "gRandoSettings.LacsRewardOptions", "gRandoSettings.GbkRewardOptions" },
+        };
+        for (const auto& [from, to] : kRenamed) {
+            if (j.contains(from) && !j.contains(to)) {
+                j[to] = j[from];
+            }
+            j.erase(from);
+        }
+        // Mask Quest (1 = Completed, 2 = Shuffle) became Shuffle Masks + starting masks.
+        if (j.contains("gRandoSettings.CompleteMaskQuest") && j["gRandoSettings.CompleteMaskQuest"].is_number()) {
+            const int mq = j["gRandoSettings.CompleteMaskQuest"].get<int>();
+            if (mq == 1) {
+                for (const char* m : { "Keaton", "Skull", "Spooky", "Goron", "Zora", "Gerudo" }) {
+                    j[std::string("gRandoSettings.Starting") + m + "Mask"] = 1;
+                }
+                j["gRandoSettings.StartingBunnyHood"] = 1;
+                j["gRandoSettings.StartingMaskOfTruth"] = 1;
+            }
+            if (mq == 1 || mq == 2) {
+                j["gRandoSettings.ShuffleMasks"] = 1;
+            }
+        }
+        j.erase("gRandoSettings.CompleteMaskQuest");
         // Snapshot is authoritative: pre-clear so a spoiler without the key (pre-GAP-7, generated
         // with no exclusions applied) doesn't inherit this machine's local exclusions.
         CVarSetString(CVAR_RANDOMIZER_SETTING("ExcludedLocations"), "");

@@ -6,6 +6,10 @@
 
 #include <ship/utils/StringHelper.h>
 #include <ship/Context.h>
+#ifdef COMBO_BUILD
+#include <ship/resource/CrossRMRegistry.h>
+#include <ship/resource/ResourceManagerScope.h>
+#endif
 
 #include "mod_menu.h"
 #include "soh/Enhancements/audio/OotrsArchive.h"
@@ -504,6 +508,10 @@ void ModMenuWindow::DrawElement() {
         ImGui::SameLine();
         if (UIWidgets::Button("Cancel", UIWidgets::ButtonOptions().Size(UIWidgets::Sizes::Inline))) {
             editing = false;
+#ifdef COMBO_BUILD
+            // ComboShip: re-mount OOT's mods into OOT's RM, not whichever game is in front.
+            Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("oot"));
+#endif
             UpdateModFiles(false, true);
         }
         ImGui::SameLine();

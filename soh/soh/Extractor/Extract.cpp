@@ -682,23 +682,6 @@ bool Extractor::CallTorch(std::string installPath, std::string exportdir, std::a
     exportdir = std::filesystem::absolute(exportdir).string();
     // Work this out in the temporary folder
     std::string tempdir = Mkdtemp();
-<<<<<<< HEAD
-    std::string curdir = std::filesystem::current_path().string();
-#ifdef _WIN32
-    // ComboShip: prefer a cheap directory symlink over copying the whole ~83MB assets tree on every
-    // extraction (a major startup stall). Falls back to the copy if the link can't be made (no privilege).
-    try {
-        std::filesystem::create_directory_symlink(installPath + "/assets", tempdir + "/assets");
-    } catch (const std::exception&) {
-        std::filesystem::copy(installPath + "/assets", tempdir + "/assets",
-                              std::filesystem::copy_options::recursive |
-                                  std::filesystem::copy_options::update_existing);
-    }
-#else
-    std::filesystem::create_symlink(installPath + "/assets", tempdir + "/assets");
-#endif
-=======
->>>>>>> vendor-soh
 
     *totalExtract = SohTorch::CountAssetFiles(srcDir + "/" + GetTorchVersionDir());
     *extractCount = 0;
@@ -714,50 +697,16 @@ bool Extractor::CallTorch(std::string installPath, std::string exportdir, std::a
         if (ec) {
             SPDLOG_ERROR("Failed to copy {} to {}: {}", archiveName, exportdir, ec.message());
             success = false;
+#ifdef COMBO_BUILD
+            // ComboShip: a failed copy can leave a partial archive the launcher would accept as extracted.
+            std::filesystem::remove(exportdir + "/" + archiveName, ec);
+#endif
         }
     }
 
-<<<<<<< HEAD
-    // ComboShip: upstream returns false unconditionally (native flow gates on exceptions). But
-    // SOH_StartExtraction uses the return value as the combo screen's success flag, so OOT success
-    // read as "failed". Mirror mm/Extract.cpp; reverted once by re-vendor 19427b200 — keep on merges.
-    try {
-        zapd_report(argc, (char**)argv.data(), extractCount, totalExtract);
-    } catch (const std::exception& e) {
-        fprintf(stderr, "OoT Extractor: ZAPD failed: %s\n", e.what());
-        if (FILE* ef = fopen((curdir + "/soh_extract_error.log").c_str(), "w")) {
-            fprintf(ef, "OoT Extractor: ZAPD threw:\n%s\n", e.what());
-            fclose(ef);
-        }
-        std::filesystem::current_path(curdir);
-        std::filesystem::remove_all(tempdir);
-        return false;
-    }
-
-    // Copying a non-existent file throws and crashes the process; bail if ZAPD produced nothing.
-    if (!std::filesystem::exists(otrFile)) {
-        fprintf(stderr, "OoT Extractor: ZAPD did not produce %s\n", otrFile);
-        if (FILE* ef = fopen((curdir + "/soh_extract_error.log").c_str(), "w")) {
-            fprintf(ef, "OoT Extractor: ZAPD produced no %s.\n", otrFile);
-            fclose(ef);
-        }
-        std::filesystem::current_path(curdir);
-        std::filesystem::remove_all(tempdir);
-        return false;
-    }
-
-    std::filesystem::copy(otrFile, exportdir + "/" + otrFile, std::filesystem::copy_options::overwrite_existing);
-
-    // Go back to where this game was executed from
-    std::filesystem::current_path(curdir);
-    std::filesystem::remove_all(tempdir);
-
-    return true;
-=======
     std::filesystem::remove_all(tempdir, ec);
 
     return success;
->>>>>>> vendor-soh
 }
 
 static void MessageboxWorker() {

@@ -341,13 +341,9 @@ target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE
     ${SDL2-INCLUDE}
     ${SDL2-NET-INCLUDE}
     ${dr_libs_SOURCE_DIR}
-<<<<<<< HEAD
     ${CMAKE_CURRENT_SOURCE_DIR}/../combo
     ${CMAKE_SOURCE_DIR}/combo/menu
     ${CMAKE_SOURCE_DIR}/combo/title
-    .
-=======
->>>>>>> vendor-soh
 )
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
@@ -772,13 +768,9 @@ INSTALL(TARGETS soh RUNTIME DESTINATION . COMPONENT ship LIBRARY DESTINATION . C
 endif()
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
-<<<<<<< HEAD
 # ComboShip: PDB goes to the "debugsymbols" component, which is NOT in the packaged components, so
 # the large soh.pdb stays out of the tester zip while the install rule itself stays intact.
 INSTALL(FILES $<TARGET_PDB_FILE:soh> DESTINATION ./debug COMPONENT debugsymbols)
-=======
-INSTALL(FILES $<TARGET_PDB_FILE:soh> DESTINATION debug COMPONENT ship)
->>>>>>> vendor-soh
 INSTALL(FILES ${CMAKE_BINARY_DIR}/soh/soh.o2r DESTINATION . COMPONENT ship)
 endif()
 

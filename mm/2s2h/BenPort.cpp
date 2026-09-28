@@ -1239,7 +1239,10 @@ extern "C" void DeinitOTR() {
 #endif
 
     OTRGlobals::Instance->context = nullptr;
+#ifndef COMBO_BUILD
+    // ComboShip: the Context is shared; soh's DeinitOTR runs after this and destroys it.
     Ship::Context::DestroyInstance();
+#endif
     delete AudioCollection::Instance;
 #ifdef COMBO_BUILD
     // ComboShip: this DLL's module-local GImGui still points at the shared ImGui context, which is

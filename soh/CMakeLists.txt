@@ -334,6 +334,9 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include/
     ${CMAKE_CURRENT_SOURCE_DIR}/src/
     ${CMAKE_CURRENT_SOURCE_DIR}/assets/
+    ${CMAKE_CURRENT_SOURCE_DIR}/../combo
+    ${CMAKE_SOURCE_DIR}/combo/menu
+    ${CMAKE_SOURCE_DIR}/combo/title
     .
 )
 
@@ -341,9 +344,6 @@ target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE
     ${SDL2-INCLUDE}
     ${SDL2-NET-INCLUDE}
     ${dr_libs_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/../combo
-    ${CMAKE_SOURCE_DIR}/combo/menu
-    ${CMAKE_SOURCE_DIR}/combo/title
 )
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")

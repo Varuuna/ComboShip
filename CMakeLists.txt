@@ -277,8 +277,7 @@ endif()
 # replacement for the Windows /DEF full-export pipeline), and the games resolve ImGui/storm/prism
 # through it.
 if (NOT MSVC)
-    # ComboShip: torch/N64Graphics carry StringHelper/CRC64/stbi_* copies that must not bind to LUS's.
-    foreach(combo_hidden_tgt ZAPDLib OTRExporter storm torch yaml-cpp BinaryTools N64Graphics)
+    foreach(combo_hidden_tgt ZAPDLib OTRExporter storm)
         if (TARGET ${combo_hidden_tgt})
             set_target_properties(${combo_hidden_tgt} PROPERTIES
                 C_VISIBILITY_PRESET hidden
@@ -292,7 +291,7 @@ endif()
 # Torch (soh ROM asset extraction; mm keeps ZAPD)
 ################################################################################
 # ComboShip: found at root so soh's libzip and tinyxml2 users get the vcpkg copies, not Torch's
-# OVERRIDE_FIND_PACKAGE fetches. No spdlog pre-declare (Torch#233): libultraship found it above.
+# OVERRIDE_FIND_PACKAGE fetches. No spdlog pre-declare: libultraship found it above.
 find_package(ZLIB REQUIRED)
 find_package(tinyxml2 CONFIG REQUIRED)
 
@@ -379,6 +378,18 @@ endif()
 
 target_compile_definitions(torch INTERFACE YAML_CPP_STATIC_DEFINE)
 
+# ComboShip: torch/N64Graphics carry StringHelper/CRC64/stbi_* copies that must not bind to LUS's.
+if(NOT MSVC)
+    foreach(combo_hidden_tgt torch yaml-cpp BinaryTools N64Graphics tinyxml2 zlibstatic)
+        if(TARGET ${combo_hidden_tgt})
+            set_target_properties(${combo_hidden_tgt} PROPERTIES
+                C_VISIBILITY_PRESET hidden
+                CXX_VISIBILITY_PRESET hidden
+                VISIBILITY_INLINES_HIDDEN ON)
+        endif()
+    endforeach()
+endif()
+
 # ComboShip: libultraship.dll exports the same StringHelper (LNK2005 in soh.dll), so torch drops its
 # copy (as Torch does under BUILD_UI); the packer, which has no libultraship, links it separately.
 get_target_property(_torch_srcs torch SOURCES)
@@ -426,7 +437,7 @@ add_custom_target(
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/libultraship/src/fast/shaders/ ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/custom/shaders/
     # ComboShip: Torch's packer replaced ZAPD here (mm still packs with ZAPD). Manual, not ALL.
     COMMAND $<TARGET_FILE:soh-o2r-packer> ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/custom ${CMAKE_CURRENT_SOURCE_DIR}/soh/soh.o2r ${CMAKE_PROJECT_VERSION}
-    COMMAND ${CMAKE_COMMAND} -DSYSTEM_NAME=${CMAKE_SYSTEM_NAME} -DTARGET_DIR="$<TARGET_FILE_DIR:ComboShip>" -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DBINARY_DIR=${CMAKE_BINARY_DIR} -DONLYSOHOTR=On -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/copy-existing-otrs.cmake
+    COMMAND ${CMAKE_COMMAND} -DSYSTEM_NAME=${CMAKE_SYSTEM_NAME} -DTARGET_DIR=${CMAKE_SOURCE_DIR}/x64/$<CONFIG> -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DBINARY_DIR=${CMAKE_BINARY_DIR} -DONLYSOHOTR=On -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/copy-existing-otrs.cmake
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/soh
     COMMENT "Generating soh.o2r..."
     DEPENDS soh-o2r-packer CheckAssetCollisions)

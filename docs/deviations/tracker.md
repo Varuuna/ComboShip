@@ -69,6 +69,9 @@ though the emitters exist and work in standalone MM. The user wants the active g
 The "Sent to Hyrule" toast itself was already implemented (`mm/2s2h/Rando/MiscBehavior/CheckQueue.cpp`,
 `Rando_SendForeignCheck`); this change only makes MM's window survive registration so it can show.
 
+Since 2026-09-28 the Time Splits overlay uses the same Remove/Re-add gating (`SetForegroundOnlyWindows`;
+see ui-menu.md).
+
 ## Shared Item Tracker: master panel + hold-to-swap dormant peek (2026-07-04)
 
 **Why:** with both games in one process the item tracker should be controllable from one place and

@@ -72,8 +72,8 @@ jobs:
       - name: Build ComboShip
         run: cmake --build build/x64 --target ComboShip --config Release
 
-      # Port asset archives (--norom). GenerateSohOtr/Generate2ShipOtr DEPEND on ZAPD, which these
-      # steps build on demand. They must run before cpack — the ship/2s2h ZIP components install
+      # Port asset archives (--norom). GenerateSohOtr builds Torch's soh-o2r-packer and
+      # Generate2ShipOtr builds ZAPD on demand. They must run before cpack — the ship/2s2h ZIP components install
       # ${CMAKE_BINARY_DIR}/soh/soh.o2r and .../mm/2ship.o2r.
       - name: Generate soh.o2r
         run: cmake --build build/x64 --target GenerateSohOtr --config Release

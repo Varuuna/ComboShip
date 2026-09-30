@@ -705,3 +705,9 @@ the serialized `newCycleSave` doc (and the refreshed `owlSave` blob, when one is
 `gPlayState`'s `gameOverCtx.state != GAMEOVER_INACTIVE` or live health is already 0. Live
 `gSaveContext` and the load path are untouched, so a legitimate low-health owl save still resumes at
 its real health.
+
+## `GIMMCMD` double define (2026-09-28)
+
+LUS `fast/lus_gbi.h` and `libultra/gbi.h` both define `GIMMCMD`. After the soh merge its slimmer
+includes reach `lus_gbi.h` first, so the second define warned under `/WX`. `libultra/gbi.h` `#undef`s it
+first under `COMBO_BUILD`; the resulting definition is the same.

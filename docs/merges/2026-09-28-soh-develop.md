@@ -251,17 +251,20 @@ src/overlays/misc/ovl_kaleido_scope/z_kaleido_scope_PAL.c
 ## Build wiring (root `CMakeLists.txt`, `combo/CMakeLists.txt`)
 
 - Torch block inserted after libultraship/ZAPD/OTRExporter and before `soh`, same shape as upstream's
-  root. No spdlog pre-declare (Torch#233): libultraship already found spdlog. `ZLIB` and `tinyxml2` are
+  root. No spdlog pre-declare: libultraship already found spdlog. `ZLIB` and `tinyxml2` are
   found at root so soh's libzip/tinyxml2 users get vcpkg's copies, not Torch's `OVERRIDE_FIND_PACKAGE`
-  fetches.
+  fetches. soh.dll still links both copies (vcpkg's first on the link line, so it wins); Torch's OOT
+  path uses neither, so the duplicate is latent.
 - **CRT:** Torch forces the static CRT and its `cmake_minimum_required(3.12)` leaves CMP0091 unset.
   `CMAKE_POLICY_DEFAULT_CMP0091 NEW` + `combo_dynamic_crt_tree` set `MultiThreaded[Debug]DLL` on every
   torch-tree target (torch, BinaryTools, N64Graphics, tinyxml2, yaml-cpp, zlibstatic) and rewrite
   Torch's explicit `/MT(d)` options. Verified in the generated projects.
-- Linux: `torch yaml-cpp BinaryTools N64Graphics` join the hidden-visibility list (they carry their own
-  `StringHelper`/CRC64/`stbi_*` copies).
+- Linux: a second hidden-visibility loop after `add_subdirectory(torch)` covers `torch yaml-cpp
+  BinaryTools N64Graphics tinyxml2 zlibstatic` (they carry their own `StringHelper`/CRC64/`stbi_*`
+  copies; the first loop runs before those targets exist).
 - `GenerateSohOtr` runs `soh-o2r-packer` (no Python/ZAPD); still manual, not `ALL`. Output is
-  `soh/soh.o2r`, then `copy-existing-otrs.cmake` deploys it as before.
+  `soh/soh.o2r`, then `copy-existing-otrs.cmake` deploys it to `x64/<config>` (a literal path, so the
+  target does not depend on `ComboShip`).
 - soh's extractor assets are now `soh/assets/yml` (config.yml + one dir per ROM version). Install
   rules and ComboShip's POST_BUILD copy them into the flat `assets/` next to mm's ZAPD configs; no
   names overlap. Wipe an old `x64/Debug/assets` once (stale OOT xml there is harmless).
@@ -294,7 +297,9 @@ src/overlays/misc/ovl_kaleido_scope/z_kaleido_scope_PAL.c
   failure; a failed archive copy removes the partial file.
 - **Combo generation** (#7136 replaced the `RandoGenerating` CVar with a native flag): a combo flag
   is folded into `IsRandoGenerating()`, set by `SOH_TriggerComboGenerate`, cleared when
-  `SOH_PollComboFinalize` reports the seed resolved. Nothing is persisted, so a crash mid-generation
+  `SOH_PollComboFinalize` reports the seed resolved. Any throw from the worker's fill runs the same
+  failure path, and a failed generation clears the "seed generated" flag. `SOH_RestoreRandoSettings`
+  clears every option CVar first, so keys missing from an older spoiler read as defaults. Nothing is persisted, so a crash mid-generation
   leaves no stuck state.
 - **`audio_load.c`:** git kept our #6917 cherry-pick over upstream's #7100 revert; took upstream.
 - **Renamed options:** `RSK_LOGIC_RULES`/`RSK_ALL_LOCATIONS_REACHABLE`/`RSK_MASK_QUEST` →
@@ -313,9 +318,10 @@ src/overlays/misc/ovl_kaleido_scope/z_kaleido_scope_PAL.c
 - **Keyrings:** the per-dungeon keyring DLs and the Custom Key Models CVar are gone. Foreign keyrings
   draw ring + emblem + one key (the native draw repeats the key with per-key matrices); the Treasure
   Chest Game small key now uses its emblem.
-- **Time Splits** (upstream ported 2Ship's): same window names, same `ImGui::Begin("Timesplits")`, and
-  soh's button CVar `gWindows.Timesplits.Settings` clashed with MM's leaf `gWindows.Timesplits`
-  (unflatten failure = config stops saving). soh's button uses its own `gWindows.TimeSplitSettings`
+- **Time Splits** (upstream ported 2Ship's): same window names, same `ImGui::Begin("Timesplits")`. MM
+  itself registers both the leaf `gWindows.Timesplits` and `gWindows.Timesplits.Settings`; soh reusing
+  that settings key made the clash reachable from OOT's menu (unflatten failure = config stops saving).
+  soh's button CVar never matched its own window's CVar upstream either, so the fix also repairs that. soh's button uses its own `gWindows.TimeSplitSettings`
   and gets an inline settings shim. MM's windows get the `##MM` suffix, its overlay ID becomes
   `Timesplits##MM`, and its settings window CVar moves to `gWindows.TimesplitsSettings` (the old key is
   cleared on init). `ComboTrackerVisibility` keeps only the foreground game's split overlay.

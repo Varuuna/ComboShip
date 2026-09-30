@@ -2030,3 +2030,22 @@ progressive resolver, which switches on `logic->GetSaveContext()->magicLevel` �
 generation). A second cross-granted magic upgrade re-resolved to single magic and was lost. Fixed the
 same way as the Shared Items reader: resolve by `isMagicAcquired`/`isDoubleMagicAcquired` to a concrete
 `RG_MAGIC_SINGLE`/`RG_MAGIC_DOUBLE` before the generic `itemNameToEnum` lookup.
+
+## `SOH_RestoreRandoSettings`: upstream CVar renames + authoritative restore (2026-09-28)
+
+Upstream appended these renames to the ConfigVersion7 updater, which existing configs already ran, so
+older combo spoilers still carry the old keys. The restore renames them (values unchanged; the new key
+wins if both are present):
+
+| Old key (`gRandoSettings.`) | New key |
+|---|---|
+| `LogicRules` | `NoLogic` |
+| `AllLocationsReachable` | `AllChecksReachable` |
+| `SkipScarecrowsSong` | `StartingScarecrowsSong` |
+| `Lacs{Stone,Medallion,Reward,Dungeon,Token}Count`, `LacsRewardOptions` | `Gbk…` (same suffix) |
+| `CompleteMaskQuest` = 1 (Completed) | `ShuffleMasks` 1 + the six `Starting…Mask`, `StartingBunnyHood`, `StartingMaskOfTruth` 1 |
+| `CompleteMaskQuest` = 2 (Shuffle) | `ShuffleMasks` 1 |
+
+Before applying, every `GetAllOptions()` CVar is cleared (and `ExcludedLocations` emptied), so a key an
+older spoiler lacks reads as the default, not the local machine's value. A user's `comboship.json`
+keeps its stale leaf keys (no clash); those settings fall back to defaults.

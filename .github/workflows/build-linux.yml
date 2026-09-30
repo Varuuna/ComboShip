@@ -54,8 +54,8 @@ jobs:
           cmake -B build-cmake -S . -G Ninja -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
-      # Same order as the Windows pipeline: libultraship -> soh -> 2ship (they share
-      # OTRExporter/ZAPD), then the combo targets. -j 4 caps peak memory: some soh/2ship TUs are
+      # Same order as the Windows pipeline: libultraship -> soh (Torch) -> 2ship (OTRExporter/ZAPD),
+      # then the combo targets. -j 4 caps peak memory: some soh/2ship TUs are
       # >1 GB each at peak, and the 16 GB standard runner OOMs before Ninja's default parallelism
       # helps (locally 20 jobs OOM'd a 21 GB machine).
       - name: Build libultraship

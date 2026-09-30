@@ -1,15 +1,15 @@
 // combo/gui/ComboTrackerVisibility.cpp
-// ComboShip-owned: makes the per-game SETTINGS popouts and the toast/notification window follow the
-// active game across transitions. The MAIN tracker windows are derived every frame from the
-// both-games master model (ComboTrackerSwap); this module only snapshots/restores the settings-window
-// intents. Notifications need a different lever than trackers (map presence via RemoveGuiWindow, not
-// Hide()) — rationale + the 0xCD re-registration hazard: see docs/deviations/tracker.md.
+// ComboShip-owned: makes the per-game SETTINGS popouts and the foreground-only windows (notifications,
+// Time Splits) follow the active game across transitions. The MAIN tracker windows are derived every
+// frame from the both-games master model (ComboTrackerSwap); this module only snapshots/restores the
+// settings-window intents. Foreground-only windows need a different lever than trackers (map presence
+// via RemoveGuiWindow, not Hide()) — rationale + the 0xCD re-registration hazard: docs/deviations/tracker.md.
 // Lives in comboui.dll (links libultraship, stays mapped); the launcher calls the exports per transition.
 // OOT trackers use gOpenWindows.* + plain names; MM uses gWindows.* + "##MM"-suffixed names.
 
 #include <libultraship/libultraship.h> // Ship::Context / Gui + CVarGet/SetInteger
 #include "ComboExport.h"
-#include <memory>               // std::weak_ptr (notification-window handle)
+#include <memory>               // std::weak_ptr (foreground-only window handles)
 #include "ComboForeground.h"    // ComboUI::GetForegroundGame (cached below)
 #include "ComboAudioBridge.h"   // ComboAudio::SyncAllToMM (on MM entry)
 #include "ComboTrackerCommon.h" // kTrackers/SetTracker (shared with ComboTrackerSwap)
@@ -35,9 +35,8 @@ constexpr int kSettingsColumns[2] = { 1, 3 };
 // leaves the loaded config value untouched on the very first call).
 int sIntent[2][2] = { { -1, -1 }, { -1, -1 } };
 
-// Foreground-only windows, indexed [window][game] (0 = OOT, 1 = MM; MM's names carry "##MM", see
-// BenGui.cpp). Gated by Gui-map presence, NOT visibility — see the file header. Time Splits is an
-// overlay whose Draw() ignores visibility (it shows whenever splits are enabled), so it needs this too.
+// Foreground-only windows [window][game], gated by Gui-map presence since their Draw() ignores
+// visibility. MM names carry "##MM" (BenGui.cpp).
 const char* const kForegroundOnlyWin[][2] = {
     { "Notifications Window", "Notifications Window##MM" },
     { "Time Splits", "Time Splits Window##MM" },
@@ -64,7 +63,7 @@ void ReloadMmControls() {
 }
 
 // Keep only the foreground game's copy of each foreground-only window in the shared Gui's draw loop.
-void SetForegroundNotification(int fg) {
+void SetForegroundOnlyWindows(int fg) {
     auto ctx = Ship::Context::GetRawInstance();
     if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
         return;
@@ -135,7 +134,7 @@ extern "C" COMBO_EXPORT void ComboUI_OnForegroundGame(int game) {
 
     // Notification window follows the active game too (so MM's toasts show only while MM is foreground
     // and OOT's only while OOT is). Independent of the tracker intent above.
-    SetForegroundNotification(fg);
+    SetForegroundOnlyWindows(fg);
 
     // ComboShip: on MM entry (boot/resume), reconcile the settings MM consumes from its own CVars with
     // the canonical Shared values changed while MM was dormant — push audio volumes (apply per-port

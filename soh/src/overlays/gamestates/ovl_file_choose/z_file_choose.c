@@ -852,9 +852,7 @@ void FileChoose_UpdateRandomizerMenu(GameState* thisx) {
             }
         } else if (this->randomizerIndex == RSM_GENERATE_RANDOMIZER) {
 #ifdef COMBO_BUILD
-            // ComboShip: run the cross-world combo generator (worker thread) instead of OOT's. Sets
-            // RandoGenerating so the loop below swaps to gallop music + shows progress; the finalize
-            // poll applies the result on the main thread.
+            // ComboShip: marks combo generation; SOH_PollComboFinalize applies and clears it.
             SOH_TriggerComboGenerate();
 #else
             Randomizer_GenerateRandomizer();

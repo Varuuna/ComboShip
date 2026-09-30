@@ -10,8 +10,6 @@
 #include "soh/Enhancements/randomizer/rng.h"
 #include "soh/OTRGlobals.h"
 
-#include <ship/window/gui/Gui.h>
-
 #ifdef COMBO_BUILD
 #include "rando/SharedItems.h" // ComboShip: Shared Items family indices (SF_WALLET)
 // ComboShip (#136): combo owns the win condition (combined Triforce goal), forced in FinalizeSettings.

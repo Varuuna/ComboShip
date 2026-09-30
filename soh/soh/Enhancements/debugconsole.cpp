@@ -1322,6 +1322,13 @@ static bool CuccoStormHandler(std::shared_ptr<Ship::Console> Console, const std:
 
 static bool GenerateRandoHandler(std::shared_ptr<Ship::Console> Console, const std::vector<std::string>& args,
                                  std::string* output) {
+#ifdef COMBO_BUILD
+    // ComboShip: GenerateRandomizer only sees native generation, not the combo worker.
+    if (IsRandoGenerating()) {
+        ERROR_MESSAGE("[SOH] A randomizer seed is already generating.");
+        return 1;
+    }
+#endif
     if (args.size() == 1) {
         if (GenerateRandomizer()) {
             return 0;

@@ -606,7 +606,11 @@ void SaveManager::StartupCheckAndInitMeta(int fileNum) {
 #ifdef COMBO_BUILD
     // ComboShip: metadata comes from the container's OOT section, not file{N}.sav.
     const bool comboSrc = (gComboReadGameSave != nullptr);
-    std::string comboMeta = comboSrc ? gComboReadGameSave(ComboRando::GAME_OOT, fileNum) : std::string();
+    std::string comboMeta;
+    if (comboSrc) {
+        std::lock_guard<std::mutex> guard(saveMtx);
+        comboMeta = gComboReadGameSave(ComboRando::GAME_OOT, fileNum);
+    }
 #endif
 
     nlohmann::json metaSaveBlock = nlohmann::json::object();

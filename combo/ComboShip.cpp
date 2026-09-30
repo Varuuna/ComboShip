@@ -1566,20 +1566,22 @@ static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRan
                                   const std::string& mmDump = "", ComboRando::CwGoal goal = {}, bool mmStart = false,
                                   uint32_t sharedMask = 0);
 
+static void FailComboFill(ComboRando::ComboGenProgress* progress, const char* msg) {
+    if (progress) {
+        progress->SetError(msg);
+        progress->success.store(false);
+        progress->done.store(true);
+        progress->running.store(false);
+    }
+    std::cerr << "[ComboShip] RunComboFill: " << msg << "\n";
+    RestoreLoadedSlotGoal(); // a bailed generation must not leave the menu goal in the DLLs
+    g_GenerateBusy.store(false);
+}
+
 // ComboShip: worker that runs the combined-logic fill (or no-logic fallback) on a background
 // thread, reports progress via the ComboGenProgress struct, and stashes placements.
-static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* progress) {
-    auto fail = [&](const char* msg) {
-        if (progress) {
-            progress->SetError(msg);
-            progress->success.store(false);
-            progress->done.store(true);
-            progress->running.store(false);
-        }
-        std::cerr << "[ComboShip] RunComboFill: " << msg << "\n";
-        RestoreLoadedSlotGoal(); // a bailed generation must not leave the menu goal in the DLLs
-        g_GenerateBusy.store(false);
-    };
+static void RunComboFillBody(std::string inputSeed, ComboRando::ComboGenProgress* progress) {
+    auto fail = [&](const char* msg) { FailComboFill(progress, msg); };
 
     if (!SOH_DumpRandoStaticData || !MM_DumpRandoStaticData) {
         fail("dump functions not resolved");
@@ -2018,6 +2020,19 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     g_GenerateBusy.store(false);
 }
 
+// Any throw from the fill runs the failure path: a worker throw would otherwise std::terminate.
+static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* progress) {
+    try {
+        RunComboFillBody(std::move(inputSeed), progress);
+    } catch (const std::exception& e) {
+        g_ComboPendingFinalize.store(false);
+        FailComboFill(progress, (std::string("exception: ") + e.what()).c_str());
+    } catch (...) {
+        g_ComboPendingFinalize.store(false);
+        FailComboFill(progress, "unknown exception");
+    }
+}
+
 // ComboShip: headless cross-world generation TEST (COMBO_GENTEST=<count>). Runs the combined fill
 // over a seed range; a seed "succeeds" only if every advancement check in both games is reachable
 // from an empty start (honoring the OOT->MM portal gate) — i.e. provably 100%-completable. Uses the
@@ -2284,7 +2299,12 @@ static int Combo_PollFinalize() {
         return 1;
     }
     // No pending finalize: resolved iff the worker is done and not still running.
-    return (g_ComboProgress.done.load() && !g_GenerateBusy.load()) ? 1 : 0;
+    if (!g_ComboProgress.done.load() || g_GenerateBusy.load())
+        return 0;
+    // A failed gen must not leave an earlier seed's "generated" state (success fanfare + Start).
+    if (!g_ComboProgress.success.load() && SOH_SetSeedGenerated)
+        SOH_SetSeedGenerated(0);
+    return 1;
 }
 
 // ComboShip: read a candidate consolidated seed file. True only if it opens, parses and is ours.

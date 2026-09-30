@@ -4083,8 +4083,12 @@ extern "C" COMBO_EXPORT void SOH_RestoreRandoSettings(const char* json) {
             }
         }
         j.erase("gRandoSettings.CompleteMaskQuest");
-        // Snapshot is authoritative: pre-clear so a spoiler without the key (pre-GAP-7, generated
-        // with no exclusions applied) doesn't inherit this machine's local exclusions.
+        // Snapshot is authoritative: pre-clear so a key missing from an older spoiler reads as the
+        // default, not this machine's local value (options, then exclusions).
+        for (const auto& opt : Rando::Settings::GetInstance()->GetAllOptions()) {
+            if (!opt.GetCVarName().empty())
+                CVarClear(opt.GetCVarName().c_str());
+        }
         CVarSetString(CVAR_RANDOMIZER_SETTING("ExcludedLocations"), "");
         for (auto it = j.begin(); it != j.end(); ++it) {
             if (it.value().is_string())

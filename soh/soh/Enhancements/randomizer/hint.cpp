@@ -1,12 +1,12 @@
 #include "hint.h"
 #include "string"
 #include "SeedContext.h"
-#include <spdlog/spdlog.h>
 #include "static_data.h"
 #include "rng.h"
 #ifdef COMBO_BUILD
 #include "soh/Enhancements/randomizer/hook_handlers.h" // ComboShip: OOT_LookupForeignByCheck
 #endif
+#include "soh/Enhancements/randomizer/trial.h"
 
 namespace Rando {
 Hint::Hint() {

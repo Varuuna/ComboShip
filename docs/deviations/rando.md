@@ -441,7 +441,8 @@ save by `fileNum` directly, so it is unaffected.
 
 **Why:** combo generation ran synchronously on the render thread, freezing the game (no music, no
 progress) for its whole duration. Stock SoH stays responsive by running the fill on a worker thread
-while the main loop keeps running (it polls `RandoGenerating` in `FileChoose_UpdateRandomizer`,
+while the main loop keeps running (it polls `Randomizer_IsGenerating()` in `FileChoose_UpdateRandomizer`;
+since 2026-09-28 a combo flag folded into `IsRandoGenerating()` replaces the old `RandoGenerating` CVar,
 swaps to gallop music, draws "Generating…", plays a fanfare). Combo couldn't naively copy that: its
 fill calls into the single-threaded game DLLs (dumps, oracles, and the `gSaveContext`-mutating
 apply), and a prior whole-pipeline-off-thread attempt crashed.
@@ -606,8 +607,8 @@ exact reason) can be verified headless. Traversal lives in `combo/rando/ComboPla
 (`ComboRando::RunPlaythrough`, shared with the in-game generator).
 
 **Port seams (`COMBO_BUILD`-guarded — preserve on merges):**
-- `soh/soh/Enhancements/Lang/Lang.cpp` — `Lang::Translate` returns the raw key instead of asserting when
-  language data isn't loaded, **gated on `gComboHeadlessRando`** (set only by `SOH_InitRandoHeadless`,
+- `soh/soh/Enhancements/Lang/Lang.cpp` — `Lang::Translate` returns the raw key (cached; it returns a
+  reference now) and `TryTranslate` reports not-initialized instead of asserting when language data isn't loaded, **gated on `gComboHeadlessRando`** (set only by `SOH_InitRandoHeadless`,
   never the game). Lets the headless option/trick tables build without the ResourceManager/assets. In-game
   the flag is false → the assert is unchanged (byte-identical behavior).
 - `soh/soh/OTRGlobals.cpp` — `gComboHeadlessRando` flag + `Rando::Settings::CreateOptions()` in
@@ -1432,7 +1433,8 @@ children of their parent setting, `defaultHidden` and revealed by the parent's c
 
 - `randomizerEnums/RandomizerSettingKey.h` — two keys before `RSK_MAX` (spoiler settings are
   name-keyed, so appending is safe).
-- `option_descriptions.cpp` — one description each.
+- `soh/assets/custom/lang/en_US.json` — `exclude_mask_shop_key` / `exclude_mask_shop_entrance` name +
+  description (upstream moved option text there; `option_descriptions.cpp` is gone).
 - `settings.cpp` — option creation + parent Hide/Unhide callbacks (`RSK_LOCK_OVERWORLD_DOORS` gained
   its first callback), menu groups (`RSG_MENU_SECTION_AREA_ACCESS`, `RSG_MENU_SECTION_ENTRANCES`, plus
   legacy `RSG_OPEN`/`RSG_WORLD` for consistency), `FinalizeSettings` coupling, `RandomizeAllSettings`
@@ -2028,3 +2030,22 @@ progressive resolver, which switches on `logic->GetSaveContext()->magicLevel` �
 generation). A second cross-granted magic upgrade re-resolved to single magic and was lost. Fixed the
 same way as the Shared Items reader: resolve by `isMagicAcquired`/`isDoubleMagicAcquired` to a concrete
 `RG_MAGIC_SINGLE`/`RG_MAGIC_DOUBLE` before the generic `itemNameToEnum` lookup.
+
+## `SOH_RestoreRandoSettings`: upstream CVar renames + authoritative restore (2026-09-28)
+
+Upstream appended these renames to the ConfigVersion7 updater, which existing configs already ran, so
+older combo spoilers still carry the old keys. The restore renames them (values unchanged; the new key
+wins if both are present):
+
+| Old key (`gRandoSettings.`) | New key |
+|---|---|
+| `LogicRules` | `NoLogic` |
+| `AllLocationsReachable` | `AllChecksReachable` |
+| `SkipScarecrowsSong` | `StartingScarecrowsSong` |
+| `Lacs{Stone,Medallion,Reward,Dungeon,Token}Count`, `LacsRewardOptions` | `Gbk…` (same suffix) |
+| `CompleteMaskQuest` = 1 (Completed) | `ShuffleMasks` 1 + the six `Starting…Mask`, `StartingBunnyHood`, `StartingMaskOfTruth` 1 |
+| `CompleteMaskQuest` = 2 (Shuffle) | `ShuffleMasks` 1 |
+
+Before applying, every `GetAllOptions()` CVar is cleared (and `ExcludedLocations` emptied), so a key an
+older spoiler lacks reads as the default, not the local machine's value. A user's `comboship.json`
+keeps its stale leaf keys (no clash); those settings fall back to defaults.

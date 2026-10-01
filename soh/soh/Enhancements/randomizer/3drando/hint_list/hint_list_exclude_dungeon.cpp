@@ -6,6 +6,15 @@ namespace Rando {
 void StaticData::HintTable_Init_Exclude_Dungeon() {
     // clang-format off
 
+    // TODO move these to region specific sections when hint text stable
+    hintTextTable[RHT_DODONGOS_CAVERN_SILVER] = HintText(CustomMessage("They say that a #silver rupee in Dodongo's Cavern# holds #[[1]]#.", TODO_TRANSLATE, TODO_TRANSLATE, {QM_RED, QM_GREEN}));
+    hintTextTable[RHT_SHADOW_TEMPLE_SILVER]  = HintText(CustomMessage("They say that a #silver rupee in the Shadow Temple# holds #[[1]]#.", TODO_TRANSLATE, TODO_TRANSLATE, {QM_RED, QM_GREEN}));
+    hintTextTable[RHT_SPIRIT_TEMPLE_SILVER] = HintText(CustomMessage("They say that a #silver rupee in the Spirit Temple# holds #[[1]]#.", TODO_TRANSLATE, TODO_TRANSLATE, {QM_RED, QM_GREEN}));
+    hintTextTable[RHT_BOTW_SILVER] = HintText(CustomMessage("They say that a #silver rupee in the Bottom of the Well# holds #[[1]]#.", TODO_TRANSLATE, TODO_TRANSLATE, {QM_RED, QM_GREEN}));
+    hintTextTable[RHT_ICE_CAVERN_SILVER] = HintText(CustomMessage("They say that a #silver rupee in the Ice Cavern# holds #[[1]]#.", TODO_TRANSLATE, TODO_TRANSLATE, {QM_RED, QM_GREEN}));
+    hintTextTable[RHT_GTG_SILVER] = HintText(CustomMessage("They say that a #silver rupee in the Gerudo Training Ground# holds #[[1]]#.", TODO_TRANSLATE, TODO_TRANSLATE, {QM_RED, QM_GREEN}));
+    hintTextTable[RHT_GANONS_CASTLE_SILVER] = HintText(CustomMessage("They say that a #silver rupee in Ganon's Castle# holds #[[1]]#.", TODO_TRANSLATE, TODO_TRANSLATE, {QM_RED, QM_GREEN}));
+
     /*--------------------------
     |        DEKU TREE         |
     ---------------------------*/
@@ -316,7 +325,7 @@ void StaticData::HintTable_Init_Exclude_Dungeon() {
     hintTextTable[RHT_DODONGOS_CAVERN_GRASS] = HintText(CustomMessage("They say that some #grass in Dodongo's Cavern# hides #[[1]]#.",
                                                                             /*german*/ "Man erzählt sich, daß etwas #Gras in Dodongos Höhle# #[[1]]# verstecke.",
                                                                             /*french*/ "Selon moi, de l'#herbe dans la Caverne Dodongo# cache #[[1]]#.", {QM_RED, QM_GREEN}));
-											
+
     hintTextTable[RHT_CRATE_DODONGOS_CAVERN] = HintText(CustomMessage("They say that a #crate in Dodongo's Cavern# contains #[[1]]#.",
                                                      /*german*/ "Man erzählt sich, daß eine #Kiste in Dodongos Höhle# #[[1]]# enthielte.",
                                                      /*french*/ "Selon moi, une #caisse dans la Caverne Dodongo# contient #[[1]]#.", {QM_RED, QM_GREEN}));

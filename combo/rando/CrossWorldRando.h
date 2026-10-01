@@ -73,7 +73,7 @@ struct OracleFns {
 
 // ---------- Data types ----------
 
-// Per-game OOT accessibility, mapped from OOT's RSK_LOGIC_RULES + RSK_ALL_LOCATIONS_REACHABLE.
+// Per-game OOT accessibility, mapped from OOT's RSK_NO_LOGIC + RSK_ALL_CHECKS_REACHABLE.
 // MM is always ALL_REACHABLE. See CrossWorldCombinedFill for the per-mode fill/validation behavior.
 //   ALL_REACHABLE  every OOT advancement item lands reachable (default; unchanged behavior)
 //   BEATABLE_ONLY  OOT progression may strand off-path, but the seed stays beatable (ALR-off)
@@ -446,7 +446,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                 continue;
             const auto& def = SharedFamilyByIndex(i);
             if (def.isMask && !maskQuestShuffle) {
-                std::cout << "[ComboShip] Shared " << def.key << ": skipped (OOT Mask Quest is not Shuffle)\n";
+                std::cout << "[ComboShip] Shared " << def.key << ": skipped (OOT Shuffle Masks is off)\n";
                 continue;
             }
             size_t ootCopies = 0;

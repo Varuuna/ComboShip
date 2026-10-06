@@ -1594,6 +1594,7 @@ extern "C" void (*gComboSharedTick)(void);
 // ImGui + SohGui::SetupMenu). Combo_FinishInit() = everything that needs the ROM archives. The
 // non-combo InitOTR keeps the original ctor -> RunExtract -> finish ordering. See docs/UPSTREAM_MERGES.md.
 static void Combo_FinishInit();
+static bool Combo_ClearNumericExclusions();
 #ifdef __linux__
 // When run as an AppImage, keep user data in ~/.local/share/soh instead of the launch folder.
 // Keep using the launch folder if it already has data from older versions.
@@ -1686,6 +1687,7 @@ extern "C" COMBO_EXPORT void SOH_InitRandoHeadless() {
     Rando::StaticData::RegisterIcicleLocations();
     Rando::StaticData::RegisterRedIceLocations();
     Rando::StaticData::RegisterSilverLocations();
+    Rando::StaticData::InitHashMaps(); // ComboShip: name lookups for excluded locations
     // Build the option/trick tables (normally the rando menu's job, which headless lacks) so a spoiler's
     // settings can reach the Context. Option/trick display names route through Lang::Translate, which
     // returns the raw key headless (via gComboHeadlessRando) — no assets needed.
@@ -1753,6 +1755,10 @@ static void Combo_FinishInit() {
         if (oldPitch > 0.0f) {
             CVarSetFloat(CVAR_LINK_VOICE_FREQ_MULTIPLIER, oldPitch);
         }
+        CVarSave();
+    }
+    // ComboShip: drop old numeric exclusions before the rando menu reads them.
+    if (Combo_ClearNumericExclusions()) {
         CVarSave();
     }
 #endif
@@ -3966,6 +3972,20 @@ extern "C" COMBO_EXPORT void SOH_SetComboRandoSeed(uint64_t seed) {
 }
 #endif
 
+// ComboShip: old builds stored exclusions as check numbers that no longer match; drop them once.
+static bool Combo_ClearNumericExclusions() {
+    std::stringstream ss(CVarGetString(CVAR_RANDOMIZER_SETTING("ExcludedLocations"), ""));
+    std::string tok;
+    while (std::getline(ss, tok, ',')) {
+        if (!tok.empty() && std::all_of(tok.begin(), tok.end(), [](unsigned char c) { return std::isdigit(c); })) {
+            SPDLOG_WARN("[ComboShip] Excluded locations use an old format; cleared them");
+            CVarSetString(CVAR_RANDOMIZER_SETTING("ExcludedLocations"), "");
+            return true;
+        }
+    }
+    return false;
+}
+
 // ComboShip: snapshot every OOT rando option as {cvarName: value}. The combo orchestrator stores
 // this in the consolidated spoiler so a dropped/reloaded seed reproduces the exact settings on any
 // machine (OOT options are CVar-backed; SOH_RestoreRandoSettings writes them back).
@@ -4039,6 +4059,7 @@ extern "C" COMBO_EXPORT void SOH_RestoreRandoSettings(const char* json) {
             else
                 CVarSetInteger(it.key().c_str(), it.value().get<int>());
         }
+        Combo_ClearNumericExclusions();
     } catch (...) {}
 }
 
@@ -4067,18 +4088,11 @@ static void Combo_ApplyEnabledTricks() {
     }
 }
 
-// The ExcludedLocations CSV (check IDs) is only parsed on SoH's GUI generate path
-// (randomizer.cpp:930); the combo prep paths must parse it too or exclusions never apply headless.
+// The ExcludedLocations CSV is only parsed on SoH's GUI generate path; the combo prep paths must parse
+// it too or exclusions never apply headless.
 static std::set<RandomizerCheck> Combo_ParseExcludedLocations() {
-    std::set<RandomizerCheck> excluded;
-    std::stringstream ss(CVarGetString(CVAR_RANDOMIZER_SETTING("ExcludedLocations"), ""));
-    std::string tok;
-    while (std::getline(ss, tok, ',')) {
-        try {
-            excluded.insert(static_cast<RandomizerCheck>(std::stoi(tok)));
-        } catch (...) {}
-    }
-    return excluded;
+    Combo_ClearNumericExclusions();
+    return Rando::StaticData::ParseExcludedLocations(CVarGetString(CVAR_RANDOMIZER_SETTING("ExcludedLocations"), ""));
 }
 
 extern "C" COMBO_EXPORT void SOH_PrepRandoContext(void) {

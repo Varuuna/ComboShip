@@ -301,7 +301,6 @@ static RandoAgeTime availableChecksStartingAgeTime = RAT_NONE;
 // a bulk loop and each save is a full .combosav container rewrite. Flushed once at the end instead.
 static bool sSuppressSpoilSave = false;
 #endif
-static int16_t previousEntrance = 0;
 std::array<bool, RCAREA_INVALID> filterAreasHidden = { 0 };
 std::array<bool, RC_MAX> filterChecksHidden = { 0 };
 
@@ -960,7 +959,7 @@ void CheckTrackerTransition(uint32_t sceneNum) {
     }
     if (!IsAreaSpoiled(currentArea) && (RandomizerCheckObjects::AreaIsOverworld(currentArea) ||
                                         std::find(spoilingEntrances.begin(), spoilingEntrances.end(),
-                                                  gPlayState->nextEntranceIndex) != spoilingEntrances.end())) {
+                                                  gSaveContext.entranceIndex) != spoilingEntrances.end())) {
         SetAreaSpoiled(currentArea);
     }
 }
@@ -1206,7 +1205,7 @@ void InitTrackerData(bool isDebug) {
     areasSpoiled = 0;
 }
 
-void SaveTrackerData(SaveContext* saveContext, int sectionID, bool fullSave) {
+void SaveTrackerData(const SaveContext& saveContext, int sectionID, bool fullSave) {
     bool updateOrdering = false;
     std::vector<RandomizerCheck> checkCount;
     for (int i = RC_UNKNOWN_CHECK; i < RC_MAX; i++) {
@@ -1217,9 +1216,9 @@ void SaveTrackerData(SaveContext* saveContext, int sectionID, bool fullSave) {
 #ifdef COMBO_BUILD
     // ComboShip tripwire: an all-UNCHECKED dump for a real rando file means some path wiped the
     // live context before this (queued) save ran — it would persist an empty tracker section.
-    if (checkCount.empty() && saveContext->ship.quest.id == QUEST_RANDOMIZER) {
+    if (checkCount.empty() && saveContext.ship.quest.id == QUEST_RANDOMIZER) {
         SPDLOG_WARN("SaveTrackerData: persisting EMPTY checkStatus for file {} (sectionID {}, fullSave {})",
-                    saveContext->fileNum, sectionID, fullSave);
+                    saveContext.fileNum, sectionID, fullSave);
     }
 #endif
     SaveManager::Instance->SaveArray("checkStatus", checkCount.size(), [&](size_t i) {
@@ -1251,7 +1250,7 @@ void SaveTrackerData(SaveContext* saveContext, int sectionID, bool fullSave) {
     }
 }
 
-void SaveFile(SaveContext* saveContext, int sectionID, bool fullSave) {
+void SaveFile(const SaveContext& saveContext, int sectionID, bool fullSave) {
     SaveTrackerData(saveContext, sectionID, fullSave);
     if (fullSave) {
         recalculateAvailable = true;
@@ -2548,10 +2547,7 @@ bool InternalRecalculateAvailableChecks(RandomizerRegion startingRegion, RandoAg
     const auto& ctx = Rando::Context::GetInstance();
     logic = ctx->GetLogic();
 
-    // ComboShip: on a dormant peek (drawn while the other game is foreground) there is no play state,
-    // so start from the saved entrance instead. Everything else here reads gSaveContext already.
-    int16_t entranceIndex =
-        (gPlayState != nullptr) ? gPlayState->nextEntranceIndex : (int16_t)gSaveContext.entranceIndex;
+    int16_t entranceIndex = gSaveContext.entranceIndex;
     if (startingRegion == RR_ROOT && entranceIndex >= 0 && entranceIndex < ENTR_MAX) {
         // Try to find a mapped entrance
         // e.g. ENTR_DEKU_TREE_0_1 (index 1) is not mapped, but ENTR_DEKU_TREE_ENTRANCE (index 0) is mapped

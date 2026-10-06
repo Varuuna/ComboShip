@@ -435,7 +435,8 @@ c42004bc4 Fix AddCheckToLogic bombchu handling (#7274)
   `Combo_ParseExcludedLocations` now calls `Rando::StaticData::ParseExcludedLocations`. Numeric lists
   from older builds use a different numbering, so `Combo_ClearNumericExclusions` drops them once with a
   log line (at boot, after a spoiler settings restore, and before each combo prep). Headless init calls
-  `InitHashMaps` once so name lookups work in `comborando`.
+  `InitHashMaps` once so name lookups work in `comborando`, and `AddExcludedOptions` as full boot does
+  (without it `comborando` never marked any check excluded; this predates the merge).
 - **Speedrun:** the two new "Hide Speedrun" toggles are hidden under `COMBO_BUILD` (the quest select is
   Randomizer-only). Speedrun mode itself stays unreachable: carousel locked, soh's menu never drawn.
 - **Failed combo generation** also clears `SpoilerLoaded` (in `SOH_SetSeedGenerated(0)`), matching

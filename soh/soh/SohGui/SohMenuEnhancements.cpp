@@ -824,6 +824,7 @@ void SohMenu::AddMenuEnhancements() {
         .PreFunc(HideQuestPreFunc(QUEST_BOSSRUSH))
         .Options(CheckboxOptions().Tooltip(
             "Hides the Boss Rush option when selecting a quest type on the File Select screen."));
+#ifndef COMBO_BUILD // ComboShip: the quest select is Randomizer-only, so these do nothing
     AddWidget(path, "Hide Speedrun", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_ENHANCEMENT("FileSelect.HideSpeedrunQuest"))
         .RaceDisable(false)
@@ -836,6 +837,7 @@ void SohMenu::AddMenuEnhancements() {
         .PreFunc(HideQuestPreFunc(QUEST_SPEEDRUN_MASTER))
         .Options(CheckboxOptions().Tooltip(
             "Hides the Speedrun Master Quest option when selecting a quest type on the File Select screen."));
+#endif
 
     path.column = SECTION_COLUMN_3;
     AddWidget(path, "Misc.", WIDGET_SEPARATOR_TEXT);

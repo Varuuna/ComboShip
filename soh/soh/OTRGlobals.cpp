@@ -1692,6 +1692,8 @@ extern "C" COMBO_EXPORT void SOH_InitRandoHeadless() {
     // settings can reach the Context. Option/trick display names route through Lang::Translate, which
     // returns the raw key headless (via gComboHeadlessRando) — no assets needed.
     Rando::Settings::GetInstance()->CreateOptions();
+    // ComboShip: lists every location so FinalizeSettings can mark excluded ones (as full boot does).
+    OTRGlobals::Instance->gRandoContext->AddExcludedOptions();
 }
 
 // ComboShip (issue 24): apply a launcher-merged config (JSON object) to the live Config and reload the

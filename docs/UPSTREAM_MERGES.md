@@ -218,7 +218,8 @@ it: a PR to `main` that changes `upstream-pins.json` fails unless its head is
   main's pins on its own.
 - To merge a release by hand: `scripts/upstream-merge.ps1 -Only <key> -Target refs/tags/<tag> -Merge`
   (`-Target` also takes a SHA; it must be a descendant of the current pin).
-- main's soh stays at `5a57a0cbc` (develop-line, already past 9.2.3) until soh ships a newer release.
+- develop's soh is exactly 9.3.0. For 0.3.0, develop is promoted to main as a one-off exception
+  (mm and LUS sit past their releases); that PR amends this policy and records the pins.
 
 ## The `2ship-stable` branch (to be retired)
 
@@ -235,7 +236,8 @@ since CI now pulls each upstream in its own PR — listing every file we had to 
 mechanical 3-way merge and why. This keeps the per-merge required changes easy to track (and to diff
 against the recurring-deviation list below). Newest first:
 
-- [2026-09-28 soh](merges/2026-09-28-soh-develop.md) — soh `5a57a0cbc` → `576b30c64`. soh extracts with
+- [2026-09-28 soh](merges/2026-09-28-soh-develop.md) — soh `5a57a0cbc` → `576b30c64`, extended on
+  2026-10-06 to `ecd889c20` (lands exactly on 9.3.0). soh extracts with
   Torch (vendored at `torch/`, forced onto the dynamic CRT); ZAPD/OTRExporter are MM-only. Retires every
   existing combosave and spoiler (enum renumbering). Combo generation moved onto upstream's generating
   flag; OOT and MM Time Splits separated.

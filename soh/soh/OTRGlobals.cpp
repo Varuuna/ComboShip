@@ -5347,8 +5347,13 @@ extern "C" COMBO_EXPORT void SOH_ParkForComboMMResume(void) {
 }
 
 extern "C" COMBO_EXPORT void SOH_SetSeedGenerated(uint8_t g) {
-    if (OTRGlobals::Instance && OTRGlobals::Instance->gRandoContext)
+    if (OTRGlobals::Instance && OTRGlobals::Instance->gRandoContext) {
         OTRGlobals::Instance->gRandoContext->SetSeedGenerated(g != 0);
+        // ComboShip: a failed generate also drops the old loaded seed, like native generation does.
+        if (g == 0) {
+            OTRGlobals::Instance->gRandoContext->SetSpoilerLoaded(false);
+        }
+    }
 }
 
 // ComboShip: OOT combo-logic exports — thin wrappers around the existing logic engine. The

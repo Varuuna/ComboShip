@@ -434,7 +434,7 @@ c42004bc4 Fix AddCheckToLogic bombchu handling (#7274)
 - **Excluded locations:** upstream stores `RC_*` names and maps numbers through a 9.2.3 snapshot.
   `Combo_ParseExcludedLocations` now calls `Rando::StaticData::ParseExcludedLocations`. Numeric lists
   from older builds use a different numbering, so `Combo_ClearNumericExclusions` drops them once with a
-  log line (at boot, after a spoiler settings restore, and before each combo prep). Headless init calls
+  log line (at boot, after a spoiler settings restore, after a config drop, and before each combo prep). Headless init calls
   `InitHashMaps` once so name lookups work in `comborando`, and `AddExcludedOptions` as full boot does
   (without it `comborando` never marked any check excluded; this predates the merge).
 - **Speedrun:** the two new "Hide Speedrun" toggles are hidden under `COMBO_BUILD` (the quest select is

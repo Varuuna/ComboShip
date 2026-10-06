@@ -5581,6 +5581,10 @@ bool SoH_HandleConfigDrop(char* filePath) {
 
         // Migrate configs from older versions
         SOH::RunVersionUpdatesFrom(configVersion);
+#ifdef COMBO_BUILD
+        // ComboShip: a dropped old config can carry numeric exclusions too.
+        Combo_ClearNumericExclusions();
+#endif
 
         gui->GetGuiWindow("Console")->Hide();
         gui->GetGuiWindow("Actor Viewer")->Hide();

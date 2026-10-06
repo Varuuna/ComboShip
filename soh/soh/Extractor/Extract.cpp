@@ -486,9 +486,12 @@ bool Extractor::ClassifyRom(std::string rom) {
         return false;
     }
     constexpr size_t kHeaderBytes = 0x1000; // enough for the magic + version CRC at 0x10
-    inFile.read((char*)mRomData.get(), kHeaderBytes);
+    mRomData.resize(kHeaderBytes);
+    inFile.read((char*)mRomData.data(), kHeaderBytes);
     inFile.close();
-    BitConverter::RomToBigEndian(mRomData.get(), kHeaderBytes);
+    BitConverter::RomToBigEndian(mRomData.data(), kHeaderBytes);
+    // ComboShip: GetRomVerCrc reads the cache ReadRom fills; set it from the header here.
+    mRomVerCrc = BSWAP32(((uint32_t*)mRomData.data())[4]);
     if (!ValidateNotCompressed()) {
         return false;
     }

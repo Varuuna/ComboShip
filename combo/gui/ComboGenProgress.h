@@ -21,6 +21,8 @@ struct ComboGenProgress {
     // Resolved input seed string (the reproducible token to paste back into the Seed field). For a
     // blank input this is the concrete random string actually used. Written before done; read after.
     char seedStr[128] = { 0 };
+    // Set by the launcher at shutdown; the worker polls it between DLL calls and fails out.
+    std::atomic<bool> cancel{ false };
     void Reset() {
         phase = 0;
         placed = 0;
@@ -54,4 +56,7 @@ struct ComboGenProgress {
         }
     }
 };
+inline bool GenCancelled(const ComboGenProgress* p) {
+    return p && p->cancel.load();
+}
 } // namespace ComboRando

@@ -1005,7 +1005,10 @@ bool EntranceShuffler::PlaceOneWayPriorityEntrance(
         }
     }
     SPDLOG_DEBUG("ERROR: Unable to place priority one-way entrance for {}", priorityName);
+#ifndef COMBO_BUILD
+    // ComboShip: the caller retries this, so Debug builds shouldn't abort here.
     assert(false);
+#endif
     return false;
 }
 

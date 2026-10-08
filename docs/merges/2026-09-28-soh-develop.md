@@ -448,6 +448,9 @@ c42004bc4 Fix AddCheckToLogic bombchu handling (#7274)
 - **Assets:** new presets, two file-select textures removed, TTS `filechoose_*.json` edited. `soh.o2r`
   regenerated; `asset-collisions.json` unchanged.
 - **Shop prices (#7295):** the price-aware fill reads the table, so it follows.
+- **Entrance shuffle assert:** `PlaceOneWayPriorityEntrance`'s `assert(false)` is skipped under `COMBO_BUILD`.
+  Its caller already rolls back and retries, so Debug now matches Release (retry, or a failed seed).
+  The Demise Difficulty preset reaches it often.
 
 ## Deferred (follow-up issues)
 

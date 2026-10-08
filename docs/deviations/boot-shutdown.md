@@ -435,6 +435,10 @@ first-launch settings import (absent file = fresh install). New combo-owned expo
 installs a launcher-merged config into the live `Config` (`SetBlock` + `Save` + `CVarLoad` + controller
 reload). MM's `2ship2harkinian.json` literals are untouched (standalone-only, off the combo path).
 
+The Context name in the same guarded call is `"ComboShip"` (2026-10-08): LUS builds the window title
+(`ComboShip (DirectX 11)`), the logger name and `logs/ComboShip.log` from it. The headless `comborando`
+Context uses the same name. Per-game boot banners and log prefixes keep their upstream names.
+
 ## MM resume: reset magicLevel like Sram_OpenSave (magic meter outline, 2026-07-03)
 
 **Why:** the combo resume shortcut (`title_setup.c` `gComboStartFileNum` block) loads the save

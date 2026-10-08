@@ -322,10 +322,9 @@ static std::shared_ptr<Ship::ResourceManager> sOOTResourceManager;
 
 OTRGlobals::OTRGlobals() {
 #ifdef COMBO_BUILD
-    // ComboShip (issue 24): OOT + MM share this one Context, so this is the single combined config.
-    // Named comboship.json to make that explicit and to gate the first-launch settings import. See
-    // docs/UPSTREAM_MERGES.md.
-    context = Ship::Context::CreateUninitializedInstance("Ship of Harkinian", appShortName, "comboship.json");
+    // ComboShip: OOT + MM share this one Context and config (comboship.json). The name sets the window
+    // title and logs/ComboShip.log. See docs/deviations/boot-shutdown.md.
+    context = Ship::Context::CreateUninitializedInstance("ComboShip", appShortName, "comboship.json");
 #else
     context = Ship::Context::CreateUninitializedInstance("Ship of Harkinian", appShortName, "shipofharkinian.json");
 #endif
@@ -410,7 +409,7 @@ OTRGlobals::OTRGlobals() {
 #ifdef COMBO_BUILD
 // ComboShip: rando-only headless ctor — Context + config + CVars, no ControlDeck/RM/Console/Window/GUI.
 OTRGlobals::OTRGlobals(HeadlessRandoTag) {
-    context = Ship::Context::CreateUninitializedInstance("Ship of Harkinian", appShortName, "comboship.json");
+    context = Ship::Context::CreateUninitializedInstance("ComboShip", appShortName, "comboship.json");
     context->InitConfiguration();
     context->InitConsoleVariables();
     // Detect quest availability from the o2r files without loading archives (mirrors Initialize's hash

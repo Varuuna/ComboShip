@@ -50,7 +50,7 @@ include(CMake/lus-cvars.cmake)
 
 # In-game banner (gBuildVersion): release version + readable upstream identity.
 set(PROJECT_BUILD_NAME "ComboShip v${COMBO_RELEASE_VERSION} | Combo Build e${COMBO_EPOCH} soh-${COMBO_SOH_SHORT} mm-${COMBO_MM_SHORT}" CACHE STRING "" FORCE)
-set(PROJECT_TEAM "github.com/harbourmasters" CACHE STRING "" FORCE)
+set(PROJECT_TEAM "github.com/Varuuna/ComboShip" CACHE STRING "" FORCE)
 
 # Git information
 execute_process(

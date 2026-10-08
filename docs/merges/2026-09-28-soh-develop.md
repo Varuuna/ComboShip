@@ -451,6 +451,10 @@ c42004bc4 Fix AddCheckToLogic bombchu handling (#7274)
 - **Entrance shuffle assert:** `PlaceOneWayPriorityEntrance`'s `assert(false)` is skipped under `COMBO_BUILD`.
   Its caller already rolls back and retries, so Debug now matches Release (retry, or a failed seed).
   The Demise Difficulty preset reaches it often.
+- **ComboShip name:** the combined Context is named `ComboShip` (`OTRGlobals.cpp`, both COMBO_BUILD ctors),
+  so the window reads `ComboShip (DirectX 11)` and the log is `logs/ComboShip.log` (was `Ship of Harkinian.log`).
+  The combo menu game tabs say Ocarina of Time / Majora's Mask, `ComboShip.exe` has its own icon and version
+  info (`combo/windows/`), and `PROJECT_TEAM` (DLL Company field) is `github.com/Varuuna/ComboShip`.
 
 ## Deferred (follow-up issues)
 

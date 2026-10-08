@@ -139,6 +139,15 @@ endif()
 
 # Windows-specific settings
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    # Icon + version info for ComboShip.exe; the version is COMBO_RELEASE_VERSION padded to 4 parts.
+    string(REGEX MATCHALL "[0-9]+" COMBO_RC_VERSION_PARTS "${COMBO_RELEASE_VERSION}")
+    list(APPEND COMBO_RC_VERSION_PARTS 0 0 0 0)
+    list(SUBLIST COMBO_RC_VERSION_PARTS 0 4 COMBO_RC_VERSION_PARTS)
+    list(JOIN COMBO_RC_VERSION_PARTS "," COMBO_RC_VERSION_COMMAS)
+    set(COMBO_RC_ICON "${CMAKE_CURRENT_SOURCE_DIR}/windows/ComboShip.ico")
+    configure_file(windows/ComboShip.rc.in ${CMAKE_CURRENT_BINARY_DIR}/ComboShip.rc @ONLY)
+    target_sources(ComboShip PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/ComboShip.rc)
+
     # ComboShip: build the exe straight into the shared runtime dir (x64/<config>), matching how the
     # game DLLs (soh/2ship/libultraship/comboui) set their own output dir. x64/<config> is then the
     # SINGLE deploy location — the exe and every DLL already land here, so there is no second copy in

@@ -78,11 +78,13 @@ bool Rando_HandleSpoilerDrop(char* filePath) {
         }
 #endif
 
+#ifndef COMBO_BUILD // ComboShip: a native soh spoiler has no MM half; only combo seed files load here
         if (json.contains("version") && json.contains("finalSeed")) {
             CVarSetString(CVAR_GENERAL("RandomizerDroppedFile"), filePath);
             CVarSetInteger(CVAR_GENERAL("RandomizerNewFileDropped"), 1);
             return true;
         }
+#endif
     } catch ([[maybe_unused]] std::exception& e) {}
     return false;
 }

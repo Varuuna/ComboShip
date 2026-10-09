@@ -519,7 +519,9 @@ hint data. Mostly combo-owned (`combo/ComboShip.cpp`, `combo/rando/CrossForeign.
   `SOH_SetOnComboReloadCallback` (launcher reload seam), `SOH_GetActiveFileNum`, and
   `Combo_SOH_GetObtainedChecks` (hint state).
 - **`soh` `randomizer.cpp`** — `Rando_HandleSpoilerDrop` also accepts `fileType=="ComboShipRandomizer"`
-  (sets `CVAR_GENERAL("ComboDroppedFile")`); the SoH spoiler path is unchanged.
+  (sets `CVAR_GENERAL("ComboDroppedFile")`). The native SoH spoiler branch is compiled out under
+  `COMBO_BUILD` (2026-10-09): such a file has no MM half, and parsing it set `SpoilerLoaded`, which
+  could enable Start Randomizer after a failed combo generation.
 - **`soh` `z_file_choose.c`** (`COMBO_BUILD`) — `FileChoose_UpdateRandomizer` reloads a dropped combo
   file (priority) or the remembered pending seed (first frame) via `SOH_RequestComboReload`.
 - **`mm` `BenPort.cpp`** — `MM_DumpRandoSettings`/`MM_RestoreRandoSettings` (MM options are CVar-backed;

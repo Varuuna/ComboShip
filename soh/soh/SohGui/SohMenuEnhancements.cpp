@@ -178,6 +178,7 @@ static const std::map<int32_t, const char*> mirroredWorldModes = {
     { MIRRORED_WORLD_DUNGEONS_RANDOM_SEEDED, "Dungeons Random (Seeded)" },
 };
 
+#ifndef COMBO_BUILD // ComboShip: only the Hide widgets use this, and combo compiles them out
 // Disables a File Select "Hide" checkbox when its O2R is missing, or when it would hide the last visible quest
 static WidgetFunc HideQuestPreFunc(Quest quest) {
     return [quest](WidgetInfo& info) {
@@ -193,6 +194,7 @@ static WidgetFunc HideQuestPreFunc(Quest quest) {
         }
     };
 }
+#endif
 
 void SohMenu::AddMenuEnhancements() {
     // Add Enhancements Menu
@@ -800,6 +802,7 @@ void SohMenu::AddMenuEnhancements() {
         .Options(CheckboxOptions().Tooltip("The skybox in the background of the File Select screen will go through the "
                                            "day and night cycle over time."));
 
+#ifndef COMBO_BUILD // ComboShip: the quest select is Randomizer-only, so these do nothing
     AddWidget(path, "Hide Original", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_ENHANCEMENT("FileSelect.HideNormalQuest"))
         .RaceDisable(false)
@@ -824,7 +827,6 @@ void SohMenu::AddMenuEnhancements() {
         .PreFunc(HideQuestPreFunc(QUEST_BOSSRUSH))
         .Options(CheckboxOptions().Tooltip(
             "Hides the Boss Rush option when selecting a quest type on the File Select screen."));
-#ifndef COMBO_BUILD // ComboShip: the quest select is Randomizer-only, so these do nothing
     AddWidget(path, "Hide Speedrun", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_ENHANCEMENT("FileSelect.HideSpeedrunQuest"))
         .RaceDisable(false)

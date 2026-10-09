@@ -521,9 +521,9 @@ if(APPLE)
             DESTINATION . COMPONENT combo)
     install(FILES "${CMAKE_SOURCE_DIR}/gamecontrollerdb.txt" DESTINATION . COMPONENT combo)
 
-    # Extractor assets, merged flat exactly as the runtime deploy does (CallZapd expects this shape).
-    install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/extractor/" DESTINATION ./assets     COMPONENT combo)
-    install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/xml/"       DESTINATION ./assets/xml COMPONENT combo)
+    # Extractor assets, merged flat exactly as the runtime deploy does: soh's Torch ymls and mm's
+    # ZAPD extractor + xml dirs.
+    install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/yml/"       DESTINATION ./assets     COMPONENT combo)
     install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/extractor/"  DESTINATION ./assets     COMPONENT combo)
     install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/xml/"        DESTINATION ./assets/xml COMPONENT combo)
 

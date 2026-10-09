@@ -1,6 +1,6 @@
 # Build the MM game DLL: 2ship.dll
 # Usage:  .\build-2ship.ps1 [--Debug | --Release]   (defaults to Debug)
-# Build AFTER soh -- both share OTRExporter/ZAPD; never build the two games in parallel.
+# Build AFTER soh; never build the two games in parallel (2ship builds OTRExporter/ZAPD).
 
 $target = '2ship'
 

@@ -177,8 +177,8 @@ endif()
     # tree and the PORT/custom .o2r archives need deploying. $<TARGET_FILE_DIR:ComboShip> == x64/<config>,
     # so this is config-correct for Debug AND Release.
     #
-    # Extractor assets (flat structure matching CallZapd expectations). ComboShip runs BOTH the OOT (soh)
-    # and MM (2ship) extractors, so merge both games' extractor + xml dirs into one assets/ tree.
+    # Extractor assets, one flat assets/ tree for BOTH extractors: soh's Torch ymls (config.yml + per-
+    # version dirs) and mm's ZAPD extractor + xml dirs. No names overlap.
     # Clear the destination assets/ FIRST: copy_directory merges and never deletes, so a file
     # renamed/removed upstream (e.g. mm object_rs -> object_rsn) would leave a STALE .xml that ZAPD then
     # fails on ("Raw data size: 0x0", reached EOF). Clearing makes the source tree authoritative each
@@ -187,11 +187,8 @@ endif()
     add_custom_command(TARGET ComboShip POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E rm -rf $<TARGET_FILE_DIR:ComboShip>/assets
         COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/soh/assets/extractor
+            ${CMAKE_SOURCE_DIR}/soh/assets/yml
             $<TARGET_FILE_DIR:ComboShip>/assets
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/soh/assets/xml
-            $<TARGET_FILE_DIR:ComboShip>/assets/xml
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_SOURCE_DIR}/mm/assets/extractor
             $<TARGET_FILE_DIR:ComboShip>/assets

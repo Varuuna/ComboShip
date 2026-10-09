@@ -1,5 +1,5 @@
-#ifndef KALEIDO_H
-#define KALEIDO_H
+#pragma once
+
 #include <z64.h>
 
 #ifdef __cplusplus
@@ -177,5 +177,3 @@ void RandoKaleido_UpdateMiscCollectibles(int16_t inDungeonScene);
 #ifdef __cplusplus
 }
 #endif
-
-#endif // KALEIDO_H

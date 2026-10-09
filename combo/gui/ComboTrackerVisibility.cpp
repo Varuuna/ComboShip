@@ -1,15 +1,15 @@
 // combo/gui/ComboTrackerVisibility.cpp
-// ComboShip-owned: makes the per-game SETTINGS popouts and the toast/notification window follow the
-// active game across transitions. The MAIN tracker windows are derived every frame from the
-// both-games master model (ComboTrackerSwap); this module only snapshots/restores the settings-window
-// intents. Notifications need a different lever than trackers (map presence via RemoveGuiWindow, not
-// Hide()) — rationale + the 0xCD re-registration hazard: see docs/deviations/tracker.md.
+// ComboShip-owned: makes the per-game SETTINGS popouts and the foreground-only windows (notifications,
+// Time Splits) follow the active game across transitions. The MAIN tracker windows are derived every
+// frame from the both-games master model (ComboTrackerSwap); this module only snapshots/restores the
+// settings-window intents. Foreground-only windows need a different lever than trackers (map presence
+// via RemoveGuiWindow, not Hide()) — rationale + the 0xCD re-registration hazard: docs/deviations/tracker.md.
 // Lives in comboui.dll (links libultraship, stays mapped); the launcher calls the exports per transition.
 // OOT trackers use gOpenWindows.* + plain names; MM uses gWindows.* + "##MM"-suffixed names.
 
 #include <libultraship/libultraship.h> // Ship::Context / Gui + CVarGet/SetInteger
 #include "ComboExport.h"
-#include <memory>               // std::weak_ptr (notification-window handle)
+#include <memory>               // std::weak_ptr (foreground-only window handles)
 #include "ComboForeground.h"    // ComboUI::GetForegroundGame (cached below)
 #include "ComboAudioBridge.h"   // ComboAudio::SyncAllToMM (on MM entry)
 #include "ComboTrackerCommon.h" // kTrackers/SetTracker (shared with ComboTrackerSwap)
@@ -35,16 +35,17 @@ constexpr int kSettingsColumns[2] = { 1, 3 };
 // leaves the loaded config value untouched on the very first call).
 int sIntent[2][2] = { { -1, -1 }, { -1, -1 } };
 
-// Notification windows: OOT registers the plain name; MM appends "##MM" (BenGui.cpp). Indexed by
-// game: 0 = OOT, 1 = MM. These are gated by Gui-map presence, NOT visibility — see the file header.
-const char* const kNotificationWin[2] = {
-    "Notifications Window",     // OOT (soh)
-    "Notifications Window##MM", // MM (2ship)
+// Foreground-only windows [window][game], gated by Gui-map presence since their Draw() ignores
+// visibility. MM names carry "##MM" (BenGui.cpp).
+const char* const kForegroundOnlyWin[][2] = {
+    { "Notifications Window", "Notifications Window##MM" },
+    { "Time Splits", "Time Splits Window##MM" },
 };
+constexpr int kForegroundOnlyCount = sizeof(kForegroundOnlyWin) / sizeof(kForegroundOnlyWin[0]);
 
-// weak_ptr handles so the windows stay owned solely by their own game DLL (their mNotificationWindow
-// member keeps them alive); we only need a handle to re-add the backgrounded one later.
-std::weak_ptr<Ship::GuiWindow> sNotif[2];
+// weak_ptr handles so the windows stay owned solely by their own game DLL (its member keeps them
+// alive); we only need a handle to re-add the backgrounded one later.
+std::weak_ptr<Ship::GuiWindow> sForegroundOnly[kForegroundOnlyCount][2];
 
 // Reload MM's controller bindings from the shared gSettings.Controllers.* CVars. Resolved once from
 // 2ship.dll. Called on MM entry so rebinds made via the Shared (OOT) controls UI while MM was dormant
@@ -61,8 +62,8 @@ void ReloadMmControls() {
     }
 }
 
-// Keep only the foreground game's notification window in the shared Gui's draw loop.
-void SetForegroundNotification(int fg) {
+// Keep only the foreground game's copy of each foreground-only window in the shared Gui's draw loop.
+void SetForegroundOnlyWindows(int fg) {
     auto ctx = Ship::Context::GetRawInstance();
     if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
         return;
@@ -70,16 +71,18 @@ void SetForegroundNotification(int fg) {
     auto gui = ctx->GetWindow()->GetGui();
     const int bg = fg ^ 1;
 
-    // Background game: capture a handle (so we can re-add it on return) and drop it from the draw loop.
-    if (auto win = gui->GetGuiWindow(kNotificationWin[bg])) {
-        sNotif[bg] = win;
-        gui->RemoveGuiWindow(kNotificationWin[bg]);
-    }
-    // Foreground game: re-add the SAME (already-initialized) object if it was previously removed and is
-    // not currently present. Init() on re-add is a guarded no-op; no fresh window is ever created.
-    if (!gui->GetGuiWindow(kNotificationWin[fg])) {
-        if (auto win = sNotif[fg].lock()) {
-            gui->AddGuiWindow(win);
+    for (int w = 0; w < kForegroundOnlyCount; ++w) {
+        // Background game: capture a handle (so we can re-add it on return) and drop it from the loop.
+        if (auto win = gui->GetGuiWindow(kForegroundOnlyWin[w][bg])) {
+            sForegroundOnly[w][bg] = win;
+            gui->RemoveGuiWindow(kForegroundOnlyWin[w][bg]);
+        }
+        // Foreground game: re-add the SAME (already-initialized) object if it was previously removed and
+        // is not currently present. Init() on re-add is a guarded no-op; no fresh window is created.
+        if (!gui->GetGuiWindow(kForegroundOnlyWin[w][fg])) {
+            if (auto win = sForegroundOnly[w][fg].lock()) {
+                gui->AddGuiWindow(win);
+            }
         }
     }
 }
@@ -131,7 +134,7 @@ extern "C" COMBO_EXPORT void ComboUI_OnForegroundGame(int game) {
 
     // Notification window follows the active game too (so MM's toasts show only while MM is foreground
     // and OOT's only while OOT is). Independent of the tracker intent above.
-    SetForegroundNotification(fg);
+    SetForegroundOnlyWindows(fg);
 
     // ComboShip: on MM entry (boot/resume), reconcile the settings MM consumes from its own CVars with
     // the canonical Shared values changed while MM was dormant — push audio volumes (apply per-port

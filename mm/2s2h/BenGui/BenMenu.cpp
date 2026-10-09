@@ -2192,9 +2192,19 @@ void BenMenu::AddEnhancements() {
     // Timesplit Settings
     path = { "Enhancements", "Time Splits", SECTION_COLUMN_1 };
     AddSidebarEntry("Enhancements", "Time Splits", 1);
+#ifdef COMBO_BUILD
+    // ComboShip: matches the renamed settings-window CVar and "##MM" name in BenGui.cpp.
+    AddWidget(path, "Popout Timesplits Settings", WIDGET_WINDOW_BUTTON)
+        .CVar("gWindows.TimesplitsSettings")
+        .WindowName("Time Splits Settings Window" COMBO_MM_WINDOW_SUFFIX);
+    AddWidget(path, "Time Splits Settings Inline", WIDGET_CUSTOM).CustomFunction([](WidgetInfo&) {
+        ComboInlineWindow("Time Splits Settings Window" COMBO_MM_WINDOW_SUFFIX, /*requiresForeground=*/false);
+    });
+#else
     AddWidget(path, "Popout Timesplits Settings", WIDGET_WINDOW_BUTTON)
         .CVar("gWindows.Timesplits.Settings")
         .WindowName("Time Splits Settings Window");
+#endif
 
     // Audio Editor
     path = { "Enhancements", "Audio Editor", SECTION_COLUMN_1 };

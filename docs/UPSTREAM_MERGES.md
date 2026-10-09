@@ -173,8 +173,8 @@ So a routine merge does NOT force the player to re-extract their ROM, but it DOE
 > **Per-merge step (after bumping `upstream-pins.json`): regenerate the port archives** so their
 > embedded `--port-ver` matches the new derived version:
 > `cmake --build <build> --target GenerateSohOtr Generate2ShipOtr --config <cfg>`
-> (these `rm` + re-extract `soh.o2r`/`2ship.o2r` with `${CMAKE_PROJECT_VERSION}` and deploy to the
-> runtime dir). A release build must run them; the local dev build does not do this automatically.
+> (these `rm` + re-pack `soh.o2r` (Torch's `soh-o2r-packer`) / `2ship.o2r` (ZAPD) with
+> `${CMAKE_PROJECT_VERSION}` and deploy to the runtime dir). A release build must run them; the local dev build does not do this automatically.
 > Decision (2026-06-21): we keep the port check at upstream's full-triple rather than weakening it to
 > MAJOR-only, and regenerate each merge.
 
@@ -235,6 +235,10 @@ since CI now pulls each upstream in its own PR — listing every file we had to 
 mechanical 3-way merge and why. This keeps the per-merge required changes easy to track (and to diff
 against the recurring-deviation list below). Newest first:
 
+- [2026-09-28 soh](merges/2026-09-28-soh-develop.md) — soh `5a57a0cbc` → `576b30c64`. soh extracts with
+  Torch (vendored at `torch/`, forced onto the dynamic CRT); ZAPD/OTRExporter are MM-only. Retires every
+  existing combosave and spoiler (enum renumbering). Combo generation moved onto upstream's generating
+  flag; OOT and MM Time Splits separated.
 - [2026-09-28 mm](merges/2026-09-28-mm-develop.md) — mm `d35196ad7` (5.0.0) → `e8757c14a` (2Ship
   develop, past 5.0.1). Code resolutions match main's 5.0.1 PR; MM's `DeinitOTR` no longer destroys
   the shared Context; new `GeneratePools` drops (vanilla dungeon items, song surplus) emitted as

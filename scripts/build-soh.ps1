@@ -1,6 +1,6 @@
-# Build the OOT game DLL: soh.dll  (also builds shared deps OTRExporter/ZAPD)
+# Build the OOT game DLL: soh.dll  (also builds its Torch extractor lib)
 # Usage:  .\build-soh.ps1 [--Debug | --Release]   (defaults to Debug)
-# Build BEFORE 2ship -- both share OTRExporter/ZAPD; never build the two games in parallel.
+# Build BEFORE 2ship; never build the two games in parallel (MSVC heap at -j4).
 
 $target = 'soh'
 

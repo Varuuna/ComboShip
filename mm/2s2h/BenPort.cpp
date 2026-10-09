@@ -1166,8 +1166,11 @@ extern "C" void InitOTR(int argc, char* argv[]) {
         // persist outside gameplay: the title/attract path wipes save first (Sram_InitNewSave). An owl
         // save has already written itself through the flashrom seam.
         if (!isOwlSaveQuit && (!isReset || CVarGetInteger("gEnhancements.Saving.Autosave", 0)) &&
-            gSaveContext.gameMode == GAMEMODE_NORMAL)
+            gSaveContext.gameMode == GAMEMODE_NORMAL) {
+            void Combo_MM_FlushAccumulators(void);
+            Combo_MM_FlushAccumulators(); // ComboShip (#214): bank a count-up still running at the portal
             SaveManager_SaveCurrentForCombo();
+        }
         if (gComboReturnCallback)
             gComboReturnCallback(isOwlSaveQuit ? 2 : (isReset ? 1 : 0));
         if (auto fast3d = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow())) {
@@ -4020,6 +4023,22 @@ static bool Combo_IsBottleRefill(RandoItemId rid) {
     }
 }
 
+// ComboShip (#214): rupees/magic refills land in transient accumulators outside gSaveContext.save.
+// Bank them before a paused/dormant save so they survive quitting from the other game.
+void Combo_MM_FlushAccumulators(void) {
+    if (gSaveContext.rupeeAccumulator != 0) {
+        s16 total = gSaveContext.save.saveInfo.playerData.rupees + gSaveContext.rupeeAccumulator;
+        gSaveContext.save.saveInfo.playerData.rupees = CLAMP(total, 0, (s16)CUR_CAPACITY(UPG_WALLET));
+        gSaveContext.rupeeAccumulator = 0;
+    }
+    if (gSaveContext.magicToAdd != 0) {
+        s16 total = gSaveContext.save.saveInfo.playerData.magic + gSaveContext.magicToAdd;
+        gSaveContext.save.saveInfo.playerData.magic = CLAMP(total, 0, (s16)gSaveContext.magicCapacity);
+        gSaveContext.magicToAdd = 0;
+        gSaveContext.isMagicRequested = false;
+    }
+}
+
 void Combo_MM_GiveDormantResolved(RandoItemId rid) {
     // ComboShip (#84): drop a bottle refill when no bottle is free. Callers convert first, so this is
     // a backstop — Item_Give's bottle-contents branch overwrites bottle #1. Keep it either way.
@@ -4037,19 +4056,7 @@ void Combo_MM_GiveDormantResolved(RandoItemId rid) {
         Rando::gComboDormantGive = true;
         Rando::GiveItem(rid);
     }
-    // ComboShip: rupees/magic land in transient accumulators (not in gSaveContext.save, applied on
-    // the interface tick); flush them into the save so a dormant grant survives quitting before MM.
-    if (gSaveContext.rupeeAccumulator != 0) {
-        s16 total = gSaveContext.save.saveInfo.playerData.rupees + gSaveContext.rupeeAccumulator;
-        gSaveContext.save.saveInfo.playerData.rupees = CLAMP(total, 0, (s16)CUR_CAPACITY(UPG_WALLET));
-        gSaveContext.rupeeAccumulator = 0;
-    }
-    if (gSaveContext.magicToAdd != 0) {
-        s16 total = gSaveContext.save.saveInfo.playerData.magic + gSaveContext.magicToAdd;
-        gSaveContext.save.saveInfo.playerData.magic = CLAMP(total, 0, (s16)gSaveContext.magicCapacity);
-        gSaveContext.magicToAdd = 0;
-        gSaveContext.isMagicRequested = false;
-    }
+    Combo_MM_FlushAccumulators();
     if (gSaveContext.fileNum != 0xFF) {
         SaveManager_SaveCurrentForCombo(); // persist NOW
     }
@@ -4200,6 +4207,8 @@ extern "C" COMBO_EXPORT int MM_GetSharedTier(int family) try {
     return 0;
 }
 
+bool Combo_MmIsForeground(void);
+
 extern "C" COMBO_EXPORT void MM_RaiseSharedTier(int family, int tier) try {
     if (family < 0 || family >= ComboRando::SF_COUNT)
         return;
@@ -4280,6 +4289,10 @@ extern "C" COMBO_EXPORT void MM_RaiseSharedTier(int family, int tier) try {
             Combo_MM_GiveDormantResolved(rid);
         } else {
             Rando::GiveItem(rid);
+            // ComboShip (#214): a parked MM has a live but frozen play state; bank the wallet fill.
+            if (!Combo_MmIsForeground()) {
+                Combo_MM_FlushAccumulators();
+            }
             SaveManager_SaveCurrentForCombo();
         }
         if (MM_GetSharedTier(family) <= cur)

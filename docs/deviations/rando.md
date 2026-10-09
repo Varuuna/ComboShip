@@ -388,6 +388,18 @@ null-`gPlayState` branch skips the wallet cap, so MM-found OOT rupees could push
 and crash `Interface_Draw` (`digitTextures[]` out of bounds). It now clamps to `CUR_CAPACITY(UPG_WALLET)`,
 and `Interface_Update` clamps again so already-overflowed saves recover.
 
+**Paused-save flush (#214, `soh/soh/OTRGlobals.cpp`, `soh/soh/Network/Anchor/Anchor.cpp`,
+`mm/2s2h/BenPort.cpp`, COMBO_BUILD-guarded):** when a game was played and then parked behind the other,
+its play state is still live, so rupee grants go into `rupeeAccumulator` (OOT: magic upgrades into a
+pending `MAGIC_STATE_FILL`; MM: refills into `magicToAdd`). Only the interface tick drains these, it never
+runs while parked, and saves skip them — so quitting from the other game lost the grant. Rule: **every
+save taken while a game is not foreground calls its flush helper first.** OOT's
+`Combo_FlushDormantAccumulators` (rupees clamped to the wallet, magic set to the fill target) runs in
+`Combo_GrantResolvedOOT` (when OOT isn't foreground), `Anchor::PumpDormant`, and the Mask Shop switch
+save. MM's `Combo_MM_FlushAccumulators` (lifted out of `Combo_MM_GiveDormantResolved`, unchanged) runs
+there, in `MM_RaiseSharedTier`'s live-play-state branch (when MM isn't foreground), and in the Clock Tower
+portal return save.
+
 **`soh/soh/OTRGlobals.cpp` (vendored, COMBO_BUILD-guarded):** four new exports —
 `SOH_GrantCrossItem` (resolve OOT English name → `Randomizer_Item_Give` → `SaveManager::SaveFile`),
 `SOH_MarkForeignObtained` (mark a foreign OOT check collected, save-only, for network idempotency),
@@ -470,6 +482,25 @@ single `ComboGenProgress` and shares a read-only pointer with soh.
 **On future merges:** if upstream restructures the file-select randomizer menu (`RSM_*` actions) or
 `FileChoose_UpdateRandomizer`, re-apply the two action repoints + the finalize poll. If `GameState`'s
 `main` field or `FileChoose_Main` moves, re-check `SOH_IsOnFileSelect`.
+
+### Closing the window mid-generate (2026-10-08)
+
+**Why:** pressing X during generation made the app look hung. The window stopped drawing, but the
+shutdown's `g_GenerateThread.join()` waited for the whole fill, retries included.
+
+**Design:** `ComboGenProgress::cancel`, set by the shutdown block just before the join. The worker
+polls it between DLL calls: `CrossWorldCombinedFill` (pass, prereq-try and placement loop heads,
+before validation), `PareDownPlaythrough` (per candidate) and `RunComboFill` (each attempt, around
+the fill, pare-down and playthrough, and before the spoiler is assembled). No thread is killed and
+nothing throws. Headless `comborando` passes `progress = nullptr`, so it never sees a cancel.
+
+**After a cancel:** it is a failed generation. It is never retried and never relaxes constraints or
+budgets. The MM oracle session and the menu goal are restored, no seed is bound
+(`g_ConsolidatedJson`/`g_Finalize*`/`g_ComboPendingFinalize` untouched), and no spoiler is written.
+A cancel that lands during the spoiler write lets it finish; that file belongs to no save.
+`RandoGenerating` stays 1 on disk and `BootCommands_Init` clears it on the next boot. soh's own
+`randoThread` is out of scope: in combo only the debug console can start it (the menu button and
+its joiner are `#ifndef COMBO_BUILD`).
 
 ## Consolidated combo spoiler: share/drop + remember-seed + sphere hints (2026-06-28)
 

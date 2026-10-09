@@ -1582,6 +1582,15 @@ static void FailComboFill(ComboRando::ComboGenProgress* progress, const char* ms
 // thread, reports progress via the ComboGenProgress struct, and stashes placements.
 static void RunComboFillBody(std::string inputSeed, ComboRando::ComboGenProgress* progress) {
     auto fail = [&](const char* msg) { FailComboFill(progress, msg); };
+    // Window closed mid-generate: fail out (no retry, nothing written) once the current DLL call returns.
+    auto cancelled = [&] {
+        if (!ComboRando::GenCancelled(progress))
+            return false;
+        if (Combo_MM_Rando_Restore)
+            Combo_MM_Rando_Restore();
+        fail("generation cancelled (window closed)");
+        return true;
+    };
 
     if (!SOH_DumpRandoStaticData || !MM_DumpRandoStaticData) {
         fail("dump functions not resolved");
@@ -1660,6 +1669,8 @@ static void RunComboFillBody(std::string inputSeed, ComboRando::ComboGenProgress
     // and prices re-roll deterministically per attempt. Budget lives in CrossWorldRando.h.
     const int kFillAttempts = ComboRando::kFillAttempts;
     for (int attempt = 0; attempt < kFillAttempts && !usedCombinedFill; ++attempt) {
+        if (cancelled())
+            return;
         // Space each retry's seed far apart (golden-ratio step) so attempts don't correlate.
         masterSeed = baseSeed + attempt * 0x9E3779B9u;
         ResetCrossItemDedupForSeed(masterSeed);
@@ -1725,6 +1736,8 @@ static void RunComboFillBody(std::string inputSeed, ComboRando::ComboGenProgress
                 Combo_MM_Rando_Restore();
             continue;
         }
+        if (cancelled())
+            return;
         if (!haveOracles)
             break; // no oracles -> no-logic fallback below; the dumps are still needed
 
@@ -1740,6 +1753,8 @@ static void RunComboFillBody(std::string inputSeed, ComboRando::ComboGenProgress
         auto result = ComboRando::CrossWorldCombinedFill(
             sohDump, mmDump, masterSeed, ootOracle, mmOracle, progress, forcedOot, ootAccess, goal,
             mmStart ? ComboRando::GAME_MM : ComboRando::GAME_OOT, sharedMask);
+        if (cancelled()) // before the success/retry branch, so a cancel never retries
+            return;
 
         if (result.success) {
             spoiler = result.spoilerJson;
@@ -1775,11 +1790,15 @@ static void RunComboFillBody(std::string inputSeed, ComboRando::ComboGenProgress
                 std::cout << "[ComboShip] RunComboFill: pare-down skipped (no enabled hint surface needs "
                              "requiredness)\n";
             }
+            if (cancelled())
+                return;
             // ComboShip: write the sphere-by-sphere playthrough log. Replays reachability via the
             // oracles BEFORE SOH_ApplyRandoPlacements restores the live OOT context, so it can't
             // corrupt the generated seed. Restores MM itself.
             WriteComboPlaythrough(result.spoilerJson, ootOracle, mmOracle, inputSeed, &playthroughJson, sohDump, mmDump,
                                   goal, mmStart, sharedMask);
+            if (cancelled())
+                return;
         } else {
             lastFillError = result.error;
             std::cout << "[ComboShip] RunComboFill: attempt " << (attempt + 1) << "/" << kFillAttempts
@@ -1790,6 +1809,8 @@ static void RunComboFillBody(std::string inputSeed, ComboRando::ComboGenProgress
         Combo_MM_Rando_Restore();
     }
 
+    if (cancelled())
+        return;
     if (haveOracles && !usedCombinedFill) {
         std::string msg =
             std::string("combined fill failed after ") + std::to_string(kFillAttempts) + " attempts — " + lastFillError;
@@ -1900,9 +1921,6 @@ static void RunComboFillBody(std::string inputSeed, ComboRando::ComboGenProgress
         // The OOT seed-hash folds in input-seed + both settings dumps so the icons identify seed and
         // settings (same seed+settings -> matching icons across players).
         uint32_t displaySeed = ComboHash((inputSeed + sohDump + mmDump).c_str());
-        g_FinalizeOotApply = ootApply.dump();
-        g_FinalizeDisplaySeed = displaySeed;
-        g_FinalizeMasterSeed = masterSeed;
 
         // ComboShip: file_hash = the 5 icon indexes the file-select shows, derived from displaySeed
         // exactly as OOT's GenerateHash (decimal padded to 10, five 2-digit pairs).
@@ -1985,6 +2003,11 @@ static void RunComboFillBody(std::string inputSeed, ComboRando::ComboGenProgress
         consolidated["hints"] = usedCombinedFill ? ComboRando::Generate(masterSeed, sohDump, sohHintDump, mmDump,
                                                                         foreignEnriched, spoiler, pareDownResult)
                                                  : nlohmann::json{ { "version", 1 } };
+        if (cancelled())
+            return;
+        g_FinalizeOotApply = ootApply.dump();
+        g_FinalizeDisplaySeed = displaySeed;
+        g_FinalizeMasterSeed = masterSeed;
         g_ConsolidatedJson = consolidated.dump(2);
 
         // This seed's own spoiler, so earlier seeds survive instead of being overwritten. The CVar that
@@ -3497,8 +3520,14 @@ int main(int argc, char** argv) {
     // std::thread would std::terminate() at static destruction, and the worker must not run past
     // the DLLs it touches.
     if (g_GenerateThread.joinable()) {
-        std::cerr << "[ComboShip] shutdown: joining generate worker" << std::endl;
+        g_ComboProgress.cancel.store(true); // worker polls this between DLL calls, so the join is short
+        std::cerr << "[ComboShip] shutdown: cancelling generate worker" << std::endl;
+        const auto joinStart = std::chrono::steady_clock::now();
         g_GenerateThread.join();
+        std::cerr << "[ComboShip] shutdown: generate worker joined ("
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - joinStart)
+                         .count()
+                  << " ms)" << std::endl;
     }
 
     // Stop the Anchor receive thread first: it calls into soh.dll exports, so it must be joined

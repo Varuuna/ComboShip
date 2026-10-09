@@ -1798,6 +1798,7 @@ static void Combo_FinishInit() {
     Ship::Context::GetRawInstance()->GetFileDropMgr()->RegisterDropHandler(SoH_HandleConfigDrop);
 
 #ifdef COMBO_BUILD
+    void Combo_FlushDormantAccumulators(void);
     // Flag set when we want to switch to MM. Acted on at the start of the next clean frame.
     static bool sComboSwitchPending = false;
     static int sComboSwitchFileNum = -1;
@@ -1814,6 +1815,7 @@ static void Combo_FinishInit() {
         if (!sComboSwitchPending)
             return;
         sComboSwitchPending = false;
+        Combo_FlushDormantAccumulators(); // ComboShip (#214): bank a count-up still running at the door
         SaveManager::Instance->SaveFile(sComboSwitchFileNum);
         SaveManager::Instance->ThreadPoolWait();
         if (gComboSceneSwitchCallback) {
@@ -3044,6 +3046,23 @@ void Combo_ApplyItemReceiveSideEffects(const GetItemEntry& gie) {
     }
 }
 
+// ComboShip (#214): a dormant OOT never drains the rupee accumulator or a pending magic fill, and
+// saves skip both. Bank them into the saved fields before any dormant/switch save.
+void Combo_FlushDormantAccumulators(void) {
+    if (gSaveContext.rupeeAccumulator != 0) {
+        s32 total = (s32)gSaveContext.rupees + gSaveContext.rupeeAccumulator;
+        gSaveContext.rupees = (s16)std::clamp<s32>(total, 0, CUR_CAPACITY(UPG_WALLET));
+        gSaveContext.rupeeAccumulator = 0;
+    }
+    if (gSaveContext.magicState == MAGIC_STATE_FILL) {
+        gSaveContext.magic = (s8)gSaveContext.magicFillTarget;
+        gSaveContext.magicState = gSaveContext.prevMagicState;
+        gSaveContext.prevMagicState = 0;
+    }
+}
+
+bool Combo_OotIsForeground(void);
+
 // ComboShip: save-direct grant of a resolved OOT item. Shared by SOH_GrantCrossItem and Anchor's
 // team-state backfill so both apply identical dispatch + side effects + persist.
 void Combo_GrantResolvedOOT(const GetItemEntry& gie) {
@@ -3081,6 +3100,10 @@ void Combo_GrantResolvedOOT(const GetItemEntry& gie) {
         gSaveContext.inventory.questItems += (heartPieces % 4) << (QUEST_HEART_PIECE + 4);
         gSaveContext.healthCapacity += 0x10 * (heartPieces / 4);
         gSaveContext.health += 0x10 * (heartPieces / 4);
+    }
+    // ComboShip (#214): foreground keeps the live count-up / meter fill.
+    if (!Combo_OotIsForeground()) {
+        Combo_FlushDormantAccumulators();
     }
     if (SaveManager::Instance && gSaveContext.fileNum != 0xFF) {
         SaveManager::Instance->SaveFile(gSaveContext.fileNum); // persist NOW

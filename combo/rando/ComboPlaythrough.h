@@ -358,6 +358,8 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
     // empty. Still wins -> not required; loses -> required. Definitionally correct, no monotonicity
     // assumption (unlike the old group-test binary split, which our cross-game oracle broke).
     for (size_t i : cand) {
+        if (GenCancelled(progress))
+            break; // caller discards the partial result
         ++result.replayedCount;
         classified[i] = winsWithout({ i }, nullptr) ? 0 : 1;
         if (progress)

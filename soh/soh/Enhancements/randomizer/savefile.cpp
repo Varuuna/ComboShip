@@ -1,18 +1,18 @@
+#include <spdlog/spdlog.h>
+
 #include "savefile.h"
 #include "soh/OTRGlobals.h"
 #include "soh/ResourceManagerHelpers.h"
-#include "soh/Enhancements/game-interactor/GameInteractor.h"
+#include "soh/Enhancements/randomizer/bean_patches.h"
+#include "soh/Enhancements/randomizer/dungeon.h"
 #include "soh/Enhancements/randomizer/logic.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
-
-#include <spdlog/spdlog.h>
+#include "soh/Enhancements/randomizer/randomizerEnumStrings.h"
 
 extern "C" {
-#include <z64.h>
 #include "variables.h"
 #include "functions.h"
 #include "macros.h"
-
 uint8_t Randomizer_GetSettingValue(RandomizerSettingKey randoSettingKey);
 GetItemEntry Randomizer_GetItemFromKnownCheck(RandomizerCheck randomizerCheck, GetItemID ogId);
 }
@@ -336,7 +336,7 @@ void SetStartingItems() {
                 Item_Give(NULL, ITEM_LETTER_RUTO);
                 break;
             default:
-                SPDLOG_ERROR("[SetStartingItems] Unhandled value for bottleKey {}: {}", (int)bottleKey, bottle);
+                SPDLOG_ERROR("[SetStartingItems] Unhandled value for bottleKey {}: {}", bottleKey, bottle);
                 assert(false);
                 break;
         }
@@ -353,6 +353,9 @@ void SetStartingItems() {
         Randomizer_GetSettingValue(RSK_SHUFFLE_ZELDAS_LETTER)) {
         Item_Give(NULL, ITEM_LETTER_ZELDA);
     }
+    if (Randomizer_GetSettingValue(RSK_STARTING_SCARECROWS_SONG)) {
+        Flags_SetRandomizerInf(RAND_INF_HAS_SCARECROWS_SONG);
+    }
     if (Randomizer_GetSettingValue(RSK_STARTING_CLAIM_CHECK)) {
         Item_Give(NULL, ITEM_CLAIM_CHECK);
     }
@@ -360,10 +363,27 @@ void SetStartingItems() {
         Item_Give(NULL, ITEM_GERUDO_CARD);
     }
 
-    if (Randomizer_GetSettingValue(RSK_STARTING_BUNNY_HOOD)) {
-        Flags_SetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_MASK_BUNNY);
-        if (INV_CONTENT(ITEM_TRADE_CHILD) == ITEM_NONE) {
-            INV_CONTENT(ITEM_TRADE_CHILD) = ITEM_MASK_BUNNY;
+    struct StartingMask {
+        RandomizerSettingKey setting;
+        RandomizerInf randInf;
+        uint8_t item;
+    };
+    static const StartingMask startingMasks[] = {
+        { RSK_STARTING_KEATON_MASK, RAND_INF_CHILD_TRADES_HAS_MASK_KEATON, ITEM_MASK_KEATON },
+        { RSK_STARTING_SKULL_MASK, RAND_INF_CHILD_TRADES_HAS_MASK_SKULL, ITEM_MASK_SKULL },
+        { RSK_STARTING_SPOOKY_MASK, RAND_INF_CHILD_TRADES_HAS_MASK_SPOOKY, ITEM_MASK_SPOOKY },
+        { RSK_STARTING_BUNNY_HOOD, RAND_INF_CHILD_TRADES_HAS_MASK_BUNNY, ITEM_MASK_BUNNY },
+        { RSK_STARTING_GORON_MASK, RAND_INF_CHILD_TRADES_HAS_MASK_GORON, ITEM_MASK_GORON },
+        { RSK_STARTING_ZORA_MASK, RAND_INF_CHILD_TRADES_HAS_MASK_ZORA, ITEM_MASK_ZORA },
+        { RSK_STARTING_GERUDO_MASK, RAND_INF_CHILD_TRADES_HAS_MASK_GERUDO, ITEM_MASK_GERUDO },
+        { RSK_STARTING_MASK_OF_TRUTH, RAND_INF_CHILD_TRADES_HAS_MASK_TRUTH, ITEM_MASK_TRUTH },
+    };
+    for (const auto& mask : startingMasks) {
+        if (Randomizer_GetSettingValue(mask.setting)) {
+            Flags_SetRandomizerInf(mask.randInf);
+            if (INV_CONTENT(ITEM_TRADE_CHILD) == ITEM_NONE) {
+                INV_CONTENT(ITEM_TRADE_CHILD) = mask.item;
+            }
         }
     }
 
@@ -387,22 +407,13 @@ void SetStartingItems() {
     }
 
     if (Randomizer_GetSettingValue(RSK_KEYSANITY) == RO_DUNGEON_ITEM_LOC_STARTWITH) {
-        gSaveContext.inventory.dungeonKeys[SCENE_FOREST_TEMPLE] = FOREST_TEMPLE_SMALL_KEY_MAX;            // Forest
-        gSaveContext.ship.stats.dungeonKeys[SCENE_FOREST_TEMPLE] = FOREST_TEMPLE_SMALL_KEY_MAX;           // Forest
-        gSaveContext.inventory.dungeonKeys[SCENE_FIRE_TEMPLE] = FIRE_TEMPLE_SMALL_KEY_MAX;                // Fire
-        gSaveContext.ship.stats.dungeonKeys[SCENE_FIRE_TEMPLE] = FIRE_TEMPLE_SMALL_KEY_MAX;               // Fire
-        gSaveContext.inventory.dungeonKeys[SCENE_WATER_TEMPLE] = WATER_TEMPLE_SMALL_KEY_MAX;              // Water
-        gSaveContext.ship.stats.dungeonKeys[SCENE_WATER_TEMPLE] = WATER_TEMPLE_SMALL_KEY_MAX;             // Water
-        gSaveContext.inventory.dungeonKeys[SCENE_SPIRIT_TEMPLE] = SPIRIT_TEMPLE_SMALL_KEY_MAX;            // Spirit
-        gSaveContext.ship.stats.dungeonKeys[SCENE_SPIRIT_TEMPLE] = SPIRIT_TEMPLE_SMALL_KEY_MAX;           // Spirit
-        gSaveContext.inventory.dungeonKeys[SCENE_SHADOW_TEMPLE] = SHADOW_TEMPLE_SMALL_KEY_MAX;            // Shadow
-        gSaveContext.ship.stats.dungeonKeys[SCENE_SHADOW_TEMPLE] = SHADOW_TEMPLE_SMALL_KEY_MAX;           // Shadow
-        gSaveContext.inventory.dungeonKeys[SCENE_BOTTOM_OF_THE_WELL] = BOTTOM_OF_THE_WELL_SMALL_KEY_MAX;  // BotW
-        gSaveContext.ship.stats.dungeonKeys[SCENE_BOTTOM_OF_THE_WELL] = BOTTOM_OF_THE_WELL_SMALL_KEY_MAX; // BotW
-        gSaveContext.inventory.dungeonKeys[SCENE_GERUDO_TRAINING_GROUND] = GERUDO_TRAINING_GROUND_SMALL_KEY_MAX;  // GTG
-        gSaveContext.ship.stats.dungeonKeys[SCENE_GERUDO_TRAINING_GROUND] = GERUDO_TRAINING_GROUND_SMALL_KEY_MAX; // GTG
-        gSaveContext.inventory.dungeonKeys[SCENE_INSIDE_GANONS_CASTLE] = GANONS_CASTLE_SMALL_KEY_MAX;  // Ganon
-        gSaveContext.ship.stats.dungeonKeys[SCENE_INSIDE_GANONS_CASTLE] = GANONS_CASTLE_SMALL_KEY_MAX; // Ganon
+        for (Rando::DungeonInfo* dungeon : Rando::Context::GetInstance()->GetDungeons()->GetDungeonList()) {
+            uint8_t keys = Rando::GetSceneSmallKeyMax(dungeon->GetScene());
+            if (keys > 0) {
+                gSaveContext.inventory.dungeonKeys[dungeon->GetScene()] = keys;
+                gSaveContext.ship.stats.dungeonKeys[dungeon->GetScene()] = keys;
+            }
+        }
     } else if (Randomizer_GetSettingValue(RSK_KEYSANITY) == RO_DUNGEON_ITEM_LOC_VANILLA) {
         // Logic cannot handle vanilla key layout in some dungeons
         // this is because vanilla expects the dungeon major item to be
@@ -414,6 +425,12 @@ void SetStartingItems() {
                 gSaveContext.inventory.dungeonKeys[SCENE_SPIRIT_TEMPLE] = 3;
                 gSaveContext.ship.stats.dungeonKeys[SCENE_SPIRIT_TEMPLE] = 3;
             }
+        }
+    }
+
+    if (Randomizer_GetSettingValue(RSK_SHUFFLE_SILVER) == RO_SHUFFLE_SILVER_STARTWITH) {
+        for (int rg = (int)RG_SHADOW_SILVER_BLADES; rg <= (int)RG_GANONS_CASTLE_MQ_SILVER_SHADOW; rg++) {
+            *Randomizer::SilverFieldFromSaveContext(&gSaveContext, (RandomizerGet)rg) = 10;
         }
     }
 
@@ -469,31 +486,18 @@ extern "C" void Randomizer_InitSaveFile() {
         }
         if (Randomizer_GetSettingValue(RSK_SKIP_PLANTING_BEANS)) {
             AMMO(ITEM_BEAN) = 0;
-            gSaveContext.sceneFlags[SCENE_DEATH_MOUNTAIN_CRATER].swch |= (1 << 3);
-            gSaveContext.sceneFlags[SCENE_DEATH_MOUNTAIN_TRAIL].swch |= (1 << 6);
-            gSaveContext.sceneFlags[SCENE_DESERT_COLOSSUS].swch |= (1 << 24);
-            gSaveContext.sceneFlags[SCENE_GERUDO_VALLEY].swch |= (1 << 3);
-            gSaveContext.sceneFlags[SCENE_GRAVEYARD].swch |= (1 << 3);
-            gSaveContext.sceneFlags[SCENE_KOKIRI_FOREST].swch |= (1 << 9);
-            gSaveContext.sceneFlags[SCENE_LAKE_HYLIA].swch |= (1 << 1);
-            gSaveContext.sceneFlags[SCENE_LOST_WOODS].swch |= (1 << 4) | (1 << 18);
-            gSaveContext.sceneFlags[SCENE_ZORAS_RIVER].swch |= (1 << 3);
+            for (const BeanPatch& patch : beanPatches) {
+                gSaveContext.sceneFlags[patch.scene].swch |= 1 << patch.swchFlag;
+            }
         } else {
             AMMO(ITEM_BEAN) = 10;
         }
     }
 
     if (Randomizer_GetSettingValue(RSK_SHUFFLE_BEAN_SOULS) == RO_GENERIC_OFF) {
-        Flags_SetRandomizerInf(RAND_INF_DEATH_MOUNTAIN_CRATER_BEAN_SOUL);
-        Flags_SetRandomizerInf(RAND_INF_DEATH_MOUNTAIN_TRAIL_BEAN_SOUL);
-        Flags_SetRandomizerInf(RAND_INF_DESERT_COLOSSUS_BEAN_SOUL);
-        Flags_SetRandomizerInf(RAND_INF_GERUDO_VALLEY_BEAN_SOUL);
-        Flags_SetRandomizerInf(RAND_INF_GRAVEYARD_BEAN_SOUL);
-        Flags_SetRandomizerInf(RAND_INF_KOKIRI_FOREST_BEAN_SOUL);
-        Flags_SetRandomizerInf(RAND_INF_LAKE_HYLIA_BEAN_SOUL);
-        Flags_SetRandomizerInf(RAND_INF_LOST_WOODS_BRIDGE_BEAN_SOUL);
-        Flags_SetRandomizerInf(RAND_INF_LOST_WOODS_BEAN_SOUL);
-        Flags_SetRandomizerInf(RAND_INF_ZORAS_RIVER_BEAN_SOUL);
+        for (const BeanPatch& patch : beanPatches) {
+            Flags_SetRandomizerInf(patch.soulRandInf);
+        }
     }
 
     if (Randomizer_GetSettingValue(RSK_SHUFFLE_OCARINA_BUTTONS) == RO_GENERIC_OFF) {
@@ -648,11 +652,8 @@ extern "C" void Randomizer_InitSaveFile() {
         gSaveContext.sceneFlags[SCENE_WATER_TEMPLE].swch |= (1 << 0x15);
     }
 
-    int doorOfTime = Randomizer_GetSettingValue(RSK_DOOR_OF_TIME);
-    switch (doorOfTime) {
-        case RO_DOOROFTIME_OPEN:
-            Flags_SetEventChkInf(EVENTCHKINF_OPENED_THE_DOOR_OF_TIME);
-            break;
+    if (Randomizer_GetSettingValue(RSK_DOOR_OF_TIME) == RO_DOOROFTIME_OPEN) {
+        Flags_SetEventChkInf(EVENTCHKINF_OPENED_THE_DOOR_OF_TIME);
     }
 
     if (Randomizer_GetSettingValue(RSK_GERUDO_FORTRESS) == RO_GF_CARPENTERS_FAST ||
@@ -685,26 +686,5 @@ extern "C" void Randomizer_InitSaveFile() {
         if (!Randomizer_GetSettingValue(RSK_SHUFFLE_GERUDO_MEMBERSHIP_CARD)) {
             Item_Give(NULL, ITEM_GERUDO_CARD);
         }
-    }
-
-    // complete mask quest
-    if (Randomizer_GetSettingValue(RSK_MASK_QUEST) == RO_MASK_QUEST_COMPLETED) {
-        Flags_SetInfTable(INFTABLE_GATE_GUARD_PUT_ON_KEATON_MASK);
-        Flags_SetEventChkInf(EVENTCHKINF_PAID_BACK_BUNNY_HOOD_FEE);
-
-        Flags_SetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_MASK_KEATON);
-        Flags_SetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_MASK_SKULL);
-        Flags_SetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_MASK_SPOOKY);
-        Flags_SetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_MASK_BUNNY);
-        Flags_SetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_MASK_GORON);
-        Flags_SetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_MASK_ZORA);
-        Flags_SetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_MASK_GERUDO);
-        Flags_SetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_MASK_TRUTH);
-
-        gSaveContext.itemGetInf[3] |= 0x100;  // Sold Keaton Mask
-        gSaveContext.itemGetInf[3] |= 0x200;  // Sold Skull Mask
-        gSaveContext.itemGetInf[3] |= 0x400;  // Sold Spooky Mask
-        gSaveContext.itemGetInf[3] |= 0x800;  // Bunny Hood related
-        gSaveContext.itemGetInf[3] |= 0x8000; // Obtained Mask of Truth
     }
 }

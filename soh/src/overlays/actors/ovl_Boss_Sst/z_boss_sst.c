@@ -11,7 +11,6 @@
 #include "overlays/actors/ovl_Bg_Sst_Floor/z_bg_sst_floor.h"
 #include "overlays/actors/ovl_Door_Warp1/z_door_warp1.h"
 #include "soh/frame_interpolation.h"
-#include "soh/ResourceManagerHelpers.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/savestate_serialize.h"
@@ -270,6 +269,7 @@ const ActorInit Boss_Sst_InitVars = {
 };
 
 #include "z_boss_sst_colchk.c"
+#include <libultraship/bridge/consolevariablebridge.h>
 
 static AnimationHeader* sHandIdleAnims[] = { &gBongoLeftHandIdleAnim, &gBongoRightHandIdleAnim };
 static AnimationHeader* sHandFlatPoses[] = { &gBongoLeftHandFlatPoseAnim, &gBongoRightHandFlatPoseAnim };
@@ -366,8 +366,6 @@ void BossSst_Destroy(Actor* thisx, PlayState* play) {
     Collider_DestroyJntSph(play, &this->colliderJntSph);
     Collider_DestroyCylinder(play, &this->colliderCyl);
     Audio_StopSfxByPos(&this->center);
-
-    ResourceMgr_UnregisterSkeleton(&this->skelAnime);
 }
 
 void BossSst_HeadSetupLurk(BossSst* this) {
@@ -379,21 +377,12 @@ void BossSst_HeadSetupLurk(BossSst* this) {
 }
 
 void BossSst_HeadLurk(BossSst* this, PlayState* play) {
-    if (CVarGetInteger(CVAR_ENHANCEMENT("QuickBongoKill"), 0)) {
-        this->colliderCyl.base.acFlags |= AC_ON;
-    }
-
     if (this->actor.yDistToPlayer < 1000.0f) {
         BossSst_HeadSetupIntro(this, play);
     }
 }
 
 void BossSst_HeadSetupIntro(BossSst* this, PlayState* play) {
-    // Make sure to restore original behavior if the quick kill didn't happen
-    if (CVarGetInteger(CVAR_ENHANCEMENT("QuickBongoKill"), 0)) {
-        this->colliderCyl.base.acFlags &= ~AC_ON;
-    }
-
     Player* player = GET_PLAYER(play);
 
     this->timer = 611;
@@ -1066,7 +1055,7 @@ void BossSst_HeadDeath(BossSst* this, PlayState* play) {
     }
 
     Math_StepToF(&this->actor.world.pos.y, this->actor.home.pos.y - 140.0f, 20.0f);
-    if (this->timer == 0) {
+    if (GameInteractor_Should(VB_BONGO_BONGO_DEATH_SCENE, this->timer == 0, this, sHands[LEFT], sHands[RIGHT])) {
         BossSst_HandSetupThrash(sHands[LEFT]);
         BossSst_HandSetupThrash(sHands[RIGHT]);
         BossSst_HeadSetupThrash(this);
@@ -1121,7 +1110,7 @@ void BossSst_HeadSetupDarken(BossSst* this) {
 }
 
 void BossSst_HeadDarken(BossSst* this, PlayState* play) {
-    if (this->timer != 0) {
+    if (GameInteractor_Should(VB_BONGO_BONGO_DEATH_SCENE, this->timer != 0, this, sHands[LEFT], sHands[RIGHT])) {
         this->timer--;
     }
 
@@ -2634,7 +2623,8 @@ void BossSst_UpdateHand(Actor* thisx, PlayState* play) {
         CollisionCheck_SetAT(play, &play->colChkCtx, &this->colliderJntSph.base);
     }
 
-    if ((sHead->actionFunc != BossSst_HeadLurk) && (sHead->actionFunc != BossSst_HeadIntro) &&
+    if (GameInteractor_Should(VB_ALLOW_QUICK_BONGO_KILL,
+                              (this->actionFunc != BossSst_HeadLurk) && (this->actionFunc != BossSst_HeadIntro)) &&
         (this->colliderJntSph.base.acFlags & AC_ON)) {
         CollisionCheck_SetAC(play, &play->colChkCtx, &this->colliderJntSph.base);
     }
@@ -2690,8 +2680,8 @@ void BossSst_UpdateHead(Actor* thisx, PlayState* play) {
         CollisionCheck_SetAT(play, &play->colChkCtx, &this->colliderJntSph.base);
     }
 
-    if ((this->actionFunc != BossSst_HeadLurk || CVarGetInteger(CVAR_ENHANCEMENT("QuickBongoKill"), 0)) &&
-        (this->actionFunc != BossSst_HeadIntro)) {
+    if (GameInteractor_Should(VB_ALLOW_QUICK_BONGO_KILL,
+                              (this->actionFunc != BossSst_HeadLurk) && (this->actionFunc != BossSst_HeadIntro))) {
         if (this->colliderCyl.base.acFlags & AC_ON) {
             CollisionCheck_SetAC(play, &play->colChkCtx, &this->colliderCyl.base);
         }

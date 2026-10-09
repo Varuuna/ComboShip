@@ -191,6 +191,8 @@ MM is dormant); and nothing let a dormant sibling itself REQUEST a resync (MM's
 Fixes, all `COMBO_BUILD`:
 - `Anchor::PumpDormant` (`soh/soh/Network/Anchor/Anchor.cpp`) now wraps the `REQUEST_TEAM_STATE`
   branch in `isDormantApply` like the `GIVE_ITEM` branch already did.
+  (#214) It also calls `Combo_FlushDormantAccumulators()` before its save, so dormant rupee/magic grants
+  persist; MM's pump already did via `Combo_MM_GiveDormantResolved` (see rando.md, "Paused-save flush").
 - `MMAnchor::SendTeamStateFromSave` (`mm/2s2h/Network/Anchor/MMAnchor.cpp`) now judges by
   `gSaveContext.fileNum` instead of `IsSaveLoaded()`, so it answers even while MM is dormant.
 - New dormant-safe request seam per game: `Anchor::RequestResyncDormantSafe()` /

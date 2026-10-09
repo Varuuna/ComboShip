@@ -1,4 +1,7 @@
+#include <libultraship/bridge/consolevariablebridge.h>
+
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include "soh/Enhancements/game-interactor/vanilla-behavior/GIVanillaBehavior.h"
 #include "soh/ShipInit.hpp"
 
 extern "C" {
@@ -9,6 +12,7 @@ extern "C" {
 #include "src/overlays/actors/ovl_En_Test/z_en_test.h"
 #include "src/overlays/actors/ovl_En_Horse/z_en_horse.h"
 #include "src/overlays/actors/ovl_Mir_Ray/z_mir_ray.h"
+void UnregisterActorSkeletons(struct Actor* actor);
 extern void Player_UseItem(PlayState*, Player*, s32);
 extern PlayState* gPlayState;
 }
@@ -51,7 +55,8 @@ void RegisterAlwaysOnFixes() {
     // spawn (Player_InitItemAction removes the ranged weapon state elsewhere).
     COND_VB_SHOULD(VB_INIT_HOOKSHOT_IA, true, {
         Player* player = va_arg(args, Player*);
-        if (player->heldActor == NULL) {
+        if (player->heldActor == NULL && !(CVarGetInteger(CVAR_ENHANCEMENT("ChildHookshotSoftlock"), 0) &&
+                                           Object_GetIndex(&gPlayState->objectCtx, OBJECT_LINK_BOY) < 0)) {
             Player_UseItem(gPlayState, player, 0xFF);
         }
     });
@@ -98,6 +103,11 @@ void RegisterAlwaysOnFixes() {
         }
     });
 
+    // ShouldActorDestroy rather than OnActorDestroy: the latter only fires from Actor_Delete, but
+    // Actor_UpdateAll and func_80031B14 both run Actor_Destroy without deleting.
+    COND_HOOK(ShouldActorDestroy, true,
+              [](void* refActor, bool* result) { UnregisterActorSkeletons(reinterpret_cast<Actor*>(refActor)); });
+
     COND_ID_HOOK(OnActorDestroy, ACTOR_EN_TEST, true, [](void* refActor) {
         Actor* actor = reinterpret_cast<Actor*>(refActor);
         if (actor->params != STALFOS_TYPE_2 && !EnTest_HasLivingNearby(actor)) {
@@ -124,7 +134,8 @@ void RegisterAlwaysOnFixes() {
         s8* heldItemAction = va_arg(args, s8*);
         s32* camMode = va_arg(args, s32*);
 
-        if (*heldItemAction == PLAYER_IA_BOW) {
+        if (*heldItemAction == PLAYER_IA_BOW || *heldItemAction == PLAYER_IA_BOW_FIRE ||
+            *heldItemAction == PLAYER_IA_BOW_ICE || *heldItemAction == PLAYER_IA_BOW_LIGHT) {
             if (CVarGetInteger(CVAR_ENHANCEMENT("BowSlingshotAmmoFix"), false) ||
                 CVarGetInteger(CVAR_ENHANCEMENT("EquipmentAlwaysVisible"), false)) {
                 *camMode = CAM_MODE_AIM_ADULT;
@@ -135,13 +146,26 @@ void RegisterAlwaysOnFixes() {
                 *camMode = CAM_MODE_AIM_CHILD;
             }
         } else if (*heldItemAction == PLAYER_IA_HOOKSHOT || *heldItemAction == PLAYER_IA_LONGSHOT) {
-            if (gPlayState->sceneNum == SCENE_LAKESIDE_LABORATORY) {
+            if (CVarGetInteger(CVAR_ENHANCEMENT("EquipmentAlwaysVisible"), false)) {
+                *camMode = CAM_MODE_AIM_ADULT;
+            } else if (gPlayState->sceneNum == SCENE_LAKESIDE_LABORATORY) {
                 *camMode = CAM_MODE_AIM_ADULT; // Fix child Hookshot aiming in lab (CAM_MODE_AIM_CHILD is invalid there)
             }
         } else if (*heldItemAction == PLAYER_IA_BOOMERANG) {
             if (CVarGetInteger(CVAR_ENHANCEMENT("BoomerangFirstPerson"), false)) {
                 *camMode = CAM_MODE_FIRST_PERSON;
             }
+        }
+    });
+
+    // Empty Bottle OI (aka "Drinking Bugs") causes the bottle to read the potion effect array out of bounds
+    // The exact effect this had on N64 depended on the game version, but on ship it seems to depend on the compiler or
+    // build type. To resolve this UB, this hook forces the effect of milk, which is the most useful vanilla effect
+    // (other versions do nothing). A setting can be trivially added if the option for it to do something else is
+    // desired, but it should still be in this hook to avoid UB.
+    COND_VB_SHOULD(VB_EMPTY_BOTTLE_OI, true, {
+        if (!*should) {
+            gSaveContext.healthAccumulator = 0x50;
         }
     });
 }

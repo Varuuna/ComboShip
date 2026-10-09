@@ -1,4 +1,7 @@
+#include <libultraship/bridge/consolevariablebridge.h>
+
 #include <soh/OTRGlobals.h>
+#include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include <soh/GameVersions.h>
 #include "soh/ResourceManagerHelpers.h"
 #include "soh/ObjectExtension/ObjectExtension.h"
@@ -7,6 +10,7 @@
 #include "particle_cmc.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
 #include "soh/Enhancements/randomizer/RCToRandInf.h"
+#include "soh/ShipInit.hpp"
 
 extern "C" {
 #include "overlays/actors/ovl_En_Wonder_Item/z_en_wonder_item.h"
@@ -119,12 +123,7 @@ static CheckIdentity IdentifyWonderItem(s32 sceneNum, s32 par1, s32 par2) {
     Rando::Location* location =
         OTRGlobals::Instance->gRandomizer->GetCheckObjectFromActor(ACTOR_EN_WONDER_ITEM, wonderSceneNum, actorParams);
 
-    if (location->GetRandomizerCheck() == RC_UNKNOWN_CHECK) {
-        LUSLOG_WARN("IdentifyWonderItem did not receive a valid RC value (%d).", location->GetRandomizerCheck());
-    } else {
-        wonderIdentity.randomizerInf = rcToRandomizerInf[location->GetRandomizerCheck()];
-        wonderIdentity.randomizerCheck = location->GetRandomizerCheck();
-    }
+    IdentifyCheck(&wonderIdentity, location);
 
     return wonderIdentity;
 }
@@ -335,7 +334,7 @@ void Rando::StaticData::RegisterWonderItemLocations() {
     registered = true;
     // clang-format off
     // Overworld Wonder Items
-    //            Randomizer Check                                              Randomizer Check                                                                        Quest               Area                            Scene ID                            Params                                  Short Name                    	        Hint Text Key                               Vanilla                 Spoiler Collection Check
+    //            Randomizer Check                                              Randomizer Check                                                                        Quest               Area                            Scene ID                            Params                                  Short Name                              Hint Text Key                               Vanilla                 Spoiler Collection Check
     locationTable[RC_KF_WONDER_TRAINING_1]                                      = Location::WonderItem(RC_KF_WONDER_TRAINING_1,                                         RCQUEST_BOTH,       RCAREA_KOKIRI_FOREST,           SCENE_KOKIRI_FOREST,                TWO_ACTOR_PARAMS(-747, 951),            "Wonder Training 1",                    RHT_WONDER_ITEM_KOKIRI_FOREST,              RG_GREEN_RUPEE,         SpoilerCollectionCheck::RandomizerInf(RAND_INF_KF_WONDER_TRAINING_1));
     locationTable[RC_KF_WONDER_TRAINING_2]                                      = Location::WonderItem(RC_KF_WONDER_TRAINING_2,                                         RCQUEST_BOTH,       RCAREA_KOKIRI_FOREST,           SCENE_KOKIRI_FOREST,                TWO_ACTOR_PARAMS(-677, 899),            "Wonder Training 2",                    RHT_WONDER_ITEM_KOKIRI_FOREST,              RG_BLUE_RUPEE,          SpoilerCollectionCheck::RandomizerInf(RAND_INF_KF_WONDER_TRAINING_2));
     locationTable[RC_KF_WONDER_TRAINING_3]                                      = Location::WonderItem(RC_KF_WONDER_TRAINING_3,                                         RCQUEST_BOTH,       RCAREA_KOKIRI_FOREST,           SCENE_KOKIRI_FOREST,                TWO_ACTOR_PARAMS(-698, 830),            "Wonder Training 3",                    RHT_WONDER_ITEM_KOKIRI_FOREST,              RG_GREEN_RUPEE,         SpoilerCollectionCheck::RandomizerInf(RAND_INF_KF_WONDER_TRAINING_3));

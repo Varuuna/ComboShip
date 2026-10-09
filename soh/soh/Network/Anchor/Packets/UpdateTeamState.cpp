@@ -15,6 +15,7 @@ extern "C" void (*gComboSharedChanged)(int game, int fileNum);
 #endif
 
 extern "C" {
+#include "macros.h"
 #include "variables.h"
 extern PlayState* gPlayState;
 }

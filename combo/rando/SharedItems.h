@@ -41,7 +41,7 @@ struct SharedFamilyDef {
     const char* ootName; // OOT pool item name
     const char* mmName;  // MM pool item name (trimmed / oracle-credited)
     int mmTierCap;       // max tiers MM can hold
-    bool isMask;         // requires OOT Mask Quest = Shuffle
+    bool isMask;         // requires OOT Shuffle Masks
     bool mmHasItem;      // false = MM has no pool copy of this item (no trim, no oracle mirror)
     bool ootToMmOnly;    // true = one-way OOT->MM; MM's tier signal isn't a reliable OOT source
 };
@@ -78,20 +78,20 @@ inline const SharedFamilyDef* SharedFamilyTable() {
         { SF_SONG_OF_STORMS, "songOfStorms", "gCombo.Rando.Shared.SongOfStorms", "Shared Song of Storms",
           "One Song of Storms counts for both games.", "Song of Storms", "Song of Storms", 1, false, true, false },
         { SF_GORON_MASK, "goronMask", "gCombo.Rando.Shared.GoronMask", "Shared Goron Mask",
-          "One Goron Mask counts for both games. Requires OOT Mask Quest = Shuffle.", "Goron Mask", "Goron Mask", 1,
-          true, true, false },
-        { SF_ZORA_MASK, "zoraMask", "gCombo.Rando.Shared.ZoraMask", "Shared Zora Mask",
-          "One Zora Mask counts for both games. Requires OOT Mask Quest = Shuffle.", "Zora Mask", "Zora Mask", 1, true,
+          "One Goron Mask counts for both games. Requires OOT Shuffle Masks.", "Goron Mask", "Goron Mask", 1, true,
           true, false },
+        { SF_ZORA_MASK, "zoraMask", "gCombo.Rando.Shared.ZoraMask", "Shared Zora Mask",
+          "One Zora Mask counts for both games. Requires OOT Shuffle Masks.", "Zora Mask", "Zora Mask", 1, true, true,
+          false },
         { SF_KEATON_MASK, "keatonMask", "gCombo.Rando.Shared.KeatonMask", "Shared Keaton Mask",
-          "One Keaton Mask counts for both games. Requires OOT Mask Quest = Shuffle.", "Keaton Mask", "Keaton Mask", 1,
-          true, true, false },
+          "One Keaton Mask counts for both games. Requires OOT Shuffle Masks.", "Keaton Mask", "Keaton Mask", 1, true,
+          true, false },
         { SF_BUNNY_HOOD, "bunnyHood", "gCombo.Rando.Shared.BunnyHood", "Shared Bunny Hood",
-          "One Bunny Hood counts for both games. Requires OOT Mask Quest = Shuffle.", "Bunny Hood", "Bunny Hood", 1,
-          true, true, false },
+          "One Bunny Hood counts for both games. Requires OOT Shuffle Masks.", "Bunny Hood", "Bunny Hood", 1, true,
+          true, false },
         { SF_MASK_OF_TRUTH, "maskOfTruth", "gCombo.Rando.Shared.MaskOfTruth", "Shared Mask of Truth",
-          "One Mask of Truth counts for both games. Requires OOT Mask Quest = Shuffle.", "Mask of Truth",
-          "Mask of Truth", 1, true, true, false },
+          "One Mask of Truth counts for both games. Requires OOT Shuffle Masks.", "Mask of Truth", "Mask of Truth", 1,
+          true, true, false },
     };
     return table;
 }

@@ -4,6 +4,9 @@ Preserved deviations — keep across upstream merges. See [../UPSTREAM_MERGES.md
 
 ## UIWidgets empty-combobox UB + combo-rendered MM rando menu (2026-06-09)
 
+**soh side RETIRED 2026-09-28:** upstream now initializes `longest` in every soh overload; the MM
+fix below stands.
+
 **`mm/2s2h/BenGui/UIWidgets.hpp` (and `soh/soh/SohGui/UIWidgets.hpp`) — fix to a vendored upstream
 bug:** every `UIWidgets::Combobox` template overload declared `const char* longest;` **uninitialized**,
 then assigned it only inside the loop that scans the options for the widest entry. If the options
@@ -149,8 +152,8 @@ MM's identically-named dev windows were dropped (OOT boots first). (c) Dev-tool 
 - `mm/2s2h/BenGui/BenGui.cpp` — the 9 MM dev/debug windows whose names collide with OOT's (Save Editor,
   Actor/Collision/Message Viewer, Audio Editor, Mod Menu, Hook Debugger, Input Viewer (+Settings)) now
   register with `COMBO_MM_TRACKER_SUFFIX` (`"##MM"`), same mechanism as the trackers — map-key/ID only,
-  visible title unchanged, empty in standalone. (Cosmetic Editor / Time Splits Window / DL Viewer differ
-  from OOT's strings already, so they don't collide.)
+  visible title unchanged, empty in standalone. (Cosmetic Editor / DL Viewer differ from OOT's strings
+  already, so they don't collide; Time Splits now does collide, see the Time Splits section.)
 - `mm/2s2h/BenGui/BenMenu.cpp` — matching `WindowName(...)` popout refs carry the same suffix
   (`COMBO_MM_WINDOW_SUFFIX`). New `#ifdef COMBO_BUILD` inline `WIDGET_CUSTOM` entries render each dev
   window's `DrawElement()` inline (skipped when popped out, so no double-draw); live-world viewers
@@ -391,3 +394,15 @@ save's whole state — not just play time — is discarded on a combo resume. No
 deliberately preserves `owlSave`, so a read-priority fix alone would let a stale owl save shadow a
 newer cycle save; the delete-on-continue half is required too.
 
+## Time Splits window + CVar clash (2026-09-28)
+
+soh ported 2Ship's Time Splits, so both games registered the same window names and
+`ImGui::Begin("Timesplits")`. MM itself registers both the leaf `gWindows.Timesplits` and
+`gWindows.Timesplits.Settings` (leaf-vs-subtree: config stops saving); soh reusing that settings key
+made the clash reachable from OOT's menu. soh's button CVar also never matched its own window's CVar
+upstream, so the fix repairs that too.
+
+Fix: soh's button uses `CVAR_WINDOW("TimeSplitSettings")` + an inline settings shim; MM's two windows
+get `##MM`, its overlay ID `Timesplits##MM`, its settings CVar `gWindows.TimesplitsSettings` (old key
+cleared on init), and `ComboTrackerVisibility` keeps only the foreground game's overlay in the Gui map
+(same Remove/Re-add as notifications, see tracker.md).

@@ -1566,20 +1566,22 @@ static void WriteComboPlaythrough(const std::string& spoilerJson, const ComboRan
                                   const std::string& mmDump = "", ComboRando::CwGoal goal = {}, bool mmStart = false,
                                   uint32_t sharedMask = 0);
 
+static void FailComboFill(ComboRando::ComboGenProgress* progress, const char* msg) {
+    if (progress) {
+        progress->SetError(msg);
+        progress->success.store(false);
+        progress->done.store(true);
+        progress->running.store(false);
+    }
+    std::cerr << "[ComboShip] RunComboFill: " << msg << "\n";
+    RestoreLoadedSlotGoal(); // a bailed generation must not leave the menu goal in the DLLs
+    g_GenerateBusy.store(false);
+}
+
 // ComboShip: worker that runs the combined-logic fill (or no-logic fallback) on a background
 // thread, reports progress via the ComboGenProgress struct, and stashes placements.
-static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* progress) {
-    auto fail = [&](const char* msg) {
-        if (progress) {
-            progress->SetError(msg);
-            progress->success.store(false);
-            progress->done.store(true);
-            progress->running.store(false);
-        }
-        std::cerr << "[ComboShip] RunComboFill: " << msg << "\n";
-        RestoreLoadedSlotGoal(); // a bailed generation must not leave the menu goal in the DLLs
-        g_GenerateBusy.store(false);
-    };
+static void RunComboFillBody(std::string inputSeed, ComboRando::ComboGenProgress* progress) {
+    auto fail = [&](const char* msg) { FailComboFill(progress, msg); };
     // Window closed mid-generate: fail out (no retry, nothing written) once the current DLL call returns.
     auto cancelled = [&] {
         if (!ComboRando::GenCancelled(progress))
@@ -2041,6 +2043,19 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
     g_GenerateBusy.store(false);
 }
 
+// Any throw from the fill runs the failure path: a worker throw would otherwise std::terminate.
+static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* progress) {
+    try {
+        RunComboFillBody(std::move(inputSeed), progress);
+    } catch (const std::exception& e) {
+        g_ComboPendingFinalize.store(false);
+        FailComboFill(progress, (std::string("exception: ") + e.what()).c_str());
+    } catch (...) {
+        g_ComboPendingFinalize.store(false);
+        FailComboFill(progress, "unknown exception");
+    }
+}
+
 // ComboShip: headless cross-world generation TEST (COMBO_GENTEST=<count>). Runs the combined fill
 // over a seed range; a seed "succeeds" only if every advancement check in both games is reachable
 // from an empty start (honoring the OOT->MM portal gate) — i.e. provably 100%-completable. Uses the
@@ -2236,7 +2251,7 @@ static void Combo_OnGenerateRequest(const char* inputSeed, ComboRando::ComboGenP
 // ComboShip: UI-driven (non-blocking) generate — registered as the generate-request callback and
 // invoked on the main thread from SOH_TriggerComboGenerate. Spawns the worker so the main loop keeps
 // rendering + playing music + animating progress. The previous worker is always finished by now
-// (reentry is gated on RandoGenerating in soh + g_GenerateBusy here), but join it to recycle the
+// (reentry is gated on soh's combo generating flag + g_GenerateBusy here), but join it to recycle the
 // std::thread object. The gSaveContext apply happens later on the main thread (Combo_PollFinalize).
 static void Combo_OnGenerateThreaded(const char* inputSeed) {
     // Reject if a worker is running OR a finalize is still pending (apply not yet run on main thread).
@@ -2300,14 +2315,19 @@ static void Combo_FinalizeGenerate() {
 
 // ComboShip: poll callback the file-select loop calls each frame on the main thread. Runs the
 // pending finalize (apply) when the worker has succeeded. Returns 1 once generation is fully
-// resolved (finalized or failed) so the caller can clear RandoGenerating; 0 while still working.
+// resolved (finalized or failed) so soh clears its generating flag; 0 while still working.
 static int Combo_PollFinalize() {
     if (g_ComboPendingFinalize.exchange(false)) {
         Combo_FinalizeGenerate();
         return 1;
     }
     // No pending finalize: resolved iff the worker is done and not still running.
-    return (g_ComboProgress.done.load() && !g_GenerateBusy.load()) ? 1 : 0;
+    if (!g_ComboProgress.done.load() || g_GenerateBusy.load())
+        return 0;
+    // A failed gen must not leave an earlier seed's "generated" state (success fanfare + Start).
+    if (!g_ComboProgress.success.load() && SOH_SetSeedGenerated)
+        SOH_SetSeedGenerated(0);
+    return 1;
 }
 
 // ComboShip: read a candidate consolidated seed file. True only if it opens, parses and is ours.

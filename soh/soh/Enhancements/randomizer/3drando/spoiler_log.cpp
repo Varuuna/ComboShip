@@ -8,7 +8,6 @@
 #include "pool_functions.hpp"
 #include "soh/Enhancements/randomizer/randomizer_entrance_tracker.h"
 #include <nlohmann/json.hpp>
-#include <spdlog/fmt/fmt.h>
 #include <spdlog/spdlog.h>
 
 #include <cstdio>
@@ -147,7 +146,8 @@ static void WriteSettings() {
     auto ctx = Rando::Context::GetInstance();
     std::array<Rando::Option, RSK_MAX> options = Rando::Settings::GetInstance()->GetAllOptions();
     for (const Rando::Option& option : options) {
-        if (option.GetName() != "") {
+        // skip unassigned settings (RSK_NONE)
+        if (option.GetOptionCount() > 0) {
             jsonData["settings"][option.GetName()] = option.GetOptionText(ctx->GetOption(option.GetKey()).Get());
         }
     }
@@ -163,8 +163,8 @@ std::string RemoveLineBreaks(std::string s) {
 static void WriteExcludedLocations() {
     auto ctx = Rando::Context::GetInstance();
 
-    for (size_t i = 0; i < Rando::Settings::GetInstance()->GetExcludeLocationsOptions().size() - 1; i++) {
-        for (const auto& location : Rando::Settings::GetInstance()->GetExcludeLocationsOptions()[i]) {
+    for (const auto& areaOptions : Rando::Settings::GetInstance()->GetExcludeLocationsOptions()) {
+        for (const auto* location : areaOptions) {
             if (ctx->GetLocationOption(static_cast<RandomizerCheck>(location->GetKey())).Get() == RO_LOCATION_INCLUDE) {
                 continue;
             }
@@ -232,7 +232,7 @@ static void WritePlaythrough() {
     auto ctx = Rando::Context::GetInstance();
 
     for (size_t i = 0; i < ctx->playthroughLocations.size(); i++) {
-        std::string sphereString = fmt::format("sphere {:0>2}", i);
+        std::string sphereString = spdlog::fmt_lib::format("sphere {:0>2}", i);
         for (const RandomizerCheck key : ctx->playthroughLocations[i]) {
             if (!ctx->GetItemLocation(key)->IsHidden()) {
                 WriteLocation(sphereString, key, true);
@@ -245,7 +245,7 @@ static void WritePlaythrough() {
 static void WriteShuffledEntrances() {
     auto ctx = Rando::Context::GetInstance();
     for (size_t i = 0; i < ctx->GetEntranceShuffler()->playthroughEntrances.size(); i++) {
-        std::string sphereString = fmt::format("sphere {:0>2}", i);
+        std::string sphereString = spdlog::fmt_lib::format("sphere {:0>2}", i);
         for (Entrance* entrance : ctx->GetEntranceShuffler()->playthroughEntrances[i]) {
             WriteShuffledEntrance(sphereString, entrance);
         }

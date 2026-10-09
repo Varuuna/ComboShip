@@ -1,15 +1,17 @@
-#include "Anchor.h"
 #include <nlohmann/json.hpp>
-#include "soh/OTRGlobals.h"
+
+#include "Anchor.h"
 #include "soh/Enhancements/nametag.h"
 #include "soh/ObjectExtension/ObjectExtension.h"
-#include "soh/Enhancements/randomizer/randomizer.h"
-#include "soh/Notification/Notification.h"
 #ifdef COMBO_BUILD
+// ComboShip: used by the COMBO_CROSS_ITEM packet paths below.
+#include "soh/Enhancements/randomizer/static_data.h"
+#include "soh/Notification/Notification.h"
 #include "soh/SaveManager.h"
 #endif
 
 extern "C" {
+#include "macros.h"
 #include "variables.h"
 #include "functions.h"
 extern PlayState* gPlayState;
@@ -350,6 +352,8 @@ void Anchor::PumpDormant() {
     }
     // Persist the dormant save so the item survives quitting without ever entering OOT.
     if (dormantDidApply && SaveManager::Instance && gSaveContext.fileNum != 0xFF) {
+        extern void Combo_FlushDormantAccumulators(); // ComboShip (#214): bank rupee/magic grants first
+        Combo_FlushDormantAccumulators();
         SaveManager::Instance->SaveFile(gSaveContext.fileNum);
         SPDLOG_INFO("[Anchor] dormant OOT save persisted (file {})", gSaveContext.fileNum);
     }

@@ -1040,6 +1040,27 @@ runs before the fill, and an unwind across the C ABI into the other DLL is unrec
   the other game falls back to its sentinel. Remains ARE portable (their object-segment setup is
   vestigial under OTR extraction) — only the 0.02 scale must carry across.
 
+## Foreign draws for the soh 9.3.0 rando items (2026-10-09)
+
+soh 9.3.0 added four bespoke draw funcs (silver rupees, Scarecrow's Song, nut bag, stick bag) with no
+row in `OOT_DescribeCustomDraw`, so MM drew their gid fallback (small key, white note, plain nut/stick).
+`combo/menu/ComboItemDrawOOT.h` now describes all four; MM consumes them in `ComboForeignDrawMM.h`.
+
+- **Progressive tiers:** the effective RG is now the resolved tier (`actual` from `GetGIEntry`), not
+  only `drawItemId` of rando-table entries. Nut/stick capacity tiers are vanilla-table, so the old rule
+  missed their bag draw. This mirrors native, which draws with the resolved tier's own draw func.
+- **Nut bag** reuses `CW_DRAW_KIND_DEKU_NUTS` with `setupDlOpa` = 26 Opa; `MM_DrawForeignDekuNuts` now
+  honours it (null for vanilla nuts, so they are unchanged).
+- **Silver rupee, NewDrops on:** `COLOR_LAYERS` inner/outer rupee. `CwLayerPrim` emits lodFrac 0 where
+  native uses 0x80; accepted.
+- **Silver rupee, NewDrops off:** new `CW_DRAW_KIND_SILVER_RUPEE` plus an appended ABI field
+  `segTexPath` (OOT's own unrouted texture path). It cannot go in `dlists[]` because the resolver
+  routes every entry. `gRupeeSilverTex` exists in both archives, so seg 8 is bound under OOT's RM
+  (same rule as `CfaBindSeg`, see resource-mgmt.md). Grayscale cosmetic travels in `primColorOpa`
+  (alpha 0 = off). Both silver branches are `stateDependent` (CVars can flip mid-session).
+- **Fallback warning:** an item with a custom draw func but no row logs one `SPDLOG_WARN` per RG, so
+  the next upstream draw func shows up in the log instead of silently drawing the wrong model.
+
 ## Gate MM on the OOT→MM portal region (2026-07-26)
 
 **Why:** the cross-fill never modeled the portal — every call site passed `portalCheckName=""`, so

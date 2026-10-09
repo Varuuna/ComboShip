@@ -34,6 +34,11 @@
 #include "objects/object_gi_bomb_2/object_gi_bomb_2.h"       // gGiBombchuDL
 #include "objects/object_mamenoki/object_mamenoki.h"         // gMagicBeanSeedlingDL
 #include "objects/object_toki_objects/object_toki_objects.h" // Master Sword model
+#include "objects/object_gi_rupy/object_gi_rupy.h"           // gGiRupeeInnerDL / gGiRupeeOuterDL
+#include "objects/object_gi_melody/object_gi_melody.h"       // gGiSongNoteDL
+#include "objects/gameplay_keep/gameplay_keep.h"             // gRupeeDL / gRupeeSilverTex
+#include <atomic>
+#include <spdlog/spdlog.h>
 // Boss-soul skeletons/animations/textures for the animated cross-game class (issue #86).
 #include "objects/object_goma/object_goma.h"
 #include "objects/object_kingdodongo/object_kingdodongo.h"
@@ -312,7 +317,67 @@ static int32_t OOT_DescribeCustomDraw(RandomizerGet rg, CwItemDrawInfo* out) {
         return 1;
     }
 
+    // Silver rupees: inner/outer rupee (NewDrops) or the textured drop rupee (Randomizer_DrawSilverRupee).
+    if (rg >= RG_SHADOW_SILVER_BLADES && rg <= RG_GANONS_CASTLE_MQ_SILVER_SHADOW) {
+        Color_RGB8 c = CVarGetColor24("gCosmetics.Consumable_SilverRupee.Value", { 255, 255, 255 });
+        out->stateDependent = 1; // NewDrops / cosmetic colour can change mid-session
+        if (CVarGetInteger("gEnhancements.NewDrops", 0) != 0) {
+            out->drawKind = CW_DRAW_KIND_COLOR_LAYERS;
+            out->dlistCount = 2;
+            out->xluStartIndex = 1;
+            out->dlists[0] = gGiRupeeInnerDL;
+            out->dlists[1] = gGiRupeeOuterDL;
+            CwLayerPrim(out, 0, c);
+            CwLayerEnv(out, 0, Color_RGB8{ (uint8_t)(c.r / 5), (uint8_t)(c.g / 5), (uint8_t)(c.b / 5) });
+            CwLayerPrim(out, 1, { 255, 255, 255 });
+            CwLayerEnv(out, 1, Color_RGB8{ (uint8_t)(c.r * 0.75f), (uint8_t)(c.g * 0.75f), (uint8_t)(c.b * 0.75f) });
+            return 1;
+        }
+        out->drawKind = CW_DRAW_KIND_SILVER_RUPEE;
+        out->dlistCount = 1;
+        out->xluStartIndex = -1;
+        out->scale = 0.05f;
+        out->dlists[0] = gRupeeDL;
+        out->segTexPath = gRupeeSilverTex;
+        if (CVarGetInteger("gCosmetics.Consumable_SilverRupee.Changed", 0)) {
+            out->primColorOpa[0] = c.r;
+            out->primColorOpa[1] = c.g;
+            out->primColorOpa[2] = c.b;
+            out->primColorOpa[3] = 255;
+        }
+        return 1;
+    }
+
+    // Nut bag: the Deku Nuts seg8 scroll under 26 Opa (Randomizer_DrawNutBag).
+    if (rg == RG_DEKU_NUT_BAG || rg == RG_NUT_UPGRADE_INF || rg == RG_DEKU_NUT_CAPACITY_30 ||
+        rg == RG_DEKU_NUT_CAPACITY_40) {
+        out->setupDlOpa = GetItem_GetSetupDL(SETUPDL_26);
+        out->drawKind = CW_DRAW_KIND_DEKU_NUTS;
+        out->dlistCount = 1;
+        out->xluStartIndex = -1;
+        out->dlists[0] = gGiNutBagDL;
+        return 1;
+    }
+
+    // Stick bag: plain model under 26 Opa (Randomizer_DrawStickBag).
+    if (rg == RG_DEKU_STICK_BAG || rg == RG_STICK_UPGRADE_INF || rg == RG_DEKU_STICK_CAPACITY_20 ||
+        rg == RG_DEKU_STICK_CAPACITY_30) {
+        CwSimple(out, gGiStickBagDL, false, 0.0f);
+        out->setupDlOpa = GetItem_GetSetupDL(SETUPDL_26);
+        return 1;
+    }
+
     switch (rg) {
+        case RG_SCARECROWS_SONG: // dark green grayscale note (Randomizer_DrawScarecrowsSong)
+            out->drawKind = CW_DRAW_KIND_GRAYSCALE_XLU;
+            out->dlistCount = 1;
+            out->xluStartIndex = 0;
+            out->dlists[0] = gGiSongNoteDL;
+            out->primColorXlu[0] = 40;
+            out->primColorXlu[1] = 160;
+            out->primColorXlu[2] = 40;
+            out->primColorXlu[3] = 255;
+            return 1;
         case RG_MASTER_SWORD: // seg8 scroll + scale/rotate (Randomizer_DrawMasterSword)
             out->drawKind = CW_DRAW_KIND_MASTER_SWORD;
             out->dlistCount = 1;
@@ -396,11 +461,20 @@ static int32_t OOT_FillItemDrawInfo(RandomizerGet rg, CwItemDrawInfo* out) {
     if (actual != RG_NONE) {
         out->resolvedName = Rando::StaticData::RetrieveItem(actual).GetName().english.c_str();
     }
-    // Progressive items resolve to the tier actually owed; classify THAT item's draw func, not the
-    // placeholder's (drawItemId carries the resolved RandomizerGet for rando-table entries).
-    RandomizerGet effRg = (gi.tableId == TABLE_RANDOMIZER) ? (RandomizerGet)gi.drawItemId : rg;
+    // Progressive items resolve to the tier actually owed; classify THAT item's draw func. Vanilla-table
+    // tiers (nut/stick capacity) carry no RG in drawItemId, so prefer the resolved tier itself.
+    RandomizerGet effRg = (actual != RG_NONE)                ? actual
+                          : (gi.tableId == TABLE_RANDOMIZER) ? (RandomizerGet)gi.drawItemId
+                                                             : rg;
     if (OOT_DescribeCustomDraw(effRg, out)) {
         return 1;
+    }
+    // ComboShip: a bespoke draw func with no row above falls back to the gid model; say so once.
+    if (gi.drawFunc != nullptr && effRg >= 0 && effRg < RG_MAX) {
+        static std::atomic<bool> sWarned[RG_MAX];
+        if (!sWarned[effRg].exchange(true)) {
+            SPDLOG_WARN("[combo] OOT item {} has a custom draw func but no cross-game draw row", (int)effRg);
+        }
     }
     void* dls[CW_DRAW_MAX_DLISTS] = {};
     int32_t xluStart = -1;
@@ -471,7 +545,9 @@ extern "C" COMBO_EXPORT int32_t OOT_GetItemDrawInfo(const char* itemName, CwItem
         if (!OOT_FillItemDrawInfo(rg, out)) {
             return 0;
         }
-        out->stateDependent = OOT_IsStateDependentDraw(rg) ? 1 : 0;
+        if (OOT_IsStateDependentDraw(rg)) {
+            out->stateDependent = 1; // keep a recipe's own flag (silver rupee CVars)
+        }
         return 1;
     } catch (...) { return 0; }
 }

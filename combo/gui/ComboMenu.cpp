@@ -254,8 +254,8 @@ void ComboMenu::DrawElement() {
         static const Scope kScopes[] = {
             { "settings", "Settings" },
             { "randomizer", "Randomizer" },
-            { "oot", "Ship of Harkinian" },
-            { "mm", "2 Ship 2 Harkinian" },
+            { "oot", "Ocarina of Time" },
+            { "mm", "Majora's Mask" },
         };
         if (mScope.empty()) {
             mScope = "settings";
@@ -362,8 +362,8 @@ void ComboMenu::DrawSearchResults(const std::string& query) {
         const GameMenu* game;
     };
     const Source sources[] = {
-        { "Ship of Harkinian", &model.Oot() }, // OOT first: its copy wins the dedupe
-        { "2 Ship 2 Harkinian", &model.Mm() },
+        { "Ocarina of Time", &model.Oot() }, // OOT first: its copy wins the dedupe
+        { "Majora's Mask", &model.Mm() },
     };
 
     // 2-3 equal-width columns (by available width) so results read as a grid, not one tall list —

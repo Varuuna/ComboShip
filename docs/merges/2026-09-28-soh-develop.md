@@ -1,4 +1,4 @@
-# Upstream merge — soh — 2026-09-28
+# Upstream merge — soh — 2026-09-28 (extended to 9.3.0 on 2026-10-06)
 
 ### soh — `5a57a0cbc` → `576b30c64` (167 merges)
 
@@ -346,9 +346,119 @@ src/overlays/misc/ovl_kaleido_scope/z_kaleido_scope_PAL.c
 
 ## Deferred (follow-up issues)
 
-- Hide-quest options that are no-ops in combo (`SohMenuEnhancements.cpp` quest hiding).
+- Hide-quest options that are no-ops in combo (`SohMenuEnhancements.cpp` quest hiding). The two
+  Speedrun ones are hidden in the 9.3.0 extension below.
 - Foreign draws for silver rupees, Scarecrow's Song, nut/stick bags (fall back to the item-table
   model today).
 - Foreign ice traps honour only the "Similar" name style (`iceTrapNames` is now in the dump).
-- `SetSpoilerLoaded(false)` on combo generation failure (#7157); upstream `IdentifyCheck` null deref
-  (#7141, not on combo paths).
+- `SetSpoilerLoaded(false)` on combo generation failure (#7157; done in the 9.3.0 extension); upstream
+  `IdentifyCheck` null deref (#7141, not on combo paths).
+
+---
+
+# 9.3.0 extension — 2026-10-06
+
+### soh — `576b30c64` → `ecd889c20` (9.3.0 "Dewey Alpha", 36 commits)
+
+Lands develop's soh pin exactly on the 9.3.0 release tag. No gitlink changes (LUS `62e973aeb` is an
+ancestor of our `7f9b86a59`; Torch stays `2ab12fe96`). Randomizer enums (RSK/RO/RG/RC/RHT) untouched,
+so nothing new is retired. `vendor-soh` was reset to `2ca3a7450b` before the script ran so the merge
+base stayed `576b30c64`; merged with `merge.renames=false`.
+
+<details><summary>new commits</summary>
+
+```
+ecd889c20 speedrun presets: no BSM, always allow ATE (#7325)
+f3d881144 Fix water entrance graph typo (#7324)
+17ed8e714 just hash preset file, not settings (#7322)
+de955ba63 9.3.0 Dewey Alpha (#7313)
+3d8cd5aa8 Remove FQwc preset. Skip learning song
+0ce4c0fcc Hookify Ganondorf/Ganon skips (#7321)
+94f950f8d German (#7315)
+7cdf69b20 Use WriteFileSafely more (#7317)
+4afcb7833 speedrun mode (#7073)
+b69cb6607 Fix "return to spawn" from boss room inside grotto (#7314)
+5508cf363 Add migrations for presets and drag-and-drops (#7312)
+9308ba794 Carry sound font ids in 16 bits (#7260)
+7459f6b90 Start with misc flags set in debug saves (#7311)
+9512f337c set min save editor hearts to 1 because rando (#7307)
+d9ddeeb3e Update Hell Mode preset, add Demise Difficulty (#7306)
+86dea7d1b Fallback to English for spoiler entries with TODO_TRANSLATE (#7305)
+316d8e6a1 Excluded Locations Migration (#7302)
+3ea7aa9b7 Fix boss rush name being garbage with non-PAL encoding (#7304)
+12e17c68a don't set nextEntranceIndex in Play_Init, breaks FWWW (#7300)
+94be08c27 Extractor: pass Torch ROMs as big endian (#7301)
+31c0d8554 Fix playthrough paring to not rely on checks past wincon (#7275)
+9d81cb03c WriteFilesSafely (#7299)
+4d7b885db Fix item tracker not working during credits (#7298)
+e4f019f56 SwitchAge: prevent Link walking without collision for a bit (#7286)
+45b932159 [Bugfix] - Vanilla Shopsanity Prices (#7295)
+e07916487 AudioSequenceFactory: fix mono streamed tracks not playing (#7291)
+69a7cdb17 [Bugfix] Fix crash on exit after rando gen (#7296)
+9eafd15fe Fix grotto entrance misbehaving when entering grotto before last transition not done (#7271)
+57eea55bd Fix a song enlarging on the quest page while the cursor is on L/R (#7263)
+f4e698f4c Revert self-pumping audio thread (#7284)
+ad7d0a66d Set time of day when skipping sun song cutscene (#7235)
+ff0209e76 fix logical typos (#7283)
+b9bcc5e90 Fix audio thread race on CVar reads during preset apply (#7265)
+aa25eb4d5 mark ganon's tower entrances as oneExit (#7276)
+c42004bc4 Fix AddCheckToLogic bombchu handling (#7274)
+4f546bc87 Fix Link being out of bounds while loading into scene on epona with spinning free cam (#7270)
+```
+
+</details>
+
+## Conflict resolutions (26-file surface, 5 textual conflicts)
+
+- **SaveManager.cpp:** kept our container IO block next to upstream's `WriteFileSafely`. The legacy
+  old-format rewrite stays behind `!comboSrc` and now uses `WriteFileSafely`. `SaveFileThreaded`:
+  container branch first, else upstream's `WriteFileSafely` with its early return, so a failed file
+  write skips `InitMeta`/`OnSaveFile` only on the non-combo path.
+- **OTRGlobals.cpp:** upstream's graphics-thread audio wait placed above our AltAssets default (0).
+- **randomizer_check_tracker.cpp:** `previousEntrance` dropped; took upstream's
+  `gSaveContext.entranceIndex`, which also covers our dormant peek (no play state), so our fallback is
+  retired. Our empty-dump tripwire moved to `const SaveContext&`.
+- **randomizer_item_tracker.cpp:** our notes scrub re-applied on the new `const SaveContext&` signature.
+- **z_file_choose.c:** combo carousel lock unchanged; the non-combo `MAX_QUEST` is upstream's
+  `QUEST_SPEEDRUN_MASTER`.
+- Auto-merged: upstream's `InitOTR` hunks (`SOH::RegisterVersionUpdaters`, `Speedrun_Register()`) landed
+  in `Combo_FinishInit` on their own; the self-pumping audio comment went with upstream's revert.
+
+## Post-merge changes
+
+- **SaveManager lock:** `saveMtx` is a `lock_guard` now; our early return in `LoadFile` lost its manual
+  `unlock()` (would double-unlock).
+- **Extract.cpp:** `ClassifyRom` reads the header into the new `std::vector` buffer and sets the version
+  CRC cache itself (`GetRomVerCrc` only returns what `ReadRom` fills). Nothing reads `mRomData` after
+  `CallTorch` moves it.
+- **Excluded locations:** upstream stores `RC_*` names and maps numbers through a 9.2.3 snapshot.
+  `Combo_ParseExcludedLocations` now calls `Rando::StaticData::ParseExcludedLocations`. Numeric lists
+  from older builds use a different numbering, so `Combo_ClearNumericExclusions` drops them once with a
+  log line (at boot, after a spoiler settings restore, after a config drop, and before each combo prep). Headless init calls
+  `InitHashMaps` once so name lookups work in `comborando`, and `AddExcludedOptions` as full boot does
+  (without it `comborando` never marked any check excluded; this predates the merge).
+- **Speedrun:** the two new "Hide Speedrun" toggles are hidden under `COMBO_BUILD` (the quest select is
+  Randomizer-only). Speedrun mode itself stays unreachable: carousel locked, soh's menu never drawn.
+- **Failed combo generation** also clears `SpoilerLoaded` (in `SOH_SetSeedGenerated(0)`), matching
+  native generation.
+- **Audio (#7284):** back to the graphics-thread wait on `audio.processing`. `OTRAudio_Init` runs in
+  `SOH_ReinitForResume` before any OOT frame after a transition, so the stopped thread is never waited on.
+- **Migrations (#7312/#7322):** upstream's version updaters run against the shared config; they touch soh
+  keys only. `SOH_RestoreRandoSettings` keeps its own ConfigVersion7 rename table.
+- **Assets:** new presets, two file-select textures removed, TTS `filechoose_*.json` edited. `soh.o2r`
+  regenerated; `asset-collisions.json` unchanged.
+- **Shop prices (#7295):** the price-aware fill reads the table, so it follows.
+- **Entrance shuffle assert:** `PlaceOneWayPriorityEntrance`'s `assert(false)` is skipped under `COMBO_BUILD`.
+  Its caller already rolls back and retries, so Debug now matches Release (retry, or a failed seed).
+  The Demise Difficulty preset reaches it often.
+- **ComboShip name:** the combined Context is named `ComboShip` (`OTRGlobals.cpp`, both COMBO_BUILD ctors),
+  so the window reads `ComboShip (DirectX 11)` and the log is `logs/ComboShip.log` (was `Ship of Harkinian.log`).
+  The combo menu game tabs say Ocarina of Time / Majora's Mask, `ComboShip.exe` has its own icon and version
+  info (`combo/windows/`). Company field per binary: `soh.dll` keeps `github.com/harbourmasters`, `2ship.dll`
+  is `github.com/2ship2harkinian` (root CMake sets it around the mm subdirectory), `ComboShip.exe` is
+  `github.com/Varuuna/ComboShip`.
+
+## Deferred (follow-up issues)
+
+- The four older hide-quest toggles (still no-ops in combo).
+- Hardening the `.combosav` writer to match `WriteFileSafely`.

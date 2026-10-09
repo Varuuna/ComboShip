@@ -65,6 +65,7 @@
 #include "soh/Enhancements/TimeDisplay/TimeDisplay.h" // ComboShip: NAVI_* phase bounds for SOH_GetOverlayTimers
 #endif
 #include "soh/Enhancements/savestates.h"
+#include "soh/Enhancements/speedrun/Speedrun.h"
 #include "frame_interpolation.h"
 #include "SohGui/SohMenu.h"
 #include "SohGui/SohGui.hpp"
@@ -321,10 +322,9 @@ static std::shared_ptr<Ship::ResourceManager> sOOTResourceManager;
 
 OTRGlobals::OTRGlobals() {
 #ifdef COMBO_BUILD
-    // ComboShip (issue 24): OOT + MM share this one Context, so this is the single combined config.
-    // Named comboship.json to make that explicit and to gate the first-launch settings import. See
-    // docs/UPSTREAM_MERGES.md.
-    context = Ship::Context::CreateUninitializedInstance("Ship of Harkinian", appShortName, "comboship.json");
+    // ComboShip: OOT + MM share this one Context and config (comboship.json). The name sets the window
+    // title and logs/ComboShip.log. See docs/deviations/boot-shutdown.md.
+    context = Ship::Context::CreateUninitializedInstance("ComboShip", appShortName, "comboship.json");
 #else
     context = Ship::Context::CreateUninitializedInstance("Ship of Harkinian", appShortName, "shipofharkinian.json");
 #endif
@@ -409,7 +409,7 @@ OTRGlobals::OTRGlobals() {
 #ifdef COMBO_BUILD
 // ComboShip: rando-only headless ctor — Context + config + CVars, no ControlDeck/RM/Console/Window/GUI.
 OTRGlobals::OTRGlobals(HeadlessRandoTag) {
-    context = Ship::Context::CreateUninitializedInstance("Ship of Harkinian", appShortName, "comboship.json");
+    context = Ship::Context::CreateUninitializedInstance("ComboShip", appShortName, "comboship.json");
     context->InitConfiguration();
     context->InitConsoleVariables();
     // Detect quest availability from the o2r files without loading archives (mirrors Initialize's hash
@@ -939,11 +939,7 @@ void OTRGlobals::Initialize() {
                                               CVarGetInteger(CVAR_SETTING("AutoCaptureMouse"), 1));
     context->GetWindow()->SetForceCursorVisibility(CVarGetInteger(CVAR_SETTING("CursorVisibility"), 0));
 
-    context->InitAudio({ .SampleRate = 32000,
-                         .SampleLength = 1024,
-                         // 4096 frames at 32 kHz (~128 ms) gives enough reservoir for frame
-                         // jitter and slow-frame spikes without perceptible audio latency.
-                         .DesiredBuffered = 4096 });
+    context->InitAudio({ .SampleRate = 32000, .SampleLength = 1024, .DesiredBuffered = 1680 });
 
     // The menu is set up before audio is initialized, so its list of available audio backends has to be
     // populated here rather than in Menu::InitElement (where the window backends are handled).
@@ -1132,100 +1128,42 @@ extern "C" int AudioPlayer_GetDesiredBuffered(void);
 std::unordered_map<std::string, ExtensionEntry> ExtensionCache;
 
 void OTRAudio_Thread() {
-#define SAMPLES_HIGH 560
-#define SAMPLES_MID 544
-#define SAMPLES_LOW 528
-#define AUDIO_FRAMES_PER_UPDATE (R_UPDATE_RATE > 0 ? R_UPDATE_RATE : 1)
-#define NUM_AUDIO_CHANNELS 2
-
-    // The sequencer advances a fixed slice of musical time per engine update
-    // (tempoInternalToExternal in audio_heap.c assumes 60 updates/sec), so with
-    // production paced by backend buffer fill the sample count must average
-    // exactly 32000/60 = 533.33 per update or tempo drifts.
-    // Two thirds 528 one third 544 gives 533.33.
-    int32_t sample_debt_thirds = 0;
-
-    // Single producer routine used by both wake-driven and pre-buffer loops.
-    // Picks per-iteration sample count itself, then produces and plays it.
-    auto produce_next_batch = [&]() {
-        u32 num_audio_samples = sample_debt_thirds > 0 ? SAMPLES_MID : SAMPLES_LOW;
-        sample_debt_thirds += (1600 - 3 * (int32_t)num_audio_samples) * AUDIO_FRAMES_PER_UPDATE;
-
-        const u32 total_frames = num_audio_samples * AUDIO_FRAMES_PER_UPDATE;
-        const u32 total_samples = total_frames * NUM_AUDIO_CHANNELS;
-
-        // 3 is the maximum authentic frame divisor.
-        static thread_local s16 audio_buffer[SAMPLES_HIGH * NUM_AUDIO_CHANNELS * 3];
-
-        for (int i = 0; i < AUDIO_FRAMES_PER_UPDATE; i++) {
-            AudioMgr_CreateNextAudioBuffer(audio_buffer + i * (num_audio_samples * NUM_AUDIO_CHANNELS),
-                                           num_audio_samples);
-        }
-
-        AudioPlayer_Play(reinterpret_cast<u8*>(audio_buffer), total_samples * sizeof(int16_t));
-    };
-
-    // Self-pump cadence. The gfx thread wakes us once per rendered frame
-    // (Graph_ProcessGfxCommands sets audio.processing), but a single long
-    // frame leave us asleep while the backend's queue drains to silence.
-    // So we also wake on a short timeout, independent of the gfx frame rate.
-    // Doing so is in fact closer to the console, where the audio task ran
-    // off the scheduler rather than gated on rendering..
-    constexpr auto kSelfPumpInterval = std::chrono::milliseconds(5);
-
-    // The self-pump timeout must wait that the game has reached its render
-    // loop, to avoid accessing uninitialized variables.
-    bool primed = false;
-
     while (audio.running) {
         {
             std::unique_lock<std::mutex> Lock(audio.mutex);
-            if (!primed) {
-                // Pre-init: block until the gfx thread drives the first buffer
-                // (engine guaranteed ready by then), exactly as before.
-                while (!audio.processing && audio.running) {
-                    audio.cv_to_thread.wait(Lock);
-                }
-                primed = true;
-            } else if (!audio.processing && audio.running) {
-                // Primed: wait for the next gfx wake, but no longer than
-                // kSelfPumpInterval so a stalled gfx thread can't starve the
-                // backend queue. A pending wake falls straight through.
-                audio.cv_to_thread.wait_for(Lock, kSelfPumpInterval);
+            while (!audio.processing && audio.running) {
+                audio.cv_to_thread.wait(Lock);
             }
 
             if (!audio.running) {
                 break;
             }
         }
+        std::unique_lock<std::mutex> Lock(audio.mutex);
+// AudioMgr_ThreadEntry(&gAudioMgr);
+//  528 and 544 relate to 60 fps at 32 kHz 32000/60 = 533.333..
+//  in an ideal world, one third of the calls should use num_samples=544 and two thirds num_samples=528
+#define SAMPLES_HIGH 560
+#define SAMPLES_LOW 528
 
-        {
-            std::unique_lock<std::mutex> Lock(audio.mutex);
+#define AUDIO_FRAMES_PER_UPDATE (R_UPDATE_RATE > 0 ? R_UPDATE_RATE : 1)
+#define NUM_AUDIO_CHANNELS 2
 
-            // Producer guard (banteg/Shipwright#6594): skip advancing the audio
-            // engine if the backend ring cannot accept the largest next burst.
-            // Generating PCM that DoPlay() would refuse creates a discontinuity
-            // audible as a click. The pre-buffer loop below will catch up once
-            // the backend drains enough.
-            if (AudioPlayer_Buffered() + SAMPLES_MID * AUDIO_FRAMES_PER_UPDATE > AudioPlayer_GetDesiredBuffered()) {
-                audio.processing = false;
-            } else {
-                produce_next_batch();
-                audio.processing = false;
-            }
+        int samples_left = AudioPlayer_Buffered();
+        u32 num_audio_samples = samples_left < AudioPlayer_GetDesiredBuffered() ? SAMPLES_HIGH : SAMPLES_LOW;
+
+        // 3 is the maximum authentic frame divisor.
+        s16 audio_buffer[SAMPLES_HIGH * NUM_AUDIO_CHANNELS * 3];
+        for (int i = 0; i < AUDIO_FRAMES_PER_UPDATE; i++) {
+            AudioMgr_CreateNextAudioBuffer(audio_buffer + i * (num_audio_samples * NUM_AUDIO_CHANNELS),
+                                           num_audio_samples);
         }
 
-        // Pre-buffer: fill the reservoir while the backend can accept more,
-        // without waiting for the next frame signal. This absorbs load spikes.
-        // Safe for BGM — the N64 sequencer advances independently of gameplay.
-        // The producer guard (same as above) prevents advancing the audio engine
-        // when the backend ring is already at capacity.
-        while (audio.running && AudioPlayer_Buffered() < AudioPlayer_GetDesiredBuffered()) {
-            if (AudioPlayer_Buffered() + SAMPLES_MID * AUDIO_FRAMES_PER_UPDATE > AudioPlayer_GetDesiredBuffered()) {
-                break;
-            }
-            produce_next_batch();
-        }
+        AudioPlayer_Play((u8*)audio_buffer,
+                         num_audio_samples * (sizeof(int16_t) * NUM_AUDIO_CHANNELS * AUDIO_FRAMES_PER_UPDATE));
+
+        audio.processing = false;
+        audio.cv_from_thread.notify_one();
     }
 }
 
@@ -1655,6 +1593,7 @@ extern "C" void (*gComboSharedTick)(void);
 // ImGui + SohGui::SetupMenu). Combo_FinishInit() = everything that needs the ROM archives. The
 // non-combo InitOTR keeps the original ctor -> RunExtract -> finish ordering. See docs/UPSTREAM_MERGES.md.
 static void Combo_FinishInit();
+static bool Combo_ClearNumericExclusions();
 #ifdef __linux__
 // When run as an AppImage, keep user data in ~/.local/share/soh instead of the launch folder.
 // Keep using the launch folder if it already has data from older versions.
@@ -1747,10 +1686,13 @@ extern "C" COMBO_EXPORT void SOH_InitRandoHeadless() {
     Rando::StaticData::RegisterIcicleLocations();
     Rando::StaticData::RegisterRedIceLocations();
     Rando::StaticData::RegisterSilverLocations();
+    Rando::StaticData::InitHashMaps(); // ComboShip: name lookups for excluded locations
     // Build the option/trick tables (normally the rando menu's job, which headless lacks) so a spoiler's
     // settings can reach the Context. Option/trick display names route through Lang::Translate, which
     // returns the raw key headless (via gComboHeadlessRando) — no assets needed.
     Rando::Settings::GetInstance()->CreateOptions();
+    // ComboShip: lists every location so FinalizeSettings can mark excluded ones (as full boot does).
+    OTRGlobals::Instance->gRandoContext->AddExcludedOptions();
 }
 
 // ComboShip (issue 24): apply a launcher-merged config (JSON object) to the live Config and reload the
@@ -1800,13 +1742,7 @@ static void Combo_FinishInit() {
     SaveManager::Instance = new SaveManager();
 
     std::shared_ptr<Ship::Config> conf = OTRGlobals::Instance->context->GetConfig();
-    conf->RegisterVersionUpdater(std::make_shared<SOH::ConfigVersion1Updater>());
-    conf->RegisterVersionUpdater(std::make_shared<SOH::ConfigVersion2Updater>());
-    conf->RegisterVersionUpdater(std::make_shared<SOH::ConfigVersion3Updater>());
-    conf->RegisterVersionUpdater(std::make_shared<SOH::ConfigVersion4Updater>());
-    conf->RegisterVersionUpdater(std::make_shared<SOH::ConfigVersion5Updater>());
-    conf->RegisterVersionUpdater(std::make_shared<SOH::ConfigVersion6Updater>());
-    conf->RegisterVersionUpdater(std::make_shared<SOH::ConfigVersion7Updater>());
+    SOH::RegisterVersionUpdaters(conf.get());
     conf->RunVersionUpdates();
 
 #ifdef COMBO_BUILD
@@ -1820,6 +1756,10 @@ static void Combo_FinishInit() {
         if (oldPitch > 0.0f) {
             CVarSetFloat(CVAR_LINK_VOICE_FREQ_MULTIPLIER, oldPitch);
         }
+        CVarSave();
+    }
+    // ComboShip: drop old numeric exclusions before the rando menu reads them.
+    if (Combo_ClearNumericExclusions()) {
         CVarSave();
     }
 #endif
@@ -1935,6 +1875,8 @@ static void Combo_FinishInit() {
     if (CVarGetInteger(CVAR_REMOTE_ANCHOR("Enabled"), 0)) {
         Anchor::Instance->Enable();
     }
+    // Restores settings left over from a run that never exited cleanly, so it must come after other setup.
+    Speedrun_Register();
     ShipInit::InitAll();
     Rando::StaticData::InitHashMaps();
     OTRGlobals::Instance->gRandoContext->AddExcludedOptions();
@@ -1946,6 +1888,7 @@ extern "C" void SaveManager_ThreadPoolWait() {
 
 extern "C" void DeinitOTR() {
     SaveManager_ThreadPoolWait();
+    WaitForRandoGeneration();
     OTRAudio_Exit();
     if (CVarGetInteger(CVAR_REMOTE_CROWD_CONTROL("Enabled"), 0)) {
         CrowdControl::Instance->Disable();
@@ -2218,6 +2161,13 @@ extern "C" void Graph_ProcessGfxCommands(Gfx* commands) {
 
     last_fps = fps;
     last_update_rate = R_UPDATE_RATE;
+
+    {
+        std::unique_lock<std::mutex> Lock(audio.mutex);
+        while (audio.processing) {
+            audio.cv_from_thread.wait(Lock);
+        }
+    }
 
     // ComboShip: AltAssets default OFF (upstream defaults ON). We ship no HD/alt asset pack, so ON
     // makes the ResourceManager probe alt/<path> for every resource every frame.
@@ -4046,6 +3996,20 @@ extern "C" COMBO_EXPORT void SOH_SetComboRandoSeed(uint64_t seed) {
 }
 #endif
 
+// ComboShip: old builds stored exclusions as check numbers that no longer match; drop them once.
+static bool Combo_ClearNumericExclusions() {
+    std::stringstream ss(CVarGetString(CVAR_RANDOMIZER_SETTING("ExcludedLocations"), ""));
+    std::string tok;
+    while (std::getline(ss, tok, ',')) {
+        if (!tok.empty() && std::all_of(tok.begin(), tok.end(), [](unsigned char c) { return std::isdigit(c); })) {
+            SPDLOG_WARN("[ComboShip] Excluded locations use an old format; cleared them");
+            CVarSetString(CVAR_RANDOMIZER_SETTING("ExcludedLocations"), "");
+            return true;
+        }
+    }
+    return false;
+}
+
 // ComboShip: snapshot every OOT rando option as {cvarName: value}. The combo orchestrator stores
 // this in the consolidated spoiler so a dropped/reloaded seed reproduces the exact settings on any
 // machine (OOT options are CVar-backed; SOH_RestoreRandoSettings writes them back).
@@ -4119,6 +4083,7 @@ extern "C" COMBO_EXPORT void SOH_RestoreRandoSettings(const char* json) {
             else
                 CVarSetInteger(it.key().c_str(), it.value().get<int>());
         }
+        Combo_ClearNumericExclusions();
     } catch (...) {}
 }
 
@@ -4147,18 +4112,11 @@ static void Combo_ApplyEnabledTricks() {
     }
 }
 
-// The ExcludedLocations CSV (check IDs) is only parsed on SoH's GUI generate path
-// (randomizer.cpp:930); the combo prep paths must parse it too or exclusions never apply headless.
+// The ExcludedLocations CSV is only parsed on SoH's GUI generate path; the combo prep paths must parse
+// it too or exclusions never apply headless.
 static std::set<RandomizerCheck> Combo_ParseExcludedLocations() {
-    std::set<RandomizerCheck> excluded;
-    std::stringstream ss(CVarGetString(CVAR_RANDOMIZER_SETTING("ExcludedLocations"), ""));
-    std::string tok;
-    while (std::getline(ss, tok, ',')) {
-        try {
-            excluded.insert(static_cast<RandomizerCheck>(std::stoi(tok)));
-        } catch (...) {}
-    }
-    return excluded;
+    Combo_ClearNumericExclusions();
+    return Rando::StaticData::ParseExcludedLocations(CVarGetString(CVAR_RANDOMIZER_SETTING("ExcludedLocations"), ""));
 }
 
 extern "C" COMBO_EXPORT void SOH_PrepRandoContext(void) {
@@ -5413,8 +5371,13 @@ extern "C" COMBO_EXPORT void SOH_ParkForComboMMResume(void) {
 }
 
 extern "C" COMBO_EXPORT void SOH_SetSeedGenerated(uint8_t g) {
-    if (OTRGlobals::Instance && OTRGlobals::Instance->gRandoContext)
+    if (OTRGlobals::Instance && OTRGlobals::Instance->gRandoContext) {
         OTRGlobals::Instance->gRandoContext->SetSeedGenerated(g != 0);
+        // ComboShip: a failed generate also drops the old loaded seed, like native generation does.
+        if (g == 0) {
+            OTRGlobals::Instance->gRandoContext->SetSpoilerLoaded(false);
+        }
+    }
 }
 
 // ComboShip: OOT combo-logic exports — thin wrappers around the existing logic engine. The
@@ -5611,6 +5574,8 @@ bool SoH_HandleConfigDrop(char* filePath) {
             return false;
         }
 
+        uint32_t configVersion = SOH::GetConfigVersion(configJson, 0);
+
         CVarClearBlock(CVAR_PREFIX_ENHANCEMENT);
         CVarClearBlock(CVAR_PREFIX_CHEAT);
         CVarClearBlock(CVAR_PREFIX_RANDOMIZER_SETTING);
@@ -5635,6 +5600,13 @@ bool SoH_HandleConfigDrop(char* filePath) {
                 CVarSetFloat(path.c_str(), value.get<float>());
             }
         }
+
+        // Migrate configs from older versions
+        SOH::RunVersionUpdatesFrom(configVersion);
+#ifdef COMBO_BUILD
+        // ComboShip: a dropped old config can carry numeric exclusions too.
+        Combo_ClearNumericExclusions();
+#endif
 
         gui->GetGuiWindow("Console")->Hide();
         gui->GetGuiWindow("Actor Viewer")->Hide();

@@ -34,6 +34,7 @@ struct ComboGenProgress {
         mmCheckCount = 0;
         error[0] = '\0';
         seedStr[0] = '\0';
+        cancel = false;
     }
     void SetError(const char* m) {
         if (!m) {

@@ -1919,9 +1919,6 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
         // The OOT seed-hash folds in input-seed + both settings dumps so the icons identify seed and
         // settings (same seed+settings -> matching icons across players).
         uint32_t displaySeed = ComboHash((inputSeed + sohDump + mmDump).c_str());
-        g_FinalizeOotApply = ootApply.dump();
-        g_FinalizeDisplaySeed = displaySeed;
-        g_FinalizeMasterSeed = masterSeed;
 
         // ComboShip: file_hash = the 5 icon indexes the file-select shows, derived from displaySeed
         // exactly as OOT's GenerateHash (decimal padded to 10, five 2-digit pairs).
@@ -2006,6 +2003,9 @@ static void RunComboFill(std::string inputSeed, ComboRando::ComboGenProgress* pr
                                                  : nlohmann::json{ { "version", 1 } };
         if (cancelled())
             return;
+        g_FinalizeOotApply = ootApply.dump();
+        g_FinalizeDisplaySeed = displaySeed;
+        g_FinalizeMasterSeed = masterSeed;
         g_ConsolidatedJson = consolidated.dump(2);
 
         // This seed's own spoiler, so earlier seeds survive instead of being overwritten. The CVar that

@@ -821,6 +821,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         }
 
     for (int pass = 1; pass <= kMaxPasses && !fillOk; ++pass) {
+        if (GenCancelled(progress)) {
+            result.error = "cancelled";
+            return result;
+        }
         passesUsed = pass;
         auto passStart = std::chrono::steady_clock::now();
         auto passMs = [&] {
@@ -841,6 +845,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         std::vector<CwItem> advRest = advItems;
         bool prereqOk = portalPrereqs.empty();
         for (int t = 1; t <= kMaxPrereqTries && !prereqOk; ++t) {
+            if (GenCancelled(progress)) {
+                result.error = "cancelled";
+                return result;
+            }
             placements = lockedPlacements;
             filledChecks.clear();
             for (const auto& lp : lockedPlacements)
@@ -921,6 +929,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
 
         bool deadEnd = false;
         while (!toPlace.empty()) {
+            if (GenCancelled(progress)) {
+                result.error = "cancelled";
+                return result;
+            }
             size_t k = std::min({ batchCap, std::max<size_t>(1, toPlace.size() / 4), toPlace.size() });
 
             std::vector<CwItem> batch;
@@ -1080,6 +1092,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
             }
         }
 
+        if (GenCancelled(progress)) {
+            result.error = "cancelled";
+            return result;
+        }
         // Validation: with nothing assumed, sphere-collecting placed items must reach every
         // ADVANCEMENT check (the assumed-fill guarantee). Junk-holding checks may legitimately be
         // oracle-unreachable (oracles under-model, e.g. MM with zeroed save options) — count and log

@@ -50,7 +50,9 @@ include(CMake/lus-cvars.cmake)
 
 # In-game banner (gBuildVersion): release version + readable upstream identity.
 set(PROJECT_BUILD_NAME "ComboShip v${COMBO_RELEASE_VERSION} | Combo Build e${COMBO_EPOCH} soh-${COMBO_SOH_SHORT} mm-${COMBO_MM_SHORT}" CACHE STRING "" FORCE)
-set(PROJECT_TEAM "github.com/Varuuna/ComboShip" CACHE STRING "" FORCE)
+# Company field per binary: each game DLL credits its upstream, the launcher is ComboShip.
+set(PROJECT_TEAM "github.com/harbourmasters" CACHE STRING "" FORCE)
+set(COMBO_PROJECT_TEAM "github.com/Varuuna/ComboShip")
 
 # Git information
 execute_process(
@@ -409,7 +411,9 @@ target_link_libraries(soh-o2r-packer PRIVATE torch torch-stringhelper)
 ################################################################################
 add_subdirectory(soh ${CMAKE_BINARY_DIR}/soh)
 
+set(PROJECT_TEAM "github.com/2ship2harkinian")
 add_subdirectory(mm ${CMAKE_BINARY_DIR}/mm)
+unset(PROJECT_TEAM)
 
 add_subdirectory(combo ${CMAKE_BINARY_DIR}/combo)
 

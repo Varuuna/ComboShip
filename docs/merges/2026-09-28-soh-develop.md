@@ -454,7 +454,9 @@ c42004bc4 Fix AddCheckToLogic bombchu handling (#7274)
 - **ComboShip name:** the combined Context is named `ComboShip` (`OTRGlobals.cpp`, both COMBO_BUILD ctors),
   so the window reads `ComboShip (DirectX 11)` and the log is `logs/ComboShip.log` (was `Ship of Harkinian.log`).
   The combo menu game tabs say Ocarina of Time / Majora's Mask, `ComboShip.exe` has its own icon and version
-  info (`combo/windows/`), and `PROJECT_TEAM` (DLL Company field) is `github.com/Varuuna/ComboShip`.
+  info (`combo/windows/`). Company field per binary: `soh.dll` keeps `github.com/harbourmasters`, `2ship.dll`
+  is `github.com/2ship2harkinian` (root CMake sets it around the mm subdirectory), `ComboShip.exe` is
+  `github.com/Varuuna/ComboShip`.
 
 ## Deferred (follow-up issues)
 

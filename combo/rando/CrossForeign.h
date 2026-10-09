@@ -146,6 +146,42 @@ inline std::string MakeTrickName(const std::string& name, uint32_t r) {
     return out;
 }
 
+// Ice Trap Names "Misspelled (Vowel)": swap one vowel for a different one, case kept (soh text.cpp).
+inline std::string MakeVowelSwapName(const std::string& name, uint32_t r) {
+    static constexpr char vowels[] = { 'a', 'e', 'i', 'o', 'u' };
+    std::vector<size_t> at;
+    for (size_t i = 0; i < name.size(); ++i) {
+        if (std::strchr("aeiouAEIOU", name[i]) != nullptr)
+            at.push_back(i);
+    }
+    if (at.empty())
+        return name;
+    std::string out = name;
+    const size_t pos = at[r % at.size()];
+    const bool upper = out[pos] >= 'A' && out[pos] <= 'Z';
+    const char old = upper ? out[pos] + ('a' - 'A') : out[pos];
+    uint32_t idx = (r / static_cast<uint32_t>(at.size())) % 4;
+    idx += vowels[idx] >= old; // skip the old vowel
+    out[pos] = upper ? vowels[idx] - ('a' - 'A') : vowels[idx];
+    return out;
+}
+
+// Ice Trap Names "Misspelled (Duplicate)": double one ASCII letter, never a space or apostrophe.
+inline std::string MakeDuplicateLetterName(const std::string& name, uint32_t r) {
+    std::vector<size_t> at;
+    for (size_t i = 0; i < name.size(); ++i) {
+        const char c = name[i];
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
+            at.push_back(i);
+    }
+    if (at.empty())
+        return name;
+    std::string out = name;
+    const size_t pos = at[r % at.size()];
+    out.insert(pos + 1, 1, out[pos]);
+    return out;
+}
+
 // One game's item-table metadata from its dump's "items" array, keyed by the friendly grant name.
 struct ForeignItemMeta {
     std::string displayName;
@@ -206,6 +242,12 @@ inline void AssignTrapDisguises(nlohmann::json& foreignArr, const nlohmann::json
     // out of foreign candidacy too — a strict subset of native semantics, intended.
     bool curatedPresent = false;
     const std::set<std::string> curated = ParseIceTrapModels(sohDump, curatedPresent);
+    // OOT's Ice Trap Names option names every foreign trap, MM-origin ones too (MM has no option).
+    int trapNames = 1; // Similar, for dumps that predate the field
+    try {
+        trapNames =
+            nlohmann::json::parse(sohDump).value("accessibility", nlohmann::json::object()).value("iceTrapNames", 1);
+    } catch (...) {}
     std::set<std::string> ootCand, mmCand;
     auto scan = [&](const nlohmann::json& pl) {
         if (!pl.is_object())
@@ -251,9 +293,27 @@ inline void AssignTrapDisguises(nlohmann::json& foreignArr, const nlohmann::json
             (fmeta != meta.end() && !fmeta->second.displayName.empty()) ? fmeta->second.displayName : fake;
         fm["fakeItemName"] = fake;
         fm["fakeDisplayName"] = dn;
-        // Prefer the owning game's curated near-miss name; letter-doubling is only the fallback.
+        // Exactly one draw per disguised trap whatever the option, so names never shift other output.
+        const uint32_t r = next();
         const std::vector<std::string>* tn = (fmeta != meta.end()) ? &fmeta->second.trickNames : nullptr;
-        fm["fakeTrickName"] = (tn != nullptr && !tn->empty()) ? (*tn)[next() % tn->size()] : MakeTrickName(dn, next());
+        switch (trapNames) {
+            case 0: // Identical
+                fm["fakeTrickName"] = dn;
+                break;
+            case 2: // Misspelled (Vowel)
+                fm["fakeTrickName"] = MakeVowelSwapName(dn, r);
+                break;
+            case 3: // Misspelled (Duplicate)
+                fm["fakeTrickName"] = MakeDuplicateLetterName(dn, r);
+                break;
+            case 4: // Revealed: the trap's own name; the model stays the disguise
+                fm["fakeTrickName"] =
+                    mit->second.displayName.empty() ? fm.value("itemName", "") : mit->second.displayName;
+                break;
+            default: // Similar: the owning game's curated near-miss name, else letter-doubling
+                fm["fakeTrickName"] = (tn != nullptr && !tn->empty()) ? (*tn)[r % tn->size()] : MakeTrickName(dn, r);
+                break;
+        }
     }
 }
 

@@ -1358,8 +1358,16 @@ beside the existing `advancement`/`trap` flags and parsed into `ForeignItemMeta`
 no entry. English only — OOT's table is trilingual but the foreign schema carries single strings, so
 localisation would mean widening `fakeTrickName` everywhere it is consumed.
 
-**Known nit:** the fallback doubles punctuation (`Tingle''s Clock Town Map`). Upstream skips spaces
-but not apostrophes.
+**Known nit:** the Similar fallback doubles punctuation (`Tingle''s Clock Town Map`). Upstream skips
+spaces but not apostrophes. Kept as is so Similar seeds stay byte-identical.
+
+**Ice Trap Names (2026-10-09):** OOT's `IceTrapNames` option (dump `accessibility.iceTrapNames`) now
+names **every** foreign trap, including MM "Knockoff Item" traps shown in OOT. That is a deliberate
+deviation: native MM has no such option. Identical = the disguise's real name; Similar = the behaviour
+above; Misspelled (Vowel) / (Duplicate) mirror soh `text.cpp` (letters only); Revealed = the trap's own
+name ("Ice Trap (OOT)" / "Knockoff Item (MM)") with the disguise model kept. Each disguised trap still
+takes exactly one RNG draw for its name, so changing the option never moves models or placements.
+Known, unchanged: combo's OOT pickup text names the trap by `fakeTrickName`, native by the real name.
 
 ## MM oracle: zeroed inventory read as "owns Ocarina" (2026-08-09)
 

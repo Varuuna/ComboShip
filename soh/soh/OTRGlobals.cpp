@@ -1793,6 +1793,10 @@ static void Combo_FinishInit() {
     // #region SOH [Randomizer] TODO: Remove these and refactor spoiler file handling for randomizer
     CVarClear(CVAR_GENERAL("RandomizerNewFileDropped"));
     CVarClear(CVAR_GENERAL("RandomizerDroppedFile"));
+#ifdef COMBO_BUILD
+    // ComboShip: forget a native spoiler remembered by an older build; combo seeds never use it.
+    CVarClear(CVAR_GENERAL("SpoilerLog"));
+#endif
     // #endregion
 
     Ship::Context::GetRawInstance()->GetFileDropMgr()->RegisterDropHandler(SoH_HandleConfigDrop);

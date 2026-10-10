@@ -2795,7 +2795,7 @@ extern "C" COMBO_EXPORT void MM_ResumeGame(int fileNum) {
 extern "C" COMBO_EXPORT int MM_LoadSaveForCombo(int fileNum) {
     int rc = Combo_LoadMMSaveFile(fileNum + 1); // shares the saveType tripwire
     if (rc == 0) {
-        Rando::CheckTracker::OnFileLoad(); // rebuild the peek map; it only builds when empty
+        Rando::CheckTracker::OnFileLoad(); // rebuild the peek map; the peek never refreshes a filled one
     }
     return rc;
 }

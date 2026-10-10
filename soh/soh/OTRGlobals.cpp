@@ -4391,7 +4391,7 @@ extern "C" COMBO_EXPORT const char* SOH_DumpRandoStaticData(void) {
         accessibility["lockOverworldDoors"] = static_cast<bool>(ctx->GetOption(RSK_LOCK_OVERWORLD_DOORS));
         // ComboShip: Shared Items masks need OOT's masks to be real rando items.
         accessibility["maskQuestShuffle"] = static_cast<bool>(ctx->GetOption(RSK_SHUFFLE_MASKS));
-        // ComboShip: foreign traps keep the baked "Similar" name; recorded so a follow-up can honor it.
+        // ComboShip: read by AssignTrapDisguises to name every foreign trap.
         accessibility["iceTrapNames"] = static_cast<int>(ctx->GetOption(RSK_ICE_TRAP_NAMES).Get());
 
         usedPool = true;

@@ -131,6 +131,13 @@ byte-intact via the `#else`).
 the locked `MIN_QUEST == MAX_QUEST == QUEST_RANDOMIZER` still resolves to Randomizer on every L/R
 path (incl. the Master-Quest-absent skip loop).
 
+**Hide-quest options (2026-10-09):** soh's six File Select "Hide ..." checkboxes and their
+`HideQuestPreFunc` are compiled out under `COMBO_BUILD` (`SohMenuEnhancements.cpp`); they could not
+change anything with the lock above. `SohFileSelect_IsQuestHidden` (`FileSelectEnhancements.cpp`) hides
+every quest but Randomizer, so `CountVisibleQuests() == 1`: the one-entry carousel is skipped (no dead
+L/R arrows) and stale Hide CVars in an old config can no longer change the flow. B from name entry now
+returns to the main menu, as single-quest soh does.
+
 ## Live-apply settings changed from the combo menu (2026-06-28)
 
 **Why:** the games' native UIWidgets call `ShipInit::Init(cvar)` after a widget change to re-run the

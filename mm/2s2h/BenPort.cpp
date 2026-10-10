@@ -79,6 +79,7 @@ CrowdControl* CrowdControl::Instance;
 #include "2s2h/Rando/Rando.h"
 #include "2s2h/Rando/Spoiler/Spoiler.h"
 #include "2s2h/Rando/Logic/Logic.h"
+#include "2s2h/Rando/CheckTracker/CheckTracker.h" // ComboShip: rebuild peek map on dormant load
 #include "2s2h/Rando/MiscBehavior/ClockShuffle.h"
 #include "2s2h/SaveManager/SaveManager.h"
 #include "2s2h/CustomMessage/CustomMessage.h"
@@ -2792,7 +2793,11 @@ extern "C" COMBO_EXPORT void MM_ResumeGame(int fileNum) {
 // the tracker peek shows real items before MM is visited this session. Same headless load path
 // title_setup.c runs on resume (no gPlayState needed). Nonzero = nothing usable was loaded.
 extern "C" COMBO_EXPORT int MM_LoadSaveForCombo(int fileNum) {
-    return Combo_LoadMMSaveFile(fileNum + 1); // shares the saveType tripwire
+    int rc = Combo_LoadMMSaveFile(fileNum + 1); // shares the saveType tripwire
+    if (rc == 0) {
+        Rando::CheckTracker::OnFileLoad(); // rebuild the peek map; it only builds when empty
+    }
+    return rc;
 }
 
 static void Combo_MM_ApplyCheckPrices();

@@ -816,6 +816,9 @@ void CheckTrackerLoadGame(int32_t fileNum) {
 #endif
     LoadSettings();
     TrySetAreas();
+#ifdef COMBO_BUILD
+    ClearAreaChecksAndTotals(); // ComboShip: a load without a prior exit must not double the lists
+#endif
     for (auto& entry : Rando::StaticData::GetLocationTable()) {
         RandomizerCheck rc = entry.GetRandomizerCheck();
         if (rc == RC_UNKNOWN_CHECK || rc == RC_MAX || rc == RC_LINKS_POCKET ||

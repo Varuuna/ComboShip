@@ -276,3 +276,29 @@ Migration runs at container load, before any save could scrub the legacy field.
 `sSuppressSpoilSave` (the combo bulk load batches area spoils into one container write) now skips
 only the `SaveSection` call. Upstream added `RefreshItemTrackerMainWindow()` after it, which must
 still run.
+
+## Tracker teardown on reset / quit-to-title (2026-10-10)
+
+OOT's check tracker appends on `OnLoadGame` and relies on `OnExitGame` to clear. A reset while MM is
+foreground, and an owl-save quit from MM, booted OOT to the title without firing `OnExitGame`, so the
+next load showed every check twice.
+
+| Path | Who fires `OnExitGame` |
+|---|---|
+| OOT-foreground reset (console, Ctrl+R, combo menu) | `ResetHandler` (unchanged) |
+| Save & Quit / `ENTR_LOAD_OPENING` | kaleido / `z_play.c` (unchanged) |
+| Portal return MM->OOT | `title_setup.c` exit/load pair (unchanged) |
+| Reset while MM foreground, owl-save quit from MM | **new:** `SOH_ResumeGame` when `sComboResetPending` |
+
+- **`SOH_ResumeGame` (`soh/soh/OTRGlobals.cpp`).** Fires `GameInteractor_ExecuteOnExitGame(fileNum)`
+  on a reset return, before TitleSetup wipes `fileNum`. Skipped when `fileNum == 0xFF` (no save).
+- **`CheckTrackerLoadGame` (`randomizer_check_tracker.cpp`).** Calls `ClearAreaChecksAndTotals()`
+  after `TrySetAreas()`, so a load without a prior exit can't double the lists. `areasSpoiled` is save
+  state and stays.
+- **Hint Tracker.** New `SOH_SetOnExitSaveCallback` seam; the launcher blanks the Hint Tracker on every
+  exit. Every `OnLoadGame` (including the portal return) pushes the slot's hints again.
+- **MM dormant peek.** `MM_LoadSaveForCombo` now calls `Rando::CheckTracker::OnFileLoad()` after a
+  successful load, so a reset into a different slot doesn't keep the old slot's scene map.
+
+Invariant: every path that takes a loaded OOT save to the title fires `OnExitGame` exactly once before
+the next `OnLoadGame`, and `CheckTrackerLoadGame` leaves each check once per area however often it runs.

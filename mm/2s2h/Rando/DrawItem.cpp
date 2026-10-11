@@ -3,14 +3,13 @@
 #include "2s2h/ShipInit.hpp"
 #include "2s2h/Rando/DrawFuncs.h"
 #include "2s2h_assets.h"
+#include "2s2h/BenGui/CosmeticEditor.h"
 
 extern "C" {
 #include "variables.h"
 #include "functions.h"
 #include "objects/gameplay_keep/gameplay_keep.h"
 #include "objects/object_gi_melody/object_gi_melody.h"
-#include "assets/objects/object_gi_key/object_gi_key.h"
-#include "assets/objects/object_gi_bosskey/object_gi_bosskey.h"
 #include "objects/object_gi_hearts/object_gi_hearts.h"
 #include "objects/object_gi_liquid/object_gi_liquid.h"
 #include "objects/object_sek/object_sek.h"
@@ -18,6 +17,8 @@ extern "C" {
 
 #include "assets/overlays/ovl_Arrow_Ice/ovl_Arrow_Ice.h"
 #include "assets/objects/object_gi_purse/object_gi_purse.h"
+
+#include "overlays/actors/ovl_En_Elforg/z_en_elforg.h"
 
 Gfx* ResourceMgr_LoadGfxByName(const char* path);
 }
@@ -53,27 +54,38 @@ s32 StrayFairyOverrideLimbDraw(PlayState* play, s32 limbIndex, Gfx** dList, Vec3
 }
 
 void DrawStrayFairy(RandoItemId randoItemId) {
+    AnimatedMaterial* texAnim;
+    s32 area;
+
+    switch (randoItemId) {
+        case RI_WOODFALL_STRAY_FAIRY:
+            texAnim = (AnimatedMaterial*)&gStrayFairyWoodfallTexAnim;
+            area = STRAY_FAIRY_AREA_WOODFALL;
+            break;
+        case RI_SNOWHEAD_STRAY_FAIRY:
+            texAnim = (AnimatedMaterial*)&gStrayFairySnowheadTexAnim;
+            area = STRAY_FAIRY_AREA_SNOWHEAD;
+            break;
+        case RI_GREAT_BAY_STRAY_FAIRY:
+            texAnim = (AnimatedMaterial*)&gStrayFairyGreatBayTexAnim;
+            area = STRAY_FAIRY_AREA_GREAT_BAY;
+            break;
+        case RI_STONE_TOWER_STRAY_FAIRY:
+            texAnim = (AnimatedMaterial*)&gStrayFairyStoneTowerTexAnim;
+            area = STRAY_FAIRY_AREA_STONE_TOWER;
+            break;
+        default:
+            texAnim = (AnimatedMaterial*)&gStrayFairyClockTownTexAnim;
+            area = STRAY_FAIRY_AREA_CLOCK_TOWN;
+            break;
+    }
+
     OPEN_DISPS(gPlayState->state.gfxCtx);
 
     Gfx_SetupDL25_Xlu(gPlayState->state.gfxCtx);
 
-    switch (randoItemId) {
-        case RI_WOODFALL_STRAY_FAIRY:
-            AnimatedMat_Draw(gPlayState, (AnimatedMaterial*)&gStrayFairyWoodfallTexAnim);
-            break;
-        case RI_SNOWHEAD_STRAY_FAIRY:
-            AnimatedMat_Draw(gPlayState, (AnimatedMaterial*)&gStrayFairySnowheadTexAnim);
-            break;
-        case RI_GREAT_BAY_STRAY_FAIRY:
-            AnimatedMat_Draw(gPlayState, (AnimatedMaterial*)&gStrayFairyGreatBayTexAnim);
-            break;
-        case RI_STONE_TOWER_STRAY_FAIRY:
-            AnimatedMat_Draw(gPlayState, (AnimatedMaterial*)&gStrayFairyStoneTowerTexAnim);
-            break;
-        default: // STRAY_FAIRY_AREA_CLOCK_TOWN
-            AnimatedMat_Draw(gPlayState, (AnimatedMaterial*)&gStrayFairyClockTownTexAnim);
-            break;
-    }
+    CosmeticEditor_SetStrayFairyMaterial(area);
+    AnimatedMat_Draw(gPlayState, texAnim);
 
     Matrix_ReplaceRotation(&gPlayState->billboardMtxF);
     Matrix_Scale(0.03f, 0.03f, 0.03f, MTXMODE_APPLY);
@@ -238,73 +250,100 @@ void DrawOwlStatue() {
     Gfx_DrawDListOpa(gPlayState, (Gfx*)gOwlStatueOpenedDL);
 }
 
-static Gfx gGiSmallKeyCopyDL[75];
+Color_RGBA8 DefaultKeyColors[10] = {
+    { 255, 170, 246, 255 }, // Woodfall Primitive
+    { 116, 226, 61, 255 },  // Snowhead Primitive
+    { 143, 103, 226, 255 }, // Great Bay Primitive
+    { 226, 221, 0, 255 },   // Stone Tower Primitive
+
+    { 143, 45, 129, 255 }, // Woodfall Accent
+    { 0, 98, 56, 255 },    // Snowhead Accent
+    { 52, 0, 61, 255 },    // Great Bay Accent
+    { 119, 65, 0, 255 },   // Stone Tower Accent
+
+    { 255, 244, 204, 255 }, // Boss Key Primitive
+    { 143, 107, 0, 255 }    // Boss Key Accent
+};
+
+Gfx* emblemDLs[4] = { (Gfx*)gGiWoodfallKeyEmblemDL, (Gfx*)gGiSnowheadKeyEmblemDL, (Gfx*)gGiGreatBayKeyEmblemDL,
+                      (Gfx*)gGiStoneTowerKeyEmblemDL };
 
 void DrawSmallKey(RandoItemId randoItemId) {
+    int slot;
+    switch (randoItemId) {
+        case RI_WOODFALL_SMALL_KEY:
+            slot = 0;
+            break;
+        case RI_SNOWHEAD_SMALL_KEY:
+            slot = 1;
+            break;
+        case RI_GREAT_BAY_SMALL_KEY:
+            slot = 2;
+            break;
+        case RI_STONE_TOWER_SMALL_KEY:
+            slot = 3;
+            break;
+        default:
+            return;
+    }
+
+    const char* cosmeticId = CosmeticEditor_GetDungeonCosmeticId(slot);
+    Color_RGBA8 prim = DefaultKeyColors[slot];
+    Color_RGBA8 env = DefaultKeyColors[slot + 4];
+
     OPEN_DISPS(gPlayState->state.gfxCtx);
 
     Gfx_SetupDL25_Opa(gPlayState->state.gfxCtx);
-    switch (randoItemId) {
-        case RI_WOODFALL_SMALL_KEY:
-            gDPSetPrimColor(POLY_OPA_DISP++, 0, 0x80, 255, 255, 255, 255);
-            gDPSetEnvColor(POLY_OPA_DISP++, 236, 120, 186, 255);
-            break;
-        case RI_SNOWHEAD_SMALL_KEY:
-            gDPSetPrimColor(POLY_OPA_DISP++, 0, 0x80, 255, 255, 255, 255);
-            gDPSetEnvColor(POLY_OPA_DISP++, 129, 173, 70, 255);
-            break;
-        case RI_GREAT_BAY_SMALL_KEY:
-            gDPSetPrimColor(POLY_OPA_DISP++, 0, 0x80, 255, 255, 255, 255);
-            gDPSetEnvColor(POLY_OPA_DISP++, 99, 90, 183, 255);
-            break;
-        case RI_STONE_TOWER_SMALL_KEY:
-            gDPSetPrimColor(POLY_OPA_DISP++, 0, 0x80, 255, 255, 255, 255);
-            gDPSetEnvColor(POLY_OPA_DISP++, 177, 165, 83, 255);
-            break;
-        default:
-            break;
-    }
+
+    gDPSetPrimColorOverride(POLY_OPA_DISP++, 0, 0x80, prim.r, prim.g, prim.b, 255, cosmeticId);
+    gDPSetEnvColorOverrideEx(POLY_OPA_DISP++, env.r, env.g, env.b, 255, cosmeticId, COSMETIC_COLOR_MODE_DIVIDE, 2.0f);
 
     MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gPlayState->state.gfxCtx);
-    gSPDisplayList(POLY_OPA_DISP++, gGiSmallKeyCopyDL);
+    gSPDisplayList(POLY_OPA_DISP++, (Gfx*)gGiDungeonSmallKeyDL);
+    gSPDisplayList(POLY_OPA_DISP++, emblemDLs[slot]);
 
     CLOSE_DISPS(gPlayState->state.gfxCtx);
 }
 
-static Gfx gGiBossKeyCopyDL[87];
-
 void DrawBossKey(RandoItemId randoItemId) {
+    int slot;
+    switch (randoItemId) {
+        case RI_WOODFALL_BOSS_KEY:
+            slot = 0;
+            break;
+        case RI_SNOWHEAD_BOSS_KEY:
+            slot = 1;
+            break;
+        case RI_GREAT_BAY_BOSS_KEY:
+            slot = 2;
+            break;
+        case RI_STONE_TOWER_BOSS_KEY:
+            slot = 3;
+            break;
+        default:
+            return;
+    }
+
+    const char* cosmeticId = CosmeticEditor_GetDungeonCosmeticId(slot);
+    Color_RGBA8 prim = DefaultKeyColors[slot];
+    Color_RGBA8 env = DefaultKeyColors[slot + 4];
+
     OPEN_DISPS(gPlayState->state.gfxCtx);
 
     Gfx_SetupDL25_Opa(gPlayState->state.gfxCtx);
-    switch (randoItemId) {
-        case RI_WOODFALL_BOSS_KEY:
-            gDPSetPrimColor(POLY_OPA_DISP++, 0, 0x80, 255, 255, 255, 255);
-            gDPSetEnvColor(POLY_OPA_DISP++, 236, 120, 186, 255);
-            break;
-        case RI_SNOWHEAD_BOSS_KEY:
-            gDPSetPrimColor(POLY_OPA_DISP++, 0, 0x80, 255, 255, 255, 255);
-            gDPSetEnvColor(POLY_OPA_DISP++, 129, 173, 70, 255);
-            break;
-        case RI_GREAT_BAY_BOSS_KEY:
-            gDPSetPrimColor(POLY_OPA_DISP++, 0, 0x80, 255, 255, 255, 255);
-            gDPSetEnvColor(POLY_OPA_DISP++, 99, 90, 183, 255);
-            break;
-        case RI_STONE_TOWER_BOSS_KEY:
-            gDPSetPrimColor(POLY_OPA_DISP++, 0, 0x80, 255, 255, 255, 255);
-            gDPSetEnvColor(POLY_OPA_DISP++, 177, 165, 83, 255);
-            break;
-        default:
-            break;
-    }
+
+    // Draw Body
+    gDPSetPrimColor(POLY_OPA_DISP++, 0, 0x80, DefaultKeyColors[8].r, DefaultKeyColors[8].g, DefaultKeyColors[8].b, 255);
+    gDPSetEnvColor(POLY_OPA_DISP++, DefaultKeyColors[9].r, DefaultKeyColors[9].g, DefaultKeyColors[9].b, 255);
 
     MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gPlayState->state.gfxCtx);
-    gSPDisplayList(POLY_OPA_DISP++, gGiBossKeyCopyDL);
+    gSPDisplayList(POLY_OPA_DISP++, (Gfx*)gGiDungeonBossKeyDL);
 
-    Gfx_SetupDL25_Xlu(gPlayState->state.gfxCtx);
+    // Draw Emblem
+    gDPSetPrimColorOverride(POLY_OPA_DISP++, 0, 0x80, prim.r, prim.g, prim.b, 255, cosmeticId);
+    gDPSetEnvColorOverrideEx(POLY_OPA_DISP++, env.r, env.g, env.b, 255, cosmeticId, COSMETIC_COLOR_MODE_DIVIDE, 2.0f);
 
-    MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gPlayState->state.gfxCtx);
-    gSPDisplayList(POLY_XLU_DISP++, (Gfx*)gGiBossKeyGemDL);
+    gSPDisplayList(POLY_OPA_DISP++, emblemDLs[slot]);
 
     CLOSE_DISPS(gPlayState->state.gfxCtx);
 }
@@ -767,20 +806,8 @@ void Rando::DrawItem(RandoItemId randoItemId, RandoCheckId randoCheckId, Actor* 
 
 static RegisterShipInitFunc initializeGICopyDLs(
     []() {
-        // Small keys
-        Gfx* baseDL = ResourceMgr_LoadGfxByName(gGiSmallKeyDL);
-        memcpy(gGiSmallKeyCopyDL, baseDL, sizeof(gGiSmallKeyCopyDL));
-        gGiSmallKeyCopyDL[5] = gsDPNoOp();
-        gGiSmallKeyCopyDL[6] = gsDPNoOp();
-
-        // Boss keys
-        baseDL = ResourceMgr_LoadGfxByName(gGiBossKeyDL);
-        memcpy(gGiBossKeyCopyDL, baseDL, sizeof(gGiBossKeyCopyDL));
-        gGiBossKeyCopyDL[5] = gsDPNoOp();
-        gGiBossKeyCopyDL[6] = gsDPNoOp();
-
         // Token Flame
-        baseDL = ResourceMgr_LoadGfxByName(gSkulltulaTokenFlameDL);
+        Gfx* baseDL = ResourceMgr_LoadGfxByName(gSkulltulaTokenFlameDL);
         memcpy(gSkulltulaTokenFlameCopyDL, baseDL, sizeof(gSkulltulaTokenFlameCopyDL));
         gSkulltulaTokenFlameCopyDL[5] = gsDPNoOp();
         gSkulltulaTokenFlameCopyDL[6] = gsDPNoOp();

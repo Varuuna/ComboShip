@@ -65,6 +65,7 @@ struct ComboForeignDrawInfoOOT {
     // OOT's own setup DL for each stream (raw Gfx* in soh.dll), or null for our 25 Opa/Xlu.
     const void* setupDlOpa = nullptr;
     const void* setupDlXlu = nullptr;
+    const char* segTexPath = nullptr; // OOT's own (unrouted) seg-8 texture path, or null
     // ComboShip: animated class (no static DL row — OOT boss souls' real skeletons). When animOk,
     // anim describes the item and ComboForeignAnim_Draw renders it; paths point at soh.dll statics.
     bool animOk = false;
@@ -149,6 +150,12 @@ inline ComboForeignResolveOOT ComboFillForeignDrawInfoOOT(RandoCheckId rc, Combo
     info.scale = raw.scale;
     info.setupDlOpa = raw.setupDlOpa;
     info.setupDlXlu = raw.setupDlXlu;
+    if (raw.segTexPath != nullptr) {
+        if (strncmp(raw.segTexPath, kOtrPrefix, sizeof(kOtrPrefix) - 1) != 0) {
+            return ComboForeignResolveOOT::Unknown; // bound under OOT's RM below; must be a path literal
+        }
+        info.segTexPath = raw.segTexPath;
+    }
     info.hasEnvColor = raw.hasEnvColor != 0;
     info.drawKind = raw.drawKind;
     info.stateDependent = raw.stateDependent != 0;
@@ -349,12 +356,16 @@ inline void MM_DrawForeignGoronSword(const ComboForeignDrawInfoOOT* info) {
     MM_RestoreForeignSegs(segs, 1);
 }
 
-// Deku Nuts: seg8 OPA scroll (GetItem_DrawDekuNuts).
+// Deku Nuts: seg8 OPA scroll (GetItem_DrawDekuNuts). The rando nut bag carries OOT's 26 Opa.
 inline void MM_DrawForeignDekuNuts(const ComboForeignDrawInfoOOT* info) {
     PlayState* play = gPlayState;
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
-    Gfx_SetupDL25_Opa(gfxCtx);
+    if (info->setupDlOpa != nullptr) {
+        gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->setupDlOpa);
+    } else {
+        Gfx_SetupDL25_Opa(gfxCtx);
+    }
     MM_FOREIGN_PIN_OPA();
     gSPSegment(POLY_OPA_DISP++, 0x08,
                (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 6, play->state.frames * 6,
@@ -787,6 +798,42 @@ inline void MM_DrawForeignBronzeScale(const ComboForeignDrawInfoOOT* info) {
     MM_RestoreForeignSegs(segs, 1);
 }
 
+// Silver rupee (NewDrops off): drop rupee DL on OOT's silver texture (Randomizer_DrawSilverRupee).
+// The texture path exists in both archives, so seg 8 is bound under OOT's RM, as CfaBindSeg does.
+inline bool MM_DrawForeignSilverRupee(const ComboForeignDrawInfoOOT* info) {
+    std::shared_ptr<Ship::ResourceManager> rm = Ship::CrossRMRegistry::Get("oot");
+    if (rm == nullptr || info->segTexPath == nullptr) {
+        return false;
+    }
+    GraphicsContext* gfxCtx = gPlayState->state.gfxCtx;
+    bool gray = info->primColorOpa[3] != 0;
+    OPEN_DISPS(gfxCtx);
+    Gfx_SetupDL25_Opa(gfxCtx);
+    MM_FOREIGN_PIN_OPA();
+    if (info->scale > 0.0f) {
+        Matrix_Scale(info->scale, info->scale, info->scale, MTXMODE_APPLY);
+    }
+    MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
+    {
+        Ship::ResourceManagerScope rmScope(rm); // gSPSegment probes the path at record time
+        gSPSegment(POLY_OPA_DISP++, 0x08, (uintptr_t)info->segTexPath);
+    }
+    gSPComboRMPush(POLY_OPA_DISP++, "oot");
+    if (gray) {
+        gDPSetGrayscaleColor(POLY_OPA_DISP++, info->primColorOpa[0], info->primColorOpa[1], info->primColorOpa[2], 255);
+        gSPGrayscale(POLY_OPA_DISP++, true);
+    }
+    gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[0]);
+    if (gray) {
+        gSPGrayscale(POLY_OPA_DISP++, false);
+    }
+    gSPComboRMPop(POLY_OPA_DISP++);
+    CLOSE_DISPS(gfxCtx);
+    int32_t segs[] = { 0x08 };
+    MM_RestoreForeignSegs(segs, 1);
+    return true;
+}
+
 // Draw a foreign (OOT-bound) item's real OOT model at the current model matrix. Any resolution
 // failure falls back to the sentinel blue rupee (the RI_COMBO_FOREIGN item's GID_RUPEE_BLUE), so we
 // never draw blank. Mirrors Randomizer_DrawComboForeign (soh/.../draw.cpp).
@@ -866,6 +913,11 @@ inline void MM_DrawComboForeign(RandoCheckId randoCheckId) {
             break;
         case CW_DRAW_KIND_BRONZE_SCALE:
             MM_DrawForeignBronzeScale(info);
+            break;
+        case CW_DRAW_KIND_SILVER_RUPEE:
+            if (!MM_DrawForeignSilverRupee(info)) {
+                GetItem_Draw(gPlayState, GID_RUPEE_BLUE);
+            }
             break;
         case CW_DRAW_KIND_SIMPLE:
         default:

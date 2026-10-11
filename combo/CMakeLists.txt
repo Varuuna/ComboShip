@@ -139,6 +139,15 @@ endif()
 
 # Windows-specific settings
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    # Icon + version info for ComboShip.exe; the version is COMBO_RELEASE_VERSION padded to 4 parts.
+    string(REGEX MATCHALL "[0-9]+" COMBO_RC_VERSION_PARTS "${COMBO_RELEASE_VERSION}")
+    list(APPEND COMBO_RC_VERSION_PARTS 0 0 0 0)
+    list(SUBLIST COMBO_RC_VERSION_PARTS 0 4 COMBO_RC_VERSION_PARTS)
+    list(JOIN COMBO_RC_VERSION_PARTS "," COMBO_RC_VERSION_COMMAS)
+    set(COMBO_RC_ICON "${CMAKE_CURRENT_SOURCE_DIR}/windows/ComboShip.ico")
+    configure_file(windows/ComboShip.rc.in ${CMAKE_CURRENT_BINARY_DIR}/ComboShip.rc @ONLY)
+    target_sources(ComboShip PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/ComboShip.rc)
+
     # ComboShip: build the exe straight into the shared runtime dir (x64/<config>), matching how the
     # game DLLs (soh/2ship/libultraship/comboui) set their own output dir. x64/<config> is then the
     # SINGLE deploy location — the exe and every DLL already land here, so there is no second copy in
@@ -177,8 +186,8 @@ endif()
     # tree and the PORT/custom .o2r archives need deploying. $<TARGET_FILE_DIR:ComboShip> == x64/<config>,
     # so this is config-correct for Debug AND Release.
     #
-    # Extractor assets (flat structure matching CallZapd expectations). ComboShip runs BOTH the OOT (soh)
-    # and MM (2ship) extractors, so merge both games' extractor + xml dirs into one assets/ tree.
+    # Extractor assets, one flat assets/ tree for BOTH extractors: soh's Torch ymls (config.yml + per-
+    # version dirs) and mm's ZAPD extractor + xml dirs. No names overlap.
     # Clear the destination assets/ FIRST: copy_directory merges and never deletes, so a file
     # renamed/removed upstream (e.g. mm object_rs -> object_rsn) would leave a STALE .xml that ZAPD then
     # fails on ("Raw data size: 0x0", reached EOF). Clearing makes the source tree authoritative each
@@ -187,11 +196,8 @@ endif()
     add_custom_command(TARGET ComboShip POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E rm -rf $<TARGET_FILE_DIR:ComboShip>/assets
         COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/soh/assets/extractor
+            ${CMAKE_SOURCE_DIR}/soh/assets/yml
             $<TARGET_FILE_DIR:ComboShip>/assets
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/soh/assets/xml
-            $<TARGET_FILE_DIR:ComboShip>/assets/xml
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_SOURCE_DIR}/mm/assets/extractor
             $<TARGET_FILE_DIR:ComboShip>/assets

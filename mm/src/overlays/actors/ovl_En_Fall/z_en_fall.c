@@ -24,6 +24,7 @@
 
 #include "2s2h/BenPort.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
+#include "2s2h/BenGui/CosmeticEditor.h"
 
 #define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED)
 
@@ -765,6 +766,8 @@ void EnFall_Moon_Draw(Actor* thisx, PlayState* play) {
 
     OPEN_DISPS(play->state.gfxCtx);
 
+    CosmeticEditor_ApplySillyMoonScale();
+
     Gfx_SetupDL25_Opa(play->state.gfxCtx);
     MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, play->state.gfxCtx);
     Matrix_MultVec3f(sFocusOffset, &this->actor.focus.pos);
@@ -800,6 +803,8 @@ void EnFall_LodMoon_Draw(Actor* thisx, PlayState* play) {
     s32 primColor;
 
     OPEN_DISPS(play->state.gfxCtx);
+
+    CosmeticEditor_ApplySillyMoonScale();
 
     Gfx_SetupDL25_Opa(play->state.gfxCtx);
     MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, play->state.gfxCtx);

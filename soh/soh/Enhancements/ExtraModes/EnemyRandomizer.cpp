@@ -1,13 +1,19 @@
+#include <spdlog/spdlog.h>
+#include <libultraship/bridge/consolevariablebridge.h>
+
 #include "functions.h"
 #include "macros.h"
 #include "soh/ShipUtils.h"
 #include "soh/Enhancements/randomizer/SeedContext.h"
 #include "soh/Enhancements/enhancementTypes.h"
+#include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/ObjectExtension/ObjectExtension.h"
 #include "variables.h"
 #include "soh/ResourceManagerHelpers.h"
 #include "soh/SohGui/MenuTypes.h"
 #include "soh/SohGui/SohMenu.h"
+#include "soh/ShipInit.hpp"
+#include "z64scene.h"
 
 extern "C" {
 #include <z64.h>
@@ -24,6 +30,7 @@ extern "C" {
 #include "src/overlays/actors/ovl_En_Tp/z_en_tp.h"
 
 extern PlayState* gPlayState;
+extern int gMapLoading;
 }
 
 namespace SohGui {
@@ -61,13 +68,13 @@ static EnemyEntry randomizedEnemySpawnTable[] = {
     { CVAR_ENHANCEMENT("RandomizedEnemyList.Dinolfos"),         "Dinolfos",              ACTOR_EN_ZF,                                -2 }, // Dinolfos
     { CVAR_ENHANCEMENT("RandomizedEnemyList.Dodongo"),          "Dodongo",               ACTOR_EN_DODONGO,                           -1 }, // Dodongo
     { CVAR_ENHANCEMENT("RandomizedEnemyList.FireKeese"),        "Fire Keese",            ACTOR_EN_FIREFLY,                            1 }, // Fire Keese
-    // { CVAR_ENHANCEMENT("RandomizedEnemyList.FlareDancer"),      "Flare Dancer",          ACTOR_EN_FD,                                 0 }, // Flare Dancer (possible cause of crashes because of spawning flame actors on sloped ground or overloading)
+    { CVAR_ENHANCEMENT("RandomizedEnemyList.FlareDancer"),      "Flare Dancer",          ACTOR_EN_FD,                                 0 }, // Flare Dancer
     { CVAR_ENHANCEMENT("RandomizedEnemyList.FloorTile"),        "Floor Tile",            ACTOR_EN_YUKABYUN,                           0 }, // Flying Floor Tile
     { CVAR_ENHANCEMENT("RandomizedEnemyList.Floormaster"),      "Floormaster",           ACTOR_EN_FLOORMAS,                           0 }, // Floormaster
     { CVAR_ENHANCEMENT("RandomizedEnemyList.FlyingPeahat"),     "Flying Peahat",         ACTOR_EN_PEEHAT,                            -1 }, // Flying Peahat (big grounded, doesn't spawn larva)
     { CVAR_ENHANCEMENT("RandomizedEnemyList.FlyingPot"),        "Flying Pot",            ACTOR_EN_TUBO_TRAP,                          0 }, // Flying pot
     { CVAR_ENHANCEMENT("RandomizedEnemyList.Freezard"),         "Freezard",              ACTOR_EN_FZ,                                 0 }, // Freezard
-    { CVAR_ENHANCEMENT("RandomizedEnemyList.GerudoFighter"),    "Gerudo Fighter",        ACTOR_EN_GELDB,                              0 }, // Gerudo Fighter
+    { CVAR_ENHANCEMENT("RandomizedEnemyList.GerudoFighter"),    "Gerudo Thief",          ACTOR_EN_GELDB,                              0 }, // Gerudo Thief
     { CVAR_ENHANCEMENT("RandomizedEnemyList.Gibdo"),            "Gibdo",                 ACTOR_EN_RD,                             32766 }, // Gibdo (standing)
     { CVAR_ENHANCEMENT("RandomizedEnemyList.GohmaLarva"),       "Gohma Larva",           ACTOR_EN_GOMA,                               7 }, // Gohma Larva (Non-Gohma rooms)
     { CVAR_ENHANCEMENT("RandomizedEnemyList.Guay"),             "Guay",                  ACTOR_EN_CROW,                               0 }, // Guay
@@ -181,6 +188,8 @@ static bool IsExcludedFromClearRooms(s16 enemyId, s16 enemyParams) {
         case ACTOR_EN_FD:
         // Anubis - Needs fire
         case ACTOR_EN_ANUBICE_TAG:
+        // Withered Deku Baba - Stationary, can get stuck in air/on chests, softlock risk
+        case ACTOR_EN_KAREBABA:
             return true;
         case ACTOR_EN_MB:
             return enemyParams == 0;
@@ -227,9 +236,9 @@ static bool IsClearRoom(bool mq, s16 sceneNum, s8 roomNum) {
             }
         case SCENE_FIRE_TEMPLE:
             if (mq) {
-                return roomNum == 15 || roomNum == 17 || roomNum == 18;
+                return roomNum == 15 || roomNum == 17 || roomNum == 18 || roomNum == 24;
             } else {
-                return roomNum == 15;
+                return roomNum == 3 || roomNum == 15 || roomNum == 24;
             }
         case SCENE_WATER_TEMPLE:
             if (mq) {
@@ -318,6 +327,11 @@ static bool IsEnemyAllowedToSpawn(s16 sceneNum, s8 roomNum, EnemyEntry enemy, s1
     // Don't allow Lizalfos in the first room of the interior of the castle collapse
     if (sceneNum == SCENE_GANONS_TOWER_COLLAPSE_INTERIOR && roomNum == 1 && enemy.id == ACTOR_EN_ZF &&
         enemy.params == -1) {
+        return false;
+    }
+
+    // Don't allow Lizalfos in the silver rupee bridge room of spirit, as they spawn in the room above
+    if (sceneNum == SCENE_SPIRIT_TEMPLE && roomNum == 2 && enemy.id == ACTOR_EN_ZF && enemy.params == -1) {
         return false;
     }
 
@@ -526,6 +540,11 @@ static u8 GetRandomizedEnemy(PlayState* play, s16* actorId, s16* posX, s16* posY
             *posY = *posY - 200;
         }
 
+        // One enemy in GTG hammer room doesn't raycast properly, move it slightly
+        if (*posY == 117 && play->sceneNum == SCENE_GERUDO_TRAINING_GROUND && play->roomCtx.curRoom.num == 5) {
+            *posY = 118;
+        }
+
         // Do a raycast from the original position of the actor to find the ground below it, then try to place
         // the new actor on the ground. This way enemies don't spawn very high in the sky, and gives us control
         // over height offsets per enemy from a proven grounded position.
@@ -544,6 +563,11 @@ static u8 GetRandomizedEnemy(PlayState* play, s16* actorId, s16* posX, s16* posY
             // when not twisted, the whole floor is at 1228
 
             *posY = 1228;
+        } else if (isMQ && play->sceneNum == SCENE_SPIRIT_TEMPLE && play->roomCtx.curRoom.num == 27) {
+            // Similar to the twisted hallway, the turntable here is an actor used as flooring, so the enemy needs
+            // spawning on it
+
+            *posY = 50;
         } else {
             raycastResult = BgCheck_AnyRaycastFloor1(&play->colCtx, &poly, &pos);
 
@@ -586,6 +610,10 @@ static u8 GetRandomizedEnemy(PlayState* play, s16* actorId, s16* posX, s16* posY
             case ACTOR_EN_CLEAR_TAG:
             case ACTOR_EN_CROW:
                 *posY = *posY + 75;
+                break;
+            // Remove switch flag setting from Wolfos
+            case ACTOR_EN_WF:
+                *params |= 0xFF00;
                 break;
             default:
                 break;
@@ -729,6 +757,26 @@ void RegisterEnemyRandomizer() {
     // If Random Gerudo Fighters are defeated, drop some items
     COND_ID_HOOK(OnEnemyDefeat, ACTOR_EN_GELDB, ENEMY_RANDOMIZER_ENABLED, OnGerudoFighterDefeat);
 
+    // Spawn random enemies even if their object isn't loaded
+    COND_VB_SHOULD(VB_SPAWN_ACTOR_WITHOUT_OBJECT, ENEMY_RANDOMIZER_ENABLED, {
+        if (gMapLoading) {
+            *should = true;
+        }
+    });
+
+    // The following enemies break when the parent actor isn't the same as what would happen in authentic gameplay.
+    // As such, don't assign a parent to them at all when spawned with Enemy Randomizer.
+    // Gohma (z_boss_goma.c) and the falling platform spawning Stalfos in
+    // Forest Temple (z_bg_mori_bigst.c) that normally rely on this behaviour are changed when
+    // Enemy Rando is on so they still work properly even without assigning a parent.
+    COND_VB_SHOULD(VB_SET_CHILD_ACTOR_PARENT, ENEMY_RANDOMIZER_ENABLED, {
+        Actor* spawnedActor = va_arg(args, Actor*);
+
+        if (spawnedActor->id == ACTOR_EN_FLOORMAS || spawnedActor->id == ACTOR_EN_PEEHAT) {
+            *should = false;
+        }
+    });
+
     COND_VB_SHOULD(VB_SPAWN_ACTOR_ENTRY, ENEMY_RANDOMIZER_ENABLED, {
         ActorContext* actorCtx = va_arg(args, ActorContext*);
         ActorEntry* actorEntry = va_arg(args, ActorEntry*);
@@ -791,10 +839,13 @@ void RegisterEnemyRandomizer() {
         s16 posZ = static_cast<s16>(blkobj->dyna.actor.world.pos.z);
         s16 rotX = 0;
         s16 rotY = blkobj->dyna.actor.yawTowardsPlayer;
+        s16 seededRotY = 6969;
         s16 rotZ = 0;
         s16 params = 0;
 
-        if (!GetRandomizedEnemy(play, &actorId, &posX, &posY, &posZ, &rotX, &rotY, &rotZ, &params)) {
+        // rotation is hardcoded here as it is inconsistent, breaking seeded randomiser
+        // value provided is the best meme number avalible, theoretically any number works
+        if (!GetRandomizedEnemy(play, &actorId, &posX, &posY, &posZ, &rotX, &seededRotY, &rotZ, &params)) {
             assert(false);
         }
 
@@ -975,6 +1026,46 @@ void RegisterEnemyRandomizer() {
         *should = false;
     });
 
+    COND_VB_SHOULD(VB_AFTER_ACTOR_UPDATE_BGCHECKINFO, ENEMY_RANDOMIZER_ENABLED, {
+        Actor* enemy = va_arg(args, Actor*);
+        Player* player = GET_PLAYER(gPlayState);
+
+        if (enemy->category != ACTORCAT_ENEMY) {
+            return;
+        }
+
+        if ((IsClearRoom(ResourceMgr_IsSceneMasterQuest(gPlayState->sceneNum), gPlayState->sceneNum,
+                         gPlayState->roomCtx.curRoom.num) ||
+             IsTimedRoom(ResourceMgr_IsSceneMasterQuest(gPlayState->sceneNum), gPlayState->sceneNum,
+                         gPlayState->roomCtx.curRoom.num)) &&
+            enemy->id != ACTOR_EN_FIREFLY && enemy->id != ACTOR_EN_CROW) {
+            u32 floorProperty = func_80041EA4(&gPlayState->colCtx, enemy->floorPoly, enemy->floorBgId);
+
+            // Let ground enemies air walk above voidout floor in clear/timed rooms
+            // and move them up if setting is enabled after they're fallen down
+            if (CVarGetInteger(CVAR_ENHANCEMENT("EnemyRandomizerAirWalkVoidouts"), false) &&
+                (SurfaceType_GetFloorType(&gPlayState->colCtx, enemy->floorPoly, enemy->floorBgId) == 9 ||
+                 floorProperty == FLOOR_PROPERTY_5 || floorProperty == FLOOR_PROPERTY_12)) {
+                if (enemy->world.pos.y < player->actor.floorHeight) {
+                    Math_StepToF(&enemy->world.pos.y, player->actor.floorHeight, 12.0f);
+                    enemy->velocity.y = 0.0f;
+                }
+            }
+            // Backup. If player really above enemy, probably fallen out of bounds
+            // Extra distance for Flare Dancer elevator platform room (if spawning top in doorsanity)
+            f32 killHeight = (gPlayState->sceneNum == SCENE_FIRE_TEMPLE && gPlayState->roomCtx.curRoom.num == 24)
+                                 ? (player->actor.world.pos.y - 1500.0f)
+                                 : (player->actor.world.pos.y - 1000.0f);
+            if (enemy->world.pos.y < killHeight) {
+                SPDLOG_INFO(
+                    "AfterActorUpdateBgCheckInfo: Killing enemy, out of bounds (id {:#x}, pos x {:.1f} y {:.1f} z "
+                    "{:.1f})",
+                    enemy->id, enemy->world.pos.x, enemy->world.pos.y, enemy->world.pos.z);
+                Actor_Kill(enemy);
+            }
+        }
+    });
+
     COND_VB_SHOULD(VB_HAKA_HUTA_SPAWN_KEESE, ENEMY_RANDOMIZER_ENABLED, {
         BgHakaHuta* hakaHuta = va_arg(args, BgHakaHuta*);
         PlayState* play = va_arg(args, PlayState*);
@@ -1120,6 +1211,13 @@ void RegisterEnemyRandomizerWidgets() {
         .Options(UIWidgets::CheckboxOptions().Tooltip("Scales normal enemies Health with their randomized size.\n"
                                                       "*This will NOT affect Bosses!*"));
 
+    SohGui::mSohMenu->AddWidget(path, "Enemies Walk over Voidout Pits", WIDGET_CVAR_CHECKBOX)
+        .CVar(CVAR_ENHANCEMENT("EnemyRandomizerAirWalkVoidouts"))
+        .Options(
+            UIWidgets::CheckboxOptions().Tooltip("Ground enemies will air walk over pits/floors that void out Link\n"
+                                                 "to prevent softlocks. Can be toggled to make enemies fall down\n"
+                                                 "or fly back up from a void pit."));
+
     SohGui::mSohMenu->AddWidget(path, "Enemy List", WIDGET_SEPARATOR_TEXT).PreFunc([](WidgetInfo& info) {
         info.isHidden = !CVarGetInteger(CVAR_ENHANCEMENT("RandomizedEnemies"), 0);
     });
@@ -1146,5 +1244,19 @@ void RegisterEnemyRandomizerWidgets() {
     }
 }
 
+// Remove object dependency for Enemy Randomizer and Crowd Control to allow Like-likes to
+// drop equipment correctly in rooms where Like-likes normally don't spawn.
+static void RegisterItem00WithoutObject() {
+    bool required = ENEMY_RANDOMIZER_ENABLED || CVarGetInteger(CVAR_REMOTE_CROWD_CONTROL("Enabled"), 0);
+    COND_VB_SHOULD(VB_ITEM00_REQUIRE_OBJECT, required, {
+        EnItem00* item = va_arg(args, EnItem00*);
+
+        *should = false;
+        item->actor.objBankIndex = 0;
+    });
+}
+
 static RegisterShipInitFunc initFunc(RegisterEnemyRandomizer, { CVAR_ENEMY_RANDOMIZER_NAME });
+static RegisterShipInitFunc initFuncItem00(RegisterItem00WithoutObject,
+                                           { CVAR_ENEMY_RANDOMIZER_NAME, CVAR_REMOTE_CROWD_CONTROL("Enabled") });
 static RegisterMenuInitFunc menuInitFunc(RegisterEnemyRandomizerWidgets);

@@ -83,7 +83,7 @@ renders remote players' Link across all five transformation forms.
 - `mm/2s2h/Network/Anchor/MMAnchor.{h,cpp}` extended to the canonical Anchor field set + `PLAYER_UPDATE`
   send/receive, `RefreshClientActors`, and the `ShouldActorInit`/`OnActorUpdate` hooks.
 - `mm/2s2h/Network/Anchor/DummyPlayer.cpp` (new) — the puppet actor. **Ported from the canonical
-  2S2H Anchor PR (HarbourMasters/2ship2harkinian#1349, by the SoH Anchor author)**, adapted to
+  2S2H Anchor PR (2ship2harkinian/2ship2harkinian#1349, by the SoH Anchor author)**, adapted to
   ComboShip's launcher-owned transport (`MMAnchor` instead of a socket-owning `Anchor`) and
   `gRemote.Anchor.*` CVar keys. Spawns `ACTOR_PLAYER` → re-tags to `ACTOR_ITEM_INBOX`/`ACTORCAT_NPC`
   with `DummyPlayer_*` funcs; inits with `gPlayerSkeletons[transformation]` + a mask segment; reuses
@@ -191,6 +191,8 @@ MM is dormant); and nothing let a dormant sibling itself REQUEST a resync (MM's
 Fixes, all `COMBO_BUILD`:
 - `Anchor::PumpDormant` (`soh/soh/Network/Anchor/Anchor.cpp`) now wraps the `REQUEST_TEAM_STATE`
   branch in `isDormantApply` like the `GIVE_ITEM` branch already did.
+  (#214) It also calls `Combo_FlushDormantAccumulators()` before its save, so dormant rupee/magic grants
+  persist; MM's pump already did via `Combo_MM_GiveDormantResolved` (see rando.md, "Paused-save flush").
 - `MMAnchor::SendTeamStateFromSave` (`mm/2s2h/Network/Anchor/MMAnchor.cpp`) now judges by
   `gSaveContext.fileNum` instead of `IsSaveLoaded()`, so it answers even while MM is dormant.
 - New dormant-safe request seam per game: `Anchor::RequestResyncDormantSafe()` /

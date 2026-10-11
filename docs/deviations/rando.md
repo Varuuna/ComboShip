@@ -383,6 +383,23 @@ sides and never touch `gPlayState`, so a frozen dormant play state is safe — M
 `gPlayState`). We deliberately do **not** use `Rando::GiveItem`/`GiveItemEntryWithoutActor` (their
 `Item_Give` paths stage onto a live play state).
 
+**Dormant rupee cap (`soh/src/code/z_parameter.c`, COMBO_BUILD-guarded):** `Rupees_ChangeBy`'s
+null-`gPlayState` branch skips the wallet cap, so MM-found OOT rupees could push the balance past 1900
+and crash `Interface_Draw` (`digitTextures[]` out of bounds). It now clamps to `CUR_CAPACITY(UPG_WALLET)`,
+and `Interface_Update` clamps again so already-overflowed saves recover.
+
+**Paused-save flush (#214, `soh/soh/OTRGlobals.cpp`, `soh/soh/Network/Anchor/Anchor.cpp`,
+`mm/2s2h/BenPort.cpp`, COMBO_BUILD-guarded):** when a game was played and then parked behind the other,
+its play state is still live, so rupee grants go into `rupeeAccumulator` (OOT: magic upgrades into a
+pending `MAGIC_STATE_FILL`; MM: refills into `magicToAdd`). Only the interface tick drains these, it never
+runs while parked, and saves skip them — so quitting from the other game lost the grant. Rule: **every
+save taken while a game is not foreground calls its flush helper first.** OOT's
+`Combo_FlushDormantAccumulators` (rupees clamped to the wallet, magic set to the fill target) runs in
+`Combo_GrantResolvedOOT` (when OOT isn't foreground), `Anchor::PumpDormant`, and the Mask Shop switch
+save. MM's `Combo_MM_FlushAccumulators` (lifted out of `Combo_MM_GiveDormantResolved`, unchanged) runs
+there, in `MM_RaiseSharedTier`'s live-play-state branch (when MM isn't foreground), and in the Clock Tower
+portal return save.
+
 **`soh/soh/OTRGlobals.cpp` (vendored, COMBO_BUILD-guarded):** four new exports —
 `SOH_GrantCrossItem` (resolve OOT English name → `Randomizer_Item_Give` → `SaveManager::SaveFile`),
 `SOH_MarkForeignObtained` (mark a foreign OOT check collected, save-only, for network idempotency),
@@ -436,7 +453,8 @@ save by `fileNum` directly, so it is unaffected.
 
 **Why:** combo generation ran synchronously on the render thread, freezing the game (no music, no
 progress) for its whole duration. Stock SoH stays responsive by running the fill on a worker thread
-while the main loop keeps running (it polls `RandoGenerating` in `FileChoose_UpdateRandomizer`,
+while the main loop keeps running (it polls `Randomizer_IsGenerating()` in `FileChoose_UpdateRandomizer`;
+since 2026-09-28 a combo flag folded into `IsRandoGenerating()` replaces the old `RandoGenerating` CVar,
 swaps to gallop music, draws "Generating…", plays a fanfare). Combo couldn't naively copy that: its
 fill calls into the single-threaded game DLLs (dumps, oracles, and the `gSaveContext`-mutating
 apply), and a prior whole-pipeline-off-thread attempt crashed.
@@ -465,6 +483,25 @@ single `ComboGenProgress` and shares a read-only pointer with soh.
 `FileChoose_UpdateRandomizer`, re-apply the two action repoints + the finalize poll. If `GameState`'s
 `main` field or `FileChoose_Main` moves, re-check `SOH_IsOnFileSelect`.
 
+### Closing the window mid-generate (2026-10-08)
+
+**Why:** pressing X during generation made the app look hung. The window stopped drawing, but the
+shutdown's `g_GenerateThread.join()` waited for the whole fill, retries included.
+
+**Design:** `ComboGenProgress::cancel`, set by the shutdown block just before the join. The worker
+polls it between DLL calls: `CrossWorldCombinedFill` (pass, prereq-try and placement loop heads,
+before validation), `PareDownPlaythrough` (per candidate) and `RunComboFill` (each attempt, around
+the fill, pare-down and playthrough, and before the spoiler is assembled). No thread is killed and
+nothing throws. Headless `comborando` passes `progress = nullptr`, so it never sees a cancel.
+
+**After a cancel:** it is a failed generation. It is never retried and never relaxes constraints or
+budgets. The MM oracle session and the menu goal are restored, no seed is bound
+(`g_ConsolidatedJson`/`g_Finalize*`/`g_ComboPendingFinalize` untouched), and no spoiler is written.
+A cancel that lands during the spoiler write lets it finish; that file belongs to no save.
+`RandoGenerating` stays 1 on disk and `BootCommands_Init` clears it on the next boot. soh's own
+`randoThread` is out of scope: in combo only the debug console can start it (the menu button and
+its joiner are `#ifndef COMBO_BUILD`).
+
 ## Consolidated combo spoiler: share/drop + remember-seed + sphere hints (2026-06-28)
 
 **Why:** combo generation scattered per-seed data (`slot{N}.foreign.json`, `slot0.playthrough.txt`)
@@ -482,7 +519,9 @@ hint data. Mostly combo-owned (`combo/ComboShip.cpp`, `combo/rando/CrossForeign.
   `SOH_SetOnComboReloadCallback` (launcher reload seam), `SOH_GetActiveFileNum`, and
   `Combo_SOH_GetObtainedChecks` (hint state).
 - **`soh` `randomizer.cpp`** — `Rando_HandleSpoilerDrop` also accepts `fileType=="ComboShipRandomizer"`
-  (sets `CVAR_GENERAL("ComboDroppedFile")`); the SoH spoiler path is unchanged.
+  (sets `CVAR_GENERAL("ComboDroppedFile")`). The native SoH spoiler branch is compiled out under
+  `COMBO_BUILD` (2026-10-09): such a file has no MM half, and parsing it set `SpoilerLoaded`, which
+  could enable Start Randomizer after a failed combo generation. `OTRGlobals.cpp` also clears a leftover `SpoilerLog` CVar at boot.
 - **`soh` `z_file_choose.c`** (`COMBO_BUILD`) — `FileChoose_UpdateRandomizer` reloads a dropped combo
   file (priority) or the remembered pending seed (first frame) via `SOH_RequestComboReload`.
 - **`mm` `BenPort.cpp`** — `MM_DumpRandoSettings`/`MM_RestoreRandoSettings` (MM options are CVar-backed;
@@ -601,8 +640,8 @@ exact reason) can be verified headless. Traversal lives in `combo/rando/ComboPla
 (`ComboRando::RunPlaythrough`, shared with the in-game generator).
 
 **Port seams (`COMBO_BUILD`-guarded — preserve on merges):**
-- `soh/soh/Enhancements/Lang/Lang.cpp` — `Lang::Translate` returns the raw key instead of asserting when
-  language data isn't loaded, **gated on `gComboHeadlessRando`** (set only by `SOH_InitRandoHeadless`,
+- `soh/soh/Enhancements/Lang/Lang.cpp` — `Lang::Translate` returns the raw key (cached; it returns a
+  reference now) and `TryTranslate` reports not-initialized instead of asserting when language data isn't loaded, **gated on `gComboHeadlessRando`** (set only by `SOH_InitRandoHeadless`,
   never the game). Lets the headless option/trick tables build without the ResourceManager/assets. In-game
   the flag is false → the assert is unchanged (byte-identical behavior).
 - `soh/soh/OTRGlobals.cpp` — `gComboHeadlessRando` flag + `Rando::Settings::CreateOptions()` in
@@ -1003,6 +1042,27 @@ runs before the fill, and an unwind across the C ABI into the other DLL is unrec
   the other game falls back to its sentinel. Remains ARE portable (their object-segment setup is
   vestigial under OTR extraction) — only the 0.02 scale must carry across.
 
+## Foreign draws for the soh 9.3.0 rando items (2026-10-09)
+
+soh 9.3.0 added four bespoke draw funcs (silver rupees, Scarecrow's Song, nut bag, stick bag) with no
+row in `OOT_DescribeCustomDraw`, so MM drew their gid fallback (small key, white note, plain nut/stick).
+`combo/menu/ComboItemDrawOOT.h` now describes all four; MM consumes them in `ComboForeignDrawMM.h`.
+
+- **Progressive tiers:** the effective RG is now the resolved tier (`actual` from `GetGIEntry`), not
+  only `drawItemId` of rando-table entries. Nut/stick capacity tiers are vanilla-table, so the old rule
+  missed their bag draw. This mirrors native, which draws with the resolved tier's own draw func.
+- **Nut bag** reuses `CW_DRAW_KIND_DEKU_NUTS` with `setupDlOpa` = 26 Opa; `MM_DrawForeignDekuNuts` now
+  honours it (null for vanilla nuts, so they are unchanged).
+- **Silver rupee, NewDrops on:** `COLOR_LAYERS` inner/outer rupee. `CwLayerPrim` emits lodFrac 0 where
+  native uses 0x80; accepted.
+- **Silver rupee, NewDrops off:** new `CW_DRAW_KIND_SILVER_RUPEE` plus an appended ABI field
+  `segTexPath` (OOT's own unrouted texture path). It cannot go in `dlists[]` because the resolver
+  routes every entry. `gRupeeSilverTex` exists in both archives, so seg 8 is bound under OOT's RM
+  (same rule as `CfaBindSeg`, see resource-mgmt.md). Grayscale cosmetic travels in `primColorOpa`
+  (alpha 0 = off). Both silver branches are `stateDependent` (CVars can flip mid-session).
+- **Fallback warning:** an item with a custom draw func but no row logs one `SPDLOG_WARN` per RG, so
+  the next upstream draw func shows up in the log instead of silently drawing the wrong model.
+
 ## Gate MM on the OOT→MM portal region (2026-07-26)
 
 **Why:** the cross-fill never modeled the portal — every call site passed `portalCheckName=""`, so
@@ -1321,8 +1381,16 @@ beside the existing `advancement`/`trap` flags and parsed into `ForeignItemMeta`
 no entry. English only — OOT's table is trilingual but the foreign schema carries single strings, so
 localisation would mean widening `fakeTrickName` everywhere it is consumed.
 
-**Known nit:** the fallback doubles punctuation (`Tingle''s Clock Town Map`). Upstream skips spaces
-but not apostrophes.
+**Known nit:** the Similar fallback doubles punctuation (`Tingle''s Clock Town Map`). Upstream skips
+spaces but not apostrophes. Kept as is so Similar seeds stay byte-identical.
+
+**Ice Trap Names (2026-10-09):** OOT's `IceTrapNames` option (dump `accessibility.iceTrapNames`) now
+names **every** foreign trap, including MM "Knockoff Item" traps shown in OOT. That is a deliberate
+deviation: native MM has no such option. Identical = the disguise's real name; Similar = the behaviour
+above; Misspelled (Vowel) / (Duplicate) mirror soh `text.cpp` (letters only); Revealed = the trap's own
+name ("Ice Trap (OOT)" / "Knockoff Item (MM)") with the disguise model kept. Each disguised trap still
+takes exactly one RNG draw for its name, so changing the option never moves models or placements.
+Known, unchanged: combo's OOT pickup text names the trap by `fakeTrickName`, native by the real name.
 
 ## MM oracle: zeroed inventory read as "owns Ocarina" (2026-08-09)
 
@@ -1427,7 +1495,8 @@ children of their parent setting, `defaultHidden` and revealed by the parent's c
 
 - `randomizerEnums/RandomizerSettingKey.h` — two keys before `RSK_MAX` (spoiler settings are
   name-keyed, so appending is safe).
-- `option_descriptions.cpp` — one description each.
+- `soh/assets/custom/lang/en_US.json` — `exclude_mask_shop_key` / `exclude_mask_shop_entrance` name +
+  description (upstream moved option text there; `option_descriptions.cpp` is gone).
 - `settings.cpp` — option creation + parent Hide/Unhide callbacks (`RSK_LOCK_OVERWORLD_DOORS` gained
   its first callback), menu groups (`RSG_MENU_SECTION_AREA_ACCESS`, `RSG_MENU_SECTION_ENTRANCES`, plus
   legacy `RSG_OPEN`/`RSG_WORLD` for consistency), `FinalizeSettings` coupling, `RandomizeAllSettings`
@@ -2045,3 +2114,22 @@ progressive resolver, which switches on `logic->GetSaveContext()->magicLevel` �
 generation). A second cross-granted magic upgrade re-resolved to single magic and was lost. Fixed the
 same way as the Shared Items reader: resolve by `isMagicAcquired`/`isDoubleMagicAcquired` to a concrete
 `RG_MAGIC_SINGLE`/`RG_MAGIC_DOUBLE` before the generic `itemNameToEnum` lookup.
+
+## `SOH_RestoreRandoSettings`: upstream CVar renames + authoritative restore (2026-09-28)
+
+Upstream appended these renames to the ConfigVersion7 updater, which existing configs already ran, so
+older combo spoilers still carry the old keys. The restore renames them (values unchanged; the new key
+wins if both are present):
+
+| Old key (`gRandoSettings.`) | New key |
+|---|---|
+| `LogicRules` | `NoLogic` |
+| `AllLocationsReachable` | `AllChecksReachable` |
+| `SkipScarecrowsSong` | `StartingScarecrowsSong` |
+| `Lacs{Stone,Medallion,Reward,Dungeon,Token}Count`, `LacsRewardOptions` | `Gbk…` (same suffix) |
+| `CompleteMaskQuest` = 1 (Completed) | `ShuffleMasks` 1 + the six `Starting…Mask`, `StartingBunnyHood`, `StartingMaskOfTruth` 1 |
+| `CompleteMaskQuest` = 2 (Shuffle) | `ShuffleMasks` 1 |
+
+Before applying, every `GetAllOptions()` CVar is cleared (and `ExcludedLocations` emptied), so a key an
+older spoiler lacks reads as the default, not the local machine's value. A user's `comboship.json`
+keeps its stale leaf keys (no clash); those settings fall back to defaults.

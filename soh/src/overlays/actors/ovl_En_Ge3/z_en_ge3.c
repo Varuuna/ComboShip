@@ -6,8 +6,8 @@
 
 #include "z_en_ge3.h"
 #include "objects/object_geldb/object_geldb.h"
-#include "soh/ResourceManagerHelpers.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 
 #define FLAGS (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_FRIENDLY | ACTOR_FLAG_UPDATE_CULLING_DISABLED)
 
@@ -92,8 +92,6 @@ void EnGe3_Destroy(Actor* thisx, PlayState* play) {
     EnGe3* this = (EnGe3*)thisx;
 
     Collider_DestroyCylinder(play, &this->collider);
-
-    ResourceMgr_UnregisterSkeleton(&this->skelAnime);
 }
 
 void EnGe3_TurnToFacePlayer(EnGe3* this, PlayState* play) {

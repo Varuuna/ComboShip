@@ -7,24 +7,25 @@
       "branch": "port-maintenance",
       "prefix": "libultraship",
       "subtree": "",
-      "mergedSha": "7cb10226e",
-      "mergedDate": "2026-08-19"
+      "mergedSha": "7f9b86a59",
+      "mergedDate": "2026-09-28"
     },
     "soh": {
       "remote": "https://github.com/HarbourMasters/Shipwright.git",
       "branch": "develop",
       "prefix": "soh",
       "subtree": "soh",
-      "mergedSha": "5a57a0cbc",
-      "mergedDate": "2026-08-01"
+      "mergedSha": "ecd889c20",
+      "mergedDate": "2026-10-06",
+      "mergedTag": "9.3.0"
     },
     "mm": {
-      "remote": "https://github.com/HarbourMasters/2ship2harkinian.git",
+      "remote": "https://github.com/2ship2harkinian/2ship2harkinian.git",
       "branch": "develop",
       "prefix": "mm",
       "subtree": "mm",
-      "mergedSha": "d35196ad7",
-      "mergedDate": "2026-08-19"
+      "mergedSha": "e8757c14a",
+      "mergedDate": "2026-09-28"
     },
     "ZAPDTR": {
       "manual": true,
@@ -45,6 +46,16 @@
       "subtree": "",
       "mergedSha": "c5465ba0b",
       "mergedDate": "2026-07-25"
+    },
+    "torch": {
+      "manual": true,
+      "_note": "Bumped by hand to soh's torch gitlink (soh's .gitmodules); soh-only, mm keeps ZAPDTR/OTRExporter.",
+      "remote": "https://github.com/HarbourMasters/Torch.git",
+      "branch": "main",
+      "prefix": "torch",
+      "subtree": "",
+      "mergedSha": "2ab12fe96",
+      "mergedDate": "2026-09-28"
     }
   }
 }

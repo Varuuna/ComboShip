@@ -319,6 +319,8 @@ comboPeekRefresh:;
     std::unordered_map<RandoRegionId, Rando::Logic::RegionTimeState> regionTimeStates =
         Rando::Logic::InitializeRegionTimeStates(RR_MAX);
 
+    std::set<std::pair<RandoEvent, std::function<bool()>>*> appliedEvents;
+
     // Iteratively explore until no new regions/events discovered
     bool changed = true;
     while (changed) {
@@ -337,8 +339,9 @@ comboPeekRefresh:;
             Rando::Logic::SetCurrentRegionTime(regionTimeStates, regionId);
 
             for (auto& event : randoRegion.events) {
-                if (!RANDO_EVENTS[event.first] && event.second()) {
+                if (!appliedEvents.contains(&event) && event.second()) {
                     RANDO_EVENTS[event.first]++;
+                    appliedEvents.insert(&event);
                     changed = true;
                 }
             }
@@ -590,8 +593,8 @@ comboSkipVisibilityGates:;
 
 #ifdef COMBO_BUILD
     // ComboShip dormant peek: no play state, but the slot's save is loaded (see
-    // EnsureMmSaveLoadedForPeek / MM_LoadSaveForCombo) — draw from it. The headless load never
-    // fires OnFileLoad, so build the scene-check map here. IS_RANDO is what rejects a refused load
+    // EnsureMmSaveLoadedForPeek / MM_LoadSaveForCombo) — draw from it. MM_LoadSaveForCombo rebuilds the
+    // scene-check map; this is the fallback if it is still empty. IS_RANDO is what rejects a refused load
     // (fileNum parks at 0xFF, which is still >= 0, but saveType is cleared).
     if (comboPeek && IS_RANDO && gSaveContext.fileNum >= 0) {
         if (sceneChecks.empty()) {

@@ -50,6 +50,7 @@
 #include "2s2h/BenPort.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include "2s2h/Enhancements/FrameInterpolation/FrameInterpolation.h"
+#include "2s2h/BenGui/CosmeticEditor.h"
 #include <libultraship/bridge/consolevariablebridge.h>
 #include <libultraship/bridge/resourcebridge.h>
 
@@ -2501,6 +2502,8 @@ s32 Player_OverrideLimbDrawGameplayCommon(PlayState* play, s32 limbIndex, Gfx** 
         }
 
         if (limbIndex == PLAYER_LIMB_HEAD) {
+            CosmeticEditor_ApplySillyLimbScale(CVAR_COSMETIC("Silly.LinkHeadScale"), pos);
+
             rot->x += player->headLimbRot.z;
             rot->y -= player->headLimbRot.y;
             rot->z += player->headLimbRot.x;
@@ -2642,6 +2645,7 @@ s32 Player_OverrideLimbDrawGameplayDefault(PlayState* play, s32 limbIndex, Gfx**
             }
 
             *dList = leftHandDLists[sPlayerLod];
+            CosmeticEditor_SplitHeldItem(dList, CVAR_COSMETIC("Silly.LinkSwordScale"));
 
             if (player->transformation == PLAYER_FORM_GORON) {
                 if (BEN_ANIM_EQUAL(player->skelAnime.animation, gPlayerAnim_pg_punchA)) {
@@ -2699,6 +2703,8 @@ s32 Player_OverrideLimbDrawGameplayDefault(PlayState* play, s32 limbIndex, Gfx**
                 }
 
                 *dList = rightHandDLists[sPlayerLod];
+                CosmeticEditor_SplitHeldItem(dList, CVAR_COSMETIC("Silly.LinkShieldScale"));
+
                 if (BEN_ANIM_EQUAL(player->skelAnime.animation, gPlayerAnim_pg_punchB)) {
                     func_80125CE0(player, D_801C0784, pos, rot);
                 }
@@ -3463,17 +3469,20 @@ void Player_DrawBunnyHood(PlayState* play) {
 
     Matrix_Push();
 
+    f32 earLength = CVarGetFloat(CVAR_COSMETIC("Silly.BunnyHoodEarLength"), 0.0f);
+    f32 earSpread = CVarGetFloat(CVAR_COSMETIC("Silly.BunnyHoodEarSpread"), 0.0f);
+
     earRot.x = sBunnyEarKinematics.rot.y + 0x3E2;
     earRot.y = sBunnyEarKinematics.rot.z + 0xDBE;
     earRot.z = sBunnyEarKinematics.rot.x - 0x348A;
-    Matrix_SetTranslateRotateYXZ(97.0f, -1203.0f, -240.0f, &earRot);
+    Matrix_SetTranslateRotateYXZ(97.0f, -1203.0f - earLength, -240.0f - earSpread, &earRot);
 
     Matrix_ToMtx(mtx++);
 
     earRot.x = sBunnyEarKinematics.rot.y - 0x3E2;
     earRot.y = -sBunnyEarKinematics.rot.z - 0xDBE;
     earRot.z = sBunnyEarKinematics.rot.x - 0x348A;
-    Matrix_SetTranslateRotateYXZ(97.0f, -1203.0f, 240.0f, &earRot);
+    Matrix_SetTranslateRotateYXZ(97.0f, -1203.0f - earLength, 240.0f + earSpread, &earRot);
 
     Matrix_ToMtx(mtx);
 
@@ -3641,7 +3650,7 @@ void func_80128388(struct_801F58B0 arg0[], struct_80128388_arg1 arg1[], s32 arg2
     sp50.x = 0;
 
     for (i = 1; i < arg2; i++) {
-        sp58.x = arg1->unk_00 * 100.0f;
+        sp58.x = arg1->unk_00 * 100.0f * CVarGetFloat(CVAR_COSMETIC("Silly.GreatFairyMaskHairLength"), 1.0f);
         sp50.z = arg1->unk_06 + (s16)(phi_s1->unk_1A - arg0->unk_1A);
         sp50.y = arg1->unk_04 + (s16)(phi_s1->unk_18 - arg0->unk_18);
         Matrix_TranslateRotateZYX(&sp58, &sp50);
@@ -3679,7 +3688,8 @@ void Player_DrawGreatFairysMask(PlayState* play, Player* player) {
         sp6C += 11;
 
         Matrix_Push();
-        Matrix_Translate(iter->x, iter->y, iter->z, MTXMODE_APPLY);
+        Matrix_Translate(iter->x, iter->y,
+                         iter->z * CVarGetFloat(CVAR_COSMETIC("Silly.GreatFairyMaskHairSpread"), 1.0f), MTXMODE_APPLY);
         func_80128388(D_801F58B0[i], D_801C0C54, 3, &mtx);
         Matrix_Pop();
         iter++;
@@ -3804,6 +3814,8 @@ void Player_PostLimbDrawGameplay(PlayState* play, s32 limbIndex, Gfx** dList1, G
     if (*dList2 != NULL) {
         Matrix_MultZero(sPlayerCurBodyPartPos);
     }
+
+    CosmeticEditor_DrawSplitHeldItem(play);
 
     if (limbIndex == PLAYER_LIMB_LEFT_HAND) {
         Math_Vec3f_Copy(&player->leftHandWorld.pos, sPlayerCurBodyPartPos);
@@ -4255,11 +4267,7 @@ void Player_PostLimbDrawGameplay(PlayState* play, s32 limbIndex, Gfx** dList1, G
             (player->currentShield != PLAYER_SHIELD_NONE) &&
             ((player->sheathType == PLAYER_MODELTYPE_SHEATH_14) ||
              (player->sheathType == PLAYER_MODELTYPE_SHEATH_15))) {
-            OPEN_DISPS(play->state.gfxCtx);
-
-            gSPDisplayList(POLY_OPA_DISP++, gPlayerShields[2 * ((player->currentShield - 1) ^ 0)]);
-
-            CLOSE_DISPS(play->state.gfxCtx);
+            CosmeticEditor_DrawBackShield(play, gPlayerShields[2 * ((player->currentShield - 1) ^ 0)]);
         }
 
         if (player->actor.scale.y >= 0.0f) {

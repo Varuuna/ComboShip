@@ -80,7 +80,7 @@ inline uint32_t OracleCrossOut(const OracleFns& o) {
 
 // ---------- Data types ----------
 
-// Per-game OOT accessibility, mapped from OOT's RSK_LOGIC_RULES + RSK_ALL_LOCATIONS_REACHABLE.
+// Per-game OOT accessibility, mapped from OOT's RSK_NO_LOGIC + RSK_ALL_CHECKS_REACHABLE.
 // MM is always ALL_REACHABLE. See CrossWorldCombinedFill for the per-mode fill/validation behavior.
 //   ALL_REACHABLE  every OOT advancement item lands reachable (default; unchanged behavior)
 //   BEATABLE_ONLY  OOT progression may strand off-path, but the seed stays beatable (ALR-off)
@@ -458,7 +458,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                 continue;
             const auto& def = SharedFamilyByIndex(i);
             if (def.isMask && !maskQuestShuffle) {
-                std::cout << "[ComboShip] Shared " << def.key << ": skipped (OOT Mask Quest is not Shuffle)\n";
+                std::cout << "[ComboShip] Shared " << def.key << ": skipped (OOT Shuffle Masks is off)\n";
                 continue;
             }
             size_t ootCopies = 0;
@@ -856,6 +856,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         }
 
     for (int pass = 1; pass <= kMaxPasses && !fillOk; ++pass) {
+        if (GenCancelled(progress)) {
+            result.error = "cancelled";
+            return result;
+        }
         passesUsed = pass;
         auto passStart = std::chrono::steady_clock::now();
         auto passMs = [&] {
@@ -876,6 +880,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         std::vector<CwItem> advRest = advItems;
         bool prereqOk = portalPrereqs.empty();
         for (int t = 1; t <= kMaxPrereqTries && !prereqOk; ++t) {
+            if (GenCancelled(progress)) {
+                result.error = "cancelled";
+                return result;
+            }
             placements = lockedPlacements;
             filledChecks.clear();
             for (const auto& lp : lockedPlacements)
@@ -956,6 +964,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
 
         bool deadEnd = false;
         while (!toPlace.empty()) {
+            if (GenCancelled(progress)) {
+                result.error = "cancelled";
+                return result;
+            }
             size_t k = std::min({ batchCap, std::max<size_t>(1, toPlace.size() / 4), toPlace.size() });
 
             std::vector<CwItem> batch;
@@ -1115,6 +1127,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
             }
         }
 
+        if (GenCancelled(progress)) {
+            result.error = "cancelled";
+            return result;
+        }
         // Validation: with nothing assumed, sphere-collecting placed items must reach every
         // ADVANCEMENT check (the assumed-fill guarantee). Junk-holding checks may legitimately be
         // oracle-unreachable (oracles under-model, e.g. MM with zeroed save options) — count and log

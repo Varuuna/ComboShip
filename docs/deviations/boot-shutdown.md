@@ -99,6 +99,10 @@ BEFORE `SOH_Deinit` (BenGui::Destroy dereferences the live Context), so soh's `D
 the LAST reference and `~Context` runs on the main thread. This is what fixed window-resize
 persistence.
 
+2Ship 5.0.1 added `Ship::Context::DestroyInstance()` to MM's `DeinitOTR`. It is skipped under
+`COMBO_BUILD`: MM must not destroy the shared Context, or soh's teardown runs on a dead one. After
+`MM_Deinit()` the Context is still alive; `SOH_Deinit()` is the only place that destroys it.
+
 **`soh/soh/OTRGlobals.cpp` + `mm/2s2h/BenPort.cpp` (`DeinitOTR`), `libultraship`
 (`CrossRMRegistry::Unregister`, new):** both resident ResourceManagers were pinned by the
 `sOOT/sMMResourceManager` statics and the `CrossRMRegistry` map, deferring their destruction to
@@ -372,6 +376,9 @@ play state at all, and it also fixes the pre-existing frozen-tracker complaint w
 It now returns `bool` so the caller only clears `recalculateAvailable` when the recalc really ran,
 instead of consuming and dropping the request.
 
+A reset or owl-save quit from MM now also fires OOT's `OnExitGame` in `SOH_ResumeGame`; see
+[tracker.md](tracker.md#tracker-teardown-on-reset--quit-to-title-2026-10-10).
+
 ## ComboShip-owned unified ROM extraction (OoT + MM) (2026-06-21)
 
 **Why:** ComboShip needs BOTH an OoT and an MM ROM. The old launcher extracted them headlessly
@@ -411,6 +418,11 @@ Verified: fast path (archives present) boots straight to title unchanged; first-
 extraction screen (`OoT=1 MM=1`). The old `SOH_Extract`/`MM_Extract` exports remain for non-combo use
 but the launcher no longer calls them.
 
+**RETIRED for soh 2026-09-28:** upstream's `CallTorch` returns real success (archive produced AND
+copied) and no longer stages assets in a tempdir or `chdir`s, so Extract.cpp is upstream's. Kept:
+`SOH_StartExtraction` writes `soh_extract_error.log` on failure, and a failed copy removes the partial
+archive. MM's `CallZapd` note below still applies.
+
 **`CallZapd` must return `true` on success (re-survive on every re-vendor).** Upstream `CallZapd`
 returns `false` unconditionally (native flow gates on exceptions, not the return value), but
 `SOH_/MM_StartExtraction` use it as the combo screen's success flag — so a `false` return makes a
@@ -425,6 +437,11 @@ keeps `shipofharkinian.json` for standalone soh) to make the combined nature exp
 first-launch settings import (absent file = fresh install). New combo-owned export `SOH_ApplyImportedConfig`
 installs a launcher-merged config into the live `Config` (`SetBlock` + `Save` + `CVarLoad` + controller
 reload). MM's `2ship2harkinian.json` literals are untouched (standalone-only, off the combo path).
+
+The Context name in the same guarded call is `"ComboShip"` (2026-10-08): LUS builds the window title
+(`ComboShip (DirectX 11)`), the logger name and `logs/ComboShip.log` from it, plus the crash dialog
+title and `logs/ComboShip-crash.dmp`. Ask players for those two files. The headless `comborando`
+Context uses the same name. Per-game boot banners and log prefixes keep their upstream names.
 
 ## MM resume: reset magicLevel like Sram_OpenSave (magic meter outline, 2026-07-03)
 
@@ -453,18 +470,12 @@ compounding defects in `PrintStack`:
    export, and 2ship.dll exports only its handful of `MM_*` combo entry points — so an entire MM call
    chain reports as ~3 names, each wildly far from the real function.
 
-**`libultraship/src/ship/debug/CrashHandler.cpp` (COMBO_BUILD-guarded; upstream preserved verbatim
-under `#else` so future lus merges stay mechanical):**
-- `SymSetOptions` gains `SYMOPT_LOAD_LINES | SYMOPT_UNDNAME`. Without `LOAD_LINES`,
-  `SymGetLineFromAddr` can fail even when PDBs are present, silently degrading Debug builds too.
-- Per frame: reset `displacement` and `symbol->Name[0]`, keep `SymFromAddr`'s result, and print
-  `<unresolved>` when it fails — never a stale name.
-- `symbol->Flags & SYMFLAG_EXPORT` is surfaced as a `~export(approx)` marker. That flag is set exactly
-  when dbghelp invented the name from the export table, i.e. on every Release frame. Defect 3 is
-  unfixable without shipping PDBs, so the fix is to make it *visible* rather than silently trusted.
-- The module lookup is hoisted so **both** print branches carry the real PC, the module path and an
-  RVA. The file/line branch had the same stale-name hazard (it printed `symbol->Name` too), which was
-  the most misleading output of the three: this frame's file and line beside the previous frame's name.
+**RETIRED 2026-09-28 (PrintStack parts):** upstream #1190 fixed defects 1 and 2 the same way (checks
+`SymFromAddr`, clears the name, loads line info, prints `[pc base rva]` on every frame, searches the
+exe dir for PDBs). We took upstream's `PrintStack` as-is and dropped our `~export(approx)` flag, so
+defect 3 (export-table guesses in PDB-less builds) is no longer marked. Only the buffer guards remain.
+
+**`libultraship/src/ship/debug/CrashHandler.cpp` (COMBO_BUILD-guarded, still active):**
 - `AppendStrTrunc` no longer reads past the source string's terminator, and `AppendLine` no longer
   writes its newline unchecked. The latter was a genuine 1-byte heap overflow: `AppendStr` caps the
   index at `gMaxBufferSize - 1`, so `AppendLine` could push it to `gMaxBufferSize` and the next
@@ -702,3 +713,9 @@ the serialized `newCycleSave` doc (and the refreshed `owlSave` blob, when one is
 `gPlayState`'s `gameOverCtx.state != GAMEOVER_INACTIVE` or live health is already 0. Live
 `gSaveContext` and the load path are untouched, so a legitimate low-health owl save still resumes at
 its real health.
+
+## `GIMMCMD` double define (2026-09-28)
+
+LUS `fast/lus_gbi.h` and `libultra/gbi.h` both define `GIMMCMD`. After the soh merge its slimmer
+includes reach `lus_gbi.h` first, so the second define warned under `/WX`. `libultra/gbi.h` `#undef`s it
+first under `COMBO_BUILD`; the resulting definition is the same.

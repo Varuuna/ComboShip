@@ -318,8 +318,9 @@ int main(int argc, char** argv) {
             // NOW force glitchless for traversal (real gates); the dump above froze the seed's slot
             // set in the DLL-side cache, so this re-prep can't shrink it.
             nlohmann::json os = ootSettings;
+            // "NoLogic" (bool) replaced "LogicRules" (0 = glitchless, 1 = no logic); accept both.
             for (auto it = os.begin(); it != os.end(); ++it)
-                if (it.key().find("LogicRules") != std::string::npos)
+                if (it.key().find("NoLogic") != std::string::npos || it.key().find("LogicRules") != std::string::npos)
                     it.value() = 0;
             SOH_RestoreSettings(os.dump().c_str());
             SOH_PrepContext();
@@ -431,8 +432,8 @@ int main(int argc, char** argv) {
         // MM stays fully reachable + Majora beatable.
         bool ootNoLogic = false;
         for (auto it = ootSettings.begin(); it != ootSettings.end(); ++it)
-            if (it.key().find("LogicRules") != std::string::npos && it.value().is_number() &&
-                it.value().get<int>() == 1)
+            if ((it.key().find("NoLogic") != std::string::npos || it.key().find("LogicRules") != std::string::npos) &&
+                it.value().is_number() && it.value().get<int>() == 1)
                 ootNoLogic = true;
 
         // Pass 1 — the seed's own settings + enabled tricks: "can this player beat it?"

@@ -1,10 +1,12 @@
 #include "randomizer_entrance_tracker.h"
+#include "randomizer_tracker_windows.h"
 #include "soh/OTRGlobals.h"
 #include "soh/SohGui/SohGui.hpp"
 
 #include <string>
 #include <vector>
 #include <libultraship/controller/controldeck/ControlDeck.h>
+#include <ship/Context.h>
 #include "soh/Enhancements/randomizer/randomizer.h"
 
 extern "C" {
@@ -18,6 +20,7 @@ extern PlayState* gPlayState;
 
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "entrance.h"
+#include "soh/SohGui/UIWidgets.hpp"
 
 using namespace UIWidgets;
 
@@ -394,8 +397,8 @@ const EntranceData entranceData[] = {
     { ENTR_INSIDE_GANONS_CASTLE_ENTRANCE,            ENTR_CASTLE_GROUNDS_RAINBOW_BRIDGE_EXIT,       SINGLE_SCENE_INFO(SCENE_OUTSIDE_GANONS_CASTLE),                                     "OGC Rainbow Bridge Exit",           "Inside Ganon's Castle Entrance",    ENTRANCE_GROUP_HYRULE_CASTLE, ENTRANCE_GROUP_HYRULE_CASTLE, ENTRANCE_TYPE_DUNGEON,   "outside ganon's castle,gc", 1},
     { ENTR_POTION_SHOP_KAKARIKO_1,                   ENTR_GREAT_FAIRYS_FOUNTAIN_MAGIC_OGC_DD,       {{ SCENE_GREAT_FAIRYS_FOUNTAIN_MAGIC, 0x02 }},                                      "OGC Great Fairy Fountain",          "OGC Behind Pillar",                 ENTRANCE_GROUP_HYRULE_CASTLE, ENTRANCE_GROUP_HYRULE_CASTLE, ENTRANCE_TYPE_INTERIOR,  "outside ganon's castle"},
     { ENTR_CASTLE_GROUNDS_RAINBOW_BRIDGE_EXIT,       ENTR_INSIDE_GANONS_CASTLE_ENTRANCE,            SINGLE_SCENE_INFO(SCENE_INSIDE_GANONS_CASTLE),                                      "Inside Ganon's Castle Entrance",    "OGC Rainbow Bridge Exit",           ENTRANCE_GROUP_HYRULE_CASTLE, ENTRANCE_GROUP_HYRULE_CASTLE, ENTRANCE_TYPE_DUNGEON,   "outside ganon's castle,gc"},
-    { ENTR_INSIDE_GANONS_CASTLE_1,                   ENTR_GANONS_TOWER_0,                           SINGLE_SCENE_INFO(SCENE_GANONS_TOWER),                                              "Ganon's Tower Entrance",            "Inside Ganon's Castle",             ENTRANCE_GROUP_HYRULE_CASTLE, ENTRANCE_GROUP_HYRULE_CASTLE, ENTRANCE_TYPE_DUNGEON,   "gc"},
-    { ENTR_GANONS_TOWER_0,                           ENTR_INSIDE_GANONS_CASTLE_1,                   SINGLE_SCENE_INFO(SCENE_INSIDE_GANONS_CASTLE),                                      "Inside Ganon's Castle",             "Ganon's Tower Entrance",            ENTRANCE_GROUP_HYRULE_CASTLE, ENTRANCE_GROUP_HYRULE_CASTLE, ENTRANCE_TYPE_DUNGEON,   "gc"},
+    { ENTR_INSIDE_GANONS_CASTLE_1,                   ENTR_GANONS_TOWER_0,                           SINGLE_SCENE_INFO(SCENE_GANONS_TOWER),                                              "Ganon's Tower Entrance",            "Inside Ganon's Castle",             ENTRANCE_GROUP_HYRULE_CASTLE, ENTRANCE_GROUP_HYRULE_CASTLE, ENTRANCE_TYPE_DUNGEON,   "gc", 1},
+    { ENTR_GANONS_TOWER_0,                           ENTR_INSIDE_GANONS_CASTLE_1,                   SINGLE_SCENE_INFO(SCENE_INSIDE_GANONS_CASTLE),                                      "Inside Ganon's Castle",             "Ganon's Tower Entrance",            ENTRANCE_GROUP_HYRULE_CASTLE, ENTRANCE_GROUP_HYRULE_CASTLE, ENTRANCE_TYPE_DUNGEON,   "gc", 1},
     { ENTR_OUTSIDE_GANONS_CASTLE_1_2,                -1,                                            SINGLE_SCENE_INFO(SCENE_OUTSIDE_GANONS_CASTLE),                                     "Ganon's Blue Warp",                 "Ganon's Castle Blue Warp",          ENTRANCE_GROUP_HYRULE_CASTLE, ENTRANCE_GROUP_HYRULE_CASTLE, ENTRANCE_TYPE_ONE_WAY,   "gc,bw", 1},
 
     // clang-format on
@@ -695,11 +698,9 @@ void EntranceTrackerSettingsWindow::DrawElement() {
     Spacer(0);
 
     ImGui::TableNextColumn();
-    SohGui::GetSohMenu()->MenuDrawItem(backgroundColorWidget, static_cast<uint32_t>(ImGui::GetContentRegionAvail().x),
-                                       THEME_COLOR);
+    SohGui::GetSohMenu()->MenuDrawItem(backgroundColorWidget, THEME_COLOR);
 
-    SohGui::GetSohMenu()->MenuDrawItem(windowTypeWidget, static_cast<uint32_t>(ImGui::GetContentRegionAvail().x),
-                                       THEME_COLOR);
+    SohGui::GetSohMenu()->MenuDrawItem(windowTypeWidget, THEME_COLOR);
 
     if (CVarGetInteger(CVAR_TRACKER_ENTRANCE("WindowType"), TRACKER_WINDOW_WINDOW) == TRACKER_WINDOW_FLOATING) {
         CVarCheckbox("Enable Dragging", CVAR_TRACKER_ENTRANCE("Draggable"), CheckboxOptions().Color(THEME_COLOR));
@@ -840,7 +841,7 @@ void EntranceTrackerWindow::DrawElement() {
         ImGui::SetNextWindowSize(ImVec2(600, 375), ImGuiCond_FirstUseEver);
     }
     if (Trackers::BeginFloatWindows(
-            "Entrance Tracker", mIsVisible, Color_Background,
+            "Entrance Tracker", &mIsVisible, Color_Background,
             static_cast<TrackerWindowType>(CVarGetInteger(CVAR_TRACKER_ENTRANCE("WindowType"), TRACKER_WINDOW_WINDOW)),
             CVarGetInteger(CVAR_TRACKER_ENTRANCE("Draggable"), 1), ImGuiWindowFlags_NoScrollbar)) {
         if (!GameInteractor::IsSaveLoaded()) {
@@ -898,6 +899,9 @@ void EntranceTrackerWindow::DrawElement() {
             case ENTRANCE_DESTINATION_TYPE:
                 entranceList = destListSortedByType;
                 break;
+            default:
+                assert(false);
+                return;
         }
 
         // Begin tracker list
@@ -1087,43 +1091,3 @@ void RegisterCheckTrackerWidgets() {
 
 static RegisterMenuInitFunc menuInitFunc(RegisterCheckTrackerWidgets);
 } // namespace EntranceTracker
-
-namespace Trackers {
-// Windowing stuff
-bool BeginFloatWindows(std::string UniqueName, bool& open, Color_RGBA8& bgCol, TrackerWindowType windowType,
-                       bool draggable, ImGuiWindowFlags flags) {
-    ImGuiWindowFlags windowFlags = flags;
-
-    if (windowFlags == 0) {
-        windowFlags |= ImGuiWindowFlags_AlwaysVerticalScrollbar | ImGuiWindowFlags_NoFocusOnAppearing;
-    }
-
-    if (windowType == TRACKER_WINDOW_FLOATING) {
-        ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID);
-        windowFlags |= ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoTitleBar |
-                       ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoScrollbar;
-
-        if (!draggable) {
-            windowFlags |= ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove;
-        }
-    }
-    auto maybeParent = ImGui::GetCurrentWindow();
-    ImGuiWindow* window = ImGui::FindWindowByName(UniqueName.c_str());
-    ImVec4 bgColVec = VecFromRGBA8(bgCol);
-    if (window != NULL && window->DockTabIsVisible && window->ParentWindow != NULL &&
-        std::string(window->ParentWindow->Name).compare(0, strlen("Main - Deck"), "Main - Deck") == 0) {
-        bgColVec.w = 1.0f;
-    }
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, bgColVec);
-    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 4.0f);
-    return ImGui::Begin(UniqueName.c_str(), &open, windowFlags);
-}
-
-void EndFloatWindows() {
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor();
-    ImGui::PopStyleColor();
-    ImGui::End();
-} // namespace Trackers
-} // namespace Trackers

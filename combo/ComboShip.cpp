@@ -193,6 +193,7 @@ static FnExtract MM_Extract = nullptr;
 static FnInt MM_ArchiveCount = nullptr;
 static FnSetSaveCallback SOH_SetOnNewSaveCallback = nullptr;
 static FnSetSaveCallback SOH_SetOnLoadSaveCallback = nullptr;
+static FnSetSaveCallback SOH_SetOnExitSaveCallback = nullptr;
 typedef void (*FnGetPlayerName)(unsigned char*);
 static FnGetPlayerName SOH_GetCurrentPlayerName = nullptr;
 // Nonzero = the slot's MM half is missing/broken; nothing was loaded (see SaveManager_LoadSaveFile).
@@ -2927,6 +2928,7 @@ int main(int argc, char** argv) {
     MM_ArchiveCount = (FnInt)GetSym(mmModule, "MM_ArchiveCount");
     SOH_SetOnNewSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnNewSaveCallback");
     SOH_SetOnLoadSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnLoadSaveCallback");
+    SOH_SetOnExitSaveCallback = (FnSetSaveCallback)GetSym(sohModule, "SOH_SetOnExitSaveCallback");
     SOH_GetCurrentPlayerName = (FnGetPlayerName)GetSym(sohModule, "SOH_GetCurrentPlayerName");
     MM_LoadSaveForCombo = (FnMMLoadSave)GetSym(mmModule, "MM_LoadSaveForCombo");
     MM_InvalidateOwlBlobSlot = (FnMMInvalidateOwlBlob)GetSym(mmModule, "MM_InvalidateOwlBlobSlot");
@@ -3409,6 +3411,11 @@ int main(int argc, char** argv) {
     if (SOH_SetOnLoadSaveCallback && MM_LoadSaveForCombo) {
         SOH_SetOnLoadSaveCallback(Combo_OnOOTSaveLoad);
         std::cout << "[ComboShip] OOT save-load callback registered." << std::endl;
+    }
+
+    // Blank the Hint Tracker when OOT leaves a save (quit or reset to title).
+    if (SOH_SetOnExitSaveCallback && ComboUI_SetHintTrackerData) {
+        SOH_SetOnExitSaveCallback([](int) { ComboUI_SetHintTrackerData(-1, "", ""); });
     }
 
     if (SOH_SetOnSceneSwitchCallback) {

@@ -114,6 +114,7 @@
 #include "soh/util.h" // ComboShip: SohUtils::GetSceneName (Anchor roster), AppendVector (entrance-shuffle pool)
 #include "soh/Enhancements/randomizer/SeedContext.h" // ComboShip: Rando::Context::GetSeed for roster seed-mismatch
 #include "Enhancements/game-interactor/GameInteractor.h"
+#include "Enhancements/game-interactor/GameInteractor_Hooks.h" // ComboShip: OnExitGame on reset-to-title
 #include "Enhancements/randomizer/draw.h"
 #include <libultraship/controller/controldeck/ControlDeck.h>
 #include <fast/resource/ResourceType.h>
@@ -2846,6 +2847,22 @@ extern "C" COMBO_EXPORT void SOH_SetOnLoadSaveCallback(void (*cb)(int fileNum)) 
 }
 
 #ifdef COMBO_BUILD
+extern "C" void (*gComboSaveExitCallback)(int fileNum) = nullptr;
+
+// ComboShip: fires when OOT leaves a loaded save (quit, reset, reset from MM). Launcher blanks the Hint Tracker.
+extern "C" COMBO_EXPORT void SOH_SetOnExitSaveCallback(void (*cb)(int fileNum)) {
+    gComboSaveExitCallback = cb;
+    static bool sHooked = false;
+    if (!sHooked && GameInteractor::Instance) {
+        sHooked = true;
+        GameInteractor::Instance->RegisterGameHook<GameInteractor::OnExitGame>([](int32_t fileNum) {
+            if (gComboSaveExitCallback) {
+                gComboSaveExitCallback((int)fileNum);
+            }
+        });
+    }
+}
+
 // ComboShip: launcher registers its release-eviction poll; OOT drains it each frame (main thread).
 extern "C" int (*gComboOutdatedSaveNotice)() = nullptr;
 extern "C" COMBO_EXPORT void SOH_SetOutdatedSaveNotice(int (*fn)()) {
@@ -3679,6 +3696,10 @@ extern "C" COMBO_EXPORT void SOH_ResumeGame(void) {
     //    The save itself is loaded by TitleSetup via Sram_OpenSave, exactly like normal file select.
     // ComboShip: on a reset return, leave gComboReturnFileNum < 0 so TitleSetup boots to the title
     // sequence (first-boot) instead of jumping straight back into Play on the saved slot.
+    // ComboShip: reset/owl-quit from MM skipped ResetHandler's exit hooks; tear trackers down before the next load.
+    if (sComboResetPending && gSaveContext.fileNum != 0xFF) {
+        GameInteractor_ExecuteOnExitGame(gSaveContext.fileNum);
+    }
     gComboReturnFileNum = sComboResetPending ? -1 : (s32)gSaveContext.fileNum;
     sComboResetPending = false;
     SOH_ResetFrameLoopForResume();

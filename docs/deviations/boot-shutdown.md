@@ -376,6 +376,9 @@ play state at all, and it also fixes the pre-existing frozen-tracker complaint w
 It now returns `bool` so the caller only clears `recalculateAvailable` when the recalc really ran,
 instead of consuming and dropping the request.
 
+A reset or owl-save quit from MM now also fires OOT's `OnExitGame` in `SOH_ResumeGame`; see
+[tracker.md](tracker.md#tracker-teardown-on-reset--quit-to-title-2026-10-10).
+
 ## ComboShip-owned unified ROM extraction (OoT + MM) (2026-06-21)
 
 **Why:** ComboShip needs BOTH an OoT and an MM ROM. The old launcher extracted them headlessly

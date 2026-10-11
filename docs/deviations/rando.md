@@ -1899,6 +1899,27 @@ so an OOT player now sees the correct Bow model under "You found Progressive Bow
 to the granted tier needs a new cross-game name ABI, and every other `displayName` consumer (check
 tracker, hints, merchant text, MM shop descriptions) must keep the generic name or it leaks
 progression. Separate follow-up.
+
+## Cross-game teleport songs: Song of Soaring in OOT, OOT warp songs in MM
+
+**Why:** OoTMM's `songSoaringOot` / `songMinuetMm`..`songPreludeMm`. MM's Song of Soaring played in Hyrule
+opens Termina's owl map and switches to the chosen statue; an OOT warp song played in Termina switches to
+that warp pad. Opt-in seed settings: OOT `RSK_SONG_OF_SOARING_OOT`, MM `RO_SHUFFLE_SONG_WARP_SONGS`.
+
+- **Handoff.** `Combo_RequestCrossSwitch(entrance)` stages an arrival entrance; the launcher drains it
+  (`SOH_/MM_GetPendingCrossTarget`) and pushes it (`SOH_/MM_SetTargetEntrance`) before the other game's
+  boot/resume. Only portal-kind returns apply it. Debug: `combo_warp_mm` / `combo_warp_oot`.
+- **OOT warp songs in MM (vendored, guarded).** `OCARINA_SONG_MINUET..PRELUDE` = 24..29 in `z64ocarina.h`,
+  rows in `code_8019AF00.c`, `z_message.c` gate/fanfare/name-box changes; items are
+  `RANDO_INF_OBTAINED_SONG_*`. Behavior in `mm/2s2h/Rando/MiscBehavior/WarpSongs.cpp`.
+- **Song of Soaring in OOT.** `RG_SONG_OF_SOARING` / `RAND_INF_HAS_SONG_OF_SOARING`; chooser and
+  recognition in `soh/soh/Enhancements/combo/ComboOwlWarp.cpp`, owl flags read from MM through the launcher.
+- **Shared.** Seven `SharedItems.h` rows (`SF_SONG_OF_SOARING`, `SF_MINUET_OF_FOREST`..); the six warp rows
+  share one CVar. Needs both games' features on, otherwise the family is skipped.
+- **Logic.** `combo/rando/CrossWarpLogic.h`: each oracle exports `GetCrossOut` and the fill feeds it to the
+  other as `@combo:*` pseudo-owned names. OOT root warp exits accept `Logic::ComboCrossWarp(n)`; MM owl
+  exits accept `CAN_SOAR_TO_OWL`. Standalone single-game generation ignores the songs.
+
 ## Cross-placed MM junk is baked at generation (2026-09-07)
 
 A foreign MM junk check used to give three different answers. The grant forced a Red Rupee
@@ -1994,8 +2015,9 @@ exports, Anchor packets) unchanged. Table + mask helpers: `combo/rando/SharedIte
 in the pool is left alone and not listed, even if requested). Absent key = mask 0 = feature off (old
 seeds unaffected; no save-format change, no `COMBO_RELEASE_VERSION` bump, spoiler `version` stays 1).
 
-**Skip rule:** a mask family whose OOT pool holds none of `ootName` is skipped with a log line — sound,
-MM keeps its native copies. Masks additionally require OOT's Mask Quest = Shuffle (checked via a new
+**Skip rule:** a mask family whose OOT pool holds none of `ootName` AND that OOT does not start with is
+skipped with a log line — sound, MM keeps its native copies. A family OOT *starts* with stays effective:
+MM's copies are trimmed and MM owns them from the start (`sharedStartingMm` in the spoiler). Masks additionally require OOT's Mask Quest = Shuffle (checked via a new
 `accessibility.maskQuestShuffle` dump field, `OTRGlobals.cpp`); otherwise skipped with a log line + a
 menu footer note. A family whose OOT copies exist but whose MM name doesn't match anything in MM's
 pool (a future name drift) also logs and is left out of the effective mask, rather than failing

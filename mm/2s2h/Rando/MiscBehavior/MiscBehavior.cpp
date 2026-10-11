@@ -17,6 +17,9 @@ void Rando::MiscBehavior::OnFileLoad() {
     Rando::MiscBehavior::InitKaleidoItemPage();
     Rando::MiscBehavior::InitOfferGetItemBehavior();
     Rando::MiscBehavior::SariasSongHint();
+#ifdef COMBO_BUILD
+    Rando::MiscBehavior::WarpSongs();
+#endif
     Rando::MiscBehavior::BankSignHint();
     Rando::MiscBehavior::InitTycoonWallet();
 

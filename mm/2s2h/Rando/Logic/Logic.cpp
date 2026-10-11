@@ -241,6 +241,19 @@ static RegisterShipInitFunc initFunc([]() {
         },
         .exits = { //     TO                                         FROM
             EXIT(ENTRANCE(SOUTH_CLOCK_TOWN, 0),                      ONE_WAY_EXIT, true), // Save warp
+#ifdef COMBO_BUILD
+            // ComboShip (teleport songs): OOT's Song of Soaring reaches the same owls (CAN_SOAR_TO_OWL, Logic.h).
+            EXIT(ENTRANCE(SOUTH_CLOCK_TOWN, 9),                      ONE_WAY_EXIT, CAN_SOAR_TO_OWL && CAN_OWL_WARP(OWL_WARP_CLOCK_TOWN)),
+            EXIT(ENTRANCE(SOUTHERN_SWAMP_POISONED, 10),              ONE_WAY_EXIT, CAN_SOAR_TO_OWL && CAN_OWL_WARP(OWL_WARP_SOUTHERN_SWAMP)),
+            EXIT(ENTRANCE(WOODFALL, 4),                              ONE_WAY_EXIT, CAN_SOAR_TO_OWL && CAN_OWL_WARP(OWL_WARP_WOODFALL)),
+            EXIT(ENTRANCE(MILK_ROAD, 4),                             ONE_WAY_EXIT, CAN_SOAR_TO_OWL && CAN_OWL_WARP(OWL_WARP_MILK_ROAD)),
+            EXIT(ENTRANCE(MOUNTAIN_VILLAGE_WINTER, 8),               ONE_WAY_EXIT, CAN_SOAR_TO_OWL && CAN_OWL_WARP(OWL_WARP_MOUNTAIN_VILLAGE)),
+            EXIT(ENTRANCE(SNOWHEAD, 3),                              ONE_WAY_EXIT, CAN_SOAR_TO_OWL && CAN_OWL_WARP(OWL_WARP_SNOWHEAD)),
+            EXIT(ENTRANCE(GREAT_BAY_COAST, 11),                      ONE_WAY_EXIT, CAN_SOAR_TO_OWL && CAN_OWL_WARP(OWL_WARP_GREAT_BAY_COAST)),
+            EXIT(ENTRANCE(ZORA_CAPE, 6),                             ONE_WAY_EXIT, CAN_SOAR_TO_OWL && CAN_OWL_WARP(OWL_WARP_ZORA_CAPE)),
+            EXIT(ENTRANCE(IKANA_CANYON, 4),                          ONE_WAY_EXIT, CAN_SOAR_TO_OWL && CAN_OWL_WARP(OWL_WARP_IKANA_CANYON)),
+            EXIT(ENTRANCE(STONE_TOWER, 3),                           ONE_WAY_EXIT, CAN_SOAR_TO_OWL && CAN_OWL_WARP(OWL_WARP_STONE_TOWER)),
+#else
             EXIT(ENTRANCE(SOUTH_CLOCK_TOWN, 9),                      ONE_WAY_EXIT, CAN_PLAY_SONG(SOARING) && CAN_OWL_WARP(OWL_WARP_CLOCK_TOWN)),
             EXIT(ENTRANCE(SOUTHERN_SWAMP_POISONED, 10),              ONE_WAY_EXIT, CAN_PLAY_SONG(SOARING) && CAN_OWL_WARP(OWL_WARP_SOUTHERN_SWAMP)),
             EXIT(ENTRANCE(WOODFALL, 4),                              ONE_WAY_EXIT, CAN_PLAY_SONG(SOARING) && CAN_OWL_WARP(OWL_WARP_WOODFALL)),
@@ -251,6 +264,7 @@ static RegisterShipInitFunc initFunc([]() {
             EXIT(ENTRANCE(ZORA_CAPE, 6),                             ONE_WAY_EXIT, CAN_PLAY_SONG(SOARING) && CAN_OWL_WARP(OWL_WARP_ZORA_CAPE)),
             EXIT(ENTRANCE(IKANA_CANYON, 4),                          ONE_WAY_EXIT, CAN_PLAY_SONG(SOARING) && CAN_OWL_WARP(OWL_WARP_IKANA_CANYON)),
             EXIT(ENTRANCE(STONE_TOWER, 3),                           ONE_WAY_EXIT, CAN_PLAY_SONG(SOARING) && CAN_OWL_WARP(OWL_WARP_STONE_TOWER)),
+#endif
         },
     };
 }, RANDO_LOGIC_INIT_PATHS);

@@ -144,12 +144,18 @@ std::vector<ItemTrackerItem> dungeonRewardMedallions = {
 std::vector<ItemTrackerItem> dungeonRewards = {};
 
 std::vector<ItemTrackerItem> songItems = {
+    // clang-format off
     ITEM_TRACKER_QUEST(QUEST_SONG_LULLABY, "", 0, DrawSong),  ITEM_TRACKER_QUEST(QUEST_SONG_EPONA, "", 0, DrawSong),
     ITEM_TRACKER_QUEST(QUEST_SONG_SARIA, "", 0, DrawSong),    ITEM_TRACKER_QUEST(QUEST_SONG_SUN, "", 0, DrawSong),
     ITEM_TRACKER_QUEST(QUEST_SONG_TIME, "", 0, DrawSong),     ITEM_TRACKER_QUEST(QUEST_SONG_STORMS, "", 0, DrawSong),
     ITEM_TRACKER_QUEST(QUEST_SONG_MINUET, "", 0, DrawSong),   ITEM_TRACKER_QUEST(QUEST_SONG_BOLERO, "", 0, DrawSong),
     ITEM_TRACKER_QUEST(QUEST_SONG_SERENADE, "", 0, DrawSong), ITEM_TRACKER_QUEST(QUEST_SONG_REQUIEM, "", 0, DrawSong),
     ITEM_TRACKER_QUEST(QUEST_SONG_NOCTURNE, "", 0, DrawSong), ITEM_TRACKER_QUEST(QUEST_SONG_PRELUDE, "", 0, DrawSong),
+#ifdef COMBO_BUILD
+    // ComboShip (teleport songs): MM's Song of Soaring, RandoInf-backed, so it is an RG item, not a quest song.
+    ITEM_TRACKER_RG_CUSTOM(RG_SONG_OF_SOARING, "", QUEST_SONG_PRELUDE, 0, DrawSong),
+#endif
+    // clang-format on
 };
 
 std::vector<ItemTrackerItem> gregItems = {
@@ -1312,14 +1318,25 @@ void DrawDungeonItem(ItemTrackerItem item) {
 
 void DrawSong(ItemTrackerItem item) {
     auto gui = std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui());
-    assert(item.kind == ITEM_KIND_QUEST);
     float iconSize = static_cast<float>(CVarGetInteger(CVAR_TRACKER_ITEM("IconSize"), 36));
     ImVec2 p = ImGui::GetCursorScreenPos();
+#ifdef COMBO_BUILD
+    // ComboShip (teleport songs): Soaring's ownership and name come from its RandInf.
+    bool isSoaring = item.kind == ITEM_KIND_RG && item.id == RG_SONG_OF_SOARING;
+    assert(isSoaring || item.kind == ITEM_KIND_QUEST);
+    bool hasSong = isSoaring ? TrackerHasSave() && Flags_GetRandomizerInf(RAND_INF_HAS_SONG_OF_SOARING) : HasSong(item);
+#else
+    assert(item.kind == ITEM_KIND_QUEST);
     bool hasSong = HasSong(item);
+#endif
     ImGui::SetCursorScreenPos(ImVec2(p.x + 6, p.y));
     ImGui::Image(gui->GetTextureByName(hasSong ? item.iconName : item.fadedIconName), ImVec2(iconSize / 1.5f, iconSize),
                  ImVec2(0, 0), ImVec2(1, 1));
+#ifdef COMBO_BUILD
+    Tooltip(isSoaring ? "Song of Soaring" : SohUtils::GetQuestItemName(item.id).c_str());
+#else
     Tooltip(SohUtils::GetQuestItemName(item.id).c_str());
+#endif
 }
 
 void DrawNotes(bool resizeable = false) {

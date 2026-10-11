@@ -1475,6 +1475,80 @@ OcarinaNote sOcarinaSongNotes[OCARINA_SONG_MAX][20] = {
         { OCARINA_PITCH_D4, 3, 0, 0, 0, 0 },
         { OCARINA_PITCH_NONE, 0, 255, 0, 0, 0 },
     },
+
+#ifdef COMBO_BUILD
+    // ComboShip (teleport songs): OOT's warp songs, copies of sOoTOcarinaSongNotes rows 0..5 below.
+    // OCARINA_SONG_MINUET
+    {
+        { OCARINA_PITCH_D4, 18, 86, 0, 0, 0 },
+        { OCARINA_PITCH_D5, 18, 92, 0, 0, 0 },
+        { OCARINA_PITCH_B4, 72, 86, 0, 0, 0 },
+        { OCARINA_PITCH_A4, 18, 80, 0, 0, 0 },
+        { OCARINA_PITCH_B4, 18, 88, 0, 0, 0 },
+        { OCARINA_PITCH_A4, 144, 86, 0, 0, 0 },
+        { OCARINA_PITCH_NONE, 0, 86, 0, 0, 0 },
+    },
+
+    // OCARINA_SONG_BOLERO
+    {
+        { OCARINA_PITCH_F4, 15, 80, 0, 0, 0 },
+        { OCARINA_PITCH_D4, 15, 72, 0, 0, 0 },
+        { OCARINA_PITCH_F4, 15, 84, 0, 0, 0 },
+        { OCARINA_PITCH_D4, 15, 76, 0, 0, 0 },
+        { OCARINA_PITCH_A4, 15, 84, 0, 0, 0 },
+        { OCARINA_PITCH_F4, 15, 74, 0, 0, 0 },
+        { OCARINA_PITCH_A4, 15, 78, 0, 0, 0 },
+        { OCARINA_PITCH_F4, 135, 66, 0, 0, 0 },
+        { OCARINA_PITCH_NONE, 0, 66, 0, 0, 0 },
+    },
+
+    // OCARINA_SONG_SERENADE
+    {
+        { OCARINA_PITCH_D4, 36, 60, 0, 0, 0 },
+        { OCARINA_PITCH_F4, 36, 78, 0, 0, 0 },
+        { OCARINA_PITCH_A4, 33, 82, 0, 0, 0 },
+        { OCARINA_PITCH_NONE, 3, 82, 0, 0, 0 },
+        { OCARINA_PITCH_A4, 36, 84, 0, 0, 0 },
+        { OCARINA_PITCH_B4, 144, 90, 0, 0, 0 },
+        { OCARINA_PITCH_NONE, 0, 90, 0, 0, 0 },
+    },
+
+    // OCARINA_SONG_REQUIEM
+    {
+        { OCARINA_PITCH_D4, 45, 88, 0, 0, 0 },
+        { OCARINA_PITCH_F4, 23, 86, 0, 0, 0 },
+        { OCARINA_PITCH_D4, 22, 84, 0, 0, 0 },
+        { OCARINA_PITCH_A4, 45, 86, 0, 0, 0 },
+        { OCARINA_PITCH_F4, 45, 94, 0, 0, 0 },
+        { OCARINA_PITCH_D4, 180, 94, 0, 0, 0 },
+        { OCARINA_PITCH_NONE, 0, 94, 0, 0, 0 },
+    },
+
+    // OCARINA_SONG_NOCTURNE
+    {
+        { OCARINA_PITCH_B4, 36, 88, 0, 0, 0 },
+        { OCARINA_PITCH_A4, 33, 84, 0, 0, 0 },
+        { OCARINA_PITCH_NONE, 3, 84, 0, 0, 0 },
+        { OCARINA_PITCH_A4, 18, 82, 0, 0, 0 },
+        { OCARINA_PITCH_D4, 18, 60, 0, 0, 0 },
+        { OCARINA_PITCH_B4, 18, 90, 0, 0, 0 },
+        { OCARINA_PITCH_A4, 18, 88, 0, 0, 0 },
+        { OCARINA_PITCH_F4, 144, 96, 0, 0, 0 },
+        { OCARINA_PITCH_NONE, 0, 96, 0, 0, 0 },
+    },
+
+    // OCARINA_SONG_PRELUDE
+    {
+        { OCARINA_PITCH_D5, 15, 84, 0, 0, 0 },
+        { OCARINA_PITCH_A4, 45, 88, 0, 0, 0 },
+        { OCARINA_PITCH_D5, 15, 88, 0, 0, 0 },
+        { OCARINA_PITCH_A4, 15, 82, 0, 0, 0 },
+        { OCARINA_PITCH_B4, 15, 86, 0, 0, 0 },
+        { OCARINA_PITCH_D5, 60, 90, 0, 0, 0 },
+        { OCARINA_PITCH_NONE, 75, 90, 0, 0, 0 },
+        { OCARINA_PITCH_NONE, 0, 90, 0, 0, 0 },
+    },
+#endif
 };
 
 OcarinaNote sOoTOcarinaSongNotes[9][20] = {
@@ -2022,6 +2096,89 @@ OcarinaSongButtons gOcarinaSongButtons[OCARINA_SONG_MAX] = {
             OCARINA_BTN_C_DOWN,
         },
     },
+
+#ifdef COMBO_BUILD
+    // ComboShip (teleport songs): OOT's warp-song button sequences (soh/src/code/code_800EC960.c).
+    // OCARINA_SONG_MINUET
+    {
+        6,
+        {
+            OCARINA_BTN_A,
+            OCARINA_BTN_C_UP,
+            OCARINA_BTN_C_LEFT,
+            OCARINA_BTN_C_RIGHT,
+            OCARINA_BTN_C_LEFT,
+            OCARINA_BTN_C_RIGHT,
+        },
+    },
+
+    // OCARINA_SONG_BOLERO
+    {
+        8,
+        {
+            OCARINA_BTN_C_DOWN,
+            OCARINA_BTN_A,
+            OCARINA_BTN_C_DOWN,
+            OCARINA_BTN_A,
+            OCARINA_BTN_C_RIGHT,
+            OCARINA_BTN_C_DOWN,
+            OCARINA_BTN_C_RIGHT,
+            OCARINA_BTN_C_DOWN,
+        },
+    },
+
+    // OCARINA_SONG_SERENADE
+    {
+        5,
+        {
+            OCARINA_BTN_A,
+            OCARINA_BTN_C_DOWN,
+            OCARINA_BTN_C_RIGHT,
+            OCARINA_BTN_C_RIGHT,
+            OCARINA_BTN_C_LEFT,
+        },
+    },
+
+    // OCARINA_SONG_REQUIEM
+    {
+        6,
+        {
+            OCARINA_BTN_A,
+            OCARINA_BTN_C_DOWN,
+            OCARINA_BTN_A,
+            OCARINA_BTN_C_RIGHT,
+            OCARINA_BTN_C_DOWN,
+            OCARINA_BTN_A,
+        },
+    },
+
+    // OCARINA_SONG_NOCTURNE
+    {
+        7,
+        {
+            OCARINA_BTN_C_LEFT,
+            OCARINA_BTN_C_RIGHT,
+            OCARINA_BTN_C_RIGHT,
+            OCARINA_BTN_A,
+            OCARINA_BTN_C_LEFT,
+            OCARINA_BTN_C_RIGHT,
+            OCARINA_BTN_C_DOWN,
+        },
+    },
+
+    // OCARINA_SONG_PRELUDE
+    {
+        6,
+        {
+            OCARINA_BTN_C_UP,
+            OCARINA_BTN_C_RIGHT,
+            OCARINA_BTN_C_UP,
+            OCARINA_BTN_C_RIGHT,
+            OCARINA_BTN_C_LEFT,
+            OCARINA_BTN_C_UP,
+        },
+    },
+#endif
 };
 
 const u16 gAudioEnvironmentalSfx[] = {
@@ -2063,6 +2220,14 @@ const u8 sIsOcarinaSongReserved[OCARINA_SONG_MAX] = {
     false, // OCARINA_SONG_ZELDAS_LULLABY
     true,  // OCARINA_SONG_SCARECROW_SPAWN
     false, // OCARINA_SONG_TERMINA_WALL
+#ifdef COMBO_BUILD
+    false, // OCARINA_SONG_MINUET (ComboShip teleport songs)
+    false, // OCARINA_SONG_BOLERO
+    false, // OCARINA_SONG_SERENADE
+    false, // OCARINA_SONG_REQUIEM
+    false, // OCARINA_SONG_NOCTURNE
+    false, // OCARINA_SONG_PRELUDE
+#endif
 };
 
 const char sAudioOcarinaUnusedText0[] = "key step is too long !!! %d:%d>%d\n";

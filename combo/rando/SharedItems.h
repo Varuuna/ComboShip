@@ -29,6 +29,14 @@ enum SharedFamily {
     SF_KEATON_MASK,
     SF_BUNNY_HOOD,
     SF_MASK_OF_TRUTH,
+    // Cross-game teleport songs (see "Cross-game teleport songs" in docs/deviations/rando.md).
+    SF_SONG_OF_SOARING,
+    SF_MINUET_OF_FOREST, // the six warp songs stay contiguous and in OOT warp-index order
+    SF_BOLERO_OF_FIRE,
+    SF_SERENADE_OF_WATER,
+    SF_REQUIEM_OF_SPIRIT,
+    SF_NOCTURNE_OF_SHADOW,
+    SF_PRELUDE_OF_LIGHT,
     SF_COUNT
 };
 
@@ -45,6 +53,12 @@ struct SharedFamilyDef {
     bool mmHasItem;      // false = MM has no pool copy of this item (no trim, no oracle mirror)
     bool ootToMmOnly;    // true = one-way OOT->MM; MM's tier signal isn't a reliable OOT source
 };
+
+// The six warp-song rows share these (one menu toggle for the group).
+inline constexpr const char* kSharedWarpSongsCVar = "gCombo.Rando.Shared.WarpSongs";
+inline constexpr const char* kSharedWarpSongsLabel = "Shared Warp Songs";
+inline constexpr const char* kSharedWarpSongsTooltip =
+    "One copy of each Ocarina of Time warp song counts for both games. Requires MM's OoT Warp Songs.";
 
 inline const SharedFamilyDef* SharedFamilyTable() {
     static const SharedFamilyDef table[SF_COUNT] = {
@@ -92,6 +106,22 @@ inline const SharedFamilyDef* SharedFamilyTable() {
         { SF_MASK_OF_TRUTH, "maskOfTruth", "gCombo.Rando.Shared.MaskOfTruth", "Shared Mask of Truth",
           "One Mask of Truth counts for both games. Requires OOT Shuffle Masks.", "Mask of Truth", "Mask of Truth", 1,
           true, true, false },
+        // Teleport songs need their feature on in both games; the six warp rows share one CVar.
+        { SF_SONG_OF_SOARING, "songOfSoaring", "gCombo.Rando.Shared.SongOfSoaring", "Shared Song of Soaring",
+          "One Song of Soaring counts for both games. Requires OOT's Song of Soaring (soar to Termina).",
+          "Song of Soaring", "Song of Soaring", 1, false, true, false },
+        { SF_MINUET_OF_FOREST, "minuetOfForest", kSharedWarpSongsCVar, kSharedWarpSongsLabel, kSharedWarpSongsTooltip,
+          "Minuet of Forest", "Minuet of Forest", 1, false, true, false },
+        { SF_BOLERO_OF_FIRE, "boleroOfFire", kSharedWarpSongsCVar, kSharedWarpSongsLabel, kSharedWarpSongsTooltip,
+          "Bolero of Fire", "Bolero of Fire", 1, false, true, false },
+        { SF_SERENADE_OF_WATER, "serenadeOfWater", kSharedWarpSongsCVar, kSharedWarpSongsLabel, kSharedWarpSongsTooltip,
+          "Serenade of Water", "Serenade of Water", 1, false, true, false },
+        { SF_REQUIEM_OF_SPIRIT, "requiemOfSpirit", kSharedWarpSongsCVar, kSharedWarpSongsLabel, kSharedWarpSongsTooltip,
+          "Requiem of Spirit", "Requiem of Spirit", 1, false, true, false },
+        { SF_NOCTURNE_OF_SHADOW, "nocturneOfShadow", kSharedWarpSongsCVar, kSharedWarpSongsLabel,
+          kSharedWarpSongsTooltip, "Nocturne of Shadow", "Nocturne of Shadow", 1, false, true, false },
+        { SF_PRELUDE_OF_LIGHT, "preludeOfLight", kSharedWarpSongsCVar, kSharedWarpSongsLabel, kSharedWarpSongsTooltip,
+          "Prelude of Light", "Prelude of Light", 1, false, true, false },
     };
     return table;
 }

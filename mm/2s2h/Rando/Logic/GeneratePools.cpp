@@ -293,6 +293,14 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
     if (saveInfo.randoSaveOptions[RO_SHUFFLE_SONG_SARIA] == RO_GENERIC_YES) {
         itemPool.push_back(RI_SONG_SARIA);
     }
+#ifdef COMBO_BUILD
+    // ComboShip (teleport songs): OOT's warp songs; only the combined fill's logic credits them.
+    if (saveInfo.randoSaveOptions[RO_SHUFFLE_SONG_WARP_SONGS] == RO_GENERIC_YES) {
+        for (int ri = RI_SONG_MINUET; ri <= RI_SONG_PRELUDE; ri++) {
+            itemPool.push_back((RandoItemId)ri);
+        }
+    }
+#endif
 
     // Tycoon's Wallet
     if (saveInfo.randoSaveOptions[RO_SHUFFLE_TYCOON_WALLET] == RO_GENERIC_YES) {

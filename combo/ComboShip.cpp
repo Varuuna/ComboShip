@@ -231,6 +231,14 @@ typedef void (*FnMMResume)(int);
 static FnMMResume MM_ResumeGame = nullptr;
 static FnVoidArgless MM_PrepareForTransition = nullptr;
 
+// ComboShip (teleport songs): Entrance handoff
+typedef int (*FnGetCrossTarget)(void); // consume-on-read, -1 = none
+typedef void (*FnSetTargetEntrance)(int);
+static FnGetCrossTarget SOH_GetPendingCrossTarget = nullptr;
+static FnGetCrossTarget MM_GetPendingCrossTarget = nullptr;
+static FnSetTargetEntrance SOH_SetTargetEntrance = nullptr;
+static FnSetTargetEntrance MM_SetTargetEntrance = nullptr;
+
 // ComboShip: headless static-data dump exports
 typedef const char* (*FnDumpData)(void);
 static FnDumpData SOH_DumpRandoStaticData = nullptr;
@@ -372,6 +380,10 @@ static FnOracleGetChecks Combo_SOH_Rando_GetReachableChecks = nullptr;
 static FnOraclePlaceItem Combo_SOH_Rando_PlaceItem = nullptr;
 // OOT->MM portal gate (Happy Mask Shop region access) — see CrossWorldRando.h.
 static FnOracleGetPortalOpen Combo_SOH_Rando_GetPortalOpen = nullptr;
+// Cross-game teleport-song logic bits. Optional: null = those songs stay out of logic.
+typedef uint32_t (*FnOracleGetCrossOut)(void);
+static FnOracleGetCrossOut Combo_SOH_Rando_GetCrossOut = nullptr;
+static FnOracleGetCrossOut Combo_MM_Rando_GetCrossOut = nullptr;
 
 static FnOracleVoid Combo_MM_Rando_Reset = nullptr;
 static FnOracleSetItems Combo_MM_Rando_SetOwnedItems = nullptr;
@@ -837,6 +849,16 @@ static FnSetSharedTickCb MM_SetSharedTickCb = nullptr;
 // Shared-items mask of the LOADED slot (seed-bound, like g_goalHunt/g_startingGameMM). Absent key = 0.
 static uint32_t g_sharedMask = 0;
 static bool g_sharedReconcilePending = false;
+
+// ComboShip (teleport songs): OOT's Song of Soaring reads MM's owl-statue flags and arrival entrances.
+typedef int (*FnGetOwlFlags)(void);
+typedef int (*FnGetOwlWarpEntrance)(int owlId);
+typedef void (*FnSetOwlFlagsProvider)(int (*)(void));
+typedef void (*FnSetOwlWarpEntranceProvider)(int (*)(int));
+static FnGetOwlFlags MM_GetOwlActivationFlags = nullptr;
+static FnGetOwlWarpEntrance MM_GetOwlWarpEntrance = nullptr;
+static FnSetOwlFlagsProvider SOH_SetOwlFlagsProvider = nullptr;
+static FnSetOwlWarpEntranceProvider SOH_SetOwlWarpEntranceProvider = nullptr;
 
 namespace ComboAnchor {
 static std::thread sThread;
@@ -1422,6 +1444,16 @@ static int Combo_GetMmTriforceCount() {
     return MM_GetTriforcePieceCount ? MM_GetTriforcePieceCount() : 0;
 }
 
+// ComboShip (teleport songs): MM owl flags for OOT's active slot (-1 if not resident) and owl entrances.
+static int Combo_GetMmOwlFlags() {
+    if (!MM_GetOwlActivationFlags || g_comboCompletionSlot < 0 || g_MmSaveInMemorySlot != g_comboCompletionSlot)
+        return -1;
+    return MM_GetOwlActivationFlags();
+}
+static int Combo_GetMmOwlWarpEntrance(int owlId) {
+    return MM_GetOwlWarpEntrance ? MM_GetOwlWarpEntrance(owlId) : -1;
+}
+
 // Poked after every Triforce Piece grant (own or dormant) and every Anchor team-state merge: sums both
 // games' counters and, on the first crossing, latches completion and rolls the ending. game/fileNum use
 // the GameId convention (0 = OOT, 1 = MM). No exception may cross the C-ABI boundary.
@@ -1742,11 +1774,16 @@ static void RunComboFillBody(std::string inputSeed, ComboRando::ComboGenProgress
         if (!haveOracles)
             break; // no oracles -> no-logic fallback below; the dumps are still needed
 
-        ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
-                                            Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem,
-                                            Combo_SOH_Rando_GetPortalOpen };
-        ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
-                                           Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
+        ComboRando::OracleFns ootOracle = {
+            Combo_SOH_Rando_Reset,     Combo_SOH_Rando_SetOwnedItems, Combo_SOH_Rando_GetReachableChecks,
+            Combo_SOH_Rando_PlaceItem, Combo_SOH_Rando_GetPortalOpen, Combo_SOH_Rando_GetCrossOut
+        };
+        ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset,
+                                           Combo_MM_Rando_SetOwnedItems,
+                                           Combo_MM_Rando_GetReachableChecks,
+                                           Combo_MM_Rando_PlaceItem,
+                                           nullptr,
+                                           Combo_MM_Rando_GetCrossOut };
 
         // ComboShip: honor OOT's logic/ALR settings per-game (MM stays all-reachable). The fill gates MM
         // on the portal region via ootOracle.GetPortalOpen; NO_LOGIC bypasses it.
@@ -1980,6 +2017,8 @@ static void RunComboFillBody(std::string inputSeed, ComboRando::ComboGenProgress
         consolidated["foreign"] = foreignEnriched;
         // Shared Items: seed-bound, like the goal and starting game.
         consolidated["sharedItems"] = sharedItemsJson;
+        if (j.contains("sharedStartingMm"))
+            consolidated["sharedStartingMm"] = j["sharedStartingMm"]; // MM copies OOT starts with (mirror base)
         consolidated["playthrough"] = ComboRando::PlaythroughLines(playthroughJson);
         // ComboShip (#136): the goal is seed-bound — the runtime latch reads it back from the slot's
         // baked combo.rando, never from the live menu CVars.
@@ -2073,11 +2112,16 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
         std::cerr << "[GENTEST] dump functions not resolved — cannot run\n";
         return -1;
     }
-    ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
-                                        Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem,
-                                        Combo_SOH_Rando_GetPortalOpen };
-    ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
-                                       Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
+    ComboRando::OracleFns ootOracle = {
+        Combo_SOH_Rando_Reset,     Combo_SOH_Rando_SetOwnedItems, Combo_SOH_Rando_GetReachableChecks,
+        Combo_SOH_Rando_PlaceItem, Combo_SOH_Rando_GetPortalOpen, Combo_SOH_Rando_GetCrossOut
+    };
+    ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset,
+                                       Combo_MM_Rando_SetOwnedItems,
+                                       Combo_MM_Rando_GetReachableChecks,
+                                       Combo_MM_Rando_PlaceItem,
+                                       nullptr,
+                                       Combo_MM_Rando_GetCrossOut };
 
     std::cout << "[GENTEST] running " << numSeeds << " cross-world generations (seedBase=" << seedBase
               << ") — asserting every advancement item is reachable from an empty start in both games\n";
@@ -2175,11 +2219,16 @@ static void RunComboPlaythrough(const std::string& inputSeed) {
         std::cerr << "[PLAYTHROUGH] dump functions not resolved\n";
         return;
     }
-    ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
-                                        Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem,
-                                        Combo_SOH_Rando_GetPortalOpen };
-    ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
-                                       Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
+    ComboRando::OracleFns ootOracle = {
+        Combo_SOH_Rando_Reset,     Combo_SOH_Rando_SetOwnedItems, Combo_SOH_Rando_GetReachableChecks,
+        Combo_SOH_Rando_PlaceItem, Combo_SOH_Rando_GetPortalOpen, Combo_SOH_Rando_GetCrossOut
+    };
+    ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset,
+                                       Combo_MM_Rando_SetOwnedItems,
+                                       Combo_MM_Rando_GetReachableChecks,
+                                       Combo_MM_Rando_PlaceItem,
+                                       nullptr,
+                                       Combo_MM_Rando_GetCrossOut };
     std::string seedStr = inputSeed.empty() ? "1" : inputSeed;
     const uint32_t baseSeed = ComboHash(seedStr.c_str());
     std::string sohDump, mmDump;
@@ -2945,6 +2994,10 @@ int main(int argc, char** argv) {
     SOH_NotifyComboReturn = (FnVoidArgless)GetSym(sohModule, "SOH_NotifyComboReturn");
     MM_ResumeGame = (FnMMResume)GetSym(mmModule, "MM_ResumeGame");
     MM_PrepareForTransition = (FnVoidArgless)GetSym(mmModule, "MM_PrepareForTransition");
+    SOH_GetPendingCrossTarget = (FnGetCrossTarget)GetSym(sohModule, "SOH_GetPendingCrossTarget");
+    MM_GetPendingCrossTarget = (FnGetCrossTarget)GetSym(mmModule, "MM_GetPendingCrossTarget");
+    SOH_SetTargetEntrance = (FnSetTargetEntrance)GetSym(sohModule, "SOH_SetTargetEntrance");
+    MM_SetTargetEntrance = (FnSetTargetEntrance)GetSym(mmModule, "MM_SetTargetEntrance");
     SOH_DumpRandoStaticData = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoStaticData");
     MM_DumpRandoStaticData = (FnDumpData)GetSym(mmModule, "MM_DumpRandoStaticData");
     SOH_DumpRandoSettings = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoSettings");
@@ -3037,6 +3090,10 @@ int main(int argc, char** argv) {
     MM_SetTriforceProgressCb = (FnSetTriforceProgressCb)GetSym(mmModule, "MM_SetTriforceProgressCb");
     SOH_SetOtherTriforceCountCb = (FnSetOtherTriforceCountCb)GetSym(sohModule, "SOH_SetOtherTriforceCountCb");
     MM_SetOtherTriforceCountCb = (FnSetOtherTriforceCountCb)GetSym(mmModule, "MM_SetOtherTriforceCountCb");
+    MM_GetOwlActivationFlags = (FnGetOwlFlags)GetSym(mmModule, "MM_GetOwlActivationFlags");
+    MM_GetOwlWarpEntrance = (FnGetOwlWarpEntrance)GetSym(mmModule, "MM_GetOwlWarpEntrance");
+    SOH_SetOwlFlagsProvider = (FnSetOwlFlagsProvider)GetSym(sohModule, "SOH_SetOwlFlagsProvider");
+    SOH_SetOwlWarpEntranceProvider = (FnSetOwlWarpEntranceProvider)GetSym(sohModule, "SOH_SetOwlWarpEntranceProvider");
 
     // Starting game seam (#135) — OOT-side only; MM needs no setter (nothing there reads it).
     SOH_SetComboStartingGame = (FnSetComboStartingGame)GetSym(sohModule, "SOH_SetComboStartingGame");
@@ -3068,6 +3125,8 @@ int main(int argc, char** argv) {
     Combo_MM_Rando_GetReachableChecks = (FnOracleGetChecks)GetSym(mmModule, "Combo_MM_Rando_GetReachableChecks");
     Combo_MM_Rando_PlaceItem = (FnOraclePlaceItem)GetSym(mmModule, "Combo_MM_Rando_PlaceItem");
     Combo_MM_Rando_Restore = (FnOracleVoid)GetSym(mmModule, "Combo_MM_Rando_Restore");
+    Combo_SOH_Rando_GetCrossOut = (FnOracleGetCrossOut)GetSym(sohModule, "Combo_SOH_Rando_GetCrossOut");
+    Combo_MM_Rando_GetCrossOut = (FnOracleGetCrossOut)GetSym(mmModule, "Combo_MM_Rando_GetCrossOut");
 
     // OOT entrance-shuffle wiring (#90)
     SOH_ShuffleEntrancesForCombo = (FnShuffleEntrances)GetSym(sohModule, "SOH_ShuffleEntrancesForCombo");
@@ -3255,6 +3314,11 @@ int main(int argc, char** argv) {
         SOH_SetOtherTriforceCountCb(Combo_GetMmTriforceCount);
     if (MM_SetOtherTriforceCountCb)
         MM_SetOtherTriforceCountCb(Combo_GetOotTriforceCount);
+    // Teleport songs: OOT's Song of Soaring looks at MM's owl statues through the launcher.
+    if (SOH_SetOwlFlagsProvider)
+        SOH_SetOwlFlagsProvider(Combo_GetMmOwlFlags);
+    if (SOH_SetOwlWarpEntranceProvider)
+        SOH_SetOwlWarpEntranceProvider(Combo_GetMmOwlWarpEntrance);
     // Shared Items: tier-changed pokes in, per-frame drain seam.
     if (SOH_SetSharedChangedCb)
         SOH_SetSharedChangedCb(Combo_OnSharedChanged);
@@ -3456,6 +3520,14 @@ int main(int argc, char** argv) {
     for (;;) {
         if (current == GAME_OOT) {
             g_PendingMMFileNum = -1;
+            // Teleport songs: always drain MM's staged target; apply it only on a portal-kind return.
+            if (MM_GetPendingCrossTarget && SOH_SetTargetEntrance) {
+                const int t = MM_GetPendingCrossTarget();
+                if (t >= 0 && g_mmReturnKind == 0) {
+                    std::cout << "[ComboShip] cross target -> OOT entrance 0x" << std::hex << t << std::dec << "\n";
+                    SOH_SetTargetEntrance(t);
+                }
+            }
             if (!ootBooted) {
                 std::cout << "[ComboShip] OOT boot\n";
                 SOH_RunMain(argc, argv);
@@ -3484,6 +3556,14 @@ int main(int argc, char** argv) {
             g_pendingOOTReturn = false;
             // MM's own boot/resume path loads this slot's save into gSaveContext.
             g_MmSaveInMemorySlot = g_PendingMMFileNum;
+            // Teleport songs: arrive at the entrance OOT staged (Song of Soaring / combo_warp_mm), if any.
+            if (SOH_GetPendingCrossTarget && MM_SetTargetEntrance) {
+                const int t = SOH_GetPendingCrossTarget();
+                if (t >= 0) {
+                    std::cout << "[ComboShip] cross target -> MM entrance 0x" << std::hex << t << std::dec << "\n";
+                    MM_SetTargetEntrance(t);
+                }
+            }
             if (!mmBooted) {
                 std::cout << "[ComboShip] MM boot\n";
                 MM_RunGame(g_PendingMMFileNum);

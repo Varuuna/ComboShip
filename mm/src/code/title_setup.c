@@ -4,6 +4,9 @@
 #include "global.h"
 #include "BenPort.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
+// ComboShip (teleport songs): arrival entrance pushed by the launcher (>= 0), consumed once.
+extern int gComboTargetEntrance;
+extern int gComboCrossArrival;
 #endif
 #include "z64save.h"
 
@@ -88,6 +91,12 @@ void Setup_InitImpl(SetupState* this) {
             gSaveContext.save.entrance = gSaveContext.save.shipSaveInfo.pauseSaveEntrance;
         } else {
             gSaveContext.save.entrance = ENTRANCE(SOUTH_CLOCK_TOWN, 0);
+        }
+        if (gComboTargetEntrance >= 0) {
+            // ComboShip (teleport songs): cross-game arrival; after the branch above so owl-save side effects run.
+            gSaveContext.save.entrance = (u16)gComboTargetEntrance;
+            gComboTargetEntrance = -1;
+            gComboCrossArrival = 1;
         }
         gSaveContext.save.cutsceneIndex = 0;
         // Reset magicLevel like Sram_OpenSave does — re-arms the magic meter grow animation

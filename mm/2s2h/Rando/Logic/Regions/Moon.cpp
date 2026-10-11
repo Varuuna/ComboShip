@@ -40,10 +40,8 @@ static RegisterShipInitFunc initFunc([]() {
             EXIT(ENTRANCE(THE_MOON, 0),                              ONE_WAY_EXIT, CAN_BE_GORON && HAS_MAGIC), // Exit from Mask NPC
         },
     };
-    Regions[RR_MOON_LINK_TRIAL] = RandoRegion{ .sceneId = SCENE_LAST_LINK,
+    Regions[RR_MOON_LINK_TRIAL_ENTRANCE] = RandoRegion{ .sceneId = SCENE_LAST_LINK,
         .checks = {
-            CHECK(RC_MOON_TRIAL_LINK_GARO_MASTER_CHEST, HAS_ITEM(ITEM_HOOKSHOT)),
-            CHECK(RC_MOON_TRIAL_LINK_IRON_KNUCKLE_CHEST, HAS_ITEM(ITEM_HOOKSHOT)),
             CHECK(RC_MOON_TRIAL_LINK_POT_01, true),
             CHECK(RC_MOON_TRIAL_LINK_POT_02, true),
             CHECK(RC_MOON_TRIAL_LINK_POT_03, true),
@@ -52,15 +50,44 @@ static RegisterShipInitFunc initFunc([]() {
             CHECK(RC_MOON_TRIAL_LINK_POT_06, true),
             CHECK(RC_MOON_TRIAL_LINK_POT_07, true),
             CHECK(RC_MOON_TRIAL_LINK_POT_08, true),
-            CHECK(RC_MOON_TRIAL_LINK_PIECE_OF_HEART, HAS_ITEM(ITEM_HOOKSHOT) && HAS_ITEM(ITEM_BOMBCHU) && HAS_ITEM(ITEM_BOW)),
-            CHECK(RC_ENEMY_DROP_IRON_KNUCKLE, CanKillEnemy(ACTOR_EN_IK)),
-            CHECK(RC_ENEMY_DROP_GARO_MASTER, CanKillEnemy(ACTOR_EN_JSO2)),
-            CHECK(RC_ENEMY_DROP_WIZROBE, CanKillEnemy(ACTOR_EN_WIZ)),
             CHECK(RC_ENEMY_DROP_DINOLFOS, CanKillEnemy(ACTOR_EN_DINOFOS)),
         },
         .exits = { //     TO                                         FROM
             EXIT(ENTRANCE(THE_MOON, 0),                     ENTRANCE(MOON_LINK_TRIAL, 0), true),
-            EXIT(ENTRANCE(THE_MOON, 0),                              ONE_WAY_EXIT, HAS_ITEM(ITEM_HOOKSHOT) && HAS_ITEM(ITEM_BOMBCHU) && HAS_ITEM(ITEM_BOW)), // Exit from Mask NPC
+        },
+        .connections = {
+            CONNECTION(RR_MOON_LINK_TRIAL_GARO_ROOM, CanKillEnemy(ACTOR_EN_DINOFOS)),
+        },
+    };
+    Regions[RR_MOON_LINK_TRIAL_GARO_ROOM] = RandoRegion{ .sceneId = SCENE_LAST_LINK,
+        .checks = {
+            CHECK(RC_ENEMY_DROP_GARO_MASTER, CanKillEnemy(ACTOR_EN_JSO2)),
+            CHECK(RC_MOON_TRIAL_LINK_GARO_MASTER_CHEST, HAS_ITEM(ITEM_HOOKSHOT)),
+        },
+        .connections = {
+            CONNECTION(RR_MOON_LINK_TRIAL_ENTRANCE, CanKillEnemy(ACTOR_EN_DINOFOS)),
+            CONNECTION(RR_MOON_LINK_TRIAL_KNUCKLE_ROOM, CanKillEnemy(ACTOR_EN_JSO2) && HAS_ITEM(ITEM_HOOKSHOT)),
+        },
+    };
+    Regions[RR_MOON_LINK_TRIAL_KNUCKLE_ROOM] = RandoRegion{ .sceneId = SCENE_LAST_LINK,
+        .checks = {
+            CHECK(RC_MOON_TRIAL_LINK_IRON_KNUCKLE_CHEST, CanKillEnemy(ACTOR_EN_IK)),
+            CHECK(RC_ENEMY_DROP_IRON_KNUCKLE, CanKillEnemy(ACTOR_EN_IK)),
+        },
+        .connections = {
+            CONNECTION(RR_MOON_LINK_TRIAL_FINAL_ROOM, CanKillEnemy(ACTOR_EN_IK) && HAS_ITEM(ITEM_BOMBCHU) && HAS_ITEM(ITEM_BOW)),
+            CONNECTION(RR_MOON_LINK_TRIAL_GARO_ROOM, CanKillEnemy(ACTOR_EN_IK)),
+        },
+    };
+    Regions[RR_MOON_LINK_TRIAL_FINAL_ROOM] = RandoRegion{ .sceneId = SCENE_LAST_LINK,
+        .checks = {
+            CHECK(RC_MOON_TRIAL_LINK_PIECE_OF_HEART, true),
+        },
+        .exits = { //     TO                                         FROM
+            EXIT(ENTRANCE(THE_MOON, 0),                              ONE_WAY_EXIT, HAS_ITEM(ITEM_BOMBCHU) && CAN_USE_MAGIC_ARROW(FIRE)), // Exit from Mask NPC
+        },
+        .connections = {
+            CONNECTION(RR_MOON_LINK_TRIAL_GARO_ROOM, true),
         },
     };
     Regions[RR_MOON_MAJORAS_LAIR] = RandoRegion{ .sceneId = SCENE_LAST_BS,
@@ -92,25 +119,29 @@ static RegisterShipInitFunc initFunc([]() {
                 (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_20_MASKS && MoonMaskCount() >= 2) ||
                 (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_REMAINS && CHECK_QUEST_ITEM(QUEST_REMAINS_ODOLWA)) ||
                 (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_FORMS && CAN_BE_DEKU) ||
-                (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_OPEN)
+                (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_OPEN) ||
+                (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_VANILLA && MoonMaskCount() >= 1)
             ),
             EXIT(ENTRANCE(MOON_GORON_TRIAL, 0),             ENTRANCE(THE_MOON, 0), 
                 (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_20_MASKS && MoonMaskCount() >= 6) ||
                 (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_REMAINS && CHECK_QUEST_ITEM(QUEST_REMAINS_GOHT)) ||
                 (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_FORMS && CAN_BE_GORON) ||
-                (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_OPEN)
+                (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_OPEN) ||
+                (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_VANILLA && MoonMaskCount() >= 2)
             ),
             EXIT(ENTRANCE(MOON_ZORA_TRIAL, 0),              ENTRANCE(THE_MOON, 0),
                 (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_20_MASKS && MoonMaskCount() >= 12) ||
                 (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_REMAINS && CHECK_QUEST_ITEM(QUEST_REMAINS_GYORG)) ||
                 (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_FORMS && CAN_BE_ZORA) ||
-                (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_OPEN)
+                (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_OPEN) ||
+                (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_VANILLA && MoonMaskCount() >= 3)
             ),
             EXIT(ENTRANCE(MOON_LINK_TRIAL, 0),              ENTRANCE(THE_MOON, 0),
                 (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_20_MASKS && MoonMaskCount() >= 20) ||
                 (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_REMAINS && CHECK_QUEST_ITEM(QUEST_REMAINS_TWINMOLD)) ||
                 (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_FORMS) ||
-                (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_OPEN)
+                (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_OPEN) ||
+                (RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] == RO_ACCESS_TRIALS_VANILLA && MoonMaskCount() >= 4)
             ),
             EXIT(ENTRANCE(MAJORAS_LAIR, 0),                          ONE_WAY_EXIT, (RemainsCount() >= RANDO_SAVE_OPTIONS[RO_ACCESS_MAJORA_REMAINS_COUNT]) && (MoonMaskCount() >= RANDO_SAVE_OPTIONS[RO_ACCESS_MAJORA_MASKS_COUNT])
             ),

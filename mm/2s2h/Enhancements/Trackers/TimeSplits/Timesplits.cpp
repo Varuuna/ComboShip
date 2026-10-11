@@ -162,7 +162,12 @@ void DrawSplitsList(bool isMain) {
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(10, 0));
 
     if (isMain) {
+#ifdef COMBO_BUILD
+        // ComboShip: own ImGui ID; OOT's split overlay (a port of this one) also opens "Timesplits".
+        ImGui::Begin("Timesplits##MM", nullptr,
+#else
         ImGui::Begin("Timesplits", nullptr,
+#endif
                      ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoDocking |
                          ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollWithMouse |
                          ImGuiWindowFlags_NoScrollbar);

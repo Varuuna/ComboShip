@@ -255,8 +255,8 @@ void ComboMenu::DrawElement() {
         static const Scope kScopes[] = {
             { "settings", "Settings" },
             { "randomizer", "Randomizer" },
-            { "oot", "Ship of Harkinian" },
-            { "mm", "2 Ship 2 Harkinian" },
+            { "oot", "Ocarina of Time" },
+            { "mm", "Majora's Mask" },
         };
         if (mScope.empty()) {
             mScope = "settings";
@@ -363,8 +363,8 @@ void ComboMenu::DrawSearchResults(const std::string& query) {
         const GameMenu* game;
     };
     const Source sources[] = {
-        { "Ship of Harkinian", &model.Oot() }, // OOT first: its copy wins the dedupe
-        { "2 Ship 2 Harkinian", &model.Mm() },
+        { "Ocarina of Time", &model.Oot() }, // OOT first: its copy wins the dedupe
+        { "Majora's Mask", &model.Mm() },
     };
 
     // 2-3 equal-width columns (by available width) so results read as a grid, not one tall list —
@@ -1712,7 +1712,7 @@ void ComboMenu::DrawComboPanel() {
         }
     }
     ImGui::TextDisabled("One item counts for both games. Applied at generation. Masks need Ocarina of\n"
-                        "Time's Mask Quest set to Shuffle. Shared Wallets turns off Shuffle Child Wallet.");
+                        "Time's Shuffle Masks on. Shared Wallets turns off Shuffle Child Wallet.");
     ImGui::Separator();
 
     // Cosmetics (#169): each game randomizes on its own by default; sync makes MM take OOT's colors.

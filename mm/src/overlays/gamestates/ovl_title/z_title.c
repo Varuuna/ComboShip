@@ -52,6 +52,9 @@ void ConsoleLogo_PrintBuildInfo(ConsoleLogoState* this) {
     bool showGitInfo = gGitCommitTag[0] == 0;
 
     if (showGitInfo) {
+        GfxPrint_SetPos(&printer, 1, 23);
+        GfxPrint_Printf(&printer, "%s", gBuildVersion);
+
         GfxPrint_SetPos(&printer, 1, 24);
         GfxPrint_Printf(&printer, "Git Branch: %s", gGitBranch);
 

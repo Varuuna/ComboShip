@@ -1,4 +1,5 @@
 #include "entrance.h"
+#include "soh/Enhancements/game-interactor/GameInteractor.h"
 
 #include "3drando/fill.hpp"
 #include "3drando/pool_functions.hpp"
@@ -7,6 +8,7 @@
 #include "../debugger/performanceTimer.h"
 #include "soh/Enhancements/gameconsole.h"
 #include "soh/util.h"
+#include "soh/ShipInit.hpp"
 #include "z64camera.h"
 #include "z64scene.h"
 
@@ -34,7 +36,7 @@ void Entrance::SetCondition(ConditionFn newCondition) {
 
 bool Entrance::GetConditionsMet() const {
     auto ctx = Rando::Context::GetInstance();
-    if (ctx->GetOption(RSK_LOGIC_RULES).Is(RO_LOGIC_GLITCHLESS)) {
+    if (ctx->GetOption(RSK_NO_LOGIC).Is(RO_GENERIC_OFF)) {
         return condition_function();
     }
     return true;
@@ -275,7 +277,7 @@ void SetAllEntrancesData() {
         { { EntranceType::Dungeon,      RR_SACRED_FOREST_MEADOW,             RR_FOREST_TEMPLE_ENTRYWAY,            ENTR_FOREST_TEMPLE_ENTRANCE },
           { EntranceType::Dungeon,      RR_FOREST_TEMPLE_ENTRYWAY,           RR_SACRED_FOREST_MEADOW,              ENTR_SACRED_FOREST_MEADOW_OUTSIDE_TEMPLE } },
         { { EntranceType::Dungeon,      RR_DMC_TEMPLE_EXIT,                  RR_FIRE_TEMPLE_ENTRYWAY,              ENTR_FIRE_TEMPLE_ENTRANCE },
-          { EntranceType::Dungeon,      RR_FIRE_TEMPLE_ENTRYWAY,             RR_DMC_TEMPLE_EXIT,                   ENTR_DEATH_MOUNTAIN_CRATER_OUTSIDE_TEMPLE } },
+          { EntranceType::Dungeon,      RR_FIRE_TEMPLE_ENTRYWAY,             RR_DMC_TEMPLE_ENTRY,                   ENTR_DEATH_MOUNTAIN_CRATER_OUTSIDE_TEMPLE } },
         { { EntranceType::Dungeon,      RR_LH_FROM_WATER_TEMPLE,             RR_WATER_TEMPLE_ENTRYWAY,             ENTR_WATER_TEMPLE_ENTRANCE },
           { EntranceType::Dungeon,      RR_WATER_TEMPLE_ENTRYWAY,            RR_LH_FROM_WATER_TEMPLE,              ENTR_LAKE_HYLIA_OUTSIDE_TEMPLE } },
         { { EntranceType::Dungeon,      RR_DESERT_COLOSSUS,                  RR_SPIRIT_TEMPLE_ENTRYWAY,            ENTR_SPIRIT_TEMPLE_ENTRANCE },
@@ -290,7 +292,7 @@ void SetAllEntrancesData() {
           { EntranceType::Dungeon,      RR_GERUDO_TRAINING_GROUND_ENTRYWAY,  RR_GF_EXITING_GTG,                    ENTR_GERUDOS_FORTRESS_OUTSIDE_GERUDO_TRAINING_GROUND } },
         { { EntranceType::GanonDungeon, RR_GANONS_CASTLE_LEDGE,              RR_GANONS_CASTLE_ENTRYWAY,            ENTR_INSIDE_GANONS_CASTLE_ENTRANCE },
           { EntranceType::GanonDungeon, RR_GANONS_CASTLE_ENTRYWAY,           RR_CASTLE_GROUNDS_FROM_GANONS_CASTLE, ENTR_CASTLE_GROUNDS_RAINBOW_BRIDGE_EXIT } },
-        
+
         { { EntranceType::Interior, RR_KOKIRI_FOREST,                 RR_KF_MIDOS_HOUSE,                  ENTR_MIDOS_HOUSE_0 },
           { EntranceType::Interior, RR_KF_MIDOS_HOUSE,                RR_KOKIRI_FOREST,                   ENTR_KOKIRI_FOREST_OUTSIDE_MIDOS_HOUSE } },
         { { EntranceType::Interior, RR_KOKIRI_FOREST,                 RR_KF_SARIAS_HOUSE,                 ENTR_SARIAS_HOUSE_0 },
@@ -365,7 +367,7 @@ void SetAllEntrancesData() {
           { EntranceType::Interior, RR_DMT_GREAT_FAIRY_FOUNTAIN,      RR_DEATH_MOUNTAIN_SUMMIT,           ENTR_DEATH_MOUNTAIN_TRAIL_GREAT_FAIRY_EXIT } },
         { { EntranceType::Interior, RR_ZORAS_FOUNTAIN,                RR_ZF_GREAT_FAIRY_FOUNTAIN,         ENTR_GREAT_FAIRYS_FOUNTAIN_SPELLS_FARORES_ZF },
           { EntranceType::Interior, RR_ZF_GREAT_FAIRY_FOUNTAIN,       RR_ZORAS_FOUNTAIN,                  ENTR_ZORAS_FOUNTAIN_OUTSIDE_GREAT_FAIRY } },
-        
+
         { { EntranceType::SpecialInterior, RR_KF_LINKS_PORCH,         RR_KF_LINKS_HOUSE,         ENTR_LINKS_HOUSE_1 },
           { EntranceType::SpecialInterior, RR_KF_LINKS_HOUSE,         RR_KF_LINKS_PORCH,         ENTR_KOKIRI_FOREST_OUTSIDE_LINKS_HOUSE } },
         { { EntranceType::SpecialInterior, RR_TOT_ENTRANCE,           RR_TEMPLE_OF_TIME,         ENTR_TEMPLE_OF_TIME_ENTRANCE },
@@ -376,7 +378,7 @@ void SetAllEntrancesData() {
           { EntranceType::SpecialInterior, RR_KAK_POTION_SHOP,        RR_KAKARIKO_VILLAGE,       ENTR_KAKARIKO_VILLAGE_OUTSIDE_POTION_SHOP_FRONT } },
         { { EntranceType::SpecialInterior, RR_KAK_BEHIND_POTION_SHOP, RR_KAK_POTION_SHOP,        ENTR_POTION_SHOP_KAKARIKO_BACK },
           { EntranceType::SpecialInterior, RR_KAK_POTION_SHOP,        RR_KAK_BEHIND_POTION_SHOP, ENTR_KAKARIKO_VILLAGE_OUTSIDE_POTION_SHOP_BACK } },
-        
+
         { { EntranceType::ThievesHideout, RR_GF_OUTSKIRTS,                 RR_TH_1_TORCH_CELL,              ENTR_THIEVES_HIDEOUT_0 },
           { EntranceType::ThievesHideout, RR_TH_1_TORCH_CELL,              RR_GF_OUTSKIRTS,                 ENTR_GERUDOS_FORTRESS_1 } },
         { { EntranceType::ThievesHideout, RR_GF_NEAR_GROTTO,               RR_TH_1_TORCH_CELL,              ENTR_THIEVES_HIDEOUT_1 },
@@ -474,7 +476,7 @@ void SetAllEntrancesData() {
           { EntranceType::GrottoGrave, RR_GV_OCTOROK_GROTTO,        RR_GV_GROTTO_LEDGE,            ENTRANCE_GROTTO_EXIT(GROTTO_GV_OCTOROK_OFFSET) } },
         { { EntranceType::GrottoGrave, RR_LW_BEYOND_MIDO,           RR_DEKU_THEATER,               ENTRANCE_GROTTO_LOAD(GROTTO_LW_DEKU_THEATRE_OFFSET) },
           { EntranceType::GrottoGrave, RR_DEKU_THEATER,             RR_LW_BEYOND_MIDO,             ENTRANCE_GROTTO_EXIT(GROTTO_LW_DEKU_THEATRE_OFFSET) } },
-        
+
         // Graves have their own specified entrance indices
         { { EntranceType::GrottoGrave, RR_THE_GRAVEYARD,               RR_GRAVEYARD_SHIELD_GRAVE,      ENTR_GRAVE_WITH_FAIRYS_FOUNTAIN_0 },
           { EntranceType::GrottoGrave, RR_GRAVEYARD_SHIELD_GRAVE,      RR_THE_GRAVEYARD,               ENTR_GRAVEYARD_SHIELD_GRAVE_EXIT } },
@@ -484,7 +486,7 @@ void SetAllEntrancesData() {
           { EntranceType::GrottoGrave, RR_GRAVEYARD_COMPOSERS_GRAVE,   RR_THE_GRAVEYARD,               ENTR_GRAVEYARD_ROYAL_TOMB_EXIT } },
         { { EntranceType::GrottoGrave, RR_THE_GRAVEYARD,               RR_GRAVEYARD_DAMPES_GRAVE,      ENTR_WINDMILL_AND_DAMPES_GRAVE_GRAVE },
           { EntranceType::GrottoGrave, RR_GRAVEYARD_DAMPES_GRAVE,      RR_THE_GRAVEYARD,               ENTR_GRAVEYARD_DAMPES_GRAVE_EXIT } },
-        
+
         { { EntranceType::Overworld, RR_KOKIRI_FOREST,           RR_LW_BRIDGE_FROM_FOREST,   ENTR_LOST_WOODS_BRIDGE_EAST_EXIT },
           { EntranceType::Overworld, RR_LW_BRIDGE,               RR_KOKIRI_FOREST,           ENTR_KOKIRI_FOREST_LOWER_EXIT } },
         { { EntranceType::Overworld, RR_KF_OUTSIDE_LOST_WOODS,   RR_THE_LOST_WOODS,          ENTR_LOST_WOODS_SOUTH_EXIT },
@@ -537,15 +539,15 @@ void SetAllEntrancesData() {
           { EntranceType::Overworld, RR_ZORAS_DOMAIN,            RR_ZR_BEHIND_WATERFALL,     ENTR_ZORAS_RIVER_WATERFALL_EXIT } },
         { { EntranceType::Overworld, RR_ZD_BEHIND_KING_ZORA,     RR_ZORAS_FOUNTAIN,          ENTR_ZORAS_FOUNTAIN_TUNNEL_EXIT },
           { EntranceType::Overworld, RR_ZORAS_FOUNTAIN,          RR_ZD_BEHIND_KING_ZORA,     ENTR_ZORAS_DOMAIN_KING_ZORA_EXIT } },
-        
+
         { { EntranceType::Overworld, RR_GV_LOWER_STREAM, RR_LAKE_HYLIA,        ENTR_LAKE_HYLIA_RIVER_EXIT },
           NO_RETURN_ENTRANCE },
-        
+
         { { EntranceType::OwlDrop, RR_LH_OWL_FLIGHT,     RR_HYRULE_FIELD,      ENTR_HYRULE_FIELD_OWL_DROP },
           NO_RETURN_ENTRANCE },
         { { EntranceType::OwlDrop, RR_DMT_OWL_FLIGHT,    RR_KAK_IMPAS_ROOFTOP, ENTR_KAKARIKO_VILLAGE_OWL_DROP },
           NO_RETURN_ENTRANCE },
-        
+
         { { EntranceType::Spawn, RR_CHILD_SPAWN,         RR_KF_LINKS_HOUSE,    ENTR_LINKS_HOUSE_CHILD_SPAWN },
           NO_RETURN_ENTRANCE },
         { { EntranceType::Spawn, RR_ADULT_SPAWN,         RR_TEMPLE_OF_TIME,    ENTR_HYRULE_FIELD_10 },
@@ -563,7 +565,7 @@ void SetAllEntrancesData() {
           NO_RETURN_ENTRANCE },
         { { EntranceType::WarpSong, RR_PRELUDE_OF_LIGHT_WARP,   RR_TEMPLE_OF_TIME,            ENTR_TEMPLE_OF_TIME_WARP_PAD },
           NO_RETURN_ENTRANCE },
-        
+
         { { EntranceType::ChildBoss, RR_DEKU_TREE_BOSS_ENTRYWAY,        RR_DEKU_TREE_BOSS_ROOM,         ENTR_DEKU_TREE_BOSS_ENTRANCE },
           { EntranceType::ChildBoss, RR_DEKU_TREE_BOSS_ROOM,            RR_DEKU_TREE_BOSS_EXIT,         ENTR_DEKU_TREE_BOSS_DOOR } },
         { { EntranceType::ChildBoss, RR_DODONGOS_CAVERN_BOSS_ENTRYWAY,  RR_DODONGOS_CAVERN_BOSS_ROOM,   ENTR_DODONGOS_CAVERN_BOSS_ENTRANCE },
@@ -896,7 +898,7 @@ static bool ValidateWorld(Entrance* entrancePlaced) {
             }
         }
 
-        SPDLOG_DEBUG("All Locations NOT REACHABLE");
+        SPDLOG_DEBUG("All Checks NOT REACHABLE");
         return false;
     }
     return true;
@@ -1003,7 +1005,10 @@ bool EntranceShuffler::PlaceOneWayPriorityEntrance(
         }
     }
     SPDLOG_DEBUG("ERROR: Unable to place priority one-way entrance for {}", priorityName);
+#ifndef COMBO_BUILD
+    // ComboShip: the caller retries this, so Debug builds shouldn't abort here.
     assert(false);
+#endif
     return false;
 }
 
@@ -1229,7 +1234,7 @@ int EntranceShuffler::ShuffleAllEntrances() {
     if (ctx->GetOption(RSK_SHUFFLE_WARP_SONGS)) {
         oneWayEntrancePools[EntranceType::WarpSong] = GetShuffleableEntrances(EntranceType::WarpSong);
         // In Glitchless, there aren't any other ways to access these areas
-        if (ctx->GetOption(RSK_LOGIC_RULES).Is(RO_LOGIC_GLITCHLESS)) {
+        if (ctx->GetOption(RSK_NO_LOGIC).Is(RO_GENERIC_OFF)) {
             oneWayPriorities["Bolero"] = priorityEntranceTable["Bolero"];
             oneWayPriorities["Nocturne"] = priorityEntranceTable["Nocturne"];
             if (!ctx->GetOption(RSK_SHUFFLE_DUNGEON_ENTRANCES) && !ctx->GetOption(RSK_SHUFFLE_OVERWORLD_ENTRANCES)) {
@@ -1538,7 +1543,7 @@ int EntranceShuffler::ShuffleAllEntrances() {
             { EntranceNameByRegions(RR_FOREST_TEMPLE_BOSS_ROOM, RR_FOREST_TEMPLE_BOSS_ENTRYWAY),
               GetEntrance(RR_FOREST_TEMPLE_ENTRYWAY, RR_SACRED_FOREST_MEADOW) },
             { EntranceNameByRegions(RR_FIRE_TEMPLE_BOSS_ROOM, RR_FIRE_TEMPLE_BOSS_ENTRYWAY),
-              GetEntrance(RR_FIRE_TEMPLE_ENTRYWAY, RR_DMC_TEMPLE_EXIT) },
+              GetEntrance(RR_FIRE_TEMPLE_ENTRYWAY, RR_DMC_TEMPLE_ENTRY) },
             { EntranceNameByRegions(RR_WATER_TEMPLE_BOSS_ROOM, RR_WATER_TEMPLE_BOSS_ENTRYWAY),
               GetEntrance(RR_WATER_TEMPLE_ENTRYWAY, RR_LH_FROM_WATER_TEMPLE) },
             { EntranceNameByRegions(RR_SPIRIT_TEMPLE_BOSS_ROOM, RR_SPIRIT_TEMPLE_BOSS_ENTRYWAY),
@@ -1560,7 +1565,7 @@ int EntranceShuffler::ShuffleAllEntrances() {
               GetEntrance(RR_JABU_JABUS_BELLY_BOSS_ROOM, RR_ZORAS_FOUNTAIN) },
             { EntranceNameByRegions(RR_FOREST_TEMPLE_ENTRYWAY, RR_SACRED_FOREST_MEADOW),
               GetEntrance(RR_FOREST_TEMPLE_BOSS_ROOM, RR_SACRED_FOREST_MEADOW) },
-            { EntranceNameByRegions(RR_FIRE_TEMPLE_ENTRYWAY, RR_DMC_TEMPLE_EXIT),
+            { EntranceNameByRegions(RR_FIRE_TEMPLE_ENTRYWAY, RR_DMC_TEMPLE_ENTRY),
               GetEntrance(RR_FIRE_TEMPLE_BOSS_ROOM, RR_DMC_PAD_ENTRY) },
             { EntranceNameByRegions(RR_WATER_TEMPLE_ENTRYWAY, RR_LH_FROM_WATER_TEMPLE),
               GetEntrance(RR_WATER_TEMPLE_BOSS_ROOM, RR_LAKE_HYLIA) },
@@ -1654,10 +1659,12 @@ void EntranceShuffler::CreateEntranceOverrides() {
         int16_t destinationIndex = -1;
         int16_t replacementDestinationIndex = -1;
 
-        // Only set destination indices for two way entrances and when decouple entrances is off
-        if (entrance->GetReverse() != nullptr && !ctx->GetOption(RSK_DECOUPLED_ENTRANCES)) {
-            replacementDestinationIndex = entrance->GetReplacement()->GetReverse()->GetIndex();
+        // Track the reverse destination, useful for savewarp handling
+        if (entrance->GetReverse() != nullptr) {
             destinationIndex = entrance->GetReverse()->GetIndex();
+            if (!ctx->GetOption(RSK_DECOUPLED_ENTRANCES)) {
+                replacementDestinationIndex = entrance->GetReplacement()->GetReverse()->GetIndex();
+            }
         }
 
         entranceOverrides[i] = {
@@ -1756,7 +1763,7 @@ void RegisterEntranceShuffleHooks() {
                 return;
             }
             memcpy(camera, &backupCamera, sizeof(Camera));
-            Camera_ChangeMode(camera, CAM_MODE_TALK);
+            Camera_RequestMode(camera, CAM_MODE_TALK);
             *should = false;
         } else if (backedUpScene != gPlayState->sceneNum) {
             memcpy(&backupCamera, camera, sizeof(Camera));

@@ -6,7 +6,11 @@
  * including both shops and one-off merchants (i.e. Medigoron, Bean Guy,
  * and Carpet Salesman)
  */
+
+#include <libultraship/bridge/consolevariablebridge.h>
+
 #include <soh/OTRGlobals.h>
+#include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/ObjectExtension/ObjectExtension.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
 #ifdef COMBO_BUILD
@@ -14,13 +18,14 @@
 #include "soh/Enhancements/randomizer/draw.h"
 #include "rando/CrossForeign.h"
 #endif
+#include "soh/Enhancements/custom-message/CustomMessageTypes.h"
+#include "soh/ShipInit.hpp"
 
 extern "C" {
-extern PlayState* gPlayState;
 #include <macros.h>
 #include <functions.h>
-#include <variables.h>
 #include <overlays/actors/ovl_En_Dns/z_en_dns.h>
+extern PlayState* gPlayState;
 }
 
 #define RAND_GET_ITEM(rc) OTRGlobals::Instance->gRandoContext->GetItemLocation(rc)
@@ -28,6 +33,26 @@ extern PlayState* gPlayState;
 #define NON_BEAN_MERCHANTS                                                            \
     (RAND_GET_OPTION(RSK_SHUFFLE_MERCHANTS).Is(RO_SHUFFLE_MERCHANTS_ALL_BUT_BEANS) || \
      RAND_GET_OPTION(RSK_SHUFFLE_MERCHANTS).Is(RO_SHUFFLE_MERCHANTS_ALL))
+
+#ifdef COMBO_BUILD
+// ComboShip: an RG_COMBO_FOREIGN slot sells an MM item; name it from the foreign map (a foreign trap
+// uses its typo'd disguise, others their live tier). False = unknown, fall through to the native name.
+static bool ComboForeignMerchantName(RandomizerCheck rc, CustomMessage& itemName) {
+    const ComboRando::ForeignItem* fi =
+        OOT_LookupForeign(gSaveContext.fileNum, Rando::StaticData::GetLocation(rc)->GetName());
+    if (fi == nullptr) {
+        return false;
+    }
+    std::string shown = !fi->fakeTrickName.empty()
+                            ? fi->fakeTrickName
+                            : ComboRando::ShownForeignName(*fi, Randomizer_ComboForeignLiveName((int32_t)rc));
+    if (shown.empty()) {
+        return false;
+    }
+    itemName = CustomMessage(Text{ shown, shown, shown });
+    return true;
+}
+#endif
 
 void BuildMerchantMessage(CustomMessage& msg, RandomizerCheck rc, bool mysterious = true) {
     auto location = RAND_GET_ITEM(rc);
@@ -50,35 +75,15 @@ void BuildMerchantMessage(CustomMessage& msg, RandomizerCheck rc, bool mysteriou
         }
         itemName = CustomMessage(trickName);
         color = "%g";
-    } else {
 #ifdef COMBO_BUILD
-        // ComboShip: a shop/merchant slot holding RG_COMBO_FOREIGN actually sells an MM item.
-        // Show the real item's name from the foreign map instead of "Combo Foreign Item".
-        if (rgid == RG_COMBO_FOREIGN) {
-            const ComboRando::ForeignItem* fi =
-                OOT_LookupForeign(gSaveContext.fileNum, Rando::StaticData::GetLocation(rc)->GetName());
-            // A foreign trap is sold under its typo'd disguise name, like OOT's own ice traps. A
-            // non-disguised foreign item previews its LIVE tier, like the shelf model beside it.
-            std::string shown =
-                fi == nullptr ? ""
-                              : (!fi->fakeTrickName.empty()
-                                     ? fi->fakeTrickName
-                                     : ComboRando::ShownForeignName(*fi, Randomizer_ComboForeignLiveName((int32_t)rc)));
-            if (!shown.empty()) {
-                itemName = CustomMessage(Text{ shown, shown, shown });
-                color = "%g";
-                msg.Replace("[[color]]", color);
-                msg.InsertNames({ itemName, CustomMessage(std::to_string(location->GetPrice())) });
-                return;
-            }
-        }
+    } else if (rgid == RG_COMBO_FOREIGN && ComboForeignMerchantName(rc, itemName)) {
+        color = "%g";
 #endif
-        if (inShop) {
-            itemName = CustomMessage(Rando::StaticData::RetrieveItem(rgid).GetName());
-        } else {
-            // Hint text brings its own article
-            itemName = Rando::StaticData::RetrieveItem(rgid).GetHint().GetHintMessage();
-        }
+    } else if (inShop) {
+        itemName = CustomMessage(Rando::StaticData::RetrieveItem(rgid).GetName());
+    } else {
+        // Hint text brings its own article
+        itemName = Rando::StaticData::RetrieveItem(rgid).GetHint().GetHintMessage();
     }
     msg.Replace("[[color]]", color);
     msg.InsertNames({ itemName, CustomMessage(std::to_string(location->GetPrice())) });

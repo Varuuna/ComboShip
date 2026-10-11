@@ -20,7 +20,7 @@ After every merge that touches either randomizer, re-walk the fill-parity checkl
 |--------|---------------|-----------------|---------|
 | `libultraship` | `github.com/Kenix3/libultraship` | `port-maintenance` (**not** `main` — see [policy](#standing-policy-libultraship-branch-kenix3-port-maintenance)) | repo root |
 | `soh` | `github.com/HarbourMasters/Shipwright` | `develop` | `soh/` subdir |
-| `mm` | `github.com/HarbourMasters/2ship2harkinian` | `develop` | `mm/` subdir |
+| `mm` | `github.com/2ship2harkinian/2ship2harkinian` | `develop` | `mm/` subdir |
 
 These three are **coupled**: `soh@develop` and `mm@develop` track libultraship as a submodule and
 already expect a recent libultraship (and its current header layout). Updating libultraship alone
@@ -67,15 +67,27 @@ manual (it's judgement work). Three pieces:
   **conflict-surface report** (which of *our* customized files upstream touched). With `-Merge` it
   also runs the 3-way merges (`-c merge.renames=false` for mm), leaving conflicts for a human.
 - **CI** (`.github/workflows/upstream-merge.yml`, weekly + manual) — **auto-opens the merge PRs, one
-  per upstream.** Every run writes a Step Summary (up-to-date vs updates-found, so the result is
-  never ambiguous). Each upstream that moved gets its own `bot/upstream-merge-<key>` branch and its
-  own PR to `develop`, carrying only that folder's merge (**conflict markers committed** — the PR is
-  labelled `has-conflicts`), only that key's `upstream-pins.json` bump, and its own
+  per upstream, on two tracks.** Every run writes a Step Summary covering both (up-to-date,
+  updates-found, or skipped, so the result is never ambiguous).
+  - **tips → `develop`**: each upstream's tracked branch tip, on `bot/upstream-merge-<key>`.
+  - **release → `main`**: upstream **releases** only, on `bot/upstream-release-<key>` (labelled
+    `upstream-release`). soh/mm target their GitHub `releases/latest` tag, fetched directly (a
+    release may be tagged off the tracked branch, like mm 5.0.1 on `develop-battler`).
+    libultraship has no release tags, so its target is the newest LUS commit those game releases
+    pin. main's pins are read from `origin/main`; the pin bump also records `mergedTag`
+    (informational — `mergedSha` stays the truth).
+
+  Each PR carries only that folder's merge (**conflict markers committed** — the PR is labelled
+  `has-conflicts`), only that key's `upstream-pins.json` bump, and its own
   `docs/merges/<date>-<key>.md` scaffold. An upstream with nothing new gets no PR, and one whose PR
-  is already open is left untouched while its siblings proceed. You finish each on its branch:
-  resolve markers, work the build-fix chain, flesh out the merge log.
-  `build-artifacts.yml`'s single `gate` job (conflict markers, asset collisions, clang-format) is
-  the PR gate.
+  is already open is left untouched while its siblings proceed. **A pin only ever moves to a
+  descendant:** a release that is not ahead of main's pin is skipped (soh 9.2.3 today — main is
+  already past it) until a newer one ships; on develop a non-ancestor pin fails the run. Release
+  lookup errors skip that key only, never the develop track. A manual run with `dry_run` writes
+  the summary and stops. You finish each PR on its branch: resolve markers, work the build-fix
+  chain, flesh out the merge log.
+  `build-artifacts.yml`'s single `gate` job (conflict markers, main's pin guard, asset collisions,
+  clang-format) is the PR gate.
   - **Merge the libultraship PR first** — soh/mm `#include` libultraship by path (see the coupling
     note above). Nothing enforces it mechanically; the soh/mm PR bodies say so, and each PR in a
     pass links its siblings.
@@ -161,8 +173,8 @@ So a routine merge does NOT force the player to re-extract their ROM, but it DOE
 > **Per-merge step (after bumping `upstream-pins.json`): regenerate the port archives** so their
 > embedded `--port-ver` matches the new derived version:
 > `cmake --build <build> --target GenerateSohOtr Generate2ShipOtr --config <cfg>`
-> (these `rm` + re-extract `soh.o2r`/`2ship.o2r` with `${CMAKE_PROJECT_VERSION}` and deploy to the
-> runtime dir). A release build must run them; the local dev build does not do this automatically.
+> (these `rm` + re-pack `soh.o2r` (Torch's `soh-o2r-packer`) / `2ship.o2r` (ZAPD) with
+> `${CMAKE_PROJECT_VERSION}` and deploy to the runtime dir). A release build must run them; the local dev build does not do this automatically.
 > Decision (2026-06-21): we keep the port check at upstream's full-triple rather than weakening it to
 > MAJOR-only, and regenerate each merge.
 
@@ -190,21 +202,31 @@ introduces it, with the understanding that the asset must never be submitted cro
 route marker. Upstream merges are the main source of new collisions, so expect the gate to fire on
 merge PRs — treat each hit as a real review decision, not noise to baseline away.
 
-## Standing policy: the `2ship-stable` branch
+## Standing policy: `main` = release track
 
-`2ship-stable` is a long-lived branch whose vendored `mm/` is only ever updated to **official 2Ship
-release tags** (created 2026-08-19 at exactly 5.0.0 "Battler Alfa"). It is the clear stable
-reference — release functionality *and* release bugs — while `develop` keeps tracking upstream's
-develop branch (newer/experimental). No CI builds from it yet; build locally when needed.
+`main`'s vendored `libultraship/`, `soh/` and `mm/` move **only to upstream release pins**, via the
+bot's `bot/upstream-release-<key>` PRs; `develop` keeps every upstream update. The gate enforces
+it: a PR to `main` that changes `upstream-pins.json` fails unless its head is
+`bot/upstream-release-*`.
 
-Per-release update procedure:
+- **develop → main merges are allowed only when every develop pin is at or behind main's pins.**
+  Otherwise the merge drags post-release upstream code into main. When develop is past (the usual
+  case — soh releases are months apart), **cherry-pick** the combo commits to main instead, and
+  accept that main's combo code lags develop.
+- Release-track PRs move a pin, so they need at least a **minor** `COMBO_RELEASE_VERSION` bump
+  before the next `v*` tag (see the version section above). The derived build version follows
+  main's pins on its own.
+- To merge a release by hand: `scripts/upstream-merge.ps1 -Only <key> -Target refs/tags/<tag> -Merge`
+  (`-Target` also takes a SHA; it must be a descendant of the current pin).
+- develop's soh is exactly 9.3.0. For 0.3.0, develop is promoted to main as a one-off exception
+  (mm and LUS sit past their releases); that PR amends this policy and records the pins.
 
-- If the branch's mm pin is **behind** the new tag (the normal case): run the standard merge pass
-  with `scripts/upstream-merge.ps1 -Only mm -Target <tag-sha> -Merge` (plus the LUS bump the release
-  pins, see the coupling rule above).
-- Combo features come to the branch via merges from `develop` **only while develop's mm pin is at or
-  behind the release tag** — never merge a develop whose mm has moved past the tag, that would drag
-  post-release upstream code in. If develop is already past, cherry-pick or wait for the next release.
+## The `2ship-stable` branch (to be retired)
+
+`2ship-stable` pins mm to official 2Ship release tags (created 2026-08-19 at 5.0.0 "Battler Alfa").
+The release track on `main` replaces it: **retire it after main's first release-track PRs land**,
+carrying over any unique commits first. Until then its old rule stands — merge `develop` into it
+only while develop's mm pin is at or behind the release tag, otherwise cherry-pick.
 
 ---
 # Merge log
@@ -214,6 +236,18 @@ since CI now pulls each upstream in its own PR — listing every file we had to 
 mechanical 3-way merge and why. This keeps the per-merge required changes easy to track (and to diff
 against the recurring-deviation list below). Newest first:
 
+- [2026-09-28 soh](merges/2026-09-28-soh-develop.md) — soh `5a57a0cbc` → `576b30c64`, extended on
+  2026-10-06 to `ecd889c20` (lands exactly on 9.3.0). soh extracts with
+  Torch (vendored at `torch/`, forced onto the dynamic CRT); ZAPD/OTRExporter are MM-only. Retires every
+  existing combosave and spoiler (enum renumbering). Combo generation moved onto upstream's generating
+  flag; OOT and MM Time Splits separated.
+- [2026-09-28 mm](merges/2026-09-28-mm-develop.md) — mm `d35196ad7` (5.0.0) → `e8757c14a` (2Ship
+  develop, past 5.0.1). Code resolutions match main's 5.0.1 PR; MM's `DeinitOTR` no longer destroys
+  the shared Context; new `GeneratePools` drops (vanilla dungeon items, song surplus) emitted as
+  `fixed[]`; Moon mask hints find OOT placements.
+- [2026-09-28 libultraship](merges/2026-09-28-libultraship-develop.md) — libultraship `7cb10226e` →
+  `7f9b86a59` (`port-maintenance`). `Config::Save` keeps our unflatten guard on top of upstream's
+  atomic write; the PrintStack traceback deviation is retired (upstream #1190), buffer guards kept.
 - [2026-08-22](merges/2026-08-22.md) — **not a merge pass**: 18 soh fix commits cherry-picked ahead
   of the pin from the pending `5a57a0cbc` → `55b52a26a` range (PR #144); pin unchanged. Lists the
   skipped-feature collateral dropped during conflict resolution.

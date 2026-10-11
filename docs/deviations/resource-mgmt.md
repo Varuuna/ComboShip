@@ -294,6 +294,11 @@ Equipment page; the export-approx frame `Ship::ControlPort::GetConnectedDevice+0
 check, and give `LoadTexOrDListByName` the same null-on-miss contract as `LoadIfDListByName` — its
 GBI callers already tolerate a 0 address.
 
+**Same rule for static foreign draws (2026-10-09):** `MM_DrawForeignSilverRupee`
+(`combo/menu/ComboForeignDrawMM.h`) binds OOT's `gRupeeSilverTex` to seg 8 inside a
+`ResourceManagerScope` on OOT's RM, then brackets the routed DL with `gSPComboRMPush/Pop("oot")`.
+That path exists in both archives, so an unscoped bind would silently draw MM's texture.
+
 ## MM transition-actor ids re-normalized on scene load (Woodfall door fix) (2026-08-05)
 
 **Why:** MM's `play->transitionActors.list` aliases the cached LUS scene resource, so the negated

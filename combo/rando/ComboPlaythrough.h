@@ -6,6 +6,8 @@
 // the two never diverge. The oracle's logic mode / tricks are controlled by the caller before running.
 #pragma once
 
+#include "CrossForeign.h" // ComboRando::DataDir
+
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
@@ -567,10 +569,13 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
     // standalone text log is redundant there. Callers passing no playthroughOut get the .txt.
     if (!playthroughOut) {
         std::error_code ec;
-        std::filesystem::create_directories("saves/combo", ec);
-        std::ofstream f("saves/combo/slot0.playthrough.txt", std::ios::trunc);
+        // Anchored like every other write: a bare "saves/combo" lands on the read-only volume root
+        // when the .app is launched from Finder (see ComboRando::DataDir).
+        const auto dir = ComboRando::DataDir() / "saves" / "combo";
+        std::filesystem::create_directories(dir, ec);
+        std::ofstream f(dir / "slot0.playthrough.txt", std::ios::trunc);
         f << log.str();
-        std::cout << "[PLAYTHROUGH] full sphere log -> saves/combo/slot0.playthrough.txt\n";
+        std::cout << "[PLAYTHROUGH] full sphere log -> " << (dir / "slot0.playthrough.txt").string() << "\n";
     }
 
     std::cout << "[PLAYTHROUGH] seed '" << seedLabel << "' - " << (beatableSphere >= 0 ? "BEATABLE" : "NOT beatable")

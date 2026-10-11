@@ -1,8 +1,8 @@
 name: Build Artifacts
 
 # Single PR gate + nightly build workflow. `gate` (conflict markers, asset collisions,
-# clang-format) runs on every PR; `windows`/`linux` run the reusable build pipelines only when
-# code paths changed, and only after gate passes. Keep the FILE NAME: validate-seed.yml selects
+# clang-format) runs on every PR; `windows`/`linux`/`macos` run the reusable build pipelines only
+# when code paths changed, and only after gate passes. Keep the FILE NAME: validate-seed.yml selects
 # develop runs with `gh run list --workflow build-artifacts.yml`. See docs/UPSTREAM_MERGES.md.
 
 on:
@@ -25,6 +25,7 @@ on:
       - 'upstream-pins.json'
       - '.github/workflows/build.yml'
       - '.github/workflows/build-linux.yml'
+      - '.github/workflows/build-macos.yml'
       - '.github/workflows/build-artifacts.yml'
   workflow_dispatch:
 
@@ -122,6 +123,7 @@ jobs:
               - 'upstream-pins.json'
               - '.github/workflows/build.yml'
               - '.github/workflows/build-linux.yml'
+              - '.github/workflows/build-macos.yml'
               - '.github/workflows/build-artifacts.yml'
 
   windows:
@@ -137,3 +139,8 @@ jobs:
     needs: gate
     if: needs.gate.outputs.code == 'true'
     uses: ./.github/workflows/build-linux.yml
+
+  macos:
+    needs: gate
+    if: needs.gate.outputs.code == 'true'
+    uses: ./.github/workflows/build-macos.yml

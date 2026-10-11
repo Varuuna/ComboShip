@@ -12,6 +12,7 @@
 #include "ComboNotesWindow.h"       // combo-owned cross-game Personal Notes window
 #include "ComboHintTracker.h"       // combo-owned unified Hint Tracker (#164)
 #include "ComboTimersWindow.h"      // combo-owned overlay timers (#173)
+#include "rando/CrossForeign.h"     // ComboRando::ContainerPath — anchored save-container location
 #include "rando/ComboPlaythrough.h" // plando: ParseSpoilerPlacements + Suffix/BuildForeignArray + slot paths
 #include <imgui.h>
 #include <libultraship/libultraship.h>         // CVar bridge (CVarGet/Set* incl. color) + color.h (Color_RGBA8)
@@ -989,8 +990,7 @@ void PlandoLoad() {
         int slot = ComboTracker::OotActiveSlot();
         if (slot >= 0) {
             try {
-                auto cj = nlohmann::json::parse(
-                    readFile(std::filesystem::path("Save") / ("file" + std::to_string(slot + 1) + ".combosav")));
+                auto cj = nlohmann::json::parse(readFile(ComboRando::ContainerPath(slot)));
                 auto r = cj.value("combo", nlohmann::json::object()).value("rando", nlohmann::json());
                 if (!r.is_null()) {
                     sPlando.loadedJson = r.dump();

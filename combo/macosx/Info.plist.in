@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key><string>English</string>
+    <key>CFBundleName</key><string>ComboShip</string>
+    <key>CFBundleExecutable</key><string>ComboShip</string>
+    <key>CFBundleGetInfoString</key><string>@COMBO_RELEASE_VERSION@</string>
+    <key>CFBundleIconFile</key><string>ComboShip.icns</string>
+    <key>CFBundleIdentifier</key><string>com.comboship.ComboShip</string>
+    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>@COMBO_RELEASE_VERSION@</string>
+    <key>CFBundleVersion</key><string>@CMAKE_PROJECT_VERSION@</string>
+    <key>NSHumanReadableCopyright</key><string>ComboShip — unofficial. Built on Ship of Harkinian and 2 Ship 2 Harkinian.</string>
+    <key>LSApplicationCategoryType</key><string>public.app-category.games</string>
+    <key>LSMinimumSystemVersion</key><string>@CMAKE_OSX_DEPLOYMENT_TARGET@</string>
+    <key>NSHighResolutionCapable</key><true/>
+    <!-- ComboShip: SHIP_HOME is what makes Context::GetAppDirectoryPath() return a real writable
+         directory instead of ".". Without it a Finder-launched bundle (CWD "/") writes config and
+         saves to the filesystem root and never finds the player's extracted ROM archives.
+         Deliberately its OWN id, so ComboShip cannot read or overwrite a Ship of Harkinian install. -->
+    <key>LSEnvironment</key>
+    <dict>
+        <key>SHIP_HOME</key><string>~/Library/Application Support/com.comboship.ComboShip</string>
+    </dict>
+    <key>LSArchitecturePriority</key><array><string>arm64</string><string>x86_64</string></array>
+</dict>
+</plist>

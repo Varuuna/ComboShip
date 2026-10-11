@@ -241,6 +241,21 @@ void Fast3dGui::RebuildFontTexture() {
             break;
 #endif
 
+#ifdef __APPLE__
+        case WindowBackend::FAST3D_SDL_METAL:
+            // ComboShip: without this case the switch fell through to `default`, the Metal font texture
+            // was never rebuilt after a late AddFont, and the next ImGui::NewFrame() ran on an unbuilt
+            // atlas — an assert in Debug, a segfault in Release (NDEBUG drops the assert).
+            // NOTE: the obvious ImGui_ImplMetal_DestroyDeviceObjects() does NOT work here. Metal's
+            // NewFrame only recreates device objects when depthStencilState == nil, and that function
+            // never nils it — so it would drop the font texture and never rebuild it. Go straight
+            // through CreateFontsTexture, which is what actually re-uploads the atlas.
+            if (auto interpreter = mInterpreter.lock()) {
+                ((GfxRenderingAPIMetal*)interpreter->GetCurrentRenderingAPI())->RebuildFontsTexture();
+            }
+            break;
+#endif
+
         default:
             break;
     }

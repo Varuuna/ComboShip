@@ -1,5 +1,3 @@
-#ifndef RANDODRAW_H
-#define RANDODRAW_H
 #pragma once
 
 #include "../item-tables/ItemTableTypes.h"
@@ -27,7 +25,9 @@ void Randomizer_DrawLadder(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawKneePads(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawJabberNut(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawOpenChest(PlayState* play, GetItemEntry* getItemEntry);
+void Randomizer_DrawSilverRupee(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawFishingPoleGI(PlayState* play, GetItemEntry* getItemEntry);
+void Randomizer_DrawScarecrowsSong(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawSkeletonKey(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawMysteryItem(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawBombchuBag(PlayState* play, GetItemEntry* getItemEntry);
@@ -38,7 +38,15 @@ void Randomizer_DrawRocsFeather(PlayState* play, GetItemEntry* getItemEntry);
 // routing; falls back to the blue-rupee sentinel when the model can't be resolved. The check
 // identity rides in getItemEntry->comboForeignCheck.
 void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getItemEntry);
+// ComboShip: freeze a foreign check's model at the tier it grants, before the cross-grant that
+// follows mutates MM's dormant save and a live re-resolve flips the held-up model next frame.
+void Randomizer_LatchComboForeign(int32_t rc); // RandomizerCheck, as int32_t like comboForeignCheck
+// ComboShip: resolved tier name for a latched (frozen) / live-previewed foreign check, or NULL.
+const char* Randomizer_ComboForeignLatchedName(int32_t rc);
+const char* Randomizer_ComboForeignLiveName(int32_t rc);
 #endif
+void Randomizer_DrawNutBag(PlayState* play, GetItemEntry* getItemEntry);
+void Randomizer_DrawStickBag(PlayState* play, GetItemEntry* getItemEntry);
 
 #define GET_ITEM_MYSTERY                                                                                 \
     {                                                                                                    \
@@ -47,6 +55,4 @@ void Randomizer_DrawComboForeign(PlayState* play, GetItemEntry* getItemEntry);
     }
 #ifdef __cplusplus
 };
-#endif
-
 #endif

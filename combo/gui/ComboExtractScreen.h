@@ -5,9 +5,6 @@
 #pragma once
 
 #include "ComboExtract.h"
+#include "ComboExport.h"
 
-#ifdef _WIN32
-extern "C" __declspec(dllexport) int ComboUI_RunExtraction(const ComboExtractCallbacks* cb);
-#else
-extern "C" int ComboUI_RunExtraction(const ComboExtractCallbacks* cb);
-#endif
+extern "C" COMBO_EXPORT int ComboUI_RunExtraction(const ComboExtractCallbacks* cb);

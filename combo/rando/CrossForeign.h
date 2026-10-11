@@ -9,6 +9,7 @@
 // "foreign" array element:
 //   { "checkGame":"oot|mm", "checkName":"<friendly check name>", "itemGame":"oot|mm",
 //     "itemName":"<friendly item name>", "displayName":"<human name + (MM)/(OOT)>",
+//     optional: "advancement"/"trap" (only when true), "category" (native item category, drives CMC),
 //     optional trap disguise: "fakeItemName", "fakeDisplayName", "fakeTrickName" }
 //
 // Note: checkName/itemName are the friendly combo-spoiler names (bare, no suffix) — the home game
@@ -25,6 +26,8 @@
 #include <cstring>
 #include <iterator>
 #include <nlohmann/json.hpp>
+
+#include "SharedItems.h"
 
 namespace ComboRando {
 
@@ -55,6 +58,14 @@ inline nlohmann::json ApplyPayloadFromConsolidated(const nlohmann::json& consoli
             apply[checkName] = sentinel;
         }
     }
+    // OOT's curated ice-trap disguise set rides along as a reserved key (absent on old spoilers, where
+    // the apply falls back to deriving one).
+    if (game == GAME_OOT) {
+        const nlohmann::json oot = consolidated.value("oot", nlohmann::json::object());
+        if (oot.contains("iceTrapModels")) {
+            apply["__iceTrapModels"] = oot["iceTrapModels"];
+        }
+    }
     return apply;
 }
 
@@ -64,11 +75,17 @@ struct ForeignItem {
     std::string displayName;  // human string for the "sent"/"received" text
     bool advancement = false; // progression in its home game -> drives the held-up pickup animation
     bool trap = false;        // a trap in its home game -> fires on the FINDER, never cross-delivered
+    // Native item category name (junk/lesser/health/bossKey/smallKey/token/major/mask/strayFairy).
+    // Empty = absent (old seed or plando); consumers fall back to advancement.
+    std::string category;
     // Trap disguise (empty = none). The name/model shown until the check is collected; the GRANT
     // always uses itemName. fakeItemName lives in itemGame's namespace (feeds the draw producers).
     std::string fakeItemName;
     std::string fakeDisplayName; // disguise human name (suffixed like displayName)
     std::string fakeTrickName;   // typo'd disguise name for shop/merchant/hint text
+    // Shared Items (OoTMM-style): itemName is an effective shared family's OOT name — no suffix, no
+    // "(OOT)"/"(MM)" tag on any surface. Absent (old seed) -> false -> tagged exactly as before.
+    bool shared = false;
     bool HasDisguise() const {
         return !fakeItemName.empty();
     }
@@ -129,6 +146,42 @@ inline std::string MakeTrickName(const std::string& name, uint32_t r) {
     return out;
 }
 
+// Ice Trap Names "Misspelled (Vowel)": swap one vowel for a different one, case kept (soh text.cpp).
+inline std::string MakeVowelSwapName(const std::string& name, uint32_t r) {
+    static constexpr char vowels[] = { 'a', 'e', 'i', 'o', 'u' };
+    std::vector<size_t> at;
+    for (size_t i = 0; i < name.size(); ++i) {
+        if (std::strchr("aeiouAEIOU", name[i]) != nullptr)
+            at.push_back(i);
+    }
+    if (at.empty())
+        return name;
+    std::string out = name;
+    const size_t pos = at[r % at.size()];
+    const bool upper = out[pos] >= 'A' && out[pos] <= 'Z';
+    const char old = upper ? out[pos] + ('a' - 'A') : out[pos];
+    uint32_t idx = (r / static_cast<uint32_t>(at.size())) % 4;
+    idx += vowels[idx] >= old; // skip the old vowel
+    out[pos] = upper ? vowels[idx] - ('a' - 'A') : vowels[idx];
+    return out;
+}
+
+// Ice Trap Names "Misspelled (Duplicate)": double one ASCII letter, never a space or apostrophe.
+inline std::string MakeDuplicateLetterName(const std::string& name, uint32_t r) {
+    std::vector<size_t> at;
+    for (size_t i = 0; i < name.size(); ++i) {
+        const char c = name[i];
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
+            at.push_back(i);
+    }
+    if (at.empty())
+        return name;
+    std::string out = name;
+    const size_t pos = at[r % at.size()];
+    out.insert(pos + 1, 1, out[pos]);
+    return out;
+}
+
 // One game's item-table metadata from its dump's "items" array, keyed by the friendly grant name.
 struct ForeignItemMeta {
     std::string displayName;
@@ -156,6 +209,24 @@ inline std::unordered_map<std::string, ForeignItemMeta> ParseItemMeta(const std:
     return m;
 }
 
+// OOT's curated ice-trap disguise names from its dump ("iceTrapModels"). `present` = a usable (non-empty)
+// list; a stale dump (no field) or a failed prep (empty field) both fall back to the caller's own filter.
+inline std::set<std::string> ParseIceTrapModels(const std::string& dump, bool& present) {
+    std::set<std::string> out;
+    try {
+        auto d = nlohmann::json::parse(dump);
+        auto it = d.find("iceTrapModels");
+        if (it != d.end() && it->is_array()) {
+            for (const auto& n : *it) {
+                if (n.is_string())
+                    out.insert(n.get<std::string>());
+            }
+        }
+    } catch (...) {}
+    present = !out.empty();
+    return out;
+}
+
 // Give every foreign TRAP a disguise: a plausible progression item OF THE TRAP'S OWN GAME that this
 // seed actually placed (mirrors OOT's possibleIceTrapModels), plus a typo'd name for shop/hint text.
 // Deterministic: a dedicated LCG stream off masterSeed, sorted candidate sets, array order.
@@ -166,6 +237,17 @@ inline void AssignTrapDisguises(nlohmann::json& foreignArr, const nlohmann::json
     const auto ootMeta = ParseItemMeta(sohDump), mmMeta = ParseItemMeta(mmDump);
     if (ootMeta.empty() && mmMeta.empty())
         return;
+    // OOT candidates follow SoH's curated disguise list (issue #131: never a Triforce piece). The list
+    // holds representative names (Empty Bottle, ...) that no concrete placement matches, so those drop
+    // out of foreign candidacy too — a strict subset of native semantics, intended.
+    bool curatedPresent = false;
+    const std::set<std::string> curated = ParseIceTrapModels(sohDump, curatedPresent);
+    // OOT's Ice Trap Names option names every foreign trap, MM-origin ones too (MM has no option).
+    int trapNames = 1; // Similar, for dumps that predate the field
+    try {
+        trapNames =
+            nlohmann::json::parse(sohDump).value("accessibility", nlohmann::json::object()).value("iceTrapNames", 1);
+    } catch (...) {}
     std::set<std::string> ootCand, mmCand;
     auto scan = [&](const nlohmann::json& pl) {
         if (!pl.is_object())
@@ -174,8 +256,9 @@ inline void AssignTrapDisguises(nlohmann::json& foreignArr, const nlohmann::json
             if (!it.value().is_string())
                 continue;
             const std::string n = it.value().get<std::string>();
+            const bool ootOk = curatedPresent ? curated.count(n) != 0 : (n != "Triforce" && n != "Triforce Piece");
             auto o = ootMeta.find(n);
-            if (o != ootMeta.end() && o->second.advancement && !o->second.trap)
+            if (ootOk && o != ootMeta.end() && o->second.advancement && !o->second.trap)
                 ootCand.insert(n);
             auto m = mmMeta.find(n);
             if (m != mmMeta.end() && m->second.advancement && !m->second.trap)
@@ -210,19 +293,48 @@ inline void AssignTrapDisguises(nlohmann::json& foreignArr, const nlohmann::json
             (fmeta != meta.end() && !fmeta->second.displayName.empty()) ? fmeta->second.displayName : fake;
         fm["fakeItemName"] = fake;
         fm["fakeDisplayName"] = dn;
-        // Prefer the owning game's curated near-miss name; letter-doubling is only the fallback.
+        // Exactly one draw per disguised trap whatever the option, so names never shift other output.
+        const uint32_t r = next();
         const std::vector<std::string>* tn = (fmeta != meta.end()) ? &fmeta->second.trickNames : nullptr;
-        fm["fakeTrickName"] = (tn != nullptr && !tn->empty()) ? (*tn)[next() % tn->size()] : MakeTrickName(dn, next());
+        switch (trapNames) {
+            case 0: // Identical
+                fm["fakeTrickName"] = dn;
+                break;
+            case 2: // Misspelled (Vowel)
+                fm["fakeTrickName"] = MakeVowelSwapName(dn, r);
+                break;
+            case 3: // Misspelled (Duplicate)
+                fm["fakeTrickName"] = MakeDuplicateLetterName(dn, r);
+                break;
+            case 4: // Revealed: the trap's own name; the model stays the disguise
+                fm["fakeTrickName"] =
+                    mit->second.displayName.empty() ? fm.value("itemName", "") : mit->second.displayName;
+                break;
+            default: // Similar: the owning game's curated near-miss name, else letter-doubling
+                fm["fakeTrickName"] = (tn != nullptr && !tn->empty()) ? (*tn)[r % tn->size()] : MakeTrickName(dn, r);
+                break;
+        }
     }
+}
+
+// " (MM)" / " (OOT)" — the one source for the home-game tag foreign names carry.
+inline const char* GameSuffix(GameId g) {
+    return g == GAME_MM ? " (MM)" : " (OOT)";
+}
+
+// Text shown for a foreign check: the latched/live resolved tier (tagged), or the spoiler displayName.
+inline std::string ShownForeignName(const ForeignItem& fi, const char* resolved) {
+    if (resolved != nullptr && resolved[0] != '\0') {
+        // Shared Items: once shared, the home-game qualifier is meaningless (decision 3).
+        return fi.shared ? std::string(resolved) : std::string(resolved) + GameSuffix(fi.itemGame);
+    }
+    return fi.displayName;
 }
 
 // Tag a spoiler "foreign" array's displayNames with their home-game suffix for the consolidated file.
 // Every display surface (shops, hints, trackers, toasts) reads displayName, so tag once here.
-// ootCheckAreas (checkName -> OOT area name, from SOH_DumpRandoHintData's "checks" list) is optional;
-// when given, oot-side entries get a "checkArea" field for the combo hint layer's foolish-area logic.
-// MM-side entries omit it — MM's own dump carries its per-check "locationHints" (region names) instead.
-inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray,
-                                        const std::unordered_map<std::string, std::string>& ootCheckAreas = {}) {
+// advancement/trap/category are emitted only when meaningful; every loader defaults them.
+inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray, uint32_t sharedMask = 0) {
     nlohmann::json out = nlohmann::json::array();
     for (const auto& fm : foreignArray) {
         std::string checkGame = fm.value("checkGame", "");
@@ -231,8 +343,21 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray,
             continue;
         std::string itemGame = fm.value("itemGame", "");
         std::string itemName = fm.value("itemName", "");
-        const bool tagged = (itemGame == "mm" || itemGame == "oot");
-        const char* suffix = (itemGame == "mm") ? " (MM)" : " (OOT)";
+        // Junk keeps the tag too: "10 Arrows" that turn out to be MM's grant no OOT ammo, and the
+        // suffix is the only thing that tells the player why.
+        // Shared Items: the marker is an OOT item whose name is an effective family's ootName — the
+        // family carries no suffix anywhere, disguise included (decision 3).
+        bool shared = false;
+        if (sharedMask != 0 && itemGame == "oot") {
+            for (int i = 0; i < SF_COUNT; ++i) {
+                if ((sharedMask & (1u << i)) && itemName == SharedFamilyByIndex(i).ootName) {
+                    shared = true;
+                    break;
+                }
+            }
+        }
+        const bool tagged = !shared && (itemGame == "mm" || itemGame == "oot");
+        const char* suffix = GameSuffix(KeyToGameId(itemGame));
         auto tag = [&](std::string s) {
             s = StripGameSuffix(std::move(s));
             if (!s.empty() && tagged)
@@ -240,21 +365,27 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray,
             return s;
         };
         std::string displayName = tag(fm.value("displayName", itemName));
-        nlohmann::json entry = { { "checkGame", checkGame },         { "checkName", checkName },
-                                 { "itemGame", itemGame },           { "itemName", itemName },
-                                 { "displayName", displayName },     { "advancement", fm.value("advancement", false) },
-                                 { "trap", fm.value("trap", false) } };
+        nlohmann::json entry = { { "checkGame", checkGame },
+                                 { "checkName", checkName },
+                                 { "itemGame", itemGame },
+                                 { "itemName", itemName },
+                                 { "displayName", displayName } };
+        if (shared)
+            entry["shared"] = true;
+        if (fm.value("advancement", false))
+            entry["advancement"] = true;
+        if (fm.value("trap", false))
+            entry["trap"] = true;
+        // Native item category: drives the container-matches-contents look at a foreign check.
+        std::string category = fm.value("category", "");
+        if (!category.empty())
+            entry["category"] = category;
         // Trap disguise: fakeItemName stays bare (it's a grant-namespace key); the shown names get tagged.
         std::string fakeItemName = fm.value("fakeItemName", "");
         if (!fakeItemName.empty()) {
             entry["fakeItemName"] = fakeItemName;
             entry["fakeDisplayName"] = tag(fm.value("fakeDisplayName", fakeItemName));
             entry["fakeTrickName"] = tag(fm.value("fakeTrickName", fm.value("fakeDisplayName", fakeItemName)));
-        }
-        if (checkGame == "oot") {
-            auto it = ootCheckAreas.find(checkName);
-            if (it != ootCheckAreas.end())
-                entry["checkArea"] = it->second;
         }
         out.push_back(std::move(entry));
     }
@@ -269,7 +400,7 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray,
 // objects (oot/mm) and a game DLL can't reproduce a cross-game-aware suffix at runtime.
 inline void SuffixCrossGameItems(nlohmann::json& ootPlacements, nlohmann::json& mmPlacements,
                                  const nlohmann::json& foreignArray, const std::string& sohDump,
-                                 const std::string& mmDump) {
+                                 const std::string& mmDump, const std::set<std::string>& untagged = {}) {
     auto itemNames = [](const std::string& dump) {
         std::set<std::string> s;
         try {
@@ -290,6 +421,10 @@ inline void SuffixCrossGameItems(nlohmann::json& ootPlacements, nlohmann::json& 
     for (const auto& n : ootSet)
         if (mmSet.count(n))
             shared.insert(n);
+    // Shared Items (OoTMM-style): a name-collision here is between OOT's copies and MM's now-trimmed
+    // remainder, which is meaningless once the family is shared (decision 3) — never suffixed.
+    for (const auto& n : untagged)
+        shared.erase(n);
     if (shared.empty())
         return;
     std::set<std::string> ootForeign, mmForeign;
@@ -333,6 +468,10 @@ inline std::unordered_map<std::string, ForeignItem> LoadForeignForGame(int slot,
             fi.advancement = fm.value("advancement", false);
             // Absent in pre-trap-flag saves -> false -> the item cross-delivers as before.
             fi.trap = fm.value("trap", false);
+            // Absent in pre-Shared-Items saves -> false -> tagged exactly as before.
+            fi.shared = fm.value("shared", false);
+            // Absent in pre-category saves -> empty -> consumers fall back to advancement.
+            fi.category = fm.value("category", "");
             // Absent in pre-disguise saves -> empty -> every consumer falls back to the true name.
             fi.fakeItemName = fm.value("fakeItemName", "");
             fi.fakeDisplayName = fm.value("fakeDisplayName", "");

@@ -35,6 +35,21 @@ void ApplyToSaveContext(nlohmann::json spoiler) {
         }
 
         if (!spoiler["checks"].contains(randoStaticCheck.name)) {
+#ifdef COMBO_BUILD
+            // ComboShip: never let a small-key check revert to vanilla delivery — that bumps only
+            // inventory.dungeonKeys and desyncs the rando mirror. Junk it like GeneratePools does an
+            // excluded check (shuffled + skipped), which is also how a player exclusion lands here.
+            auto iit = Rando::StaticData::Items.find(randoStaticCheck.randoItemId); // find, not [] — std::map
+            if (iit != Rando::StaticData::Items.end() && iit->second.randoItemType == RITYPE_SMALL_KEY) {
+                SPDLOG_WARN("[ComboShip] small key check not in the placement payload (excluded or broken), "
+                            "forcing shuffled junk: {}",
+                            randoStaticCheck.name);
+                RANDO_SAVE_CHECKS[randoCheckId].randoItemId = RI_JUNK;
+                RANDO_SAVE_CHECKS[randoCheckId].shuffled = true;
+                RANDO_SAVE_CHECKS[randoCheckId].skipped = true;
+                continue;
+            }
+#endif
             RANDO_SAVE_CHECKS[randoCheckId].randoItemId = randoStaticCheck.randoItemId;
             RANDO_SAVE_CHECKS[randoCheckId].shuffled = false;
             continue;

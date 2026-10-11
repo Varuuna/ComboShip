@@ -119,9 +119,14 @@ class MMAnchor {
     bool refreshingActors = false; // true while RefreshClientActors is spawning (gates the init hook)
 
     bool IsSaveLoaded();
+    // fileNum 0..2 AND IS_RANDO — neither alone is a reliable "real save resident" test.
+    bool HasLoadedRandoSave();
     void PumpDormant(); // A6: drain+apply save-affecting co-op packets while MM is the dormant game
     // True while PumpDormant applies a packet (MM backgrounded, no gPlayState); mirrors soh's Anchor.
     bool isDormantApply = false;
+    // Set only on a true commit at the end of HandlePacket_UpdateTeamState (mirrors soh's Anchor);
+    // replaces a prior PumpDormant-computed prediction that persisted whether or not anything merged.
+    bool dormantDidApply = false;
     // Bug 2: request a fresh team-state from teammates regardless of active/dormant (bypasses
     // SendPacket_RequestTeamState's isActive gate — a resync must go out from the dormant sibling too).
     void RequestResyncDormantSafe();
@@ -146,6 +151,9 @@ class MMAnchor {
 
     bool hooksRegistered = false;
     bool shouldRefreshActors = false;
+    // Deferred to OnGameStateUpdate: broadcasting from AfterEndOfCycleSave can beat the rando restore
+    // hook (hook order is an unordered_map, not registration order) and push zeroed keys to peers.
+    bool pendingCycleSaveBroadcast = false;
     std::queue<nlohmann::json> incomingQueue;
     std::mutex incomingMutex;
 };

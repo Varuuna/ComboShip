@@ -1,5 +1,6 @@
 // combo/gui/ComboMenu.cpp
 #include "ComboMenu.h"
+#include "ComboExport.h"
 #include "ComboMenuModel.h"
 #include "ComboWidgetRender.h"
 #include "ComboWidgetStyle.h"
@@ -8,6 +9,9 @@
 #include "ComboTrackerCommon.h" // kKinds (HideBackground CVars for the tracker panels)
 #include "ComboTrackerSwap.h"
 #include "ComboAnchorRoomWindow.h"  // combo-native floating Anchor room window
+#include "ComboNotesWindow.h"       // combo-owned cross-game Personal Notes window
+#include "ComboHintTracker.h"       // combo-owned unified Hint Tracker (#164)
+#include "ComboTimersWindow.h"      // combo-owned overlay timers (#173)
 #include "rando/ComboPlaythrough.h" // plando: ParseSpoilerPlacements + Suffix/BuildForeignArray + slot paths
 #include <imgui.h>
 #include <libultraship/libultraship.h>         // CVar bridge (CVarGet/Set* incl. color) + color.h (Color_RGBA8)
@@ -19,9 +23,7 @@
 #include <cstring>
 #include <cstdio>
 #include <unordered_set>
-#ifdef _WIN32
-#include <windows.h>
-#endif
+#include "ComboResolve.h"
 
 namespace {
 // soh.dll exports: trigger combo generation (non-blocking; spawns the launcher worker), read the
@@ -29,21 +31,21 @@ namespace {
 typedef void (*FnTriggerGenerate)(void);
 typedef const ComboRando::ComboGenProgress* (*FnGetProgress)(void);
 typedef unsigned char (*FnIsOnFileSelect)(void);
+// (#135) re-applies the Starting Age / Mask Shop exclusion disables after the dropdown changes.
+typedef void (*FnRefreshStartingGameUI)(void);
 FnTriggerGenerate sTrigger = nullptr;
 FnGetProgress sGetProgress = nullptr;
 FnIsOnFileSelect sIsOnFileSelect = nullptr;
+FnRefreshStartingGameUI sRefreshStartingGameUI = nullptr;
 void ResolveComboGenSyms() {
-#ifdef _WIN32
-    HMODULE h = GetModuleHandleA("soh.dll");
-    if (!h)
-        return;
     if (!sTrigger)
-        sTrigger = (FnTriggerGenerate)GetProcAddress(h, "SOH_TriggerComboGenerate");
+        sTrigger = (FnTriggerGenerate)Combo_ResolveSym("soh", "SOH_TriggerComboGenerate");
     if (!sGetProgress)
-        sGetProgress = (FnGetProgress)GetProcAddress(h, "SOH_GetComboGenProgress");
+        sGetProgress = (FnGetProgress)Combo_ResolveSym("soh", "SOH_GetComboGenProgress");
     if (!sIsOnFileSelect)
-        sIsOnFileSelect = (FnIsOnFileSelect)GetProcAddress(h, "SOH_IsOnFileSelect");
-#endif
+        sIsOnFileSelect = (FnIsOnFileSelect)Combo_ResolveSym("soh", "SOH_IsOnFileSelect");
+    if (!sRefreshStartingGameUI)
+        sRefreshStartingGameUI = (FnRefreshStartingGameUI)Combo_ResolveSym("soh", "SOH_RefreshComboStartingGameUI");
 }
 
 // Bug 2: Anchor resync exports, one per game DLL — resolved the same way as the combo-gen syms
@@ -65,26 +67,20 @@ FnGetOwnerInfo sSohAnchorGetOwnerInfo = nullptr;
 FnSendRoomState sSohAnchorSendRoomState = nullptr;
 FnClearTeamState sSohAnchorClearTeamState = nullptr;
 void ResolveAnchorResyncSyms() {
-#ifdef _WIN32
-    if (HMODULE h = GetModuleHandleA("soh.dll")) {
-        if (!sSohRequestResync)
-            sSohRequestResync = (FnRequestResync)GetProcAddress(h, "SOH_Anchor_RequestResync");
-        if (!sSohAnchorSetEnabled)
-            sSohAnchorSetEnabled = (FnSetEnabled)GetProcAddress(h, "SOH_Anchor_SetEnabled");
-        if (!sSohAnchorGetConnState)
-            sSohAnchorGetConnState = (FnGetConnState)GetProcAddress(h, "SOH_Anchor_GetConnectionState");
-        if (!sSohAnchorGetOwnerInfo)
-            sSohAnchorGetOwnerInfo = (FnGetOwnerInfo)GetProcAddress(h, "SOH_Anchor_GetOwnerInfo");
-        if (!sSohAnchorSendRoomState)
-            sSohAnchorSendRoomState = (FnSendRoomState)GetProcAddress(h, "SOH_Anchor_SendRoomState");
-        if (!sSohAnchorClearTeamState)
-            sSohAnchorClearTeamState = (FnClearTeamState)GetProcAddress(h, "SOH_Anchor_ClearTeamState");
-    }
-    if (!sMmRequestResync) {
-        if (HMODULE h = GetModuleHandleA("2ship.dll"))
-            sMmRequestResync = (FnRequestResync)GetProcAddress(h, "MM_Anchor_RequestResync");
-    }
-#endif
+    if (!sSohRequestResync)
+        sSohRequestResync = (FnRequestResync)Combo_ResolveSym("soh", "SOH_Anchor_RequestResync");
+    if (!sSohAnchorSetEnabled)
+        sSohAnchorSetEnabled = (FnSetEnabled)Combo_ResolveSym("soh", "SOH_Anchor_SetEnabled");
+    if (!sSohAnchorGetConnState)
+        sSohAnchorGetConnState = (FnGetConnState)Combo_ResolveSym("soh", "SOH_Anchor_GetConnectionState");
+    if (!sSohAnchorGetOwnerInfo)
+        sSohAnchorGetOwnerInfo = (FnGetOwnerInfo)Combo_ResolveSym("soh", "SOH_Anchor_GetOwnerInfo");
+    if (!sSohAnchorSendRoomState)
+        sSohAnchorSendRoomState = (FnSendRoomState)Combo_ResolveSym("soh", "SOH_Anchor_SendRoomState");
+    if (!sSohAnchorClearTeamState)
+        sSohAnchorClearTeamState = (FnClearTeamState)Combo_ResolveSym("soh", "SOH_Anchor_ClearTeamState");
+    if (!sMmRequestResync)
+        sMmRequestResync = (FnRequestResync)Combo_ResolveSym("2ship", "MM_Anchor_RequestResync");
 }
 
 // Shared Anchor config CVar keys (process-global libultraship store; both game DLLs read these — see
@@ -108,26 +104,16 @@ constexpr const char* SyncItemsAndFlags = "gRemote.Anchor.RoomSettings.SyncItems
 // that plays an edited consolidated spoiler back verbatim. Resolved like the combo-gen syms above.
 typedef const char* (*FnDump)(void);
 typedef int (*FnRequestReload)(const char*);
-typedef int (*FnGetActiveFileNum)(void);
 FnDump sSohDump = nullptr;
 FnDump sMmDump = nullptr;
 FnRequestReload sRequestReload = nullptr;
-FnGetActiveFileNum sGetActiveFileNum = nullptr;
 void ResolvePlandoSyms() {
-#ifdef _WIN32
-    if (HMODULE h = GetModuleHandleA("soh.dll")) {
-        if (!sSohDump)
-            sSohDump = (FnDump)GetProcAddress(h, "SOH_DumpRandoStaticData");
-        if (!sRequestReload)
-            sRequestReload = (FnRequestReload)GetProcAddress(h, "SOH_RequestComboReload");
-        if (!sGetActiveFileNum)
-            sGetActiveFileNum = (FnGetActiveFileNum)GetProcAddress(h, "SOH_GetActiveFileNum");
-    }
-    if (HMODULE h = GetModuleHandleA("2ship.dll")) {
-        if (!sMmDump)
-            sMmDump = (FnDump)GetProcAddress(h, "MM_DumpRandoStaticData");
-    }
-#endif
+    if (!sSohDump)
+        sSohDump = (FnDump)Combo_ResolveSym("soh", "SOH_DumpRandoStaticData");
+    if (!sRequestReload)
+        sRequestReload = (FnRequestReload)Combo_ResolveSym("soh", "SOH_RequestComboReload");
+    if (!sMmDump)
+        sMmDump = (FnDump)Combo_ResolveSym("2ship", "MM_DumpRandoStaticData");
 }
 
 // Combo plandomizer editable state (single ComboMenu instance -> file-static). rows is the edited
@@ -221,6 +207,17 @@ void ComboMenu::DrawElement() {
         ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
     }
 
+    // The soh-side option disables ride gCombo.Rando.StartingGame (#135); prime them once so they are
+    // greyed out even if the user opens the OOT settings without ever visiting the Generate panel.
+    static bool sStartingGameUIPrimed = false;
+    if (!sStartingGameUIPrimed) {
+        ResolveComboGenSyms();
+        if (sRefreshStartingGameUI) {
+            sRefreshStartingGameUI();
+            sStartingGameUIPrimed = true;
+        }
+    }
+
     // Fullscreen overlay covering the viewport work area, matching the old port menu
     // (NoDecoration/NoMove, sized to the viewport, with a translucent backdrop).
     ImGuiViewport* vp = ImGui::GetMainViewport();
@@ -257,8 +254,8 @@ void ComboMenu::DrawElement() {
         static const Scope kScopes[] = {
             { "settings", "Settings" },
             { "randomizer", "Randomizer" },
-            { "oot", "Ship of Harkinian" },
-            { "mm", "2 Ship 2 Harkinian" },
+            { "oot", "Ocarina of Time" },
+            { "mm", "Majora's Mask" },
         };
         if (mScope.empty()) {
             mScope = "settings";
@@ -365,8 +362,8 @@ void ComboMenu::DrawSearchResults(const std::string& query) {
         const GameMenu* game;
     };
     const Source sources[] = {
-        { "Ship of Harkinian", &model.Oot() }, // OOT first: its copy wins the dedupe
-        { "2 Ship 2 Harkinian", &model.Mm() },
+        { "Ocarina of Time", &model.Oot() }, // OOT first: its copy wins the dedupe
+        { "Majora's Mask", &model.Mm() },
     };
 
     // 2-3 equal-width columns (by available width) so results read as a grid, not one tall list —
@@ -447,6 +444,8 @@ struct HubEntry {
         COMBO_PLANDO,
         COMBO_TRACKER,
         COMBO_CHECK_TRACKER,
+        COMBO_HINT_TRACKER,
+        COMBO_TIMERS,
         COMBO_NETWORK
     } kind;
     const ComboRando::GameMenu* game = nullptr; // ENGINE/OOT_RANDO/MM_RANDO
@@ -584,8 +583,13 @@ void DrawTrackerSharedPanel() {
         bool appearanceChanged = false;
         int px = CVarGetInteger("gCombo.Tracker.IconSize", ComboTracker::kDefaultIconSize);
         ComboRando::ComboMenu_PushSlider(theme);
-        if (ImGui::SliderInt("Icon size (px)", &px, 16, 64)) {
+        if (ImGui::SliderInt("Icon size (px)", &px, 16, 128)) {
             CVarSetInteger("gCombo.Tracker.IconSize", px);
+            appearanceChanged = true;
+        }
+        int spacing = CVarGetInteger("gCombo.Tracker.IconSpacing", ComboTracker::kDefaultIconSpacing);
+        if (ImGui::SliderInt("Icon spacing (px)", &spacing, 0, 50)) {
+            CVarSetInteger("gCombo.Tracker.IconSpacing", spacing);
             appearanceChanged = true;
         }
         float op = CVarGetFloat("gCombo.Tracker.Opacity", ComboTracker::kDefaultOpacity);
@@ -611,11 +615,29 @@ void DrawTrackerSharedPanel() {
             CVarSetInteger("gCombo.Tracker.Draggable", dragB ? 1 : 0);
             appearanceChanged = true;
         }
+        bool pausedB = CVarGetInteger("gCombo.Tracker.OnlyPaused", ComboTracker::kDefaultOnlyPaused) != 0;
+        if (ImGui::Checkbox("Only enable while paused", &pausedB)) {
+            CVarSetInteger("gCombo.Tracker.OnlyPaused", pausedB ? 1 : 0);
+            appearanceChanged = true;
+        }
         ComboRando::ComboMenu_PopCheckbox();
+        if (pausedB && wt != 0) {
+            ImGui::TextDisabled("Ocarina of Time only honors this with the floating tracker.");
+        }
         if (appearanceChanged) {
             ComboTracker::SyncAppearance();
             changed = true;
         }
+
+        ImGui::SeparatorText("Personal Notes (both games)");
+        bool notes = ComboNotes::WindowShown();
+        ComboRando::ComboMenu_PushCheckbox(theme);
+        if (ImGui::Checkbox("Show Personal Notes window", &notes)) {
+            ComboNotes::SetWindowShown(notes);
+            changed = true;
+        }
+        ComboRando::ComboMenu_PopCheckbox();
+        ImGui::TextDisabled("One note per save slot, shared by both games.");
 
         ImGui::EndTable();
     }
@@ -931,6 +953,8 @@ void PlandoBuildItems() {
                 std::string n = it.value("name", std::string{});
                 if (n.empty() || !seen.insert(n).second)
                     continue;
+                if (g == ComboRando::GAME_OOT && n == "Triforce")
+                    continue; // OOT's win item: placing it would roll credits outside the combo goal
                 sPlando.items.push_back({ n, g, it.value("advancement", true), n + suf });
             }
         } catch (...) {}
@@ -962,7 +986,7 @@ void PlandoLoad() {
         sPlando.loadedJson = readFile(sPlando.spoilerPaths[sPlando.spoilerSel]);
         srcLabel = std::filesystem::path(sPlando.spoilerPaths[sPlando.spoilerSel]).filename().string();
     } else {
-        int slot = sGetActiveFileNum ? sGetActiveFileNum() : -1;
+        int slot = ComboTracker::OotActiveSlot();
         if (slot >= 0) {
             try {
                 auto cj = nlohmann::json::parse(
@@ -1037,7 +1061,8 @@ void PlandoSavePlay() {
     nlohmann::json ootPl = nlohmann::json::object();
     nlohmann::json mmPl = nlohmann::json::object();
     nlohmann::json foreignRaw = nlohmann::json::array();
-    // Trap disguises can't be recomputed here; carry them over for rows whose item is unchanged.
+    // Trap disguises and item categories can't be recomputed here; carry them over for rows whose
+    // item is unchanged.
     std::unordered_map<std::string, nlohmann::json> priorForeign;
     for (const auto& fm : j.value("foreign", nlohmann::json::array())) {
         priorForeign[fm.value("checkGame", "") + "|" + fm.value("checkName", "")] = fm;
@@ -1056,17 +1081,21 @@ void PlandoSavePlay() {
                                       { "advancement", r.advancement } };
             auto pf = priorForeign.find(cg + "|" + r.check);
             if (pf != priorForeign.end() && pf->second.value("itemName", "") == r.item) {
-                for (const char* k : { "fakeItemName", "fakeDisplayName", "fakeTrickName" })
+                for (const char* k : { "fakeItemName", "fakeDisplayName", "fakeTrickName", "category" })
                     if (pf->second.contains(k))
                         marker[k] = pf->second[k];
             }
             foreignRaw.push_back(std::move(marker));
         }
     }
+    // Shared Items: the loaded seed's own effective mask — plando doesn't change which families are
+    // shared, only where items land.
+    const uint32_t plandoSharedMask = ComboRando::SharedMaskFromKeys(j.value("sharedItems", nlohmann::json::array()));
     // Native cross-game name collisions get their own-game suffix; foreign checks are skipped (their
     // real item travels in foreign[]). Exactly the generator's write path.
-    ComboRando::SuffixCrossGameItems(ootPl, mmPl, foreignRaw, sPlando.sohDump, sPlando.mmDump);
-    nlohmann::json foreign = ComboRando::BuildForeignArray(foreignRaw);
+    ComboRando::SuffixCrossGameItems(ootPl, mmPl, foreignRaw, sPlando.sohDump, sPlando.mmDump,
+                                     ComboRando::SharedUntaggedNames(plandoSharedMask));
+    nlohmann::json foreign = ComboRando::BuildForeignArray(foreignRaw, plandoSharedMask);
 
     j["oot"]["placements"] = ootPl;
     j["mm"]["placements"] = mmPl;
@@ -1263,6 +1292,18 @@ void ComboMenu::DrawSharedPanel() {
         chk.group = "Settings";
         chk.kind = HubEntry::COMBO_CHECK_TRACKER;
         e.push_back(std::move(chk));
+        // Combo-owned Hint Tracker panel (#164): one window for both games' combo-generated hints.
+        HubEntry hnt;
+        hnt.label = "Hint Tracker";
+        hnt.group = "Settings";
+        hnt.kind = HubEntry::COMBO_HINT_TRACKER;
+        e.push_back(std::move(hnt));
+        // Combo-owned overlay timers (#173): one play-time overlay spanning both games.
+        HubEntry tmr;
+        tmr.label = "Timers";
+        tmr.group = "Settings";
+        tmr.kind = HubEntry::COMBO_TIMERS;
+        e.push_back(std::move(tmr));
         if (!e.empty())
             groups.push_back({ "Settings", std::move(e) });
         // Network group: the Anchor team-sync control (covers BOTH games) plus the Ship of Harkinian
@@ -1393,6 +1434,10 @@ void ComboMenu::DrawSharedPanel() {
         DrawTrackerSharedPanel();
     } else if (active->kind == HubEntry::COMBO_CHECK_TRACKER) {
         DrawCheckTrackerSharedPanel();
+    } else if (active->kind == HubEntry::COMBO_HINT_TRACKER) {
+        DrawHintTrackerSharedPanel();
+    } else if (active->kind == HubEntry::COMBO_TIMERS) {
+        DrawTimersSharedPanel();
     } else if (active->kind == HubEntry::COMBO_NETWORK) {
         DrawNetworkSharedPanel();
     } else {
@@ -1443,11 +1488,11 @@ void ComboMenu::DrawGamePanel(const char* gameKey) {
              strcmp(sidebar, "General") == 0)) {
             return false;
         }
-        // Rando settings live in Shared, Item/Check Tracker sidebars in the Shared tracker panels;
-        // only Entrance/Hint Tracker (OOT-only, no shared panel yet) remain here.
+        // Rando settings live in Shared, Item/Check/Hint Tracker sidebars in the Shared tracker panels
+        // (the combo Hint Tracker replaces OOT's native one); only Entrance Tracker remains here.
         const char* randoSec = isOot ? "Randomizer" : "Rando";
         if (section && strcmp(section, randoSec) == 0) {
-            return sidebar && (strcmp(sidebar, "Entrance Tracker") == 0 || strcmp(sidebar, "Hint Tracker") == 0);
+            return sidebar && strcmp(sidebar, "Entrance Tracker") == 0;
         }
         return true;
     };
@@ -1580,6 +1625,109 @@ void ComboMenu::DrawComboPanel() {
                        "You must Generate before starting a new file.");
     ImGui::Separator();
 
+    // Goal (#136): one combined win condition; each game's piece slider decides how many it contributes.
+    const ImVec4 goalTheme = ComboRando::ComboMenu_ThemeColor();
+    ImGui::SeparatorText("Goal");
+    bool hunt = CVarGetInteger("gCombo.Rando.TriforceHunt", 0) != 0;
+    ComboRando::ComboMenu_PushCheckbox(goalTheme);
+    if (ImGui::Checkbox("Triforce Hunt", &hunt)) {
+        CVarSetInteger("gCombo.Rando.TriforceHunt", hunt ? 1 : 0);
+    }
+    ComboRando::ComboMenu_PopCheckbox();
+    if (hunt) {
+        const int kMaxPieces = ComboRando::kMaxComboTriforcePieces;
+        int required = std::clamp(CVarGetInteger("gCombo.Rando.TriforceRequired", 15), 1, kMaxPieces);
+        int total = std::clamp(CVarGetInteger("gCombo.Rando.TriforceTotal", 15), required, kMaxPieces);
+        ComboRando::ComboMenu_PushInput(goalTheme);
+        ImGui::SetNextItemWidth(260.0f);
+        if (ImGui::InputInt("Required pieces (both games)", &required)) {
+            required = std::clamp(required, 1, kMaxPieces);
+            CVarSetInteger("gCombo.Rando.TriforceRequired", required);
+            if (total < required) {
+                CVarSetInteger("gCombo.Rando.TriforceTotal", required); // total can never sit below required
+            }
+        }
+        ImGui::SetNextItemWidth(260.0f);
+        if (ImGui::InputInt("Pieces in the pool (both games)", &total)) {
+            CVarSetInteger("gCombo.Rando.TriforceTotal", std::clamp(total, required, kMaxPieces));
+        }
+        ComboRando::ComboMenu_PopInput();
+        ImGui::TextDisabled("Collect this many pieces across OOT and MM to finish; bosses are optional.");
+        ImGui::TextDisabled("The pool total is split evenly between the two games (OOT takes the odd one).");
+        // The combined count is invisible to both games' own trackers, so combo draws its own line.
+        bool line = CVarGetInteger("gCombo.Tracker.TriforceLine", 1) != 0;
+        ComboRando::ComboMenu_PushCheckbox(goalTheme);
+        if (ImGui::Checkbox("Show combined Triforce counter", &line)) {
+            CVarSetInteger("gCombo.Tracker.TriforceLine", line ? 1 : 0);
+        }
+        ComboRando::ComboMenu_PopCheckbox();
+    } else {
+        ImGui::TextDisabled("Beat Ganon and Majora to finish.");
+    }
+    ImGui::Separator();
+
+    // Starting Game (#135): which game a new file boots into. Random is resolved per seed.
+    ImGui::SeparatorText("Starting Game");
+    static const char* kStartingGames[] = { "Ocarina of Time", "Majora's Mask", "Random" };
+    int startingGame = CVarGetInteger("gCombo.Rando.StartingGame", 0);
+    if (startingGame < 0 || startingGame > 2)
+        startingGame = 0;
+    ImGui::SetNextItemWidth(260.0f);
+    ComboRando::ComboMenu_PushCombobox(goalTheme);
+    if (ImGui::BeginCombo("##startinggame", kStartingGames[startingGame])) {
+        for (int i = 0; i < 3; ++i) {
+            if (ImGui::Selectable(kStartingGames[i], i == startingGame)) {
+                CVarSetInteger("gCombo.Rando.StartingGame", i);
+                if (sRefreshStartingGameUI)
+                    sRefreshStartingGameUI();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ComboRando::ComboMenu_PopCombobox();
+    ImGui::TextDisabled("Majora's Mask starts the file in South Clock Town. It forces Child age, an openable forest,\n"
+                        "and the Mask Shop key/entrance exclusions, so Ocarina of Time stays enterable from nothing.");
+    ImGui::Separator();
+
+    // Shared Items (OoTMM-style): one item counts for both games, applied at generation. Deferred
+    // families (Ocarina, Song of Time, Shields, Bottles, Health) are not drawn — see the plan doc.
+    ImGui::SeparatorText("Shared Items");
+    {
+        const ImGuiTableFlags sharedTableFlags = ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings;
+        if (ImGui::BeginTable("##sharedcols", 2, sharedTableFlags)) {
+            for (int i = 0; i < ComboRando::SF_COUNT; ++i) {
+                const auto& def = ComboRando::SharedFamilyByIndex(i);
+                if (i % 2 == 0)
+                    ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(i % 2);
+                bool on = CVarGetInteger(def.cvar, 0) != 0;
+                ComboRando::ComboMenu_PushCheckbox(goalTheme);
+                if (ImGui::Checkbox(def.label, &on)) {
+                    CVarSetInteger(def.cvar, on ? 1 : 0);
+                }
+                ComboRando::ComboMenu_PopCheckbox();
+                ImGui::SetItemTooltip("%s", def.tooltip);
+            }
+            ImGui::EndTable();
+        }
+    }
+    ImGui::TextDisabled("One item counts for both games. Applied at generation. Masks need Ocarina of\n"
+                        "Time's Shuffle Masks on. Shared Wallets turns off Shuffle Child Wallet.");
+    ImGui::Separator();
+
+    // Cosmetics (#169): each game randomizes on its own by default; sync makes MM take OOT's colors.
+    ImGui::SeparatorText("Cosmetics");
+    bool syncCosmetics = CVarGetInteger("gCombo.Rando.SyncCosmetics", 0) != 0;
+    ComboRando::ComboMenu_PushCheckbox(goalTheme);
+    if (ImGui::Checkbox("Sync Randomized Cosmetics", &syncCosmetics)) {
+        CVarSetInteger("gCombo.Rando.SyncCosmetics", syncCosmetics ? 1 : 0);
+    }
+    ComboRando::ComboMenu_PopCheckbox();
+    ImGui::TextDisabled("Applies only when BOTH games' \"randomize cosmetics on randomizer generation\" options are\n"
+                        "enabled. Shared elements (buttons, hearts, magic, minimap, Link's tunic, ...) take Ocarina\n"
+                        "of Time's colors in Majora's Mask.");
+    ImGui::Separator();
+
     // Seed field -> shared CVar the generator reads (same source the native file-select
     // "Generate a new seed" option uses).
     ImGui::SetNextItemWidth(260.0f);
@@ -1648,17 +1796,12 @@ void ComboMenu::DrawComboPanel() {
 } // namespace ComboRando
 
 // ComboShip: open the combo menu on the Randomizer tab (file-select "Open Randomizer Settings").
-extern "C" __declspec(dllexport) void ComboUI_OpenRandomizerSettings(void) {
+extern "C" COMBO_EXPORT void ComboUI_OpenRandomizerSettings(void) {
     if (ComboRando::sComboMenu)
         ComboRando::sComboMenu->OpenAtRandomizer();
 }
 
-#ifdef _WIN32
-extern "C" __declspec(dllexport) void ComboUI_Register(void)
-#else
-extern "C" void ComboUI_Register(void)
-#endif
-{
+extern "C" COMBO_EXPORT void ComboUI_Register(void) {
     auto ctx = Ship::Context::GetRawInstance();
     if (!ctx || !ctx->GetWindow() || !ctx->GetWindow()->GetGui()) {
         return; // GUI not ready
@@ -1674,4 +1817,28 @@ extern "C" void ComboUI_Register(void)
 
     // Combo-native floating Anchor room window (toggled from the Anchor panel).
     ComboRando::RegisterAnchorRoomWindow();
+
+    // Combo-owned cross-game Personal Notes window (toggled from the Shared item tracker panel).
+    ComboNotes::RegisterWindow();
+
+    // Combo-owned unified Hint Tracker (#164). OOT's native one is unreachable now that its sidebar is
+    // hidden, so force it shut here — a config that persisted gOpenWindows.HintTracker=1 would
+    // otherwise keep showing a window with no settings and no combo hint content.
+    ComboRando::RegisterHintTrackerWindow();
+    for (const auto& [cvar, name] : { std::pair{ "gOpenWindows.HintTracker", "Hint Tracker" },
+                                      std::pair{ "gOpenWindows.HintTrackerSettings", "Hint Tracker Settings" } }) {
+        CVarSetInteger(cvar, 0);
+        if (auto win = gui->GetGuiWindow(name))
+            win->Hide();
+    }
+
+    // Combo-owned overlay timers (#173). Both games' overlays are retired. MM's window is not
+    // registered yet, so only its CVar can be cleared here; the combo window re-asserts each frame.
+    ComboRando::RegisterTimersWindow();
+    for (const auto& [cvar, name] : { std::pair{ "gOpenWindows.TimeDisplayEnabled", "Additional Timers" },
+                                      std::pair{ "gWindows.DisplayOverlay", "Display Overlay" } }) {
+        CVarSetInteger(cvar, 0);
+        if (auto win = gui->GetGuiWindow(name))
+            win->Hide();
+    }
 }

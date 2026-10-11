@@ -4,9 +4,12 @@
  * Vanilla/MQ hints when collecting Maps, Ice Trap messages,
  * etc.
  */
+
+#include <cstdarg>
+#include <algorithm>
+
 #include <soh/OTRGlobals.h>
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
-#include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/custom-message/CustomMessageTypes.h"
 #include "soh/Enhancements/randomizer/Traps.h"
 #include "soh/Enhancements/randomizer/item.h"
@@ -16,10 +19,10 @@
 #ifdef COMBO_BUILD
 #include "rando/CrossForeign.h"
 #include "soh/Enhancements/randomizer/hook_handlers.h"
+#include "soh/Enhancements/randomizer/draw.h"
+extern "C" int gComboGoalRequired;
+extern "C" int (*gComboOtherTriforceCount)(void);
 #endif
-
-#include <cstdarg>
-#include <algorithm>
 
 extern "C" {
 #include "variables.h"
@@ -31,6 +34,23 @@ extern PlayState* gPlayState;
 
 void BuildTriforcePieceMessage(CustomMessage& msg) {
     auto rando = OTRGlobals::Instance->gRandomizer;
+#ifdef COMBO_BUILD
+    // ComboShip (#136): the goal counts BOTH games' pieces, so the native per-trigger thresholds below
+    // would show the wrong numbers — report combined progress instead.
+    if (gComboGoalRequired > 0) {
+        const int combined = gSaveContext.ship.quest.data.randomizer.triforcePiecesCollected + 1 +
+                             (gComboOtherTriforceCount != NULL ? gComboOtherTriforceCount() : 0);
+        if (combined >= gComboGoalRequired) {
+            msg = { "You completed the %yTriforce%w! %gGG%w!", TODO_TRANSLATE, TODO_TRANSLATE };
+        } else {
+            msg = { "You found a %yTriforce Piece%w! %g[[current]]%w of %c[[d]]%w.", TODO_TRANSLATE, TODO_TRANSLATE };
+            msg.InsertNumber(gComboGoalRequired);
+        }
+        msg.Replace("[[current]]", std::to_string(combined));
+        msg.AutoFormat(ITEM_CUSTOM);
+        return;
+    }
+#endif
     uint8_t current = gSaveContext.ship.quest.data.randomizer.triforcePiecesCollected + 1;
     // if any settings are off, 0 them out here as a precaution
     uint8_t bridge = rando->GetRandoSettingValue(RSK_RAINBOW_BRIDGE) == RO_BRIDGE_TRIFORCE_PIECES
@@ -49,21 +69,25 @@ void BuildTriforcePieceMessage(CustomMessage& msg) {
     // If we reach wincon, we win!
     if (current == wincon) {
         msg = { "You completed the %yTriforce of Courage%w! %gGG%w!",
-                "Das %yTriforce des Mutes%w! Du hast alle Splitter gefunden. %gGut gemacht%w!",
+                "Das %yTriforce des Mutes%w! Alle Splitter gefunden. %gGut gemacht%w!",
                 "Vous avez complété la %yTriforce du Courage%w! %gFélicitations%w!" };
         // otherwise prioritise the different triggers
     } else if (current == bridge) {
-        msg = { "You made your wish to the %yTriforce%w! %rTh%ye R%gai%cnb%bow %pBr%rid%yge %gha%cs r%bai%psed%w!",
-                TODO_TRANSLATE, TODO_TRANSLATE };
+        msg = {
+            "You made your wish to the %yTriforce%w! %rTh%ye R%gai%cnb%bow %pBr%rid%yge %gha%cs r%bai%psed%w!",
+            "Du hast deinen Wunsch an das %yTriforce%w gerichtet! Die %rRe%ggen%cbo%bgen%pbr%yücke%w wurde errichtet!",
+            TODO_TRANSLATE
+        };
     } else if (current == GBK) {
-        msg = { "You completed the %yTriforce of Power%w! %rThe Key to Evil is yours%w!", TODO_TRANSLATE,
-                TODO_TRANSLATE };
+        msg = { "You completed the %yTriforce of Power%w! %rThe Key to Evil is yours%w!",
+                "Das %yTriforce der Kraft%w! %rDer Schlüssel zum Bösen gehört dir%w!", TODO_TRANSLATE };
     } else if (current == soul) {
-        msg = { "You completed the %yTriforce of Wisdom%w! %bGanon's soul is reclaimed%w!", TODO_TRANSLATE,
-                TODO_TRANSLATE };
+        msg = { "You completed the %yTriforce of Wisdom%w! %bGanon's soul is reclaimed%w!",
+                "Das %yTriforce der Weisheit%w! %bGanons Seele ist zurückerlangt%w!", TODO_TRANSLATE };
         // if everything is zero, then there's no goal...
     } else if (bridge + wincon + GBK + soul == 0) {
-        msg = { "You found a %yTriforce Piece%w! But it's %puseless%w...", TODO_TRANSLATE, TODO_TRANSLATE };
+        msg = { "You found a %yTriforce Piece%w! But it's %puseless%w...",
+                "Du hast einen %yTriforce-Splitter%w gefunden! Aber er ist %pnutzlos%w...", TODO_TRANSLATE };
     } else {
         // if nothing is complete, we need to check is we have more than we need
         uint8_t highest = std::max({ current, bridge, wincon, GBK, soul });
@@ -71,7 +95,8 @@ void BuildTriforcePieceMessage(CustomMessage& msg) {
             // RANDOTODO TODO_TRANSLATE you could maybe make this sound cleaner because InsertNumber allows for dynamic
             // plurals
             msg = { "You found a spare %yTriforce Piece%w! You only needed %c[[d]]%w, but you have %g[[current]]%w!",
-                    "Ein übriger %yTriforce-Splitter%w! Du hast nun %g[[current]]%w von %c[[d]]%w nötigen gefunden.",
+                    "Ein übriger %yTriforce-Splitter%w! Du hast nun %g[[current]]%w, obwohl du nur %c[[d]]%w benötigt "
+                    "hast!",
                     "Vous avez trouvé un %yFragment de Triforce%w en plus! Vous n'aviez besoin que de %c[[d]]%w, "
                     "mais vous en avez %g[[current]]%w en tout!" };
             msg.InsertNumber(std::max({ bridge, wincon, GBK, soul }));
@@ -99,29 +124,42 @@ void BuildTriforcePieceMessage(CustomMessage& msg) {
             if (percentageCollected <= 0.25) {
                 msg = { "You found a %yTriforce Piece%w! %g[[current]]%w down, %c[[d]]%w more and you [[condition]]! "
                         "It's a start!",
-                        TODO_TRANSLATE, TODO_TRANSLATE };
+                        "Du hast einen %yTriforce-Splitter%w gefunden! %g[[current]]%w geschafft, noch %c[[d]]%w, dann "
+                        "[[condition]]! "
+                        "Ein Anfang!",
+                        TODO_TRANSLATE };
             } else if (percentageCollected <= 0.5) {
                 msg = { "You found a %yTriforce Piece%w! that makes %g[[current]]%w, %c[[d]]%w to go until you "
                         "[[condition]]! Progress!",
-                        TODO_TRANSLATE, TODO_TRANSLATE };
+                        "Du hast einen %yTriforce-Splitter%w gefunden! Du hast nun %g[[current]]%w und brauchst noch "
+                        "%c[[d]]%w, "
+                        "um [[condition]]! Es geht voran!",
+                        TODO_TRANSLATE };
             } else if (percentageCollected <= 0.75) {
                 msg = { "You found a %yTriforce Piece%w! You have %g[[current]]%w and need %c[[d]]%w more and you "
                         "[[condition]]! Over half-way there!",
-                        TODO_TRANSLATE, TODO_TRANSLATE };
+                        "Du hast einen %yTriforce-Splitter%w gefunden! Du hast nun %g[[current]]%w und brauchst noch "
+                        "%c[[d]]%w, "
+                        "um [[condition]]! Mehr als die Hälfte geschafft!",
+                        TODO_TRANSLATE };
             } else if (percentageCollected < 1.0) {
                 msg = { "You found a %yTriforce Piece%w! %g[[current]]%w down, %c[[d]]%w left until you [[condition]]! "
                         "Almost done!",
-                        TODO_TRANSLATE, TODO_TRANSLATE };
+                        "Du hast einen %yTriforce-Splitter%w gefunden! %g[[current]]%w geschafft, noch %c[[d]]%w, "
+                        "um [[condition]]! Fast geschafft!",
+                        TODO_TRANSLATE };
             }
 
             // default condition is soul
-            CustomMessage condition = { "%brelease Ganons Soul%w", TODO_TRANSLATE, TODO_TRANSLATE };
+            CustomMessage condition = { "%brelease Ganons Soul%w", "%bGanons Seele zu befreien%w", TODO_TRANSLATE };
             if (next == wincon) {
-                condition = { "%gWin the game%w", TODO_TRANSLATE, TODO_TRANSLATE };
+                condition = { "%gWin the game%w", "%gdas Spiel zu gewinnen%w", TODO_TRANSLATE };
             } else if (next == bridge) {
-                condition = { "%csummon the Rainbow Bridge%w", TODO_TRANSLATE, TODO_TRANSLATE };
+                condition = { "%csummon the Rainbow Bridge%w", "%cdie Regenbogenbrücke zu beschwören%w",
+                              TODO_TRANSLATE };
             } else if (next == GBK) {
-                condition = { "%rfind the key to Ganondorf's Lair%w", TODO_TRANSLATE, TODO_TRANSLATE };
+                condition = { "%rfind the key to Ganondorf's Lair%w",
+                              "%rden Schlüssel zu Ganondorfs Versteck zu finden%w", TODO_TRANSLATE };
             }
             msg.Replace("[[condition]]", condition);
             msg.InsertNumber(remaining);
@@ -140,8 +178,7 @@ void BuildTriforceMessage(CustomMessage& msg) {
 
 void BuildCustomItemMessage(Player* player, CustomMessage& msg) {
     int16_t rgid;
-    msg = CustomMessage("You found [[article]][[color]][[name]]%w!",
-                        "Du erhältst [[article]][[color]][[name]]%w gefunden!",
+    msg = CustomMessage("You found [[article]][[color]][[name]]%w!", "Du hast [[article]][[color]][[name]]%w gefunden!",
                         "Vous avez trouvé [[article]][[color]][[name]]%w!", TEXTBOX_TYPE_BLUE);
     if (player->getItemEntry.objectId != OBJECT_INVALID) {
         rgid = player->getItemEntry.getItemId;
@@ -246,6 +283,14 @@ void BuildComboForeignMessage(Player* player, CustomMessage& msg) {
             Rando::Traps::BuildIceTrapMessageNamed(msg, name);
             return;
         }
+        if (fi != nullptr) {
+            // Freeze the tier now (pre-grant), then name it: MM's cross-grant follows this textbox.
+            Randomizer_LatchComboForeign(rc);
+            const char* resolved = Randomizer_ComboForeignLatchedName((int32_t)rc);
+            if (resolved != nullptr) {
+                name = ComboRando::ShownForeignName(*fi, resolved);
+            }
+        }
     }
     msg = CustomMessage("You found %g[[name]]%w!", "Du erhältst %g[[name]]%w!", "Vous avez trouvé %g[[name]]%w!",
                         TEXTBOX_TYPE_BLUE);
@@ -281,9 +326,9 @@ void BuildMapMessage(uint16_t* textId, bool* loadFromMessageTable) {
     GetItemEntry itemEntry = GET_PLAYER(gPlayState)->getItemEntry;
     auto ctx = OTRGlobals::Instance->gRandoContext;
     CustomMessage msg =
-        CustomMessage("You found the %g[[name]]%w! [[typeHint]]", "Du erhältst das %g[[name]]%w! [[typeHint]]",
-                      "Vous ebtenez %g[[name]]%w! [[typeHint]]", TEXTBOX_TYPE_BLUE);
-    int sceneNum;
+        CustomMessage("You found the %g[[name]]%w! [[typeHint]]", "Du erhältst %g[[name]]%w! [[typeHint]]",
+                      "Vous obtenez %g[[name]]%w! [[typeHint]]", TEXTBOX_TYPE_BLUE);
+    int sceneNum = -1;
     switch (itemEntry.getItemId) {
         case RG_DEKU_TREE_MAP:
             sceneNum = SCENE_DEKU_TREE;

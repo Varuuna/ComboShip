@@ -63,7 +63,7 @@ typedef struct {
 #define SETUP_DIVIDER_TEX_INK 204
 #define SETUP_ARROW_MARGIN 10
 #define SETUP_CYCLER_CENTER_X (SETUP_DIVIDER_LEFT + (SETUP_DIVIDER_WIDTH / 2))
-#define SETUP_PRESET_TEXT_WIDTH 160
+#define SETUP_CYCLER_TEXT_WIDTH 160
 #define SETUP_SEED_ICONS 5
 #define SETUP_SEED_ICON_SIZE 16
 #define SETUP_SEED_ICON_GAP 4
@@ -76,6 +76,9 @@ static std::vector<std::string> sPresetNames;
 static std::string sPresetDisplay;
 static s16 sPresetDisplayWidth = 0;
 static s16 sSeedIndex = 0;
+static std::string sInputSeed;
+static std::string sInputSeedDisplay;
+static s16 sInputSeedDisplayWidth = 0;
 static std::unordered_map<std::string, uint32_t> sSeedHashes;
 static SetupLabel sTitle = { gFileSelNewFileTex, 56, 4, 3, 48 };
 static SetupLabel sHeadings[NEW_FILE_SETUP_ROW_MAX] = {
@@ -320,13 +323,18 @@ static void DrawSeedIcons(FileSelectState* fileSelect, uint32_t hash, s16 center
     CLOSE_DISPS(fileSelect->state.gfxCtx);
 }
 
-static void UpdatePresetDisplay(void) {
-    sPresetDisplay = sPresetNames.empty() ? "" : sPresetNames[sPresetIndex];
+static std::string FitToCycler(const std::string& text) {
+    std::string fitted = text;
 
-    while (sPresetDisplay.length() > 4 && TextWidth(sPresetDisplay.c_str()) > SETUP_PRESET_TEXT_WIDTH) {
-        sPresetDisplay = sPresetDisplay.substr(0, sPresetDisplay.length() - 4) + "...";
+    while (fitted.length() > 4 && TextWidth(fitted.c_str()) > SETUP_CYCLER_TEXT_WIDTH) {
+        fitted = fitted.substr(0, fitted.length() - 4) + "...";
     }
 
+    return fitted;
+}
+
+static void UpdatePresetDisplay(void) {
+    sPresetDisplay = FitToCycler(sPresetNames.empty() ? "" : sPresetNames[sPresetIndex]);
     sPresetDisplayWidth = TextWidth(sPresetDisplay.c_str());
 }
 
@@ -342,11 +350,25 @@ static void RefreshPresetList(void) {
     UpdatePresetDisplay();
 }
 
+static void UpdateInputSeedDisplay(void) {
+    std::string inputSeed = Ship_RemoveSpecialCharacters(CVarGetString("gRando.InputSeed", ""));
+
+    if (inputSeed == sInputSeed) {
+        return;
+    }
+
+    sInputSeed = inputSeed;
+    sInputSeedDisplay = FitToCycler(inputSeed);
+    sInputSeedDisplayWidth = TextWidth(sInputSeedDisplay.c_str());
+}
+
 static void RefreshSeedList(void) {
     Rando::Spoiler::RefreshOptions();
     // The list is never empty in practice, but clamping guards against indexing it with -1 if it were
     s32 last = (s32)Rando::Spoiler::spoilerOptions.size() - 1;
     sSeedIndex = (last < 0) ? 0 : (s16)CLAMP(CVarGetInteger("gRando.SpoilerFileIndex", 0), 0, last);
+
+    UpdateInputSeedDisplay();
 }
 
 static void ApplySelection(void) {
@@ -384,6 +406,8 @@ extern "C" void FileSelect_UpdateNewFileSetup(GameState* thisx) {
     s16 presetCount = (s16)sPresetNames.size();
 
     sAlpha = (s16)MIN(sAlpha + 25, 255);
+
+    UpdateInputSeedDisplay();
 
     if (CHECK_BTN_ALL(input->press.button, BTN_B)) {
         Audio_PlaySfx(NA_SE_SY_FSEL_CLOSE);
@@ -474,7 +498,11 @@ extern "C" void FileSelect_DrawNewFileSetup(GameState* thisx) {
         SetValueColor(fileSelect, true, seedRowSelected, alpha);
         DrawArrows(fileSelect, seedY);
 
-        if (sSeedIndex == 0) {
+        if (sSeedIndex == 0 && !sInputSeedDisplay.empty()) {
+            DrawText(fileSelect, sInputSeedDisplay.c_str(), SETUP_CYCLER_CENTER_X - (sInputSeedDisplayWidth / 2),
+                     seedY - 1);
+            SetLabelCombine(fileSelect->state.gfxCtx);
+        } else if (sSeedIndex == 0) {
             DrawLabel(fileSelect, &sGenerateNew, SETUP_CYCLER_CENTER_X - (sGenerateNew.inkWidth / 2), seedY);
         } else if (sSeedIndex < (s16)Rando::Spoiler::spoilerOptions.size()) {
             DrawSeedIcons(fileSelect, SeedHashForSpoiler(Rando::Spoiler::spoilerOptions[sSeedIndex]),
@@ -515,3 +543,10 @@ void RegisterNewFileSetup() {
 }
 
 static RegisterShipInitFunc initFunc(RegisterNewFileSetup, { CVAR_NAME });
+static RegisterShipInitFunc seedListInitFunc(
+    []() {
+        if (gFileSelectState != NULL) {
+            RefreshSeedList();
+        }
+    },
+    { "gRando.SpoilerFile" });

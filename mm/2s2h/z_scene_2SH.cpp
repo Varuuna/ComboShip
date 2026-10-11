@@ -257,6 +257,18 @@ void Scene_CommandTransiActorList(PlayState* play, SOH::ISceneCommand* cmd) {
 
     play->transitionActors.count = list->numTransitionActors;
     play->transitionActors.list = (TransitionActorEntry*)list->GetRawPointer();
+
+#ifdef COMBO_BUILD
+    // ComboShip: the list aliases the cached scene resource, so the negated "already spawned" ids
+    // written by Actor_SpawnTransitionActors persist across scene loads whenever a door's Destroy
+    // doesn't restore them, the combo handoff (portal return / Ctrl+R / owl-save quit) cuts the
+    // frame loop without Play_Destroy, so a door alive at handoff never respawns until app restart.
+    // Reset the markers on every scene load, mirroring SoH's Scene_CommandTransitionActorList fix.
+    for (s32 i = 0; i < play->transitionActors.count; i++) {
+        play->transitionActors.list[i].id = ABS(play->transitionActors.list[i].id);
+    }
+#endif
+
     MapDisp_InitTransitionActorData(play, play->transitionActors.count, play->transitionActors.list);
 }
 

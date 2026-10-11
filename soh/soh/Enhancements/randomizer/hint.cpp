@@ -1,9 +1,12 @@
 #include "hint.h"
 #include "string"
 #include "SeedContext.h"
-#include <spdlog/spdlog.h>
 #include "static_data.h"
 #include "rng.h"
+#ifdef COMBO_BUILD
+#include "soh/Enhancements/randomizer/hook_handlers.h" // ComboShip: OOT_LookupForeignByCheck
+#endif
+#include "soh/Enhancements/randomizer/trial.h"
 
 namespace Rando {
 Hint::Hint() {
@@ -181,9 +184,10 @@ void Hint::NamesChosen() {
     }
 
     if (hintType == HINT_TYPE_ITEM || hintType == HINT_TYPE_ITEM_AREA) {
+        namesTemp.clear();
+        saveNames = false;
+
         for (size_t c = 0; c < locations.size(); c++) {
-            namesTemp = {};
-            saveNames = false;
             uint8_t selection = GetRandomHintTextEntry(GetItemHintText(static_cast<u8>(c)));
             if (selection > 0) {
                 saveNames = true;
@@ -197,7 +201,7 @@ void Hint::NamesChosen() {
 
     if (hintType == HINT_TYPE_FOOLISH || hintType == HINT_TYPE_ITEM_AREA || hintType == HINT_TYPE_WOTH ||
         hintType == HINT_TYPE_ALTAR_CHILD || hintType == HINT_TYPE_ALTAR_ADULT) {
-        namesTemp = {};
+        namesTemp.clear();
         saveNames = false;
 
         for (uint8_t c = 0; c < areas.size(); c++) {
@@ -286,7 +290,22 @@ const CustomMessage Hint::GetHintMessage(MessageFormat format, size_t id) const 
     if (hintType == HINT_TYPE_MESSAGE) {
         if (id < messages.size()) {
             hintText = messages[id];
+#ifdef COMBO_BUILD
+            // ComboShip: native builders read these slots by index off live state (Ganondorf reads 1
+            // and 2, Saria reads 1), but a combo payload — or a save written by an older build —
+            // may carry fewer. Fall back to the last message instead of an empty textbox.
+        } else if (!messages.empty()) {
+            hintText = messages.back();
+#endif
         }
+#ifdef COMBO_BUILD
+        // ComboShip: a combo-composed Saria hint's song message (slot 1) is natively a blue textbox
+        // (RHT_SARIA_SONG_HINT). The combo payload and the save carry text only, so restore it here —
+        // this is the one spot that survives LoadRandomizer rebuilding hints from the save arrays.
+        if (ownKey == RH_SARIA_HINT && id == 1) {
+            hintText.SetTextBoxType(TEXTBOX_TYPE_BLUE);
+        }
+#endif
     } else if (hintType == HINT_TYPE_ALTAR_CHILD) {
         if (ctx->GetOption(RSK_TOT_ALTAR_HINT)) {
             hintText = StaticData::hintTextTable[RHT_CHILD_ALTAR_STONES].GetHintMessage();
@@ -516,7 +535,20 @@ const HintText Hint::GetItemHintText(uint8_t slot, bool mysterious) const {
     if (mysterious) {
         return StaticData::hintTextTable[RHT_MYSTERIOUS_ITEM];
     } else if (targetRG == RG_ICE_TRAP) { // RANDOTODO store in item hint instead of item
-        return HintText(CustomMessage({ ctx->overrides[hintedCheck].GetTrickName() }));
+        // item hints read as sentences, so the fake name needs its article like a real item's hint has
+        return HintText(CustomMessage(
+            { ctx->overrides[hintedCheck].GetTrickArticle() + ctx->overrides[hintedCheck].GetTrickName() }));
+#ifdef COMBO_BUILD
+    } else if (targetRG == RG_COMBO_FOREIGN) {
+        // ComboShip: the sentinel's own hint text is "No Hint" — name the real MM item instead.
+        // A foreign trap is hinted under its typo'd disguise name, like OOT's own ice traps.
+        const ComboRando::ForeignItem* fi = OOT_LookupForeignByCheck(hintedCheck);
+        std::string shown = fi == nullptr ? "" : (fi->fakeTrickName.empty() ? fi->displayName : fi->fakeTrickName);
+        if (shown.empty()) { // lookup raced the blob push: "something", never the sentinel's "No Hint"
+            return StaticData::hintTextTable[RHT_MYSTERIOUS_ITEM];
+        }
+        return HintText(CustomMessage(shown, shown, shown));
+#endif
     } else {
         return ctx->GetItemLocation(hintedCheck)->GetPlacedItem().GetHint();
     }
@@ -666,6 +698,7 @@ CustomMessage Hint::GetWinconText() {
         winconMessage.InsertNumber(ctx->GetOption(RSK_WINCON_TOKEN_COUNT).Get());
     } else if (ctx->GetOption(RSK_WINCON).Is(RO_WINCON_TRIFORCE_PIECES)) {
         winconMessage = StaticData::hintTextTable[RHT_WINCON_TRIFORCE_PIECES_HINT].GetHintMessage();
+        // ComboShip (#136): combo forces this option to the COMBINED required count (settings.cpp).
         winconMessage.InsertNumber(ctx->GetOption(RSK_WINCON_TRIFORCE_COUNT).Get());
     }
     return winconMessage;

@@ -4,6 +4,9 @@ Preserved deviations — keep across upstream merges. See [../UPSTREAM_MERGES.md
 
 ## UIWidgets empty-combobox UB + combo-rendered MM rando menu (2026-06-09)
 
+**soh side RETIRED 2026-09-28:** upstream now initializes `longest` in every soh overload; the MM
+fix below stands.
+
 **`mm/2s2h/BenGui/UIWidgets.hpp` (and `soh/soh/SohGui/UIWidgets.hpp`) — fix to a vendored upstream
 bug:** every `UIWidgets::Combobox` template overload declared `const char* longest;` **uninitialized**,
 then assigned it only inside the loop that scans the options for the widest entry. If the options
@@ -128,6 +131,13 @@ byte-intact via the `#else`).
 the locked `MIN_QUEST == MAX_QUEST == QUEST_RANDOMIZER` still resolves to Randomizer on every L/R
 path (incl. the Master-Quest-absent skip loop).
 
+**Hide-quest options (2026-10-09):** soh's six File Select "Hide ..." checkboxes and their
+`HideQuestPreFunc` are compiled out under `COMBO_BUILD` (`SohMenuEnhancements.cpp`); they could not
+change anything with the lock above. `SohFileSelect_IsQuestHidden` (`FileSelectEnhancements.cpp`) hides
+every quest but Randomizer, so `CountVisibleQuests() == 1`: the one-entry carousel is skipped (no dead
+L/R arrows) and stale Hide CVars in an old config can no longer change the flow. B from name entry now
+returns to the main menu, as single-quest soh does.
+
 ## Live-apply settings changed from the combo menu (2026-06-28)
 
 **Why:** the games' native UIWidgets call `ShipInit::Init(cvar)` after a widget change to re-run the
@@ -149,8 +159,8 @@ MM's identically-named dev windows were dropped (OOT boots first). (c) Dev-tool 
 - `mm/2s2h/BenGui/BenGui.cpp` — the 9 MM dev/debug windows whose names collide with OOT's (Save Editor,
   Actor/Collision/Message Viewer, Audio Editor, Mod Menu, Hook Debugger, Input Viewer (+Settings)) now
   register with `COMBO_MM_TRACKER_SUFFIX` (`"##MM"`), same mechanism as the trackers — map-key/ID only,
-  visible title unchanged, empty in standalone. (Cosmetic Editor / Time Splits Window / DL Viewer differ
-  from OOT's strings already, so they don't collide.)
+  visible title unchanged, empty in standalone. (Cosmetic Editor / DL Viewer differ from OOT's strings
+  already, so they don't collide; Time Splits now does collide, see the Time Splits section.)
 - `mm/2s2h/BenGui/BenMenu.cpp` — matching `WindowName(...)` popout refs carry the same suffix
   (`COMBO_MM_WINDOW_SUFFIX`). New `#ifdef COMBO_BUILD` inline `WIDGET_CUSTOM` entries render each dev
   window's `DrawElement()` inline (skipped when popped out, so no double-draw); live-world viewers
@@ -245,6 +255,7 @@ file (the `ofstream` opened before `unflatten`).
   `SetBlock`, `EraseBlock`) route through a `TryUnflatten` helper that logs instead of throwing
   (the exception would unwind across the game-DLL boundary); `Save()` unflattens **before**
   opening/truncating the file; `Nested()` falls back to the last-good nested state on failure.
+  Since 2026-09-28 `Save()` sits on upstream's atomic temp-file write (#1183); only the guard is ours.
 
 **On future merges:** if upstream SoH renames the CVar or grows its own `.Enable`, drop the macro
 seam and re-check the migration. Audited 2026-08-04: this was the only cross-game leaf-vs-subtree
@@ -255,6 +266,19 @@ refresh lives only in `Menu::DrawElement`, which never runs under comboui, so po
 (Audio Editor, Mod Menu) that draw via `MenuDrawItem` read a frozen disable flag.
 `mm/2s2h/BenGui/Menu.cpp` (`Menu::MenuDrawItem`, `COMBO_BUILD`-guarded) now refreshes the map once
 per ImGui frame. SoH needs no parity fix: its popout-drawn widgets have no disable-map preFuncs.
+
+## Config::SetBlock drops writes when intermediate keys are missing (2026-08-10)
+
+**Why:** `SetBlock`'s dot-walk only descended into keys that already existed — a missing
+intermediate (e.g. `CVars.gRando` on a config that never saved a gRando key) made the whole write a
+silent no-op. Surfaced as `MM_RestoreRandoSettings` failing to restore an empty
+`gRando.StartingItems: []` kit: `SetStartingItemsInConfig` never landed, exact-seed repro fell back
+to the default kit. (Related pre-existing quirk, handled by callers: nlohmann `flatten()` turns an
+empty array into null; `GetStartingItemsFromConfig` treats null as empty.)
+
+**Vendored:** `libultraship/src/ship/config/Config.cpp` (`SetBlock`) — create missing intermediate
+objects and descend; a non-object in the path keeps the old silent no-op (`ComboShip:` comment at
+site).
 
 ## Mod ordering never survived a restart (2026-08-24)
 
@@ -324,3 +348,68 @@ selection can pick up the invisible name) — cosmetic, in an already-degraded s
 `mm/2s2h/BenGui/UIWidgets.hpp`) because `gSettings.Menu.Theme` is shared. If a merge diverges them,
 the shared key becomes unsafe. Also re-check the `Modal Window` suffix and the "Apply" button if
 upstream reworks the mod menu.
+
+## Combo-owned overlay timers (issue #173, 2026-08-24)
+
+**Why:** OOT's "Additional Timers" and MM's "Display Overlay" each showed only their own game's play
+time, so a combo run never had a number covering the whole run. MM also had a live bug: its play time
+is wall clock between flushes (`filePlaytime += now - lastTimeLog`) and `lastTimeLog` was never
+advanced when combo swapped away, so hours spent in OOT were folded into MM's save at its next flush.
+
+**Combo-owned:** `combo/gui/ComboTimersWindow.{h,cpp}` — window `Timers##Combo`, CVars `gCombo.Timers.*`,
+settings under ComboShip Settings → Timers. The total is `OOT playTimer/2 + pauseTimer/3` (deciseconds)
+plus MM's `filePlaytime/100`; both already live in the `.combosav`, and exactly one advances at a time.
+Time of day / Navi / conditional draw only while OOT is foreground. `Combo_SetForegroundGame` pauses
+and resumes MM's accumulator across every swap. The total tints green once both games are beaten
+(`ComboUI_SetComboComplete`, pushed from the existing `combo.completion` flags — no new save key).
+
+**No real-time (RTA) row, deliberately.** MM's `GetUnixTimestamp` (`mm/2s2h/BenPort.cpp`) assigns
+`millis.count()` to a `long`, which is 32-bit on Windows, so every MM timestamp is truncated modulo
+2^32 — `fileCreatedAt` lands around 8.6e8 where soh's untruncated ms is around 1.79e12. MM's own
+timestamps stay self-consistent (differences survive the truncation until it wraps, every ~49.7 days),
+so this is invisible inside 2Ship, but it makes MM and OOT timestamps incomparable. A first attempt at
+an RTA row took `min(OOT firstInput, MM fileCreatedAt)` and displayed 496307 hours. **Never compare a
+soh timestamp with an MM one** without fixing the truncation first.
+
+**Vendored (all `COMBO_BUILD`-guarded):**
+- `soh/soh/OTRGlobals.cpp` — `SOH_GetPlaytimeDeciseconds`, `SOH_GetOverlayTimers` (classification
+  stays in soh so comboui hardcodes no vanilla enum values).
+- `mm/2s2h/BenPort.cpp` — `MM_GetPlaytimeMs`, `MM_ComboPausePlaytime`,
+  `MM_ComboResumePlaytime` + a running latch. The advance is implemented locally rather than calling
+  `SavingEnhancements_AdvancePlaytime` so `SavingEnhancements.cpp` stays untouched. The
+  `lastTimeLog != 0` guard matters because `z_sram_NES.c` zeroes it on a new file — treating 0 as a
+  timestamp would add a whole Unix epoch (~57 years).
+- `soh/soh/SohGui/SohMenuEnhancements.cpp` and `mm/2s2h/BenGui/BenMenu.cpp` — the native timer menu
+  entries are `#ifndef COMBO_BUILD`. A sidebar allow-list is not enough: `ComboMenu::DrawSearchResults`
+  walks both games' menu models unfiltered, so a search for "timer" would re-open the native window.
+
+**Do not remove** the `TimeDisplayWindow` registration at `soh/soh/SohGui/SohGui.cpp:203` — its
+`InitElement` is what loads the digit and icon textures the combo overlay draws with. Only its draw
+is suppressed.
+
+**Residuals:** the pause only flushes into memory — nothing persists MM's save on the way out — so
+time played in MM without an owl/auto save is lost when the slot's MM blob is re-read (reset or
+owl-save quit, `g_MmSaveInMemorySlot = -1`), and the total steps back to MM's last saved value. Same
+as vanilla 2ship.
+
+**Separate bug found while playtesting this, NOT fixed here:** MM's play time reads 0 after an owl
+save because `SaveManager_LoadSaveFile` (`mm/2s2h/SaveManager/SaveManager.cpp`) reads only the
+`newCycleSave` key and never `owlSave`. ComboShip's resume shortcut (`mm/src/code/title_setup.c`,
+`COMBO_BUILD` block) goes through that function instead of vanilla's `Sram_OpenSave`, which picks the
+owl page when `isOwlSave` is set and then deletes it on continue (`VB_DELETE_OWL_SAVE`). So an owl
+save's whole state — not just play time — is discarded on a combo resume. Note that a new-cycle save
+deliberately preserves `owlSave`, so a read-priority fix alone would let a stale owl save shadow a
+newer cycle save; the delete-on-continue half is required too.
+
+## Time Splits window + CVar clash (2026-09-28)
+
+soh ported 2Ship's Time Splits, so both games registered the same window names and
+`ImGui::Begin("Timesplits")`. MM itself registers both the leaf `gWindows.Timesplits` and
+`gWindows.Timesplits.Settings` (leaf-vs-subtree: config stops saving); soh reusing that settings key
+made the clash reachable from OOT's menu. soh's button CVar also never matched its own window's CVar
+upstream, so the fix repairs that too.
+
+Fix: soh's button uses `CVAR_WINDOW("TimeSplitSettings")` + an inline settings shim; MM's two windows
+get `##MM`, its overlay ID `Timesplits##MM`, its settings CVar `gWindows.TimesplitsSettings` (old key
+cleared on init), and `ComboTrackerVisibility` keeps only the foreground game's overlay in the Gui map
+(same Remove/Re-add as notifications, see tracker.md).

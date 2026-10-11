@@ -10,6 +10,12 @@ extern "C" {
 
 #ifdef COMBO_BUILD
 bool Rando::gComboDormantGive = false;
+// ComboShip (#136): launcher seam — poked after each Triforce Piece so combo can evaluate the goal.
+extern "C" void (*gMMComboTriforceProgress)(int game, int fileNum);
+// ComboShip: Shared Items — poked after every give so the launcher can reconcile OOT<->MM tiers.
+extern "C" void (*gMMComboSharedChanged)(int game, int fileNum);
+// True while a shared Bombchu Bag family is effective for the loaded seed (SharedItems.h SF_BOMBCHU_BAG).
+extern "C" int Combo_MM_BombchuBagShared(void);
 #endif
 
 void Rando::GiveItem(RandoItemId randoItemId) {
@@ -57,13 +63,7 @@ void Rando::GiveItem(RandoItemId randoItemId) {
                              DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE);
             break;
         case RI_WOODFALL_SMALL_KEY:
-            if (DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE) < 0) {
-                DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE) = 1;
-                gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE] = 1;
-            } else {
-                DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE)++;
-                gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE]++;
-            }
+            Rando::AddSmallKey(DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE);
             break;
         case RI_SNOWHEAD_BOSS_KEY:
         case RI_SNOWHEAD_MAP:
@@ -72,13 +72,7 @@ void Rando::GiveItem(RandoItemId randoItemId) {
                              DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE);
             break;
         case RI_SNOWHEAD_SMALL_KEY:
-            if (DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE) < 0) {
-                DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE) = 1;
-                gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE] = 1;
-            } else {
-                DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE)++;
-                gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE]++;
-            }
+            Rando::AddSmallKey(DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE);
             break;
         case RI_GREAT_BAY_BOSS_KEY:
         case RI_GREAT_BAY_MAP:
@@ -87,13 +81,7 @@ void Rando::GiveItem(RandoItemId randoItemId) {
                              DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE);
             break;
         case RI_GREAT_BAY_SMALL_KEY:
-            if (DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE) < 0) {
-                DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE) = 1;
-                gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE] = 1;
-            } else {
-                DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE)++;
-                gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE]++;
-            }
+            Rando::AddSmallKey(DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE);
             break;
         case RI_STONE_TOWER_BOSS_KEY:
         case RI_STONE_TOWER_MAP:
@@ -102,42 +90,33 @@ void Rando::GiveItem(RandoItemId randoItemId) {
                              DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE);
             break;
         case RI_STONE_TOWER_SMALL_KEY:
-            if (DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE) < 0) {
-                DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE) = 1;
-                gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE] = 1;
-            } else {
-                DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE)++;
-                gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE]++;
-            }
+            Rando::AddSmallKey(DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE);
             break;
         // Grants the max small keys for every dungeon at once (Woodfall 1, Snowhead 3, Great Bay 1, Stone Tower 4)
-        case RI_SKELETON_KEY:
-            if (DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE) < 1) {
-                DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE) = 1;
-                gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE] = 1;
-            }
-            if (DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE) < 3) {
-                DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE) = 3;
-                gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE] = 3;
-            }
-            if (DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE) < 1) {
-                DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE) = 1;
-                gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE] = 1;
-            }
-            if (DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE) < 4) {
-                DUNGEON_KEY_COUNT(DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE) = 4;
-                gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE] = 4;
+        case RI_SKELETON_KEY: {
+            // ComboShip: raise the inventory count and the rando mirror INDEPENDENTLY, so a -1 sentinel or a
+            // desync (vanilla Item_Give bumps only the inventory) heals instead of blocking the other counter.
+            for (auto& k : Rando::skeletonKeyCounts) {
+                if (DUNGEON_KEY_COUNT(k.dungeonSceneIndex) < k.count) {
+                    DUNGEON_KEY_COUNT(k.dungeonSceneIndex) = k.count;
+                }
+                if (gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[k.dungeonSceneIndex] < k.count) {
+                    gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[k.dungeonSceneIndex] = k.count;
+                }
             }
             break;
+        }
         case RI_TRIFORCE_PIECE:
         case RI_TRIFORCE_PIECE_PREVIOUS:
             gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces++;
 #ifdef COMBO_BUILD
-            // ComboShip: dormant grant can't warp; count only, re-evaluated on MM activation.
-            if (Rando::gComboDormantGive) {
-                break;
+            // ComboShip (#136): combo owns the goal — the launcher sums both games' counts and decides.
+            // Works for dormant grants too; it dispatches the silent finalize instead of the ending.
+            if (gMMComboTriforceProgress != NULL) {
+                gMMComboTriforceProgress(1, gSaveContext.fileNum);
             }
-#endif
+            break;
+#else
             if (gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces ==
                 RANDO_SAVE_OPTIONS[RO_TRIFORCE_PIECES_REQUIRED]) {
                 // Blocks the ability to beat the game through killing Majora until all Triforce Pieces are found.
@@ -152,6 +131,7 @@ void Rando::GiveItem(RandoItemId randoItemId) {
                                        .transitionType = TRANS_TYPE_FADE_BLACK });
             }
             break;
+#endif
         // Technically these should never be used, but leaving them here just in case
         case RI_PROGRESSIVE_MAGIC:
         case RI_PROGRESSIVE_BOW:
@@ -165,8 +145,17 @@ void Rando::GiveItem(RandoItemId randoItemId) {
         case RI_BOMB_BAG_30:
         case RI_BOMB_BAG_40:
             Item_Give(gPlayState, Rando::StaticData::Items[randoItemId].itemId);
+#ifdef COMBO_BUILD
+            // Shared Bombchu Bag family effective: bag grants bombs only, chus come from that family.
+            if (!Combo_MM_BombchuBagShared())
+                INV_CONTENT(ITEM_BOMBCHU) = ITEM_BOMBCHU;
+            AMMO(ITEM_BOMB) = CUR_CAPACITY(UPG_BOMB_BAG);
+            if (INV_CONTENT(ITEM_BOMBCHU) != ITEM_NONE)
+                AMMO(ITEM_BOMBCHU) = CUR_CAPACITY(UPG_BOMB_BAG);
+#else
             INV_CONTENT(ITEM_BOMBCHU) = ITEM_BOMBCHU;
             AMMO(ITEM_BOMB) = AMMO(ITEM_BOMBCHU) = CUR_CAPACITY(UPG_BOMB_BAG);
+#endif
             break;
         case RI_WALLET_ADULT:
         case RI_WALLET_GIANT:
@@ -427,4 +416,10 @@ void Rando::GiveItem(RandoItemId randoItemId) {
             Item_Give(gPlayState, Rando::StaticData::Items[randoItemId].itemId);
             break;
     }
+#ifdef COMBO_BUILD
+    // ComboShip: Shared Items — single exit poke, mirrors the #136 Triforce poke above.
+    if (gMMComboSharedChanged != NULL) {
+        gMMComboSharedChanged(1, gSaveContext.fileNum);
+    }
+#endif
 }

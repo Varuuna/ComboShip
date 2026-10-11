@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <iostream>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -125,6 +127,9 @@ struct HintCandidate {
     nlohmann::json itemHintMask;                        // trap disguise's hint entry (null = none)
     uint32_t weight = 1;
     bool required = false;
+    // Native ItemLocation::IsHintable: false for confined/non-shuffled placements, which stones must
+    // never target. Candidates stay in the list either way (full views below still need them).
+    bool hintable = true;
 };
 
 // Weighted category mirror of OOT's hintSettingTable (hints.cpp:153). junkWeight fills any stones
@@ -178,6 +183,9 @@ inline const std::array<Preset, 4>& HintPresets() {
 // Sentinel checkName SOH_ApplyComboHints recognizes for the Ganondorf hint (RH_GANONDORF_HINT) —
 // avoids needing a runtime string->RandomizerHint lookup for this one special-cased slot.
 inline constexpr const char* kGanondorfHintKey = "__GANONDORF__";
+// Sentinel prefix for the area-type NPC item hints (Sheik, boss doors, Dampé, Greg, Saria, Mido,
+// fishing pond): "__STATIC__<RandomizerHint enum name>", mapped back in SOH_ApplyComboHints.
+inline constexpr const char* kStaticHintPrefix = "__STATIC__";
 
 // masterSeed: same seed the fill used (all randomness here derives from it, seeded independently via
 // the XOR tag, so hint generation is deterministic without perturbing the fill's own RNG stream).
@@ -294,7 +302,10 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
         if (fm.value("checkGame", "") != "oot" || fm.value("itemGame", "") != "mm")
             continue;
         std::string itemName = fm.value("itemName", "");
-        std::string area = fm.value("checkArea", fm.value("checkName", ""));
+        std::string checkName = fm.value("checkName", "");
+        // Area from the hint dump's own per-check table (foreign[] no longer persists checkArea).
+        auto ca = ootChecks.find(checkName);
+        std::string area = (ca != ootChecks.end() && !ca->second.area.empty()) ? ca->second.area : checkName;
         if (!itemName.empty())
             mmItemLocations[itemName] = "in " + area + " (OOT)";
     }
@@ -308,6 +319,31 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
     for (size_t i = 0; i < placements.size(); ++i)
         if (placements[i].checkGame == GAME_OOT)
             ootPlacementIndex.emplace(placements[i].check, i);
+    // Non-hintable checks, from both dumps' fixed[] (confined placements that never went through a
+    // shuffle fill). Absent flag = pre-flag DLL -> everything hintable, i.e. the old behavior.
+    std::unordered_set<std::string> nonHintable;
+    auto loadNonHintable = [&](const char* prefix, const nlohmann::json& dump) {
+        const auto fixedArr = dump.value("fixed", nlohmann::json::array());
+        bool sawFlag = false;
+        for (auto& f : fixedArr) {
+            if (f.contains("hintable"))
+                sawFlag = true;
+            if (!f.value("hintable", true))
+                nonHintable.insert(prefix + f.value("check", std::string()));
+        }
+        if (!fixedArr.empty() && !sawFlag)
+            std::cerr << "[HINTS] " << (prefix[0] == 'o' ? "oot" : "mm")
+                      << " dump has no 'hintable' flag on fixed placements; hints may "
+                         "target non-shuffled checks - rebuild soh.dll/2ship.dll\n";
+    };
+    loadNonHintable("oot:", staticDump);
+    loadNonHintable("mm:", mmDump);
+    // Forced placements (spoiler startKnown, e.g. Link's Pocket) are owned at start — never hintable.
+    try {
+        for (auto& sk : nlohmann::json::parse(spoilerJson).value("startKnown", nlohmann::json::array()))
+            nonHintable.insert(sk.value("checkGame", "") + ":" + sk.value("checkName", ""));
+    } catch (...) {}
+
     std::vector<HintCandidate> candidates;
     candidates.reserve(placements.size());
     std::unordered_set<std::string> areaHasMajor; // native barren predicate: barren = no WotH + no major
@@ -322,6 +358,7 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
         std::string checkKey = (p.checkGame == GAME_OOT ? "oot:" : "mm:") + p.check;
         auto reqIt = pareDown.requiredByCheck.find(checkKey);
         c.required = reqIt != pareDown.requiredByCheck.end() && reqIt->second;
+        c.hintable = !nonHintable.count(checkKey);
         if (p.checkGame == GAME_OOT) {
             auto it = ootChecks.find(p.check);
             if (it != ootChecks.end()) {
@@ -347,11 +384,18 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
 
     // Required / foolish AREA pools (native's WotH/Foolish hint an area, not a specific item).
     // Unmapped MM checks roll up as "Unknown" — a useless hint target, so drop those keys.
+    // WotH counts only HINTABLE required checks (fill.cpp:767) — a confined boss key can't make its own
+    // area "way of the hero". areaHasMajor stays unfiltered (native barren counts majors regardless).
+    std::unordered_set<std::string> areaHasHintableRequired;
+    for (auto& c : candidates)
+        if (c.hintable && c.required && !c.areaKey.empty())
+            areaHasHintableRequired.insert(c.areaKey);
     std::vector<std::string> requiredAreas, foolishAreas;
-    for (auto& [key, hasRequired] : pareDown.areaHasRequired) {
+    for (auto& entry : pareDown.areaHasRequired) {
+        const std::string& key = entry.first;
         if (key.find("Unknown") != std::string::npos)
             continue;
-        if (hasRequired)
+        if (areaHasHintableRequired.count(key))
             requiredAreas.push_back(key);
         else if (!areaHasMajor.count(key)) // barren only if no WotH AND no major item (native parity)
             foolishAreas.push_back(key);
@@ -370,6 +414,30 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
         if (areaKey.rfind("mm:", 0) == 0 && plain.rfind("in ", 0) == 0)
             plain = plain.substr(3);
         return EnglishOnly(plain);
+    };
+
+    // First placement holding the OOT item, in either game (placements.end() = in no check).
+    auto findOotItem = [&](const char* itemName) {
+        return std::find_if(placements.begin(), placements.end(),
+                            [&](const CwPlacedItem& p) { return p.itemGame == GAME_OOT && p.item == itemName; });
+    };
+    // Area text for an OOT item wherever it landed, in either game. nullopt = the item is in no
+    // check at all (starting item, or not shuffled in), so no hint may name a location for it.
+    // yourPocket mirrors the native Hint flag: only hints that set it say "your pocket".
+    auto itemAreaText = [&](const char* itemName, bool yourPocket = false) -> std::optional<Tri> {
+        auto it = findOotItem(itemName);
+        if (it == placements.end())
+            return std::nullopt;
+        if (it->checkGame != GAME_OOT) {
+            auto mk = mmLocationHints.find(it->check);
+            return areaText("mm:" + (mk != mmLocationHints.end() ? mk->second : it->check));
+        }
+        if (yourPocket && it->check == "Link's Pocket")
+            return PickTemplate(tmpl("RHT_YOUR_POCKET"), hintClarity, rng);
+        auto ck = ootChecks.find(it->check);
+        if (ck == ootChecks.end())
+            return std::nullopt;
+        return areaText("oot:" + ck->second.area);
     };
 
     // Weighted pick of a not-yet-used index from `pool` (indices into `candidates` or an area vector),
@@ -405,17 +473,92 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
         }
     }
 
-    // Ganondorf hint: find the Light Arrows placement (always an OOT item) wherever it landed.
+    // Ganondorf hint. BuildGanondorfHint (StaticHints.cpp) picks the message BY INDEX from live
+    // state, so a shuffled Master Sword needs all three variants, in native's hintKeys order.
     if (ganondorfHintOn) {
-        auto it = std::find_if(candidates.begin(), candidates.end(), [](const HintCandidate& c) {
-            return c.itemGame == GAME_OOT && c.itemKey == "Light Arrows";
-        });
-        if (it != candidates.end()) {
-            Tri msg = PickTemplate(tmpl("RHT_GANONDORF_HINT_LA_ONLY"), hintClarity, rng);
-            ReplacePlaceholder(msg, 1, areaText(it->areaKey));
-            ootHints.push_back({ { "checkName", kGanondorfHintKey },
-                                 { "type", "ganondorf" },
-                                 { "messages", { { { "en", msg.en }, { "de", msg.de }, { "fr", msg.fr } } } } });
+        const std::optional<Tri> laArea = itemAreaText("Light Arrows", true);
+        const std::optional<Tri> msArea = itemAreaText("Master Sword", true);
+        const bool msShuffled =
+            options.value("shuffleMasterSword", 0) != 0 && options.value("startingMasterSword", 0) == 0;
+        // Native reads index 1/2 whenever the sword is shuffled, so an unresolvable sword must skip
+        // the whole hint (native then fills it) rather than answer those reads with the arrows' text.
+        if (laArea && (!msShuffled || msArea)) {
+            auto render = [&](const char* key) {
+                Tri m = PickTemplate(tmpl(key), hintClarity, rng);
+                ReplacePlaceholder(m, 1, *laArea);
+                if (msArea)
+                    ReplacePlaceholder(m, 2, *msArea);
+                return m;
+            };
+            nlohmann::json msgs = nlohmann::json::array();
+            auto push = [&](const Tri& m) { msgs.push_back({ { "en", m.en }, { "de", m.de }, { "fr", m.fr } }); };
+            push(render("RHT_GANONDORF_HINT_LA_ONLY"));
+            if (msShuffled) {
+                push(render("RHT_GANONDORF_HINT_MS_ONLY"));
+                push(render("RHT_GANONDORF_HINT_LA_AND_MS"));
+            }
+            ootHints.push_back(
+                { { "checkName", kGanondorfHintKey }, { "type", "ganondorf" }, { "messages", std::move(msgs) } });
+        }
+    }
+
+    // Area-type NPC item hints (Sheik, boss doors, Dampé's diary, Greg, Saria, Mido, fishing pond):
+    // native CreateStaticHintFromData resolves each target item via FindItemsAndMarkHinted, which only
+    // searches OOT's own checks — an item cross-placed into MM comes back RC_UNKNOWN_CHECK, whose empty
+    // area set renders as RA_NONE, "an Isolated Place". Composed here from the two-game placement list
+    // instead (same resolution as the Ganondorf/altar hints above); SOH_ApplyComboHints maps each
+    // sentinel back to its RandomizerHint and native's builder then self-skips the enabled key. An
+    // item in no check at all (starting item, not shuffled) is left to native, so that case behaves
+    // exactly as before. None of these templates has clarity variants, so the block draws nothing from
+    // the RNG and the stone picks below are unchanged for existing seeds.
+    {
+        struct StaticItemHint {
+            const char* hint;                   // RandomizerHint enum name (sentinel suffix)
+            const char* option;                 // hint dump options[] key; 0 = NPC hint turned off
+            std::vector<const char*> templates; // one message per native hintKeys entry, same order
+            const char* item;                   // OOT item English name (placement item key)
+            bool yourPocket;                    // native StaticHintInfo yourPocket
+        };
+        // Mirrors StaticData::staticHintInfoMap (static_data.cpp) rows that carry targetItems.
+        static const std::vector<StaticItemHint> kStaticItemHints = {
+            { "RH_SHEIK_HINT", "sheikLaHint", { "RHT_SHEIK_HINT_LA_ONLY" }, "Light Arrows", true },
+            { "RH_FOREST_BOSS_KEY_HINT", "bossKeyHint", { "RHT_BOSS_KEY_HINT" }, "Forest Temple Boss Key", true },
+            { "RH_FIRE_BOSS_KEY_HINT", "bossKeyHint", { "RHT_BOSS_KEY_HINT" }, "Fire Temple Boss Key", true },
+            { "RH_WATER_BOSS_KEY_HINT", "bossKeyHint", { "RHT_BOSS_KEY_HINT" }, "Water Temple Boss Key", true },
+            { "RH_SPIRIT_BOSS_KEY_HINT", "bossKeyHint", { "RHT_BOSS_KEY_HINT" }, "Spirit Temple Boss Key", true },
+            { "RH_SHADOW_BOSS_KEY_HINT", "bossKeyHint", { "RHT_BOSS_KEY_HINT" }, "Shadow Temple Boss Key", true },
+            { "RH_GANONS_BOSS_KEY_HINT", "bossKeyHint", { "RHT_BOSS_KEY_HINT" }, "Ganon's Castle Boss Key", true },
+            { "RH_DAMPES_DIARY", "dampesDiaryHint", { "RHT_DAMPE_DIARY" }, "Progressive Hookshot", false },
+            { "RH_GREG_RUPEE", "gregHint", { "RHT_GREG_HINT" }, "Greg the Green Rupee", false },
+            { "RH_SARIA_HINT",
+              "sariaHint",
+              { "RHT_SARIA_TALK_HINT", "RHT_SARIA_SONG_HINT" },
+              "Progressive Magic Meter",
+              true },
+            { "RH_MIDO_HINT", "midoHint", { "RHT_MIDO_HINT" }, "Kokiri Sword", true },
+            { "RH_FISHING_POLE", "fishingPoleHint", { "RHT_FISHING_POLE_HINT" }, "Fishing Pole", true },
+        };
+        for (const StaticItemHint& sh : kStaticItemHints) {
+            if (options.value(sh.option, 0) == 0)
+                continue;
+            auto it = findOotItem(sh.item);
+            if (it == placements.end())
+                continue;
+            const std::optional<Tri> area = itemAreaText(sh.item, sh.yourPocket);
+            if (!area)
+                continue;
+            nlohmann::json msgs = nlohmann::json::array();
+            for (const char* key : sh.templates) {
+                Tri m = PickTemplate(tmpl(key), hintClarity, rng);
+                ReplacePlaceholder(m, 1, *area);
+                msgs.push_back({ { "en", m.en }, { "de", m.de }, { "fr", m.fr } });
+            }
+            ootHints.push_back({ { "checkName", std::string(kStaticHintPrefix) + sh.hint },
+                                 { "type", "static" },
+                                 { "messages", std::move(msgs) } });
+            // Native FindItemsAndMarkHinted marks the hinted check hint-accessible so the stones
+            // never re-target it; reserve it from the weighted loop the same way.
+            usedCheckKeys.insert((it->checkGame == GAME_OOT ? "oot:" : "mm:") + it->check);
         }
     }
 
@@ -425,25 +568,10 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
     // literal "[[N]]" in the displayed hint. Resolving each reward via `candidates` (which spans both
     // games) fills every slot regardless of which game holds it.
     if (options.value("totAltarHint", 0) != 0) {
-        // Searches the FULL placement list (not the advancement-filtered `candidates`) — dungeon
-        // rewards are always progression, but a fixed/own-dungeon reward's advancement stamp in the
-        // dump isn't guaranteed, and a missed reward here would wrongly read as "an unknown place".
+        // An unresolvable reward reads as "an unknown place" (pre-existing fill gap, not an
+        // altar-composition bug — see UPSTREAM_MERGES.md); the altar text always fills every slot.
         auto rewardArea = [&](const char* itemName) -> Tri {
-            auto it = std::find_if(placements.begin(), placements.end(),
-                                   [&](const CwPlacedItem& p) { return p.itemGame == GAME_OOT && p.item == itemName; });
-            if (it == placements.end())
-                return EnglishOnly("an unknown place"); // graceful: seen when a reward isn't in the
-                                                        // placement dump at all (pre-existing fill gap,
-                                                        // not an altar-composition bug — see UPSTREAM_MERGES.md)
-            if (it->checkGame == GAME_OOT) {
-                auto ck = ootChecks.find(it->check);
-                if (ck != ootChecks.end())
-                    return areaText("oot:" + ck->second.area);
-            } else {
-                auto mk = mmLocationHints.find(it->check);
-                return areaText("mm:" + (mk != mmLocationHints.end() ? mk->second : it->check));
-            }
-            return EnglishOnly("an unknown place");
+            return itemAreaText(itemName).value_or(EnglishOnly("an unknown place"));
         };
         auto endClause = [&](const char* jsonKey) -> Tri {
             std::string key = options.value(jsonKey, "");
@@ -520,7 +648,8 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
                     break;
                 std::string checkName = an.get<std::string>();
                 std::string checkKey = "oot:" + checkName;
-                if (usedCheckKeys.count(checkKey))
+                // An EXCLUDED always-check is junk-filled non-hintably; native skips it (IsHintable).
+                if (usedCheckKeys.count(checkKey) || nonHintable.count(checkKey))
                     continue;
                 auto locIt = ootChecks.find(checkName);
                 auto plIt = ootPlacementIndex.find(checkName);
@@ -544,6 +673,11 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
                 usedCheckKeys.insert(checkKey);
             }
         }
+
+        // Start-known checks (native SetHintAccesible, e.g. Song from Impa): reserve them from the
+        // weighted loop only — always-hints stay unaffected, matching native's ordering.
+        for (auto& hn : hintDump.value("hintAccessibleChecks", nlohmann::json::array()))
+            usedCheckKeys.insert("oot:" + hn.get<std::string>());
 
         std::vector<DistCategory> dist = preset.cats; // mutable local copy (weights zeroed on exhaustion)
         while (totalStones > 0) {
@@ -587,9 +721,9 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
                 std::vector<std::string> keys(candidates.size());
                 for (size_t i = 0; i < candidates.size(); ++i) {
                     keys[i] = (candidates[i].checkGame == GAME_OOT ? "oot:" : "mm:") + candidates[i].checkName;
-                    bool eligible = (cat == "Song" && candidates[i].song) ||
-                                    (cat == "Overworld" && candidates[i].overworld) ||
-                                    (cat == "Dungeon" && candidates[i].dungeon);
+                    bool eligible = candidates[i].hintable && ((cat == "Song" && candidates[i].song) ||
+                                                               (cat == "Overworld" && candidates[i].overworld) ||
+                                                               (cat == "Dungeon" && candidates[i].dungeon));
                     if (eligible)
                         idxs.push_back(i);
                 }
@@ -617,7 +751,7 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
                 std::vector<std::string> keys(candidates.size());
                 for (size_t i = 0; i < candidates.size(); ++i) {
                     keys[i] = (candidates[i].checkGame == GAME_OOT ? "oot:" : "mm:") + candidates[i].checkName;
-                    if (cat == "Random" || candidates[i].required)
+                    if (candidates[i].hintable && (cat == "Random" || candidates[i].required))
                         idxs.push_back(i);
                 }
                 int pick = pickUnused(idxs, keys, usedCheckKeys);
@@ -664,7 +798,7 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
     // the checks MM's native stone draw can't see (MM checks, foreign-held or not, it already
     // covers itself). Weight mirrors requiredness so cross entries compete fairly (grill #3).
     for (auto& c : candidates) {
-        if (c.checkGame != GAME_OOT)
+        if (c.checkGame != GAME_OOT || !c.hintable) // non-shuffled OOT checks are never hint targets
             continue;
         Tri itemName = PickTemplate(c.itemHint, 2, rng, MaskOrNull(c.itemHintMask));
         Tri area = areaText(c.areaKey);

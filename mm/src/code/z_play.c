@@ -1374,6 +1374,8 @@ void Play_DrawMain(PlayState* this) {
                 goto PostWorldDraw;
             }
 
+            GameInteractor_ExecuteOnPlayDrawWorldStart();
+
             if (!this->soaringCsOrSoTCsPlaying) {
                 if (1) {
                     if (((u32)this->skyboxId != SKYBOX_NONE) && !this->envCtx.skyboxDisabled) {

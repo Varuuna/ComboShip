@@ -1,5 +1,6 @@
 #include "MMAnchor.h"
 #ifdef COMBO_BUILD
+#include "ComboExport.h"
 
 #include <spdlog/spdlog.h>
 #include "rando/ComboAnchorToast.h" // shared cross-game resync-toast debounce
@@ -55,6 +56,9 @@ void (*gMMComboAnchorSend)(const char* json) = nullptr;
 // Issue #3: cross-game delivery seams, defined in BenPort.cpp and registered by the launcher. Route
 // a received cross-game item into the TARGET game's save, and mark the SOURCE check obtained.
 extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName);
+extern "C" void (*gMMComboTriforceProgress)(int game, int fileNum);
+// Shared Items: a teammate's merged tier can be higher than ours — re-evaluate.
+extern "C" void (*gMMComboSharedChanged)(int game, int fileNum);
 extern "C" void (*gMMComboMarkForeignObtained)(int srcGame, const char* checkName);
 
 // ComboShip A6: launcher pump fn (set via MM_SetPumpDormant). The ACTIVE game calls it each frame so
@@ -85,11 +89,17 @@ void MMAnchor::Activate() {
 
 void MMAnchor::Deactivate() {
     isActive = false;
+    // Drop an unsent cycle-save broadcast: it would otherwise fire unsolicited on the next activation.
+    pendingCycleSaveBroadcast = false;
     SPDLOG_INFO("[MMAnchor] deactivated");
 }
 
 bool MMAnchor::IsSaveLoaded() {
     return gPlayState != nullptr && GET_PLAYER(gPlayState) != nullptr;
+}
+
+bool MMAnchor::HasLoadedRandoSave() {
+    return gSaveContext.fileNum >= 0 && gSaveContext.fileNum <= 2 && IS_RANDO;
 }
 
 void MMAnchor::RegisterHooks() {
@@ -147,6 +157,12 @@ void MMAnchor::RegisterHooks() {
             if (gMMComboPumpDormant) {
                 gMMComboPumpDormant();
             }
+            // GameState_Update runs main (where Sram_SaveEndOfCycle and every AfterEndOfCycleSave hook
+            // complete) before this hook, so the deferred send lands the same frame, after the restore.
+            if (pendingCycleSaveBroadcast && gPlayState != nullptr) {
+                pendingCycleSaveBroadcast = false;
+                SendPacket_UpdateTeamState(CVarGetString(kCvarTeamId, "default"));
+            }
         }
     });
 
@@ -158,7 +174,9 @@ void MMAnchor::RegisterHooks() {
     });
     GameInteractor::Instance->RegisterGameHook<GameInteractor::AfterEndOfCycleSave>([this]() {
         if (isActive && gPlayState != nullptr) {
-            SendPacket_UpdateTeamState(CVarGetString(kCvarTeamId, "default"));
+            // Defer: the rando key/check restore is another AfterEndOfCycleSave hook and may not have run
+            // yet. Losing this on a same-frame quit is harmless — peers re-request on connect.
+            pendingCycleSaveBroadcast = true;
         }
     });
 }
@@ -247,6 +265,17 @@ void MMAnchor::PumpDormant() {
         std::lock_guard<std::mutex> lock(incomingMutex);
         toProcess.swap(incomingQueue);
     }
+    dormantDidApply = false; // reset once per pump, not per-packet — mirrors soh's Anchor
+    // Exception-safe: the surrounding try/catch alone would skip a plain reset-after-call line.
+    struct DormantApplyGuard {
+        MMAnchor* self;
+        explicit DormantApplyGuard(MMAnchor* s) : self(s) {
+            self->isDormantApply = true;
+        }
+        ~DormantApplyGuard() {
+            self->isDormantApply = false;
+        }
+    };
     while (!toProcess.empty()) {
         nlohmann::json payload = toProcess.front();
         toProcess.pop();
@@ -264,18 +293,16 @@ void MMAnchor::PumpDormant() {
                 // Bug: previously dropped entirely while dormant. The merge itself only touches
                 // gSaveContext.save, so it's dormant-safe once the scene-bound post-steps are skipped
                 // (guarded by isDormantApply inside the handler).
-                bool willApply = roomState.syncItemsAndFlags && payload.contains("state") &&
-                                 payload["state"].contains("shipSaveInfo");
-                SPDLOG_INFO("[MMAnchor] dormant UPDATE_TEAM_STATE applying={}", willApply);
-                isDormantApply = true;
-                HandlePacket_UpdateTeamState(payload);
-                isDormantApply = false;
-                if (willApply && gSaveContext.fileNum != 0xFF) {
-                    SaveManager_SaveCurrentForCombo();
-                    SPDLOG_INFO("[MMAnchor] dormant MM save persisted after team-state apply");
-                }
+                SPDLOG_INFO("[MMAnchor] dormant UPDATE_TEAM_STATE received");
+                DormantApplyGuard guard(this);
+                HandlePacket_UpdateTeamState(payload); // sets dormantDidApply only on a true commit
             }
         } catch (const std::exception& e) { SPDLOG_ERROR("[MMAnchor] dormant apply exception: {}", e.what()); }
+    }
+    // Persist iff something actually merged AND a real slot is loaded — not merely "looked applyable".
+    if (dormantDidApply && HasLoadedRandoSave()) {
+        SaveManager_SaveCurrentForCombo();
+        SPDLOG_INFO("[MMAnchor] dormant MM save persisted after team-state apply");
     }
 }
 
@@ -749,8 +776,7 @@ void MMAnchor::SendTeamStateFromSave(const std::string& targetTeamId) {
     // Bug 2: IsSaveLoaded() requires gPlayState (foreground only) — a dormant MM has none, so the
     // dormant answer path silently dropped every request. Judge by the resident save instead
     // (mirrors OOT's isDormantApply branch of Anchor::IsSaveLoaded).
-    bool saveOnDisk = gSaveContext.fileNum >= 0 && gSaveContext.fileNum <= 2;
-    if (!saveOnDisk || !roomState.syncItemsAndFlags) {
+    if (!HasLoadedRandoSave() || !roomState.syncItemsAndFlags) {
         return;
     }
     nlohmann::json payload;
@@ -787,9 +813,24 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     if (!payload["state"].contains("shipSaveInfo")) {
         return; // soh-shaped team state; from_json(Save) would throw
     }
+    // ComboShip: both guards must hold on the dormant path too (PumpDormant persists right after), so
+    // neither may be conditioned on IS_RANDO. No vanilla mode here: a non-rando local save means nothing
+    // usable is loaded, and preserving that saveType through the merge is the original key-eating bug.
+    if (!HasLoadedRandoSave()) {
+        SPDLOG_WARN("[MMAnchor] dropping team state: no loaded rando save (fileNum={}, IS_RANDO={})",
+                    gSaveContext.fileNum, IS_RANDO);
+        return;
+    }
+    // A non-rando peer serializes a zeroed rando struct, and the wholesale shipSaveInfo assign below
+    // would wipe every RANDO_SAVE_CHECKS entry. No merge can recover that.
+    if (!payload["state"]["shipSaveInfo"].contains("rando")) {
+        SPDLOG_WARN("[MMAnchor] dropping team state with no rando block (peer is not in a rando save)");
+        return;
+    }
 
     // Unpack the compact rando check array back into the shape from_json(Save) expects.
-    if (IS_RANDO && payload["state"]["shipSaveInfo"].contains("rando")) {
+    // Both conditions are guaranteed by the guards above.
+    {
         auto stuff =
             payload["state"]["shipSaveInfo"]["rando"]["randoSaveChecksCopy"].get<std::vector<std::vector<s32>>>();
         for (int i = 0; i < RC_MAX; i++) {
@@ -825,6 +866,27 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     // Bug 5: saveInfo replace clobbers permanentSceneFlags[120] — snapshot to OR back after the assign.
     PermanentSceneFlags localPermSceneFlags[120];
     memcpy(localPermSceneFlags, gSaveContext.save.saveInfo.permanentSceneFlags, sizeof(localPermSceneFlags));
+#ifdef COMBO_BUILD
+    // #136: the shipSaveInfo replace would regress the Triforce count against a stale peer.
+    u16 localTriforcePieces = gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces;
+#endif
+    // Issue #130: randoInf (obtained trade items/souls/purchases) is monotonic — snapshot to OR back.
+    u16 localRandoInf[ARRAY_COUNT(gSaveContext.save.shipSaveInfo.rando.randoInf)];
+    memcpy(localRandoInf, gSaveContext.save.shipSaveInfo.rando.randoInf, sizeof(localRandoInf));
+    // Issue #130: trade slots hold the locally-selected deed/key/letter — a stale snapshot must not empty them.
+    u8 localTradeItems[3] = { gSaveContext.save.saveInfo.inventory.items[SLOT_TRADE_DEED],
+                              gSaveContext.save.saveInfo.inventory.items[SLOT_TRADE_KEY_MAMA],
+                              gSaveContext.save.saveInfo.inventory.items[SLOT_TRADE_COUPLE] };
+    // ComboShip: key/fairy/dungeon-item counters are monotonic too — a stale peer (or one mid-Song-of-Time,
+    // whose keys are momentarily zero) would otherwise truncate ours. -1 is the fresh sentinel; signed max.
+    s8 localDungeonKeys[ARRAY_COUNT(gSaveContext.save.saveInfo.inventory.dungeonKeys)];
+    memcpy(localDungeonKeys, gSaveContext.save.saveInfo.inventory.dungeonKeys, sizeof(localDungeonKeys));
+    s8 localFoundDungeonKeys[ARRAY_COUNT(gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys)];
+    memcpy(localFoundDungeonKeys, gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys, sizeof(localFoundDungeonKeys));
+    s8 localStrayFairies[ARRAY_COUNT(gSaveContext.save.saveInfo.inventory.strayFairies)];
+    memcpy(localStrayFairies, gSaveContext.save.saveInfo.inventory.strayFairies, sizeof(localStrayFairies));
+    u8 localDungeonItems[ARRAY_COUNT(gSaveContext.save.saveInfo.inventory.dungeonItems)];
+    memcpy(localDungeonItems, gSaveContext.save.saveInfo.inventory.dungeonItems, sizeof(localDungeonItems));
 
     // Restore bottle contents (unless Deku Princess).
     for (int i = 0; i < 6; i++) {
@@ -843,6 +905,9 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     // Restore receiver-local fields that shouldn't be synced.
     loadedData.saveInfo.checksum = gSaveContext.save.saveInfo.checksum;
     loadedData.shipSaveInfo.fileCreatedAt = gSaveContext.save.shipSaveInfo.fileCreatedAt;
+    // ComboShip: taking a peer's saveType would flip IS_RANDO and silently unregister every rando hook.
+    // Safe to preserve unconditionally: the guard above already refused a non-rando local save.
+    loadedData.shipSaveInfo.saveType = gSaveContext.save.shipSaveInfo.saveType;
     memcpy(loadedData.saveInfo.playerData.newf, gSaveContext.save.saveInfo.playerData.newf,
            sizeof(loadedData.saveInfo.playerData.newf));
     memcpy(&loadedData.shipSaveInfo.dpadEquips, &gSaveContext.save.shipSaveInfo.dpadEquips,
@@ -874,9 +939,18 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     for (int i = 0; i < 100; i++) {
         gSaveContext.save.saveInfo.weekEventReg[i] |= localWeekEventReg[i];
     }
+    for (int i = 0; i < ARRAY_COUNT(gSaveContext.save.shipSaveInfo.rando.randoInf); i++) {
+        gSaveContext.save.shipSaveInfo.rando.randoInf[i] |= localRandoInf[i];
+    }
     for (int i = 0; i < 24; i++) {
         if (localMasks[i] != ITEM_NONE) {
             gSaveContext.save.saveInfo.inventory.items[24 + i] = localMasks[i];
+        }
+    }
+    const u8 tradeSlots[3] = { SLOT_TRADE_DEED, SLOT_TRADE_KEY_MAMA, SLOT_TRADE_COUPLE };
+    for (int i = 0; i < 3; i++) {
+        if (localTradeItems[i] != ITEM_NONE) {
+            gSaveContext.save.saveInfo.inventory.items[tradeSlots[i]] = localTradeItems[i];
         }
     }
     gSaveContext.save.saveInfo.inventory.questItems |= localQuestItems;
@@ -912,6 +986,31 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
         cur.unk_14 |= localPermSceneFlags[i].unk_14; // dungeon floors visited
         cur.rooms |= localPermSceneFlags[i].rooms;
     }
+    // Max/OR-merge the key + fairy + dungeon-item counters back (OOT precedent: UpdateTeamState.cpp).
+    // Accepted: a stale peer resync can re-grant a locally-spent small key.
+    for (int i = 0; i < ARRAY_COUNT(localDungeonKeys); i++) {
+        if (localDungeonKeys[i] > gSaveContext.save.saveInfo.inventory.dungeonKeys[i]) {
+            gSaveContext.save.saveInfo.inventory.dungeonKeys[i] = localDungeonKeys[i];
+        }
+    }
+    for (int i = 0; i < ARRAY_COUNT(localFoundDungeonKeys); i++) {
+        if (localFoundDungeonKeys[i] > gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[i]) {
+            gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[i] = localFoundDungeonKeys[i];
+        }
+    }
+    for (int i = 0; i < ARRAY_COUNT(localStrayFairies); i++) {
+        if (localStrayFairies[i] > gSaveContext.save.saveInfo.inventory.strayFairies[i]) {
+            gSaveContext.save.saveInfo.inventory.strayFairies[i] = localStrayFairies[i];
+        }
+    }
+    for (int i = 0; i < ARRAY_COUNT(localDungeonItems); i++) {
+        gSaveContext.save.saveInfo.inventory.dungeonItems[i] |= localDungeonItems[i];
+    }
+#ifdef COMBO_BUILD
+    if (localTriforcePieces > gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces) {
+        gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces = localTriforcePieces;
+    }
+#endif
     // top-level cycleSceneFlags (Save, not saveInfo) is intentionally NOT touched — it must keep
     // resetting on Song of Time.
 
@@ -942,15 +1041,28 @@ void MMAnchor::HandlePacket_UpdateTeamState(nlohmann::json& payload) {
     // ComboShip: dormant apply has no gPlayState/scene — CheckTracker/ActorBehavior/ShipInit re-derive
     // scene-bound state and aren't dormant-safe, and a backgrounded apply shouldn't toast. MM's own
     // OnSaveLoad re-requests a resync on activation, which re-runs this block in the foreground.
-    if (!isDormantApply) {
+    if (isDormantApply) {
+        dormantDidApply = true; // let PumpDormant persist; scene-bound re-derivation below is skipped
+    } else {
         if (ComboAnchor_ShouldToastResync()) {
             Notification::Emit({
                 .message = "Save updated from team",
             });
         }
+        // Rando::MiscBehavior::OnFileLoad() is deliberately NOT called: it runs CheckQueueReset(), which
+        // would drop in-flight grants. Preserving the local saveType above keeps its hooks valid anyway.
         Rando::CheckTracker::OnFileLoad();
         Rando::ActorBehavior::OnFileLoad();
         ShipInit::Init("IS_RANDO");
+    }
+
+    // ComboShip (#136): a teammate's pieces can cross the combined goal for us too — re-evaluate.
+    if (gMMComboTriforceProgress != NULL) {
+        gMMComboTriforceProgress(1, gSaveContext.fileNum);
+    }
+    // ComboShip: Shared Items — the inventory union above bypasses the grant path, so poke directly.
+    if (gMMComboSharedChanged != NULL) {
+        gMMComboSharedChanged(1, gSaveContext.fileNum);
     }
 
     // Replay any packets queued on the server while we were away, through the normal incoming path.
@@ -1050,7 +1162,7 @@ void MMAnchor::HandlePacket_TeleportTo(const nlohmann::json& payload) {
 
 // MARK: - Launcher-facing C ABI (mirrors soh's SOH_Anchor_* exports)
 
-extern "C" __declspec(dllexport) void MM_SetAnchorSend(void (*cb)(const char*)) {
+extern "C" COMBO_EXPORT void MM_SetAnchorSend(void (*cb)(const char*)) {
     gMMComboAnchorSend = cb;
     // Create the adapter now (launcher startup, pre-connect). It used to be created on first
     // Activate, so a client that never entered MM had no instance and RecvJson/PumpDormant dropped
@@ -1061,12 +1173,12 @@ extern "C" __declspec(dllexport) void MM_SetAnchorSend(void (*cb)(const char*)) 
 }
 
 // A6: launcher registers its per-frame dormant-pump fn; MM calls it each active frame (see hook).
-extern "C" __declspec(dllexport) void MM_SetPumpDormant(void (*cb)()) {
+extern "C" COMBO_EXPORT void MM_SetPumpDormant(void (*cb)()) {
     gMMComboPumpDormant = cb;
 }
 
 // A6: launcher calls this (on the active sibling's thread) when MM is the dormant game.
-extern "C" __declspec(dllexport) void MM_Anchor_PumpDormant(void) {
+extern "C" COMBO_EXPORT void MM_Anchor_PumpDormant(void) {
     if (MMAnchor::Instance) {
         MMAnchor::Instance->PumpDormant();
     }
@@ -1074,7 +1186,7 @@ extern "C" __declspec(dllexport) void MM_Anchor_PumpDormant(void) {
 
 // Bug 2: launcher-orchestrated resync (auto on connect + combo menu button), dormant-safe.
 // Finding 3: never let an exception unwind across this extern "C" boundary.
-extern "C" __declspec(dllexport) void MM_Anchor_RequestResync(void) {
+extern "C" COMBO_EXPORT void MM_Anchor_RequestResync(void) {
     try {
         if (MMAnchor::Instance) {
             MMAnchor::Instance->RequestResyncDormantSafe();
@@ -1084,20 +1196,20 @@ extern "C" __declspec(dllexport) void MM_Anchor_RequestResync(void) {
     }
 }
 
-extern "C" __declspec(dllexport) void MM_Anchor_RecvJson(const char* json) {
+extern "C" COMBO_EXPORT void MM_Anchor_RecvJson(const char* json) {
     if (MMAnchor::Instance && json) {
         MMAnchor::Instance->OnIncomingJson(json);
     }
 }
 
-extern "C" __declspec(dllexport) void MM_Anchor_Activate(void) {
+extern "C" COMBO_EXPORT void MM_Anchor_Activate(void) {
     if (MMAnchor::Instance == nullptr) {
         MMAnchor::Instance = new MMAnchor();
     }
     MMAnchor::Instance->Activate();
 }
 
-extern "C" __declspec(dllexport) void MM_Anchor_Deactivate(void) {
+extern "C" COMBO_EXPORT void MM_Anchor_Deactivate(void) {
     if (MMAnchor::Instance) {
         MMAnchor::Instance->Deactivate();
     }
@@ -1105,7 +1217,7 @@ extern "C" __declspec(dllexport) void MM_Anchor_Deactivate(void) {
 
 // ComboShip: stateless MM scene-name lookup for the combo room window. The launcher owns the roster
 // now; comboui resolves each MM peer's area name from its raw scene id via this (works while dormant).
-extern "C" __declspec(dllexport) const char* MM_Anchor_ResolveScene(int rawScene) {
+extern "C" COMBO_EXPORT const char* MM_Anchor_ResolveScene(int rawScene) {
     static std::string cached;
     cached = Ship_GetSceneName((s16)rawScene);
     return cached.c_str();
@@ -1113,7 +1225,7 @@ extern "C" __declspec(dllexport) const char* MM_Anchor_ResolveScene(int rawScene
 
 // Same-game teleport trigger for the combo room window (MM active + MM peer). Wraps
 // SendPacket_RequestTeleport, which re-validates via CanTeleportTo and no-ops if disallowed.
-extern "C" __declspec(dllexport) void MM_Anchor_RequestTeleport(uint32_t clientId) {
+extern "C" COMBO_EXPORT void MM_Anchor_RequestTeleport(uint32_t clientId) {
     try {
         if (MMAnchor::Instance) {
             MMAnchor::Instance->SendPacket_RequestTeleport(clientId);

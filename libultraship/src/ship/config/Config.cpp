@@ -165,6 +165,15 @@ void Config::SetBlock(const std::string& key, nlohmann::json block) {
                 } else if (gjson2->contains(dot)) {
                     gjson2 = &gjson2->at(dot);
                     curDot++;
+                } else {
+                    // ComboShip: create missing intermediate keys — the walk used to fall through
+                    // silently, dropping the whole write (e.g. CVars.gRando.StartingItems on a config
+                    // that never saved a gRando key). A non-object in the path keeps the old no-op.
+                    if (!gjson2->is_object()) {
+                        return;
+                    }
+                    gjson2 = &((*gjson2)[dot] = nlohmann::json::object());
+                    curDot++;
                 }
             }
         }
@@ -234,13 +243,34 @@ void Config::Reload() {
 }
 
 void Config::Save() {
-    // ComboShip: unflatten before opening (and thereby truncating) the file, or a leaf-vs-subtree
-    // key clash both crashes and wipes the config.
+    // ComboShip: unflatten first; a leaf-vs-subtree key clash must not throw across the DLL boundary.
     if (!TryUnflatten(mNestedJson)) {
         return;
     }
-    std::ofstream file(mPath);
-    file << mNestedJson.dump(4);
+    const fs::path configPath(mPath);
+    const fs::path tempPath = configPath.parent_path() / (configPath.filename().string() + ".tmp");
+    std::error_code ec;
+    {
+        std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
+        if (!file.is_open()) {
+            SPDLOG_ERROR("Could not open \"{}\" to save config", tempPath.string());
+            return;
+        }
+        file << mNestedJson.dump(4);
+        file.flush();
+        if (!file.good()) {
+            SPDLOG_ERROR("Could not write \"{}\"; keeping the existing config", tempPath.string());
+            file.close();
+            fs::remove(tempPath, ec);
+            return;
+        }
+    }
+    fs::rename(tempPath, configPath, ec);
+    if (ec) {
+        SPDLOG_ERROR("Could not replace config \"{}\": {}", mPath, ec.message());
+        std::error_code removeEc;
+        fs::remove(tempPath, removeEc);
+    }
 }
 
 template <typename T> std::vector<T> Config::GetArray(const std::string& key) {

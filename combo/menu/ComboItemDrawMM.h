@@ -10,6 +10,7 @@
 #define COMBO_ITEM_DRAW_MM_H
 
 #include <cstring>
+#include "ComboExport.h"
 #include "ComboItemDrawABI.h"
 #include "2s2h_assets.h"                                     // custom rando models (triforce, ocarina buttons, ...)
 #include "objects/gameplay_keep/gameplay_keep.h"             // stray-fairy skel/anim + soul flame DL
@@ -67,6 +68,9 @@
 // CwDrawKind: 0 = plain OPA/XLU submission, else a non-portable func the consumer replicates.
 extern "C" s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale,
                                          s32* outXluSeg8TexScroll, s32* outDrawKind);
+
+// Which setup DL the row's func emits (NULL = plain 25). The consumer must submit the same one.
+extern "C" void GetItem_GetDrawSetupDLs(s32 drawId, void** outOpa, void** outXlu);
 
 // --- CW_DRAW_KIND_OPS emitters. Bounds-checked; an overflowing recipe is truncated, never written
 // out of range (the consumer just draws fewer layers).
@@ -645,7 +649,8 @@ static int32_t MM_FillEnemySoulAnim(RandoItemId id, CwItemAnimDrawInfo* out) {
             MM_AnimTexSeg(out, 8, gAlienEyeTex);
             MM_AnimSeg(out, CW_ANIM_SEG_EMPTY_DL, 0x0C); // Scene_SetRenderModeXlu(play, 0, 1)
             MM_AnimEnv(out, 255, 255, 255, 255);
-            out->texAnimPath = gAlienEmptyTexAnim;
+            // gAlienEmptyTexAnim is a type-6 Empty no-op even in MM; describing it only trips the
+            // consumer's texanim validation (sentinel rupee), so it is deliberately not carried.
             break;
         case RI_SOUL_ENEMY_ARMOS:
             MM_AnimEnv(out, 0, 0, 0, 255);
@@ -792,7 +797,7 @@ static bool MM_HasAnimDraw(RandoItemId id) {
     return MM_FillAnimDrawInfo(id, &probe) != 0;
 }
 
-// Cross-game item draw info. OOT resolves this via GetProcAddress to learn which MM display lists
+// Cross-game item draw info. OOT resolves this via Combo_ResolveSym to learn which MM display lists
 // render a foreign item, then submits them through "__OTR__@mm:"-routed paths resolved against
 // MM's ResourceManager (CrossRMRegistry). itemName is the friendly combo-spoiler name the foreign
 // map carries (resolve via GetItemIdFromDisplayName; fall back to the RI_ spoilerName for the
@@ -831,6 +836,7 @@ static bool MM_IsStateDependentDraw(RandoItemId id) {
 }
 
 static int32_t MM_FillItemDrawInfo(RandoItemId id, CwItemDrawInfo* out) {
+    bool progressiveConverted = false;
     // ComboShip (#88): a progressive item's model is the tier the player is owed, not the static base
     // drawId (which is always tier 1 — every Progressive Sword drew a Kokiri Sword). Resolve it the way
     // MM's own drawer does. Runs before the helpers so Progressive Lullaby, which resolves to a song,
@@ -839,15 +845,23 @@ static int32_t MM_FillItemDrawInfo(RandoItemId id, CwItemDrawInfo* out) {
         RandoItemId resolved = Rando::ConvertItem(id);
         if (resolved != RI_UNKNOWN && resolved != id) {
             id = resolved;
+            progressiveConverted = true;
         }
     }
-    // ComboShip: junk/trap are indirections MM resolves at draw time (Rando::DrawItem). We have no
-    // check id here, so the seed-only default is used — the model is stable but may differ from the
-    // one MM itself would pick for this check.
+    // ComboShip: junk/trap are indirections MM resolves at draw time (Rando::DrawItem), with no check
+    // id here to resolve against. Generation now bakes cross-placed junk, so the junk arm is only
+    // reached by an older seed or a plando row that still names the placeholder.
     if (id == RI_JUNK) {
         id = Rando::CurrentJunkItem();
     } else if (id == RI_TRAP) {
         id = Rando::CurrentTrapItem();
+    }
+    // Name follows the same id the model used (so a maxed progressive that fell to junk names the junk item).
+    if (progressiveConverted) {
+        auto nameIt = Rando::StaticData::Items.find(id);
+        if (nameIt != Rando::StaticData::Items.end()) {
+            out->resolvedName = nameIt->second.name;
+        }
     }
     auto it = Rando::StaticData::Items.find(id);
     if (it == Rando::StaticData::Items.end()) {
@@ -887,6 +901,13 @@ static int32_t MM_FillItemDrawInfo(RandoItemId id, CwItemDrawInfo* out) {
     for (int32_t i = 0; i < n; i++) {
         out->dlists[i] = (const char*)dls[i];
     }
+    // Rows drawn under a setup other than 25 (bombchu = 23 Opa, compass glass = 5 Xlu): carry it so
+    // the consumer submits the same GPU state, not its own 25.
+    void* setupOpa = nullptr;
+    void* setupXlu = nullptr;
+    GetItem_GetDrawSetupDLs((s32)it->second.drawId, &setupOpa, &setupXlu);
+    out->setupDlOpa = setupOpa;
+    out->setupDlXlu = setupXlu;
     // ComboShip: some MM item bodies sample an animated segment-8 material their draw func binds via
     // AnimatedMat_Draw (Moon's Tear, fairy bottle). z_draw.c can't carry that across, so report the
     // texanim resource for the consumer to replicate (ComboForeignTexAnim_Run). Matched by DL string
@@ -904,7 +925,7 @@ static int32_t MM_FillItemDrawInfo(RandoItemId id, CwItemDrawInfo* out) {
 
 // Whole body inside the try: we run on OOT's graph thread while MM is dormant, and an unwind across
 // the C ABI into soh.dll is unrecoverable.
-extern "C" __declspec(dllexport) int32_t MM_GetItemDrawInfo(const char* itemName, CwItemDrawInfo* out) {
+extern "C" COMBO_EXPORT int32_t MM_GetItemDrawInfo(const char* itemName, CwItemDrawInfo* out) {
     try {
         if (itemName == nullptr || out == nullptr) {
             return 0;
@@ -931,7 +952,7 @@ extern "C" __declspec(dllexport) int32_t MM_GetItemDrawInfo(const char* itemName
 // parameters — and the host's combo-owned ComboForeignAnim.h does the loading and drawing.
 // Returns 0 for items outside the animated class.
 // Whole body inside the try: an unwind across the C ABI into soh.dll is unrecoverable.
-extern "C" __declspec(dllexport) int32_t MM_GetItemAnimDrawInfo(const char* itemName, CwItemAnimDrawInfo* out) {
+extern "C" COMBO_EXPORT int32_t MM_GetItemAnimDrawInfo(const char* itemName, CwItemAnimDrawInfo* out) {
     try {
         if (itemName == nullptr || out == nullptr) {
             return 0;

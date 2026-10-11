@@ -1,8 +1,9 @@
 name: Release
 
 # Cut a stable release from a v* tag (pushed on the main branch): runs the SAME reusable build
-# pipeline as nightly (build.yml), then publishes a DRAFT GitHub Release with the packaged ZIP
-# attached. Draft so you can review/edit notes before publishing. See docs/UPSTREAM_MERGES.md.
+# pipelines as nightly (build.yml, build-linux.yml — no gate, this is already-merged code), then
+# publishes a DRAFT GitHub Release with the packaged Windows ZIP and Linux AppImage attached.
+# Draft so you can review/edit notes before publishing. See docs/UPSTREAM_MERGES.md.
 
 on:
   push:
@@ -10,13 +11,16 @@ on:
       - 'v*'
 
 jobs:
-  build:
+  windows:
     uses: ./.github/workflows/build.yml
     with:
       release_zip: true # the publish job below attaches this artifact as the Release asset
 
+  linux:
+    uses: ./.github/workflows/build-linux.yml
+
   publish:
-    needs: build
+    needs: [windows, linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the GitHub Release
@@ -27,16 +31,26 @@ jobs:
           name: ComboShip-package-zip
           path: dist
 
-      - name: Name the asset after the tag
+      - name: Download Linux AppImage
+        uses: actions/download-artifact@v4
+        with:
+          name: ComboShip-linux-appimage
+          path: dist
+
+      - name: Name the assets after the tag
         shell: bash
         run: |
           set -euo pipefail
           zip=$(ls dist/*.zip | head -1)
           mv "$zip" "dist/ComboShip-${GITHUB_REF_NAME}-windows.zip"
+          appimage=$(ls dist/ComboShip-*-linux-x86_64.AppImage | head -1)
+          mv "$appimage" "dist/ComboShip-${GITHUB_REF_NAME}-linux-x86_64.AppImage"
 
       - name: Publish draft release
         uses: softprops/action-gh-release@v2
         with:
           draft: true
           generate_release_notes: true
-          files: dist/ComboShip-${{ github.ref_name }}-windows.zip
+          files: |
+            dist/ComboShip-${{ github.ref_name }}-windows.zip
+            dist/ComboShip-${{ github.ref_name }}-linux-x86_64.AppImage

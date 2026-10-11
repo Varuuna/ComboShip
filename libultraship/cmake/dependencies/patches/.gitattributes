@@ -1,0 +1,3 @@
+# Dependency patches must keep their exact byte-for-byte line endings (mixed CRLF/LF hunks
+# matching each patched file); EOL normalization corrupts them so git apply fails on Linux.
+*.patch -text

@@ -7,7 +7,7 @@
       "branch": "port-maintenance",
       "prefix": "libultraship",
       "subtree": "",
-      "mergedSha": "7cb10226e",
+      "mergedSha": "7f9b86a59",
       "mergedDate": "2026-09-28"
     },
     "soh": {
@@ -15,21 +15,21 @@
       "branch": "develop",
       "prefix": "soh",
       "subtree": "soh",
-      "mergedSha": "5a57a0cbc",
-      "mergedDate": "2026-08-01"
+      "mergedSha": "ecd889c20",
+      "mergedDate": "2026-10-06",
+      "mergedTag": "9.3.0"
     },
     "mm": {
       "remote": "https://github.com/2ship2harkinian/2ship2harkinian.git",
       "branch": "develop",
       "prefix": "mm",
       "subtree": "mm",
-      "mergedSha": "8a24047fb",
-      "mergedDate": "2026-09-28",
-      "mergedTag": "5.0.1"
+      "mergedSha": "e8757c14a",
+      "mergedDate": "2026-09-28"
     },
     "ZAPDTR": {
       "manual": true,
-      "_note": "Bumped by hand: neither scripts/upstream-merge.ps1 nor upstream-merge.yml steps 2a-2c handle these (both use a hardcoded libultraship/soh/mm list). manual:true keeps the workflow's detect step from reporting them. Shared by both games; soh and mm both still pin the older ee3397a36.",
+      "_note": "Bumped by hand: neither scripts/upstream-merge.ps1 nor upstream-merge.yml's merge job handles these (both use a hardcoded libultraship/soh/mm list). manual:true keeps the workflow's detect job from reporting them. Shared by both games; soh and mm both still pin the older ee3397a36.",
       "remote": "https://github.com/HarbourMasters/ZAPDTR.git",
       "branch": "develop",
       "prefix": "ZAPDTR",
@@ -46,6 +46,16 @@
       "subtree": "",
       "mergedSha": "c5465ba0b",
       "mergedDate": "2026-07-25"
+    },
+    "torch": {
+      "manual": true,
+      "_note": "Bumped by hand to soh's torch gitlink (soh's .gitmodules); soh-only, mm keeps ZAPDTR/OTRExporter.",
+      "remote": "https://github.com/HarbourMasters/Torch.git",
+      "branch": "main",
+      "prefix": "torch",
+      "subtree": "",
+      "mergedSha": "2ab12fe96",
+      "mergedDate": "2026-09-28"
     }
   }
 }

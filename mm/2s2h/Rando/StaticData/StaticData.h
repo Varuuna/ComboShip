@@ -67,7 +67,14 @@ RandoItemId GetItemIdFromVanillaItemId(u32 itemId);
 u8 GetIconForZMessage(RandoItemId itemId);
 const char* GetIconTexturePath(RandoItemId itemId);
 bool ShouldShowGetItemCutscene(RandoItemId itemId);
+#ifdef COMBO_BUILD
+// livePreview: true only at purchase-preview call sites (shop/Tingle slots) — names a foreign check's
+// LIVE tier instead of the static placeholder, matching the shelf model beside the text.
+std::string GetItemName(RandoItemId randoItemId, bool includeArticle = true, RandoCheckId randoCheckId = RC_UNKNOWN,
+                        bool livePreview = false);
+#else
 std::string GetItemName(RandoItemId randoItemId, bool includeArticle = true, RandoCheckId randoCheckId = RC_UNKNOWN);
+#endif
 std::string GetTrapMessage();
 
 struct RandoStaticOption {

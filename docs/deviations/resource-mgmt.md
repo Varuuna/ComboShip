@@ -177,7 +177,10 @@ mid-recipe, and `CfaDrawFlame` skipping only its flame DL (the flame is `flameSe
 so the model still draws).
 
 **The scope MUST stay narrow.** Both archives share one resource path namespace, so a HOST lookup
-performed under the FOREIGN RM does not fail loudly — it silently returns the WRONG asset. soh's
+performed under the FOREIGN RM does not fail loudly — it silently returns the WRONG asset. (The set
+of colliding paths is inventoried in `asset-collisions.json` and gated by
+`scripts/check-asset-collisions.py` — see the standing policy in
+[../UPSTREAM_MERGES.md](../UPSTREAM_MERGES.md).) soh's
 helper also mangles paths on MQ state, i.e. host state applied to a foreign archive. Wrapping
 `SkelAnime_Draw*`/`Matrix_*`/`OPEN_DISPS` would be worse than the original bug and buys nothing,
 since playback is already covered by the bracket.
@@ -195,7 +198,43 @@ Two alternatives were rejected and should stay rejected:
 **`mm/2s2h/BenPort.cpp` + `soh/soh/ResourceManagerHelpers.cpp` (COMBO_BUILD-guarded):**
 `ResourceMgr_LoadIfDListByName` returns null on a miss instead of dereferencing. Both callers already
 test the return (`stubs.c:163`, `GbiWrap.cpp:48`), so the function's contract already admitted null —
-it just failed to produce it. The sibling `ResourceMgr_LoadTexOrDListByName` has the identical
-unguarded deref but is left alone: no `Cfa*` path reaches it via `gSPSegmentLoadRes` today. The other
-~11 unchecked `GetResourceByName` sites in `BenPort.cpp` are a vendored 2Ship pattern whose callers
-deref unconditionally, so guarding them would relocate the crash rather than fix it.
+it just failed to produce it. The sibling `ResourceMgr_LoadTexOrDListByName` now carries the same
+guard on both hosts (see the pause name-panel entry below — `gSPInvalidateTexCache` reaches it). The
+other ~11 unchecked `GetResourceByName` sites in `BenPort.cpp` are a vendored 2Ship pattern whose
+callers deref unconditionally, so guarding them would relocate the crash rather than fix it.
+
+**`soh/src/overlays/misc/ovl_kaleido_scope/z_kaleido_scope_PAL.c` (COMBO_BUILD-guarded) +
+`ResourceMgr_LoadTexOrDListByName` on both hosts:** OOT's pause menu `malloc`s a fresh, never-freed
+`pauseCtx->nameSegment` on every open, and only `KaleidoScope_UpdateNamePanel` (gated to specific
+pause states) ever writes a name-texture path into it. `KaleidoScope_DrawEquipment` runs
+`gSPInvalidateTexCache(POLY_OPA_DISP++, pauseCtx->nameSegment)` every drawn frame — during the
+opening animation and page rotation too — and that wrapper (`GbiWrap.cpp`, `stubs.c`) sig-checks the
+buffer's **contents** for `__OTR__` and resolves them via `ResourceMgr_LoadTexOrDListByName`. In a
+single-game process a stale `__OTR__` string in recycled heap is at worst a valid host path; under
+ComboShip the same heap has just hosted an MM session, so it can hold an MM resource path that misses
+OOT's RM → `LoadResource` returns null → unguarded `GetInitData()` deref → 0xC0000005. Reproduced
+from a player crash report (v0.3.0, develop `2caad20`, DMC after an MM→OOT return, pause on the
+Equipment page; the export-approx frame `Ship::ControlPort::GetConnectedDevice+0xD` is an ICF alias of
+`IResource::GetInitData`). Fix: `calloc` the buffer so uninitialised memory can never pass the sig
+check, and give `LoadTexOrDListByName` the same null-on-miss contract as `LoadIfDListByName` — its
+GBI callers already tolerate a 0 address.
+
+**Same rule for static foreign draws (2026-10-09):** `MM_DrawForeignSilverRupee`
+(`combo/menu/ComboForeignDrawMM.h`) binds OOT's `gRupeeSilverTex` to seg 8 inside a
+`ResourceManagerScope` on OOT's RM, then brackets the routed DL with `gSPComboRMPush/Pop("oot")`.
+That path exists in both archives, so an unscoped bind would silently draw MM's texture.
+
+## MM transition-actor ids re-normalized on scene load (Woodfall door fix) (2026-08-05)
+
+**Why:** MM's `play->transitionActors.list` aliases the cached LUS scene resource, so the negated
+"already spawned" ids written by `Actor_SpawnTransitionActors` persist across scene loads whenever a
+door's Destroy doesn't restore them. ComboShip's MM→OOT reload (Ctrl+R) cuts the frame loop
+without `Play_Destroy`, skipping every live door's restore, so a door left alive at handoff
+(e.g. Woodfall Temple room 0) never respawns for the rest of the process. `Door_Shutter`
+variants with `room = -1` leak the same way even in stock 2ship. SoH has carried the equivalent fix for
+years (`z_scene_otr.cpp`, `Scene_CommandTransitionActorList`); MM never received it.
+
+**`mm/2s2h/z_scene_2SH.cpp` (COMBO_BUILD-guarded — preserve on future mm merges unless upstreamed):**
+in `Scene_CommandTransiActorList`, `ABS()`-normalize every transition actor id before
+`MapDisp_InitTransitionActorData`. Same code as SoH's fix, wrapped in `#ifdef COMBO_BUILD` with a
+`// ComboShip:` comment.

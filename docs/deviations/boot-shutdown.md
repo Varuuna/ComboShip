@@ -158,6 +158,39 @@ join) dies while everything is mapped, then installs a lus-owned null-sink defau
 late `SPDLOG_*` call stays safe; `luslog()` also null-guards `default_logger_raw()`. Must live in
 lus code — the registry singleton is per-module.
 
+## Foreign-anim caches: cross-DLL shared_ptr teardown (5th X-close crash class, 2026-08-25)
+
+Quitting after a session that DREW at least one foreign MM item model in OOT crashed post-`main()`
+(only the late-crash log showed it). `combo/menu/ComboForeignAnim.h` cached foreign resources in
+function-local statics (`sSkelCache`/`sTexAnimCache`/`sCache`) holding `shared_ptr<Ship::IResource>`
+loaded through the FOREIGN game's RM — so in soh.dll's copy the control blocks and IResource vtables
+live in 2ship.dll (its factories `make_shared` them). The launcher frees 2ship.dll before soh.dll,
+so when soh's static dtors destroyed the caches, `_Ref_count_base::_Decref`'s virtual `_Destroy()`
+dispatched through an unmapped vtable (AV at the `call` through the control-block vtable). Same
+class as the spdlog-registry crash above — a cross-module vtable outliving `FreeLibrary` — held by
+combo-owned code this time.
+
+Fixed entirely in combo-owned code, tied to the registry so no deinit call site can forget it: the
+three caches are hoisted to header scope, and the first cache touch registers a module-local clear
+(`CfaClearCaches`) as a `CrossRMRegistry` teardown listener (`RegisterTeardownListener`, new —
+exported automatically by the generated lus .def). Every `Unregister` — i.e. both games'
+`DeinitOTR`, which run before any `FreeDll` — fires ALL listeners before dropping the RM, so each
+module releases its cross-module refs while every game DLL is still mapped; the second Unregister
+re-fires them onto already-empty maps. Listeners are raw fn pointers into the game DLLs, valid
+because `Unregister` only ever runs during deinit; they fire outside the registry lock (a released
+resource's destructor may re-enter `Get()`). No vendored-file churn.
+
+Diagnosis note: the player's soh.dll was still MAPPED at process exit (its static dtors ran under
+`LdrShutdownProcess`, not at `FreeDll`), i.e. something holds an extra loader ref on soh.dll — prime
+suspect is the statically-linked SDL's `WH_KEYBOARD_LL` hook (`WIN_UpdateKeyboardHook`, the DLL's
+only `SetWindowsHookExW` site), unconfirmed. Immaterial to this fix — the FreeDll order (2ship
+before soh) crashes either way — but it means soh.dll static dtors can ALWAYS run at process exit:
+never let them depend on another game DLL. Frames were recovered without PDBs by downloading the
+matching nightly `ComboShip-windows` artifact, adding the logged displacements to the export RVAs
+(`SOH_NotifyComboReturn`/`SOH_RunGameLoop`), and `objdump -d --start-address` at each RVA; the
+log's unresolved frames sit BELOW the lowest export RVA (dbghelp's nearest-export synthesis fails
+there), which also pins the module base (64K-aligned) and thus the crash PC's RVA.
+
 ## Cross-game erase: deleting a slot wipes both OOT and MM saves (issue #1, 2026-06-19)
 
 **Why:** a ComboShip save *slot* (file 1/2/3) is one combined OOT+MM playthrough, but each game's
@@ -214,8 +247,8 @@ container, since there's no per-game `.sav` to copy).
 **Release-version save gate:** `COMBO_RELEASE_VERSION` (root `CMakeLists.txt`, manual — e.g. `0.1.1`)
 is the sole authority for combosave compatibility, enforced at the launcher container level, not in
 either game. It is compiled into the `ComboShip` target only. Every container write stamps
-`comboRelease`; on load, a container missing it or carrying a different string is renamed aside to a
-timestamped `.bak`, its slot recorded, and a fresh container created. OOT drains the recorded slots on
+`comboRelease`; on load, a container missing it or differing in `major.minor` (patch releases keep
+saves) is renamed aside to a timestamped `.bak`, its slot recorded, and a fresh container created. OOT drains the recorded slots on
 its main thread (`SOH_SetOutdatedSaveNotice` → `Combo_TakeEvictionNotice`) and shows an "Outdated
 ComboShip Save" popup — the launcher never touches ImGui (`Combo_ReadGameSave` may run off-thread). The
 old pin-derived `major.minor.patch` triple + MM git commit hash remain for the in-game banner/diagnostics
@@ -343,6 +376,9 @@ play state at all, and it also fixes the pre-existing frozen-tracker complaint w
 It now returns `bool` so the caller only clears `recalculateAvailable` when the recalc really ran,
 instead of consuming and dropping the request.
 
+A reset or owl-save quit from MM now also fires OOT's `OnExitGame` in `SOH_ResumeGame`; see
+[tracker.md](tracker.md#tracker-teardown-on-reset--quit-to-title-2026-10-10).
+
 ## ComboShip-owned unified ROM extraction (OoT + MM) (2026-06-21)
 
 **Why:** ComboShip needs BOTH an OoT and an MM ROM. The old launcher extracted them headlessly
@@ -382,6 +418,11 @@ Verified: fast path (archives present) boots straight to title unchanged; first-
 extraction screen (`OoT=1 MM=1`). The old `SOH_Extract`/`MM_Extract` exports remain for non-combo use
 but the launcher no longer calls them.
 
+**RETIRED for soh 2026-09-28:** upstream's `CallTorch` returns real success (archive produced AND
+copied) and no longer stages assets in a tempdir or `chdir`s, so Extract.cpp is upstream's. Kept:
+`SOH_StartExtraction` writes `soh_extract_error.log` on failure, and a failed copy removes the partial
+archive. MM's `CallZapd` note below still applies.
+
 **`CallZapd` must return `true` on success (re-survive on every re-vendor).** Upstream `CallZapd`
 returns `false` unconditionally (native flow gates on exceptions, not the return value), but
 `SOH_/MM_StartExtraction` use it as the combo screen's success flag — so a `false` return makes a
@@ -396,6 +437,11 @@ keeps `shipofharkinian.json` for standalone soh) to make the combined nature exp
 first-launch settings import (absent file = fresh install). New combo-owned export `SOH_ApplyImportedConfig`
 installs a launcher-merged config into the live `Config` (`SetBlock` + `Save` + `CVarLoad` + controller
 reload). MM's `2ship2harkinian.json` literals are untouched (standalone-only, off the combo path).
+
+The Context name in the same guarded call is `"ComboShip"` (2026-10-08): LUS builds the window title
+(`ComboShip (DirectX 11)`), the logger name and `logs/ComboShip.log` from it, plus the crash dialog
+title and `logs/ComboShip-crash.dmp`. Ask players for those two files. The headless `comborando`
+Context uses the same name. Per-game boot banners and log prefixes keep their upstream names.
 
 ## MM resume: reset magicLevel like Sram_OpenSave (magic meter outline, 2026-07-03)
 
@@ -424,18 +470,12 @@ compounding defects in `PrintStack`:
    export, and 2ship.dll exports only its handful of `MM_*` combo entry points — so an entire MM call
    chain reports as ~3 names, each wildly far from the real function.
 
-**`libultraship/src/ship/debug/CrashHandler.cpp` (COMBO_BUILD-guarded; upstream preserved verbatim
-under `#else` so future lus merges stay mechanical):**
-- `SymSetOptions` gains `SYMOPT_LOAD_LINES | SYMOPT_UNDNAME`. Without `LOAD_LINES`,
-  `SymGetLineFromAddr` can fail even when PDBs are present, silently degrading Debug builds too.
-- Per frame: reset `displacement` and `symbol->Name[0]`, keep `SymFromAddr`'s result, and print
-  `<unresolved>` when it fails — never a stale name.
-- `symbol->Flags & SYMFLAG_EXPORT` is surfaced as a `~export(approx)` marker. That flag is set exactly
-  when dbghelp invented the name from the export table, i.e. on every Release frame. Defect 3 is
-  unfixable without shipping PDBs, so the fix is to make it *visible* rather than silently trusted.
-- The module lookup is hoisted so **both** print branches carry the real PC, the module path and an
-  RVA. The file/line branch had the same stale-name hazard (it printed `symbol->Name` too), which was
-  the most misleading output of the three: this frame's file and line beside the previous frame's name.
+**RETIRED 2026-09-28 (PrintStack parts):** upstream #1190 fixed defects 1 and 2 the same way (checks
+`SymFromAddr`, clears the name, loads line info, prints `[pc base rva]` on every frame, searches the
+exe dir for PDBs). We took upstream's `PrintStack` as-is and dropped our `~export(approx)` flag, so
+defect 3 (export-table guesses in PDB-less builds) is no longer marked. Only the buffer guards remain.
+
+**`libultraship/src/ship/debug/CrashHandler.cpp` (COMBO_BUILD-guarded, still active):**
 - `AppendStrTrunc` no longer reads past the source string's terminator, and `AppendLine` no longer
   writes its newline unchecked. The latter was a genuine 1-byte heap overflow: `AppendStr` caps the
   index at `gMaxBufferSize - 1`, so `AppendLine` could push it to `gMaxBufferSize` and the next
@@ -461,3 +501,221 @@ price of that; do not "DRY" them.
 produces PDBs for soh/2ship (via the unconditional `/DEBUG` in `mm/CMakeLists.txt`) but **not** for
 libultraship or ComboShip.exe — which is where the crash above actually faulted. PDBs must never ship
 (they are ~5x the download), but they should be generated and archived per tagged release.
+
+## Extraction-screen ROM drop: FileDropMgr early init + backend null-guards (2026-08-08)
+
+**Why:** dragging a ROM onto the extraction screen crashed on a null `this` in
+`FileDropMgr::SetDroppedFile` (reported on the Linux AppImage; reproduced with an injected
+`SDL_DROPFILE`, and the identical latent crash on Windows via `WM_DROPFILES`). Root cause:
+`SOH_InitWindowOnly()` is only the OTRGlobals ctor, but upstream creates the FileDropMgr later in
+`Initialize()` — so for the whole extraction screen (which runs between the two)
+`GetFileDropMgr()` returns null, and both gfx backends called `->SetDroppedFile()` on it
+unguarded. Dropping a ROM there is the natural first move a new player makes.
+
+**`libultraship/src/fast/backends/gfx_sdl2.cpp` + `gfx_dxgi.cpp` (COMBO_BUILD-fenced; upstream
+line preserved verbatim under `#else`):** null-guard around the `SetDroppedFile` call at both
+drop sites (`SDL_DROPFILE` / `WM_DROPFILES`).
+
+**`soh/soh/OTRGlobals.cpp` ctor (COMBO_BUILD-guarded):** `context->InitFileDropMgr()` after
+`InitConsole()`, so the manager exists during the extraction screen. `Initialize()`'s own later
+call is idempotent (`Context::InitFileDropMgr` returns early if one exists), so the full-boot
+path is unchanged.
+
+**combo-owned, no fence (`combo/gui/ComboExtractScreen.cpp`):** the screen registers a drop
+handler for its lifetime and routes dropped files into the OoT/MM slot via the same header-only
+`SOH_ClassifyRom` / `MM_ClassifyRom` callbacks the auto-scan uses — content decides, not
+filename; a drop that classifies for neither game parks in the first unfilled slot so the
+"Not a valid … ROM" line explains what happened. The handler returns true so FileDropMgr skips
+its "Unsupported file dropped" overlay.
+
+Verified end to end on Linux with an `LD_PRELOAD` shim pushing synthetic `SDL_DROPFILE` events:
+the pre-fix segfault reproduced on demand; post-fix, `oot.z64` routes to the OoT slot
+(`SOH_ClassifyRom` accepts, MM never consulted) and `mm.z64` to the MM slot (SOH rejects, then
+`MM_ClassifyRom` accepts). Also verified by hand on Windows: ROMs dragged onto the extraction
+screen route through the `WM_DROPFILES`/DXGI path into the correct slots.
+
+## Three more quit-to-MM-title seams (2026-08-22)
+
+Every path that reaches `TitleSetup_SetupTitleScreen` runs `Sram_InitNewSave()` (a `SAVETYPE_VANILLA`
+wipe) and then fires `OnSaveLoad`, which unregisters every `IS_RANDO` hook. The owl-save seam above
+covered one such path; three others were still unguarded, and all now route through the existing return
+hooks instead. Neither `Combo_RequestOwlSaveQuit()` nor `MM_RequestComboReturn()` stops the gamestate —
+the return hook drives the handoff — so none of these sites may `STOP_GAMESTATE`.
+
+- `z_kaleido_scope_NES.c` **save-prompt state 6** → `Combo_RequestOwlSaveQuit()`. Dead code in this tree;
+  guarded defensively so it cannot resurface as a save wipe.
+- `z_kaleido_scope_NES.c` **game-over Continue → "No"** → `Combo_RequestOwlSaveQuit()`. Vanilla discards
+  unsaved progress here too, so the semantics match. Both sites already set `pauseCtx->state =
+  PAUSE_STATE_OFF` first, so the branch cannot re-fire.
+- `DebugConsole.cpp` **`reset`** → `MM_RequestComboReturn()` (Ctrl+R semantics: persists only when
+  autosave is on). Transitively fixes `Ship_HandleConsoleCrashAsReset` and its callers. The
+  `gGameState == nullptr` early return is kept.
+
+**MM entry is never refused.** The return kinds stay 0/1/2; there is deliberately no "entry failed" kind.
+Nor is it repaired: an unusable MM half is logged loudly, the fail-closed load sentinel keeps stray writes
+and tracker draws off the slot, and play proceeds — re-creating the file is the remedy, and the legacy
+population is retired by the 0.3.0 container gate. See `rando.md` for the load-side failure codes.
+
+## MM owl saves on combo resume (issue #182, 2026-08-24)
+
+**Why:** ComboShip enters MM without a file select — `Setup_InitImpl`'s `COMBO_BUILD` block
+(`mm/src/code/title_setup.c`) hand-rolls a subset of `Sram_OpenSave` and loads through
+`SaveManager_LoadSaveFile`, which read only the `newCycleSave` key. Owl saves (owl statue, Pause Save,
+Autosave) are still written correctly into the sibling `owlSave` key, so both coexist and the resume
+always took the stale one — discarding everything since the last cycle save. Vanilla is fine:
+`Sram_OpenSave` picks the owl page when `fileSelect->isOwlSave[...]` is set, then consumes it.
+
+**The invariant:** *if `owlSave` exists, it is at least as new as `newCycleSave`.* Vanilla holds it
+with `VB_DELETE_OWL_SAVE` on continue plus the `DeleteOwlSave()` hooks on `BeforeEndOfCycleSave` /
+`BeforeMoonCrash`. Combo breaks it because `SaveManager_SaveCurrentForCombo` writes `newCycleSave` from
+11 call sites — four of them while MM is **dormant** and the player is in OOT (cross-item grants,
+Anchor, dormant Triforce credits).
+
+**Fix:** `gComboOwlBlobSlot` (`SaveManager.cpp`, declared in `BenPort.h`'s C-only region) records the
+slot whose owl blob `gSaveContext` descends from.
+
+- `SaveManager_LoadSaveFile` prefers `owlSave` when the key is present — a whole `SaveContext`, so it
+  restores the cycle extras (`eventInf`, bottle timers, `pictoPhotoI5`) that `newCycleSave` lacks.
+  Presence of the key is the discriminator; `save.isOwlSave` is **not** reliable, every owl writer
+  restores it in RAM afterwards. Stays a pure read — the dormant tracker peek shares this function.
+  Its owl branches return the load-failure codes like every other page: a slot with neither key, or an
+  unparseable `owlSave` and no `newCycleSave`, is `-4` (fail-closed sentinel; entry still proceeds).
+- `SaveManager_SaveCurrentForCombo` read-modify-writes: it **refreshes** the blob when the flag matches,
+  otherwise **erases** it. Never leaves it untouched — blanket preservation would let a dormant grant
+  write a newer `newCycleSave` behind a stale blob, and the granted item would vanish. The refresh
+  rewrites the **whole** `SaveContext`, the same shape the owl writer emits: refreshing only `["save"]`
+  would leave the blob's `eventInf` and bottle timers frozen while `save` moved on, a mix no vanilla
+  writer can produce (a bottle timer would then resume against a start time from an earlier process).
+- The new-cycle branch of `SaveManager_SysFlashrom_WriteData` preserves `owlSave`, so it gets the same
+  erase-unless-it-is-ours treatment. Reached by the game-over save prompt and by a pause save with
+  Pause Menu Save off — Song of Time and moon crash are already safe via `DeleteOwlSave`.
+- `MM_InvalidateOwlBlobSlot` clears the flag when the launcher replaces a slot's `mm` section behind
+  MM's back (`EraseComboContainer`, `Combo_CopyContainer`) — it cannot reach a DLL global otherwise.
+- A portal entry arrives in South Clock Town, which runs neither owl-arrival path, so `title_setup.c`
+  clears `save.isOwlSave` there. Left set it would persist into `newCycleSave` and keep owl-save write
+  timing armed for the whole session (a 2s stall and an `eventInf` wipe on every cycle reset).
+- `Combo_ApplyOwlSaveOpen` (`z_sram_NES.c`, next to `Sram_OpenSave` because `sOwlWarpEntrances` is
+  static there) mirrors the owl branch: pause entrance beats owl warp id, the `owlWarpId > OWL_WARP_MAX`
+  quirk is kept verbatim, post-temple swamp/mountain rewrites, scarecrow song.
+- `Combo_MMDropOwlSaveBlob` consumes the blob on continue. `func_80147314` can't be used — it needs
+  `sramCtx->saveBuf` and `gPlayState`, neither of which exists at `Setup_InitImpl`.
+
+**Entry kinds:** an owl blob wins on both, but only a resume follows it to where it was saved; a portal
+entry still arrives at South Clock Town.
+
+**Not a gap:** the combo block never zeroes `eventInf` or resets the timers the way `Sram_OpenSave`'s
+non-owl branch does — it doesn't need to. `Setup_InitImpl` calls `SaveContext_Init()`, which `memset`s
+all of `gSaveContext` on every MM entry. Vanilla only needs those resets because its file select
+re-uses a dirty `gSaveContext`.
+
+**Known hole, left alone:** with Autosave on and Pause Menu Save off, a pause save takes
+`Sram_SetFlashPagesDefault` into the new-cycle branch, which preserves `owlSave` — so a stale autosave
+blob shadows it until the next combo write. Vanilla 2S2H has the identical bug through its file select.
+
+## Flash-save tables indexed with a raw or sentinel `fileNum` (issue #184, 2026-08-26)
+
+**Why:** MM addresses save storage through the `gFlashSave*` / `gFlashOwlSave*` lookup tables in
+`z_sram_NES.c`, whose correct index is `fileNum * FLASH_SAVE_MAIN_MULTIPLIER` (+
+`FLASH_SAVE_BACKUP_OFFSET` for the backup row) — each slot owns two consecutive rows. Two kaleido
+sites dropped the multiplier, so the index still resolved to a *valid but wrong* row: slot 2 wrote
+`file1backup.json` (which `SaveManager_WriteSaveFile` drops under `COMBO_BUILD`, so the save vanished)
+and slot 3 wrote `file2.json`, i.e. slot 2's `mm` section. Upstream's backup write is real, so only a
+ComboShip build loses the write. Separately, four sites indexed with `gSaveContext.fileNum` without
+testing the `0xFF` "no slot" sentinel, reading 255 or 510 entries past 14- and 6-entry arrays. That
+usually just fails the `SaveManager_GetFlashSaveFromPages` reverse lookup and drops the write, but if
+the garbage happens to alias a real (startPage, numPages) pair it resolves a valid `FlashSave` and
+overwrites another slot's `mm` section — deterministic per build, so it can flip on any unrelated
+`.data` change.
+
+ComboShip reaches `0xFF` deliberately: `SaveManager_LoadFailedForCombo` sets it whenever a
+container's `mm` half fails to load, because a failed half is never refused and never repaired — play
+proceeds (see the entry above). `gSaveContext.flashSaveAvailable` is true in that session, so the
+existing `!flashSaveAvailable` guards do not cover it; the `fileNum` test is the only thing that can.
+Playing the Song of Time was enough to hit it: `Sram_SaveEndOfCycle` fires `BeforeEndOfCycleSave` →
+`DeleteOwlSave` → `func_80147314(0xFF)` → two synchronous writes off `gFlashOwlSaveStartPages[510]` on
+a six-entry array. Upstream 2S2H is exposed too (map select and BootToWarpPoint both play with
+`fileNum == 0xFF`), which is why the sibling guards are already commented "Don't let them save if they
+are in debug save" — so these are correctness fixes, not deviations, and none is fenced.
+
+**`mm/src/code/z_sram_NES.c` (unguarded, `// ComboShip:`):** a `fileNum != 0xFF` test around the
+storage access only — never the function entry — in `Sram_SaveSpecialEnterClockTown`,
+`Sram_SaveSpecialNewDay`, `Sram_ResetSaveFromMoonCrash`, and `func_80147314` (which tests its
+`fileNum` argument, so one guard covers both callers). The in-memory transitions these functions
+perform first all still run: the `isFirstCycle`/`isOwlSave` sets, `Sram_SaveEndOfCycle`, the `newf`
+zero-and-restore dance, and the cycle-flag and timer resets. All four use synchronous writes and never
+touch `sramCtx->status`, so skipping leaves only a stale `curPage`/`numPages` that nothing reads while
+`status` is 0 — no save state machine can observe the skip. `Sram_ResetSaveFromMoonCrash` is a
+read/restore rather than a write, so its post-guard invariant is stated explicitly: the live save is
+left exactly as it was and no restore is attempted, since there is nothing to restore from. That
+replaces the old behaviour, where both reads failed and the function still copied the zeroed buffer
+over `gSaveContext.save` — blanking the player's items, hearts and masks in RAM.
+
+**`mm/src/overlays/kaleido_scope/ovl_kaleido_scope/z_kaleido_scope_NES.c` (unguarded,
+`// ComboShip:`):** the missing multiplier on the pause-menu save (Pause Menu Save off) and on the
+game-over "Save" prompt, plus a `fileNum == 255` term added to the game-over prompt's existing
+`!flashSaveAvailable` condition — its pause-save sibling already had that test, this one did not.
+Extending that condition rather than nesting a new `if` routes the skip to `PAUSE_STATE_GAMEOVER_8` —
+the exact state the pre-existing `!flashSaveAvailable` skip already used, so the guard introduces no
+new state. `GAMEOVER_7` would be wrong: it polls `sramCtx->status`, which a skipped write leaves at 0.
+Note that `GAMEOVER_8` does draw the "Saved!" banner (`gPauseSaveConfirmationENGTex`, and
+`GAMEOVER_7` is drawn nowhere), so a no-slot game over claims a save it never made — an upstream quirk
+inherited here, shared with the `!flashSaveAvailable` path and `PAUSE_SAVEPROMPT_STATE_5`, not
+something this guard introduces. Both
+branches are unreachable in this tree — the pause save prompt is only entered behind
+`VB_SAVE_ON_B_BUTTON_IN_PAUSE_MENU`, whose sole hook requires the very CVar the buggy branch tests as
+off, and the game-over prompt needs `GAMEOVER_INACTIVE`, which `z_game_over.c` clears on the frame it
+starts the sequence. Fixed anyway so they cannot resurface as a cross-slot write. Both calls re-wrap
+under clang-format; the formatter was run, nothing was hand-wrapped.
+
+**`combo/ComboShip.cpp` (combo-owned, no fence):** `Combo_ReadGameSave` and `Combo_WriteGameSave` now
+early-out on `!ComboIsValidSlot(fileNum)` like every other container callback. They were the only two
+that skipped it, despite `ComboIsValidSlot`'s own comment saying callbacks reached from a game's
+`gSaveContext.fileNum` must never create a phantom container. With `fileNum == 0xFF`,
+`SaveManager_SaveCurrentForCombo` targeted `file256.json` → slot 255 → a real
+`Save/file256.combosav` on disk; two MM callers reached it unguarded (`BenPort.cpp`'s portal-return
+persist and `CheckQueue.cpp`'s per-check save), while every other caller already tested the sentinel.
+Guarding the boundary closes all of them, present and future, so neither MM caller needed touching.
+
+**Declined residuals.** `Sram_OpenSave`'s `0xFF` branch never assigns `phi_t1`, which then feeds a
+`memcpy` length twice — real, but dead code: its only caller assigns 0-2 one line earlier and combo
+never enters MM file select, and any fix would have to invent the intended index. `func_80147414`
+only ever receives file-select indices, never `gSaveContext.fileNum`. The backup write in
+`func_80147314` uses `gFlashOwlSaveNumPages[...MAIN_MULTIPLIER]` without `+ FLASH_SAVE_BACKUP_OFFSET`
+(upstream's own `//!` note flags it) — a no-op, since both entries are `0x80`, and an upstream
+decomp-accuracy question. The guards test `0xFF` equality rather than a `FILE_NUM_MAX` range, matching
+the six pre-existing sibling guards in `z_message.c`, `MoonCrashSave.cpp` and the pause-save prompt:
+`0xFE` only exists inside a three-statement window in `WarpPoint.cpp` and `0xFEDC` is commented out in
+`z_title.c`, so neither is observable by a save path, and the one place that does want a range check is
+the launcher boundary, where `ComboIsValidSlot` already is one. No assert was added: the obvious
+candidate — checking in `Sram_StartWriteToFlashDefault` that `curPage` matches `gSaveContext.fileNum` —
+would false-fire, because file-select copy/erase/nameset legitimately call it for `copyDestFileIndex`,
+`selectedFileIndex` and the SRAM header. The dead kaleido branches were left in place rather than
+removed, matching the quit-to-title seams above. Also noticed but not touched: the comment at
+`BenPort.cpp`'s `Combo_LoadMMSaveFile` claims the caller rebuilds on a negative code — `title_setup.c`
+discards the return and rebuilds nothing. Not sent upstream.
+
+**`mm/src/code/z_game_over.c` (COMBO_BUILD-guarded):** custom/randomized death-jingle tracks can
+replace `NA_BGM_GAME_OVER` with an arbitrarily long or looping sequence, and
+`GAMEOVER_DEATH_FADE_OUT`'s only exit condition was
+`AudioSeq_GetActiveSeqId(SEQ_PLAYER_FANFARE) != NA_BGM_GAME_OVER` — a replacement that never finishes
+hangs the death sequence forever (confirmed on a live death: jingle still playing, screen black, Link
+motionless, minutes later). Added a combo-owned counter (`sComboFadeOutTimer`, separate from
+`sGameOverTimer` because that one is live on the sibling `Kaleido.GameOver` branch and reused across
+states) that caps the wait at 200 ticks (~10s at the state's 20Hz update rate) and force-stops the
+fanfare (`SEQCMD_STOP_SEQUENCE`) only on the cap path, so a looping replacement can't bleed into the
+next scene; the vanilla condition and the Kaleido branch are untouched.
+
+**`mm/2s2h/SaveManager/SaveManager.cpp` (COMBO_BUILD-guarded, existing fence):** a stalled death (see
+above) could still be interrupted by the player (Ctrl+R) before the fade-out cap fired, and
+`SaveManager_SaveCurrentForCombo` was the only save writer with no "don't persist while dead" guard
+(owl/pause/autosave/Song-of-Time saves all floor or block elsewhere). It now floors health to `0x30` in
+the serialized `newCycleSave` doc (and the refreshed `owlSave` blob, when one is written) whenever
+`gPlayState`'s `gameOverCtx.state != GAMEOVER_INACTIVE` or live health is already 0. Live
+`gSaveContext` and the load path are untouched, so a legitimate low-health owl save still resumes at
+its real health.
+
+## `GIMMCMD` double define (2026-09-28)
+
+LUS `fast/lus_gbi.h` and `libultra/gbi.h` both define `GIMMCMD`. After the soh merge its slimmer
+includes reach `lus_gbi.h` first, so the second define warned under `/WX`. `libultra/gbi.h` `#undef`s it
+first under `COMBO_BUILD`; the resulting definition is the same.

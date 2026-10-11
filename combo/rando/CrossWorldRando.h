@@ -20,6 +20,7 @@
 #include <nlohmann/json.hpp>
 #include "gui/ComboGenProgress.h"
 #include "CrossForeign.h" // for ComboRando::GameId
+#include "SharedItems.h"
 
 namespace ComboRando {
 
@@ -37,6 +38,19 @@ struct CwRng {
         return n ? next() % n : 0;
     }
 };
+
+// MM's junk placeholder as the dump names it. Cross-placed junk is baked into a real item below, so
+// this only reaches a consumer from an older seed or a hand-written plando row.
+inline constexpr const char* kMmJunkName = "Junk";
+
+// FNV-1a over a name, so a per-entry RNG stream can be seeded without touching the fill's own.
+inline uint32_t CwHashName(const std::string& s) {
+    uint32_t h = 2166136261u;
+    for (unsigned char c : s) {
+        h = (h ^ c) * 16777619u;
+    }
+    return h;
+}
 
 template <class T> inline void cwShuffle(std::vector<T>& v, CwRng& rng) {
     for (size_t i = v.size(); i > 1; --i) {
@@ -59,7 +73,7 @@ struct OracleFns {
 
 // ---------- Data types ----------
 
-// Per-game OOT accessibility, mapped from OOT's RSK_LOGIC_RULES + RSK_ALL_LOCATIONS_REACHABLE.
+// Per-game OOT accessibility, mapped from OOT's RSK_NO_LOGIC + RSK_ALL_CHECKS_REACHABLE.
 // MM is always ALL_REACHABLE. See CrossWorldCombinedFill for the per-mode fill/validation behavior.
 //   ALL_REACHABLE  every OOT advancement item lands reachable (default; unchanged behavior)
 //   BEATABLE_ONLY  OOT progression may strand off-path, but the seed stays beatable (ALR-off)
@@ -77,6 +91,54 @@ inline OotAccess OotAccessFromDump(const std::string& sohDumpJson) {
             return OotAccess::BEATABLE_ONLY;
     } catch (...) {}
     return OotAccess::ALL_REACHABLE;
+}
+
+// Combined win condition (#136). hunt=false is the default both-bosses goal; hunt=true wins on
+// `required` Triforce Pieces from EITHER game's pool. These are the friendly names both dumps emit.
+inline constexpr const char* kOotTriforcePiece = "Triforce Piece";
+inline constexpr const char* kMmTriforcePiece = "Piece of the Triforce";
+
+struct CwGoal {
+    bool hunt = false;
+    int required = 0;
+    int total = -1; // combined pieces placed; -1 = unset (seed predates the combo-owned total)
+};
+
+// Even split of the combined total across the two pools; OOT takes the odd piece. -1 passes through
+// so each game keeps its own slider (old seeds).
+inline int CwOotPieces(int total) {
+    return total < 0 ? -1 : total - total / 2;
+}
+inline int CwMmPieces(int total) {
+    return total < 0 ? -1 : total / 2;
+}
+// Ceiling on the combined total. OOT's pool can't absorb its half much past this (100/100 trips
+// item_pool.cpp's itemPool <= locCount assert); 50/50 is verified to generate.
+inline constexpr int kMaxComboTriforcePieces = 100;
+
+inline bool CwIsTriforcePiece(GameId itemGame, const std::string& itemName) {
+    return itemName == (itemGame == GAME_OOT ? kOotTriforcePiece : kMmTriforcePiece);
+}
+
+// How many pieces the two settings-scoped pools actually hold. Logged loudly: the names above are
+// coupled to each game's item table, so a rename would otherwise silently drop that game's pieces.
+inline int CountPoolTriforcePieces(const std::string& sohDumpJson, const std::string& mmDumpJson) {
+    auto countIn = [](const std::string& dump, GameId g) {
+        int n = 0;
+        try {
+            auto d = nlohmann::json::parse(dump);
+            for (const auto& it : d.value("pool", nlohmann::json::array()))
+                n += CwIsTriforcePiece(g, it.value("name", std::string())) ? 1 : 0;
+        } catch (...) {}
+        return n;
+    };
+    const int oot = countIn(sohDumpJson, GAME_OOT);
+    const int mm = countIn(mmDumpJson, GAME_MM);
+    std::cout << "[ComboShip] Triforce Hunt: combined pool holds " << oot << " OOT + " << mm << " MM piece(s)\n";
+    if (oot == 0 || mm == 0)
+        std::cerr << "[ComboShip] Triforce Hunt: WARNING — one game contributes no pieces (slider at 0, or its "
+                     "piece item was renamed)\n";
+    return oot + mm;
 }
 
 // Reuses GameId from CrossForeign.h (GAME_OOT = 0, GAME_MM = 1)
@@ -176,18 +238,22 @@ constexpr int kMaxPrereqTries = 4; // Tier-1 repicks of just the portal prerequi
 // progress: optional thread-safe progress struct polled by the UI. May be nullptr.
 // forcedOotJson: OOT checks the dump can't carry (e.g. Link's Pocket). Each forced item is reserved
 // out of the cross pool, owned-from-start for logic, and appended to the OOT placements.
+// startingGame (#135): GAME_MM roots MM from the start instead of behind the portal; the portal
+// prerequisites are still derived, as the re-entry guarantee for a player who strays into OOT.
 inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson, const std::string& mmDumpJson,
                                                  uint32_t masterSeed, const OracleFns& ootOracle,
                                                  const OracleFns& mmOracle,
                                                  ComboRando::ComboGenProgress* progress = nullptr,
                                                  const std::string& forcedOotJson = "",
-                                                 OotAccess ootAccess = OotAccess::ALL_REACHABLE) {
+                                                 OotAccess ootAccess = OotAccess::ALL_REACHABLE, CwGoal goal = {},
+                                                 GameId startingGame = GAME_OOT, uint32_t sharedMask = 0) {
     CombinedFillResult result;
     result.success = false;
 
     // Portal gate: NO_LOGIC deliberately skips it (an impossible seed is that mode's point). Any other
     // mode without the export would silently fill MM as sphere-0 reachable — the bug this gate fixes.
     const bool portalGated = ootAccess != OotAccess::NO_LOGIC;
+    const bool mmStart = startingGame == GAME_MM;
     if (portalGated && ootOracle.GetPortalOpen == nullptr) {
         result.error = "OOT oracle is missing Combo_SOH_Rando_GetPortalOpen — rebuild soh.dll (the OOT->MM "
                        "portal cannot be gated without it)";
@@ -201,6 +267,8 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     // Checks from "checks", items from the real "pool" (split by advancement), confined
     // pre-placements from "fixed". Falls back to per-check vanillaItem if an old DLL omits "pool".
     std::vector<CwItem> advItems, junkItems;
+    // MM's own pickup-rotation names, for the cross-placed junk bake below.
+    std::vector<std::string> mmJunkNames;
     std::vector<CwCheck> allChecks;
     std::vector<CwPlacement> lockedPlacements; // confined pre-placements (own-dungeon keys, etc.)
 
@@ -245,6 +313,14 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
             }
         }
 
+        // MM's junk rotation set, for the bake below. Absent on an older 2ship.dll -> no bake.
+        if (game == GAME_MM) {
+            for (auto& j : d.value("junkPool", nlohmann::json::array())) {
+                if (j.is_string() && !j.get<std::string>().empty())
+                    mmJunkNames.push_back(j.get<std::string>());
+            }
+        }
+
         // Confined pre-placements: locked to their check, credited to logic when reached. No category —
         // locked items never enter junkItems, so they are never trim candidates.
         for (auto& f : d.value("fixed", nlohmann::json::array())) {
@@ -269,6 +345,23 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                        "progression and refuses to balance the pool — rebuild soh.dll / 2ship.dll";
         std::cerr << "[ComboShip] CrossWorldCombinedFill: " << result.error << "\n";
         return result;
+    }
+    // #135: under an MM start the Mask Shop Key is forced start-with, so a confined placement of it in
+    // fixed[] means the force never reached OOT's settings. Warn only — A0 keeps the portal re-openable.
+    if (mmStart) {
+        bool lockedDoors = false;
+        try {
+            lockedDoors = nlohmann::json::parse(sohDumpJson)
+                              .value("accessibility", nlohmann::json::object())
+                              .value("lockOverworldDoors", false);
+        } catch (...) {}
+        const bool keyPlaced =
+            lockedDoors && std::any_of(lockedPlacements.begin(), lockedPlacements.end(), [](const CwPlacement& p) {
+                return p.item.game == GAME_OOT && p.item.name == "Mask Shop Key";
+            });
+        if (keyPlaced)
+            std::cerr << "[ComboShip] CrossWorldCombinedFill: WARNING — MM start with Lock Overworld Doors, but the "
+                         "Mask Shop Key was confined-placed (Exclude Mask Shop Key was not forced on)\n";
     }
 
     // Forced OOT placements (e.g. Link's Pocket): reserve each item out of the cross pool and treat
@@ -336,6 +429,65 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                 }
             }
         } catch (...) {}
+    }
+
+    // Shared Items (OoTMM-style): trim MM's copies of each effective family; the fixpoint below
+    // mirrors the OOT-owned count back onto MM's oracle. See deviations/rando.md.
+    uint32_t effectiveSharedMask = 0;
+    if (sharedMask != 0) {
+        bool maskQuestShuffle = false;
+        try {
+            maskQuestShuffle = nlohmann::json::parse(sohDumpJson)
+                                   .value("accessibility", nlohmann::json::object())
+                                   .value("maskQuestShuffle", false);
+        } catch (...) {}
+        for (int i = 0; i < SF_COUNT; ++i) {
+            if (!(sharedMask & (1u << i)))
+                continue;
+            const auto& def = SharedFamilyByIndex(i);
+            if (def.isMask && !maskQuestShuffle) {
+                std::cout << "[ComboShip] Shared " << def.key << ": skipped (OOT Shuffle Masks is off)\n";
+                continue;
+            }
+            size_t ootCopies = 0;
+            for (const auto& it : advItems)
+                if (it.game == GAME_OOT && it.name == def.ootName)
+                    ++ootCopies;
+            for (const auto& p : lockedPlacements)
+                if (p.item.game == GAME_OOT && p.item.name == def.ootName)
+                    ++ootCopies;
+            if (ootCopies == 0) {
+                std::cout << "[ComboShip] Shared " << def.key << ": OOT pool has none, left MM copies alone\n";
+                continue;
+            }
+            if (!def.mmHasItem) {
+                // MM has no pool copy of this item — nothing to trim, just mark the family effective.
+                effectiveSharedMask |= (1u << i);
+                std::cout << "[ComboShip] Shared " << def.key << ": MM has no item, not trimmed\n";
+                continue;
+            }
+            std::vector<CwItem> kept;
+            kept.reserve(advItems.size());
+            size_t removed = 0;
+            for (auto& it : advItems) {
+                if (it.game == GAME_MM && it.name == def.mmName) {
+                    ++removed;
+                    continue;
+                }
+                kept.push_back(std::move(it));
+            }
+            advItems = std::move(kept);
+            if (removed == 0) {
+                // Name drift between the two games' pools (see deviations/rando.md) — not fatal, but
+                // loud: this is exactly the bug class that shipped twice during implementation.
+                std::cout << "[ComboShip] Shared " << def.key << ": MM pool has none of '" << def.mmName
+                          << "', not shared\n";
+                continue;
+            }
+            effectiveSharedMask |= (1u << i);
+            std::cout << "[ComboShip] Shared " << def.key << ": trimmed " << removed << " MM '" << def.mmName
+                      << "' (balancer will pad with junk)\n";
+        }
     }
 
     // --- Balance each game's pool against its checks: P_g == C_g ---
@@ -596,13 +748,32 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         mmOwned.insert(mmOwned.end(), mmForcedOwned.begin(), mmForcedOwned.end());
         std::vector<bool> credited(placements.size(), false);
         std::unordered_set<std::string> ootReachable, mmReachable;
-        bool portalOpen = !portalGated; // latched: once OOT can reach the portal it stays open
+        // Latched: once OOT can reach the portal it stays open. An MM start roots MM immediately (#135).
+        bool portalOpen = !portalGated || mmStart;
+        // Shared Items mirror: how many copies of each effective family have already been pushed onto
+        // mmOwned this call, so re-querying doesn't duplicate them as ootOwned grows.
+        size_t sharedGiven[SF_COUNT] = { 0 };
         for (;;) {
             ootReachable = queryReachable(ootOracle, ootOwned);
             // Read the portal off THIS OOT query, before any MM check is credited below — that ordering
             // is what stops the fill proving the portal with an item that lives behind it.
             if (!portalOpen)
                 portalOpen = ootOracle.GetPortalOpen() != 0;
+            if (effectiveSharedMask != 0) {
+                for (int i = 0; i < SF_COUNT; ++i) {
+                    if (!(effectiveSharedMask & (1u << i)))
+                        continue;
+                    const auto& def = SharedFamilyByIndex(i);
+                    if (!def.mmHasItem)
+                        continue; // nothing to push; MM logic doesn't need it
+                    size_t k =
+                        static_cast<size_t>(std::count(ootOwned.begin(), ootOwned.end(), std::string(def.ootName)));
+                    size_t target = std::min<size_t>(k, static_cast<size_t>(def.mmTierCap));
+                    for (size_t n = sharedGiven[i]; n < target; ++n)
+                        mmOwned.push_back(def.mmName);
+                    sharedGiven[i] = target;
+                }
+            }
             mmReachable = portalOpen ? queryReachable(mmOracle, mmOwned) : std::unordered_set<std::string>{};
             bool changed = false;
             for (size_t i = 0; i < placements.size(); ++i) {
@@ -650,6 +821,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         }
 
     for (int pass = 1; pass <= kMaxPasses && !fillOk; ++pass) {
+        if (GenCancelled(progress)) {
+            result.error = "cancelled";
+            return result;
+        }
         passesUsed = pass;
         auto passStart = std::chrono::steady_clock::now();
         auto passMs = [&] {
@@ -670,6 +845,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         std::vector<CwItem> advRest = advItems;
         bool prereqOk = portalPrereqs.empty();
         for (int t = 1; t <= kMaxPrereqTries && !prereqOk; ++t) {
+            if (GenCancelled(progress)) {
+                result.error = "cancelled";
+                return result;
+            }
             placements = lockedPlacements;
             filledChecks.clear();
             for (const auto& lp : lockedPlacements)
@@ -750,6 +929,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
 
         bool deadEnd = false;
         while (!toPlace.empty()) {
+            if (GenCancelled(progress)) {
+                result.error = "cancelled";
+                return result;
+            }
             size_t k = std::min({ batchCap, std::max<size_t>(1, toPlace.size() / 4), toPlace.size() });
 
             std::vector<CwItem> batch;
@@ -909,6 +1092,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
             }
         }
 
+        if (GenCancelled(progress)) {
+            result.error = "cancelled";
+            return result;
+        }
         // Validation: with nothing assumed, sphere-collecting placed items must reach every
         // ADVANCEMENT check (the assumed-fill guarantee). Junk-holding checks may legitimately be
         // oracle-unreachable (oracles under-model, e.g. MM with zeroed save options) — count and log
@@ -944,7 +1131,19 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         // random item, could be unreachable). Names are the friendly forms the OOT/MM oracles return.
         const bool ootWin = ootFinal.count("Ganon") > 0;
         const bool mmWin = mmFinal.count("Moon Majora Pot 01") > 0;
-        bool goalOk = (ootAccess != OotAccess::BEATABLE_ONLY) || (ootWin && mmWin);
+        // Triforce Hunt (#136): the win is `required` pieces from either pool, so count the pieces
+        // sitting on reachable checks instead of the two boss markers.
+        int reachablePieces = 0;
+        if (goal.hunt) {
+            for (const auto& p : placements) {
+                if (CwIsTriforcePiece(p.item.game, p.item.name) &&
+                    (p.check.game == GAME_OOT ? ootFinal : mmFinal).count(p.check.name)) {
+                    ++reachablePieces;
+                }
+            }
+        }
+        bool goalOk = (ootAccess != OotAccess::BEATABLE_ONLY) ||
+                      (goal.hunt ? reachablePieces >= goal.required : (ootWin && mmWin));
         bool needRetry = mmAdvUnreachable > 0 || (ootAccess == OotAccess::ALL_REACHABLE && ootAdvUnreachable > 0) ||
                          (ootAccess == OotAccess::BEATABLE_ONLY && !goalOk);
         if (needRetry) {
@@ -952,8 +1151,10 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
             // logic regression is self-diagnosing instead of a silent all-passes-fail.
             std::string goalStr = ootAccess != OotAccess::BEATABLE_ONLY ? ""
                                   : goalOk                              ? " goal=ok"
-                                           : " goal=UNBEATABLE(ganon=" + std::to_string(ootWin) +
-                                                 " majora=" + std::to_string(mmWin) + ")";
+                                  : goal.hunt ? " goal=UNBEATABLE(pieces=" + std::to_string(reachablePieces) + "/" +
+                                                    std::to_string(goal.required) + ")"
+                                              : " goal=UNBEATABLE(ganon=" + std::to_string(ootWin) +
+                                                    " majora=" + std::to_string(mmWin) + ")";
             lastPassError = "validation failed — mmAdvUnreachable=" + std::to_string(mmAdvUnreachable) +
                             " ootAdvUnreachable=" + std::to_string(ootAdvUnreachable) + goalStr +
                             (mmAdvUnreachable > 0 ? " (MM items stranded: the portal closed mid-fill)" : "");
@@ -975,6 +1176,14 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
             result.error = "OOT All Locations Reachable violated (" + std::to_string(junkUnreachableOot) +
                            " unreachable checks) — reroll for a new entrance layout";
             return result;
+        }
+        // #135: MM start frees the OOT root, so mmAdvUnreachable can't catch a portal that A0's fallback
+        // paths left unopenable. Check directly: a strayed itemless player must always be able to walk back in.
+        if (mmStart && portalGated && !ootClosedFixpoint(placements, {}).portalOpen) {
+            lastPassError = "MM start: the OOT->MM portal is not re-openable from an empty OOT start";
+            std::cerr << "[ComboShip] CrossWorldCombinedFill: " << lastPassError << " (pass " << pass << ", "
+                      << passMs() << " ms) — retrying\n";
+            continue;
         }
         if (ootAdvUnreachable > 0)
             std::cout << "[ComboShip] CrossWorldCombinedFill: " << ootAdvUnreachable
@@ -1006,14 +1215,40 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     }
 
     if (progress) {
-        progress->placed.store(progress->total.load()); // all placed
-        progress->phase.store(3);                       // Finalizing
+        progress->phase.store(3); // Finalizing
+        // Zero the bar: post-fill work (the pare-down) re-stores its own placed/total.
+        progress->placed.store(0);
+        progress->total.store(0);
+    }
+
+    // --- Bake cross-placed MM junk into a real item ---
+    // MM resolves its junk placeholder at pickup from finalSeed + the MM check id, and a check in OOT
+    // has none — so pick from MM's own rotation set here and every surface agrees (see the deviations
+    // doc). Own RNG stream, seeded per check: never draws from the fill's, never depends on order.
+    {
+        std::sort(mmJunkNames.begin(), mmJunkNames.end());
+        mmJunkNames.erase(std::unique(mmJunkNames.begin(), mmJunkNames.end()), mmJunkNames.end());
+        size_t unbaked = 0;
+        for (auto& p : placements) {
+            if (p.check.game != GAME_OOT || p.item.game != GAME_MM || p.item.name != kMmJunkName)
+                continue;
+            if (mmJunkNames.empty()) {
+                ++unbaked;
+                continue;
+            }
+            CwRng jr((static_cast<uint64_t>(masterSeed) << 32) ^ CwHashName(p.check.name) ^ 0x4A554E4BULL);
+            p.item.name = mmJunkNames[jr.below(static_cast<uint32_t>(mmJunkNames.size()))];
+        }
+        if (unbaked > 0)
+            std::cout << "[ComboShip] junk bake skipped for " << unbaked
+                      << " cross placements: 2ship.dll reported no junkPool" << std::endl;
     }
 
     // --- Build spoiler (same shape as the no-logic generator) ---
     nlohmann::json spoiler;
     spoiler["masterSeed"] = masterSeed;
     spoiler["mode"] = "combined-logic assumed-fill";
+    spoiler["startingGame"] = mmStart ? "MM" : "OOT"; // #135
     // poolTrimmed/poolPadded let a shipped spoiler self-report that it came from a balanced fill.
     spoiler["fillStats"] = { { "advancementItems", static_cast<uint32_t>(advItems.size()) },
                              { "junkItems", static_cast<uint32_t>(junkItems.size()) },
@@ -1021,6 +1256,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                              { "poolPadded", static_cast<uint32_t>(paddedTotal) },
                              { "checks", static_cast<uint32_t>(allChecks.size()) },
                              { "passes", passesUsed } };
+    spoiler["sharedItems"] = SharedKeysFromMask(effectiveSharedMask);
 
     nlohmann::json ootPlacements = nlohmann::json::object();
     nlohmann::json mmPlacements = nlohmann::json::object();
@@ -1033,13 +1269,18 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
             mmPlacements[p.check.name] = p.item.name;
         }
         if (p.check.game != p.item.game) {
-            foreignMarkers.push_back({ { "checkGame", p.check.game == GAME_OOT ? "oot" : "mm" },
-                                       { "checkName", p.check.name },
-                                       { "itemGame", p.item.game == GAME_OOT ? "oot" : "mm" },
-                                       { "itemName", p.item.name },
-                                       // Propagate advancement so foreign checks holding an important item
-                                       // still play the held-up pickup animation (else defaulted to junk).
-                                       { "advancement", p.item.advancement } });
+            nlohmann::json marker = { { "checkGame", p.check.game == GAME_OOT ? "oot" : "mm" },
+                                      { "checkName", p.check.name },
+                                      { "itemGame", p.item.game == GAME_OOT ? "oot" : "mm" },
+                                      { "itemName", p.item.name },
+                                      // Propagate advancement so foreign checks holding an important item
+                                      // still play the held-up pickup animation (else defaulted to junk).
+                                      { "advancement", p.item.advancement } };
+            // Native item category, so CMC/CSMC can dress the container as the real item instead of
+            // the junk sentinel. UNKNOWN is omitted so consumers use the advancement fallback.
+            if (p.item.cat != CwCat::UNKNOWN)
+                marker["category"] = CwCatName(p.item.cat);
+            foreignMarkers.push_back(std::move(marker));
         }
     }
 
@@ -1048,9 +1289,21 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     spoiler["mmCount"] = static_cast<uint32_t>(mmPlacements.size());
     spoiler["mm"] = mmPlacements;
     spoiler["foreign"] = foreignMarkers;
+    // Forced placements (e.g. Link's Pocket) are owned at start, so hints must never target them —
+    // the dump's fixed[] skips forced checks, so the spoiler names them for CrossHints instead.
+    nlohmann::json startKnown = nlohmann::json::array();
+    for (const auto& fp : forcedPlacements)
+        startKnown.push_back(
+            { { "checkGame", fp.check.game == GAME_OOT ? "oot" : "mm" }, { "checkName", fp.check.name } });
+    spoiler["startKnown"] = std::move(startKnown);
 
     // --- Commit placements to oracles (for save consumption) ---
     for (const auto& p : placements) {
+        // ComboShip: a foreign item's name lives in the OTHER game's namespace. Baked junk names now
+        // collide with real OOT items ("Blue Rupee"), so committing one would place the wrong native
+        // item at the check instead of harmlessly missing the lookup.
+        if (p.check.game != p.item.game)
+            continue;
         if (p.check.game == GAME_OOT) {
             ootOracle.PlaceItem(p.check.name.c_str(), p.item.name.c_str());
         } else {

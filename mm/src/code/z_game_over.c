@@ -22,6 +22,9 @@ void GameOver_FadeLights(PlayState* play) {
 }
 
 static s16 sGameOverTimer = 0;
+#ifdef COMBO_BUILD
+static s16 sComboFadeOutTimer = 0;
+#endif
 
 void GameOver_Update(PlayState* play) {
     GameOverContext* gameOverCtx = &play->gameOverCtx;
@@ -76,6 +79,9 @@ void GameOver_Update(PlayState* play) {
             gSaveContext.hudVisibilityTimer = 0;
             Environment_InitGameOverLights(play);
             sGameOverTimer = 20;
+#ifdef COMBO_BUILD
+            sComboFadeOutTimer = 0;
+#endif
             Rumble_Request(0.0f, 126, 124, 63);
             gameOverCtx->state = GAMEOVER_DEATH_WAIT_GROUND;
             break;
@@ -91,7 +97,17 @@ void GameOver_Update(PlayState* play) {
                 }
                 break;
             }
+#ifdef COMBO_BUILD
+            // ComboShip: a randomized/looping NA_BGM_GAME_OVER replacement may never clear; cap the
+            // wait (~10s) and stop the fanfare on the cap path only.
+            sComboFadeOutTimer++;
+            if (AudioSeq_GetActiveSeqId(SEQ_PLAYER_FANFARE) != NA_BGM_GAME_OVER || sComboFadeOutTimer > 200) {
+                if (sComboFadeOutTimer > 200) {
+                    SEQCMD_STOP_SEQUENCE(SEQ_PLAYER_FANFARE, 0);
+                }
+#else
             if (AudioSeq_GetActiveSeqId(SEQ_PLAYER_FANFARE) != NA_BGM_GAME_OVER) {
+#endif
                 func_80169F78(play);
                 if (gSaveContext.respawnFlag != -7) {
                     gSaveContext.respawnFlag = -6;

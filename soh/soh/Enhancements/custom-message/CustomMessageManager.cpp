@@ -637,7 +637,7 @@ void CustomMessage::AutoFormatString(std::string& str) const {
     str += MESSAGE_END();
 }
 
-void CustomMessage::InsertNumber(uint8_t num) {
+void CustomMessage::InsertNumber(uint32_t num) {
     for (std::string& str : messages) {
         size_t firstBar = str.find('|');
         if (firstBar != std::string::npos) {

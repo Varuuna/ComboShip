@@ -9,6 +9,8 @@ extern "C" {
 
 #define NO_LAYER ((SequenceLayer*)(-1))
 
+#define FONT_ID_NONE 0xFFFF
+
 #define TATUMS_PER_BEAT 48
 
 #define IS_SEQUENCE_CHANNEL_VALID(ptr) ((uintptr_t)(ptr) != (uintptr_t)&gAudioContext.sequenceChannelNone)
@@ -268,7 +270,7 @@ typedef struct {
     /* 0x002 */ u8 noteAllocPolicy;
     /* 0x003 */ u8 muteBehavior;
     /* 0x004 */ u16 seqId;
-    /* 0x005 */ u8 defaultFont;
+    /* 0x005 */ u16 defaultFont;
     /* 0x006 */ u8 unk_06[1];
     /* 0x007 */ s8 playerIdx;
     /* 0x008 */ u16 tempo; // tatums per minute
@@ -376,7 +378,7 @@ typedef struct SequenceChannel {
     /* 0x04 */ u8 reverb;       // or dry/wet mix
     /* 0x05 */ u8 notePriority; // 0-3
     /* 0x06 */ u8 someOtherPriority;
-    /* 0x07 */ u8 fontId;
+    /* 0x07 */ u16 fontId;
     /* 0x08 */ u8 reverbIndex;
     /* 0x09 */ u8 bookOffset;
     /* 0x0A */ u8 newPan;
@@ -468,7 +470,7 @@ typedef struct {
     /* 0x00F0 */ s16 dummyResampleState[0x10];
 } NoteSynthesisBuffers; // size = 0x110
 
-struct OggOpusFile;
+struct OpusDecState;
 
 typedef struct {
     /* 0x00 */ u8 restart;
@@ -488,7 +490,7 @@ typedef struct {
     /* 0x1A */ u8 unk_1A;
     /* 0x1C */ u16 unk_1C;
     /* 0x1E */ u16 unk_1E;
-    struct OggOpusFile* opusFile; // Only for streamed opus audio
+    struct OpusDecState* opusFile; // Only for streamed opus audio
 } NoteSynthesisState; // size = 0x20
 
 typedef struct {
@@ -507,7 +509,7 @@ typedef struct {
     /* 0x00 */ u8 priority;
     /* 0x01 */ u8 waveId;
     /* 0x02 */ u8 sampleCountIndex;
-    /* 0x03 */ u8 fontId;
+    /* 0x03 */ u16 fontId;
     /* 0x04 */ u8 unk_04;
     /* 0x05 */ u8 stereoHeadsetEffects;
     /* 0x06 */ s16 adsrVolScaleUnused;
@@ -915,7 +917,8 @@ typedef struct {
     /* 0x2B30 */ AudioCache fontCache;
     /* 0x2C40 */ AudioCache sampleBankCache;
     /* 0x2D50 */ AudioAllocPool permanentPool;
-    /* 0x2D60 */ AudioCacheEntry permanentCache[32];
+    // SOH [Bugfix] 32 -> 512: large custom-music packs overflowed this (see AudioHeap_AllocPermanent).
+    /* 0x2D60 */ AudioCacheEntry permanentCache[512];
     /* 0x2EE0 */ AudioSampleCache persistentSampleCache;
     /* 0x3174 */ AudioSampleCache temporarySampleCache;
     /* 0x3408 */ AudioPoolSplit4 sessionPoolSplit;
@@ -1175,7 +1178,7 @@ typedef struct {
     uint8_t medium;
     uint8_t cachePolicy;
     int32_t numFonts;
-    uint8_t fonts[16];
+    uint16_t fonts[16];
 } SequenceData;
 
 void Audio_SetGameVolume(int player_id, f32 volume);

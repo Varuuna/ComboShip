@@ -33,9 +33,6 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
-#ifdef _WIN32
-#include <windows.h>
-#endif
 
 #include "ComboItemDrawABI.h"
 // ComboShip: the animated class, with 2ship.dll as the host (see the shim in ComboForeignAnim.h).
@@ -43,6 +40,7 @@
 #include "ComboForeignAnim.h"
 #include "2s2h/Rando/MiscBehavior/MiscBehavior.h" // Rando::MiscBehavior::MM_LookupForeign
 #include "rando/CrossForeign.h"                   // ComboRando::ForeignItem / GAME_OOT
+#include "ComboResolve.h"                         // Combo_ResolveSym (process-wide combo-ABI resolution)
 
 namespace {
 
@@ -64,6 +62,10 @@ struct ComboForeignDrawInfoOOT {
     int32_t layerPrimMask = 0;
     int32_t layerEnvMask = 0;
     const char* dls[CW_DRAW_MAX_DLISTS] = { nullptr }; // interned "__OTR__@oot:..." routed paths
+    // OOT's own setup DL for each stream (raw Gfx* in soh.dll), or null for our 25 Opa/Xlu.
+    const void* setupDlOpa = nullptr;
+    const void* setupDlXlu = nullptr;
+    const char* segTexPath = nullptr; // OOT's own (unrouted) seg-8 texture path, or null
     // ComboShip: animated class (no static DL row — OOT boss souls' real skeletons). When animOk,
     // anim describes the item and ComboForeignAnim_Draw renders it; paths point at soh.dll statics.
     bool animOk = false;
@@ -71,6 +73,8 @@ struct ComboForeignDrawInfoOOT {
     // Recipe chosen from live save state (progressive tier, Triforce shard, junk/trap) — re-resolve
     // every frame instead of caching, or the first model drawn sticks for the whole save slot.
     bool stateDependent = false;
+    // Resolved tier name (e.g. "Longshot") when a progressive placeholder converted, else empty.
+    std::string resolvedName;
 };
 
 // Routed path strings must outlive the frame (the GBI wrapper emits the raw pointer into the display
@@ -90,11 +94,10 @@ inline ComboForeignResolveOOT ComboFillForeignDrawInfoOOT(RandoCheckId rc, Combo
         return ComboForeignResolveOOT::Unknown;
     }
 
-#ifdef _WIN32
     static Fn_GetItemDrawInfo sGetItemDrawInfo = nullptr;
     if (sGetItemDrawInfo == nullptr) {
-        HMODULE h = GetModuleHandleA("soh.dll"); // already loaded by the exe (ComboMenuModel pattern)
-        sGetItemDrawInfo = h ? (Fn_GetItemDrawInfo)GetProcAddress(h, "OOT_GetItemDrawInfo") : nullptr;
+        // soh already loaded by the exe (ComboMenuModel pattern); resolution is process-wide.
+        sGetItemDrawInfo = (Fn_GetItemDrawInfo)Combo_ResolveSym("soh", "OOT_GetItemDrawInfo");
     }
     if (sGetItemDrawInfo == nullptr) {
         return ComboForeignResolveOOT::NotReady; // soh.dll may simply not be resident yet
@@ -112,8 +115,7 @@ inline ComboForeignResolveOOT ComboFillForeignDrawInfoOOT(RandoCheckId rc, Combo
         // only describes the item; ComboForeignAnim_Draw loads + draws it (mirror of the OOT side).
         static Fn_GetItemAnimDrawInfo sGetItemAnimDrawInfo = nullptr;
         if (sGetItemAnimDrawInfo == nullptr) {
-            HMODULE h = GetModuleHandleA("soh.dll");
-            sGetItemAnimDrawInfo = h ? (Fn_GetItemAnimDrawInfo)GetProcAddress(h, "OOT_GetItemAnimDrawInfo") : nullptr;
+            sGetItemAnimDrawInfo = (Fn_GetItemAnimDrawInfo)Combo_ResolveSym("soh", "OOT_GetItemAnimDrawInfo");
         }
         if (sGetItemAnimDrawInfo == nullptr) {
             return ComboForeignResolveOOT::NotReady;
@@ -146,9 +148,20 @@ inline ComboForeignResolveOOT ComboFillForeignDrawInfoOOT(RandoCheckId rc, Combo
     info.count = n;
     info.xluStart = raw.xluStartIndex;
     info.scale = raw.scale;
+    info.setupDlOpa = raw.setupDlOpa;
+    info.setupDlXlu = raw.setupDlXlu;
+    if (raw.segTexPath != nullptr) {
+        if (strncmp(raw.segTexPath, kOtrPrefix, sizeof(kOtrPrefix) - 1) != 0) {
+            return ComboForeignResolveOOT::Unknown; // bound under OOT's RM below; must be a path literal
+        }
+        info.segTexPath = raw.segTexPath;
+    }
     info.hasEnvColor = raw.hasEnvColor != 0;
     info.drawKind = raw.drawKind;
     info.stateDependent = raw.stateDependent != 0;
+    if (raw.resolvedName != nullptr) {
+        info.resolvedName = raw.resolvedName;
+    }
     info.layerPrimMask = raw.layerPrimMask;
     info.layerEnvMask = raw.layerEnvMask;
     memcpy(info.layerPrimColor, raw.layerPrimColor, sizeof(info.layerPrimColor));
@@ -162,38 +175,84 @@ inline ComboForeignResolveOOT ComboFillForeignDrawInfoOOT(RandoCheckId rc, Combo
     }
     info.ok = true;
     return ComboForeignResolveOOT::Ok;
-#else
-    return ComboForeignResolveOOT::Unknown; // GetProcAddress resolution is Windows-only (ComboMenuModel)
-#endif
+}
+
+// Recipe cache, swept per save slot and per foreign-map generation. Shared by the resolver and the
+// grant-time latch below so both observe the same sweep.
+struct ComboForeignDrawCacheOOT {
+    std::unordered_map<int32_t, ComboForeignDrawInfoOOT> map;
+    int slot = -1;
+    uint64_t gen = (uint64_t)-1;
+};
+
+inline ComboForeignDrawCacheOOT& ComboForeignDrawCacheOOTGet() {
+    static ComboForeignDrawCacheOOT c;
+    int slot = gSaveContext.fileNum;
+    uint64_t gen = Rando::MiscBehavior::ComboRandoGen();
+    if (slot != c.slot || gen != c.gen) {
+        c.map.clear();
+        c.slot = slot;
+        c.gen = gen;
+    }
+    return c;
 }
 
 // Full lookup chain (foreign map -> OOT export -> routed strings), cached per check per slot per
 // foreign-map generation so it runs once per check instead of every frame.
 inline const ComboForeignDrawInfoOOT* ComboResolveForeignDrawInfoOOT(RandoCheckId rc) {
-    static std::unordered_map<int32_t, ComboForeignDrawInfoOOT> sCache;
-    static int sCacheSlot = -1;
-    static uint64_t sCacheGen = (uint64_t)-1;
-    int slot = gSaveContext.fileNum;
-    uint64_t gen = Rando::MiscBehavior::ComboRandoGen();
-    if (slot != sCacheSlot || gen != sCacheGen) {
-        sCache.clear();
-        sCacheSlot = slot;
-        sCacheGen = gen;
-    }
-    auto cached = sCache.find(rc);
-    if (cached != sCache.end() && !cached->second.stateDependent) {
+    ComboForeignDrawCacheOOT& c = ComboForeignDrawCacheOOTGet();
+    auto cached = c.map.find(rc);
+    if (cached != c.map.end() && !cached->second.stateDependent) {
         return cached->second.ok ? &cached->second : nullptr;
     }
     // A state-dependent recipe (progressive tier, Triforce shard, junk/trap) is re-resolved every
     // frame; caching it would freeze whichever model happened to be correct on the first draw.
     ComboForeignDrawInfoOOT info{}; // built locally: a failure must not clobber a live cached recipe
     if (ComboFillForeignDrawInfoOOT(rc, info) == ComboForeignResolveOOT::NotReady) {
-        sCache.erase(rc); // transient — retry next frame instead of freezing the sentinel in
+        c.map.erase(rc); // transient — retry next frame instead of freezing the sentinel in
         return nullptr;
     }
-    ComboForeignDrawInfoOOT& entry = sCache[rc]; // Unknown caches ok=false: one lookup, then sentinel
+    ComboForeignDrawInfoOOT& entry = c.map[rc]; // Unknown caches ok=false: one lookup, then sentinel
     entry = info;
     return entry.ok ? &entry : nullptr;
+}
+
+// ComboShip: freeze this check's recipe at the tier it is ABOUT to grant. The cross-grant mutates
+// OOT's dormant save mid-presentation, so a live re-resolve would flip the held-up model next frame.
+inline void ComboLatchForeignDrawOOT(RandoCheckId rc) {
+    if (rc == RC_UNKNOWN) {
+        return;
+    }
+    ComboForeignDrawCacheOOT& c = ComboForeignDrawCacheOOTGet();
+    ComboForeignDrawInfoOOT info{};
+    if (ComboFillForeignDrawInfoOOT(rc, info) != ComboForeignResolveOOT::Ok) {
+        return; // nothing written, nothing erased: the draw stays live, i.e. no worse than before
+    }
+    if (info.animOk) {
+        return; // that class's state-dependence is a CVar (SimplerBossSoulModels), not save state
+    }
+    info.stateDependent = false; // frozen: the resolver's cache-hit path now serves it verbatim
+    c.map[rc] = info;
+}
+
+// Frozen tier name only: NULL unless latched (stateDependent == false) with a non-empty name. Never
+// serves a live entry, so a pickup can't show the tier the NEXT copy would give.
+inline const char* ComboForeignLatchedNameOOT(RandoCheckId rc) {
+    ComboForeignDrawCacheOOT& c = ComboForeignDrawCacheOOTGet();
+    auto it = c.map.find(rc);
+    if (it == c.map.end() || it->second.stateDependent || it->second.resolvedName.empty()) {
+        return nullptr;
+    }
+    return it->second.resolvedName.c_str();
+}
+
+// Live tier name for previews: runs the same per-frame resolver the shelf model uses.
+inline const char* ComboForeignLiveNameOOT(RandoCheckId rc) {
+    const ComboForeignDrawInfoOOT* info = ComboResolveForeignDrawInfoOOT(rc);
+    if (info == nullptr || info->resolvedName.empty()) {
+        return nullptr;
+    }
+    return info->resolvedName.c_str();
 }
 
 } // namespace
@@ -220,9 +279,12 @@ inline const ComboForeignDrawInfoOOT* ComboResolveForeignDrawInfoOOT(RandoCheckI
 // Mirrors the segment hygiene in ComboForeignAnim.h.
 inline void MM_RestoreForeignSegs(const int32_t* segs, int32_t count) {
     GraphicsContext* gfxCtx = gPlayState->state.gfxCtx;
-    Gfx* empty = (Gfx*)GRAPH_ALLOC(gfxCtx, sizeof(Gfx));
+    // Array of ENDDLs: DLs may call through a bound segment at an index > 0 — see CfaEmptyDL.
+    Gfx* empty = (Gfx*)GRAPH_ALLOC(gfxCtx, 8 * sizeof(Gfx));
     Gfx* e = empty;
-    gSPEndDisplayList(e++);
+    for (int32_t iEmpty = 0; iEmpty < 8; iEmpty++) {
+        gSPEndDisplayList(e++);
+    }
     OPEN_DISPS(gfxCtx);
     for (int32_t i = 0; i < count; i++) {
         gSPSegment(POLY_OPA_DISP++, segs[i], (uintptr_t)empty);
@@ -241,7 +303,14 @@ inline void MM_DrawForeignSimple(const ComboForeignDrawInfoOOT* info) {
         Matrix_Scale(info->scale, info->scale, info->scale, MTXMODE_APPLY);
     }
     if (xs > 0) {
-        Gfx_SetupDL25_Opa(gfxCtx);
+        // OOT's own setup when the row uses one other than 25 (masks/bombchu/medallions = 26, which
+        // is 1-CYCLE without fog). Under MM's 2-cycle 25 those lists' duplicated second cycle wins
+        // and samples TEXEL1 — whatever tile MM last bound — instead of the item's own texture.
+        if (info->setupDlOpa != nullptr) {
+            gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->setupDlOpa);
+        } else {
+            Gfx_SetupDL25_Opa(gfxCtx);
+        }
         MM_FOREIGN_PIN_OPA();
         MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
         if (info->hasEnvColor) {
@@ -252,7 +321,11 @@ inline void MM_DrawForeignSimple(const ComboForeignDrawInfoOOT* info) {
         }
     }
     if (xs < n) {
-        Gfx_SetupDL25_Xlu(gfxCtx);
+        if (info->setupDlXlu != nullptr) { // sold-out sign / compass glass: setup 5, not 25
+            gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->setupDlXlu);
+        } else {
+            Gfx_SetupDL25_Xlu(gfxCtx);
+        }
         MM_FOREIGN_PIN_XLU();
         MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
         if (info->hasEnvColor) {
@@ -283,12 +356,16 @@ inline void MM_DrawForeignGoronSword(const ComboForeignDrawInfoOOT* info) {
     MM_RestoreForeignSegs(segs, 1);
 }
 
-// Deku Nuts: seg8 OPA scroll (GetItem_DrawDekuNuts).
+// Deku Nuts: seg8 OPA scroll (GetItem_DrawDekuNuts). The rando nut bag carries OOT's 26 Opa.
 inline void MM_DrawForeignDekuNuts(const ComboForeignDrawInfoOOT* info) {
     PlayState* play = gPlayState;
     GraphicsContext* gfxCtx = play->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
-    Gfx_SetupDL25_Opa(gfxCtx);
+    if (info->setupDlOpa != nullptr) {
+        gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->setupDlOpa);
+    } else {
+        Gfx_SetupDL25_Opa(gfxCtx);
+    }
     MM_FOREIGN_PIN_OPA();
     gSPSegment(POLY_OPA_DISP++, 0x08,
                (uintptr_t)Gfx_TwoTexScrollEx(gfxCtx, G_TX_RENDERTILE, play->state.frames * 6, play->state.frames * 6,
@@ -598,15 +675,19 @@ inline void MM_DrawForeignBossSoul(const ComboForeignDrawInfoOOT* info) {
 }
 
 // Per-DL prim/env colored layers: the rando map/compass/small-key/boss-key/key-ring/jabber-nut/
-// bombchu-bag/overworld-key funcs, which only differ in which DLs they tint and with what. OOT's
-// 26Opa funcs are approximated as 25Opa (same convention as GetItem_GetDrawTableEntry).
+// bombchu-bag/overworld-key funcs, which only differ in which DLs they tint and with what. Rows
+// authored for another setup (26 Opa, 5 Xlu) carry it in the recipe and it is submitted below.
 inline void MM_DrawForeignColorLayers(const ComboForeignDrawInfoOOT* info) {
     int32_t n = info->count;
     int32_t xs = (info->xluStart < 0 || info->xluStart > n) ? n : info->xluStart;
     GraphicsContext* gfxCtx = gPlayState->state.gfxCtx;
     OPEN_DISPS(gfxCtx);
     if (xs > 0) {
-        Gfx_SetupDL25_Opa(gfxCtx);
+        if (info->setupDlOpa != nullptr) { // Jabber Nut / Bombchu Bag: 26 Opa, 1-cycle
+            gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->setupDlOpa);
+        } else {
+            Gfx_SetupDL25_Opa(gfxCtx);
+        }
         MM_FOREIGN_PIN_OPA();
         MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
         for (int32_t i = 0; i < xs; i++) {
@@ -622,7 +703,11 @@ inline void MM_DrawForeignColorLayers(const ComboForeignDrawInfoOOT* info) {
         }
     }
     if (xs < n) {
-        Gfx_SetupDL25_Xlu(gfxCtx);
+        if (info->setupDlXlu != nullptr) { // compass glass: 5 Xlu
+            gSPDisplayList(POLY_XLU_DISP++, (Gfx*)info->setupDlXlu);
+        } else {
+            Gfx_SetupDL25_Xlu(gfxCtx);
+        }
         MM_FOREIGN_PIN_XLU();
         MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, gfxCtx);
         for (int32_t i = xs; i < n; i++) {
@@ -713,6 +798,42 @@ inline void MM_DrawForeignBronzeScale(const ComboForeignDrawInfoOOT* info) {
     MM_RestoreForeignSegs(segs, 1);
 }
 
+// Silver rupee (NewDrops off): drop rupee DL on OOT's silver texture (Randomizer_DrawSilverRupee).
+// The texture path exists in both archives, so seg 8 is bound under OOT's RM, as CfaBindSeg does.
+inline bool MM_DrawForeignSilverRupee(const ComboForeignDrawInfoOOT* info) {
+    std::shared_ptr<Ship::ResourceManager> rm = Ship::CrossRMRegistry::Get("oot");
+    if (rm == nullptr || info->segTexPath == nullptr) {
+        return false;
+    }
+    GraphicsContext* gfxCtx = gPlayState->state.gfxCtx;
+    bool gray = info->primColorOpa[3] != 0;
+    OPEN_DISPS(gfxCtx);
+    Gfx_SetupDL25_Opa(gfxCtx);
+    MM_FOREIGN_PIN_OPA();
+    if (info->scale > 0.0f) {
+        Matrix_Scale(info->scale, info->scale, info->scale, MTXMODE_APPLY);
+    }
+    MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, gfxCtx);
+    {
+        Ship::ResourceManagerScope rmScope(rm); // gSPSegment probes the path at record time
+        gSPSegment(POLY_OPA_DISP++, 0x08, (uintptr_t)info->segTexPath);
+    }
+    gSPComboRMPush(POLY_OPA_DISP++, "oot");
+    if (gray) {
+        gDPSetGrayscaleColor(POLY_OPA_DISP++, info->primColorOpa[0], info->primColorOpa[1], info->primColorOpa[2], 255);
+        gSPGrayscale(POLY_OPA_DISP++, true);
+    }
+    gSPDisplayList(POLY_OPA_DISP++, (Gfx*)info->dls[0]);
+    if (gray) {
+        gSPGrayscale(POLY_OPA_DISP++, false);
+    }
+    gSPComboRMPop(POLY_OPA_DISP++);
+    CLOSE_DISPS(gfxCtx);
+    int32_t segs[] = { 0x08 };
+    MM_RestoreForeignSegs(segs, 1);
+    return true;
+}
+
 // Draw a foreign (OOT-bound) item's real OOT model at the current model matrix. Any resolution
 // failure falls back to the sentinel blue rupee (the RI_COMBO_FOREIGN item's GID_RUPEE_BLUE), so we
 // never draw blank. Mirrors Randomizer_DrawComboForeign (soh/.../draw.cpp).
@@ -792,6 +913,11 @@ inline void MM_DrawComboForeign(RandoCheckId randoCheckId) {
             break;
         case CW_DRAW_KIND_BRONZE_SCALE:
             MM_DrawForeignBronzeScale(info);
+            break;
+        case CW_DRAW_KIND_SILVER_RUPEE:
+            if (!MM_DrawForeignSilverRupee(info)) {
+                GetItem_Draw(gPlayState, GID_RUPEE_BLUE);
+            }
             break;
         case CW_DRAW_KIND_SIMPLE:
         default:

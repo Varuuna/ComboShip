@@ -25,6 +25,10 @@
 #define MM_NTSC_US_10 0x5354631C
 #define MM_NTSC_US_GC 0xB443EB08
 
+#ifdef COMBO_BUILD
+#include "ComboExport.h"
+#endif
+
 #ifdef __cplusplus
 #include <ship/Context.h>
 
@@ -187,8 +191,15 @@ extern int gComboEntryIsResume;
 void Combo_AdoptOOTGlobalOptions(void);
 // ComboShip (#89): owl save quits to OOT's title instead of MM's own file select.
 void Combo_RequestOwlSaveQuit(void);
-// Load an existing MM save from disk into gSaveContext (C-callable wrapper).
-void Combo_LoadMMSaveFile(int mmFileNum);
+// Load an existing MM save from disk into gSaveContext (C-callable wrapper). 0 = ok; negative = nothing
+// usable was loaded (logged; the load leaves the fail-closed sentinel behind and play still proceeds).
+int Combo_LoadMMSaveFile(int mmFileNum);
+// ComboShip (#182): 1-based MM file whose owlSave blob is what gSaveContext descends from (-1 = none).
+extern int gComboOwlBlobSlot;
+// ComboShip (#182): mirrors Sram_OpenSave's owl branch; resolveEntrance = 0 keeps combo's arrival point.
+void Combo_ApplyOwlSaveOpen(s32 resolveEntrance);
+// ComboShip (#182): vanilla's "consume the owl save on continue" — promotes it, then drops the key.
+void Combo_MMDropOwlSaveBlob(void);
 
 int32_t GetGIID(uint32_t itemID);
 #endif
@@ -198,23 +209,11 @@ extern "C" {
 #endif
 uint64_t GetUnixTimestamp();
 #ifdef COMBO_BUILD
-#ifdef _WIN32
-__declspec(dllexport)
-#endif
-    void MM_SetOnComboReturnCallback(void (*cb)(int kind));
-#ifdef _WIN32
-__declspec(dllexport)
-#endif
-    // Ctrl+R reset while MM is foreground: bounce back to OOT (saves if autosave on) + go dormant.
-    void MM_RequestComboReturn(void);
-#ifdef _WIN32
-__declspec(dllexport)
-#endif
-    void MM_PrepareForTransition(void);
-#ifdef _WIN32
-__declspec(dllexport)
-#endif
-    void MM_ResumeGame(int fileNum);
+COMBO_EXPORT void MM_SetOnComboReturnCallback(void (*cb)(int kind));
+// Ctrl+R reset while MM is foreground: bounce back to OOT (saves if autosave on) + go dormant.
+COMBO_EXPORT void MM_RequestComboReturn(void);
+COMBO_EXPORT void MM_PrepareForTransition(void);
+COMBO_EXPORT void MM_ResumeGame(int fileNum);
 #endif
 void CrashHandler_PrintExt(char* buffer, size_t* pos);
 #ifdef __cplusplus

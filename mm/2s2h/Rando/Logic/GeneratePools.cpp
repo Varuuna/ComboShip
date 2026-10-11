@@ -7,11 +7,29 @@ extern "C" {
 #include "ShipUtils.h"
 }
 
+#ifdef COMBO_BUILD
+extern "C" int gMMComboGoalHunt;
+extern "C" int gMMComboGoalRequired;
+extern "C" int gMMComboGoalPieces;
+#endif
+
 namespace Rando {
 
 namespace Logic {
 
 void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool) {
+#ifdef COMBO_BUILD
+    // ComboShip (#136): the launcher owns the goal, so the hunt toggle follows it (the Majora soul-lock
+    // applies even at 0 MM pieces). REQUIRED is combined and display-only here — the win is combo's.
+    saveInfo.randoSaveOptions[RO_SHUFFLE_TRIFORCE_PIECES] = gMMComboGoalHunt ? RO_GENERIC_YES : RO_GENERIC_NO;
+    if (gMMComboGoalHunt) {
+        saveInfo.randoSaveOptions[RO_TRIFORCE_PIECES_REQUIRED] = (uint32_t)gMMComboGoalRequired;
+        // #136: MM's half of the combined total; -1 = old seed, keep the CVar.
+        if (gMMComboGoalPieces >= 0) {
+            saveInfo.randoSaveOptions[RO_TRIFORCE_PIECES_MAX] = (uint32_t)gMMComboGoalPieces;
+        }
+    }
+#endif
     std::vector<RandoItemId> startingItems = Rando::GetStartingItemsFromSave(saveInfo);
     std::vector<RandoItemId> computedStartingItems = Rando::GetComputedStartingItems(saveInfo);
     startingItems.insert(startingItems.end(), computedStartingItems.begin(), computedStartingItems.end());
@@ -60,6 +78,12 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
                 continue;
             }
 
+            // dungeon items
+            if (StaysAtVanillaCheck(randoStaticCheck.randoItemId, saveInfo)) {
+                saveInfo.randoSaveChecks[randoCheckId].shuffled = true;
+                continue;
+            }
+
             if (randoStaticCheck.randoCheckType == RCTYPE_SKULL_TOKEN) {
                 if (saveInfo.randoSaveOptions[RO_SHUFFLE_GOLD_SKULLTULAS] == RO_GENERIC_NO) {
                     continue;
@@ -69,6 +93,11 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
                     saveInfo.randoSaveChecks[randoCheckId].shuffled = true;
                     continue;
                 }
+            }
+
+            if (randoStaticCheck.randoCheckType == RCTYPE_SONG &&
+                saveInfo.randoSaveOptions[RO_SHUFFLE_SONGS] == RO_SONG_SHUFFLE_VANILLA) {
+                continue;
             }
 
             if (randoStaticCheck.randoCheckType == RCTYPE_OWL &&
@@ -127,7 +156,7 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
             }
 
             if (randoStaticCheck.randoCheckType == RCTYPE_REMAINS &&
-                saveInfo.randoSaveOptions[RO_SHUFFLE_BOSS_REMAINS] == RO_GENERIC_NO) {
+                saveInfo.randoSaveOptions[RO_SHUFFLE_BOSS_REMAINS] == RO_REMAINS_SHUFFLE_VANILLA) {
                 continue;
             }
 
@@ -176,6 +205,11 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
             // place. That leaves an inbalance in the pools that will get sorted automatically if there is enough space.
             if (saveInfo.randoSaveOptions[RO_LOGIC] != RO_LOGIC_VANILLA) {
                 if (std::binary_search(excludedChecks.begin(), excludedChecks.end(), randoCheckId)) {
+                    if (saveInfo.randoSaveOptions[RO_SHUFFLE_SONGS] == RO_SONG_SHUFFLE_SONG_LOCATIONS &&
+                        randoStaticCheck.randoCheckType == RCTYPE_SONG) {
+                        continue;
+                    }
+
                     if (Rando::StaticData::Items[randoStaticCheck.randoItemId].randoItemType != RITYPE_JUNK) {
                         itemPool.push_back(randoStaticCheck.randoItemId);
 
@@ -357,6 +391,10 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
             if (itemPool[i] == RI_SKELETON_KEY) {
                 continue;
             }
+            if (saveInfo.randoSaveOptions[RO_SHUFFLE_SONGS] == RO_SONG_SHUFFLE_SONG_LOCATIONS &&
+                IsSongLocationItem(itemPool[i])) {
+                continue;
+            }
 
             switch (Rando::StaticData::Items[itemPool[i]].randoItemType) {
                 case RITYPE_BOSS_KEY:
@@ -390,6 +428,37 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
         while (trapsToShuffle) {
             itemPool.push_back(RI_TRAP);
             trapsToShuffle--;
+        }
+    }
+
+    if (saveInfo.randoSaveOptions[RO_SHUFFLE_SONGS] == RO_SONG_SHUFFLE_SONG_LOCATIONS) {
+        size_t songItems = std::count_if(itemPool.begin(), itemPool.end(), IsSongLocationItem);
+
+        std::vector<RandoCheckId> songChecks;
+        for (RandoCheckId checkId : checkPool) {
+            if (Rando::StaticData::Checks[checkId].randoCheckType == RCTYPE_SONG) {
+                songChecks.push_back(checkId);
+            }
+        }
+
+        for (size_t i = 0; i < songChecks.size(); i++) {
+            std::swap(songChecks[i], songChecks[Ship_Random(0, songChecks.size())]);
+        }
+
+        // we want to junk the song of healing check first, people normally start with SoT so we don't want
+        // them getting two free songs at the start of every seed.
+        auto healing = std::find(songChecks.begin(), songChecks.end(), RC_STARTING_ITEM_SONG_OF_HEALING);
+        if (healing != songChecks.end()) {
+            std::swap(songChecks[0], *healing);
+        }
+
+        size_t surplusLocations = songChecks.size() - songItems;
+        for (size_t i = 0; i < surplusLocations; i++) {
+            auto& randoSaveCheck = saveInfo.randoSaveChecks[songChecks[i]];
+            randoSaveCheck.shuffled = true;
+            randoSaveCheck.randoItemId = RI_JUNK;
+            randoSaveCheck.skipped = true;
+            checkPool.erase(std::find(checkPool.begin(), checkPool.end(), songChecks[i]));
         }
     }
 }

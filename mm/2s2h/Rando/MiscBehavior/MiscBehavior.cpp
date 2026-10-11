@@ -27,6 +27,24 @@ void Rando::MiscBehavior::OnFileLoad() {
     COND_HOOK(OnSceneInit, IS_RANDO, Rando::MiscBehavior::OnSceneInit);
     COND_ID_HOOK(OnActorUpdate, ACTOR_PLAYER, IS_RANDO, [](Actor* actor) { Rando::MiscBehavior::CheckQueue(); });
 
+#ifdef COMBO_BUILD
+    // ComboShip: a key delivered by vanilla Item_Give (an unshuffled small-key check) bumps only
+    // inventory.dungeonKeys, and the Song of Time restore then truncates keys to the stale rando mirror.
+    COND_ID_HOOK(OnItemGive, ITEM_KEY_SMALL, IS_RANDO, [](u8 item) {
+        // Outside a dungeon/boss scene mapIndex is the overworld minimap index, which aliases key indices.
+        if (gPlayState == NULL || !Map_IsInDungeonOrBossScene(gPlayState)) {
+            return;
+        }
+        s32 index = gSaveContext.mapIndex;
+        if (index < 0 || index > DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE) {
+            return;
+        }
+        if (gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[index] < DUNGEON_KEY_COUNT(index)) {
+            gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[index] = DUNGEON_KEY_COUNT(index);
+        }
+    });
+#endif
+
     // This overrides the ocarina condition for Termina Field
     COND_VB_SHOULD(VB_TERMINA_FIELD_BE_EMPTY, IS_RANDO, { *should = false; });
 

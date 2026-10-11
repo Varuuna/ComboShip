@@ -20,12 +20,14 @@ static void UpdateTimeSpeedOffset(PauseContext* pauseCtx) {
     // - The player is moving (since that's the basis of this enhancement)
     // - The player is playing the Ocarina (so that Inverted SoT still works properly)
     // - The player is choosing whether to save at an Owl Statue (so that it doesn't save the wrong time speed)
+    // - The Cremia's Milk Run minigame has started (to prevent a softlock)
     // - The pause menu save prompt is open (so that Pause Save doesn't either)
     // - The Game Over save prompt is open (not reachable right now, but there for future-proofing)
     bool timeShouldMove =
         (player->stateFlags2 & PLAYER_STATE2_USING_OCARINA) || player->speedXZ != 0.0f ||
         (Message_GetState(&gPlayState->msgCtx) == TEXT_STATE_CHOICE && gPlayState->msgCtx.currentTextId == 0xC01) ||
-        pauseCtx->state == PAUSE_STATE_SAVEPROMPT || pauseCtx->state == PAUSE_STATE_GAMEOVER_SAVE_PROMPT;
+        CHECK_WEEKEVENTREG(WEEKEVENTREG_31_80) || pauseCtx->state == PAUSE_STATE_SAVEPROMPT ||
+        pauseCtx->state == PAUSE_STATE_GAMEOVER_SAVE_PROMPT;
 
     if (timeShouldMove && sStoredTimeOffset != DEFAULT_TIME_OFFSET) {
         gSaveContext.save.timeSpeedOffset = sStoredTimeOffset;

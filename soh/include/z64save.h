@@ -4,7 +4,7 @@
 #include <libultraship/libultra.h>
 #include "z64math.h"
 #include "z64audio.h"
-#include "soh/Enhancements/randomizer/randomizerTypes.h"
+#include "soh/Enhancements/randomizer/randomizerEnums.h"
 #include "soh/Enhancements/gameplaystats.h"
 #include "soh/Enhancements/randomizer/randomizer_entrance.h"
 #include "soh/Enhancements/boss-rush/BossRush.h"
@@ -227,6 +227,28 @@ typedef struct {
 typedef struct ShipRandomizerSaveContextData {
     u8 triforcePiecesCollected;
     u8 bombchuUpgradeLevel;
+    s8 silverShadowBlades;
+    s8 silverShadowPit;
+    s8 silverShadowSpikes;
+    s8 silverSpiritChild;
+    s8 silverSpiritSun;
+    s8 silverSpiritBoulders;
+    s8 silverBotw;
+    s8 silverIceCavernBlades;
+    s8 silverIceCavernBlock;
+    s8 silverGtgSlope;
+    s8 silverGtgLava;
+    s8 silverGtgWater;
+    s8 silverGanonLight;
+    s8 silverGanonForest;
+    s8 silverGanonFire;
+    s8 silverGanonSpirit;
+    s8 silverMqDodongosCavern;
+    s8 silverMqShadowInvisibleBlades;
+    s8 silverMqSpiritLobby;
+    s8 silverMqSpiritBigWall;
+    s8 silverMqGanonWater;
+    s8 silverMqGanonShadow;
 } ShipRandomizerSaveContextData;
 
 typedef struct ShipBossRushSaveContextData {
@@ -381,12 +403,17 @@ typedef enum {
     /* 01 */ QUEST_MASTER,
     /* 02 */ QUEST_RANDOMIZER,
     /* 03 */ QUEST_BOSSRUSH,
+    /* 04 */ QUEST_SPEEDRUN,
+    /* 05 */ QUEST_SPEEDRUN_MASTER,
 } Quest;
 
-#define IS_VANILLA (gSaveContext.ship.quest.id == QUEST_NORMAL)
-#define IS_MASTER_QUEST (gSaveContext.ship.quest.id == QUEST_MASTER)
+#define IS_VANILLA (gSaveContext.ship.quest.id == QUEST_NORMAL || gSaveContext.ship.quest.id == QUEST_SPEEDRUN)
+#define IS_MASTER_QUEST \
+    (gSaveContext.ship.quest.id == QUEST_MASTER || gSaveContext.ship.quest.id == QUEST_SPEEDRUN_MASTER)
 #define IS_RANDO (gSaveContext.ship.quest.id == QUEST_RANDOMIZER)
 #define IS_BOSS_RUSH (gSaveContext.ship.quest.id == QUEST_BOSSRUSH)
+#define IS_SPEEDRUN \
+    (gSaveContext.ship.quest.id == QUEST_SPEEDRUN || gSaveContext.ship.quest.id == QUEST_SPEEDRUN_MASTER)
 
 typedef enum {
     /* 0x00 */ BTN_ENABLED,

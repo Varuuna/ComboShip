@@ -19,6 +19,7 @@ extern "C" {
 
 #define FIRST_GS_MESSAGE 0x20D1
 #define SECOND_GS_MESSAGE 0x20C0
+#define MOON_GS_MASK_MESSAGE 0x20D4
 
 std::vector<std::string> flavorText = {
     "Good luck on your journey ...",
@@ -91,14 +92,28 @@ s32 GetNormalizedCost() {
     return MAX(10, MIN(250, 10 + (obtainedChecks * (250 - 10)) / (maxChecks)));
 }
 
-// outForeignText: ComboShip out-param — set when the pick lands on a cross-game (OOT) hint, which
-// has no RandoCheckId. Caller must display it directly instead of resolving a check/item name.
-RandoCheckId GetRandomCheck(bool repeatableOnlyObtained = false, std::string* outForeignText = nullptr) {
+EnGs* GetGossipStone() {
     Player* player = GET_PLAYER(gPlayState);
     if (player->talkActor == nullptr || player->talkActor->id != ACTOR_EN_GS) {
+        return nullptr;
+    }
+    return (EnGs*)player->talkActor;
+}
+
+bool ShouldHintMoonMask(EnGs* enGs) {
+    return RANDO_SAVE_OPTIONS[RO_HINTS_MOON_GOSSIP_STONES] && enGs != nullptr && enGs->actor.params == ENGS_0 &&
+           enGs->unk_195 >= 1 && enGs->unk_195 <= 20; // 20 moon gossip stones
+}
+
+// outForeignText: ComboShip out-param — set when the pick lands on a cross-game (OOT) hint, which
+// has no RandoCheckId. Caller must display it directly instead of resolving a check/item name.
+// outForeignIndex: ComboShip (#164) report-only out-param — that hint's gossipPool index.
+RandoCheckId GetRandomCheck(bool repeatableOnlyObtained = false, std::string* outForeignText = nullptr,
+                            int* outForeignIndex = nullptr) {
+    EnGs* enGs = GetGossipStone();
+    if (enGs == nullptr) {
         return RC_UNKNOWN;
     }
-    EnGs* enGs = (EnGs*)player->talkActor;
 
     u32 strength = RANDO_SAVE_OPTIONS[RO_HINTS_GOSSIP_STONE_STRENGTH];
 
@@ -172,30 +187,100 @@ RandoCheckId GetRandomCheck(bool repeatableOnlyObtained = false, std::string* ou
             if (outForeignText) {
                 *outForeignText = comboTexts[comboIdx];
             }
+            if (outForeignIndex) {
+                *outForeignIndex = (int)comboIdx;
+            }
             return RC_UNKNOWN;
         }
     }
     return weightedChecks.empty() ? RC_UNKNOWN : weightedChecks.back().first;
 }
 
-void Rando::ActorBehavior::InitEnGsBehavior() {
-    bool shouldRegister =
-        IS_RANDO && (RANDO_SAVE_OPTIONS[RO_HINTS_GOSSIP_STONES] || RANDO_SAVE_OPTIONS[RO_HINTS_PURCHASEABLE]);
+#ifdef COMBO_BUILD
+// ComboShip (#164): combo Hint Tracker reveal sink (the launcher registers it, see BenPort.cpp).
+extern "C" void (*gMMComboHintReveal)(int fileNum, int kind, int poolIndex, const char* key, const char* text);
 
-    COND_VB_SHOULD(VB_GS_CONSIDER_MASK_OF_TRUTH_EQUIPPED, shouldRegister, { *should = true; });
+// Report a stone hint the game is about to display: a cross-game pool pick by index (kind 0), or a
+// native MM check by its combo-spoiler name (kind 1, plain text — no color codes). A trap check's
+// disguise name re-rolls per scene init, so the launcher dedupes kind 1 on the check name alone.
+static void ComboReportStoneHint(int poolIndex, RandoCheckId rc, bool showExact) {
+    if (gMMComboHintReveal == nullptr || gSaveContext.fileNum == 0xFF) {
+        return;
+    }
+    if (poolIndex >= 0) {
+        gMMComboHintReveal(gSaveContext.fileNum, 0, poolIndex, "", "");
+        return;
+    }
+    if (rc == RC_UNKNOWN) {
+        return;
+    }
+    const std::string& display = Rando::StaticData::GetCheckDisplayName(rc);
+    const std::string key = display.empty() ? Rando::StaticData::CheckNames[rc] : display;
+    const std::string text = Rando::StaticData::GetItemName(RANDO_SAVE_CHECKS[rc].randoItemId, true, rc) +
+                             " is hidden " + Rando::StaticData::GetLocationNameForHint(rc, showExact);
+    gMMComboHintReveal(gSaveContext.fileNum, 1, -1, key.c_str(), text.c_str());
+}
+#else
+static void ComboReportStoneHint(int, RandoCheckId, bool) {
+}
+#endif
+
+// ComboShip: the mask may sit in OOT; resolve it combo-aware and report to the Hint Tracker. Kept
+// out of the hook macro: an #ifdef inside a macro argument doesn't compile on MSVC.
+static std::string MoonMaskLocationHint(RandoItemId randoItemId, RandoCheckId randoCheckId) {
+#ifdef COMBO_BUILD
+    ComboReportStoneHint(-1, randoCheckId, false);
+    return Rando::GetItemLocationHintName(randoItemId, false);
+#else
+    return Rando::StaticData::GetLocationNameForHint(randoCheckId, false);
+#endif
+}
+
+void Rando::ActorBehavior::InitEnGsBehavior() {
+    bool randomHints =
+        IS_RANDO && (RANDO_SAVE_OPTIONS[RO_HINTS_GOSSIP_STONES] || RANDO_SAVE_OPTIONS[RO_HINTS_PURCHASEABLE]);
+    bool moonMaskHints = IS_RANDO && RANDO_SAVE_OPTIONS[RO_HINTS_MOON_GOSSIP_STONES];
+
+    COND_VB_SHOULD(VB_GS_CONSIDER_MASK_OF_TRUTH_EQUIPPED, randomHints, { *should = true; });
+
+    COND_VB_SHOULD(VB_GS_CONSIDER_MASK_OF_TRUTH_EQUIPPED, moonMaskHints, {
+        if (ShouldHintMoonMask(va_arg(args, EnGs*))) {
+            *should = true;
+        }
+    });
 
     // Override the message ID so that we can control the text
-    COND_VB_SHOULD(VB_GS_CONTINUE_TEXTBOX, shouldRegister, {
+    COND_VB_SHOULD(VB_GS_CONTINUE_TEXTBOX, randomHints, {
+        // Moon stones have a mask hint of their own, which takes priority
+        if (ShouldHintMoonMask(va_arg(args, EnGs*))) {
+            return;
+        }
+
         *should = false;
         Message_ContinueTextbox(gPlayState, SECOND_GS_MESSAGE);
     });
 
-    COND_ID_HOOK(OnOpenText, FIRST_GS_MESSAGE, shouldRegister, [](u16* textId, bool* loadFromMessageTable) {
+    COND_VB_SHOULD(VB_GS_CONTINUE_TEXTBOX, moonMaskHints, {
+        if (!ShouldHintMoonMask(va_arg(args, EnGs*))) {
+            return;
+        }
+
+        *should = false;
+        Message_ContinueTextbox(gPlayState, MOON_GS_MASK_MESSAGE);
+    });
+
+    COND_ID_HOOK(OnOpenText, FIRST_GS_MESSAGE, randomHints, [](u16* textId, bool* loadFromMessageTable) {
+        // Moon stones keep their vanilla opening line and answer with a mask hint instead
+        if (ShouldHintMoonMask(GetGossipStone())) {
+            return;
+        }
+
         auto entry = CustomMessage::LoadVanillaMessageTableEntry(*textId);
 
         if (RANDO_SAVE_OPTIONS[RO_HINTS_GOSSIP_STONES]) {
             std::string foreignText; // ComboShip: set when the pick is a cross-game (OOT) hint
-            RandoCheckId randoCheckId = GetRandomCheck(false, &foreignText);
+            int foreignIndex = -1;   // ComboShip (#164): its gossipPool index, for the Hint Tracker
+            RandoCheckId randoCheckId = GetRandomCheck(false, &foreignText, &foreignIndex);
             if (randoCheckId == RC_UNKNOWN && foreignText.empty()) {
                 return;
             }
@@ -204,6 +289,7 @@ void Rando::ActorBehavior::InitEnGsBehavior() {
 
             if (!foreignText.empty()) {
                 entry.msg = "They say " + foreignText + ".";
+                ComboReportStoneHint(foreignIndex, RC_UNKNOWN, false);
             } else {
                 auto& saveCheck = RANDO_SAVE_CHECKS[randoCheckId];
 
@@ -218,6 +304,7 @@ void Rando::ActorBehavior::InitEnGsBehavior() {
                                        Rando::StaticData::GetItemName(saveCheck.randoItemId, true, randoCheckId));
                 CustomMessage::Replace(&entry.msg, "{{location}}",
                                        Rando::StaticData::GetLocationNameForHint(randoCheckId, showExact));
+                ComboReportStoneHint(-1, randoCheckId, showExact);
             }
 
             // Replace colors before line break calculation
@@ -246,7 +333,7 @@ void Rando::ActorBehavior::InitEnGsBehavior() {
         *loadFromMessageTable = false;
     });
 
-    COND_ID_HOOK(OnOpenText, SECOND_GS_MESSAGE, shouldRegister, [](u16* textId, bool* loadFromMessageTable) {
+    COND_ID_HOOK(OnOpenText, SECOND_GS_MESSAGE, randomHints, [](u16* textId, bool* loadFromMessageTable) {
         MessageContext* msgCtx = &gPlayState->msgCtx;
         auto entry = CustomMessage::LoadVanillaMessageTableEntry(*textId);
 
@@ -271,6 +358,7 @@ void Rando::ActorBehavior::InitEnGsBehavior() {
 
                     gSaveContext.rupeeAccumulator -= cost;
                     cost *= 2;
+                    ComboReportStoneHint(-1, randoCheckId, true); // paid for, so it really displays
                 }
             } else {
                 entry.msg = "Foolish... Come back later when you have more sense.";
@@ -278,6 +366,25 @@ void Rando::ActorBehavior::InitEnGsBehavior() {
         } else {
             entry.msg = flavorText[Ship_Random(0, flavorText.size())];
         }
+
+        CustomMessage::LoadCustomMessageIntoFont(entry);
+        *loadFromMessageTable = false;
+    });
+
+    COND_ID_HOOK(OnOpenText, MOON_GS_MASK_MESSAGE, moonMaskHints, [](u16* textId, bool* loadFromMessageTable) {
+        EnGs* enGs = GetGossipStone();
+        if (!ShouldHintMoonMask(enGs)) {
+            return;
+        }
+
+        RandoItemId randoItemId = Rando::StaticData::GetItemIdFromVanillaItemId(ITEM_MASK_TRUTH + enGs->unk_195 - 1);
+        RandoCheckId randoCheckId = Rando::FindItemPlacement(randoItemId);
+
+        auto entry = CustomMessage::LoadVanillaMessageTableEntry(*textId);
+        entry.msg = "They say %g{{item}}%w is hidden %y{{location}}%w...";
+
+        CustomMessage::Replace(&entry.msg, "{{item}}", Rando::StaticData::GetItemName(randoItemId));
+        CustomMessage::Replace(&entry.msg, "{{location}}", MoonMaskLocationHint(randoItemId, randoCheckId));
 
         CustomMessage::LoadCustomMessageIntoFont(entry);
         *loadFromMessageTable = false;

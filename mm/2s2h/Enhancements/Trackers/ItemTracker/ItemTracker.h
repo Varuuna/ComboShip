@@ -37,6 +37,7 @@ extern std::vector<TrackerGroup> itemTrackerGroups;
 extern u32 GetVanillaItemIdForSlot(u32 slot);
 extern bool DrawItemTrackerSlot(TrackerItemType itemType, u32 itemId, float scale, bool clickable);
 extern std::string GetItemTrackerItemName(TrackerItemType itemType, u32 itemId);
+extern float GetItemTrackerGroupScale(const TrackerGroup& trackerGroup);
 
 class ItemTrackerWindow : public Ship::GuiWindow {
   public:

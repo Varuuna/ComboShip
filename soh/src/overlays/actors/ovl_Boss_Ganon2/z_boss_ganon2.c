@@ -61,6 +61,7 @@ const ActorInit Boss_Ganon2_InitVars = {
 };
 
 #include "z_boss_ganon2_data.c"
+#include <libultraship/bridge/consolevariablebridge.h>
 
 static Vec3f D_8090EB20;
 
@@ -263,8 +264,7 @@ void func_808FD5F4(BossGanon2* this, PlayState* play) {
                 sZelda->actor.world.pos.z = -214.0f;
                 sZelda->actor.shape.rot.y = -0x7000;
 
-                // In rando, skip past the cutscene to the part where the player takes control again.
-                if (!IS_RANDO && !IS_BOSS_RUSH) {
+                if (GameInteractor_Should(VB_PLAY_ESCAPED_TOWER_CS, true, this)) {
                     this->csState = 1;
                     this->csTimer = 0;
                 } else {
@@ -401,6 +401,9 @@ void func_808FD5F4(BossGanon2* this, PlayState* play) {
                 this->subCamId = Play_CreateSubCamera(play);
                 Play_ChangeCameraStatus(play, CAM_ID_MAIN, CAM_STAT_WAIT);
                 Play_ChangeCameraStatus(play, this->subCamId, CAM_STAT_ACTIVE);
+                if (!GameInteractor_Should(VB_PLAY_GANON_INTRO_CS, true, this, sZelda)) {
+                    break;
+                }
             } else {
                 break;
             }
@@ -1882,13 +1885,14 @@ void func_8090120C(BossGanon2* this, PlayState* play) {
         case 20:
 #ifdef COMBO_BUILD
             // ComboShip: gate the ending on both bosses. If Majora isn't dead yet, skip OOT's credits
-            // and warp Link (as child) to the Happy Mask Shop portal to go finish MM.
+            // and warp Adult to the Temple of Time adult spawn — the pedestal is the route to Child
+            // and the Mask Shop portal to go finish MM.
             if (gComboFinalBossDefeated == NULL || !gComboFinalBossDefeated(0, gSaveContext.fileNum)) {
-                play->nextEntranceIndex = ENTR_MARKET_DAY_OUTSIDE_HAPPY_MASK_SHOP;
+                play->nextEntranceIndex = ENTR_TEMPLE_OF_TIME_WARP_PAD;
                 gSaveContext.nextCutsceneIndex = 0xFFEF;
                 play->transitionTrigger = TRANS_TRIGGER_START;
                 play->transitionType = TRANS_TYPE_FADE_WHITE;
-                play->linkAgeOnLoad = 0;
+                play->linkAgeOnLoad = LINK_AGE_ADULT;
                 break;
             }
 #endif

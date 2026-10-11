@@ -5,7 +5,9 @@
 #include "ship/resource/CrossRMRegistry.h"
 #include "ship/Context.h"
 
+#include <algorithm>
 #include <shared_mutex>
+#include <vector>
 
 namespace Ship {
 
@@ -21,15 +23,42 @@ static std::unordered_map<std::string, std::shared_ptr<ResourceManager>>& CrossR
     return sMap;
 }
 
+static std::vector<void (*)()>& CrossRMTeardownListeners() {
+    static std::vector<void (*)()> sListeners;
+    return sListeners;
+}
+
 void CrossRMRegistry::Register(const std::string& name, std::shared_ptr<ResourceManager> rm) {
     std::unique_lock lock(CrossRMMutex());
     CrossRMMap()[name] = std::move(rm);
+}
+
+void CrossRMRegistry::RegisterTeardownListener(void (*listener)()) {
+    if (listener == nullptr) {
+        return;
+    }
+    std::unique_lock lock(CrossRMMutex());
+    auto& listeners = CrossRMTeardownListeners();
+    if (std::find(listeners.begin(), listeners.end(), listener) == listeners.end()) {
+        listeners.push_back(listener);
+    }
 }
 
 // Games unregister at deinit so the RM is destroyed on the main thread (its thread pool joins its
 // workers in the destructor); leaving it in this static map defers destruction to DLL unload,
 // where joining under the loader lock deadlocks.
 void CrossRMRegistry::Unregister(const std::string& name) {
+    // Fire teardown listeners FIRST: each module drops shared_ptrs whose control blocks live in
+    // another game DLL (all still mapped during deinit) before that RM's resources go away.
+    // Copied out of the lock — a released resource's destructor may re-enter Get().
+    std::vector<void (*)()> listeners;
+    {
+        std::shared_lock lock(CrossRMMutex());
+        listeners = CrossRMTeardownListeners();
+    }
+    for (auto listener : listeners) {
+        listener();
+    }
     std::shared_ptr<ResourceManager> removed;
     {
         std::unique_lock lock(CrossRMMutex());

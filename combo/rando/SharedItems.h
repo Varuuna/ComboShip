@@ -40,6 +40,14 @@ enum SharedFamily {
     SF_COUNT
 };
 
+inline bool IsTeleportSong(SharedFamily f) {
+    return f >= SF_SONG_OF_SOARING && f <= SF_PRELUDE_OF_LIGHT;
+}
+// Guest = the game that only has the song through ComboShip. Soaring is MM's; the warp songs are OOT's.
+inline bool TeleportSongGuestIsOot(SharedFamily f) {
+    return f == SF_SONG_OF_SOARING;
+}
+
 struct SharedFamilyDef {
     SharedFamily family;
     const char* key;     // spoiler/CLI key

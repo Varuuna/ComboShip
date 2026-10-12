@@ -43,10 +43,16 @@ void Context::DestroyInstance() {
 
 Context::~Context() {
     SPDLOG_TRACE("destruct context");
+<<<<<<< HEAD
     // ComboShip: null-guarded — a CreateUninitializedInstance() Context that never got Init*()
     // has no Window/Config, and destroying one segfaulted here.
     if (GetWindow() != nullptr) {
         GetWindow()->SaveWindowToConfig();
+=======
+    // A context is built in stages, so an early exit can destroy one before every Init* has run.
+    if (mWindow != nullptr) {
+        mWindow->SaveWindowToConfig();
+>>>>>>> vendor-libultraship
     }
     // Explicitly destructing everything so that logging is done last.
     mAudio = nullptr;
@@ -64,6 +70,7 @@ Context::~Context() {
     mScriptLoader = nullptr;
     mKeystore = nullptr;
 #endif
+<<<<<<< HEAD
     if (GetConfig() != nullptr) { // ComboShip: see the Window guard above.
         GetConfig()->Save();
     }
@@ -80,6 +87,15 @@ Context::~Context() {
     spdlog::set_default_logger(
         std::make_shared<spdlog::logger>("null", std::make_shared<spdlog::sinks::null_sink_mt>()));
 #endif
+=======
+    if (mConfig != nullptr) {
+        mConfig->Save();
+    }
+    mConfig = nullptr;
+    if (mLogger != nullptr) {
+        mLogger->flush();
+    }
+>>>>>>> vendor-libultraship
     mLogger = nullptr;
 #ifndef _DEBUG
     mLogThreadPool = nullptr;

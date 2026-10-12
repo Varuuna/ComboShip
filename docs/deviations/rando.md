@@ -1406,6 +1406,32 @@ kit); exposed by `gRando.StartingItems: []`, which shuffles the kit into the poo
 Fix: after the memset, re-init `inventory.items` (48 slots, items + masks) to `ITEM_NONE`, plus a
 one-time sweep asserting no inventory-slot item reads as owned on the empty context.
 
+## MM oracle: unshuffled checks give their vanilla item (2026-10-12)
+
+MM's native fill credits the vanilla item of every reachable check, shuffled or not
+(`GlitchlessLogic.cpp`). GeneratePools skips option-gated checks before stamping them, so they never
+reach the dump and the combo oracle never owned their items. With MM songs set to Vanilla, Oath to
+Order was never owned, the Moon stayed shut and every seed failed as `UNBEATABLE(majora=0)`.
+
+Fix: `MM_DumpRandoStaticData` builds `sMMComboVanillaGives` from every logic-region check that is not
+in the pool and not emitted to `fixed`, keeping only non-junk items. `Combo_MM_Rando_GetReachableChecks`
+gives each one (once per query) inside its fixpoint when the check's logic passes.
+
+| Unshuffled when | Vanilla items credited |
+|---|---|
+| Songs = Vanilla | 11 songs |
+| Gold Skulltulas off (default) | 60 tokens |
+| Owl statues off (default) | 10 owl activations |
+| Frogs off (default) | 4 frogs |
+| Shops off (default) | 2 Hero's Shields (Trading Post, Zora Shop) |
+| Tingle shops off (default) | 12 maps |
+
+- Boss remains stay on the `fixed` path, so they are excluded here and credited once, as before.
+  Moving them would drop them from the spoiler and change in-game delivery.
+- The dump JSON is unchanged; it feeds the seed-hash icons.
+- The map belongs to the last dump. Every oracle session starts with a dump under the seed's settings.
+- Default seeds now own tokens, frogs and owls in logic, so placements differ from older builds.
+
 ## Hints never target non-shuffled placements (issue #132, 2026-08-14)
 
 **Why:** Native only hints locations that went through a shuffle fill (`ItemLocation::SetAsHintable`,

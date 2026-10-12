@@ -21,6 +21,7 @@
 #include "objects/gameplay_keep/gameplay_keep.h"
 #include "objects/object_link_child/object_link_child.h"
 #include <soh/Enhancements/custom-message/CustomMessageTypes.h>
+#include "soh/Enhancements/game-interactor/vanilla-behavior/GIVanillaBehavior.h"
 #include "soh/Enhancements/item-tables/ItemTableTypes.h"
 #include "soh/Enhancements/cosmetics/cosmeticsTypes.h"
 #include "soh/Enhancements/enhancementTypes.h"
@@ -30,12 +31,12 @@
 #include "soh/Enhancements/randomizer/randomizer_grotto.h"
 #include "soh/frame_interpolation.h"
 #include "soh/OTRGlobals.h"
-#include "soh/ResourceManagerHelpers.h"
 #include "soh/Enhancements/savestate_serialize.h"
 
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <libultraship/bridge/consolevariablebridge.h>
 
 // Some player animations are played at this reduced speed, for reasons yet unclear.
 // This is called "adjusted" for now.
@@ -2498,7 +2499,7 @@ void Player_ProcessItemButtons(Player* this, PlayState* play) {
     s32 item;
     s32 i;
 
-    if (this->currentMask != PLAYER_MASK_NONE && !CVarGetInteger(CVAR_ENHANCEMENT("PersistentMasks"), 0)) {
+    if (GameInteractor_Should(VB_PLAYER_UNEQUIP_MASK_WITHOUT_BUTTON, this->currentMask != PLAYER_MASK_NONE, this)) {
         maskItemAction = this->currentMask - 1 + PLAYER_IA_MASK_KEATON;
 
         bool hasOnDpad = false;
@@ -2612,8 +2613,7 @@ void Player_StartChangingHeldItem(Player* this, PlayState* play) {
 
 void Player_UpdateItems(Player* this, PlayState* play) {
     if ((this->actor.category == ACTORCAT_PLAYER) &&
-        (CVarGetInteger(CVAR_ENHANCEMENT("QuickPutaway"), 0) ||
-         !(this->stateFlags1 & PLAYER_STATE1_START_CHANGING_HELD_ITEM)) &&
+        GameInteractor_Should(VB_ALLOW_QUICK_PUTAWAY, !(this->stateFlags1 & PLAYER_STATE1_START_CHANGING_HELD_ITEM)) &&
         ((this->heldItemAction == this->itemAction) || (this->stateFlags1 & PLAYER_STATE1_SHIELDING)) &&
         (gSaveContext.health != 0) && (play->csCtx.state == CS_STATE_IDLE) && (this->csAction == 0) &&
         (play->shootingGalleryStatus == 0) && (play->activeCamera == CAM_ID_MAIN) &&
@@ -4731,8 +4731,10 @@ s32 func_808382DC(Player* this, PlayState* play) {
     } else {
         sp68 = ((Player_GetHeight(this) - 8.0f) < (this->unk_6C4 * this->actor.scale.y));
 
-        if (sp68 || (this->actor.bgCheckFlags & BGCHECKFLAG_CRUSHED) || (sFloorType == 9) ||
-            (this->stateFlags2 & PLAYER_STATE2_FORCED_VOID_OUT)) {
+        if (GameInteractor_Should(VB_TRIGGER_VOIDOUT,
+                                  (sp68 || (this->actor.bgCheckFlags & BGCHECKFLAG_CRUSHED) || (sFloorType == 9) ||
+                                   (this->stateFlags2 & PLAYER_STATE2_FORCED_VOID_OUT)),
+                                  &this->actor)) {
             Player_PlayVoiceSfx(this, NA_SE_VO_LI_DAMAGE_S);
 
             if (sp68) {
@@ -4758,9 +4760,7 @@ s32 func_808382DC(Player* this, PlayState* play) {
                     gSaveContext.respawn[RESPAWN_MODE_DOWN].yaw = respawnInfo->yaw;
                 }
 
-                if (GameInteractor_Should(VB_TRIGGER_VOIDOUT, true, this)) {
-                    Play_TriggerVoidOut(play);
-                }
+                Play_TriggerVoidOut(play);
             }
 
             Player_PlayVoiceSfx(this, NA_SE_VO_LI_TAKEN_AWAY);
@@ -5558,10 +5558,6 @@ void func_8083A0F4(PlayState* play, Player* this) {
             this->interactRangeActor->parent = &this->actor;
             Player_SetupAction(play, this, Player_Action_WaitForCutscene, 0);
             this->stateFlags1 |= PLAYER_STATE1_IN_CUTSCENE;
-            if (!CVarGetInteger(CVAR_ENHANCEMENT("PersistentMasks"), 0) ||
-                !CVarGetInteger(CVAR_ENHANCEMENT("AdultMasks"), 0)) {
-                gSaveContext.ship.maskMemory = PLAYER_MASK_NONE;
-            }
         } else {
             LinkAnimationHeader* anim;
 
@@ -5863,14 +5859,13 @@ s32 func_8083AD4C(PlayState* play, Player* this) {
         } else {
             camMode = CAM_MODE_AIM_BOOMERANG;
         }
+        // Check if aiming camera mode should be overridden due to player settings
+        GameInteractor_Should(VB_CHANGE_AIMING_CAMERA, true, &this->heldItemAction, &camMode);
     } else {
         camMode = CAM_MODE_FIRST_PERSON;
     }
 
-    // Check if aiming camera mode should be overridden due to player settings
-    GameInteractor_Should(VB_CHANGE_AIMING_CAMERA, true, &this->heldItemAction, &camMode);
-
-    return Camera_ChangeMode(Play_GetCamera(play, CAM_ID_MAIN), camMode);
+    return Camera_RequestMode(Play_GetCamera(play, CAM_ID_MAIN), camMode);
 }
 
 /**
@@ -6598,17 +6593,20 @@ s32 func_8083C6B8(PlayState* play, Player* this) {
 
             rodCheckPos.y += 50.0f;
 
-            if (CVarGetInteger(CVAR_ENHANCEMENT("HoverFishing"), 0)
-                    ? 0
-                    : !(this->actor.bgCheckFlags & BGCHECKFLAG_GROUND) || (this->actor.world.pos.z > 1300.0f) ||
-                          BgCheck_SphVsFirstPoly(&play->colCtx, &rodCheckPos, 20.0f)) {
+            if (GameInteractor_Should(VB_NOT_CAST_FISHING,
+                                      (!(this->actor.bgCheckFlags & BGCHECKFLAG_GROUND) ||
+                                       (this->actor.world.pos.z > 1300.0f) ||
+                                       BgCheck_SphVsFirstPoly(&play->colCtx, &rodCheckPos, 20.0f)),
+                                      &rodCheckPos)) {
                 Sfx_PlaySfxCentered(NA_SE_SY_ERROR);
                 return 0;
             }
 
             Player_SetupAction(play, this, Player_Action_80850C68, 0);
             this->unk_860 = 1;
-            Player_ZeroSpeedXZ(this);
+            if (GameInteractor_Should(VB_FISHING_ZERO_XZ, true)) {
+                Player_ZeroSpeedXZ(this);
+            }
             Player_AnimPlayOnce(play, this, &gPlayerAnim_link_fishing_throw);
             return 1;
         } else {
@@ -7461,13 +7459,23 @@ void func_8083EA94(Player* this, PlayState* play) {
     Player_AnimPlayOnce(play, this, GET_PLAYER_ANIM(PLAYER_ANIMGROUP_throw, this->modelAnimType));
 }
 
-s32 func_8083EAF0(Player* this, Actor* actor) {
-    if ((actor != NULL) && !(actor->flags & ACTOR_FLAG_THROW_ONLY) &&
+/**
+ * Checks if an actor can be thrown or dropped.
+ * It is assumed that the `actor` argument is the actor currently being carried.
+ *
+ * @return true if it can be thrown, false if it can be dropped.
+ */
+s32 Player_CanThrowCarriedActor(Player* this, Actor* actor) {
+    // If the actor arg is null, true will be returned.
+    // It doesn't make sense for a non-existent actor to be thrown or dropped, so
+    // the safety check should happen before this function is even called.
+    if ((actor != NULL) &&
+        GameInteractor_Should(VB_ON_ACTOR_THROW_ONLY_CHECK, !(actor->flags & ACTOR_FLAG_THROW_ONLY), actor) &&
         ((this->linearVelocity < 1.1f) || (actor->id == ACTOR_EN_BOM_CHU))) {
-        return 0;
+        return false;
     }
 
-    return 1;
+    return true;
 }
 
 s32 Player_ActionHandler_9(Player* this, PlayState* play) {
@@ -7480,17 +7488,17 @@ s32 Player_ActionHandler_9(Player* this, PlayState* play) {
                                CHECK_BTN_ANY(sControlInput->press.button, buttonsToCheck)),
                               sControlInput)) {
         if (!func_80835644(play, this, this->heldActor)) {
-            if (!func_8083EAF0(this, this->heldActor)) {
+            if (!Player_CanThrowCarriedActor(this, this->heldActor)) {
                 Player_SetupAction(play, this, Player_Action_808464B0, 1);
                 Player_AnimPlayOnce(play, this, GET_PLAYER_ANIM(PLAYER_ANIMGROUP_put, this->modelAnimType));
             } else {
                 func_8083EA94(this, play);
             }
         }
-        return 1;
+        return true;
     }
 
-    return 0;
+    return false;
 }
 
 s32 func_8083EC18(Player* this, PlayState* play, u32 wallFlags) {
@@ -8863,10 +8871,10 @@ void Player_Action_80842180(Player* this, PlayState* play) {
         Player_GetMovementSpeedAndYaw(this, &speedTarget, &yawTarget, SPEED_MODE_CURVED, play);
 
         if (!func_8083C484(this, &speedTarget, &yawTarget)) {
-            GameInteractor_Should(VB_PLAYER_MODIFY_RUN_SPEED, true, this, &speedTarget);
-
-            func_8083DF68(this, speedTarget, yawTarget);
-            func_8083DDC8(this, play);
+            if (GameInteractor_Should(VB_PLAYER_MODIFY_RUN_SPEED, true, this, &speedTarget, &yawTarget)) {
+                func_8083DF68(this, speedTarget, yawTarget);
+                func_8083DDC8(this, play);
+            };
 
             if ((this->linearVelocity == 0.0f) && (speedTarget == 0.0f)) {
                 func_8083C0B8(this, play);
@@ -9495,9 +9503,6 @@ void func_80843AE8(PlayState* play, Player* this) {
         OnePointCutscene_Init(play, 9908, 125, &this->actor, CAM_ID_MAIN);
     } else if (play->gameOverCtx.state == GAMEOVER_DEATH_WAIT_GROUND) {
         play->gameOverCtx.state = GAMEOVER_DEATH_DELAY_MENU;
-        if (!CVarGetInteger(CVAR_ENHANCEMENT("PersistentMasks"), 0)) {
-            gSaveContext.ship.maskMemory = PLAYER_MASK_NONE;
-        }
     }
 }
 
@@ -10808,13 +10813,6 @@ void Player_Init(Actor* thisx, PlayState* play2) {
     Player_UseItem(play, this, ITEM_NONE);
     Player_SetEquipmentData(play, this);
     this->prevBoots = this->currentBoots;
-    // keep masks thru loading zones
-    if (CVarGetInteger(CVAR_ENHANCEMENT("PersistentMasks"), 0)) {
-        if (INV_CONTENT(ITEM_TRADE_CHILD) == ITEM_SOLD_OUT) {
-            gSaveContext.ship.maskMemory = PLAYER_MASK_NONE;
-        }
-        this->currentMask = gSaveContext.ship.maskMemory;
-    }
     Player_InitCommon(this, play, gPlayerSkelHeaders[((void)0, gSaveContext.linkAge)]);
     // `giObjectSegment` is used for both "get item" objects and title cards. The maximum size for
     // get item objects is 0x2000 (see the assert in func_8083AE40), and the maximum size for
@@ -11037,7 +11035,7 @@ void Player_UpdateInterface(PlayState* play, Player* this) {
                 } else if ((this->stateFlags1 & PLAYER_STATE1_CARRYING_ACTOR) && (this->getItemId == GI_NONE) &&
                            (heldActor != NULL)) {
                     if ((this->actor.bgCheckFlags & BGCHECKFLAG_GROUND) || (heldActor->id == ACTOR_EN_NIW)) {
-                        if (func_8083EAF0(this, heldActor) == 0) {
+                        if (!Player_CanThrowCarriedActor(this, heldActor)) {
                             doAction = DO_ACTION_DROP;
                         } else {
                             doAction = DO_ACTION_THROW;
@@ -11456,11 +11454,11 @@ void Player_UpdateCamAndSeqModes(PlayState* play, Player* this) {
         seqMode = SEQ_MODE_DEFAULT;
 
         if (this->csAction != 0) {
-            Camera_ChangeMode(Play_GetCamera(play, 0), CAM_MODE_NORMAL);
+            Camera_RequestMode(Play_GetCamera(play, CAM_ID_MAIN), CAM_MODE_NORMAL);
         } else if (!(this->stateFlags1 & PLAYER_STATE1_FIRST_PERSON)) {
             if ((this->actor.parent != NULL) && (this->stateFlags3 & PLAYER_STATE3_FLYING_WITH_HOOKSHOT)) {
                 camMode = CAM_MODE_HOOKSHOT;
-                Camera_SetParam(Play_GetCamera(play, 0), 8, this->actor.parent);
+                Camera_SetParam(Play_GetCamera(play, CAM_ID_MAIN), 8, this->actor.parent);
             } else if (Player_Action_8084377C == this->actionFunc) {
                 camMode = CAM_MODE_STILL;
             } else if (this->stateFlags2 & PLAYER_STATE2_GRABBING_DYNAPOLY) {
@@ -11477,7 +11475,7 @@ void Player_UpdateCamAndSeqModes(PlayState* play, Player* this) {
                 } else {
                     camMode = CAM_MODE_BATTLE;
                 }
-                Camera_SetParam(Play_GetCamera(play, 0), 8, focusActor);
+                Camera_SetParam(Play_GetCamera(play, CAM_ID_MAIN), 8, focusActor);
             } else if (this->stateFlags1 & PLAYER_STATE1_CHARGING_SPIN_ATTACK) {
                 camMode = CAM_MODE_CHARGE;
             } else if (this->stateFlags1 & PLAYER_STATE1_BOOMERANG_THROWN) {
@@ -11485,7 +11483,7 @@ void Player_UpdateCamAndSeqModes(PlayState* play, Player* this) {
                 if (CVarGetInteger(CVAR_ENHANCEMENT("BoomerangFirstPerson"), 0)) {
                     // Avoid camera jumps by switching  to normal cam to exit the first person camera,
                     // before following the boomerang
-                    if (Play_GetCamera(play, 0)->mode == CAM_MODE_FIRST_PERSON) {
+                    if (Play_GetCamera(play, CAM_ID_MAIN)->mode == CAM_MODE_FIRST_PERSON) {
                         camMode = CAM_MODE_NORMAL;
                     } else {
                         camMode = CAM_MODE_FOLLOWBOOMERANG;
@@ -11494,7 +11492,7 @@ void Player_UpdateCamAndSeqModes(PlayState* play, Player* this) {
                 } else {
                     camMode = CAM_MODE_FOLLOWBOOMERANG;
                 }
-                Camera_SetParam(Play_GetCamera(play, 0), 8, this->boomerangActor);
+                Camera_SetParam(Play_GetCamera(play, CAM_ID_MAIN), 8, this->boomerangActor);
             } else if (this->stateFlags1 & (PLAYER_STATE1_HANGING_OFF_LEDGE | PLAYER_STATE1_CLIMBING_LEDGE)) {
                 if (Player_FriendlyLockOnOrParallel(this)) {
                     camMode = CAM_MODE_HANGZ;
@@ -11530,7 +11528,7 @@ void Player_UpdateCamAndSeqModes(PlayState* play, Player* this) {
                 }
             }
 
-            Camera_ChangeMode(Play_GetCamera(play, 0), camMode);
+            Camera_RequestMode(Play_GetCamera(play, CAM_ID_MAIN), camMode);
         } else {
             // First person mode
             seqMode = SEQ_MODE_STILL;
@@ -12564,9 +12562,6 @@ void Player_Destroy(Actor* thisx, PlayState* play) {
     Magic_Reset(play);
 
     gSaveContext.linkAge = play->linkAgeOnLoad;
-
-    ResourceMgr_UnregisterSkeleton(&this->skelAnime);
-    ResourceMgr_UnregisterSkeleton(&this->upperSkelAnime);
 }
 
 // first person manipulate player actor
@@ -12588,8 +12583,7 @@ s16 func_8084ABD8(PlayState* play, Player* this, s32 arg2, s16 arg3) {
 
     if (!func_8002DD78(this) && !func_808334B4(this) && (arg2 == 0)) { // First person without weapon
         // Y Axis
-        if (!(CVarGetInteger(CVAR_SETTING("MoveInFirstPerson"), 0) &&
-              CVarGetInteger(CVAR_SETTING("Controls.RightStickAim"), 0))) {
+        if (GameInteractor_Should(VB_PLAYER_AIM_WITH_LEFT_STICK, true, this)) {
             temp2 += sControlInput->rel.stick_y * 240.0f * invertYAxisMulti * yAxisMulti;
         }
         if (CVarGetInteger(CVAR_SETTING("Controls.RightStickAim"), 0)) {
@@ -12607,8 +12601,7 @@ s16 func_8084ABD8(PlayState* play, Player* this, s32 arg2, s16 arg3) {
 
         // X Axis
         temp2 = 0;
-        if (!(CVarGetInteger(CVAR_SETTING("MoveInFirstPerson"), 0) &&
-              CVarGetInteger(CVAR_SETTING("Controls.RightStickAim"), 0))) {
+        if (GameInteractor_Should(VB_PLAYER_AIM_WITH_LEFT_STICK, true, this)) {
             temp2 += sControlInput->rel.stick_x * -16.0f * invertXAxisMulti * xAxisMulti;
         }
         if (CVarGetInteger(CVAR_SETTING("Controls.RightStickAim"), 0)) {
@@ -12623,8 +12616,7 @@ s16 func_8084ABD8(PlayState* play, Player* this, s32 arg2, s16 arg3) {
         // Y Axis
         temp1 = (this->stateFlags1 & PLAYER_STATE1_ON_HORSE) ? 3500 : 14000;
 
-        if (!(CVarGetInteger(CVAR_SETTING("MoveInFirstPerson"), 0) &&
-              CVarGetInteger(CVAR_SETTING("Controls.RightStickAim"), 0))) {
+        if (GameInteractor_Should(VB_PLAYER_AIM_WITH_LEFT_STICK, true, this)) {
             temp3 += ((sControlInput->rel.stick_y >= 0) ? 1 : -1) *
                      (s32)((1.0f - Math_CosS(sControlInput->rel.stick_y * 200)) * 1500.0f) * invertYAxisMulti *
                      yAxisMulti;
@@ -12644,8 +12636,7 @@ s16 func_8084ABD8(PlayState* play, Player* this, s32 arg2, s16 arg3) {
         temp1 = 19114;
         temp2 = this->actor.focus.rot.y - this->actor.shape.rot.y;
         temp3 = 0;
-        if (!(CVarGetInteger(CVAR_SETTING("MoveInFirstPerson"), 0) &&
-              CVarGetInteger(CVAR_SETTING("Controls.RightStickAim"), 0))) {
+        if (GameInteractor_Should(VB_PLAYER_AIM_WITH_LEFT_STICK, true, this)) {
             temp3 = ((sControlInput->rel.stick_x >= 0) ? 1 : -1) *
                     (s32)((1.0f - Math_CosS(sControlInput->rel.stick_x * 200)) * -1500.0f) * invertXAxisMulti *
                     xAxisMulti;
@@ -12660,36 +12651,6 @@ s16 func_8084ABD8(PlayState* play, Player* this, s32 arg2, s16 arg3) {
         }
         temp2 += temp3;
         this->actor.focus.rot.y = CLAMP(temp2, -temp1, temp1) + this->actor.shape.rot.y;
-    }
-
-    if (CVarGetInteger(CVAR_SETTING("MoveInFirstPerson"), 0) &&
-        CVarGetInteger(CVAR_SETTING("Controls.RightStickAim"), 0)) {
-        f32 movementSpeed = LINK_IS_ADULT ? 9.0f : 8.25f;
-        if (CVarGetInteger(CVAR_ENHANCEMENT("MMBunnyHood"), BUNNY_HOOD_VANILLA) != BUNNY_HOOD_VANILLA &&
-            this->currentMask == PLAYER_MASK_BUNNY) {
-            movementSpeed *= 1.5f;
-        }
-
-        f32 relX = (sControlInput->rel.stick_x / 10 * -invertXAxisMulti);
-        f32 relY = (sControlInput->rel.stick_y / 10);
-
-        // Normalize so that diagonal movement isn't faster
-        f32 relMag = sqrtf((relX * relX) + (relY * relY));
-        if (relMag > 1.0f) {
-            relX /= relMag;
-            relY /= relMag;
-        }
-
-        // Determine what left and right mean based on camera angle
-        f32 relX2 = relX * Math_CosS(this->actor.focus.rot.y) + relY * Math_SinS(this->actor.focus.rot.y);
-        f32 relY2 = relY * Math_CosS(this->actor.focus.rot.y) - relX * Math_SinS(this->actor.focus.rot.y);
-
-        // Calculate distance for footstep sound
-        f32 distance = sqrtf((relX2 * relX2) + (relY2 * relY2)) * movementSpeed;
-        func_8084029C(this, distance / 4.5f);
-
-        this->actor.world.pos.x += (relX2 * movementSpeed) + this->actor.colChkInfo.displacement.x;
-        this->actor.world.pos.z += (relY2 * movementSpeed) + this->actor.colChkInfo.displacement.z;
     }
 
     this->unk_6AE_rotFlags |= UNK6AE_ROT_FOCUS_Y;
@@ -12817,8 +12778,10 @@ void func_8084B158(PlayState* play, Player* this, Input* input, f32 arg3) {
 void Player_Action_8084B1D8(Player* this, PlayState* play) {
     if (this->stateFlags1 & PLAYER_STATE1_IN_WATER) {
         func_8084B000(this);
-        func_8084AEEC(this, &this->linearVelocity, 0, this->actor.shape.rot.y);
-    } else {
+        if (GameInteractor_Should(VB_PLAYER_FIRST_PERSON_DECELERATE, true, this)) {
+            func_8084AEEC(this, &this->linearVelocity, 0, this->actor.shape.rot.y);
+        }
+    } else if (GameInteractor_Should(VB_PLAYER_FIRST_PERSON_DECELERATE, true, this)) {
         Player_DecelerateToZero(this);
     }
 
@@ -12846,7 +12809,9 @@ void Player_Action_8084B1D8(Player* this, PlayState* play) {
         }
     }
 
-    this->yaw = this->actor.shape.rot.y;
+    if (GameInteractor_Should(VB_PLAYER_FIRST_PERSON_ALIGN_YAW, true, this)) {
+        this->yaw = this->actor.shape.rot.y;
+    }
 }
 
 s32 func_8084B3CC(PlayState* play, Player* this) {
@@ -14066,8 +14031,8 @@ s32 func_8084DFF4(PlayState* play, Player* this) {
             } else if (((giEntry.itemId >= ITEM_RUPEE_GREEN) && (giEntry.itemId <= ITEM_RUPEE_RED)) ||
                        ((giEntry.itemId >= ITEM_RUPEE_PURPLE) && (giEntry.itemId <= ITEM_RUPEE_GOLD)) ||
                        (giEntry.itemId == ITEM_HEART)) {
-                Audio_PlaySoundGeneral(NA_SE_SY_GET_BOXITEM, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
-                                       &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+                Audio_PlaySfxGeneral(NA_SE_SY_GET_BOXITEM, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
+                                     &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
             } else {
                 if ((giEntry.itemId == ITEM_HEART_CONTAINER) ||
                     ((giEntry.itemId == ITEM_HEART_PIECE_2) &&
@@ -14416,18 +14381,20 @@ void Player_Action_8084EAC0(Player* this, PlayState* play) {
                     gSaveContext.healthAccumulator = rand * FULL_HEART_HEALTH;
                 }
             } else {
-                s32 sp28 = D_808549FC[this->itemAction - PLAYER_IA_BOTTLE_POTION_RED];
+                if (GameInteractor_Should(VB_EMPTY_BOTTLE_OI, this->itemAction != PLAYER_IA_BOTTLE)) {
+                    s32 sp28 = D_808549FC[this->itemAction - PLAYER_IA_BOTTLE_POTION_RED];
 
-                if (sp28 & 1) {
-                    gSaveContext.healthAccumulator = MAX_HEALTH;
-                }
+                    if (sp28 & 1) {
+                        gSaveContext.healthAccumulator = MAX_HEALTH;
+                    }
 
-                if (sp28 & 2) {
-                    Magic_Fill(play);
-                }
+                    if (sp28 & 2) {
+                        Magic_Fill(play);
+                    }
 
-                if (sp28 & 4) {
-                    gSaveContext.healthAccumulator = 0x50;
+                    if (sp28 & 4) {
+                        gSaveContext.healthAccumulator = 0x50;
+                    }
                 }
             }
 
@@ -14926,7 +14893,7 @@ s32 Player_UpdateNoclip(Player* this, PlayState* play) {
         sNoclipEnabled ^= 1;
 
         if (sNoclipEnabled) {
-            Camera_ChangeMode(Play_GetCamera(play, CAM_ID_MAIN), CAM_MODE_Z_AIM);
+            Camera_RequestMode(Play_GetCamera(play, CAM_ID_MAIN), CAM_MODE_Z_AIM);
         }
     }
 

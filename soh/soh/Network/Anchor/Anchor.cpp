@@ -1,15 +1,19 @@
-#include "Anchor.h"
 #include <nlohmann/json.hpp>
-#include "soh/OTRGlobals.h"
+
+#include "Anchor.h"
 #include "soh/Enhancements/nametag.h"
 #include "soh/ObjectExtension/ObjectExtension.h"
+<<<<<<< HEAD
 #include "soh/Enhancements/randomizer/randomizer.h"
 #include "soh/Notification/Notification.h"
 #ifdef COMBO_BUILD
 #include "soh/SaveManager.h"
 #endif
+=======
+>>>>>>> vendor-soh
 
 extern "C" {
+#include "macros.h"
 #include "variables.h"
 #include "functions.h"
 extern PlayState* gPlayState;

@@ -1,3 +1,5 @@
+#pragma once
+
 #include <ship/config/Config.h>
 
 namespace SOH {
@@ -42,4 +44,12 @@ class ConfigVersion7Updater final : public Ship::ConfigVersionUpdater {
     ConfigVersion7Updater();
     void Update(Ship::Config* conf);
 };
+
+void RegisterVersionUpdaters(Ship::Config* conf);
+
+void RunVersionUpdatesFrom(uint32_t fromVersion);
+
+uint32_t GetLatestConfigVersion();
+
+uint32_t GetConfigVersion(const nlohmann::json& json, uint32_t defaultVersion);
 } // namespace SOH

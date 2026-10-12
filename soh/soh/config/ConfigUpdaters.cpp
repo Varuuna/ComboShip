@@ -1,6 +1,11 @@
 #include "ConfigUpdaters.h"
 
+#include <array>
+#include <algorithm>
+#include <memory>
 #include <libultraship/bridge/consolevariablebridge.h>
+#include <spdlog/spdlog.h>
+#include <ship/Context.h>
 #include "soh/Enhancements/randomizer/randomizerEnums.h"
 
 namespace SOH {
@@ -12,7 +17,6 @@ struct Migration {
 static const Migration version3Migrations[] = {
     { "gSwitchAge", "gGeneral.SwitchAge" },
     { "gFrameAdvance", "gDeveloperTools.FrameAdvanceTick" },
-    { "gRandoGenerating", "gGeneral.RandoGenerating" },
     { "gNewSeedGenerated", "gGeneral.NewSeedGenerated" },
     { "gOnFileSelectNameEntry", "gGeneral.OnFileSelectNameEntry" },
     { "gBetterDebugWarpScreenMQMode", "gGeneral.BetterDebugWarpScreenMQMode" },
@@ -1449,12 +1453,18 @@ static const Migration version6Migrations[] = {
 };
 
 static const Migration version7Migrations[] = {
+    { "gEnhancements.FileSelectMoreInfo", "gEnhancements.FileSelect.MoreInfo" },
+    { "gEnhancements.TimeFlowFileSelect", "gEnhancements.FileSelect.TimeFlow" },
     { "gRandoSettings.LacsStoneCount", "gRandoSettings.GbkStoneCount" },
     { "gRandoSettings.LacsMedallionCount", "gRandoSettings.GbkMedallionCount" },
     { "gRandoSettings.LacsRewardCount", "gRandoSettings.GbkRewardCount" },
     { "gRandoSettings.LacsDungeonCount", "gRandoSettings.GbkDungeonCount" },
     { "gRandoSettings.LacsTokenCount", "gRandoSettings.GbkTokenCount" },
     { "gRandoSettings.LacsRewardOptions", "gRandoSettings.GbkRewardOptions" },
+    { "gRandoEnhancements.CustomKeyModels", nullptr },
+    { "gRandoSettings.LogicRules", "gRandoSettings.NoLogic" },
+    { "gRandoSettings.AllLocationsReachable", "gRandoSettings.AllChecksReachable" },
+    { "gRandoSettings.SkipScarecrowsSong", "gRandoSettings.StartingScarecrowsSong" },
     { nullptr, nullptr },
 };
 
@@ -1626,21 +1636,24 @@ void ConfigVersion7Updater::Update(Ship::Config* conf) {
     }
 
     // Triforce Hunt: the Off/Win/GBK combobox was folded into TriforceHuntTotalPieces (0 = off)
-    // and the required piece count moved to the Wincon/GBK trigger counts
+    // and the required piece count moved to the Wincon/GBK trigger counts.
+    // Counts need +1 from previous values
     switch (CVarGetInteger("gRandoSettings.TriforceHunt", 0)) {
         case 1: // Win
             CVarSetInteger("gRandoSettings.ShuffleWincon", RO_WINCON_TRIFORCE_PIECES);
             CVarSetInteger("gRandoSettings.WinconTriforceCount",
-                           CVarGetInteger("gRandoSettings.TriforceHuntRequiredPieces", 19));
+                           CVarGetInteger("gRandoSettings.TriforceHuntRequiredPieces", 19) + 1);
+            CVarSetInteger("gRandoSettings.GbkTriforceCount",
+                           CVarGetInteger("gRandoSettings.TriforceHuntRequiredPieces", 19) + 1);
             CVarSetInteger("gRandoSettings.TriforceHuntTotalPieces",
-                           CVarGetInteger("gRandoSettings.TriforceHuntTotalPieces", 29));
+                           CVarGetInteger("gRandoSettings.TriforceHuntTotalPieces", 29) + 1);
             break;
         case 2: // Ganon's Boss Key
             CVarSetInteger("gRandoSettings.ShuffleGanonBossKey", RO_GANON_BOSS_KEY_TRIFORCE_PIECES);
             CVarSetInteger("gRandoSettings.GbkTriforceCount",
-                           CVarGetInteger("gRandoSettings.TriforceHuntRequiredPieces", 19));
+                           CVarGetInteger("gRandoSettings.TriforceHuntRequiredPieces", 19) + 1);
             CVarSetInteger("gRandoSettings.TriforceHuntTotalPieces",
-                           CVarGetInteger("gRandoSettings.TriforceHuntTotalPieces", 29));
+                           CVarGetInteger("gRandoSettings.TriforceHuntTotalPieces", 29) + 1);
             break;
         default: // Off; a leftover total would now silently enable the hunt
             CVarClear("gRandoSettings.TriforceHuntTotalPieces");
@@ -1669,5 +1682,65 @@ void ConfigVersion7Updater::Update(Ship::Config* conf) {
 
     // Kakariko Gate setting removed; the gate opens when starting with an unshuffled letter
     CVarClear("gRandoSettings.KakarikoGate");
+
+    // Mask Quest: Completed was dropped, it's now starting with every mask, and the setting is Shuffle Masks
+    switch (CVarGetInteger("gRandoSettings.CompleteMaskQuest", 0)) {
+        case 1: // Completed
+            CVarSetInteger("gRandoSettings.StartingKeatonMask", 1);
+            CVarSetInteger("gRandoSettings.StartingSkullMask", 1);
+            CVarSetInteger("gRandoSettings.StartingSpookyMask", 1);
+            CVarSetInteger("gRandoSettings.StartingBunnyHood", 1);
+            CVarSetInteger("gRandoSettings.StartingGoronMask", 1);
+            CVarSetInteger("gRandoSettings.StartingZoraMask", 1);
+            CVarSetInteger("gRandoSettings.StartingGerudoMask", 1);
+            CVarSetInteger("gRandoSettings.StartingMaskOfTruth", 1);
+            [[fallthrough]];
+        case 2: // Shuffle
+            CVarSetInteger("gRandoSettings.ShuffleMasks", 1);
+            break;
+    }
+    CVarClear("gRandoSettings.CompleteMaskQuest");
+}
+
+// v4+ also run on dropped configs and presets
+static const auto& GetVersionUpdaters() {
+    static const std::array<std::shared_ptr<Ship::ConfigVersionUpdater>, 7> updaters = {
+        std::make_shared<ConfigVersion1Updater>(), std::make_shared<ConfigVersion2Updater>(),
+        std::make_shared<ConfigVersion3Updater>(), std::make_shared<ConfigVersion4Updater>(),
+        std::make_shared<ConfigVersion5Updater>(), std::make_shared<ConfigVersion6Updater>(),
+        std::make_shared<ConfigVersion7Updater>(),
+    };
+    return updaters;
+}
+
+void RegisterVersionUpdaters(Ship::Config* conf) {
+    for (const auto& updater : GetVersionUpdaters()) {
+        conf->RegisterVersionUpdater(updater);
+    }
+}
+
+void RunVersionUpdatesFrom(uint32_t fromVersion) {
+    if (fromVersion < GetLatestConfigVersion()) {
+        SPDLOG_INFO("Migrating config from ConfigVersion {} to {}", fromVersion, GetLatestConfigVersion());
+    }
+    fromVersion = std::max(fromVersion, 3u);
+    Ship::Config* conf = Ship::Context::GetRawInstance()->GetConfig().get();
+    for (const auto& updater : GetVersionUpdaters()) {
+        if (updater->GetVersion() > fromVersion) {
+            updater->Update(conf);
+        }
+    }
+}
+
+uint32_t GetLatestConfigVersion() {
+    return GetVersionUpdaters().back()->GetVersion();
+}
+
+uint32_t GetConfigVersion(const nlohmann::json& json, uint32_t defaultVersion) {
+    auto version = json.find("ConfigVersion");
+    if (version == json.end() || !version->is_number_unsigned()) {
+        return defaultVersion;
+    }
+    return version->get<uint32_t>();
 }
 } // namespace SOH

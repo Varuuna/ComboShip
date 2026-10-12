@@ -12,6 +12,7 @@ extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName, cons
 #endif
 
 extern "C" {
+#include "macros.h"
 #include "variables.h"
 extern PlayState* gPlayState;
 }

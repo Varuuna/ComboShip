@@ -145,10 +145,12 @@ static s32 ComboTitle_DrawLogos(Gfx** gfxP, EnMag* mag, s32 isMQ) {
         // OOT grid: native 3x3, 64px pitch, origin (64 + LOGO_X_SHIFT, 0).
         for (k = 0, i = 0; i < 3; i++) {
             for (j = 0; j < 3; j++, k++) {
-                EnMag_DrawEffectTextures(&gfx, sCtlOotEffectMasks[k], gTitleFlameEffectTex, 64, 64, 32, 32,
-                                         ComboTitle_TX(64 + LOGO_X_SHIFT + j * 64, ox, CTL_OOT_CX),
-                                         ComboTitle_TY(i * 64, 100.0f), CTL_DIM(64), CTL_DIM(64), CTL_DXDY, CTL_DXDY, 1,
-                                         1, k, mag);
+                // Size each cell from the next cell's edge so rounding never leaves a gap between cells.
+                s16 left = ComboTitle_TX(64 + LOGO_X_SHIFT + j * 64, ox, CTL_OOT_CX);
+                s16 top = ComboTitle_TY(i * 64, 100.0f);
+                EnMag_DrawEffectTextures(&gfx, sCtlOotEffectMasks[k], gTitleFlameEffectTex, 64, 64, 32, 32, left, top,
+                                         ComboTitle_TX(64 + LOGO_X_SHIFT + (j + 1) * 64, ox, CTL_OOT_CX) - left,
+                                         ComboTitle_TY((i + 1) * 64, 100.0f) - top, CTL_DXDY, CTL_DXDY, 1, 1, k, mag);
             }
         }
 
@@ -179,10 +181,12 @@ static s32 ComboTitle_DrawLogos(Gfx** gfxP, EnMag* mag, s32 isMQ) {
 
         for (k = 0, i = 0; i < 2; i++) {
             for (j = 0; j < 3; j++, k++) {
-                EnMag_DrawEffectTextures(&gfx, sCtlMmEffectMasks[k], sCtlMmEffectFlames[k], 64, 64, 32, 32,
-                                         ComboTitle_TX(57 + j * 64, CTL_MM_ANCHOR_X, CTL_MM_CX),
-                                         ComboTitle_TY(38 + i * 64, CTL_MM_ANCHOR_Y), CTL_DIM(64), CTL_DIM(64),
-                                         CTL_DXDY, CTL_DXDY, 1, 1, 0, mag);
+                s16 left = ComboTitle_TX(57 + j * 64, CTL_MM_ANCHOR_X, CTL_MM_CX);
+                s16 top = ComboTitle_TY(38 + i * 64, CTL_MM_ANCHOR_Y);
+                EnMag_DrawEffectTextures(&gfx, sCtlMmEffectMasks[k], sCtlMmEffectFlames[k], 64, 64, 32, 32, left, top,
+                                         ComboTitle_TX(57 + (j + 1) * 64, CTL_MM_ANCHOR_X, CTL_MM_CX) - left,
+                                         ComboTitle_TY(38 + (i + 1) * 64, CTL_MM_ANCHOR_Y) - top, CTL_DXDY, CTL_DXDY, 1,
+                                         1, 0, mag);
             }
         }
 

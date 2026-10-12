@@ -3253,6 +3253,9 @@ static const std::unordered_map<std::string, RandoCheckId>& Combo_MM_CheckNameTo
 // can re-apply them (both wipe to 0 = every CAN_AFFORD free). MM_SetCheckPrices swaps in spoiler's.
 static std::unordered_map<uint32_t, uint16_t> sMMComboCheckPrices;
 
+// ComboShip: unshuffled checks' non-junk vanilla items (id -> item), rebuilt by every dump for the oracle.
+static std::map<RandoCheckId, RandoItemId> sMMComboVanillaGives;
+
 extern "C" COMBO_EXPORT void MM_SetCheckPrices(const char* json) {
     sMMComboCheckPrices.clear();
     if (!json)
@@ -3367,6 +3370,7 @@ extern "C" COMBO_EXPORT const char* MM_DumpRandoStaticData(void) {
         return "major"; // no default: a new RITYPE_ must warn, not silently become non-discardable
     };
 
+    std::set<RandoCheckId> fixedIds;
     // Confined pre-placements -> fixed[] (removed checks = checkPoolBefore minus checkPool).
     for (RandoCheckId id : checkPoolBefore) {
         if (stillFillable.count(id))
@@ -3379,6 +3383,7 @@ extern "C" COMBO_EXPORT const char* MM_DumpRandoStaticData(void) {
             continue;
         // ComboShip: friendly check + item names for the normalized combo spoiler. These are genuinely
         // shuffled (PreplaceConfinedItems sets shuffled=true), so they stay hint targets.
+        fixedIds.insert(id);
         fixed.push_back({ { "check", Rando::StaticData::GetCheckDisplayName(id) },
                           { "item", Rando::StaticData::GetItemDisplayName(iit->first) },
                           { "advancement", isAdvancement(iit->second) },
@@ -3398,6 +3403,7 @@ extern "C" COMBO_EXPORT const char* MM_DumpRandoStaticData(void) {
                 continue;
             // ComboShip: friendly check + item names for the normalized combo spoiler. Not shuffled, so
             // hints must never target these (native never hints a non-shuffled check).
+            fixedIds.insert(id);
             fixed.push_back({ { "check", Rando::StaticData::GetCheckDisplayName(id) },
                               { "item", Rando::StaticData::GetItemDisplayName(iit->first) },
                               { "advancement", true },
@@ -3415,11 +3421,58 @@ extern "C" COMBO_EXPORT const char* MM_DumpRandoStaticData(void) {
         auto iit = Rando::StaticData::Items.find(saveInfo.randoSaveChecks[id].randoItemId);
         if (iit == Rando::StaticData::Items.end() || !iit->second.spoilerName || iit->second.spoilerName[0] == '\0')
             continue;
+        fixedIds.insert(id);
         fixed.push_back({ { "check", Rando::StaticData::GetCheckDisplayName(id) },
                           { "item", Rando::StaticData::GetItemDisplayName(iit->first) },
                           { "advancement", isAdvancement(iit->second) },
                           { "hintable", true } });
     }
+
+    // ComboShip: unshuffled checks still give their vanilla item in-game and native's fill credits them,
+    // so the oracle must too. Junk is skipped: MM logic never reads ammo or rupees.
+    sMMComboVanillaGives.clear();
+    std::map<std::string, int> givesByType;
+    for (auto& [regionId, region] : Rando::Logic::Regions) {
+        for (auto& [id, checkLogic] : region.checks) {
+            if (id == RC_UNKNOWN || alreadyFixed.count(id) || fixedIds.count(id) || sMMComboVanillaGives.count(id))
+                continue;
+            auto chkIt = Rando::StaticData::Checks.find(id);
+            if (chkIt == Rando::StaticData::Checks.end())
+                continue;
+            RandoItemId ri = chkIt->second.randoItemId;
+            auto iit = Rando::StaticData::Items.find(ri);
+            if (iit == Rando::StaticData::Items.end() || iit->second.randoItemType == RITYPE_JUNK || ri == RI_JUNK ||
+                ri == RI_NONE || ri == RI_TRAP)
+                continue;
+            sMMComboVanillaGives[id] = ri;
+            switch (chkIt->second.randoCheckType) {
+                case RCTYPE_SONG:
+                    givesByType["song"]++;
+                    break;
+                case RCTYPE_SKULL_TOKEN:
+                    givesByType["token"]++;
+                    break;
+                case RCTYPE_OWL:
+                    givesByType["owl"]++;
+                    break;
+                case RCTYPE_FROG:
+                    givesByType["frog"]++;
+                    break;
+                case RCTYPE_SHOP:
+                    givesByType["shop"]++;
+                    break;
+                case RCTYPE_TINGLE_SHOP:
+                    givesByType["tingle"]++;
+                    break;
+                default:
+                    givesByType["other"]++;
+                    break;
+            }
+        }
+    }
+    SPDLOG_INFO("[ComboShip] MM oracle vanilla gives: {} (song={} token={} owl={} frog={} shop={} tingle={} other={})",
+                sMMComboVanillaGives.size(), givesByType["song"], givesByType["token"], givesByType["owl"],
+                givesByType["frog"], givesByType["shop"], givesByType["tingle"], givesByType["other"]);
 
     // Fillable checks -> checks[] (name only; pool[] feeds the items).
     for (RandoCheckId id : checkPool) {
@@ -4452,6 +4505,7 @@ extern "C" COMBO_EXPORT const char* Combo_MM_Rando_GetReachableChecks(void) {
     // them. Without it the oracle saw only the event-free overworld and the fill dead-ended. Loop
     // until regions and events both stabilize (each can unlock the other).
     std::set<std::pair<RandoEvent, std::function<bool()>>*> eventsInLogic;
+    std::set<RandoCheckId> given;
     bool changed = true;
     while (changed) {
         changed = false;
@@ -4471,6 +4525,15 @@ extern "C" COMBO_EXPORT const char* Combo_MM_Rando_GetReachableChecks(void) {
                 if (!eventsInLogic.contains(&randoEvent) && randoEvent.second()) {
                     RANDO_EVENTS[randoEvent.first]++;
                     eventsInLogic.insert(&randoEvent);
+                    changed = true;
+                }
+            }
+            // ComboShip: credit reachable unshuffled checks' vanilla items, as native's fill does.
+            for (auto& [checkId, checkLogic] : regIt->second.checks) {
+                auto gIt = sMMComboVanillaGives.find(checkId);
+                if (gIt != sMMComboVanillaGives.end() && !given.contains(checkId) && checkLogic.first()) {
+                    GiveItemForOracle(gIt->second);
+                    given.insert(checkId);
                     changed = true;
                 }
             }

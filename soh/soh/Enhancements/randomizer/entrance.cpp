@@ -5,7 +5,6 @@
 #include "3drando/pool_functions.hpp"
 #include "3drando/item_pool.hpp"
 #include "rng.h"
-#include "../debugger/performanceTimer.h"
 #include "soh/Enhancements/gameconsole.h"
 #include "soh/util.h"
 #include "soh/ShipInit.hpp"
@@ -35,7 +34,6 @@ void Entrance::SetCondition(ConditionFn newCondition) {
 }
 
 bool Entrance::GetConditionsMet() const {
-    auto ctx = Rando::Context::GetInstance();
     if (ctx->GetOption(RSK_NO_LOGIC).Is(RO_GENERIC_OFF)) {
         return condition_function();
     }
@@ -72,13 +70,10 @@ void Entrance::printAgeTimeAccess() {
 }
 
 bool Entrance::ConditionsMet(bool allAgeTimes) const {
-    auto ctx = Rando::Context::GetInstance();
-    StartPerformanceTimer(PT_ENTRANCE_LOGIC);
     Region* parent = RegionTable(parentRegion);
     int conditionsMet = 0;
 
     if (allAgeTimes && !parent->AllAccess()) {
-        StopPerformanceTimer(PT_ENTRANCE_LOGIC);
         return false;
     }
 
@@ -88,7 +83,6 @@ bool Entrance::ConditionsMet(bool allAgeTimes) const {
                     (parent->adultDay && CheckConditionAtAgeTime(logic->IsAdult, logic->AtDay, allAgeTimes)) +
                     (parent->adultNight && CheckConditionAtAgeTime(logic->IsAdult, logic->AtNight, allAgeTimes));
 
-    StopPerformanceTimer(PT_ENTRANCE_LOGIC);
     return conditionsMet && (!allAgeTimes || conditionsMet == 4);
 }
 
@@ -690,8 +684,7 @@ std::vector<Entrance*> EntranceShuffler::AssumeEntrancePool(std::vector<Entrance
                    ctx->GetOption(RSK_SHUFFLE_INTERIOR_ENTRANCES).Is(RO_INTERIOR_ENTRANCE_SHUFFLE_ALL)))) {
                 auto type = entrance->GetType();
                 if (((type == EntranceType::Dungeon || type == EntranceType::GrottoGrave) &&
-                     entrance->GetReverse()->GetName() !=
-                         "Spirit Temple Entryway -> Desert Colossus From Spirit Entryway") ||
+                     entrance->GetReverse()->GetOriginalConnectedRegionKey() != RR_DESERT_COLOSSUS_OUTSIDE_TEMPLE) ||
                     (type == EntranceType::Interior &&
                      ctx->GetOption(RSK_SHUFFLE_INTERIOR_ENTRANCES).Is(RO_INTERIOR_ENTRANCE_SHUFFLE_ALL))) {
                     // In most cases, Dungeon, Grotto/Grave and Simple Interior exits shouldn't be assumed able to give

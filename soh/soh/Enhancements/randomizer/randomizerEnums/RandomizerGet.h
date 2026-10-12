@@ -350,6 +350,10 @@ RANDO_ENUM_ITEM(RG_NUTS)
 // recognizes it and diverts the real (foreign) item through the cross-world mailbox instead of
 // granting locally. Appended before RG_MAX so existing RG values (and save data) are unchanged.
 RANDO_ENUM_ITEM(RG_COMBO_FOREIGN)
+#ifdef COMBO_BUILD
+// ComboShip (teleport songs): MM's Song of Soaring as an OOT item.
+RANDO_ENUM_ITEM(RG_SONG_OF_SOARING)
+#endif
 RANDO_ENUM_ITEM(RG_MAX)
 RANDO_ENUM_END(RandomizerGet)
 

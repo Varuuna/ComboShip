@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -112,7 +113,7 @@ std::string SeedLabel(const nlohmann::json& spoiler) {
 
 } // namespace
 
-int main(int argc, char** argv) {
+static int Run(int argc, char** argv) {
     std::string seed = "1";
     int count = 1;
     std::string playthroughFile;
@@ -209,11 +210,14 @@ int main(int argc, char** argv) {
                                Sym<FnOracleSetItems>(soh, "Combo_SOH_Rando_SetOwnedItems"),
                                Sym<FnOracleGetChecks>(soh, "Combo_SOH_Rando_GetReachableChecks"),
                                Sym<FnOraclePlaceItem>(soh, "Combo_SOH_Rando_PlaceItem"),
-                               Sym<FnOracleGetPortalOpen>(soh, "Combo_SOH_Rando_GetPortalOpen") };
+                               Sym<FnOracleGetPortalOpen>(soh, "Combo_SOH_Rando_GetPortalOpen"),
+                               Sym<uint32_t (*)(void)>(soh, "Combo_SOH_Rando_GetCrossOut") };
     ComboRando::OracleFns mmO{ Sym<FnOracleVoid>(mm, "Combo_MM_Rando_Reset"),
                                Sym<FnOracleSetItems>(mm, "Combo_MM_Rando_SetOwnedItems"),
                                Sym<FnOracleGetChecks>(mm, "Combo_MM_Rando_GetReachableChecks"),
-                               Sym<FnOraclePlaceItem>(mm, "Combo_MM_Rando_PlaceItem") };
+                               Sym<FnOraclePlaceItem>(mm, "Combo_MM_Rando_PlaceItem"),
+                               nullptr,
+                               Sym<uint32_t (*)(void)>(mm, "Combo_MM_Rando_GetCrossOut") };
 
     if (!SOH_InitRandoHeadless || !MM_InitRandoHeadless || !SOH_Dump || !MM_Dump || !oot.Reset || !oot.SetOwnedItems ||
         !oot.GetReachableChecks || !oot.PlaceItem || !oot.GetPortalOpen || !mmO.Reset || !mmO.SetOwnedItems ||
@@ -245,6 +249,9 @@ int main(int argc, char** argv) {
         flat["oot"] = spoiler.value("oot", nlohmann::json::object()).value("placements", nlohmann::json::object());
         flat["mm"] = spoiler.value("mm", nlohmann::json::object()).value("placements", nlohmann::json::object());
         flat["foreign"] = spoiler.value("foreign", nlohmann::json::array());
+        // Shared Items: MM copies OOT starts with.
+        if (spoiler.contains("sharedStartingMm"))
+            flat["sharedStartingMm"] = spoiler["sharedStartingMm"];
         std::string label = SeedLabel(spoiler);
         uint32_t masterSeed = spoiler.value("masterSeed", 0u);
         // #136: the seed's own goal drives both the traversal win test and the pool shaping below.
@@ -683,6 +690,8 @@ int main(int argc, char** argv) {
                     nlohmann::json sharedItemsJson = fillSpoiler.value("sharedItems", nlohmann::json::array());
                     const uint32_t effectiveSharedMask = ComboRando::SharedMaskFromKeys(sharedItemsJson);
                     consolidated["sharedItems"] = sharedItemsJson;
+                    if (fillSpoiler.contains("sharedStartingMm"))
+                        consolidated["sharedStartingMm"] = fillSpoiler["sharedStartingMm"];
                     // ComboShip: suffix cross-game item-name collisions in the placements (parity with
                     // RunComboFill's consolidated writer) so the headless spoiler shows "(OOT)"/"(MM)".
                     nlohmann::json ootPl = fillSpoiler.value("oot", nlohmann::json::object());
@@ -740,4 +749,16 @@ int main(int argc, char** argv) {
     std::cout << "[comborando] RESULT: " << (failures ? "FAIL" : "PASS") << " — " << (count - failures) << "/" << count
               << " completable, " << ms << " ms\n";
     return failures == 0 ? 0 : 1;
+}
+
+// Exit without running static destructors. The headless init leaves the shared Ship::Context to die
+// in them, and their order across the dylibs is unspecified: on macOS spdlog's registry goes first,
+// so ~Context logs through a freed logger and every run ends in SIGSEGV after printing its verdict,
+// turning a PASS into exit 139. Every file is closed by now.
+// ponytail: skips teardown rather than doing it. The upgrade is a SOH_DeinitRandoHeadless export that
+// calls Context::DestroyInstance(), as the game's DeinitOTR does, invoked before returning.
+int main(int argc, char** argv) {
+    const int rc = Run(argc, argv);
+    std::cout.flush();
+    std::_Exit(rc);
 }

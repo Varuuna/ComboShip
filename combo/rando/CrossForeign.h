@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <cstring>
 #include <iterator>
+#include <cstdlib>
 #include <nlohmann/json.hpp>
 
 #include "SharedItems.h"
@@ -98,8 +99,38 @@ inline GameId KeyToGameId(const std::string& s) {
     return s == "mm" ? GAME_MM : GAME_OOT;
 }
 
+// Base directory for ComboShip's WRITABLE data (save containers, seeds, spoilers).
+//
+// Same rule as libultraship's Context::GetAppDirectoryPath, which places the games' own saves and
+// config: SHIP_HOME on macOS/Linux, else the working directory. Agreeing with it keeps
+// Save/*.combosav and Randomizer/ beside the games' saves wherever the player launches from.
+// SHIP_HOME is what keeps this off CWD on macOS: the .app's Info.plist always sets it, because a
+// Finder launch starts with CWD "/" (the read-only system volume), where every save write failed.
+inline std::filesystem::path DataDir() {
+#if defined(__APPLE__) || defined(__linux__)
+    if (const char* h = std::getenv("SHIP_HOME"); h != nullptr && *h != '\0') {
+        std::string p(h);
+        if (p[0] == '~') { // the .app's Info.plist stores it tilde-relative
+            if (const char* home = std::getenv("HOME"))
+                p = std::string(home) + p.substr(1);
+        }
+        return p;
+    }
+#endif
+    return std::filesystem::path(".");
+}
+
 inline std::filesystem::path ConsolidatedDir() {
-    return std::filesystem::path("Randomizer");
+    return DataDir() / "Randomizer";
+}
+
+// Slot save containers, under the same base as ConsolidatedDir.
+inline std::filesystem::path SaveDir() {
+    return DataDir() / "Save";
+}
+
+inline std::filesystem::path ContainerPath(int fileNum) {
+    return SaveDir() / ("file" + std::to_string(fileNum + 1) + ".combosav");
 }
 
 // Per-seed spoiler named from the 5 hash-icon indexes, like SoH's own (spoiler_log.cpp). The newest

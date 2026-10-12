@@ -71,6 +71,15 @@
                 "name": "Exclude Mask Shop",
                 "description": "The Happy Mask Shop entrance is not shuffled and leads to the Mask Shop as in vanilla."
             },
+            "song_of_soaring_oot": {
+                "name": "Song of Soaring (soar to Termina)",
+                "description": [
+                    "Adds Majora's Mask's Song of Soaring to the item pool. Playing it in Hyrule opens Termina's owl-statue ",
+                    "map (statues already activated in the MM save) and switches games to the chosen statue.\n",
+                    "\n",
+                    "Refused wherever OOT's own warp songs are."
+                ]
+            },
             "starting_age": {
                 "name": "Starting Age",
                 "description": [
@@ -1862,6 +1871,9 @@
             },
             "starting_bunny_hood": {
                 "name": "Start with Bunny Hood"
+            },
+            "starting_song_of_soaring": {
+                "name": "Start with Song of Soaring"
             },
             "starting_goron_mask": {
                 "name": "Start with Goron Mask"

@@ -42,11 +42,20 @@ SET(CPACK_MONOLITHIC_INSTALL 1)
 set(CPACK_PACKAGING_INSTALL_PREFIX "/usr/bin")
 endif()
 
-# ComboShip: TODO (macOS) — this branch is still upstream 2Ship; the .app bundle is named/iconed
-# "2s2h". Left intact deliberately; rework name/plist/icon for the combo when enabling macOS builds.
+# ComboShip: the macOS .app. Packs ONLY the "combo" component — the whole runtime is laid out by the
+# combo-owned Darwin install rules in the top-level CMakeLists (the vendored soh/mm Darwin rules
+# install their .o2r from ${CMAKE_BINARY_DIR}, where GenerateSohOtr does not write, so they'd fail).
+# Plist and icon paths are absolute, passed through from configure time: soh/ and mm/ each
+# configure_file their own Info.plist to the SAME ${CMAKE_BINARY_DIR}/macosx/Info.plist, so relying
+# on that relative name would pick up whichever game configured last.
 if (CPACK_GENERATOR MATCHES "Bundle")
-    set(CPACK_BUNDLE_NAME "2s2h")
-    set(CPACK_BUNDLE_PLIST "macosx/Info.plist")
-    set(CPACK_BUNDLE_ICON "macosx/2s2h.icns")
-    set(CPACK_BUNDLE_APPLE_CERT_APP "-")
+    set(CPACK_BUNDLE_NAME "ComboShip")
+    set(CPACK_BUNDLE_PLIST "${CPACK_COMBO_BUNDLE_PLIST}")
+    set(CPACK_BUNDLE_ICON "${CPACK_COMBO_BUNDLE_ICON}")
+    set(CPACK_BUNDLE_APPLE_CERT_APP "-") # ad-hoc; a real identity is needed for distribution
+    set(CPACK_COMPONENTS_ALL "combo")
+    # The Bundle generator installs monolithically, which greedily runs EVERY install() rule in the
+    # build tree — that dragged gtest/gmock's include/ and lib/ into Contents/Resources. Restrict the
+    # install to the "combo" component explicitly (4-tuple: build dir; project; component; subdir).
+    set(CPACK_INSTALL_CMAKE_PROJECTS "${CPACK_COMBO_BINARY_DIR};ComboShip;combo;/")
 endif()

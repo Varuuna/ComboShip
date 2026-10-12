@@ -19,6 +19,12 @@ extern "C" {
 
 extern "C" PlayState* gPlayState;
 
+#ifdef COMBO_BUILD
+#include "rando/CrossWarpLogic.h" // ComboShip (teleport songs): cross-game warp input bits
+// Set by Combo_SOH_Rando_SetOwnedItems for the combined fill's oracle queries; 0 everywhere else.
+extern "C" int gComboOracleCrossIn;
+#endif
+
 namespace Rando {
 
 bool Logic::HasItem(RandomizerGet itemName) {
@@ -170,6 +176,10 @@ bool Logic::HasItem(RandomizerGet itemName) {
         case RG_SPEAK_HYLIAN:
         case RG_SPEAK_KOKIRI:
         case RG_SPEAK_ZORA:
+#ifdef COMBO_BUILD
+            // ComboShip (teleport songs)
+        case RG_SONG_OF_SOARING:
+#endif
             // Ocarina Buttons
         case RG_OCARINA_A_BUTTON:
         case RG_OCARINA_C_LEFT_BUTTON:
@@ -657,6 +667,13 @@ bool Logic::CanUse(RandomizerGet itemName) {
             return CanUse(RG_FAIRY_OCARINA) && HasItem(RG_OCARINA_A_BUTTON) && HasItem(RG_OCARINA_C_LEFT_BUTTON) &&
                    HasItem(RG_OCARINA_C_RIGHT_BUTTON) && HasItem(RG_OCARINA_C_DOWN_BUTTON);
 
+#ifdef COMBO_BUILD
+        // ComboShip (teleport songs): F4 B4 D5 twice = C-down, C-left, C-up (see ComboOwlWarp.cpp).
+        case RG_SONG_OF_SOARING:
+            return CanUse(RG_FAIRY_OCARINA) && HasItem(RG_OCARINA_C_DOWN_BUTTON) && HasItem(RG_OCARINA_C_LEFT_BUTTON) &&
+                   HasItem(RG_OCARINA_C_UP_BUTTON);
+#endif
+
         // Misc. Items
         case RG_FISHING_POLE:
             return HasItem(RG_CHILD_WALLET); // as long as you have enough rubies
@@ -682,6 +699,21 @@ bool Logic::CanUse(RandomizerGet itemName) {
             return true;
     }
 }
+
+#ifdef COMBO_BUILD
+// ComboShip (teleport songs): MM's copy of warp song `warpIndex` reaches its pad if this age can reach Termina.
+bool Logic::ComboCrossWarp(int warpIndex) {
+    const uint32_t in = static_cast<uint32_t>(gComboOracleCrossIn);
+    if (warpIndex < 0 || warpIndex > 5 || !((in >> warpIndex) & 1u))
+        return false;
+    if (IsChild && (in & ComboRando::CW_OOT_IN_MM_START))
+        return true;
+    Region* portal = RegionTable(RR_MARKET_MASK_SHOP);
+    if ((IsChild && portal->Child()) || (IsAdult && portal->Adult()))
+        return true;
+    return (in & ComboRando::CW_OOT_IN_MM_OWL) && CanUse(RG_SONG_OF_SOARING);
+}
+#endif
 
 bool Logic::HasProjectile(HasProjectileAge age) {
     return HasExplosives() ||
@@ -2020,6 +2052,9 @@ std::map<RandomizerGet, uint32_t> StaticData::RandoGetToRandInf = {
     { RG_OCARINA_C_DOWN_BUTTON, RAND_INF_HAS_OCARINA_C_DOWN },
     { RG_OCARINA_C_LEFT_BUTTON, RAND_INF_HAS_OCARINA_C_LEFT },
     { RG_OCARINA_C_RIGHT_BUTTON, RAND_INF_HAS_OCARINA_C_RIGHT },
+#ifdef COMBO_BUILD
+    { RG_SONG_OF_SOARING, RAND_INF_HAS_SONG_OF_SOARING }, // ComboShip (teleport songs)
+#endif
     { RG_KEATON_MASK, RAND_INF_CHILD_TRADES_HAS_MASK_KEATON },
     { RG_SKULL_MASK, RAND_INF_CHILD_TRADES_HAS_MASK_SKULL },
     { RG_SPOOKY_MASK, RAND_INF_CHILD_TRADES_HAS_MASK_SPOOKY },
@@ -2494,6 +2529,9 @@ void Logic::ApplyItemEffect(Item& item, bool state) {
                 case RG_OCARINA_C_DOWN_BUTTON:
                 case RG_OCARINA_C_LEFT_BUTTON:
                 case RG_OCARINA_C_RIGHT_BUTTON:
+#ifdef COMBO_BUILD
+                case RG_SONG_OF_SOARING: // ComboShip (teleport songs)
+#endif
                 case RG_KEATON_MASK:
                 case RG_SKULL_MASK:
                 case RG_SPOOKY_MASK:
@@ -3127,6 +3165,11 @@ void Logic::Reset(bool resetSaveContext /*= true*/) {
         SetRandoInf(RAND_INF_HAS_OCARINA_C_DOWN, !ocBtnShuffle);
         SetRandoInf(RAND_INF_HAS_OCARINA_C_LEFT, !ocBtnShuffle);
         SetRandoInf(RAND_INF_HAS_OCARINA_C_RIGHT, !ocBtnShuffle);
+#ifdef COMBO_BUILD
+        // ComboShip (teleport songs): a starting Song of Soaring is owned from the first search.
+        SetRandoInf(RAND_INF_HAS_SONG_OF_SOARING, ctx->GetOption(RSK_SONG_OF_SOARING_OOT).Is(true) &&
+                                                      ctx->GetOption(RSK_STARTING_SONG_OF_SOARING).Is(true));
+#endif
 
         // Progressive Items
         SetUpgrade(UPG_STICKS, ctx->GetOption(RSK_SHUFFLE_DEKU_STICK_BAG).Is(true) ? 0 : 1);

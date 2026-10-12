@@ -57,6 +57,16 @@ static void ComboTerminateHandler() {
     std::abort();
 }
 
+// Exits that skip static destructors. Left to them, the shared Ship::Context dies in an unspecified
+// order across the modules: on macOS spdlog's registry goes first, ~Context logs through a freed
+// logger, and closing the ROM extraction screen ended in a "quit unexpectedly" crash. Callers tear
+// the Context down first where they can (ComboExitEarly), so config and log are still written.
+[[noreturn]] static void ComboExitWithoutTeardown(int code) {
+    std::cout.flush();
+    std::cerr.flush();
+    std::_Exit(code);
+}
+
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
@@ -64,6 +74,10 @@ static void ComboTerminateHandler() {
 #pragma comment(lib, "dbghelp.lib")
 #else
 #include <dlfcn.h>
+#endif
+
+#ifdef __APPLE__
+#include <mach-o/dyld.h> // _NSGetExecutablePath (see ComboExeDir)
 #endif
 
 #ifdef _WIN32
@@ -120,6 +134,56 @@ static LONG WINAPI ComboLateCrashFilter(PEXCEPTION_POINTERS ex) {
     return EXCEPTION_EXECUTE_HANDLER; // die quietly; the report is on disk
 }
 #endif
+
+// ---------- Executable location ----------
+
+// Directory holding the running executable, or empty if it can't be determined.
+//
+// The modules and the runtime tree sit next to the exe, and CWD is NOT a reliable anchor for
+// either: a macOS .app launched from Finder starts with CWD "/", and on Windows a shortcut can set
+// any working directory. The Linux AppImage sidesteps this by cd'ing to the data dir in AppRun
+// (combo/linux/AppRun); a .app has no such wrapper script, so the launcher resolves it itself.
+static std::filesystem::path ComboExeDir() {
+#ifdef _WIN32
+    // Wide API: the ANSI variant mangles non-ASCII install paths (e.g. accented user names) to '?'.
+    wchar_t exe[MAX_PATH] = { 0 };
+    if (GetModuleFileNameW(nullptr, exe, MAX_PATH))
+        return std::filesystem::path(exe).parent_path();
+#elif defined(__APPLE__)
+    uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size); // first call reports the buffer size it needs
+    std::string buf(size, '\0');
+    if (size && _NSGetExecutablePath(buf.data(), &size) == 0) {
+        // buf.c_str() rather than buf: `size` counts the NUL, which is inside the string's own data.
+        // The path may also be a symlink or contain "..", so canonicalize — sibling lookups have to
+        // land in the real directory. Fall back to the raw path if the file is somehow unreadable.
+        const std::filesystem::path raw(buf.c_str());
+        std::error_code ec;
+        const auto real = std::filesystem::canonical(raw, ec);
+        return ec ? raw.parent_path() : real.parent_path();
+    }
+#else
+    std::error_code ec;
+    if (const auto real = std::filesystem::canonical("/proc/self/exe", ec); !ec)
+        return real.parent_path();
+#endif
+    return {};
+}
+
+// Absolute path to a sibling module, e.g. ComboModulePath("libsoh.dylib"). Falls back to the bare
+// leafname, which LoadDll below anchors to "./" (correct whenever CWD is the exe dir).
+//
+// Windows is deliberately left as a bare name: LoadLibrary already searches the executable's own
+// directory first, which is exactly where the deploy rules pin the DLLs, so re-rooting would only
+// swap a working path for an untested one.
+static std::string ComboModulePath(const char* leaf) {
+#ifdef _WIN32
+    return std::string(leaf);
+#else
+    const auto dir = ComboExeDir();
+    return dir.empty() ? std::string(leaf) : (dir / leaf).string();
+#endif
+}
 
 // ---------- DLL helpers ----------
 
@@ -216,6 +280,15 @@ static int g_MmSaveInMemorySlot = -1;
 static FnSetSceneSwitchCallback SOH_SetOnSceneSwitchCallback = nullptr;
 static FnMMRunGame MM_RunGame = nullptr;
 static FnSOHDeinit SOH_Deinit = nullptr;
+static FnSOHDeinit SOH_DeinitWindowOnly = nullptr;
+
+// Exit after the window exists but before the games finished starting (the ROM extraction screen was
+// closed, or SOH_Init threw): SOH_Deinit assumes a finished init, so tear down only the window half.
+[[noreturn]] static void ComboExitEarly(int code) {
+    if (SOH_DeinitWindowOnly)
+        SOH_DeinitWindowOnly();
+    ComboExitWithoutTeardown(code);
+}
 static FnSOHPrepare SOH_PrepareForTransition = nullptr;
 static FnMMNotify MM_NotifyComboTransition = nullptr;
 
@@ -230,6 +303,14 @@ static FnVoidArgless SOH_NotifyComboReturn = nullptr;
 typedef void (*FnMMResume)(int);
 static FnMMResume MM_ResumeGame = nullptr;
 static FnVoidArgless MM_PrepareForTransition = nullptr;
+
+// ComboShip (teleport songs): Entrance handoff
+typedef int (*FnGetCrossTarget)(void); // consume-on-read, -1 = none
+typedef void (*FnSetTargetEntrance)(int);
+static FnGetCrossTarget SOH_GetPendingCrossTarget = nullptr;
+static FnGetCrossTarget MM_GetPendingCrossTarget = nullptr;
+static FnSetTargetEntrance SOH_SetTargetEntrance = nullptr;
+static FnSetTargetEntrance MM_SetTargetEntrance = nullptr;
 
 // ComboShip: headless static-data dump exports
 typedef const char* (*FnDumpData)(void);
@@ -372,6 +453,10 @@ static FnOracleGetChecks Combo_SOH_Rando_GetReachableChecks = nullptr;
 static FnOraclePlaceItem Combo_SOH_Rando_PlaceItem = nullptr;
 // OOT->MM portal gate (Happy Mask Shop region access) — see CrossWorldRando.h.
 static FnOracleGetPortalOpen Combo_SOH_Rando_GetPortalOpen = nullptr;
+// Cross-game teleport-song logic bits. Optional: null = those songs stay out of logic.
+typedef uint32_t (*FnOracleGetCrossOut)(void);
+static FnOracleGetCrossOut Combo_SOH_Rando_GetCrossOut = nullptr;
+static FnOracleGetCrossOut Combo_MM_Rando_GetCrossOut = nullptr;
 
 static FnOracleVoid Combo_MM_Rando_Reset = nullptr;
 static FnOracleSetItems Combo_MM_Rando_SetOwnedItems = nullptr;
@@ -413,7 +498,7 @@ static void Combo_SetForegroundGame(int game) {
 }
 
 static std::filesystem::path ComboContainerPath(int fileNum) {
-    return std::filesystem::path("Save") / ("file" + std::to_string(fileNum + 1) + ".combosav");
+    return ComboRando::ContainerPath(fileNum); // anchored: see ComboRando::DataDir
 }
 
 // Only the three real save slots have a container. Callbacks reached from a game's gSaveContext.fileNum
@@ -491,8 +576,15 @@ static void FlushContainer(int fileNum) {
     tmp += ".temp";
     {
         std::ofstream out(tmp, std::ios::trunc | std::ios::binary);
-        if (!out.is_open())
+        // A failure here USED TO BE a bare `return`. With the path CWD-relative and a Finder-launched
+        // .app starting at "/" (read-only on macOS), that silently discarded every save while the
+        // game logged "Save File Finish" — a whole playthrough lost with no on-disk trace. The path
+        // is anchored now, but a save that cannot be written must be loud regardless of the reason.
+        if (!out.is_open()) {
+            std::cerr << "[ComboShip] ERROR: cannot write save container " << path << " — THIS SLOT IS NOT BEING SAVED."
+                      << std::endl;
             return;
+        }
         it->second["comboRelease"] = COMBO_RELEASE_VERSION; // every write carries the current release
         out << it->second.dump();
     }
@@ -500,6 +592,10 @@ static void FlushContainer(int fileNum) {
     if (ec) { // some filesystems won't replace-on-rename — remove then retry
         std::filesystem::remove(path, ec);
         std::filesystem::rename(tmp, path, ec);
+    }
+    if (ec) {
+        std::cerr << "[ComboShip] ERROR: cannot commit save container " << path << " (" << ec.message()
+                  << ") — THIS SLOT IS NOT BEING SAVED." << std::endl;
     }
 }
 
@@ -837,6 +933,16 @@ static FnSetSharedTickCb MM_SetSharedTickCb = nullptr;
 // Shared-items mask of the LOADED slot (seed-bound, like g_goalHunt/g_startingGameMM). Absent key = 0.
 static uint32_t g_sharedMask = 0;
 static bool g_sharedReconcilePending = false;
+
+// ComboShip (teleport songs): OOT's Song of Soaring reads MM's owl-statue flags and arrival entrances.
+typedef int (*FnGetOwlFlags)(void);
+typedef int (*FnGetOwlWarpEntrance)(int owlId);
+typedef void (*FnSetOwlFlagsProvider)(int (*)(void));
+typedef void (*FnSetOwlWarpEntranceProvider)(int (*)(int));
+static FnGetOwlFlags MM_GetOwlActivationFlags = nullptr;
+static FnGetOwlWarpEntrance MM_GetOwlWarpEntrance = nullptr;
+static FnSetOwlFlagsProvider SOH_SetOwlFlagsProvider = nullptr;
+static FnSetOwlWarpEntranceProvider SOH_SetOwlWarpEntranceProvider = nullptr;
 
 namespace ComboAnchor {
 static std::thread sThread;
@@ -1422,6 +1528,16 @@ static int Combo_GetMmTriforceCount() {
     return MM_GetTriforcePieceCount ? MM_GetTriforcePieceCount() : 0;
 }
 
+// ComboShip (teleport songs): MM owl flags for OOT's active slot (-1 if not resident) and owl entrances.
+static int Combo_GetMmOwlFlags() {
+    if (!MM_GetOwlActivationFlags || g_comboCompletionSlot < 0 || g_MmSaveInMemorySlot != g_comboCompletionSlot)
+        return -1;
+    return MM_GetOwlActivationFlags();
+}
+static int Combo_GetMmOwlWarpEntrance(int owlId) {
+    return MM_GetOwlWarpEntrance ? MM_GetOwlWarpEntrance(owlId) : -1;
+}
+
 // Poked after every Triforce Piece grant (own or dormant) and every Anchor team-state merge: sums both
 // games' counters and, on the first crossing, latches completion and rolls the ending. game/fileNum use
 // the GameId convention (0 = OOT, 1 = MM). No exception may cross the C-ABI boundary.
@@ -1742,11 +1858,16 @@ static void RunComboFillBody(std::string inputSeed, ComboRando::ComboGenProgress
         if (!haveOracles)
             break; // no oracles -> no-logic fallback below; the dumps are still needed
 
-        ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
-                                            Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem,
-                                            Combo_SOH_Rando_GetPortalOpen };
-        ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
-                                           Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
+        ComboRando::OracleFns ootOracle = {
+            Combo_SOH_Rando_Reset,     Combo_SOH_Rando_SetOwnedItems, Combo_SOH_Rando_GetReachableChecks,
+            Combo_SOH_Rando_PlaceItem, Combo_SOH_Rando_GetPortalOpen, Combo_SOH_Rando_GetCrossOut
+        };
+        ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset,
+                                           Combo_MM_Rando_SetOwnedItems,
+                                           Combo_MM_Rando_GetReachableChecks,
+                                           Combo_MM_Rando_PlaceItem,
+                                           nullptr,
+                                           Combo_MM_Rando_GetCrossOut };
 
         // ComboShip: honor OOT's logic/ALR settings per-game (MM stays all-reachable). The fill gates MM
         // on the portal region via ootOracle.GetPortalOpen; NO_LOGIC bypasses it.
@@ -1980,6 +2101,8 @@ static void RunComboFillBody(std::string inputSeed, ComboRando::ComboGenProgress
         consolidated["foreign"] = foreignEnriched;
         // Shared Items: seed-bound, like the goal and starting game.
         consolidated["sharedItems"] = sharedItemsJson;
+        if (j.contains("sharedStartingMm"))
+            consolidated["sharedStartingMm"] = j["sharedStartingMm"]; // MM copies OOT starts with (mirror base)
         consolidated["playthrough"] = ComboRando::PlaythroughLines(playthroughJson);
         // ComboShip (#136): the goal is seed-bound — the runtime latch reads it back from the slot's
         // baked combo.rando, never from the live menu CVars.
@@ -2073,11 +2196,16 @@ static int RunComboGenTest(int numSeeds, uint32_t seedBase) {
         std::cerr << "[GENTEST] dump functions not resolved — cannot run\n";
         return -1;
     }
-    ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
-                                        Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem,
-                                        Combo_SOH_Rando_GetPortalOpen };
-    ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
-                                       Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
+    ComboRando::OracleFns ootOracle = {
+        Combo_SOH_Rando_Reset,     Combo_SOH_Rando_SetOwnedItems, Combo_SOH_Rando_GetReachableChecks,
+        Combo_SOH_Rando_PlaceItem, Combo_SOH_Rando_GetPortalOpen, Combo_SOH_Rando_GetCrossOut
+    };
+    ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset,
+                                       Combo_MM_Rando_SetOwnedItems,
+                                       Combo_MM_Rando_GetReachableChecks,
+                                       Combo_MM_Rando_PlaceItem,
+                                       nullptr,
+                                       Combo_MM_Rando_GetCrossOut };
 
     std::cout << "[GENTEST] running " << numSeeds << " cross-world generations (seedBase=" << seedBase
               << ") — asserting every advancement item is reachable from an empty start in both games\n";
@@ -2175,11 +2303,16 @@ static void RunComboPlaythrough(const std::string& inputSeed) {
         std::cerr << "[PLAYTHROUGH] dump functions not resolved\n";
         return;
     }
-    ComboRando::OracleFns ootOracle = { Combo_SOH_Rando_Reset, Combo_SOH_Rando_SetOwnedItems,
-                                        Combo_SOH_Rando_GetReachableChecks, Combo_SOH_Rando_PlaceItem,
-                                        Combo_SOH_Rando_GetPortalOpen };
-    ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset, Combo_MM_Rando_SetOwnedItems,
-                                       Combo_MM_Rando_GetReachableChecks, Combo_MM_Rando_PlaceItem };
+    ComboRando::OracleFns ootOracle = {
+        Combo_SOH_Rando_Reset,     Combo_SOH_Rando_SetOwnedItems, Combo_SOH_Rando_GetReachableChecks,
+        Combo_SOH_Rando_PlaceItem, Combo_SOH_Rando_GetPortalOpen, Combo_SOH_Rando_GetCrossOut
+    };
+    ComboRando::OracleFns mmOracle = { Combo_MM_Rando_Reset,
+                                       Combo_MM_Rando_SetOwnedItems,
+                                       Combo_MM_Rando_GetReachableChecks,
+                                       Combo_MM_Rando_PlaceItem,
+                                       nullptr,
+                                       Combo_MM_Rando_GetCrossOut };
     std::string seedStr = inputSeed.empty() ? "1" : inputSeed;
     const uint32_t baseSeed = ComboHash(seedStr.c_str());
     std::string sohDump, mmDump;
@@ -2357,17 +2490,15 @@ static std::filesystem::path ResolveComboSeedPath(const std::string& file) {
     std::error_code ec;
     if (std::filesystem::exists(p, ec))
         return p;
-#ifdef _WIN32
-    // Wide API: the ANSI variant mangles non-ASCII install paths (e.g. accented user names) to '?'.
-    wchar_t exe[MAX_PATH] = { 0 };
-    if (GetModuleFileNameW(nullptr, exe, MAX_PATH)) {
-        const auto dir = std::filesystem::path(exe).parent_path();
+    // Was Windows-only (GetModuleFileNameW inline); ComboExeDir is the portable spelling, so the
+    // re-root now works on every platform. It matters most on macOS, where a Finder-launched .app
+    // starts with CWD "/" and a relative seed path resolves nowhere at all.
+    if (const auto dir = ComboExeDir(); !dir.empty()) {
         // A relative path re-rooted at the exe; a moved absolute one by name under the seed dir.
         for (const auto& alt : { dir / p.relative_path(), dir / ComboRando::ConsolidatedDir() / p.filename() })
             if (std::filesystem::exists(alt, ec))
                 return alt;
     }
-#endif
     return p;
 }
 
@@ -2796,6 +2927,25 @@ static void Combo_OnMMReturn(int kind) {
     g_pendingOOTReturn = true;
 }
 
+// ---------- Data-file location ----------
+
+// The launcher runs BEFORE libultraship's Context exists, so it cannot call
+// Context::LocateFileAcrossAppDirs — but it MUST agree with it, or it checks for archives somewhere
+// other than where the game later reads (and the extractor later writes) them. Mirror that order:
+//   1. app dir — ComboRando::DataDir, libultraship's rule (SHIP_HOME on macOS/Linux, else CWD).
+//   2. exe dir — the portable/loose layout (inside a bundle this is Contents/MacOS).
+//   3. CWD     — the original behavior, kept so running from a build dir still works.
+// Without step 1 a bundled .app always reported the ROM archives missing: LaunchServices starts it
+// with CWD "/", so every bare relative check below was false no matter what the player had extracted.
+static bool ComboDataExists(const char* name) {
+    std::error_code ec;
+    if (std::filesystem::exists(ComboRando::DataDir() / name, ec))
+        return true;
+    if (const auto dir = ComboExeDir(); !dir.empty() && std::filesystem::exists(dir / name, ec))
+        return true;
+    return std::filesystem::exists(name, ec);
+}
+
 // ---------- O2R existence checks ----------
 
 static bool OOTArchivesExist() {
@@ -2803,22 +2953,22 @@ static bool OOTArchivesExist() {
     // archive (assets/fonts) that always ships with the build — it must NOT count here, or a genuine
     // first run (port archive present, ROM not yet extracted) would skip extraction and then hard-exit
     // inside Initialize() when oot.o2r is missing.
-    return std::filesystem::exists("oot-mq.o2r") || std::filesystem::exists("oot.o2r");
+    return ComboDataExists("oot-mq.o2r") || ComboDataExists("oot.o2r");
 }
 
 // ROM-derived archive (must be extracted from the player's MM ROM)
 static bool MMRomArchiveExists() {
-    return std::filesystem::exists("mm.o2r") || std::filesystem::exists("mm.zip") || std::filesystem::exists("mm.otr");
+    return ComboDataExists("mm.o2r") || ComboDataExists("mm.zip") || ComboDataExists("mm.otr");
 }
 
 // Any MM archive at all (used for general "is MM set up" check)
 static bool MMArchivesExist() {
-    return MMRomArchiveExists() || std::filesystem::exists("2ship.o2r");
+    return MMRomArchiveExists() || ComboDataExists("2ship.o2r");
 }
 
 // ComboShip (issue 24): the combined config. Absent => fresh install => offer settings import.
 static bool ComboConfigExists() {
-    return std::filesystem::exists("comboship.json");
+    return ComboDataExists("comboship.json");
 }
 
 // Parse a JSON object from disk. False on missing/parse-failure/non-object (slot then skipped).
@@ -2896,13 +3046,13 @@ int main(int argc, char** argv) {
     const char* comboUiDll = "comboui.so"; // comboui sets PREFIX "" (see combo/CMakeLists.txt)
 #endif
 
-    DllHandle sohModule = LoadDll(sohDll);
+    DllHandle sohModule = LoadDll(ComboModulePath(sohDll).c_str());
     if (!sohModule) {
         std::cerr << "ERROR: Failed to load " << sohDll << " (" << DllError() << ")" << std::endl;
         return 1;
     }
 
-    DllHandle mmModule = LoadDll(twoShipDll);
+    DllHandle mmModule = LoadDll(ComboModulePath(twoShipDll).c_str());
     if (!mmModule) {
         std::cerr << "ERROR: Failed to load " << twoShipDll << " (" << DllError() << ")" << std::endl;
         FreeDll(sohModule);
@@ -2938,6 +3088,7 @@ int main(int argc, char** argv) {
     SOH_SetOnSceneSwitchCallback = (FnSetSceneSwitchCallback)GetSym(sohModule, "SOH_SetOnSceneSwitchCallback");
     MM_RunGame = (FnMMRunGame)GetSym(mmModule, "MM_RunGame");
     SOH_Deinit = (FnSOHDeinit)GetSym(sohModule, "SOH_Deinit");
+    SOH_DeinitWindowOnly = (FnSOHDeinit)GetSym(sohModule, "SOH_DeinitWindowOnly");
     SOH_PrepareForTransition = (FnSOHPrepare)GetSym(sohModule, "SOH_PrepareForTransition");
     MM_NotifyComboTransition = (FnMMNotify)GetSym(mmModule, "MM_NotifyComboTransition");
     MM_SetOnComboReturnCallback = (FnMMSetReturnCb)GetSym(mmModule, "MM_SetOnComboReturnCallback");
@@ -2945,6 +3096,10 @@ int main(int argc, char** argv) {
     SOH_NotifyComboReturn = (FnVoidArgless)GetSym(sohModule, "SOH_NotifyComboReturn");
     MM_ResumeGame = (FnMMResume)GetSym(mmModule, "MM_ResumeGame");
     MM_PrepareForTransition = (FnVoidArgless)GetSym(mmModule, "MM_PrepareForTransition");
+    SOH_GetPendingCrossTarget = (FnGetCrossTarget)GetSym(sohModule, "SOH_GetPendingCrossTarget");
+    MM_GetPendingCrossTarget = (FnGetCrossTarget)GetSym(mmModule, "MM_GetPendingCrossTarget");
+    SOH_SetTargetEntrance = (FnSetTargetEntrance)GetSym(sohModule, "SOH_SetTargetEntrance");
+    MM_SetTargetEntrance = (FnSetTargetEntrance)GetSym(mmModule, "MM_SetTargetEntrance");
     SOH_DumpRandoStaticData = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoStaticData");
     MM_DumpRandoStaticData = (FnDumpData)GetSym(mmModule, "MM_DumpRandoStaticData");
     SOH_DumpRandoSettings = (FnDumpData)GetSym(sohModule, "SOH_DumpRandoSettings");
@@ -3037,6 +3192,10 @@ int main(int argc, char** argv) {
     MM_SetTriforceProgressCb = (FnSetTriforceProgressCb)GetSym(mmModule, "MM_SetTriforceProgressCb");
     SOH_SetOtherTriforceCountCb = (FnSetOtherTriforceCountCb)GetSym(sohModule, "SOH_SetOtherTriforceCountCb");
     MM_SetOtherTriforceCountCb = (FnSetOtherTriforceCountCb)GetSym(mmModule, "MM_SetOtherTriforceCountCb");
+    MM_GetOwlActivationFlags = (FnGetOwlFlags)GetSym(mmModule, "MM_GetOwlActivationFlags");
+    MM_GetOwlWarpEntrance = (FnGetOwlWarpEntrance)GetSym(mmModule, "MM_GetOwlWarpEntrance");
+    SOH_SetOwlFlagsProvider = (FnSetOwlFlagsProvider)GetSym(sohModule, "SOH_SetOwlFlagsProvider");
+    SOH_SetOwlWarpEntranceProvider = (FnSetOwlWarpEntranceProvider)GetSym(sohModule, "SOH_SetOwlWarpEntranceProvider");
 
     // Starting game seam (#135) — OOT-side only; MM needs no setter (nothing there reads it).
     SOH_SetComboStartingGame = (FnSetComboStartingGame)GetSym(sohModule, "SOH_SetComboStartingGame");
@@ -3068,6 +3227,8 @@ int main(int argc, char** argv) {
     Combo_MM_Rando_GetReachableChecks = (FnOracleGetChecks)GetSym(mmModule, "Combo_MM_Rando_GetReachableChecks");
     Combo_MM_Rando_PlaceItem = (FnOraclePlaceItem)GetSym(mmModule, "Combo_MM_Rando_PlaceItem");
     Combo_MM_Rando_Restore = (FnOracleVoid)GetSym(mmModule, "Combo_MM_Rando_Restore");
+    Combo_SOH_Rando_GetCrossOut = (FnOracleGetCrossOut)GetSym(sohModule, "Combo_SOH_Rando_GetCrossOut");
+    Combo_MM_Rando_GetCrossOut = (FnOracleGetCrossOut)GetSym(mmModule, "Combo_MM_Rando_GetCrossOut");
 
     // OOT entrance-shuffle wiring (#90)
     SOH_ShuffleEntrancesForCombo = (FnShuffleEntrances)GetSym(sohModule, "SOH_ShuffleEntrancesForCombo");
@@ -3120,18 +3281,14 @@ int main(int argc, char** argv) {
         windowInitialized = true;
 
         if (!comboUIModule) {
-            comboUIModule = LoadDll(comboUiDll);
+            comboUIModule = LoadDll(ComboModulePath(comboUiDll).c_str());
         }
         if (comboUIModule) {
             ComboUI_RunExtraction = (ComboFnRunExtraction)GetSym(comboUIModule, "ComboUI_RunExtraction");
         }
         if (!ComboUI_RunExtraction) {
             std::cerr << "ERROR: comboui module missing ComboUI_RunExtraction (rebuild required)." << std::endl;
-            if (comboUIModule)
-                FreeDll(comboUIModule);
-            FreeDll(mmModule);
-            FreeDll(sohModule);
-            return 1;
+            ComboExitEarly(1);
         }
 
         ComboExtractCallbacks cb = {};
@@ -3148,19 +3305,11 @@ int main(int argc, char** argv) {
 
         if (!ComboUI_RunExtraction(&cb)) {
             std::cerr << "[ComboShip] Extraction cancelled or failed — exiting." << std::endl;
-            if (comboUIModule)
-                FreeDll(comboUIModule);
-            FreeDll(mmModule);
-            FreeDll(sohModule);
-            return 1;
+            ComboExitEarly(1);
         }
         if (!OOTArchivesExist() || !MMRomArchiveExists()) {
             std::cerr << "ERROR: ROM archives still missing after extraction — exiting." << std::endl;
-            if (comboUIModule)
-                FreeDll(comboUIModule);
-            FreeDll(mmModule);
-            FreeDll(sohModule);
-            return 1;
+            ComboExitEarly(1);
         }
         std::cout << "[ComboShip] Extraction complete." << std::endl;
     }
@@ -3175,7 +3324,7 @@ int main(int argc, char** argv) {
             windowInitialized = true;
         }
         if (!comboUIModule) {
-            comboUIModule = LoadDll(comboUiDll);
+            comboUIModule = LoadDll(ComboModulePath(comboUiDll).c_str());
         }
         if (comboUIModule && !ComboUI_RunSettingsImport) {
             ComboUI_RunSettingsImport = (ComboFnRunSettingsImport)GetSym(comboUIModule, "ComboUI_RunSettingsImport");
@@ -3255,6 +3404,11 @@ int main(int argc, char** argv) {
         SOH_SetOtherTriforceCountCb(Combo_GetMmTriforceCount);
     if (MM_SetOtherTriforceCountCb)
         MM_SetOtherTriforceCountCb(Combo_GetOotTriforceCount);
+    // Teleport songs: OOT's Song of Soaring looks at MM's owl statues through the launcher.
+    if (SOH_SetOwlFlagsProvider)
+        SOH_SetOwlFlagsProvider(Combo_GetMmOwlFlags);
+    if (SOH_SetOwlWarpEntranceProvider)
+        SOH_SetOwlWarpEntranceProvider(Combo_GetMmOwlWarpEntrance);
     // Shared Items: tier-changed pokes in, per-frame drain seam.
     if (SOH_SetSharedChangedCb)
         SOH_SetSharedChangedCb(Combo_OnSharedChanged);
@@ -3286,10 +3440,10 @@ int main(int argc, char** argv) {
         }
     } catch (const std::exception& e) {
         std::cerr << "[ComboShip] SOH_Init threw std::exception: " << e.what() << std::endl;
-        return 1;
+        ComboExitEarly(1);
     } catch (...) {
         std::cerr << "[ComboShip] SOH_Init threw a non-std exception" << std::endl;
-        return 1;
+        ComboExitEarly(1);
     }
     std::cout << "[ComboShip] OOT initialized." << std::endl;
 
@@ -3297,7 +3451,7 @@ int main(int argc, char** argv) {
     // OOT has created the shared Gui. comboui owns the menu for the whole process.
     // (It may already be loaded if the extraction screen ran — reuse that handle.)
     if (!comboUIModule) {
-        comboUIModule = LoadDll(comboUiDll);
+        comboUIModule = LoadDll(ComboModulePath(comboUiDll).c_str());
     }
     if (comboUIModule) {
         ComboUI_Register = (FnComboUIRegister)GetSym(comboUIModule, "ComboUI_Register");
@@ -3389,18 +3543,14 @@ int main(int argc, char** argv) {
             seedBase = static_cast<uint32_t>(std::strtoul(b, nullptr, 10));
         }
         int failures = RunComboGenTest(n, seedBase);
-        std::cout.flush();
-        std::cerr.flush();
-        std::exit(failures == 0 ? 0 : 1);
+        ComboExitWithoutTeardown(failures == 0 ? 0 : 1);
     }
 
     // ComboShip: env-gated playthrough log — COMBO_PLAYTHROUGH=<seed> generates that seed and writes a
     // sphere-by-sphere "what you grab, in what order, until Ganon+Majora are both killable" log.
     if (const char* ptSeed = std::getenv("COMBO_PLAYTHROUGH")) {
         RunComboPlaythrough(std::string(ptSeed));
-        std::cout.flush();
-        std::cerr.flush();
-        std::exit(0);
+        ComboExitWithoutTeardown(0);
     }
 
     if (SOH_SetOnNewSaveCallback && MM_InitRandoSaveFile) {
@@ -3456,6 +3606,14 @@ int main(int argc, char** argv) {
     for (;;) {
         if (current == GAME_OOT) {
             g_PendingMMFileNum = -1;
+            // Teleport songs: always drain MM's staged target; apply it only on a portal-kind return.
+            if (MM_GetPendingCrossTarget && SOH_SetTargetEntrance) {
+                const int t = MM_GetPendingCrossTarget();
+                if (t >= 0 && g_mmReturnKind == 0) {
+                    std::cout << "[ComboShip] cross target -> OOT entrance 0x" << std::hex << t << std::dec << "\n";
+                    SOH_SetTargetEntrance(t);
+                }
+            }
             if (!ootBooted) {
                 std::cout << "[ComboShip] OOT boot\n";
                 SOH_RunMain(argc, argv);
@@ -3484,6 +3642,14 @@ int main(int argc, char** argv) {
             g_pendingOOTReturn = false;
             // MM's own boot/resume path loads this slot's save into gSaveContext.
             g_MmSaveInMemorySlot = g_PendingMMFileNum;
+            // Teleport songs: arrive at the entrance OOT staged (Song of Soaring / combo_warp_mm), if any.
+            if (SOH_GetPendingCrossTarget && MM_SetTargetEntrance) {
+                const int t = SOH_GetPendingCrossTarget();
+                if (t >= 0) {
+                    std::cout << "[ComboShip] cross target -> MM entrance 0x" << std::hex << t << std::dec << "\n";
+                    MM_SetTargetEntrance(t);
+                }
+            }
             if (!mmBooted) {
                 std::cout << "[ComboShip] MM boot\n";
                 MM_RunGame(g_PendingMMFileNum);

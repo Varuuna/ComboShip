@@ -175,6 +175,12 @@ class GfxRenderingAPIMetal final : public GfxRenderingAPI {
     ImTextureID GetTextureById(int id) override;
 
     void NewFrame();
+#ifdef COMBO_BUILD
+    // ComboShip: rebuild ONLY the ImGui font texture. ImGui_ImplMetal_NewFrame() recreates device
+    // objects solely when depthStencilState == nil, and ImGui_ImplMetal_DestroyDeviceObjects()
+    // does not nil it — so invalidation alone never rebuilds the atlas. Needs mDevice (private).
+    void RebuildFontsTexture();
+#endif
     void SetupFloatingFrame();
     void RenderDrawData(ImDrawData* drawData);
     bool MetalInit(SDL_Renderer* renderer);

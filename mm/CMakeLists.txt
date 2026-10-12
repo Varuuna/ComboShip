@@ -193,9 +193,12 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
 		INTERPROCEDURAL_OPTIMIZATION_RELEASE "TRUE"
 	)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    # ComboShip: same reason as the Linux branch below — the target is SHARED (upstream built an
+    # executable named 2s2h-macos), and the launcher dlopens lib2ship.dylib, so keep the default lib
+    # prefix and the target's own name instead of upstream's platform-suffixed executable name.
     set_target_properties(${PROJECT_NAME} PROPERTIES
         XCODE_ATTRIBUTE_CLANG_ENABLE_OBJC_ARC YES
-        OUTPUT_NAME "2s2h-macos"
+        OUTPUT_NAME "2ship"
     )
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 	# ComboShip: the target is SHARED (upstream built an executable named 2s2h.elf); the launcher

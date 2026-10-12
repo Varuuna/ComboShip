@@ -2,6 +2,24 @@
 
 Preserved deviations — keep across upstream merges. See [../UPSTREAM_MERGES.md](../UPSTREAM_MERGES.md) for the merge mechanism.
 
+## macOS: ImGui teardown must be idempotent (two modules, one shared context) (2026-09-06)
+
+**Why:** under `COMBO_BUILD` both game modules deinit against ONE shared ImGui context, so
+`Gui::ShutDownImGui()` is reached twice on exit — `MM_Deinit` tears the backend down, then
+`SOH_Deinit` destroys the shared `Ship::Context` and the `Window` destructor arrives again. Every
+ImGui backend asserts on a second shutdown (`"No platform backend to shutdown, or already
+shutdown?"`). Release compiles the assert out via `NDEBUG`, which is why this only ever aborts in
+Debug builds — on quit, after a fully successful session.
+
+**`libultraship/src/ship/window/gui/Gui.cpp` (vendored — preserve on future LUS merges):** early-out
+of `ShutDownImGui()` when `ImGui::GetCurrentContext()` is null or `BackendPlatformUserData` is null,
+i.e. when teardown has already run. Verified: clean exit from both OOT-foreground and MM-foreground.
+
+> **Placement is a judgment call.** The root cause is that `MM_Deinit` tears down shared ImGui state
+> it does not own; fixing it there (`mm/2s2h/BenPort.cpp`) would arguably be more correct but is the
+> same one-vendored-file cost. libultraship was chosen because idempotent teardown is defensive for
+> any consumer. Revisit if upstream ever restructures shutdown.
+
 ## Cross-World Randomizer — Eager MM boot (replaces headless warm-up) (2026-06-05)
 
 The MM rando oracle needs MM's region graph at OOT-generate time, before MM would normally boot.

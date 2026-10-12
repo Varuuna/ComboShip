@@ -1062,6 +1062,29 @@ extern "C" void Randomizer_DrawOcarinaButton(PlayState* play, GetItemEntry* getI
     CLOSE_DISPS(play->state.gfxCtx);
 }
 
+#ifdef COMBO_BUILD
+// ComboShip (teleport songs): MM's Song of Soaring as a song note in MM's soaring tint.
+static Gfx gGiSongOfSoaringColorDL[] = {
+    gsDPPipeSync(),
+    gsDPSetPrimColor(0, 0x80, 255, 255, 255, 255),
+    gsDPSetEnvColor(200, 160, 255, 255),
+    gsSPEndDisplayList(),
+};
+
+extern "C" void Randomizer_DrawSongOfSoaring(PlayState* play, GetItemEntry* getItemEntry) {
+    OPEN_DISPS(play->state.gfxCtx);
+
+    Gfx_SetupDL_25Xlu(play->state.gfxCtx);
+
+    gSPMatrix(POLY_XLU_DISP++, Matrix_NewMtx(play->state.gfxCtx, (char*)__FILE__, __LINE__),
+              G_MTX_MODELVIEW | G_MTX_LOAD);
+    gSPDisplayList(POLY_XLU_DISP++, gGiSongOfSoaringColorDL);
+    gSPDisplayList(POLY_XLU_DISP++, (Gfx*)gGiSongNoteDL);
+
+    CLOSE_DISPS(play->state.gfxCtx);
+}
+#endif
+
 static Gfx gGiBronzeScaleWaterColorDL[] = {
     gsDPPipeSync(),
     gsDPSetPrimColor(0, 0x60, 255, 255, 255, 255),

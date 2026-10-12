@@ -176,6 +176,15 @@ std::map<RandoItemId, RandoStaticItem> Items = {
     RI(RI_SONG_INVERTED_TIME,         "the",  "Inverted Song of Time",      RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_NONE),
     RI(RI_SONG_LULLABY_INTRO,         "the",  "Goron Lullaby Intro",        RITYPE_MAJOR,           ITEM_SONG_LULLABY_INTRO,         GI_NONE,                     GID_NONE),
     RI(RI_SONG_LULLABY,               "the",  "Goron Lullaby",              RITYPE_MAJOR,           ITEM_SONG_LULLABY,               GI_NONE,                     GID_NONE),
+#ifdef COMBO_BUILD
+    // ComboShip (teleport songs): OOT's warp songs, RandoInf-backed (no MM quest bit / item id).
+    RI(RI_SONG_MINUET,                "the",  "Minuet of Forest",           RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    RI(RI_SONG_BOLERO,                "the",  "Bolero of Fire",             RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    RI(RI_SONG_SERENADE,              "the",  "Serenade of Water",          RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    RI(RI_SONG_REQUIEM,               "the",  "Requiem of Spirit",          RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    RI(RI_SONG_NOCTURNE,              "the",  "Nocturne of Shadow",         RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    RI(RI_SONG_PRELUDE,               "the",  "Prelude of Light",           RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_NONE),
+#endif
     RI(RI_SONG_NOVA,                  "the",  "New Wave Bossa Nova",        RITYPE_MAJOR,           ITEM_SONG_NOVA,                  GI_NONE,                     GID_NONE),
     RI(RI_SONG_OATH,                  "the",  "Oath to Order",              RITYPE_MAJOR,           ITEM_SONG_OATH,                  GI_NONE,                     GID_NONE),
     RI(RI_SONG_SARIA,                 "",     "Saria's Song",               RITYPE_MAJOR,           ITEM_SONG_SARIA,                 GI_NONE,                     GID_NONE),
@@ -295,6 +304,11 @@ std::map<StartingItemCategory, std::vector<RandoItemId>> StartingItemsMap = {
           RI_SONG_TIME,         RI_SONG_HEALING,        RI_SONG_EPONA,          RI_SONG_SOARING,    RI_SONG_STORMS,
           RI_SONG_SONATA,       RI_PROGRESSIVE_LULLABY, RI_SONG_NOVA,           RI_SONG_ELEGY,      RI_SONG_OATH,
           RI_SONG_DOUBLE_TIME,  RI_SONG_INVERTED_TIME,  RI_SONG_SUN,            RI_SONG_SARIA,
+#ifdef COMBO_BUILD
+          // ComboShip (teleport songs)
+          RI_SONG_MINUET,       RI_SONG_BOLERO,         RI_SONG_SERENADE,       RI_SONG_REQUIEM,    RI_SONG_NOCTURNE,
+          RI_SONG_PRELUDE,
+#endif
         } },
     { STARTING_ITEMS_TRADE,
         { RI_MOONS_TEAR, RI_DEED_LAND, RI_DEED_SWAMP, RI_DEED_MOUNTAIN, RI_DEED_OCEAN, RI_ROOM_KEY, RI_LETTER_TO_MAMA,
@@ -578,6 +592,16 @@ const char* GetIconTexturePath(RandoItemId randoItemId) {
             return (const char*)gItemIcons[ITEM_SONG_TIME];
         case RI_SONG_SARIA:
             return (const char*)gItemIcons[ITEM_SONG_SARIA];
+#ifdef COMBO_BUILD
+        case RI_SONG_MINUET:
+        case RI_SONG_BOLERO:
+        case RI_SONG_SERENADE:
+        case RI_SONG_REQUIEM:
+        case RI_SONG_NOCTURNE:
+        case RI_SONG_PRELUDE:
+            // ComboShip (teleport songs): no MM icon of their own; the soaring note stands in (they soar to OOT).
+            return (const char*)gItemIcons[ITEM_SONG_SOARING];
+#endif
         default:
             break;
     }

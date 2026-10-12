@@ -15,8 +15,9 @@
       "branch": "develop",
       "prefix": "soh",
       "subtree": "soh",
-      "mergedSha": "5a57a0cbc",
-      "mergedDate": "2026-08-01"
+      "mergedSha": "ecd889c20",
+      "mergedDate": "2026-10-12",
+      "mergedTag": "9.3.0"
     },
     "mm": {
       "remote": "https://github.com/2ship2harkinian/2ship2harkinian.git",

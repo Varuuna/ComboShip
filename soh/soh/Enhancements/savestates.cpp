@@ -1,21 +1,23 @@
-#include "savestates.h"
-
+#include <algorithm>
 #include <memory>
-#include <spdlog/spdlog.h>
 
+#include <spdlog/spdlog.h>
 #include <ship/Context.h>
 #include <ship/window/Window.h>
-#include <ship/window/gui/GameOverlay.h>
+
+#include "savestates.h"
 #include <soh/OTRGlobals.h>
 #include <soh/OTRAudio.h>
+#include "savestate_serialize.h"
 
+extern "C" {
 #include "z64.h"
 #include "z64save.h"
 #include <variables.h>
-#include <functions.h>
-#include "savestate_serialize.h"
+}
 
 extern "C" PlayState* gPlayState;
+extern "C" EffectContext sEffectContext;
 
 extern "C" void BgDdanKd_SaveState(SaveStateCtx* ctx);
 extern "C" void BgDodoago_SaveState(SaveStateCtx* ctx);
@@ -86,6 +88,7 @@ typedef struct SaveStateInfo {
     unsigned char audioHeapCopy[AUDIO_HEAP_SIZE];
 
     SaveContext saveContextCopy;
+    EffectContext effectContextCopy;
     GameInfo gameInfoCopy;
     AudioContext audioContextCopy;
     uint32_t rngSeed;
@@ -340,7 +343,7 @@ void SaveState::SaveTransitionActors(void) {
 }
 
 void SaveState::LoadTransitionActors(void) {
-    u32 numActors = MIN(info->transitionActorCount_copy, gPlayState->transiActorCtx.numActors);
+    u32 numActors = std::min(info->transitionActorCount_copy, gPlayState->transiActorCtx.numActors);
     for (u32 i = 0; i < numActors; i++) {
         gPlayState->transiActorCtx.list[i].id = info->transitionActorIds_copy[i];
     }
@@ -442,6 +445,7 @@ void SaveState::Save(void) {
 
     memcpy(&info->saveContextCopy, &gSaveContext, sizeof(gSaveContext));
     memcpy(&info->gameInfoCopy, gGameInfo, sizeof(*gGameInfo));
+    memcpy(&info->effectContextCopy, &sEffectContext, sizeof(sEffectContext));
 
     // Various static data
     SaveOverlayStaticData();
@@ -459,6 +463,7 @@ void SaveState::Load(void) {
 
     memcpy(&gSaveContext, &info->saveContextCopy, sizeof(gSaveContext));
     memcpy(gGameInfo, &info->gameInfoCopy, sizeof(*gGameInfo));
+    memcpy(&sEffectContext, &info->effectContextCopy, sizeof(sEffectContext));
 
     memcpy(gActiveSounds, info->gActiveSoundsCopy, sizeof(gActiveSounds));
     memcpy(gSoundBankMuted, &info->gSoundBankMutedCopy, sizeof(info->gSoundBankMutedCopy));

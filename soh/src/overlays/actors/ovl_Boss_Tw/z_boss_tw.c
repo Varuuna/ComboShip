@@ -4,7 +4,6 @@
 #include "objects/object_tw/object_tw.h"
 #include "overlays/actors/ovl_Door_Warp1/z_door_warp1.h"
 #include "soh/frame_interpolation.h"
-#include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/savestate_serialize.h"
 
@@ -178,7 +177,7 @@ static s8 sEnvType;
 static u8 sGroundBlastType;
 static BossTw* sKotakePtr;
 static BossTw* sKoumePtr;
-static BossTw* sTwinrovaPtr;
+BossTw* sTwinrovaPtr; // global for CS skip hook
 static u8 sShieldFireCharge;
 static u8 sShieldIceCharge;
 static f32 D_8094C854;
@@ -495,7 +494,7 @@ void BossTw_Init(Actor* thisx, PlayState* play2) {
             this->actor.world.pos.y = 400.0f;
             this->actor.world.pos.z = 0.0f;
             Audio_QueueSeqCmd(SEQ_PLAYER_BGM_MAIN << 24 | NA_BGM_BOSS);
-        } else {
+        } else if (GameInteractor_Should(VB_PLAY_TWINROVA_INTRO_CS, true, this, play)) {
             BossTw_SetupCSWait(this, play);
         }
 
@@ -512,7 +511,7 @@ void BossTw_Init(Actor* thisx, PlayState* play2) {
             this->actor.world.pos.x = 600.0f;
             this->actor.world.pos.y = 400.0f;
             this->actor.world.pos.z = 0.0f;
-        } else {
+        } else if (GameInteractor_Should(VB_PLAY_TWINROVA_INTRO_CS, true, this, play)) {
             BossTw_SetupCSWait(this, play);
         }
 
@@ -531,7 +530,7 @@ void BossTw_Init(Actor* thisx, PlayState* play2) {
         if (Flags_GetEventChkInf(EVENTCHKINF_BEGAN_TWINROVA_BATTLE)) {
             // began twinrova battle
             BossTw_SetupWait(this, play);
-        } else {
+        } else if (GameInteractor_Should(VB_PLAY_TWINROVA_INTRO_CS, true, this, play)) {
             BossTw_TwinrovaSetupIntroCS(this, play);
             this->actor.world.pos.x = 0.0f;
             this->actor.world.pos.y = 1000.0f;
@@ -1113,13 +1112,11 @@ void BossTw_ShootBeam(BossTw* this, PlayState* play) {
                                              &this->actor.projectedW);
 
                 if (this->actor.params == 1) {
-                    Audio_PlaySoundGeneral(NA_SE_EN_TWINROBA_SHOOT_FIRE - SFX_FLAG, &this->unk_54C, 4,
-                                           &gSfxDefaultFreqAndVolScale, &gSfxDefaultFreqAndVolScale,
-                                           &gSfxDefaultReverb);
+                    Audio_PlaySfxGeneral(NA_SE_EN_TWINROBA_SHOOT_FIRE - SFX_FLAG, &this->unk_54C, 4,
+                                         &gSfxDefaultFreqAndVolScale, &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
                 } else {
-                    Audio_PlaySoundGeneral(NA_SE_EN_TWINROBA_SHOOT_FREEZE - SFX_FLAG, &this->unk_54C, 4,
-                                           &gSfxDefaultFreqAndVolScale, &gSfxDefaultFreqAndVolScale,
-                                           &gSfxDefaultReverb);
+                    Audio_PlaySfxGeneral(NA_SE_EN_TWINROBA_SHOOT_FREEZE - SFX_FLAG, &this->unk_54C, 4,
+                                         &gSfxDefaultFreqAndVolScale, &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
                 }
                 break;
 
@@ -1145,19 +1142,15 @@ void BossTw_ShootBeam(BossTw* this, PlayState* play) {
                                              &this->actor.projectedW);
 
                 if (this->actor.params == 1) {
-                    Audio_PlaySoundGeneral(NA_SE_EN_TWINROBA_SHOOT_FIRE - SFX_FLAG, &this->unk_558, 4U,
-                                           &gSfxDefaultFreqAndVolScale, &gSfxDefaultFreqAndVolScale,
-                                           &gSfxDefaultReverb);
-                    Audio_PlaySoundGeneral(NA_SE_EN_TWINROBA_REFL_FIRE - SFX_FLAG, &this->unk_558, 4,
-                                           &gSfxDefaultFreqAndVolScale, &gSfxDefaultFreqAndVolScale,
-                                           &gSfxDefaultReverb);
+                    Audio_PlaySfxGeneral(NA_SE_EN_TWINROBA_SHOOT_FIRE - SFX_FLAG, &this->unk_558, 4U,
+                                         &gSfxDefaultFreqAndVolScale, &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+                    Audio_PlaySfxGeneral(NA_SE_EN_TWINROBA_REFL_FIRE - SFX_FLAG, &this->unk_558, 4,
+                                         &gSfxDefaultFreqAndVolScale, &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
                 } else {
-                    Audio_PlaySoundGeneral(NA_SE_EN_TWINROBA_SHOOT_FREEZE - SFX_FLAG, &this->unk_558, 4,
-                                           &gSfxDefaultFreqAndVolScale, &gSfxDefaultFreqAndVolScale,
-                                           &gSfxDefaultReverb);
-                    Audio_PlaySoundGeneral(NA_SE_EN_TWINROBA_REFL_FREEZE - SFX_FLAG, &this->unk_558, 4,
-                                           &gSfxDefaultFreqAndVolScale, &gSfxDefaultFreqAndVolScale,
-                                           &gSfxDefaultReverb);
+                    Audio_PlaySfxGeneral(NA_SE_EN_TWINROBA_SHOOT_FREEZE - SFX_FLAG, &this->unk_558, 4,
+                                         &gSfxDefaultFreqAndVolScale, &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+                    Audio_PlaySfxGeneral(NA_SE_EN_TWINROBA_REFL_FREEZE - SFX_FLAG, &this->unk_558, 4,
+                                         &gSfxDefaultFreqAndVolScale, &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
                 }
                 break;
         }
@@ -2382,11 +2375,6 @@ void BossTw_DeathCSMsgSfx(BossTw* this, PlayState* play) {
     koumeAnim = 0;
     sp35 = 0;
 
-    // Skip ahead to last part of the cutscene in rando
-    if (this->work[CS_TIMER_2] == 10 && (IS_RANDO || IS_BOSS_RUSH)) {
-        this->work[CS_TIMER_2] = 860;
-    }
-
     if (this->work[CS_TIMER_2] == 80) {
         koumeAnim = 1;
     }
@@ -2562,18 +2550,9 @@ void BossTw_DeathCSMsgSfx(BossTw* this, PlayState* play) {
             break;
     }
 
-    if (this->work[CS_TIMER_2] >= 120 && this->work[CS_TIMER_2] < 500) {
+    if (GameInteractor_Should(VB_TWINROVA_DEATH_SCENE, this->work[CS_TIMER_2] >= 120 && this->work[CS_TIMER_2] < 500,
+                              this)) {
         Math_ApproachF(&this->workf[UNK_F18], 255.0f, 0.1f, 5.0f);
-    }
-
-    // Add separate timings for the "beam" that opens and closes around the sisters
-    // Needed because we skip ahead in cutscene timer value so it never gets called otherwise
-    if (IS_RANDO || IS_BOSS_RUSH) {
-        if (this->work[CS_TIMER_2] < 900) {
-            Math_ApproachF(&this->workf[UNK_F18], 255.0f, 0.1f, 5.0f);
-        } else if (this->work[CS_TIMER_2] > 910) {
-            Math_ApproachF(&this->workf[UNK_F18], 0.0f, 1.0f, 3.0f);
-        }
     }
 
     if (this->work[CS_TIMER_2] >= 150) {
@@ -3782,7 +3761,9 @@ void BossTw_SpawnPortalDraw(BossTw* this, PlayState* play) {
 
     Matrix_Push();
 
-    Matrix_Translate(0.0f, 232.0f, -600.0f, MTXMODE_NEW);
+    if (GameInteractor_Should(VB_TWINROVA_SPAWN_PORTAL_TRANSLATION_KOTAKE, true)) {
+        Matrix_Translate(0.0f, 232.0f, -600.0f, MTXMODE_NEW);
+    }
     Matrix_Scale(this->spawnPortalScale, this->spawnPortalScale, this->spawnPortalScale, MTXMODE_APPLY);
     gDPSetPrimColor(POLY_XLU_DISP++, 0, 0, 0, 0, 0, (s16)this->spawnPortalAlpha);
     gSPMatrix(POLY_XLU_DISP++, MATRIX_NEWMTX(play->state.gfxCtx), G_MTX_LOAD | G_MTX_MODELVIEW | G_MTX_NOPUSH);
@@ -3794,7 +3775,9 @@ void BossTw_SpawnPortalDraw(BossTw* this, PlayState* play) {
     gSPMatrix(POLY_XLU_DISP++, MATRIX_NEWMTX(play->state.gfxCtx), G_MTX_LOAD | G_MTX_MODELVIEW | G_MTX_NOPUSH);
     gSPDisplayList(POLY_XLU_DISP++, SEGMENTED_TO_VIRTUAL(gTwinrovaKotakeMagicSigilDL));
 
-    Matrix_Translate(0.0f, 232.0f, 600.0f, MTXMODE_NEW);
+    if (GameInteractor_Should(VB_TWINROVA_SPAWN_PORTAL_TRANSLATION_KOUME, true)) {
+        Matrix_Translate(0.0f, 232.0f, 600.0f, MTXMODE_NEW);
+    }
     Matrix_Scale(this->spawnPortalScale, this->spawnPortalScale, this->spawnPortalScale, MTXMODE_APPLY);
     gDPSetPrimColor(POLY_XLU_DISP++, 0, 0, 0, 0, 0, (s16)this->spawnPortalAlpha);
     gSPMatrix(POLY_XLU_DISP++, MATRIX_NEWMTX(play->state.gfxCtx), G_MTX_LOAD | G_MTX_MODELVIEW | G_MTX_NOPUSH);

@@ -12,6 +12,7 @@
 #include <libultraship/bridge/resourcebridge.h>
 #include "soh/OTRGlobals.h"
 #include "soh/ResourceManagerHelpers.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 
 void func_80095AB4(PlayState* play, Room* room, u32 flags);
 void func_80095D04(PlayState* play, Room* room, u32 flags);
@@ -416,7 +417,7 @@ BgImage* func_80096A74(PolygonType1* polygon1, PlayState* play) {
     camId = camera->camDataIdx;
     if (GameInteractor_Should(VB_SHOULD_LOAD_BG_IMAGE, true, &camId)) {
         // jfifid
-        camId2 = func_80041C10(&play->colCtx, camId, BGCHECK_SCENE)[2].y;
+        camId2 = BgCheck_GetBgCamFuncDataImpl(&play->colCtx, camId, BGCHECK_SCENE)[2].y;
         if (camId2 >= 0) {
             camId = camId2;
         }

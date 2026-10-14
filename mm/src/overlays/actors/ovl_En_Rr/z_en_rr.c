@@ -8,6 +8,8 @@
 #include "z64rumble.h"
 #include "overlays/actors/ovl_En_Clear_Tag/z_en_clear_tag.h"
 #include "objects/object_rr/object_rr.h"
+#include "2s2h/BenGui/CosmeticEditor.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 
 #define FLAGS (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_HOSTILE | ACTOR_FLAG_HOOKSHOT_PULLS_PLAYER)
 
@@ -898,8 +900,10 @@ void EnRr_Draw(Actor* thisx, PlayState* play2) {
                                   -6));
 
     Matrix_Push();
-    Matrix_Scale((1.0f + this->unk_324[0].unk_10) * this->unk_324[0].unk_08, 1.0f,
-                 (1.0f + this->unk_324[0].unk_10) * this->unk_324[0].unk_08, MTXMODE_APPLY);
+    f32 likeLikeWidth = CVarGetFloat(CVAR_COSMETIC("Silly.LikeLikeWidth"), 1.0f);
+
+    Matrix_Scale((1.0f + this->unk_324[0].unk_10) * this->unk_324[0].unk_08 * likeLikeWidth, 1.0f,
+                 (1.0f + this->unk_324[0].unk_10) * this->unk_324[0].unk_08 * likeLikeWidth, MTXMODE_APPLY);
 
     bodyPartPos = &this->bodyPartsPos[0];
 
@@ -913,7 +917,8 @@ void EnRr_Draw(Actor* thisx, PlayState* play2) {
     Matrix_Pop();
 
     for (i = 1; i < ARRAY_COUNT(this->unk_324); i++) {
-        temp_f20 = this->unk_324[i].unk_08 * (this->unk_324[i].unk_10 + 1.0f);
+        temp_f20 = this->unk_324[i].unk_08 * (this->unk_324[i].unk_10 + 1.0f) *
+                   CVarGetFloat(CVAR_COSMETIC("Silly.LikeLikeWidth"), 1.0f);
         ptr = &this->unk_324[i];
 
         Matrix_Translate(0.0f, ptr->unk_00 + 1000.0f, 0.0f, MTXMODE_APPLY);

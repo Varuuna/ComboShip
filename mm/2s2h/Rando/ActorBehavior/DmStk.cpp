@@ -30,9 +30,10 @@ void ApplyOathHint(u16* textId, bool* loadFromMessageTable) {
     } else {
         msg = "I can hear the Giants Melody echoing "
               "%y{{location}}%w. But it's too late! They can't help you now!";
+        // ComboShip (#164): resolved only in this branch — the taunt has no {{location}}, and resolving
+        // it there would mark the hint read in the tracker without the player ever seeing it.
+        CustomMessage::Replace(&msg, "{{location}}", Rando::GetItemLocationHintName(RI_SONG_OATH, false));
     }
-
-    CustomMessage::Replace(&msg, "{{location}}", Rando::GetItemLocationHintName(RI_SONG_OATH, false));
 
     CustomMessage::Entry entry = {
         .nextMessageID = (u16)0xFFFF,

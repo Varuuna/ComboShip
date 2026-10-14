@@ -14,6 +14,13 @@ class CrossRMRegistry {
   public:
     static void Register(const std::string& name, std::shared_ptr<ResourceManager> rm);
     static void Unregister(const std::string& name);
+    // Modules that borrow shared_ptrs from a registered RM (the foreign-anim caches) register a
+    // teardown listener; every Unregister fires ALL listeners before dropping the RM, so each
+    // module releases its cross-module refs while every game DLL is still mapped. Idempotent per
+    // pointer; listeners stay registered, so a re-fire must be a safe no-op (clearing an empty
+    // cache). Raw fn pointers into game DLLs: valid because Unregister only runs during deinit,
+    // before any FreeLibrary (see docs/deviations/boot-shutdown.md).
+    static void RegisterTeardownListener(void (*listener)());
     static std::shared_ptr<ResourceManager> Get(const std::string& name);
     // Get(name), falling back to the Context's active RM when not registered. For code that must
     // always use its own game's RM (e.g. audio threads racing active-RM swaps on other threads).

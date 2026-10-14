@@ -108,6 +108,10 @@ void GameInteractor_ExecuteAfterRoomSceneCommands(s16 sceneId, s8 roomNum) {
     GameInteractor::Instance->ExecuteHooksForFilter<GameInteractor::AfterRoomSceneCommands>(sceneId, roomNum);
 }
 
+void GameInteractor_ExecuteOnPlayDrawWorldStart() {
+    GameInteractor::Instance->ExecuteHooks<GameInteractor::OnPlayDrawWorldStart>();
+}
+
 void GameInteractor_ExecuteOnPlayDrawWorldEnd() {
     GameInteractor::Instance->ExecuteHooks<GameInteractor::OnPlayDrawWorldEnd>();
 }
@@ -324,11 +328,13 @@ int GameInteractor_InvertControl(GIInvertType type) {
             }
             break;
         case GI_INVERT_FIRST_PERSON_AIM_X:
+        case GI_INVERT_TELESCOPE_X:
             if (CVarGetInteger("gEnhancements.Camera.FirstPerson.InvertX", 0)) {
                 result *= -1;
             }
             break;
         case GI_INVERT_FIRST_PERSON_AIM_Y:
+        case GI_INVERT_TELESCOPE_Y:
             if (CVarGetInteger("gEnhancements.Camera.FirstPerson.InvertY", 1)) {
                 result *= -1;
             }
@@ -355,6 +361,11 @@ int GameInteractor_InvertControl(GIInvertType type) {
             break;
         case GI_INVERT_SHIELD_Y:
             if (CVarGetInteger("gEnhancements.Equipment.InvertShieldY", 0)) {
+                result *= -1;
+            }
+            break;
+        case GI_INVERT_ZORA_SWIM_Y:
+            if (CVarGetInteger("gEnhancements.Player.InvertZoraSwimY", 1)) {
                 result *= -1;
             }
             break;

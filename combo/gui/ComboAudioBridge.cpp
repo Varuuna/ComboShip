@@ -2,9 +2,7 @@
 #include "ComboAudioBridge.h"
 #include "ComboForeground.h"           // ComboUI::IsMmActive
 #include <libultraship/libultraship.h> // CVarGetInteger / CVarSetFloat
-#ifdef _WIN32
-#include <windows.h>
-#endif
+#include "ComboResolve.h"
 #include <cstring>
 
 namespace {
@@ -34,14 +32,10 @@ typedef void (*Fn_ApplyAudioVolume)(int seqPlayer, float volume);
 Fn_ApplyAudioVolume ResolveApply() {
     static Fn_ApplyAudioVolume sFn = nullptr;
     static bool sTried = false;
-#ifdef _WIN32
     if (!sTried) {
         sTried = true;
-        if (HMODULE h = GetModuleHandleA("2ship.dll")) {
-            sFn = (Fn_ApplyAudioVolume)GetProcAddress(h, "MM_ApplyAudioVolume");
-        }
+        sFn = (Fn_ApplyAudioVolume)Combo_ResolveSym("2ship", "MM_ApplyAudioVolume");
     }
-#endif
     return sFn;
 }
 

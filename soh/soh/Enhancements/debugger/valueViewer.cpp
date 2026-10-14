@@ -1,5 +1,6 @@
 #include "valueViewer.h"
 #include <ship/config/Config.h>
+#include <ship/Context.h>
 #include "soh/SohGui/UIWidgets.hpp"
 #include "soh/SohGui/SohGui.hpp"
 #include "soh/OTRGlobals.h"
@@ -179,10 +180,11 @@ void ValueViewerWindow::DrawElement() {
     UIWidgets::CVarCheckbox("Enable Printing", CVAR_NAME, UIWidgets::CheckboxOptions().Color(THEME_COLOR));
 
     ImGui::BeginGroup();
-    static size_t selectedElement = -1;
-    std::string selectedElementText = (selectedElement == -1) ? "Select a value"
-                                                              : (std::string(valueTable[selectedElement].name) + " (" +
-                                                                 std::string(valueTable[selectedElement].path) + ")");
+    static size_t selectedElement = SIZE_MAX;
+    std::string selectedElementText = (selectedElement == SIZE_MAX)
+                                          ? "Select a value"
+                                          : (std::string(valueTable[selectedElement].name) + " (" +
+                                             std::string(valueTable[selectedElement].path) + ")");
     UIWidgets::PushStyleCombobox(THEME_COLOR);
     if (ImGui::BeginCombo("##valueViewerElement", selectedElementText.c_str())) {
         for (size_t i = 0; i < valueTable.size(); i++) {
@@ -202,11 +204,11 @@ void ValueViewerWindow::DrawElement() {
     UIWidgets::PopStyleCombobox();
     ImGui::SameLine();
     UIWidgets::PushStyleButton(THEME_COLOR);
-    if (selectedElement != -1 && ImGui::Button("+")) {
+    if (selectedElement != SIZE_MAX && ImGui::Button("+")) {
         valueViewerSettings.insert(
             { (ValueViewerEntry)selectedElement,
               { valueTable[selectedElement].prefix, ImVec4(1.0f, 1.0f, 1.0f, 1.0f), false, false, 0, 0 } });
-        selectedElement = -1;
+        selectedElement = SIZE_MAX;
         SaveValueConfig();
     }
     UIWidgets::PopStyleButton();

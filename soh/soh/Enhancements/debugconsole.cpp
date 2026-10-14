@@ -1,10 +1,11 @@
-#include "debugconsole.h"
-#include <ship/utils/Utils.h>
-#include "savestates.h"
-#include "soh/ActorDB.h"
-
 #include <vector>
 #include <string>
+
+#include <ship/utils/Utils.h>
+
+#include "debugconsole.h"
+#include "savestates.h"
+#include "soh/ActorDB.h"
 #include "soh/OTRGlobals.h"
 #include <soh/Enhancements/item-tables/ItemTableManager.h>
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
@@ -16,10 +17,9 @@
 
 #define Path _Path
 #define PATH_HACK
-#include <ship/utils/StringHelper.h>
 
-#include <ship/window/Window.h>
 #include <ship/Context.h>
+#include <ship/window/Window.h>
 #undef PATH_HACK
 #undef Path
 
@@ -35,6 +35,7 @@ extern PlayState* gPlayState;
 #include "rando/CrossForeign.h" // ComboShip: GameId
 // ComboShip (issue #3): immediate cross-game delivery seam (defined in OTRGlobals.cpp).
 extern "C" void (*gComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName);
+extern "C" void Combo_RequestCrossSwitch(int mmEntrance); // OTRGlobals.cpp (teleport songs)
 #endif
 
 #define CMD_REGISTER Ship::Context::GetRawInstance()->GetConsole()->AddCommand
@@ -588,7 +589,7 @@ static bool StateSlotSelectHandler(std::shared_ptr<Ship::Console> Console, const
         ERROR_MESSAGE("[SOH] Unexpected arguments passed");
         return 1;
     }
-    uint8_t slot;
+    int32_t slot;
 
     try {
         slot = std::stoi(args[1], nullptr, 10);
@@ -597,7 +598,7 @@ static bool StateSlotSelectHandler(std::shared_ptr<Ship::Console> Console, const
         return 1;
     }
 
-    if (slot < 0) {
+    if (slot < 0 || slot > 2) {
         ERROR_MESSAGE("[SOH] Invalid slot passed. Slot must be between 0 and 2");
         return 1;
     }
@@ -1322,6 +1323,13 @@ static bool CuccoStormHandler(std::shared_ptr<Ship::Console> Console, const std:
 
 static bool GenerateRandoHandler(std::shared_ptr<Ship::Console> Console, const std::vector<std::string>& args,
                                  std::string* output) {
+#ifdef COMBO_BUILD
+    // ComboShip: GenerateRandomizer only sees native generation, not the combo worker.
+    if (IsRandoGenerating()) {
+        ERROR_MESSAGE("[SOH] A randomizer seed is already generating.");
+        return 1;
+    }
+#endif
     if (args.size() == 1) {
         if (GenerateRandomizer()) {
             return 0;
@@ -1522,6 +1530,28 @@ static bool AvailableChecksRecalculateHandler(std::shared_ptr<Ship::Console> Con
 }
 
 #ifdef COMBO_BUILD
+// ComboShip (teleport songs): `combo_warp_mm <hex MM entrance>`, e.g. 0xD09 = Clock Town owl statue.
+static bool ComboWarpMMHandler(std::shared_ptr<Ship::Console> Console, const std::vector<std::string>& args,
+                               std::string* output) {
+    if (args.size() < 2) {
+        ERROR_MESSAGE("[ComboShip] combo_warp_mm: expected an MM entrance (hex).");
+        return 1;
+    }
+    if (gPlayState == nullptr || gSaveContext.fileNum == 0xFF) {
+        ERROR_MESSAGE("[ComboShip] combo_warp_mm: not in gameplay.");
+        return 1;
+    }
+    unsigned int entrance;
+    try {
+        entrance = std::stoi(args[1], nullptr, 16);
+    } catch ([[maybe_unused]] std::invalid_argument const& ex) {
+        ERROR_MESSAGE("[ComboShip] combo_warp_mm: entrance value must be a hex number.");
+        return 1;
+    }
+    Combo_RequestCrossSwitch((int)entrance);
+    return 0;
+}
+
 // ComboShip: `cross_send <MM RI_* itemName>` — deliver an MM-bound item into MM's resident save NOW
 // (debug; issue #3). Replaces the old mailbox enqueue.
 static bool CrossSendHandler(std::shared_ptr<Ship::Console> Console, const std::vector<std::string>& args,
@@ -1817,6 +1847,11 @@ void DebugConsole_Init(void) {
                                  {
                                      { "itemName", Ship::ArgumentType::TEXT },
                                  } });
+    CMD_REGISTER("combo_warp_mm", { ComboWarpMMHandler,
+                                    "ComboShip: switch to MM and arrive at the given MM entrance (hex).",
+                                    {
+                                        { "entrance", Ship::ArgumentType::NUMBER },
+                                    } });
 #endif
 
     Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();

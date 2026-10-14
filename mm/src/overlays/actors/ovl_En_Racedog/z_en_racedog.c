@@ -13,6 +13,8 @@
 #include "overlays/actors/ovl_En_Dg/z_en_dg.h"
 
 #include "2s2h/GameInteractor/GameInteractor.h"
+#include "2s2h/BenGui/CosmeticEditor.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 
 #define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_MINIMAP_ICON_ENABLED)
 
@@ -814,7 +816,7 @@ void EnRacedog_Draw(Actor* thisx, PlayState* play) {
             break;
 
         case DOG_COLOR_BLUE:
-            gDPSetEnvColor(POLY_OPA_DISP++, 79, 79, 143, 0);
+            gDPSetEnvColorOverride(POLY_OPA_DISP++, 79, 79, 143, 0, COSMETIC_ID("World.RaceDogBlue"));
             break;
 
         case DOG_COLOR_GOLD:

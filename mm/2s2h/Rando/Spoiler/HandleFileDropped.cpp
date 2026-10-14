@@ -5,6 +5,7 @@
 #include <spdlog/spdlog.h>
 #include "BenPort.h"
 #include <libultraship/bridge/consolevariablebridge.h>
+#include "2s2h/ShipInit.hpp"
 #include <ship/window/Window.h>
 #include "2s2h/BenGui/Notification.h"
 
@@ -47,6 +48,7 @@ bool Rando::Spoiler::HandleFileDropped(char* filePath) {
         CVarSetString("gRando.SpoilerFile", spoilerFile.c_str());
         // Update the spoiler file options
         Rando::Spoiler::RefreshOptions();
+        ShipInit::Init("gRando.SpoilerFile");
 
         Audio_PlaySfx(NA_SE_SY_QUIZ_CORRECT);
         Notification::Emit({ .message = "Spoiler file loaded" });

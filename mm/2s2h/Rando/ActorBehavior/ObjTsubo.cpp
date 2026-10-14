@@ -340,8 +340,7 @@ void ObjTsubo_RandoDraw(Actor* actor, PlayState* play) {
     }
 
     RandoCheckId randoCheckId = Rando::ActorBehavior::GetObjectRandoCheckId(actor);
-    RandoItemId randoItemId = Rando::ConvertItem(RANDO_SAVE_CHECKS[randoCheckId].randoItemId, randoCheckId);
-    RandoItemType randoItemType = Rando::StaticData::Items[randoItemId].randoItemType;
+    RandoItemType randoItemType = Rando::GetItemTypeForCheck(RANDO_SAVE_CHECKS[randoCheckId].randoItemId, randoCheckId);
 
     switch (randoItemType) {
         case RITYPE_BOSS_KEY:

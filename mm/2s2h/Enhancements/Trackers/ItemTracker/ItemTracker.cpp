@@ -80,7 +80,7 @@ u32 GetVanillaItemIdForSlot(u32 slot) {
     bool isSaveLoaded = gPlayState != NULL && gSaveContext.gameMode == GAMEMODE_NORMAL;
 #ifdef COMBO_BUILD
     // ComboShip: dormant MM peek has no play state but its save is loaded.
-    isSaveLoaded = isSaveLoaded || (!Combo_MmIsForeground() && gSaveContext.fileNum >= 0);
+    isSaveLoaded = isSaveLoaded || (!Combo_MmIsForeground() && IS_RANDO && gSaveContext.fileNum >= 0);
 #endif
     u32 vanillaItemId = isSaveLoaded ? gSaveContext.save.saveInfo.inventory.items[slot] : ITEM_NONE;
 
@@ -101,8 +101,9 @@ TrackerImageObject GetImageObject(TrackerItemType itemType, u32 itemId) {
     bool isSaveLoaded = gPlayState != NULL && gSaveContext.gameMode == GAMEMODE_NORMAL;
 #ifdef COMBO_BUILD
     // ComboShip peek: dormant MM has no play state, but the slot's save is loaded (see
-    // EnsureMmSaveLoadedForPeek / MM_LoadSaveForCombo) — use it for icon selection too.
-    isSaveLoaded = isSaveLoaded || (!Combo_MmIsForeground() && gSaveContext.fileNum >= 0);
+    // EnsureMmSaveLoadedForPeek / MM_LoadSaveForCombo) — use it for icon selection too. IS_RANDO is the
+    // real gate: a refused load parks fileNum at 0xFF, which is still >= 0, but clears saveType.
+    isSaveLoaded = isSaveLoaded || (!Combo_MmIsForeground() && IS_RANDO && gSaveContext.fileNum >= 0);
 #endif
     bool itemObtained = false;
     TrackerImageObject trackerImageObject = {
@@ -399,6 +400,15 @@ void DrawItemCounts(TrackerItemType itemType, u32 itemId, ImVec2 cellMin, ImVec2
 
 bool DrawItemTrackerSlot(TrackerItemType itemType, u32 itemId, float scale, bool clickable) {
     ImVec2 cellSize(ITEM_TEXTURE_SIZE * scale, ITEM_TEXTURE_SIZE * scale);
+    ImVec2 iconSize = cellSize;
+#ifdef COMBO_BUILD
+    // ComboShip: pad the cell around the icon so the grid pitch matches OOT's icon+gap layout
+    // (bridge mirrors gCombo.Tracker.IconSpacing here).
+    int spacing = CVarGetInteger("gSettings.ItemTracker.IconSpacing", 0);
+    float pad = spacing > 0 ? (float)spacing : 0.0f;
+    cellSize.x += pad;
+    cellSize.y += pad;
+#endif
 
     TrackerImageObject imageObject = GetImageObject(itemType, itemId);
 
@@ -434,12 +444,12 @@ bool DrawItemTrackerSlot(TrackerItemType itemType, u32 itemId, float scale, bool
     float aspect = imageObject.textureDimensions.x / imageObject.textureDimensions.y;
 
     // fit to height
-    ImVec2 drawSize(cellSize.y * aspect, cellSize.y);
+    ImVec2 drawSize(iconSize.y * aspect, iconSize.y);
 
     // clamp if too wide
-    if (drawSize.x > cellSize.x) {
-        drawSize.x = cellSize.x;
-        drawSize.y = cellSize.x / aspect;
+    if (drawSize.x > iconSize.x) {
+        drawSize.x = iconSize.x;
+        drawSize.y = iconSize.x / aspect;
     }
 
     ImVec2 offset((cellSize.x - drawSize.x) * 0.5f, (cellSize.y - drawSize.y) * 0.5f);
@@ -483,10 +493,27 @@ bool DrawItemTrackerSlot(TrackerItemType itemType, u32 itemId, float scale, bool
     }
 
     if (CVarGetInteger("gSettings.ItemTracker.ItemCounts", 1)) {
+#ifdef COMBO_BUILD
+        // Anchor the count to the icon, not the padded cell.
+        DrawItemCounts(itemType, itemId, p0 + ImVec2(pad * 0.5f, pad * 0.5f), iconSize, scale);
+#else
         DrawItemCounts(itemType, itemId, p0, cellSize, scale);
+#endif
     }
 
     return clicked;
+}
+
+// Effective icon scale for a group. In combo builds the global Scale is combo-owned (mirrored by
+// ComboTrackerBridge) and a group's own scale is a relative multiplier instead of a replacement.
+float GetItemTrackerGroupScale(const TrackerGroup& trackerGroup) {
+    float global = CVarGetFloat("gSettings.ItemTracker.Scale", 1.0f);
+    bool split = CVarGetInteger("gSettings.ItemTracker.WindowGroup", 0) != 0;
+#ifdef COMBO_BUILD
+    return split ? global * trackerGroup.scale : global;
+#else
+    return split ? trackerGroup.scale : global;
+#endif
 }
 
 void DrawItemTrackerGroup(TrackerGroup& trackerGroup) {
@@ -495,10 +522,13 @@ void DrawItemTrackerGroup(TrackerGroup& trackerGroup) {
         columns = trackerGroup.items.size();
     }
 
-    float scale = CVarGetInteger("gSettings.ItemTracker.WindowGroup", 0)
-                      ? trackerGroup.scale
-                      : CVarGetFloat("gSettings.ItemTracker.Scale", 1.0f);
+    float scale = GetItemTrackerGroupScale(trackerGroup);
 
+#ifdef COMBO_BUILD
+    // ComboShip: the seam's cell pad is the whole gap — zero the table's own CellPadding
+    // (locked in at BeginTable) so the grid pitch is exactly icon + IconSpacing.
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(0, 0));
+#endif
     if (ImGui::BeginTable(trackerGroup.name.c_str(), columns)) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
@@ -510,6 +540,9 @@ void DrawItemTrackerGroup(TrackerGroup& trackerGroup) {
         ImGui::PopStyleVar(2);
         ImGui::EndTable();
     }
+#ifdef COMBO_BUILD
+    ImGui::PopStyleVar();
+#endif
 }
 
 void ItemTrackerWindow::Draw() {
@@ -583,6 +616,13 @@ comboSkipVisibilityGates:;
 #endif
     }
 
+#ifdef COMBO_BUILD
+    // ComboShip: padded cells own the whole grid pitch — the window's ItemSpacing between group
+    // tables would add a per-group vertical drift vs OOT's continuous grid.
+    if (!shouldWindowSplit) {
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+    }
+#endif
     uint32_t index = 0;
     for (auto& group : itemTrackerGroups) {
         if (group.items.empty()) {
@@ -616,6 +656,11 @@ comboSkipVisibilityGates:;
 
         index++;
     }
+#ifdef COMBO_BUILD
+    if (!shouldWindowSplit) {
+        ImGui::PopStyleVar();
+    }
+#endif
     if (!shouldWindowSplit) {
         ImGui::PopStyleColor(1);
         ImGui::End();

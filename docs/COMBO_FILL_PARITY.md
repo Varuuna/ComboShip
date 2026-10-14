@@ -29,6 +29,7 @@ This document is the authoritative checklist. **Statuses:**
 | OOT apply | `SOH_ApplyRandoPlacements` (`OTRGlobals.cpp:3556`) + `Combo_SetupOOTShops` (`:3253`) |
 | MM apply | `MM_InitRandoSaveFile` (`BenPort.cpp:2673`) → `Rando::Spoiler::ApplyToSaveContext` |
 | Validator | `comborando --playthrough` (`combo/ComboRandoHeadless.cpp`) |
+| Shared Items trim + mirror (new, 2026-09-10) | `CrossWorldCombinedFill` (`CrossWorldRando.h`) — trims MM's copies of each effective family before balancing, mirrors the OOT-owned count onto the MM oracle inside `reachableFixpoint`; `RunPlaythrough`/`ApplySharedMirror` (`ComboPlaythrough.h`) do the same for `--playthrough`. See `deviations/rando.md` |
 
 ## Table 1 — SoH `Fill()` (`soh/soh/Enhancements/randomizer/3drando/fill.cpp:1301`)
 
@@ -74,9 +75,11 @@ This document is the authoritative checklist. **Statuses:**
 | 6 | Retry: 10 attempts on pool copies (`OnFileCreate.cpp:164`) | whole-fill retry | `kMaxPasses = 3` inside the fill + `kFillAttempts = 2` outer rerolls (`CrossWorldRando.h:171-172`) | see GAP-4 (one policy for the combined fill) |
 | 7 | Spoiler emit: shop/Tingle checks as `{randoItemId, price}` objects (`Spoiler/Generate.cpp:32`) | price round-trip | consolidated spoiler stores name→name pairs only (`CrossWorldRando.h:525`) | **GAP-6** (no MM prices in consolidated spoiler; native object shape + `Apply.cpp:54` price branch already exist to reuse) |
 | 8 | Spoiler apply restores price for object-shaped checks (`Apply.cpp:54`) | in-game prices from spoiler | combo placements are bare strings → string branch, price never set | **GAP-5/6** (same fix: emit object shape) |
-| 9 | Confined pre-placement (`PreplaceConfinedItems`, `PlacementConstraints.cpp:106`) | keys/remains confinement → `fixed[]` | `MM_DumpRandoStaticData:2940` | replicated |
+| 9 | Confined pre-placement (`PreplaceConfinedItems`, `PlacementConstraints.cpp:106`) | keys/remains confinement → `fixed[]` | `MM_DumpRandoStaticData:2940` | **partial — GAP-9** |
 | 10 | Boss remains emitted as fixed when unshuffled | oracle models Remains gates | dump `fixed[]` (`BenPort.cpp:2952`) | replicated (fixed 2026-07-08, `--playthrough` PR #54) |
 | 10b | 5.0.0 per-house skulltula shuffle: `GeneratePools` marks the 30−N vanilla tokens `shuffled=true` + own token in **saveInfo** and drops them from `checkPool` | vanilla tokens still count toward the Spider House gates | dump emits them as `fixed[]` vanilla-token placements (`hintable=true`, mirrors native shuffled state) | replicated (2026-08-19 merge; verified: shuffled=10/required=20 seed PASS, 20 vanilla + 10 shuffled per house) |
+| 10c | 2Ship develop: `StaysAtVanillaCheck` (#1883, dungeon items VANILLA / Clock Town fairy under OWN_DUNGEON) marks the check `shuffled=true` with its vanilla item and drops it from `checkPool` | vanilla keys/fairies still count toward dungeon gates | the 10b block is now one loop over every `shuffled && !stillFillable` check, emitted as `fixed[]` with saveInfo's item (`hintable=true`); also covers MM excluded checks (junk, like native) | replicated (2026-09-28 merge) |
+| 10d | "Songs on Song Locations" (#1928): surplus song checks get `shuffled=true`, `RI_JUNK`, `skipped=true` and leave `checkPool` | junk at the surplus spots | same loop emits them as fixed junk; `skipped` is not carried, so MM's check tracker shows them as junk | surplus junk replicated (2026-09-28 merge; tracker difference accepted); the songs themselves are **not** confined to song checks, see GAP-9 |
 | 11 | Oracle starting state (`Combo_MM_Rando_Reset:3439`) | snapshot + rebuild save, grant via `GiveItemForOracle` | grant-field parity (powder keg / keys / mirror shield) fixed | replicated (see MM-oracle fix, 2310/2311 reachable) |
 
 ## GAP register
@@ -91,6 +94,7 @@ This document is the authoritative checklist. **Statuses:**
 | GAP-6 | Spoiler carried no prices. Now `oot.prices`/`mm.prices`; `--playthrough` is spoiler-hermetic and hard-fails price-less spoilers. | **Fixed** (Phase 1) |
 | GAP-7 | Exclusions: headless generation never parsed the `ExcludedLocations` CSV at all (both prep paths passed `{}` to `FinalizeSettings`), and the string CVar wasn't dumped/restored (both games). Now: prep paths parse the CSV (`Combo_ParseExcludedLocations`), dumps carry the string, restores are type-aware and pre-clear (spoiler-authoritative). MM's `gRando.ExcludedChecks` mirrored. | **Fixed** (Phase 2) |
 | GAP-8 | Validator's forced-glitchless pass shrank a No-Logic seed's 8-slot shops to 7. Now the dump snapshots the shuffled-slot set (`Combo_GetShuffledShopSlots`, RNG-stream-preserving) and the validator dumps under the seed's original rules before forcing glitchless for traversal. | **Fixed** (Phase 2) |
+| GAP-9 | MM confinement is a no-op in combo dumps: `PreplaceConfinedItems` reads the live save's `RANDO_SAVE_OPTIONS`, not the dump's `saveInfo`, so own-dungeon keys/fairies/remains and "Songs on Song Locations" are silently not honoured (those items go through the normal validated cross fill). A fix is parked on `wip/mm220-dump-confinement`; it also needs the fill to validate confined locked placements (`CrossWorldRando.h` skips them), or seeds can lock a key behind its own door. | **Open** (follow-up PR) |
 
 Phase 3 regression net: comborando `--playthrough` runs an affordability canary — any purchase in the
 winning walk exceeding the wallet held at its sphere fails the run (exit 1), catching a silent return

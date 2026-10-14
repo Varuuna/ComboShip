@@ -17,15 +17,15 @@
 #define COMBO_ITEM_DRAW_OOT_H
 
 #include "ComboItemDrawABI.h"
+#include "ComboExport.h"
 #include "libultraship/bridge.h" // CVarGetInteger / CVarGetColor24 (cosmetic key/nut colors)
 #include "libultraship/color.h"  // Color_RGB8
 #include "soh/cvar_prefixes.h"
 #include "soh/Enhancements/cosmetics/cosmeticsTypes.h" // COLORSCHEME_*
 #include "soh/OTRGlobals.h"                            // rando-context null guards (MM calls us while OOT is dormant)
 #include <string>
-#include "dungeon.h"                               // Rando::DungeonKey / GetDungeon()->IsMQ() (key-ring MQ variants)
-#include "objects/object_gi_fire/object_gi_fire.h" // gGiBlueFireFlameDL (boss-soul flame)
-#include "objects/object_gi_key/object_gi_key.h"   // gGiSmallKeyDL
+#include "objects/object_gi_fire/object_gi_fire.h"           // gGiBlueFireFlameDL (boss-soul flame)
+#include "objects/object_gi_key/object_gi_key.h"             // gGiSmallKeyDL
 #include "objects/object_gi_bosskey/object_gi_bosskey.h"     // gGiBossKeyDL / gGiBossKeyGemDL
 #include "objects/object_gi_map/object_gi_map.h"             // gGiDungeonMapDL
 #include "objects/object_gi_compass/object_gi_compass.h"     // gGiCompassDL / gGiCompassGlassDL
@@ -34,6 +34,11 @@
 #include "objects/object_gi_bomb_2/object_gi_bomb_2.h"       // gGiBombchuDL
 #include "objects/object_mamenoki/object_mamenoki.h"         // gMagicBeanSeedlingDL
 #include "objects/object_toki_objects/object_toki_objects.h" // Master Sword model
+#include "objects/object_gi_rupy/object_gi_rupy.h"           // gGiRupeeInnerDL / gGiRupeeOuterDL
+#include "objects/object_gi_melody/object_gi_melody.h"       // gGiSongNoteDL
+#include "objects/gameplay_keep/gameplay_keep.h"             // gRupeeDL / gRupeeSilverTex
+#include <atomic>
+#include <spdlog/spdlog.h>
 // Boss-soul skeletons/animations/textures for the animated cross-game class (issue #86).
 #include "objects/object_goma/object_goma.h"
 #include "objects/object_kingdodongo/object_kingdodongo.h"
@@ -56,6 +61,10 @@ extern Color_RGB8 MapOrCompassColor[10];
 // replicates). outColors is 16 bytes: primXlu[4], envXlu[4], primOpa[4], envOpa[4] (JEWEL/MUSIC_NOTE).
 extern "C" s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale,
                                          s32* outDrawKind, uint8_t* outColors);
+
+// Which setup DL the row's func emits (NULL = plain 25). The consumer must submit the same one.
+extern "C" void GetItem_GetDrawSetupDLs(s32 drawId, void** outOpa, void** outXlu);
+extern "C" void* GetItem_GetSetupDL(s32 index); // by index, for the bespoke Randomizer_Draw* funcs
 
 // --- CW_DRAW_KIND_COLOR_LAYERS helpers: attach a prim/env color to one display list slot.
 static void CwLayerPrim(CwItemDrawInfo* out, int32_t i, Color_RGB8 c) {
@@ -131,6 +140,7 @@ static int32_t OOT_DescribeCustomDraw(RandomizerGet rg, CwItemDrawInfo* out) {
     // Compasses: prim+half-env body (OPA) + glass (XLU) (Randomizer_DrawCompass).
     if (rg >= RG_DEKU_TREE_COMPASS && rg <= RG_ICE_CAVERN_COMPASS) {
         Color_RGB8 c = MapOrCompassColor[rg - RG_DEKU_TREE_COMPASS];
+        out->setupDlXlu = GetItem_GetSetupDL(SETUPDL_5); // the glass layer, as Randomizer_DrawCompass does
         out->drawKind = CW_DRAW_KIND_COLOR_LAYERS;
         out->dlistCount = 2;
         out->xluStartIndex = 1;
@@ -140,8 +150,6 @@ static int32_t OOT_DescribeCustomDraw(RandomizerGet rg, CwItemDrawInfo* out) {
         CwLayerEnv(out, 0, Color_RGB8{ (uint8_t)(c.r / 2), (uint8_t)(c.g / 2), (uint8_t)(c.b / 2) });
         return 1;
     }
-
-    bool customKeys = CVarGetInteger(CVAR_RANDOMIZER_ENHANCEMENT("CustomKeyModels"), 1) != 0;
 
     // Boss keys: custom body (env keyColor, OPA) + dungeon gem icon (env gemColor, XLU).
     if (rg >= RG_FOREST_TEMPLE_BOSS_KEY && rg <= RG_GANONS_CASTLE_BOSS_KEY) {
@@ -156,12 +164,6 @@ static int32_t OOT_DescribeCustomDraw(RandomizerGet rg, CwItemDrawInfo* out) {
         int slot = rg - RG_FOREST_TEMPLE_BOSS_KEY;
         out->dlistCount = 2;
         out->xluStartIndex = 1;
-        if (!customKeys) { // vanilla models; the func's optional grayscale recolor is dropped
-            out->drawKind = CW_DRAW_KIND_SIMPLE;
-            out->dlists[0] = gGiBossKeyDL;
-            out->dlists[1] = gGiBossKeyGemDL;
-            return 1;
-        }
         out->drawKind = CW_DRAW_KIND_COLOR_LAYERS;
         out->dlists[0] = gBossKeyCustomDL;
         out->dlists[1] = icons[slot];
@@ -171,7 +173,7 @@ static int32_t OOT_DescribeCustomDraw(RandomizerGet rg, CwItemDrawInfo* out) {
     }
 
     // Small keys: custom body (env keyColor, OPA) + dungeon emblem (env emblemColor, XLU).
-    if (rg >= RG_FOREST_TEMPLE_SMALL_KEY && rg <= RG_GANONS_CASTLE_SMALL_KEY) {
+    if (rg >= RG_FOREST_TEMPLE_SMALL_KEY && rg <= RG_TREASURE_GAME_SMALL_KEY) {
         static const char* icons[10] = {
             gSmallKeyIconForestTempleDL,         gSmallKeyIconFireTempleDL,     gSmallKeyIconWaterTempleDL,
             gSmallKeyIconSpiritTempleDL,         gSmallKeyIconShadowTempleDL,   gSmallKeyIconBottomoftheWellDL,
@@ -179,9 +181,6 @@ static int32_t OOT_DescribeCustomDraw(RandomizerGet rg, CwItemDrawInfo* out) {
             gSmallKeyIconTreasureChestGameDL,
         };
         int slot = rg - RG_FOREST_TEMPLE_SMALL_KEY;
-        if (!customKeys) { // vanilla key; the func's grayscale recolor is dropped
-            return CwSimple(out, gGiSmallKeyDL, false, 0.0f);
-        }
         out->drawKind = CW_DRAW_KIND_COLOR_LAYERS;
         out->dlistCount = 2;
         out->xluStartIndex = 1;
@@ -192,7 +191,8 @@ static int32_t OOT_DescribeCustomDraw(RandomizerGet rg, CwItemDrawInfo* out) {
         return 1;
     }
 
-    // Key rings: key bunch + ring + emblem, each with its own env color, all OPA.
+    // Key rings: ring + emblem + ONE key, each with its own env color, all OPA. The native draw repeats
+    // gKeyringKeyDL per key with its own matrix; a single-matrix layer model can only show one.
     if (rg >= RG_FOREST_TEMPLE_KEY_RING && rg <= RG_TREASURE_GAME_KEY_RING) {
         static const char* icons[10] = {
             gKeyringIconForestTempleDL,         gKeyringIconFireTempleDL,     gKeyringIconWaterTempleDL,
@@ -200,33 +200,11 @@ static int32_t OOT_DescribeCustomDraw(RandomizerGet rg, CwItemDrawInfo* out) {
             gKeyringIconGerudoTrainingGroundDL, gKeyringIconGerudoFortressDL, gKeyringIconGanonsCastleDL,
             gKeyringIconTreasureChestGameDL,
         };
-        static const char* keys[10] = {
-            gKeyringKeysForestTempleDL,         gKeyringKeysFireTempleDL,     gKeyringKeysWaterTempleDL,
-            gKeyringKeysSpiritTempleDL,         gKeyringKeysShadowTempleDL,   gKeyringKeysBottomoftheWellDL,
-            gKeyringKeysGerudoTrainingGroundDL, gKeyringKeysGerudoFortressDL, gKeyringKeysGanonsCastleDL,
-            gKeyringKeysTreasureChestGameDL,
-        };
-        static const char* keysMQ[10] = {
-            gKeyringKeysForestTempleMQDL,         gKeyringKeysFireTempleMQDL,   gKeyringKeysWaterTempleMQDL,
-            gKeyringKeysSpiritTempleMQDL,         gKeyringKeysShadowTempleMQDL, gKeyringKeysBottomoftheWellMQDL,
-            gKeyringKeysGerudoTrainingGroundMQDL, gKeyringKeysGerudoFortressDL, gKeyringKeysGanonsCastleMQDL,
-            gKeyringKeysTreasureChestGameDL,
-        };
-        // 0 = not tied to a dungeon (Gerudo Fortress / Treasure Chest Game), so never MQ.
-        static const Rando::DungeonKey slotDungeon[10] = {
-            Rando::FOREST_TEMPLE, Rando::FIRE_TEMPLE,        Rando::WATER_TEMPLE,           Rando::SPIRIT_TEMPLE,
-            Rando::SHADOW_TEMPLE, Rando::BOTTOM_OF_THE_WELL, Rando::GERUDO_TRAINING_GROUND, (Rando::DungeonKey)0,
-            Rando::GANONS_CASTLE, (Rando::DungeonKey)0,
-        };
         int slot = rg - RG_FOREST_TEMPLE_KEY_RING;
-        if (!customKeys) { // the vanilla path stacks five keys via matrix chaining — not portable
-            return CwSimple(out, gGiSmallKeyDL, false, 0.0f);
-        }
-        bool mq = slotDungeon[slot] != 0 && Rando::Context::GetInstance()->GetDungeon(slotDungeon[slot])->IsMQ();
         out->drawKind = CW_DRAW_KIND_COLOR_LAYERS;
         out->dlistCount = 3;
         out->xluStartIndex = -1;
-        out->dlists[0] = mq ? keysMQ[slot] : keys[slot];
+        out->dlists[0] = gKeyringKeyDL;
         out->dlists[1] = gKeyringRingDL;
         out->dlists[2] = icons[slot];
         CwLayerEnv(out, 0, CVarGetColor24(SmallBodyCvarValue[slot], { 255, 255, 255 }));
@@ -262,6 +240,7 @@ static int32_t OOT_DescribeCustomDraw(RandomizerGet rg, CwItemDrawInfo* out) {
         };
         int slot = rg - RG_SPEAK_DEKU;
         bool generic = CVarGetInteger(CVAR_RANDOMIZER_ENHANCEMENT("GenericJabberNutModel"), 0) != 0;
+        out->setupDlOpa = GetItem_GetSetupDL(SETUPDL_26); // Randomizer_DrawJabberNut uses 26Opa
         out->drawKind = CW_DRAW_KIND_COLOR_LAYERS;
         out->dlistCount = 1;
         out->xluStartIndex = -1;
@@ -323,8 +302,11 @@ static int32_t OOT_DescribeCustomDraw(RandomizerGet rg, CwItemDrawInfo* out) {
         // RG_BOMBCHU_20 only draws the bag when the bombchu-bag option is on (DrawBombchuBagInLogic).
         if (rg == RG_BOMBCHU_20 &&
             OTRGlobals::Instance->gRandoContext->GetOption(RSK_BOMBCHU_BAG).Is(RO_BOMBCHU_BAG_NONE)) {
-            return CwSimple(out, gGiBombchuDL, false, 0.0f);
+            CwSimple(out, gGiBombchuDL, false, 0.0f);
+            out->setupDlOpa = GetItem_GetSetupDL(SETUPDL_26); // Randomizer_DrawBombchuBag uses 26Opa
+            return 1;
         }
+        out->setupDlOpa = GetItem_GetSetupDL(SETUPDL_26);
         out->drawKind = CW_DRAW_KIND_COLOR_LAYERS;
         out->dlistCount = 2;
         out->xluStartIndex = -1;
@@ -335,7 +317,67 @@ static int32_t OOT_DescribeCustomDraw(RandomizerGet rg, CwItemDrawInfo* out) {
         return 1;
     }
 
+    // Silver rupees: inner/outer rupee (NewDrops) or the textured drop rupee (Randomizer_DrawSilverRupee).
+    if (rg >= RG_SHADOW_SILVER_BLADES && rg <= RG_GANONS_CASTLE_MQ_SILVER_SHADOW) {
+        Color_RGB8 c = CVarGetColor24("gCosmetics.Consumable_SilverRupee.Value", { 255, 255, 255 });
+        out->stateDependent = 1; // NewDrops / cosmetic colour can change mid-session
+        if (CVarGetInteger("gEnhancements.NewDrops", 0) != 0) {
+            out->drawKind = CW_DRAW_KIND_COLOR_LAYERS;
+            out->dlistCount = 2;
+            out->xluStartIndex = 1;
+            out->dlists[0] = gGiRupeeInnerDL;
+            out->dlists[1] = gGiRupeeOuterDL;
+            CwLayerPrim(out, 0, c);
+            CwLayerEnv(out, 0, Color_RGB8{ (uint8_t)(c.r / 5), (uint8_t)(c.g / 5), (uint8_t)(c.b / 5) });
+            CwLayerPrim(out, 1, { 255, 255, 255 });
+            CwLayerEnv(out, 1, Color_RGB8{ (uint8_t)(c.r * 0.75f), (uint8_t)(c.g * 0.75f), (uint8_t)(c.b * 0.75f) });
+            return 1;
+        }
+        out->drawKind = CW_DRAW_KIND_SILVER_RUPEE;
+        out->dlistCount = 1;
+        out->xluStartIndex = -1;
+        out->scale = 0.05f;
+        out->dlists[0] = gRupeeDL;
+        out->segTexPath = gRupeeSilverTex;
+        if (CVarGetInteger("gCosmetics.Consumable_SilverRupee.Changed", 0)) {
+            out->primColorOpa[0] = c.r;
+            out->primColorOpa[1] = c.g;
+            out->primColorOpa[2] = c.b;
+            out->primColorOpa[3] = 255;
+        }
+        return 1;
+    }
+
+    // Nut bag: the Deku Nuts seg8 scroll under 26 Opa (Randomizer_DrawNutBag).
+    if (rg == RG_DEKU_NUT_BAG || rg == RG_NUT_UPGRADE_INF || rg == RG_DEKU_NUT_CAPACITY_30 ||
+        rg == RG_DEKU_NUT_CAPACITY_40) {
+        out->setupDlOpa = GetItem_GetSetupDL(SETUPDL_26);
+        out->drawKind = CW_DRAW_KIND_DEKU_NUTS;
+        out->dlistCount = 1;
+        out->xluStartIndex = -1;
+        out->dlists[0] = gGiNutBagDL;
+        return 1;
+    }
+
+    // Stick bag: plain model under 26 Opa (Randomizer_DrawStickBag).
+    if (rg == RG_DEKU_STICK_BAG || rg == RG_STICK_UPGRADE_INF || rg == RG_DEKU_STICK_CAPACITY_20 ||
+        rg == RG_DEKU_STICK_CAPACITY_30) {
+        CwSimple(out, gGiStickBagDL, false, 0.0f);
+        out->setupDlOpa = GetItem_GetSetupDL(SETUPDL_26);
+        return 1;
+    }
+
     switch (rg) {
+        case RG_SCARECROWS_SONG: // dark green grayscale note (Randomizer_DrawScarecrowsSong)
+            out->drawKind = CW_DRAW_KIND_GRAYSCALE_XLU;
+            out->dlistCount = 1;
+            out->xluStartIndex = 0;
+            out->dlists[0] = gGiSongNoteDL;
+            out->primColorXlu[0] = 40;
+            out->primColorXlu[1] = 160;
+            out->primColorXlu[2] = 40;
+            out->primColorXlu[3] = 255;
+            return 1;
         case RG_MASTER_SWORD: // seg8 scroll + scale/rotate (Randomizer_DrawMasterSword)
             out->drawKind = CW_DRAW_KIND_MASTER_SWORD;
             out->dlistCount = 1;
@@ -414,12 +456,25 @@ static bool OOT_IsStateDependentDraw(RandomizerGet rg) {
 }
 
 static int32_t OOT_FillItemDrawInfo(RandomizerGet rg, CwItemDrawInfo* out) {
-    GetItemEntry gi = Rando::StaticData::RetrieveItem(rg).GetGIEntry_Copy();
-    // Progressive items resolve to the tier actually owed; classify THAT item's draw func, not the
-    // placeholder's (drawItemId carries the resolved RandomizerGet for rando-table entries).
-    RandomizerGet effRg = (gi.tableId == TABLE_RANDOMIZER) ? (RandomizerGet)gi.drawItemId : rg;
+    RandomizerGet actual = RG_NONE;
+    GetItemEntry gi = *Rando::StaticData::RetrieveItem(rg).GetGIEntry(&actual);
+    if (actual != RG_NONE) {
+        out->resolvedName = Rando::StaticData::RetrieveItem(actual).GetName().english.c_str();
+    }
+    // Progressive items resolve to the tier actually owed; classify THAT item's draw func. Vanilla-table
+    // tiers (nut/stick capacity) carry no RG in drawItemId, so prefer the resolved tier itself.
+    RandomizerGet effRg = (actual != RG_NONE)                ? actual
+                          : (gi.tableId == TABLE_RANDOMIZER) ? (RandomizerGet)gi.drawItemId
+                                                             : rg;
     if (OOT_DescribeCustomDraw(effRg, out)) {
         return 1;
+    }
+    // ComboShip: a bespoke draw func with no row above falls back to the gid model; say so once.
+    if (gi.drawFunc != nullptr && effRg >= 0 && effRg < RG_MAX) {
+        static std::atomic<bool> sWarned[RG_MAX];
+        if (!sWarned[effRg].exchange(true)) {
+            SPDLOG_WARN("[combo] OOT item {} has a custom draw func but no cross-game draw row", (int)effRg);
+        }
     }
     void* dls[CW_DRAW_MAX_DLISTS] = {};
     int32_t xluStart = -1;
@@ -443,16 +498,23 @@ static int32_t OOT_FillItemDrawInfo(RandomizerGet rg, CwItemDrawInfo* out) {
     for (int32_t i = 0; i < n; i++) {
         out->dlists[i] = (const char*)dls[i];
     }
+    // Rows drawn under a setup other than 25 (masks/bombchu/medallions = 26 Opa, sold-out/compass
+    // = 5 Xlu): carry it so the consumer submits the same GPU state, not its own 25.
+    void* setupOpa = nullptr;
+    void* setupXlu = nullptr;
+    GetItem_GetDrawSetupDLs((s32)gi.gid, &setupOpa, &setupXlu);
+    out->setupDlOpa = setupOpa;
+    out->setupDlXlu = setupXlu;
     return 1;
 }
 
-// Cross-game item draw info. MM resolves this via GetProcAddress to learn which OOT display lists
+// Cross-game item draw info. MM resolves this via Combo_ResolveSym to learn which OOT display lists
 // render a foreign item; itemName is the OOT English item name (the foreign map's grant key).
 // Returns 0 for unknown/non-portable items, CW_DRAW_NOT_READY while OOT's rando state is down.
 // The whole body is inside the try: an unwind across the C ABI into 2ship.dll is unrecoverable.
 static bool OOT_BossSoulUsesSkeleton(RandomizerGet rg); // defined with the animated ABI below
 
-extern "C" __declspec(dllexport) int32_t OOT_GetItemDrawInfo(const char* itemName, CwItemDrawInfo* out) {
+extern "C" COMBO_EXPORT int32_t OOT_GetItemDrawInfo(const char* itemName, CwItemDrawInfo* out) {
     try {
         if (itemName == nullptr || out == nullptr) {
             return 0;
@@ -483,7 +545,9 @@ extern "C" __declspec(dllexport) int32_t OOT_GetItemDrawInfo(const char* itemNam
         if (!OOT_FillItemDrawInfo(rg, out)) {
             return 0;
         }
-        out->stateDependent = OOT_IsStateDependentDraw(rg) ? 1 : 0;
+        if (OOT_IsStateDependentDraw(rg)) {
+            out->stateDependent = 1; // keep a recipe's own flag (silver rupee CVars)
+        }
         return 1;
     } catch (...) { return 0; }
 }
@@ -675,7 +739,7 @@ static int32_t OOT_FillBossSoulAnim(int slot, CwItemAnimDrawInfo* out) {
 // than a SkelAnime skeleton and rides the static ABI. Returns 0 otherwise; MM falls back to its
 // sentinel. Mirror of MM_GetItemAnimDrawInfo.
 // Whole body inside the try: an unwind across the C ABI into 2ship.dll is unrecoverable.
-extern "C" __declspec(dllexport) int32_t OOT_GetItemAnimDrawInfo(const char* itemName, CwItemAnimDrawInfo* out) {
+extern "C" COMBO_EXPORT int32_t OOT_GetItemAnimDrawInfo(const char* itemName, CwItemAnimDrawInfo* out) {
     try {
         if (itemName == nullptr || out == nullptr) {
             return 0;

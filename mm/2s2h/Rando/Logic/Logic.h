@@ -25,6 +25,12 @@ extern "C" {
     {}
 #endif
 
+#ifdef COMBO_BUILD
+// ComboShip (teleport songs): 1 while the combined fill's oracle knows OOT can play Song of Soaring.
+extern "C" int gMMComboOracleOotSoaring;
+#define CAN_SOAR_TO_OWL (CAN_PLAY_SONG(SOARING) || gMMComboOracleOotSoaring != 0)
+#endif
+
 namespace Rando {
 
 namespace Logic {
@@ -139,6 +145,8 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
 void ApplyGlitchlessLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool);
 void ApplyNearlyNoLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool);
 void ApplyNoLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool);
+bool StaysAtVanillaCheck(RandoItemId itemId, const RandoSaveInfo& saveInfo);
+bool IsSongLocationItem(RandoItemId itemId);
 bool IsItemAllowedAtCheck(RandoItemId itemId, RandoCheckId checkId);
 size_t SelectItemForCheck(const std::vector<RandoItemId>& itemPool, const std::vector<RandoCheckId>& checkPool,
                           RandoCheckId checkId);

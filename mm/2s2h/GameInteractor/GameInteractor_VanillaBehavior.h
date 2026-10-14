@@ -89,6 +89,14 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // true
+    // ```
+    // #### `args`
+    // - `s32` (sDistortionRequest.type)
+    VB_APPLY_SCREEN_DISTORTION,
+
+    // #### `result`
+    // ```c
     // !play->interfaceCtx.perfectLettersOn
     // ```
     // #### `args`
@@ -554,14 +562,6 @@ typedef enum {
     // true
     // ```
     // #### `args`
-    // - `*FileSelectState`
-    VB_FILE_SELECT_ROTATE_TO_NAME_ENTRY,
-
-    // #### `result`
-    // ```c
-    // true
-    // ```
-    // #### `args`
     // - `*ItemId`
     // - `s32` (slot)
     // - `s32` (isDpad)
@@ -717,6 +717,14 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // gSaveContext.minigameScore < 20
+    // ```
+    // #### `args`
+    // - None
+    VB_FAIL_FISHERMAN_JUMPING_GAME,
+
+    // #### `result`
+    // ```c
     // (gSaveContext.save.saveInfo.inventory.items[SLOT_OCARINA] == ITEM_NONE) && (play->envCtx.sceneTimeSpeed != 0)
     // ```
     // #### `args`
@@ -731,6 +739,22 @@ typedef enum {
     // #### `args`
     // - None
     VB_FD_ALWAYS_WIELD_SWORD,
+
+    // #### `result`
+    // ```c
+    // true
+    // ```
+    // #### `args`
+    // - `*FileSelectState`
+    VB_FILE_SELECT_ROTATE_TO_NAME_ENTRY,
+
+    // #### `result`
+    // ```c
+    // this->myPotIndex == 4
+    // ```
+    // #### `args`
+    // - None
+    VB_FIND_ROCK_SIRLOIN,
 
     // #### `result`
     // ```c
@@ -1285,6 +1309,22 @@ typedef enum {
     // - `*s32`
     // - `*bool`
     VB_JS_OVERRIDE_MASK_CHECK,
+
+    // #### `result`
+    // ```c
+    // gSaveContext.timerCurTimes[TIMER_ID_MINIGAME_2] == SECONDS_TO_TIMER(0)
+    // ```
+    // #### `args`
+    // - None
+    VB_JUMPING_GAME_END,
+
+    // #### `result`
+    // ```c
+    // this->unk_2FC > 100
+    // ```
+    // #### `args`
+    // - `s32` (torch burn time)
+    VB_JUMPING_GAME_TORCH_RUN_OUT,
 
     // #### `result`
     // ```c
@@ -2093,6 +2133,15 @@ typedef enum {
     // #### `args`
     // - None
     VB_SCOPENUTS_CONSIDER_FIRST_CYCLE,
+
+    // #### `result`
+    // ```c
+    // false
+    // ```
+    // #### `args`
+    // - `*s32` (spawn time)
+    // - `s32` (index)
+    VB_SET_ALIEN_SPEED,
 
     // #### `result`
     // ```c

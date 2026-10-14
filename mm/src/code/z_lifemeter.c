@@ -310,8 +310,8 @@ void LifeMeter_Draw(PlayState* play) {
                     gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sHeartsDDPrim[0][0], sHeartsDDPrim[0][1], sHeartsDDPrim[0][2],
                                     interfaceCtx->healthAlpha);
                     // Double Defense Non Active Heart
-                    gDPSetEnvColorOverrideEx(OVERLAY_DISP++, sHeartsDDEnv[0][0], sHeartsDDEnv[0][1], sHeartsDDEnv[0][2],
-                                             255, COSMETIC_ID("HUD.Hearts"), COSMETIC_COLOR_MODE_SUBTRACT, 55.0f);
+                    gDPSetEnvColorOverride(OVERLAY_DISP++, sHeartsDDEnv[0][0], sHeartsDDEnv[0][1], sHeartsDDEnv[0][2],
+                                           255, COSMETIC_ID("HUD.HeartsDoubleDefense"));
                 }
             } else if (i == fullHeartCount) {
                 if (curColorSet != 5) {
@@ -321,9 +321,8 @@ void LifeMeter_Draw(PlayState* play) {
                     gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sBeatingHeartsDDPrim[0], sBeatingHeartsDDPrim[1],
                                     sBeatingHeartsDDPrim[2], interfaceCtx->healthAlpha);
                     // Double Defense Beating Heart
-                    gDPSetEnvColorOverrideEx(OVERLAY_DISP++, sBeatingHeartsDDEnv[0], sBeatingHeartsDDEnv[1],
-                                             sBeatingHeartsDDEnv[2], 255, COSMETIC_ID("HUD.Hearts"),
-                                             COSMETIC_COLOR_MODE_SUBTRACT, 55.0f);
+                    gDPSetEnvColorOverride(OVERLAY_DISP++, sBeatingHeartsDDEnv[0], sBeatingHeartsDDEnv[1],
+                                           sBeatingHeartsDDEnv[2], 255, COSMETIC_ID("HUD.HeartsDoubleDefense"));
                 }
             } else if (i > fullHeartCount) {
                 if (curColorSet != 6) {
@@ -333,8 +332,8 @@ void LifeMeter_Draw(PlayState* play) {
                     gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sHeartsDDPrim[0][0], sHeartsDDPrim[0][1], sHeartsDDPrim[0][2],
                                     interfaceCtx->healthAlpha);
                     // Double Defense Empty Heart
-                    gDPSetEnvColorOverrideEx(OVERLAY_DISP++, sHeartsDDEnv[0][0], sHeartsDDEnv[0][1], sHeartsDDEnv[0][2],
-                                             255, COSMETIC_ID("HUD.Hearts"), COSMETIC_COLOR_MODE_SUBTRACT, 55.0f);
+                    gDPSetEnvColorOverride(OVERLAY_DISP++, sHeartsDDEnv[0][0], sHeartsDDEnv[0][1], sHeartsDDEnv[0][2],
+                                           255, COSMETIC_ID("HUD.HeartsDoubleDefense"));
                 }
             } else if (curColorSet != 7) {
                 curColorSet = 7;

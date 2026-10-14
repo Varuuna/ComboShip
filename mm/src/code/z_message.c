@@ -9,6 +9,7 @@
 #include "z64save.h"
 #include "BenPort.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
+#include "2s2h/BenGui/CosmeticEditor.h"
 #include "assets/archives/schedule_dma_static/schedule_dma_static_yar.h"
 #include "assets/archives/icon_item_static/icon_item_static_yar.h"
 #include "assets/archives/icon_item_24_static/icon_item_24_static_yar.h"
@@ -4331,7 +4332,7 @@ void Message_DrawSceneTitleCard(PlayState* play, Gfx** gfxP) {
     gDPSetTextureFilter(gfx++, G_TF_BILERP);
     gDPSetAlphaDither(gfx++, G_AD_NOTPATTERN);
     gDPSetPrimColor(gfx++, 0, 0, 0, 0, 0, msgCtx->textboxColorAlphaCurrent);
-    gDPSetEnvColor(gfx++, 140, 40, 160, 255);
+    gDPSetEnvColorOverride(gfx++, 140, 40, 160, 255, COSMETIC_ID("Menus.SceneTitleCard"));
     gDPLoadTextureBlock(gfx++, gSceneTitleCardGradientTex, G_IM_FMT_I, G_IM_SIZ_8b, 64, 1, 0, G_TX_NOMIRROR | G_TX_WRAP,
                         G_TX_NOMIRROR | G_TX_WRAP, 6, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
     // #region 2S2H [Cosmetic] Account for different aspect ratios than 4:3 for title card
@@ -4354,7 +4355,12 @@ void Message_DrawSceneTitleCard(PlayState* play, Gfx** gfxP) {
     *gfxP = gfx++;
 }
 
+#ifdef COMBO_BUILD
+// ComboShip (teleport songs): sized explicitly so the OOT warp-song ids at the tail fit.
+s16 sOcarinaSongFanfares[OCARINA_SONG_MAX] = {
+#else
 s16 sOcarinaSongFanfares[] = {
+#endif
     NA_BGM_OCARINA_SONATA,            // OCARINA_SONG_SONATA
     NA_BGM_OCARINA_LULLABY,           // OCARINA_SONG_GORON_LULLABY
     NA_BGM_OCARINA_NEW_WAVE,          // OCARINA_SONG_NEW_WAVE
@@ -4372,6 +4378,22 @@ s16 sOcarinaSongFanfares[] = {
     NA_BGM_OCARINA_LULLABY_INTRO_PTR, // OCARINA_SONG_GORON_LULLABY_INTRO
     NA_BGM_OCARINA_LULLABY_INTRO_PTR, // OCARINA_SONG_WIND_FISH_HUMAN
     NA_BGM_OCARINA_LULLABY_INTRO_PTR, // OCARINA_SONG_WIND_FISH_GORON
+#ifdef COMBO_BUILD
+    // ComboShip: fill the ids vanilla already read past the end; OOT warp songs reuse the soaring jingle.
+    NA_BGM_OCARINA_LULLABY_INTRO_PTR, // OCARINA_SONG_WIND_FISH_ZORA
+    NA_BGM_OCARINA_LULLABY_INTRO_PTR, // OCARINA_SONG_WIND_FISH_DEKU
+    NA_BGM_OCARINA_LULLABY_INTRO_PTR, // OCARINA_SONG_EVAN_PART1
+    NA_BGM_OCARINA_LULLABY_INTRO_PTR, // OCARINA_SONG_EVAN_PART2
+    NA_BGM_OCARINA_LULLABY_INTRO_PTR, // OCARINA_SONG_ZELDAS_LULLABY
+    NA_BGM_OCARINA_LULLABY_INTRO_PTR, // OCARINA_SONG_SCARECROW_SPAWN
+    NA_BGM_OCARINA_LULLABY_INTRO_PTR, // OCARINA_SONG_TERMINA_WALL
+    NA_BGM_OCARINA_SOARING,           // OCARINA_SONG_MINUET
+    NA_BGM_OCARINA_SOARING,           // OCARINA_SONG_BOLERO
+    NA_BGM_OCARINA_SOARING,           // OCARINA_SONG_SERENADE
+    NA_BGM_OCARINA_SOARING,           // OCARINA_SONG_REQUIEM
+    NA_BGM_OCARINA_SOARING,           // OCARINA_SONG_NOCTURNE
+    NA_BGM_OCARINA_SOARING,           // OCARINA_SONG_PRELUDE
+#endif
 };
 
 s8 sOcarinaSongFanfareIoData[PLAYER_FORM_MAX] = {
@@ -4637,12 +4659,24 @@ void Message_DrawMain(PlayState* play, Gfx** gfxP) {
                 // 0xFF means no staff is up
                 //! @bug states 0xFE and 0xFF will index CHECK_QUEST_ITEM Out of bounds, causing ASAN to crash.
                 // 2S2H [Port] Fix this OOB with a check.
+#ifdef COMBO_BUILD
+                // ComboShip (teleport songs): OOT's warp songs have no MM quest bit to index.
+                if (msgCtx->ocarinaStaff->state != 0xFE && msgCtx->ocarinaStaff->state != 0xFF &&
+                    !OCARINA_SONG_IS_OOT_WARP(msgCtx->ocarinaStaff->state)) {
+#else
                 if (msgCtx->ocarinaStaff->state != 0xFE && msgCtx->ocarinaStaff->state != 0xFF) {
+#endif
                     vanillaOwnedSongCheck =
                         vanillaOwnedSongCheck || CHECK_QUEST_ITEM(QUEST_SONG_SONATA + msgCtx->ocarinaStaff->state);
                 }
 
+#ifdef COMBO_BUILD
+                // ComboShip (teleport songs): OOT's warp songs are owned through VB_SONG_AVAILABLE_TO_PLAY only.
+                if (msgCtx->ocarinaStaff->state <= OCARINA_SONG_SCARECROW_SPAWN ||
+                    OCARINA_SONG_IS_OOT_WARP(msgCtx->ocarinaStaff->state)) {
+#else
                 if (msgCtx->ocarinaStaff->state <= OCARINA_SONG_SCARECROW_SPAWN) {
+#endif
                     if (msgCtx->ocarinaStaff->state == OCARINA_SONG_EVAN_PART1) {
                         AudioOcarina_ResetAndReadInput();
                         AudioOcarina_StartDefault(0x80100000);
@@ -4848,6 +4882,11 @@ void Message_DrawMain(PlayState* play, Gfx** gfxP) {
             case MSGMODE_DISPLAY_SONG_PLAYED_TEXT_BEGIN:
                 if (msgCtx->songPlayed == OCARINA_SONG_SCARECROW_SPAWN) {
                     Message_ContinueTextbox(play, 0x1B6B);
+#ifdef COMBO_BUILD
+                } else if (OCARINA_SONG_IS_OOT_WARP(msgCtx->songPlayed)) {
+                    // ComboShip (teleport songs): WarpSongs.cpp supplies this text via 0x1B95.
+                    Message_ContinueTextbox(play, 0x1B95);
+#endif
                 } else {
                     Message_ContinueTextbox(play, 0x1B72 + msgCtx->songPlayed);
                 }

@@ -4,6 +4,8 @@
 // Import / Skip. The launcher does the JSON parse + merge + apply; this file only renders and reports
 // the chosen paths.
 #include "ComboSettingsImportScreen.h"
+#include "ComboExport.h"
+#include "ComboFilePicker.h"  // native Browse dialog (comdlg32 / pfd), shared with the extraction screen
 #include "ComboWidgetStyle.h" // ComboMenu_ThemeColor / PushButton / PopButton
 
 #include <libultraship/libultraship.h>
@@ -11,14 +13,10 @@
 #include <imgui.h>
 
 #include <string>
+#include <vector>
 #include <filesystem>
 #include <cstring>
-
-#ifdef _WIN32
-#include <windows.h>
-#include <commdlg.h>
-#pragma comment(lib, "comdlg32")
-#endif
+#include <cstdlib>
 
 using ComboRando::ComboMenu_PopButton;
 using ComboRando::ComboMenu_PushButton;
@@ -28,28 +26,40 @@ namespace {
 
 struct ConfigSlot {
     const char* label = "";
-    const char* fileName = ""; // expected filename for auto-detect
+    const char* fileName = "";         // expected filename for auto-detect
+    const char* macAppSupportDir = ""; // that game's bundle id, for the macOS auto-detect below
     ComboFnValidateConfig validate = nullptr;
     std::string path;
     bool valid = false;
 };
 
+// Directories to probe for an existing install's config, most likely first.
+// Windows and Linux installs keep the config beside the executable, so the working directory covers
+// those. macOS does NOT: libultraship puts config under ~/Library/Application Support/<bundle id>,
+// which Finder hides by default — so without this probe Browse is the only route and the user has no
+// reasonable way to find the file.
+std::vector<std::filesystem::path> ConfigSearchDirs(const char* macAppSupportDir) {
+    std::vector<std::filesystem::path> dirs;
+    std::error_code ec;
+    if (auto cwd = std::filesystem::current_path(ec); !ec) {
+        dirs.push_back(cwd);
+    }
+#ifdef __APPLE__
+    if (macAppSupportDir != nullptr && *macAppSupportDir != '\0') {
+        if (const char* home = std::getenv("HOME")) {
+            dirs.push_back(std::filesystem::path(home) / "Library" / "Application Support" / macAppSupportDir);
+        }
+    }
+#else
+    (void)macAppSupportDir;
+#endif
+    return dirs;
+}
+
 // Native open-file dialog filtered to .json. Returns "" if cancelled.
 std::string PickConfigFile() {
-#ifdef _WIN32
-    char file[MAX_PATH] = { 0 };
-    OPENFILENAMEA ofn = { 0 };
-    ofn.lStructSize = sizeof(ofn);
-    ofn.lpstrFilter = "Settings (*.json)\0*.json\0All Files (*.*)\0*.*\0";
-    ofn.lpstrFile = file;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.lpstrTitle = "Select settings file";
-    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-    if (GetOpenFileNameA(&ofn)) {
-        return std::string(file);
-    }
-#endif
-    return std::string();
+    return ComboFilePicker::PickFile("Select settings file", "Settings (*.json)\0*.json\0All Files (*.*)\0*.*\0",
+                                     { "Settings (*.json)", "*.json", "All Files", "*" });
 }
 
 void CopyPath(char* dst, size_t cap, const std::string& src) {
@@ -66,8 +76,8 @@ void UseSharedImGuiContext() {
 
 } // namespace
 
-extern "C" __declspec(dllexport) int ComboUI_RunSettingsImport(const ComboSettingsImportCallbacks* cb,
-                                                               ComboSettingsImportResult* out) {
+extern "C" COMBO_EXPORT int ComboUI_RunSettingsImport(const ComboSettingsImportCallbacks* cb,
+                                                      ComboSettingsImportResult* out) {
     if (!out) {
         return 0;
     }
@@ -89,17 +99,28 @@ extern "C" __declspec(dllexport) int ComboUI_RunSettingsImport(const ComboSettin
     ConfigSlot slots[2];
     slots[0].label = "Ship of Harkinian (OoT)";
     slots[0].fileName = "shipofharkinian.json";
+    slots[0].macAppSupportDir = "com.shipofharkinian.soh";
     slots[0].validate = cb ? cb->sohValidate : nullptr;
     slots[1].label = "2 Ship 2 Harkinian (MM)";
     slots[1].fileName = "2ship2harkinian.json";
+    slots[1].macAppSupportDir = "com.2ship2harkinian.2s2h";
     slots[1].validate = cb ? cb->mmValidate : nullptr;
 
-    // Auto-detect each game's config in the working dir (same convenience as the ROM auto-scan).
+    // Auto-detect each game's config (same convenience as the ROM auto-scan). First hit wins; a
+    // rejected file keeps searching, so a stale copy in the working dir can't mask a real install.
     for (auto& s : slots) {
         std::error_code ec;
-        if (std::filesystem::exists(s.fileName, ec)) {
-            s.path = std::filesystem::absolute(s.fileName, ec).string();
-            s.valid = !s.validate || s.validate(s.path.c_str()) != 0;
+        for (const auto& dir : ConfigSearchDirs(s.macAppSupportDir)) {
+            const auto candidate = dir / s.fileName;
+            if (!std::filesystem::exists(candidate, ec)) {
+                continue;
+            }
+            const std::string found = candidate.string();
+            if (!s.validate || s.validate(found.c_str()) != 0) {
+                s.path = found;
+                s.valid = true;
+                break;
+            }
         }
     }
 
@@ -152,6 +173,14 @@ extern "C" __declspec(dllexport) int ComboUI_RunSettingsImport(const ComboSettin
             ImGui::TextWrapped("Optional: bring over your settings from an existing Ship of Harkinian and/or "
                                "2 Ship 2 Harkinian install. Pick one or both files, or Skip to start fresh. "
                                "Where both set the same option (e.g. graphics or controls), OoT wins.");
+            if (!ComboFilePicker::Available()) {
+                // Wrapped text in the disabled color (TextDisabled doesn't wrap), ASCII only —
+                // same treatment as the extraction screen's hint.
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+                ImGui::TextWrapped("No file-picker helper found (install zenity or kdialog); only "
+                                   "auto-detected configs can be imported here, or Skip to start fresh.");
+                ImGui::PopStyleColor();
+            }
             ImGui::Spacing();
 
             for (int i = 0; i < 2; i++) {
@@ -160,12 +189,18 @@ extern "C" __declspec(dllexport) int ComboUI_RunSettingsImport(const ComboSettin
                 ImGui::TextColored(theme, "%s", s.label);
                 ImGui::TextWrapped("%s", s.path.empty() ? "(none selected)" : s.path.c_str());
                 ComboMenu_PushButton(theme);
+                if (!ComboFilePicker::Available()) {
+                    ImGui::BeginDisabled();
+                }
                 if (ImGui::Button(s.path.empty() ? "Browse..." : "Change")) {
                     std::string picked = PickConfigFile();
                     if (!picked.empty()) {
                         s.path = picked;
                         s.valid = !s.validate || s.validate(picked.c_str()) != 0;
                     }
+                }
+                if (!ComboFilePicker::Available()) {
+                    ImGui::EndDisabled();
                 }
                 ComboMenu_PopButton();
                 if (!s.path.empty()) {

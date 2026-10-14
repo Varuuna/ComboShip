@@ -22,4 +22,8 @@ void RegisterSwap();
 bool GetMasterVisible(int tracker);
 void SetMasterVisible(int tracker, bool visible);
 
+// The FOREGROUND game's pause state, from its DLL (the dormant game's own is stale). Fails open
+// (paused) so a missing module/export degrades to always-show. Shared with the combo Hint Tracker.
+bool ForegroundPaused(int fg);
+
 } // namespace ComboTracker

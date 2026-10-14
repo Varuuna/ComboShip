@@ -126,8 +126,14 @@ static bool ResetHandler(std::shared_ptr<Ship::Console> Console, std::vector<std
         return 1;
     }
 
+#ifdef COMBO_BUILD
+    // ComboShip: MM's boot path wipes the save (Sram_InitNewSave) and combo can't enter its file select.
+    // Reuse the Ctrl+R return instead — same semantics, and it persists only when autosave is on.
+    MM_RequestComboReturn();
+#else
     STOP_GAMESTATE(gGameState);
     SET_NEXT_GAMESTATE(gGameState, ConsoleLogo_Init, sizeof(ConsoleLogoState));
+#endif
     // GI-TODO
     // GameInteractor::Instance->ExecuteHooks<GameInteractor::OnExitGame>(gSaveContext.fileNum);
     return 0;
@@ -192,6 +198,30 @@ static bool GiveItemHandler(std::shared_ptr<Ship::Console> Console, const std::v
     }
     return 0;
 }
+
+#ifdef COMBO_BUILD
+// ComboShip (teleport songs): `combo_warp_oot <hex OOT entrance>`, e.g. 0x600 = Sacred Forest Meadow pad.
+static bool ComboWarpOOTHandler(std::shared_ptr<Ship::Console> Console, const std::vector<std::string>& args,
+                                std::string* output) {
+    if (args.size() < 2) {
+        ERROR_MESSAGE("[ComboShip] combo_warp_oot: expected an OOT entrance (hex).");
+        return 1;
+    }
+    if (gPlayState == nullptr) {
+        ERROR_MESSAGE("[ComboShip] combo_warp_oot: not in gameplay.");
+        return 1;
+    }
+    unsigned int entrance;
+    try {
+        entrance = std::stoi(args[1], nullptr, 16);
+    } catch (std::invalid_argument const& ex) {
+        ERROR_MESSAGE("[ComboShip] combo_warp_oot: entrance value must be a hex number.");
+        return 1;
+    }
+    Combo_RequestCrossSwitch((int)entrance);
+    return 0;
+}
+#endif
 
 static bool EntranceHandler(std::shared_ptr<Ship::Console> Console, const std::vector<std::string>& args,
                             std::string* output) {
@@ -271,6 +301,11 @@ void DebugConsole_Init(void) {
     CMD_REGISTER("entrance", { EntranceHandler,
                                "Sends player to the entered entrance (hex)",
                                { { "entrance", Ship::ArgumentType::NUMBER } } });
+#ifdef COMBO_BUILD
+    CMD_REGISTER("combo_warp_oot", { ComboWarpOOTHandler,
+                                     "ComboShip: switch to OOT and arrive at the given OOT entrance (hex).",
+                                     { { "entrance", Ship::ArgumentType::NUMBER } } });
+#endif
 
     // Gameplay
     CMD_REGISTER("give_item", { GiveItemHandler,

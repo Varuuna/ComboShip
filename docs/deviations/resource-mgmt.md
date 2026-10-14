@@ -2,6 +2,81 @@
 
 Preserved deviations — keep across upstream merges. See [../UPSTREAM_MERGES.md](../UPSTREAM_MERGES.md) for the merge mechanism.
 
+## macOS: default to the SDL audio backend, not CoreAudio (2026-09-08)
+
+**Why:** libultraship defaults macOS to `AudioBackend::COREAUDIO` when nothing is saved
+(`Audio.cpp`, both the available-backends list and the `GetSavedAudioBackend()` fallback). Its
+`CoreAudioAudioPlayer` opens a **`kAudioUnitSubType_HALOutput`** unit — which binds the output device
+directly, unlike `DefaultOutput`, which simply converts — and sets a client stream format using
+`AudioPlayer.h`'s hardcoded `SampleRate = 44100`. macOS **persists a device's chosen format**, so a
+single launch left a DisplayPort display pinned at 44100 (displays expect 48000) and audio cut out
+system-wide *in every other application*, surviving both quitting the game and a full reboot. Found
+only because the .app was installed to /Applications and used across a reboot.
+
+**`libultraship/src/ship/audio/Audio.cpp` (vendored — preserve on future LUS merges):** three
+changes to `GetSavedAudioBackend()`, all `__APPLE__`-gated except the first:
+
+1. A `SHIP_AUDIO_BACKEND` env override read before the config — the same environment-as-config
+   pattern libultraship already uses for `SHIP_HOME`.
+2. The `__APPLE__` fallback returns `AudioBackend::SDL` instead of `COREAUDIO`.
+3. A saved `"coreaudio"` is rewritten to `"sdl"`, in the same shape as the existing `pulse` → `sdl`
+   migration a few lines above — unless the value came from (1), which is honoured as-is.
+
+**(3) is the part that matters, and it is stronger than it looks.** Changing only the *default*
+protects nobody who has already launched ComboShip on macOS — which is every existing user, since
+`"coreaudio"` is exactly what libultraship's own pre-fix default wrote on their first run. Because
+the rewrite runs on every read, it is a standing override rather than a one-time migration:
+**selecting CoreAudio in the Audio settings works for the session and is silently reverted on the
+next launch, so CoreAudio is effectively unselectable on macOS while this deviation stands.** That
+is deliberate — the failure mode is permanent, system-wide, and damages applications other than this
+one — but it is a real capability removed, and `SHIP_AUDIO_BACKEND=coreaudio` on each run is the
+documented way back. Note the env value is itself persisted by `SetCurrentAudioBackend()` like any
+other selection; on macOS that self-corrects, since a config left saying `"coreaudio"` is migrated
+again next launch.
+
+> **UPSTREAM CANDIDATE — temporary carry.** This is a mitigation, not the fix. The real fix is in
+> `CoreAudioAudioPlayer`: use `kAudioUnitSubType_DefaultOutput`, or query the device's current
+> nominal sample rate instead of forcing 44100. Nothing here is ComboShip-specific — any libultraship
+> consumer on macOS with a fresh config reconfigures the user's audio device. Revert this deviation
+> once a pin bump carries the real fix.
+
+## macOS/Metal: font atlas never rebuilt after a late AddFont (2026-09-07)
+
+**Why:** `Fast3dGui::RebuildFontTexture()` exists because the renderer backends build their font
+texture once, lazily; a font added to the shared ImGui atlas *after* that leaves it with
+`TexReady=false`. The function enumerates backends — OpenGL `ImGui_ImplOpenGL3_DestroyFontsTexture()`,
+DX11 `ImGui_ImplDX11_InvalidateDeviceObjects()` — but **had no `FAST3D_SDL_METAL` case** and fell
+through to `default: break;`. The next `ImGui::NewFrame()` then ran on an unbuilt atlas: the
+`"Font Atlas not built!"` assert in Debug, and a **segfault in Release**, where `NDEBUG` compiles that
+assert out. Two ComboShip paths add fonts late — MM's eager boot (`mm/2s2h/BenPort.cpp`) and, on the
+post-extraction boot, OOT's own font load once the ROM Setup screen has already created the window
+*and drawn frames*.
+
+**THE OBVIOUS FIX DOES NOT WORK — do not "simplify" this back.** `ImGui_ImplMetal_NewFrame()`
+recreates device objects only when `depthStencilState == nil`, and
+`ImGui_ImplMetal_DestroyDeviceObjects()` **never nils it** (it drops the font texture, clears the
+pipeline cache, and returns). Calling it therefore destroys the font texture and guarantees nothing
+rebuilds it — strictly worse than the fall-through. The atlas has to be re-uploaded through
+`ImGui_ImplMetal_CreateFontsTexture()`, whose `GetTexDataAsRGBA32()` both builds the atlas and sets
+`TexID`. That needs the `MTL::Device*`, which is private to the backend.
+
+**`libultraship/include/fast/backends/gfx_metal.h` + `src/fast/backends/gfx_metal.cpp` (vendored —
+preserve on future LUS merges):** add `GfxRenderingAPIMetal::RebuildFontsTexture()`, which calls
+`ImGui_ImplMetal_DestroyFontsTexture()` then `ImGui_ImplMetal_CreateFontsTexture(mDevice)`.
+
+**`libultraship/src/fast/Fast3dGui.cpp` (vendored):** the `#ifdef __APPLE__` /
+`FAST3D_SDL_METAL` case resolves the current rendering API and calls that method.
+
+**`soh/soh/OTRGlobals.cpp` (vendored, COMBO_BUILD-guarded):** call
+`GetGui()->RebuildFontTexture()` after OOT's font loads. MM already carried this deviation after its
+own font loads; OOT had no equivalent, which is why only the post-extraction boot crashed and a
+normal boot did not. Unconditional by design — invalidating before the texture exists is a no-op.
+
+> **UPSTREAM CANDIDATE — temporary carry.** The missing Metal case and the `DestroyDeviceObjects()`
+> trap are upstream issues: any Metal consumer adding a font post-init hits them. Send to
+> Kenix3/libultraship and drop the LUS half of this deviation on a pin bump that contains the fix.
+> The `soh` call is ComboShip-specific and stays. Not yet submitted.
+
 ## MM cross-RM display lists must not be eagerly resolved (foreign-draw crash fix) (2026-06-17)
 
 **Why:** entering MM with a cross-world seed that placed a foreign OOT item at an MM check crashed on
@@ -177,7 +252,10 @@ mid-recipe, and `CfaDrawFlame` skipping only its flame DL (the flame is `flameSe
 so the model still draws).
 
 **The scope MUST stay narrow.** Both archives share one resource path namespace, so a HOST lookup
-performed under the FOREIGN RM does not fail loudly — it silently returns the WRONG asset. soh's
+performed under the FOREIGN RM does not fail loudly — it silently returns the WRONG asset. (The set
+of colliding paths is inventoried in `asset-collisions.json` and gated by
+`scripts/check-asset-collisions.py` — see the standing policy in
+[../UPSTREAM_MERGES.md](../UPSTREAM_MERGES.md).) soh's
 helper also mangles paths on MQ state, i.e. host state applied to a foreign archive. Wrapping
 `SkelAnime_Draw*`/`Matrix_*`/`OPEN_DISPS` would be worse than the original bug and buys nothing,
 since playback is already covered by the bracket.
@@ -195,7 +273,43 @@ Two alternatives were rejected and should stay rejected:
 **`mm/2s2h/BenPort.cpp` + `soh/soh/ResourceManagerHelpers.cpp` (COMBO_BUILD-guarded):**
 `ResourceMgr_LoadIfDListByName` returns null on a miss instead of dereferencing. Both callers already
 test the return (`stubs.c:163`, `GbiWrap.cpp:48`), so the function's contract already admitted null —
-it just failed to produce it. The sibling `ResourceMgr_LoadTexOrDListByName` has the identical
-unguarded deref but is left alone: no `Cfa*` path reaches it via `gSPSegmentLoadRes` today. The other
-~11 unchecked `GetResourceByName` sites in `BenPort.cpp` are a vendored 2Ship pattern whose callers
-deref unconditionally, so guarding them would relocate the crash rather than fix it.
+it just failed to produce it. The sibling `ResourceMgr_LoadTexOrDListByName` now carries the same
+guard on both hosts (see the pause name-panel entry below — `gSPInvalidateTexCache` reaches it). The
+other ~11 unchecked `GetResourceByName` sites in `BenPort.cpp` are a vendored 2Ship pattern whose
+callers deref unconditionally, so guarding them would relocate the crash rather than fix it.
+
+**`soh/src/overlays/misc/ovl_kaleido_scope/z_kaleido_scope_PAL.c` (COMBO_BUILD-guarded) +
+`ResourceMgr_LoadTexOrDListByName` on both hosts:** OOT's pause menu `malloc`s a fresh, never-freed
+`pauseCtx->nameSegment` on every open, and only `KaleidoScope_UpdateNamePanel` (gated to specific
+pause states) ever writes a name-texture path into it. `KaleidoScope_DrawEquipment` runs
+`gSPInvalidateTexCache(POLY_OPA_DISP++, pauseCtx->nameSegment)` every drawn frame — during the
+opening animation and page rotation too — and that wrapper (`GbiWrap.cpp`, `stubs.c`) sig-checks the
+buffer's **contents** for `__OTR__` and resolves them via `ResourceMgr_LoadTexOrDListByName`. In a
+single-game process a stale `__OTR__` string in recycled heap is at worst a valid host path; under
+ComboShip the same heap has just hosted an MM session, so it can hold an MM resource path that misses
+OOT's RM → `LoadResource` returns null → unguarded `GetInitData()` deref → 0xC0000005. Reproduced
+from a player crash report (v0.3.0, develop `2caad20`, DMC after an MM→OOT return, pause on the
+Equipment page; the export-approx frame `Ship::ControlPort::GetConnectedDevice+0xD` is an ICF alias of
+`IResource::GetInitData`). Fix: `calloc` the buffer so uninitialised memory can never pass the sig
+check, and give `LoadTexOrDListByName` the same null-on-miss contract as `LoadIfDListByName` — its
+GBI callers already tolerate a 0 address.
+
+**Same rule for static foreign draws (2026-10-09):** `MM_DrawForeignSilverRupee`
+(`combo/menu/ComboForeignDrawMM.h`) binds OOT's `gRupeeSilverTex` to seg 8 inside a
+`ResourceManagerScope` on OOT's RM, then brackets the routed DL with `gSPComboRMPush/Pop("oot")`.
+That path exists in both archives, so an unscoped bind would silently draw MM's texture.
+
+## MM transition-actor ids re-normalized on scene load (Woodfall door fix) (2026-08-05)
+
+**Why:** MM's `play->transitionActors.list` aliases the cached LUS scene resource, so the negated
+"already spawned" ids written by `Actor_SpawnTransitionActors` persist across scene loads whenever a
+door's Destroy doesn't restore them. ComboShip's MM→OOT reload (Ctrl+R) cuts the frame loop
+without `Play_Destroy`, skipping every live door's restore, so a door left alive at handoff
+(e.g. Woodfall Temple room 0) never respawns for the rest of the process. `Door_Shutter`
+variants with `room = -1` leak the same way even in stock 2ship. SoH has carried the equivalent fix for
+years (`z_scene_otr.cpp`, `Scene_CommandTransitionActorList`); MM never received it.
+
+**`mm/2s2h/z_scene_2SH.cpp` (COMBO_BUILD-guarded — preserve on future mm merges unless upstreamed):**
+in `Scene_CommandTransiActorList`, `ABS()`-normalize every transition actor id before
+`MapDisp_InitTransitionActorData`. Same code as SoH's fix, wrapped in `#ifdef COMBO_BUILD` with a
+`// ComboShip:` comment.

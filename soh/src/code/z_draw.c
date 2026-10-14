@@ -414,8 +414,9 @@ void GetItem_Draw(PlayState* play, s16 drawId) {
 // color, grayscale) that can't be baked into a DL list: they set *outDrawKind to a CwDrawKind value
 // (see combo/menu/ComboItemDrawABI.h) and fill outColors for JEWEL/MUSIC_NOTE, and the foreign game's
 // per-kind handler re-binds the segment(s) + replays the matrices in its own frame. For those,
-// outDlists carries the raw table row (identity order). The 26Opa funcs are exposed as 25Opa (close
-// approximation). outColors is 16 bytes: primXlu[4], envXlu[4], primOpa[4], envOpa[4] (RGBA).
+// outDlists carries the raw table row (identity order). Rows drawn under a setup other than 25 are
+// reported by GetItem_GetDrawSetupDLs below — the consumer must submit that same setup, not 25.
+// outColors is 16 bytes: primXlu[4], envXlu[4], primOpa[4], envOpa[4] (RGBA).
 // Returns the dlist count, or 0 if the row is unsupported/undrawable.
 s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* outXluStart, f32* outScale,
                               s32* outDrawKind, u8* outColors) {
@@ -669,6 +670,48 @@ s32 GetItem_GetDrawTableEntry(s32 drawId, void** outDlists, s32 maxDlists, s32* 
     *outXluStart = (xluStart > count) ? count : xluStart;
     *outDrawKind = kind;
     return count;
+}
+
+// ComboShip: one setup DL by index, for the bespoke Randomizer_Draw* funcs whose setup the gid-keyed
+// table can't express (Jabber Nut / Bombchu Bag use 26 Opa, the rando compass 5 Xlu).
+void* GetItem_GetSetupDL(s32 index) {
+    extern Gfx sSetupDL[SETUPDL_MAX][6]; // z_rcp.c; not declared in a header
+
+    if ((index < 0) || (index >= SETUPDL_MAX)) {
+        return NULL;
+    }
+    return sSetupDL[index];
+}
+
+// ComboShip: the setup DL a row's draw func emits before its display lists, for the funcs that don't
+// use plain 25. NULL = 25 Opa/Xlu (the consumer's own). The foreign consumer must submit the SAME
+// setup: 26 is 1-CYCLE without fog, and a list authored for it renders through the wrong combiner
+// under 2-cycle 25 — the second cycle wins and samples TEXEL1, i.e. the host's leftover tile.
+void GetItem_GetDrawSetupDLs(s32 drawId, void** outOpa, void** outXlu) {
+    extern Gfx sSetupDL[SETUPDL_MAX][6]; // z_rcp.c; not declared in a header
+    void (*drawFunc)(PlayState*, s16);
+
+    if (outOpa != NULL) {
+        *outOpa = NULL;
+    }
+    if (outXlu != NULL) {
+        *outXlu = NULL;
+    }
+    if ((drawId < 0) || (drawId >= (s32)(sizeof(sDrawItemTable) / sizeof(sDrawItemTable[0])))) {
+        return;
+    }
+
+    drawFunc = sDrawItemTable[drawId].drawFunc;
+    if ((drawFunc == GetItem_DrawMaskOrBombchu) || (drawFunc == GetItem_DrawEggOrMedallion)) {
+        if (outOpa != NULL) {
+            *outOpa = sSetupDL[SETUPDL_26];
+        }
+    } else if ((drawFunc == GetItem_DrawSoldOut) || (drawFunc == GetItem_DrawCompass)) {
+        // Both draw their XLU layer with Gfx_SetupDL(POLY_XLU_DISP, 5); Compass keeps 25 on OPA.
+        if (outXlu != NULL) {
+            *outXlu = sSetupDL[5];
+        }
+    }
 }
 #endif
 

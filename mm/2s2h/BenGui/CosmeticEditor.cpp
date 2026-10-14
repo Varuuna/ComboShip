@@ -1,15 +1,23 @@
 #include "2s2h/BenGui/UIWidgets.hpp"
 #include "2s2h/BenGui/BenGui.hpp"
 #include "CosmeticEditor.h"
+#include "CosmeticShading.h"
 #include "2s2h/ShipInit.hpp"
 #ifdef COMBO_BUILD
 #include <ship/resource/CrossRMRegistry.h>
 #include <ship/resource/ResourceManagerScope.h>
 #endif
+
+#include <cstring>
 #include "2s2h/GameInteractor/GameInteractor.h"
 
 extern "C" {
 #include "macros.h"
+#include "functions.h"
+#include "overlays/actors/ovl_En_Elforg/z_en_elforg.h"
+#include "objects/object_link_boy/object_link_boy.h"
+#include "objects/object_link_child/object_link_child.h"
+extern PlayState* gPlayState;
 
 void ResourceMgr_PatchGfxByName(const char* path, const char* patchName, int index, Gfx instruction);
 void ResourceMgr_UnpatchGfxByName(const char* path, const char* patchName);
@@ -25,7 +33,7 @@ Gfx* Gfx_DrawTexRectIA16_DropShadow(Gfx* gfx, TexturePtr texture, s16 textureWid
 Gfx* Gfx_DrawTexRectIA8_DropShadowOffset(Gfx* gfx, TexturePtr texture, s16 textureWidth, s16 textureHeight,
                                          s16 rectLeft, s16 rectTop, s16 rectWidth, s16 rectHeight, u16 dsdx, u16 dtdy,
                                          s16 r, s16 g, s16 b, s16 a, s32 masks, s32 rects);
-void gfx_texture_cache_clear();
+void Gfx_TextureCacheDelete(const uint8_t* texAddr);
 }
 
 Color_RGBA8 ColorRGBA8(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
@@ -34,53 +42,88 @@ Color_RGBA8 ColorRGBA8(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
 }
 
 static const std::map<CosmeticGroup, const char*> sCosmeticGroupLabels = {
-    { COSMETICS_GROUP_PLAYER, "Player" }, { COSMETICS_GROUP_EFFECTS, "Effects" }, { COSMETICS_GROUP_TRAILS, "Trails" },
-    { COSMETICS_GROUP_HUD, "HUD" },       { COSMETICS_GROUP_BUTTONS, "Buttons" }, { COSMETICS_GROUP_MENUS, "Menus" },
+    { COSMETICS_GROUP_PLAYER, "Player" },
+    { COSMETICS_GROUP_EFFECTS, "Effects" },
+    { COSMETICS_GROUP_TRAILS, "Trails" },
+    { COSMETICS_GROUP_HUD, "HUD" },
+    { COSMETICS_GROUP_BUTTONS, "Buttons" },
+    { COSMETICS_GROUP_MENUS, "Menus" },
+    { COSMETICS_GROUP_COLLECTIBLES, "Collectibles" },
+    { COSMETICS_GROUP_DUNGEONS, "Dungeons" },
+    { COSMETICS_GROUP_WORLD, "World" },
 };
 
 // clang-format off
 std::map<std::string, CosmeticOption> cosmeticOptions = {
-    COSMETIC_OPTION("HUD.Hearts",                   "Hearts",                   COSMETICS_GROUP_HUD,          ColorRGBA8(255,  70,  50, 255), false, true, false),
-    COSMETIC_OPTION("HUD.Magic",                    "Magic",                    COSMETICS_GROUP_HUD,          ColorRGBA8(  0, 200,   0, 255), false, true, false),
-    COSMETIC_OPTION("HUD.SmallKey",                 "Small Key",                COSMETICS_GROUP_HUD,          ColorRGBA8(  0, 200, 230, 255), false, true, false),
-    COSMETIC_OPTION("HUD.RupeeIcon",                "Rupee Icon",               COSMETICS_GROUP_HUD,          ColorRGBA8(200, 255, 100, 255), false, true, false),
-    COSMETIC_OPTION("HUD.Minimap",                  "Minimap",                  COSMETICS_GROUP_HUD,          ColorRGBA8(  0, 255, 255, 160), false, true, false),
-    COSMETIC_OPTION("Effects.SpinSlashCharge",      "Spin Slash Charge",        COSMETICS_GROUP_EFFECTS,      ColorRGBA8(170, 255, 255, 255), false, true, false),
-    COSMETIC_OPTION("Effects.SpinSlashBurst",       "Spin Slash Burst",         COSMETICS_GROUP_EFFECTS,      ColorRGBA8(170, 255, 255, 255), false, true, false),
-    COSMETIC_OPTION("Effects.GreatSpinCharge",      "Great Spin Charge",        COSMETICS_GROUP_EFFECTS,      ColorRGBA8(255, 255, 170, 255), false, true, false),
-    COSMETIC_OPTION("Effects.GreatSpinBurst",       "Great Spin Burst",         COSMETICS_GROUP_EFFECTS,      ColorRGBA8(255, 255, 170, 255), false, true, false),
-    COSMETIC_OPTION("Effects.FireArrowPrim",        "Fire Arrow Primary",       COSMETICS_GROUP_EFFECTS,      ColorRGBA8(255, 200,   0, 255), false, true, false),
-    COSMETIC_OPTION("Effects.FireArrowSec",         "Fire Arrow Secondary",     COSMETICS_GROUP_EFFECTS,      ColorRGBA8(255,   0,   0, 128), false, true, false),
-    COSMETIC_OPTION("Effects.IceArrowPrim",         "Ice Arrow Primary",        COSMETICS_GROUP_EFFECTS,      ColorRGBA8(170, 255, 255, 255), false, true, false),
-    COSMETIC_OPTION("Effects.IceArrowSec",          "Ice Arrow Secondary",      COSMETICS_GROUP_EFFECTS,      ColorRGBA8(  0,   0, 255, 128), false, true, false),
-    COSMETIC_OPTION("Effects.LightArrowPrim",       "Light Arrow Primary",      COSMETICS_GROUP_EFFECTS,      ColorRGBA8(255, 255, 170, 255), false, true, false),
-    COSMETIC_OPTION("Effects.LightArrowSec",        "Light Arrow Secondary",    COSMETICS_GROUP_EFFECTS,      ColorRGBA8(255, 255,   0, 128), false, true, false),
-    COSMETIC_OPTION("Trails.KokiriSwordTrail",      "Kokiri Sword Trail",       COSMETICS_GROUP_TRAILS,       ColorRGBA8(255, 255, 255, 255), false, true, false),
-    COSMETIC_OPTION("Trails.RazorSwordTrail",       "Razor Sword Trail",        COSMETICS_GROUP_TRAILS,       ColorRGBA8(255, 255, 255, 255), false, true, false),
-    COSMETIC_OPTION("Trails.GildedSwordTrail",      "Gilded Sword Trail",       COSMETICS_GROUP_TRAILS,       ColorRGBA8(255, 255, 255, 255), false, true, false),
-    COSMETIC_OPTION("Trails.GreatFairySwordTrail",  "Great Fairy Sword Trail",  COSMETICS_GROUP_TRAILS,       ColorRGBA8(255, 255, 255, 255), false, true, false),
-    COSMETIC_OPTION("Trails.FierceDeitySwordTrail", "Fierce Deity Sword Trail", COSMETICS_GROUP_TRAILS,       ColorRGBA8(255, 255, 255, 255), false, true, false),
-    COSMETIC_OPTION("Trails.DekuStickTrail",        "Deku Stick Trail",         COSMETICS_GROUP_TRAILS,       ColorRGBA8(255, 255, 255, 255), false, true, false),
-    COSMETIC_OPTION("Trails.DekuSpinTrail",         "Deku Spin Trail",          COSMETICS_GROUP_TRAILS,       ColorRGBA8(255, 255, 255, 255), false, true, false),
-    COSMETIC_OPTION("Trails.ZoraPunchTrail",        "Zora Punch Trail",         COSMETICS_GROUP_TRAILS,       ColorRGBA8(255, 255, 255, 255), false, true, false),
-    COSMETIC_OPTION("Trails.ZoraKickTrail",         "Zora Kick Trail",          COSMETICS_GROUP_TRAILS,       ColorRGBA8(255, 255, 255, 255), false, true, false),
-    COSMETIC_OPTION("Trails.ZoraBoomerangTrail",    "Zora Boomerang Trail",     COSMETICS_GROUP_TRAILS,       ColorRGBA8(255, 255, 100, 255), false, true, false),
-    COSMETIC_OPTION("Buttons.B",                    "B",                        COSMETICS_GROUP_BUTTONS,      ColorRGBA8(100, 255, 120, 255), false, true, false),
-    COSMETIC_OPTION("Buttons.A",                    "A",                        COSMETICS_GROUP_BUTTONS,      ColorRGBA8(100, 200, 255, 255), false, true, false),
-    COSMETIC_OPTION("Buttons.CLeft",                "C Left",                   COSMETICS_GROUP_BUTTONS,      ColorRGBA8(255, 240,   0, 255), false, true, false),
-    COSMETIC_OPTION("Buttons.CDown",                "C Down",                   COSMETICS_GROUP_BUTTONS,      ColorRGBA8(255, 240,   0, 255), false, true, false),
-    COSMETIC_OPTION("Buttons.CRight",               "C Right",                  COSMETICS_GROUP_BUTTONS,      ColorRGBA8(255, 240,   0, 255), false, true, false),
-    COSMETIC_OPTION("Buttons.DPad",                 "D Pad",                    COSMETICS_GROUP_BUTTONS,      ColorRGBA8(255, 255, 255, 255), false, true, false),
-    COSMETIC_OPTION("Buttons.Start",                "Start",                    COSMETICS_GROUP_BUTTONS,      ColorRGBA8(255, 130,  60, 255), false, true, false),
-    COSMETIC_OPTION("Menus.FileWindow",             "File Select Window",       COSMETICS_GROUP_MENUS,        ColorRGBA8(100, 150, 255, 255), false, true, false),
-    COSMETIC_OPTION("Menus.FilePlates",             "File Select Plates",       COSMETICS_GROUP_MENUS,        ColorRGBA8(100, 150, 255, 255), false, true, false),
-    COSMETIC_OPTION("Player.HumanTunic",            "Human Tunic",              COSMETICS_GROUP_PLAYER,       ColorRGBA8( 30, 105,  27, 255), false, true, false),
-    COSMETIC_OPTION("Player.HumanHair",             "Human Hair",               COSMETICS_GROUP_PLAYER,       ColorRGBA8(255, 240,   0, 255), false, true, false),
-    COSMETIC_OPTION("Player.DekuTunic",             "Deku Tunic",               COSMETICS_GROUP_PLAYER,       ColorRGBA8( 30, 105,  27, 255), false, true, false),
-    COSMETIC_OPTION("Player.DekuHair",              "Deku Hair",                COSMETICS_GROUP_PLAYER,       ColorRGBA8(255, 240,   0, 255), false, true, false),
-    COSMETIC_OPTION("Player.GoronTunic",            "Goron Tunic",              COSMETICS_GROUP_PLAYER,       ColorRGBA8( 30, 105,  27, 255), false, true, false),
-    COSMETIC_OPTION("Player.ZoraTunic",             "Zora Tunic",               COSMETICS_GROUP_PLAYER,       ColorRGBA8( 30, 105,  27, 255), false, true, false),
-    COSMETIC_OPTION("Player.KafeiHair",             "Kafei Hair",               COSMETICS_GROUP_PLAYER,       ColorRGBA8( 64,   0, 163, 255), false, true, false),
+    COSMETIC_OPTION("HUD.Hearts",                   "Hearts",                           COSMETICS_GROUP_HUD,                ColorRGBA8(255,  70,  50, 255), false, true, false),
+    COSMETIC_OPTION("HUD.HeartsDoubleDefense",      "Double Defense Hearts",            COSMETICS_GROUP_HUD,                ColorRGBA8(200,   0,   0, 255), false, true, false),
+    COSMETIC_OPTION("HUD.Magic",                    "Magic",                            COSMETICS_GROUP_HUD,                ColorRGBA8(  0, 200,   0, 255), false, true, false),
+    COSMETIC_OPTION("HUD.MagicChateau",             "Chateau Romani Magic",             COSMETICS_GROUP_HUD,                ColorRGBA8(  0,   0, 200, 255), false, true, false),
+    COSMETIC_OPTION("HUD.SmallKey",                 "Small Key",                        COSMETICS_GROUP_HUD,                ColorRGBA8(  0, 200, 230, 255), false, true, false),
+    COSMETIC_OPTION("HUD.RupeeIcon",                "Rupee Icon",                       COSMETICS_GROUP_HUD,                ColorRGBA8(200, 255, 100, 255), false, true, false),
+    COSMETIC_OPTION("HUD.Minimap",                  "Minimap",                          COSMETICS_GROUP_HUD,                ColorRGBA8(  0, 255, 255, 160), false, true, false),
+    COSMETIC_OPTION("HUD.TargetReticle",            "Lock-On Reticle",                  COSMETICS_GROUP_HUD,                ColorRGBA8(255, 255,   0, 255), false, true, false),
+    COSMETIC_OPTION("HUD.TargetArrow",              "Lock-On Arrow",                    COSMETICS_GROUP_HUD,                ColorRGBA8(255, 255,   0, 255), false, true, false),
+    COSMETIC_OPTION("HUD.LensOverlay",              "Lens Of Truth Overlay",            COSMETICS_GROUP_HUD,                ColorRGBA8( 74,   0,   0, 255), false, true, false),
+    COSMETIC_OPTION("Effects.SpinSlashCharge",      "Spin Slash Charge",                COSMETICS_GROUP_EFFECTS,            ColorRGBA8(170, 255, 255, 255), false, true, false),
+    COSMETIC_OPTION("Effects.SpinSlashBurst",       "Spin Slash Burst",                 COSMETICS_GROUP_EFFECTS,            ColorRGBA8(170, 255, 255, 255), false, true, false),
+    COSMETIC_OPTION("Effects.GreatSpinCharge",      "Great Spin Charge",                COSMETICS_GROUP_EFFECTS,            ColorRGBA8(255, 255, 170, 255), false, true, false),
+    COSMETIC_OPTION("Effects.GreatSpinBurst",       "Great Spin Burst",                 COSMETICS_GROUP_EFFECTS,            ColorRGBA8(255, 255, 170, 255), false, true, false),
+    COSMETIC_OPTION("Effects.FireArrowPrim",        "Fire Arrow Primary",               COSMETICS_GROUP_EFFECTS,            ColorRGBA8(255, 200,   0, 255), false, true, false),
+    COSMETIC_OPTION("Effects.FireArrowSec",         "Fire Arrow Secondary",             COSMETICS_GROUP_EFFECTS,            ColorRGBA8(255,   0,   0, 128), false, true, false),
+    COSMETIC_OPTION("Effects.IceArrowPrim",         "Ice Arrow Primary",                COSMETICS_GROUP_EFFECTS,            ColorRGBA8(170, 255, 255, 255), false, true, false),
+    COSMETIC_OPTION("Effects.IceArrowSec",          "Ice Arrow Secondary",              COSMETICS_GROUP_EFFECTS,            ColorRGBA8(  0,   0, 255, 128), false, true, false),
+    COSMETIC_OPTION("Effects.LightArrowPrim",       "Light Arrow Primary",              COSMETICS_GROUP_EFFECTS,            ColorRGBA8(255, 255, 170, 255), false, true, false),
+    COSMETIC_OPTION("Effects.LightArrowSec",        "Light Arrow Secondary",            COSMETICS_GROUP_EFFECTS,            ColorRGBA8(255, 255,   0, 128), false, true, false),
+    COSMETIC_OPTION("Effects.SkullBubbleFlame",     "Skull Bubble Flame",               COSMETICS_GROUP_EFFECTS,            ColorRGBA8(  0,   0, 255, 255), false, true, false),
+    COSMETIC_OPTION("Trails.KokiriSwordTrail",      "Kokiri Sword Trail",               COSMETICS_GROUP_TRAILS,             ColorRGBA8(255, 255, 255, 255), false, true, false),
+    COSMETIC_OPTION("Trails.RazorSwordTrail",       "Razor Sword Trail",                COSMETICS_GROUP_TRAILS,             ColorRGBA8(255, 255, 255, 255), false, true, false),
+    COSMETIC_OPTION("Trails.GildedSwordTrail",      "Gilded Sword Trail",               COSMETICS_GROUP_TRAILS,             ColorRGBA8(255, 255, 255, 255), false, true, false),
+    COSMETIC_OPTION("Trails.GreatFairySwordTrail",  "Great Fairy Sword Trail",          COSMETICS_GROUP_TRAILS,             ColorRGBA8(255, 255, 255, 255), false, true, false),
+    COSMETIC_OPTION("Trails.FierceDeitySwordTrail", "Fierce Deity Sword Trail",         COSMETICS_GROUP_TRAILS,             ColorRGBA8(255, 255, 255, 255), false, true, false),
+    COSMETIC_OPTION("Trails.DekuStickTrail",        "Deku Stick Trail",                 COSMETICS_GROUP_TRAILS,             ColorRGBA8(255, 255, 255, 255), false, true, false),
+    COSMETIC_OPTION("Trails.DekuSpinTrail",         "Deku Spin Trail",                  COSMETICS_GROUP_TRAILS,             ColorRGBA8(255, 255, 255, 255), false, true, false),
+    COSMETIC_OPTION("Trails.ZoraPunchTrail",        "Zora Punch Trail",                 COSMETICS_GROUP_TRAILS,             ColorRGBA8(255, 255, 255, 255), false, true, false),
+    COSMETIC_OPTION("Trails.ZoraKickTrail",         "Zora Kick Trail",                  COSMETICS_GROUP_TRAILS,             ColorRGBA8(255, 255, 255, 255), false, true, false),
+    COSMETIC_OPTION("Trails.ZoraBoomerangTrail",    "Zora Boomerang Trail",             COSMETICS_GROUP_TRAILS,             ColorRGBA8(255, 255, 100, 255), false, true, false),
+    COSMETIC_OPTION("Buttons.B",                    "B",                                COSMETICS_GROUP_BUTTONS,            ColorRGBA8(100, 255, 120, 255), false, true, false),
+    COSMETIC_OPTION("Buttons.A",                    "A",                                COSMETICS_GROUP_BUTTONS,            ColorRGBA8(100, 200, 255, 255), false, true, false),
+    COSMETIC_OPTION("Buttons.CLeft",                "C Left",                           COSMETICS_GROUP_BUTTONS,            ColorRGBA8(255, 240,   0, 255), false, true, false),
+    COSMETIC_OPTION("Buttons.CDown",                "C Down",                           COSMETICS_GROUP_BUTTONS,            ColorRGBA8(255, 240,   0, 255), false, true, false),
+    COSMETIC_OPTION("Buttons.CRight",               "C Right",                          COSMETICS_GROUP_BUTTONS,            ColorRGBA8(255, 240,   0, 255), false, true, false),
+    COSMETIC_OPTION("Buttons.DPad",                 "D Pad",                            COSMETICS_GROUP_BUTTONS,            ColorRGBA8(255, 255, 255, 255), false, true, false),
+    COSMETIC_OPTION("Buttons.Start",                "Start",                            COSMETICS_GROUP_BUTTONS,            ColorRGBA8(255, 130,  60, 255), false, true, false),
+    COSMETIC_OPTION("Menus.FileWindow",             "File Select Window",               COSMETICS_GROUP_MENUS,              ColorRGBA8(100, 150, 255, 255), false, true, false),
+    COSMETIC_OPTION("Menus.FilePlates",             "File Select Plates",               COSMETICS_GROUP_MENUS,              ColorRGBA8(100, 150, 255, 255), false, true, false),
+    COSMETIC_OPTION("Menus.PausePanels",            "Pause Menu Panels",                COSMETICS_GROUP_MENUS,              ColorRGBA8(180, 180, 120, 255), false, true, false),
+    COSMETIC_OPTION("Menus.PauseCursor",            "Pause Menu Cursor",                COSMETICS_GROUP_MENUS,              ColorRGBA8(255, 255, 255, 255), false, true, false),
+    COSMETIC_OPTION("Menus.SceneTitleCard",         "Scene Title Card",                 COSMETICS_GROUP_MENUS,              ColorRGBA8(140,  40, 160, 255), false, true, false),
+    COSMETIC_OPTION("Collectibles.RupeeGreen",      "Green Rupee",                      COSMETICS_GROUP_COLLECTIBLES,       ColorRGBA8( 82, 255, 107, 255), false, true, false),
+    COSMETIC_OPTION("Collectibles.RupeeBlue",       "Blue Rupee",                       COSMETICS_GROUP_COLLECTIBLES,       ColorRGBA8(132, 181, 239, 255), false, true, false),
+    COSMETIC_OPTION("Collectibles.RupeeRed",        "Red Rupee",                        COSMETICS_GROUP_COLLECTIBLES,       ColorRGBA8(239, 107, 107, 255), false, true, false),
+    COSMETIC_OPTION("Collectibles.RupeePurple",     "Purple Rupee",                     COSMETICS_GROUP_COLLECTIBLES,       ColorRGBA8(255,  99, 231, 255), false, true, false),
+    COSMETIC_OPTION("Collectibles.RupeeOrange",     "Orange Rupee",                     COSMETICS_GROUP_COLLECTIBLES,       ColorRGBA8(247, 148,  33, 255), false, true, false),
+    COSMETIC_OPTION("Collectibles.RupeeSilver",     "Silver Rupee",                     COSMETICS_GROUP_COLLECTIBLES,       ColorRGBA8(189, 189, 198, 255), false, true, false),
+    COSMETIC_OPTION("World.TatlInner",              "Tatl Inner",                       COSMETICS_GROUP_WORLD,              ColorRGBA8(255, 255, 230, 255), false, true, false),
+    COSMETIC_OPTION("World.TatlOuter",              "Tatl Outer",                       COSMETICS_GROUP_WORLD,              ColorRGBA8(220, 160,  80, 255), false, true, false),
+    COSMETIC_OPTION("World.RaceDogBlue",            "Blue Racedog",                     COSMETICS_GROUP_WORLD,              ColorRGBA8( 79,  79, 143, 255), false, true, false),
+    COSMETIC_OPTION("World.GoldSkulltula",          "Gold Skulltula",                   COSMETICS_GROUP_WORLD,              ColorRGBA8(255, 255,   0, 255), false, true, false),
+    COSMETIC_OPTION("World.TingleBalloon",          "Tingle's Balloon",                 COSMETICS_GROUP_WORLD,              ColorRGBA8(255,  60, 100, 255), false, true, false),
+    COSMETIC_OPTION("World.EponaCoat",              "Epona's Coat",                     COSMETICS_GROUP_WORLD,              ColorRGBA8(214,  82,   8, 255), false, true, false),
+    COSMETIC_OPTION("Player.HumanTunic",            "Human Tunic",                      COSMETICS_GROUP_PLAYER,             ColorRGBA8( 30, 105,  27, 255), false, true, false),
+    COSMETIC_OPTION("Player.HumanHair",             "Human Hair",                       COSMETICS_GROUP_PLAYER,             ColorRGBA8(255, 240,   0, 255), false, true, false),
+    COSMETIC_OPTION("Player.DekuTunic",             "Deku Tunic",                       COSMETICS_GROUP_PLAYER,             ColorRGBA8( 30, 105,  27, 255), false, true, false),
+    COSMETIC_OPTION("Player.DekuHair",              "Deku Hair",                        COSMETICS_GROUP_PLAYER,             ColorRGBA8(255, 240,   0, 255), false, true, false),
+    COSMETIC_OPTION("Player.GoronTunic",            "Goron Tunic",                      COSMETICS_GROUP_PLAYER,             ColorRGBA8( 30, 105,  27, 255), false, true, false),
+    COSMETIC_OPTION("Player.ZoraTunic",             "Zora Tunic",                       COSMETICS_GROUP_PLAYER,             ColorRGBA8( 30, 105,  27, 255), false, true, false),
+    COSMETIC_OPTION("Player.FierceDeityTunic",      "Fierce Deity Tunic",               COSMETICS_GROUP_PLAYER,             ColorRGBA8(174, 208, 207, 255), false, true, false),
+    COSMETIC_OPTION("Player.KafeiHair",             "Kafei Hair",                       COSMETICS_GROUP_PLAYER,             ColorRGBA8( 64,   0, 163, 255), false, true, false),
+    COSMETIC_OPTION("Player.MirrorShield",          "Mirror Shield",                    COSMETICS_GROUP_PLAYER,             ColorRGBA8(128,  90,  20, 255), false, true, false),
+    COSMETIC_OPTION("Player.MirrorShieldMirror",    "Mirror Shield Reflection",         COSMETICS_GROUP_PLAYER,             ColorRGBA8(120, 120, 120, 255), false, true, false),
+    COSMETIC_OPTION("Dungeon.Woodfall",             "Woodfall",                         COSMETICS_GROUP_DUNGEONS,           ColorRGBA8(255, 170, 246, 255), false, true, false),
+    COSMETIC_OPTION("Dungeon.Snowhead",             "Snowhead",                         COSMETICS_GROUP_DUNGEONS,           ColorRGBA8(116, 226,  61, 255), false, true, false),
+    COSMETIC_OPTION("Dungeon.GreatBay",             "Great Bay",                        COSMETICS_GROUP_DUNGEONS,           ColorRGBA8(143, 103, 226, 255), false, true, false),
+    COSMETIC_OPTION("Dungeon.StoneTower",           "Stone Tower",                      COSMETICS_GROUP_DUNGEONS,           ColorRGBA8(226, 221,   0, 255), false, true, false),
 };
 // clang-format on
 
@@ -109,8 +152,11 @@ static CosmeticOption& kDekuHairOption = cosmeticOptions.at("Player.DekuHair");
 static CosmeticOption& kKafeiHairOption = cosmeticOptions.at("Player.KafeiHair");
 static CosmeticOption& kGoronTunicOption = cosmeticOptions.at("Player.GoronTunic");
 static CosmeticOption& kZoraTunicOption = cosmeticOptions.at("Player.ZoraTunic");
+static CosmeticOption& kFierceDeityTunicOption = cosmeticOptions.at("Player.FierceDeityTunic");
 static CosmeticOption& kHeartsOption = cosmeticOptions.at("HUD.Hearts");
 static CosmeticOption& kMagicOption = cosmeticOptions.at("HUD.Magic");
+static CosmeticOption& kMirrorShieldOption = cosmeticOptions.at("Player.MirrorShield");
+static CosmeticOption& kMirrorShieldMirrorOption = cosmeticOptions.at("Player.MirrorShieldMirror");
 
 static bool CosmeticEditorIsSuppressed(const char* cosmeticId) {
     return IsCustomModelActiveForCosmeticId(cosmeticId);
@@ -129,72 +175,15 @@ static bool CosmeticEditorIsSuppressed(const CosmeticOption& option) {
     if (&option == &kZoraTunicOption) {
         return IsCustomModelActiveForCosmeticId("Player.ZoraTunic");
     }
+    if (&option == &kFierceDeityTunicOption) {
+        return IsCustomModelActiveForCosmeticId("Player.FierceDeityTunic");
+    }
     if (&option == &kKafeiHairOption) {
         return IsCustomModelActiveForCosmeticId("Player.KafeiHair");
     }
 
     return false;
 }
-
-struct OriginalTextureData {
-    std::vector<uint16_t> entries;
-    std::vector<bool> saved;
-};
-
-std::unordered_map<std::string, OriginalTextureData> sOriginalTextureData;
-
-struct PaletteTarget {
-    uint8_t* data = nullptr;
-    OriginalTextureData* original = nullptr;
-};
-
-PaletteTarget ResolvePaletteTarget(const char* path) {
-    auto res = Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path);
-    if (res == nullptr || res->GetInitData()->IsCustom) {
-        return {};
-    }
-
-    return { (uint8_t*)res->GetRawPointer(), &sOriginalTextureData[path] };
-}
-
-void SaveOriginalEntry(const PaletteTarget& target, uint32_t index) {
-    OriginalTextureData& original = *target.original;
-
-    if (index >= original.saved.size()) {
-        original.saved.resize(index + 1, false);
-        original.entries.resize(index + 1, 0);
-    }
-
-    if (!original.saved[index]) {
-        original.entries[index] = (target.data[index * 2] << 8) | target.data[index * 2 + 1];
-        original.saved[index] = true;
-    }
-}
-
-void PatchPalette(const PaletteTarget& target, uint32_t index, uint8_t r, uint8_t g, uint8_t b) {
-    SaveOriginalEntry(target, index);
-
-    uint16_t col16 = (r << 11) | (g << 6) | (b << 1) | 1;
-    target.data[index * 2] = col16 >> 8;
-    target.data[index * 2 + 1] = col16 & 0xff;
-}
-
-void UnpatchPalette(const PaletteTarget& target, uint32_t index) {
-    const OriginalTextureData& original = *target.original;
-    if (index >= original.saved.size() || !original.saved[index]) {
-        return;
-    }
-
-    target.data[index * 2] = original.entries[index] >> 8;
-    target.data[index * 2 + 1] = original.entries[index] & 0xff;
-}
-
-enum SHADE_MODE {
-    MODE_REVERT,
-    MODE_AVG,
-    MODE_MIN,
-    MODE_MAX,
-};
 
 Gfx backToWhite[] = {
     gsDPSetPrimColor(0, 0x80, 255, 255, 255, 255),
@@ -212,246 +201,6 @@ Gfx disableGrayscale[] = {
     gsSPGrayscale(0),
     gsSPEndDisplayList(),
 };
-
-// First, it pulls all colors from the palette. Then it finds the average color across the range, and calculates the
-// difference between the average color and the target color. It then colors the range according to newBase,
-// and shades it lighter or darker based on the difference between the average color and the target color.
-void ShadePaletteNewBase(const PaletteTarget& target, uint32_t begin, uint32_t end, Color_RGBA8 newBase,
-                         SHADE_MODE mode) {
-    uint8_t* data = target.data;
-
-    uint32_t maxR = 0;
-    uint32_t maxG = 0;
-    uint32_t maxB = 0;
-
-    for (uint32_t i = begin; i <= end; i++) {
-        UnpatchPalette(target, i);
-
-        uint16_t col16 = (data[i * 2] << 8) | data[i * 2 + 1];
-        uint8_t r = col16 >> 11;
-        uint8_t g = (col16 >> 6) & 0x1f;
-        uint8_t b = (col16 >> 1) & 0x1f;
-
-        maxR = MAX(maxR, r);
-        maxG = MAX(maxG, g);
-        maxB = MAX(maxB, b);
-    }
-
-    if (mode == MODE_REVERT) {
-        return;
-    }
-
-    for (uint32_t i = begin; i <= end; i++) {
-        uint16_t col16 = (data[i * 2] << 8) | data[i * 2 + 1];
-        uint8_t r = col16 >> 11;
-        uint8_t g = (col16 >> 6) & 0x1f;
-        uint8_t b = (col16 >> 1) & 0x1f;
-
-        int8_t diffR = maxR - r;
-        int8_t diffG = maxG - g;
-        int8_t diffB = maxB - b;
-
-        int8_t diff = 0;
-
-        if (mode == MODE_AVG) {
-            diff = (diffR + diffG + diffB) / 3;
-        } else if (mode == MODE_MIN) {
-            diff = MIN(MIN(diffR, diffG), diffB);
-        } else if (mode == MODE_MAX) {
-            diff = MAX(MAX(diffR, diffG), diffB);
-        }
-
-        diff = MIN(MAX(31 - diff, 0), 31);
-
-        r = (diff * newBase.r) / 255;
-        g = (diff * newBase.g) / 255;
-        b = (diff * newBase.b) / 255;
-
-        PatchPalette(target, i, r, g, b);
-    }
-}
-
-void ShadePaletteNewBase(const char* path, uint32_t begin, uint32_t end, Color_RGBA8 newBase, SHADE_MODE mode) {
-    PaletteTarget target = ResolvePaletteTarget(path);
-    if (target.data == nullptr || target.original == nullptr) {
-        return;
-    }
-
-    ShadePaletteNewBase(target, begin, end, newBase, mode);
-}
-
-static const Color_RGBA8 whiteBase = { 255, 255, 255, 255 };
-
-void ShadePaletteWhite(const char* path, uint32_t begin, uint32_t end, SHADE_MODE mode) {
-    ShadePaletteNewBase(path, begin, end, whiteBase, mode);
-}
-
-void ShadePaletteRevert(const char* path, uint32_t begin, uint32_t end) {
-    ShadePaletteNewBase(path, begin, end, whiteBase, MODE_REVERT);
-}
-
-/*
- * Given the existing base and target color, map the current color to a new blend between the new base and target. The
- * resulting color's channels are in (0-31) format.
- */
-Color_RGBA8 mapNewBaseColorToGradient(Color_RGBA8 currentColor, Color_RGBA8 oldBase, Color_RGBA8 newBase,
-                                      Color_RGBA8 targetEnd) {
-    double gradientRed = targetEnd.r - oldBase.r;
-    double gradientGreen = targetEnd.g - oldBase.g;
-    double gradientBlue = targetEnd.b - oldBase.b;
-
-    double deltaRed = currentColor.r - oldBase.r;
-    double deltaGreen = currentColor.g - oldBase.g;
-    double deltaBlue = currentColor.b - oldBase.b;
-
-    double gradient = gradientRed * gradientRed + gradientGreen * gradientGreen + gradientBlue * gradientBlue;
-    double projection = gradientRed * deltaRed + gradientGreen * deltaGreen + gradientBlue * deltaBlue;
-
-    // This condition exists in the event that oldBase and targetEnd are equal, leading to a division by zero.
-    // Normally shouldn't happen, but just in case.
-    double position = 0.0;
-    if (gradient != 0.0) {
-        position = projection / gradient;
-    }
-
-    return { uint8_t(newBase.r + position * (targetEnd.r - newBase.r)),
-             uint8_t(newBase.g + position * (targetEnd.g - newBase.g)),
-             uint8_t(newBase.b + position * (targetEnd.b - newBase.b)), 31 };
-}
-
-/*
- * Recolors textures that gradually transition from one color to another. Given oldBase (e.g. green parts of Zora) and
- * targetEnd (e.g. bluish skin of Zora), recolor so that the resulting texture instead fades from newBase (e.g. custom
- * tunic color) to targetEnd.
- */
-void ShadePaletteGradient(const char* path, uint32_t begin, uint32_t end, Color_RGBA8 oldBase, Color_RGBA8 newBase,
-                          Color_RGBA8 targetEnd) {
-    PaletteTarget target = ResolvePaletteTarget(path);
-    if (target.data == nullptr || target.original == nullptr) {
-        return;
-    }
-
-    ShadePaletteNewBase(target, begin, end, whiteBase, MODE_REVERT);
-
-    // Convert 0-255 range to 0-31 range
-    newBase.r >>= 3;
-    newBase.g >>= 3;
-    newBase.b >>= 3;
-    newBase.a >>= 3;
-    targetEnd.r >>= 3;
-    targetEnd.g >>= 3;
-    targetEnd.b >>= 3;
-    targetEnd.a >>= 3;
-    oldBase.r >>= 3;
-    oldBase.g >>= 3;
-    oldBase.b >>= 3;
-    oldBase.a >>= 3;
-
-    uint8_t* data = target.data;
-    for (uint32_t i = begin; i <= end; i++) {
-        uint16_t col16 = (data[i * 2] << 8) | data[i * 2 + 1];
-        uint8_t a = col16 & 1;
-        uint8_t r = col16 >> 11;
-        uint8_t g = (col16 >> 6) & 0x1f;
-        uint8_t b = (col16 >> 1) & 0x1f;
-
-        Color_RGBA8 currentColor = { r, g, b, a };
-        Color_RGBA8 newColor = mapNewBaseColorToGradient(currentColor, oldBase, newBase, targetEnd);
-        PatchPalette(target, i, newColor.r, newColor.g, newColor.b);
-    }
-}
-
-// Patches a single pixel in a raw RGBA16 (RGBA5551) texture, preserving the original alpha bit.
-void PatchRGBA16Pixel(const PaletteTarget& target, uint32_t index, uint8_t r, uint8_t g, uint8_t b) {
-    SaveOriginalEntry(target, index);
-
-    // Preserve the original alpha bit so transparent pixels stay transparent.
-    uint8_t a = target.data[index * 2 + 1] & 1;
-    uint16_t col16 = (r << 11) | (g << 6) | (b << 1) | a;
-    target.data[index * 2] = col16 >> 8;
-    target.data[index * 2 + 1] = col16 & 0xff;
-}
-
-/*
- * Recolors a raw RGBA16 (RGBA5551) texture. Unlike ShadePaletteNewBase, this preserves each
- * pixel's alpha bit and skips fully transparent pixels when computing the luminance reference,
- * so transparent background areas are left untouched.
- */
-void ShadeRGBA16NewBase(const char* path, uint32_t begin, uint32_t end, Color_RGBA8 newBase, SHADE_MODE mode) {
-    PaletteTarget target = ResolvePaletteTarget(path);
-    if (target.data == nullptr || target.original == nullptr) {
-        return;
-    }
-
-    uint8_t* data = target.data;
-
-    uint32_t maxR = 0;
-    uint32_t maxG = 0;
-    uint32_t maxB = 0;
-
-    for (uint32_t i = begin; i <= end; i++) {
-        UnpatchPalette(target, i);
-
-        uint16_t col16 = (data[i * 2] << 8) | data[i * 2 + 1];
-        uint8_t a = col16 & 1;
-        if (a == 0) {
-            continue; // skip transparent pixels
-        }
-
-        uint8_t r = col16 >> 11;
-        uint8_t g = (col16 >> 6) & 0x1f;
-        uint8_t b = (col16 >> 1) & 0x1f;
-
-        maxR = MAX(maxR, r);
-        maxG = MAX(maxG, g);
-        maxB = MAX(maxB, b);
-    }
-
-    if (mode == MODE_REVERT) {
-        return;
-    }
-
-    for (uint32_t i = begin; i <= end; i++) {
-        uint16_t col16 = (data[i * 2] << 8) | data[i * 2 + 1];
-        uint8_t a = col16 & 1;
-        uint8_t r = col16 >> 11;
-        uint8_t g = (col16 >> 6) & 0x1f;
-        uint8_t b = (col16 >> 1) & 0x1f;
-
-        if (a == 0) {
-            // Set transparent pixels to black so that bilinear filtering at edges
-            // blends toward black (neutral) rather than bleeding the original color.
-            // Using full brightness here would create a harsh colored halo at edges.
-            PatchRGBA16Pixel(target, i, 0, 0, 0);
-            continue;
-        }
-
-        int8_t diffR = maxR - r;
-        int8_t diffG = maxG - g;
-        int8_t diffB = maxB - b;
-
-        int8_t diff = 0;
-        if (mode == MODE_AVG) {
-            diff = (diffR + diffG + diffB) / 3;
-        } else if (mode == MODE_MIN) {
-            diff = MIN(MIN(diffR, diffG), diffB);
-        } else if (mode == MODE_MAX) {
-            diff = MAX(MAX(diffR, diffG), diffB);
-        }
-
-        diff = MIN(MAX(31 - diff, 0), 31);
-
-        r = (diff * newBase.r) / 255;
-        g = (diff * newBase.g) / 255;
-        b = (diff * newBase.b) / 255;
-
-        PatchRGBA16Pixel(target, i, r, g, b);
-    }
-}
-
-void ShadeRGBA16Revert(const char* path, uint32_t begin, uint32_t end) {
-    ShadeRGBA16NewBase(path, begin, end, whiteBase, MODE_REVERT);
-}
 
 extern "C" Color_RGBA8 CosmeticEditor_GetChangedColorEx(u8 r, u8 g, u8 b, u8 a, const char* cosmeticId, u8 mode,
                                                         f32 modifier) {
@@ -574,8 +323,69 @@ extern "C" Color_RGBA8 CosmeticEditor_GetChangedColor(u8 r, u8 g, u8 b, u8 a, co
     return CosmeticEditor_GetChangedColorEx(r, g, b, a, cosmeticId, COSMETIC_COLOR_MODE_DEFAULT, 0.0f);
 }
 
+extern "C" const char* CosmeticEditor_GetDungeonCosmeticId(s32 dungeon) {
+    static const char* dungeonCosmeticIds[] = {
+        COSMETIC_ID("Dungeon.Woodfall"),
+        COSMETIC_ID("Dungeon.Snowhead"),
+        COSMETIC_ID("Dungeon.GreatBay"),
+        COSMETIC_ID("Dungeon.StoneTower"),
+    };
+
+    if (dungeon < 0 || dungeon >= (s32)ARRAY_COUNT(dungeonCosmeticIds)) {
+        return nullptr;
+    }
+
+    return dungeonCosmeticIds[dungeon];
+}
+
+extern "C" Color_RGBA8 CosmeticEditor_GetPauseCursorGlow(s16 r, s16 g, s16 b, const s16* targetA, const s16* targetB) {
+    Color_RGBA8 envColor = { (u8)r, (u8)g, (u8)b, 255 };
+
+    if (!CVarGetInteger(CVAR_COSMETIC_CHANGED("Menus.PauseCursor"), 0)) {
+        return envColor;
+    }
+
+    s16 targetMax = MAX(MAX(MAX(targetA[0], targetA[1]), targetA[2]), MAX(MAX(targetB[0], targetB[1]), targetB[2]));
+    if (targetMax <= 0) {
+        return envColor;
+    }
+
+    Color_RGBA8 glow = CosmeticEditor_GetChangedColorEx(r, g, b, 255, COSMETIC_ID("Menus.PauseCursor"),
+                                                        COSMETIC_COLOR_MODE_ADD, 70.0f);
+    f32 pulse = CLAMP_MAX((f32)MAX(MAX(r, g), b) / targetMax, 1.0f);
+
+    envColor.r = glow.r * pulse;
+    envColor.g = glow.g * pulse;
+    envColor.b = glow.b * pulse;
+
+    return envColor;
+}
+
+static const char* sStrayFairyCosmeticId = nullptr;
+
+extern "C" void CosmeticEditor_SetStrayFairyMaterial(s32 area) {
+    sStrayFairyCosmeticId = CosmeticEditor_GetDungeonCosmeticId(area - STRAY_FAIRY_AREA_WOODFALL);
+}
+
+extern "C" const char* CosmeticEditor_MatAnimPrimId(s32 segment) {
+    return segment == 9 ? sStrayFairyCosmeticId : nullptr;
+}
+
+extern "C" const char* CosmeticEditor_MatAnimEnvId(void) {
+    return sStrayFairyCosmeticId;
+}
+
+extern "C" void CosmeticEditor_ClearMatAnimCosmetics(void) {
+    sStrayFairyCosmeticId = nullptr;
+}
+
 extern "C" void gDPSetEnvColorOverrideEx(Gfx* pkt, u8 r, u8 g, u8 b, u8 a, const char* cosmeticId, u8 mode,
                                          f32 modifier) {
+    if (cosmeticId == nullptr) {
+        gDPSetEnvColor(pkt, r, g, b, a);
+        return;
+    }
+
     Color_RGBA8 setColor = CosmeticEditor_GetChangedColorEx(r, g, b, a, cosmeticId, mode, modifier);
     gDPSetEnvColor(pkt, setColor.r, setColor.g, setColor.b, a);
 }
@@ -586,6 +396,11 @@ extern "C" void gDPSetEnvColorOverride(Gfx* pkt, u8 r, u8 g, u8 b, u8 a, const c
 
 extern "C" void gDPSetPrimColorOverrideEx(Gfx* pkt, u8 m, u8 l, u8 r, u8 g, u8 b, u8 a, const char* cosmeticId, u8 mode,
                                           f32 modifier) {
+    if (cosmeticId == nullptr) {
+        gDPSetPrimColor(pkt, m, l, r, g, b, a);
+        return;
+    }
+
     Color_RGBA8 setColor = CosmeticEditor_GetChangedColorEx(r, g, b, a, cosmeticId, mode, modifier);
     gDPSetPrimColor(pkt, m, l, setColor.r, setColor.g, setColor.b, a);
 }
@@ -628,10 +443,12 @@ extern "C" Gfx* Gfx_DrawTexRectIA8_DropShadowOffsetOverride(Gfx* pkt, TexturePtr
                                                rects);
 }
 
-const char* kCosmeticRainbowSyncCvar = "gCosmetics.RainbowSync";
-const char* kCosmeticRainbowSpeedCvar = "gCosmetics.RainbowSpeed";
-const char* kCosmeticRandomizeOnSeedGenCvar = "gCosmetics.RandomizeOnSeedGen";
+const char* kCosmeticRainbowSyncCvar = CVAR_COSMETIC("RainbowSync");
+const char* kCosmeticRainbowSpeedCvar = CVAR_COSMETIC("RainbowSpeed");
+const char* kCosmeticRandomizeOnSeedGenCvar = CVAR_COSMETIC("RandomizeOnSeedGen");
 int sCosmeticRainbowHue = 0;
+
+void CosmeticEditorResetSillyOptions();
 
 void CosmeticEditorSave() {
     Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
@@ -717,6 +534,7 @@ void CosmeticEditorResetAllElements() {
         CosmeticEditorResetElement(option, false);
     }
     ResetAllDynamicCosmetics();
+    CosmeticEditorResetSillyOptions();
     CosmeticEditorSave();
 }
 
@@ -761,6 +579,154 @@ void CosmeticEditorResetGroup(CosmeticGroup group) {
         }
     }
     CosmeticEditorSave();
+}
+
+static const char* kSillyLinkSizeCvar = CVAR_COSMETIC("Silly.LinkSize");
+static const char* kSillyLinkHeadScaleCvar = CVAR_COSMETIC("Silly.LinkHeadScale");
+static const char* kSillyBunnyHoodEarLengthCvar = CVAR_COSMETIC("Silly.BunnyHoodEarLength");
+static const char* kSillyBunnyHoodEarSpreadCvar = CVAR_COSMETIC("Silly.BunnyHoodEarSpread");
+static const char* kSillyFairySizeCvar = CVAR_COSMETIC("Silly.FairySize");
+static const char* kSillyLockOnReticleScaleCvar = CVAR_COSMETIC("Silly.LockOnReticleScale");
+static const char* kSillyLockOnReticleSpinCvar = CVAR_COSMETIC("Silly.LockOnReticleSpin");
+static const char* kSillyClockTowerSpeedCvar = CVAR_COSMETIC("Silly.ClockTowerSpeed");
+static const char* kSillyLikeLikeWidthCvar = CVAR_COSMETIC("Silly.LikeLikeWidth");
+static const char* kSillyMoonSizeCvar = CVAR_COSMETIC("Silly.MoonSize");
+static const char* kSillyLinkSwordScaleCvar = CVAR_COSMETIC("Silly.LinkSwordScale");
+static const char* kSillyLinkShieldScaleCvar = CVAR_COSMETIC("Silly.LinkShieldScale");
+static const char* kSillyGreatFairyMaskHairLengthCvar = CVAR_COSMETIC("Silly.GreatFairyMaskHairLength");
+static const char* kSillyGreatFairyMaskHairSpreadCvar = CVAR_COSMETIC("Silly.GreatFairyMaskHairSpread");
+static const char* kSillyGoronNeckLengthCvar = CVAR_COSMETIC("Silly.GoronNeckLength");
+static const char* kSillyFlatShadingCvar = CVAR_SILLY_FLAT_SHADING;
+static const char* kSillyDullRupeesCvar = CVAR_COSMETIC("Silly.DullRupees");
+static const char* kSillyRainEverywhereCvar = CVAR_COSMETIC("Silly.RainEverywhere");
+
+// this is a little weird but we'll probably replace it with my sail PR later
+static void CosmeticEditorApplyLinkSize(Actor* actor) {
+    static f32 lastMultiplier = 1.0f;
+
+    f32 multiplier = CVarGetFloat(kSillyLinkSizeCvar, 1.0f);
+    if ((multiplier == 1.0f) && (lastMultiplier == 1.0f)) {
+        return;
+    }
+
+    Player* player = (Player*)actor;
+    f32 baseScale = (player->transformation == PLAYER_FORM_FIERCE_DEITY) ? 0.015f : 0.01f;
+
+    Actor_SetScale(actor, baseScale * multiplier);
+    lastMultiplier = multiplier;
+}
+
+extern "C" void CosmeticEditor_ApplySillyMoonScale(void) {
+    f32 scale = CVarGetFloat(kSillyMoonSizeCvar, 1.0f);
+
+    if (scale != 1.0f) {
+        Matrix_Scale(scale, scale, scale, MTXMODE_APPLY);
+    }
+}
+
+static void CosmeticEditorScaleAbout(f32 scale, f32 anchorX, f32 anchorY, f32 anchorZ) {
+    Matrix_Translate(anchorX, anchorY, anchorZ, MTXMODE_APPLY);
+    Matrix_Scale(scale, scale, scale, MTXMODE_APPLY);
+    Matrix_Translate(-anchorX, -anchorY, -anchorZ, MTXMODE_APPLY);
+}
+
+extern "C" void CosmeticEditor_ApplySillyLimbScale(const char* cvar, Vec3f* jointPos) {
+    f32 scale = CVarGetFloat(cvar, 1.0f);
+
+    if (scale == 1.0f) {
+        return;
+    }
+
+    CosmeticEditorScaleAbout(scale, jointPos->x, jointPos->y, jointPos->z);
+}
+
+#define HELD_ITEM_GRIP_HUMAN 210.0f
+#define HELD_ITEM_GRIP_FIERCE_DEITY 390.0f
+
+typedef struct {
+    const char* combined;
+    const char* hand;
+    const char* item;
+    const char* extraItem; // gilded sword splits into a handle and a blade
+    f32 gripHeight;
+} HeldItemSplit;
+
+static const HeldItemSplit sHeldItemSplits[] = {
+    { gLinkHumanLeftHandHoldingKokiriSwordDL, gLinkHumanLeftHandClosedDL, gKokiriSwordDL, nullptr,
+      HELD_ITEM_GRIP_HUMAN },
+    { gLinkHumanLeftHandHoldingRazorSwordDL, gLinkHumanLeftHandClosedDL, gRazorSwordDL, nullptr, HELD_ITEM_GRIP_HUMAN },
+    { gLinkHumanLeftHandHoldingGildedSwordDL, gLinkHumanLeftHandClosedDL, gLinkHumanGildedSwordHandleDL,
+      gLinkHumanGildedSwordBladeDL, HELD_ITEM_GRIP_HUMAN },
+    { gLinkHumanLeftHandHoldingGreatFairysSwordDL, gLinkHumanLeftHandClosedDL, gLinkHumanGreatFairysSwordDL, nullptr,
+      HELD_ITEM_GRIP_HUMAN },
+    { gLinkFierceDeityLeftHandHoldingSwordDL, gLinkFierceDeityLeftHandDL, gLinkFierceDeitySwordDL, nullptr,
+      HELD_ITEM_GRIP_FIERCE_DEITY },
+    { gLinkHumanRightHandHoldingHerosShieldDL, gLinkHumanRightHandClosedDL, gLinkHumanHerosShieldDL, nullptr,
+      HELD_ITEM_GRIP_HUMAN },
+    { gLinkHumanRightHandHoldingMirrorShieldDL, gLinkHumanRightHandClosedDL, gLinkHumanMirrorShieldDL, nullptr,
+      HELD_ITEM_GRIP_HUMAN },
+};
+
+static const HeldItemSplit* sPendingHeldItemSplit = nullptr;
+static f32 sPendingHeldItemScale = 1.0f;
+
+extern "C" void CosmeticEditor_SplitHeldItem(Gfx** dList, const char* cvar) {
+    f32 scale = CVarGetFloat(cvar, 1.0f);
+
+    if ((*dList == nullptr) || (scale == 1.0f)) {
+        return;
+    }
+
+    for (const HeldItemSplit& split : sHeldItemSplits) {
+        if (strcmp((const char*)*dList, split.combined) == 0) {
+            *dList = (Gfx*)split.hand;
+            sPendingHeldItemSplit = &split;
+            sPendingHeldItemScale = scale;
+            return;
+        }
+    }
+}
+
+extern "C" void CosmeticEditor_DrawSplitHeldItem(PlayState* play) {
+    const HeldItemSplit* split = sPendingHeldItemSplit;
+    f32 scale = sPendingHeldItemScale;
+
+    sPendingHeldItemSplit = nullptr;
+
+    if (split == nullptr) {
+        return;
+    }
+
+    OPEN_DISPS(play->state.gfxCtx);
+
+    Matrix_Push();
+    CosmeticEditorScaleAbout(scale, 0.0f, split->gripHeight, 0.0f);
+    MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, play->state.gfxCtx);
+    gSPDisplayList(POLY_OPA_DISP++, (Gfx*)split->item);
+    if (split->extraItem != nullptr) {
+        gSPDisplayList(POLY_OPA_DISP++, (Gfx*)split->extraItem);
+    }
+    Matrix_Pop();
+
+    CLOSE_DISPS(play->state.gfxCtx);
+}
+
+extern "C" void CosmeticEditor_DrawBackShield(PlayState* play, Gfx* dList) {
+    f32 scale = CVarGetFloat(kSillyLinkShieldScaleCvar, 1.0f);
+
+    OPEN_DISPS(play->state.gfxCtx);
+
+    if (scale != 1.0f) {
+        Matrix_Push();
+        CosmeticEditorScaleAbout(scale, 552.0f, 0.0f, 0.0f);
+        MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, play->state.gfxCtx);
+        gSPDisplayList(POLY_OPA_DISP++, dList);
+        Matrix_Pop();
+    } else {
+        gSPDisplayList(POLY_OPA_DISP++, dList);
+    }
+
+    CLOSE_DISPS(play->state.gfxCtx);
 }
 
 void CosmeticEditorUpdateTick() {
@@ -870,6 +836,110 @@ void CosmeticEditorDrawRow(CosmeticOption& option) {
             CosmeticEditorResetElement(option);
         }
     }
+}
+
+static void CosmeticEditorDrawSillySlider(const char* label, const char* cvar, float min, float max, float step,
+                                          float defaultValue, const char* format, const char* tooltip = nullptr) {
+    UIWidgets::FloatSliderOptions options = UIWidgets::FloatSliderOptions()
+                                                .Format(format)
+                                                .Min(min)
+                                                .Max(max)
+                                                .DefaultValue(defaultValue)
+                                                .Step(step)
+                                                .Size(ImVec2(300.0f, 0.0f))
+                                                .Color(THEME_COLOR);
+    if (tooltip != nullptr) {
+        options = options.Tooltip(tooltip);
+    }
+
+    if (UIWidgets::CVarSliderFloat(label, cvar, options)) {
+        CosmeticEditorSave();
+    }
+}
+
+void CosmeticEditorResetSillyOptions() {
+    CVarClear(kSillyLinkSizeCvar);
+    CVarClear(kSillyLinkHeadScaleCvar);
+    CVarClear(kSillyBunnyHoodEarLengthCvar);
+    CVarClear(kSillyBunnyHoodEarSpreadCvar);
+    CVarClear(kSillyFairySizeCvar);
+    CVarClear(kSillyLockOnReticleScaleCvar);
+    CVarClear(kSillyLockOnReticleSpinCvar);
+    CVarClear(kSillyClockTowerSpeedCvar);
+    CVarClear(kSillyLikeLikeWidthCvar);
+    CVarClear(kSillyMoonSizeCvar);
+    CVarClear(kSillyLinkSwordScaleCvar);
+    CVarClear(kSillyLinkShieldScaleCvar);
+    CVarClear(kSillyGreatFairyMaskHairLengthCvar);
+    CVarClear(kSillyGreatFairyMaskHairSpreadCvar);
+    CVarClear(kSillyGoronNeckLengthCvar);
+    CVarClear(kSillyFlatShadingCvar);
+    ShipInit::Init(kSillyFlatShadingCvar);
+    CVarClear(kSillyDullRupeesCvar);
+    ShipInit::Init(kSillyDullRupeesCvar);
+    CVarClear(kSillyRainEverywhereCvar);
+    ShipInit::Init(kSillyRainEverywhereCvar);
+}
+
+void CosmeticEditorDrawSillyTab() {
+    if (UIWidgets::Button("Reset Silly Options",
+                          UIWidgets::ButtonOptions().Size(ImVec2(250.0f, 0.0f)).Color(THEME_COLOR))) {
+        CosmeticEditorResetSillyOptions();
+        CosmeticEditorSave();
+    }
+
+    UIWidgets::Separator(true, true, 2.0f, 2.0f);
+
+    UIWidgets::CVarCheckbox("Average Textures", kSillyFlatShadingCvar, UIWidgets::CheckboxOptions().Color(THEME_COLOR));
+    UIWidgets::CVarCheckbox(
+        "Dull Rupees", kSillyDullRupeesCvar,
+        UIWidgets::CheckboxOptions()
+            .Color(THEME_COLOR)
+            .Tooltip("Drops the glassy shell that draws over rupees, leaving just the solid inside."));
+    UIWidgets::CVarCheckbox("Rain Everywhere", kSillyRainEverywhereCvar,
+                            UIWidgets::CheckboxOptions().Color(THEME_COLOR));
+
+    UIWidgets::Separator(true, true, 2.0f, 2.0f);
+
+    CosmeticEditorDrawSillySlider("Link Size", kSillyLinkSizeCvar, 0.1f, 5.0f, 0.1f, 1.0f, "%.1fx");
+    CosmeticEditorDrawSillySlider("Link Head Scale", kSillyLinkHeadScaleCvar, 0.1f, 5.0f, 0.1f, 1.0f, "%.1fx");
+    CosmeticEditorDrawSillySlider("Link Sword Scale", kSillyLinkSwordScaleCvar, 0.1f, 5.0f, 0.1f, 1.0f, "%.1fx");
+    CosmeticEditorDrawSillySlider("Link Shield Scale", kSillyLinkShieldScaleCvar, 0.1f, 5.0f, 0.1f, 1.0f, "%.1fx");
+
+    UIWidgets::Separator(true, true, 2.0f, 2.0f);
+
+    CosmeticEditorDrawSillySlider("Bunny Hood Ear Length", kSillyBunnyHoodEarLengthCvar, -300.0f, 1000.0f, 10.0f, 0.0f,
+                                  "%.0f");
+    CosmeticEditorDrawSillySlider("Bunny Hood Ear Spread", kSillyBunnyHoodEarSpreadCvar, -300.0f, 500.0f, 10.0f, 0.0f,
+                                  "%.0f");
+
+    UIWidgets::Separator(true, true, 2.0f, 2.0f);
+
+    CosmeticEditorDrawSillySlider("Great Fairy's Mask Hair Length", kSillyGreatFairyMaskHairLengthCvar, 0.1f, 5.0f,
+                                  0.1f, 1.0f, "%.1fx");
+    CosmeticEditorDrawSillySlider("Great Fairy's Mask Hair Spread", kSillyGreatFairyMaskHairSpreadCvar, -3.0f, 5.0f,
+                                  0.1f, 1.0f, "%.1fx");
+
+    UIWidgets::Separator(true, true, 2.0f, 2.0f);
+
+    CosmeticEditorDrawSillySlider("Fairy Size", kSillyFairySizeCvar, 0.1f, 5.0f, 0.1f, 1.0f, "%.1fx");
+    CosmeticEditorDrawSillySlider("Goron Neck Length", kSillyGoronNeckLengthCvar, -1000.0f, 12000.0f, 100.0f, 0.0f,
+                                  "%.0f");
+
+    UIWidgets::Separator(true, true, 2.0f, 2.0f);
+
+    CosmeticEditorDrawSillySlider("Lock-On Reticle Size", kSillyLockOnReticleScaleCvar, 0.1f, 5.0f, 0.1f, 1.0f,
+                                  "%.1fx");
+    CosmeticEditorDrawSillySlider("Lock-On Reticle Spin", kSillyLockOnReticleSpinCvar, -5.0f, 5.0f, 0.1f, 1.0f,
+                                  "%.1fx");
+
+    UIWidgets::Separator(true, true, 2.0f, 2.0f);
+
+    CosmeticEditorDrawSillySlider(
+        "Clock Tower Speed", kSillyClockTowerSpeedCvar, -50.0f, 50.0f, 1.0f, 1.0f, "%.1fx",
+        "This isn't the actual clock but like the thing on top, idk what it's supposed to be lol");
+    CosmeticEditorDrawSillySlider("Moon Size", kSillyMoonSizeCvar, 0.1f, 2.2f, 0.1f, 1.0f, "%.1fx");
+    CosmeticEditorDrawSillySlider("Like Like Width", kSillyLikeLikeWidthCvar, 0.1f, 5.0f, 0.1f, 1.0f, "%.1fx");
 }
 
 void CosmeticEditorDrawGroup(CosmeticGroup group, const char* displayName = nullptr) {
@@ -989,9 +1059,23 @@ void CosmeticEditorWindow::DrawElement() {
             ImGui::EndTabItem();
         }
 
+        if (ImGui::BeginTabItem("World")) {
+            UIWidgets::Separator(true, true, 2.0f, 2.0f);
+            CosmeticEditorDrawGroup(COSMETICS_GROUP_COLLECTIBLES);
+            CosmeticEditorDrawGroup(COSMETICS_GROUP_DUNGEONS);
+            CosmeticEditorDrawGroup(COSMETICS_GROUP_WORLD);
+            ImGui::EndTabItem();
+        }
+
         if (ImGui::BeginTabItem("Pause Menu")) {
             UIWidgets::Separator(true, true, 2.0f, 2.0f);
             CosmeticEditorDrawGroup(COSMETICS_GROUP_MENUS);
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Silly")) {
+            UIWidgets::Separator(true, true, 2.0f, 2.0f);
+            CosmeticEditorDrawSillyTab();
             ImGui::EndTabItem();
         }
 
@@ -1023,6 +1107,8 @@ void CosmeticEditorWindow::InitElement() {
         }
     });
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameStateUpdate>([]() { CosmeticEditorUpdateTick(); });
+    GameInteractor::Instance->RegisterGameHookForID<GameInteractor::OnActorUpdate>(
+        ACTOR_PLAYER, [](Actor* actor) { CosmeticEditorApplyLinkSize(actor); });
 
     sHooksRegistered = true;
 }
@@ -1106,7 +1192,6 @@ static RegisterShipInitFunc humanHairPatch(
 
             ShadePaletteRevert("objects/object_link_child/object_link_child_Tex_005400", 0, 127);
         }
-        gfx_texture_cache_clear();
     },
     { kHumanHairOption.colorChangedCvar });
 
@@ -1146,7 +1231,6 @@ static RegisterShipInitFunc dekuTunicPatch(
 
             ShadePaletteRevert("objects/object_link_nuts/object_link_nuts_TLUT_003EB0", 243, 254);
         }
-        gfx_texture_cache_clear();
     },
     { kDekuTunicOption.colorChangedCvar });
 
@@ -1185,7 +1269,6 @@ static RegisterShipInitFunc dekuHairPatch(
             ShadePaletteRevert("objects/object_link_nuts/object_link_nuts_TLUT_003EB0", 109, 122);
             ShadePaletteRevert("objects/object_link_nuts/object_link_nuts_TLUT_003EB0", 124, 242);
         }
-        gfx_texture_cache_clear();
     },
     { kDekuHairOption.colorChangedCvar });
 
@@ -1204,30 +1287,37 @@ Gfx kafeiHair[] = {
     gsSPEndDisplayList(),
 };
 
+static const char* kKafeiHeadDlPath = "objects/object_test3/gKafeiHeadDL";
+
 static RegisterShipInitFunc kafeiHairPatch(
     []() {
         if (!IsCustomKafeiModelActive() && CVarGetInteger(kKafeiHairOption.colorChangedCvar, 0)) {
-            ResourceMgr_PatchGfxByName("objects/object_test3/gKafeiHeadDL", "setPrim1", 101,
-                                       gsSPDisplayList(kafeiHair));
-            ResourceMgr_PatchGfxByName("objects/object_test3/gKafeiHeadDL", "setPrim2", 163,
-                                       gsSPDisplayList(backToWhite));
-            ResourceMgr_PatchGfxByName("objects/object_test3/gKafeiHeadDL", "setPrim3", 200,
-                                       gsSPDisplayList(kafeiHair));
-            ResourceMgr_PatchGfxByName("objects/object_test3/gKafeiHeadDL", "setPrim4", 236,
-                                       gsSPDisplayList(backToWhite));
+            ResourceMgr_PatchGfxByName(kKafeiHeadDlPath, "setPrim1", 101, gsSPDisplayList(kafeiHair));
+            ResourceMgr_PatchGfxByName(kKafeiHeadDlPath, "setPrim2", 163, gsSPDisplayList(backToWhite));
+            ResourceMgr_PatchGfxByName(kKafeiHeadDlPath, "setPrim3", 200, gsSPDisplayList(kafeiHair));
+            ResourceMgr_PatchGfxByName(kKafeiHeadDlPath, "setPrim4", 236, gsSPDisplayList(backToWhite));
 
-            ShadePaletteWhite("objects/object_test3/gKafeiBody2TLUT", 1, 3, MODE_MIN);
-            ShadePaletteWhite("objects/object_test3/gKafeiBody2TLUT", 8, 255, MODE_MIN);
+            uint8_t* hairTlut = ShadeKafeiHairTlut();
+            if (hairTlut != nullptr) {
+                ResourceMgr_PatchGfxByName(kKafeiHeadDlPath, "hairTlut1", 89,
+                                           gsDPSetTextureImage(G_IM_FMT_RGBA, G_IM_SIZ_16b, 1, hairTlut));
+                ResourceMgr_PatchGfxByName(kKafeiHeadDlPath, "hairTlut1Hash", 90, gsDPNoOp());
+                ResourceMgr_PatchGfxByName(kKafeiHeadDlPath, "hairTlut2", 194,
+                                           gsDPSetTextureImage(G_IM_FMT_RGBA, G_IM_SIZ_16b, 1, hairTlut));
+                ResourceMgr_PatchGfxByName(kKafeiHeadDlPath, "hairTlut2Hash", 195, gsDPNoOp());
+            }
         } else {
-            ResourceMgr_UnpatchGfxByName("objects/object_test3/gKafeiHeadDL", "setPrim1");
-            ResourceMgr_UnpatchGfxByName("objects/object_test3/gKafeiHeadDL", "setPrim2");
-            ResourceMgr_UnpatchGfxByName("objects/object_test3/gKafeiHeadDL", "setPrim3");
-            ResourceMgr_UnpatchGfxByName("objects/object_test3/gKafeiHeadDL", "setPrim4");
+            ResourceMgr_UnpatchGfxByName(kKafeiHeadDlPath, "setPrim1");
+            ResourceMgr_UnpatchGfxByName(kKafeiHeadDlPath, "setPrim2");
+            ResourceMgr_UnpatchGfxByName(kKafeiHeadDlPath, "setPrim3");
+            ResourceMgr_UnpatchGfxByName(kKafeiHeadDlPath, "setPrim4");
+            ResourceMgr_UnpatchGfxByName(kKafeiHeadDlPath, "hairTlut1");
+            ResourceMgr_UnpatchGfxByName(kKafeiHeadDlPath, "hairTlut1Hash");
+            ResourceMgr_UnpatchGfxByName(kKafeiHeadDlPath, "hairTlut2");
+            ResourceMgr_UnpatchGfxByName(kKafeiHeadDlPath, "hairTlut2Hash");
 
-            ShadePaletteRevert("objects/object_test3/gKafeiBody2TLUT", 1, 3);
-            ShadePaletteRevert("objects/object_test3/gKafeiBody2TLUT", 8, 255);
+            ShadeKafeiHairTlutRevert();
         }
-        gfx_texture_cache_clear();
     },
     { kKafeiHairOption.colorChangedCvar });
 
@@ -1262,7 +1352,6 @@ static RegisterShipInitFunc goronTunicPatch(
             ShadePaletteRevert("objects/object_link_goron/object_link_goron_Tex_002780", 0, 127);
             ShadePaletteRevert("objects/object_link_goron/object_link_goron_Tex_00CEB8", 0, 127);
         }
-        gfx_texture_cache_clear();
     },
     { kGoronTunicOption.colorChangedCvar });
 
@@ -1276,7 +1365,6 @@ static RegisterShipInitFunc goronTunicColor(
         }
 
         ShadePaletteNewBase("objects/object_link_goron/object_link_goron_Tex_00CEB8", 0, 127, changedColor, MODE_MAX);
-        gfx_texture_cache_clear();
     },
     { kGoronTunicOption.colorCvar });
 
@@ -1322,8 +1410,6 @@ static RegisterShipInitFunc zoraTunicColor(
         // Boomerangs
         ShadePaletteGradient("objects/gameplay_keep/gameplay_keep_Tex_0700B0", 80, 511, zoraTunicBaseColor,
                              changedColor, zoraSkinColor);
-
-        gfx_texture_cache_clear();
     },
     { kZoraTunicOption.colorCvar });
 
@@ -1343,10 +1429,60 @@ static RegisterShipInitFunc zoraTunicPatch(
 
         ShadePaletteRevert("objects/object_link_zora/object_link_zora_Tex_010228", 80, 511);
         ShadePaletteRevert("objects/gameplay_keep/gameplay_keep_Tex_0700B0", 80, 511);
-
-        gfx_texture_cache_clear();
     },
     { kZoraTunicOption.colorChangedCvar });
+
+// Player.FierceDeityTunic
+
+Gfx fierceDeityTunic[] = {
+    gsDPSetPrimColor(0, 0x80, 0, 0, 0, 255),
+    gsDPPipeSync(),
+    gsSPEndDisplayList(),
+};
+
+static const char* kFierceDeityClothTlutPath = "objects/object_link_boy/object_link_boy_TLUT_008128";
+static const char* kFierceDeityHeadDlPath = "objects/object_link_boy/gLinkFierceDeityHeadDL";
+
+static RegisterShipInitFunc fierceDeityTunicPatch(
+    []() {
+        if (!IsCustomFierceDeityModelActive() && CVarGetInteger(kFierceDeityTunicOption.colorChangedCvar, 0)) {
+            ResourceMgr_PatchGfxByName("objects/object_link_boy/gLinkFierceDeityHatDL", "setPrim", 32,
+                                       gsSPDisplayList(fierceDeityTunic));
+            ResourceMgr_PatchGfxByName(kFierceDeityHeadDlPath, "setPrim", 87, gsSPDisplayList(fierceDeityTunic));
+            ResourceMgr_PatchGfxByName("objects/object_link_boy/gLinkFierceDeityRightShoulderDL", "setPrim", 30,
+                                       gsSPDisplayList(fierceDeityTunic));
+            ResourceMgr_PatchGfxByName("objects/object_link_boy/gLinkFierceDeityLeftShoulderDL", "setPrim", 30,
+                                       gsSPDisplayList(fierceDeityTunic));
+            ResourceMgr_PatchGfxByName("objects/object_link_boy/gLinkFierceDeityRightThighDL", "setPrim", 30,
+                                       gsSPDisplayList(fierceDeityTunic));
+            ResourceMgr_PatchGfxByName("objects/object_link_boy/gLinkFierceDeityLeftThighDL", "setPrim1", 36,
+                                       gsSPDisplayList(fierceDeityTunic));
+            ResourceMgr_PatchGfxByName("objects/object_link_boy/gLinkFierceDeityLeftThighDL", "setPrim2", 118,
+                                       gsSPDisplayList(fierceDeityTunic));
+            ResourceMgr_PatchGfxByName(kFierceDeityHeadDlPath, "setPrimBackToWhite", 129, gsSPDisplayList(backToWhite));
+
+            ShadePaletteWhite(kFierceDeityClothTlutPath, 0, 12, MODE_MAX);
+        } else {
+            ResourceMgr_UnpatchGfxByName("objects/object_link_boy/gLinkFierceDeityHatDL", "setPrim");
+            ResourceMgr_UnpatchGfxByName(kFierceDeityHeadDlPath, "setPrim");
+            ResourceMgr_UnpatchGfxByName("objects/object_link_boy/gLinkFierceDeityRightShoulderDL", "setPrim");
+            ResourceMgr_UnpatchGfxByName("objects/object_link_boy/gLinkFierceDeityLeftShoulderDL", "setPrim");
+            ResourceMgr_UnpatchGfxByName("objects/object_link_boy/gLinkFierceDeityRightThighDL", "setPrim");
+            ResourceMgr_UnpatchGfxByName("objects/object_link_boy/gLinkFierceDeityLeftThighDL", "setPrim1");
+            ResourceMgr_UnpatchGfxByName("objects/object_link_boy/gLinkFierceDeityLeftThighDL", "setPrim2");
+            ResourceMgr_UnpatchGfxByName(kFierceDeityHeadDlPath, "setPrimBackToWhite");
+
+            ShadePaletteRevert(kFierceDeityClothTlutPath, 0, 12);
+        }
+    },
+    { kFierceDeityTunicOption.colorChangedCvar });
+
+static RegisterShipInitFunc fierceDeityTunicColor(
+    []() {
+        Color_RGBA8 changedColor = CVarGetColor(kFierceDeityTunicOption.colorCvar, {});
+        fierceDeityTunic[0] = gsDPSetPrimColor(0, 0x80, changedColor.r, changedColor.g, changedColor.b, 255);
+    },
+    { kFierceDeityTunicOption.colorCvar });
 
 // HUD.Hearts
 
@@ -1410,7 +1546,6 @@ static RegisterShipInitFunc heartsColorDLPatch(
 
             ShadeRGBA16Revert("objects/gameplay_keep/gDropRecoveryHeartTex", 0, 1023);
         }
-        gfx_texture_cache_clear();
     },
     { kHeartsOption.colorChangedCvar });
 
@@ -1430,7 +1565,6 @@ static RegisterShipInitFunc heartsColorDLUpdate(
 
         Color_RGBA8 changedColor = CVarGetColor(kHeartsOption.colorCvar, {});
         ShadeRGBA16NewBase("objects/gameplay_keep/gDropRecoveryHeartTex", 0, 1023, changedColor, MODE_AVG);
-        gfx_texture_cache_clear();
     },
     { kHeartsOption.colorCvar });
 
@@ -1479,7 +1613,6 @@ static RegisterShipInitFunc magicColorDLPatch(
             ShadeRGBA16Revert("objects/gameplay_keep/gDropMagicSmallTex", 0, 1023);
             ShadeRGBA16Revert("objects/gameplay_keep/gDropMagicLargeTex", 0, 1023);
         }
-        gfx_texture_cache_clear();
     },
     { kMagicOption.colorChangedCvar });
 
@@ -1500,6 +1633,273 @@ static RegisterShipInitFunc magicColorDLUpdate(
         Color_RGBA8 changedColor = CVarGetColor(kMagicOption.colorCvar, {});
         ShadeRGBA16NewBase("objects/gameplay_keep/gDropMagicSmallTex", 0, 1023, changedColor, MODE_AVG);
         ShadeRGBA16NewBase("objects/gameplay_keep/gDropMagicLargeTex", 0, 1023, changedColor, MODE_AVG);
-        gfx_texture_cache_clear();
     },
     { kMagicOption.colorCvar });
+
+// Player.MirrorShield
+
+static const char* sMirrorShieldTrimDLs[] = {
+    "objects/object_link_child/object_link_child_DL_0161C8",
+    "objects/object_link_child/object_link_child_DL_016270",
+    "objects/object_link_child/object_link_child_DL_016320",
+};
+
+static const char* sMirrorShieldMirrorDL = "objects/object_link_child/object_link_child_DL_0163D0";
+static const int kMirrorShieldPrimIndex = 5;
+// With metallic materials, when the prim goes too high it overflows causing some really ugly artifacts,
+// this is also an issue on OoT with the master sword, we should probably back port this fix
+static const uint8_t kMetallicPrimCeiling = 128;
+
+static Color_RGBA8 ScaleToMetallicCeiling(Color_RGBA8 color) {
+    uint8_t maxChannel = MAX(MAX(color.r, color.g), color.b);
+    if (maxChannel <= kMetallicPrimCeiling) {
+        return color;
+    }
+    f32 scale = (f32)kMetallicPrimCeiling / maxChannel;
+    return { (uint8_t)(color.r * scale + 0.5f), (uint8_t)(color.g * scale + 0.5f), (uint8_t)(color.b * scale + 0.5f),
+             color.a };
+}
+
+Gfx mirrorShieldTrim[] = {
+    gsDPSetPrimColor(0, 0xFF, 0, 0, 0, 255),
+    gsSPEndDisplayList(),
+};
+
+Gfx mirrorShieldMirror[] = {
+    gsDPSetPrimColor(0, 0xFF, 0, 0, 0, 255),
+    gsSPEndDisplayList(),
+};
+
+static RegisterShipInitFunc mirrorShieldPatch(
+    []() {
+        for (const char* path : sMirrorShieldTrimDLs) {
+            if (CVarGetInteger(kMirrorShieldOption.colorChangedCvar, 0)) {
+                ResourceMgr_PatchGfxByName(path, "setPrim", kMirrorShieldPrimIndex, gsSPDisplayList(mirrorShieldTrim));
+            } else {
+                ResourceMgr_UnpatchGfxByName(path, "setPrim");
+            }
+        }
+    },
+    { kMirrorShieldOption.colorChangedCvar });
+
+static RegisterShipInitFunc mirrorShieldColor(
+    []() {
+        Color_RGBA8 changedColor = ScaleToMetallicCeiling(CVarGetColor(kMirrorShieldOption.colorCvar, {}));
+        mirrorShieldTrim[0] = gsDPSetPrimColor(0, 0xFF, changedColor.r, changedColor.g, changedColor.b, 255);
+    },
+    { kMirrorShieldOption.colorCvar });
+
+// Player.MirrorShieldMirror
+
+static RegisterShipInitFunc mirrorShieldMirrorPatch(
+    []() {
+        if (CVarGetInteger(kMirrorShieldMirrorOption.colorChangedCvar, 0)) {
+            ResourceMgr_PatchGfxByName(sMirrorShieldMirrorDL, "setPrim", kMirrorShieldPrimIndex,
+                                       gsSPDisplayList(mirrorShieldMirror));
+        } else {
+            ResourceMgr_UnpatchGfxByName(sMirrorShieldMirrorDL, "setPrim");
+        }
+    },
+    { kMirrorShieldMirrorOption.colorChangedCvar });
+
+static RegisterShipInitFunc mirrorShieldMirrorColor(
+    []() {
+        Color_RGBA8 changedColor = ScaleToMetallicCeiling(CVarGetColor(kMirrorShieldMirrorOption.colorCvar, {}));
+        mirrorShieldMirror[0] = gsDPSetPrimColor(0, 0xFF, changedColor.r, changedColor.g, changedColor.b, 255);
+    },
+    { kMirrorShieldMirrorOption.colorCvar });
+
+// Collectibles.Rupee*
+
+static Color_RGBA8 RupeeEnvWithoutLodBoost(Color_RGBA8 prim, Color_RGBA8 env) {
+    auto fold = [](uint8_t prim8, uint8_t env8) {
+        f32 p = prim8 / 255.0f;
+        f32 e = env8 / 255.0f;
+        return (uint8_t)CLAMP((e - 0.5f * p * (p - e)) * 255.0f + 0.5f, 0.0f, 255.0f);
+    };
+    return { fold(prim.r, env.r), fold(prim.g, env.g), fold(prim.b, env.b), env.a };
+}
+
+typedef struct {
+    const char* cosmeticId;
+    const char* texture;
+    const char* innerColorDL;
+    const char* outerColorDL;
+} RupeeCosmetic;
+
+static const RupeeCosmetic sRupeeCosmetics[] = {
+    { "Collectibles.RupeeGreen", "objects/gameplay_keep/gRupeeGreenTex",
+      "objects/object_gi_rupy/gGiGreenRupeeInnerColorDL", "objects/object_gi_rupy/gGiGreenRupeeOuterColorDL" },
+    { "Collectibles.RupeeBlue", "objects/gameplay_keep/gRupeeBlueTex",
+      "objects/object_gi_rupy/gGiBlueRupeeInnerColorDL", "objects/object_gi_rupy/gGiBlueRupeeOuterColorDL" },
+    { "Collectibles.RupeeRed", "objects/gameplay_keep/gRupeeRedTex", "objects/object_gi_rupy/gGiRedRupeeInnerColorDL",
+      "objects/object_gi_rupy/gGiRedRupeeOuterColorDL" },
+    { "Collectibles.RupeePurple", "objects/gameplay_keep/gRupeePurpleTex",
+      "objects/object_gi_rupy/gGiPurpleRupeeInnerColorDL", "objects/object_gi_rupy/gGiPurpleRupeeOuterColorDL" },
+    { "Collectibles.RupeeOrange", "objects/gameplay_keep/gRupeeOrangeTex",
+      "objects/object_gi_rupy/gGiGoldRupeeInnerColorDL", "objects/object_gi_rupy/gGiGoldRupeeOuterColorDL" },
+    { "Collectibles.RupeeSilver", "objects/gameplay_keep/gRupeeSilverTex",
+      "objects/object_gi_rupy/gGiSilverRupeeInnerColorDL", "objects/object_gi_rupy/gGiSilverRupeeOuterColorDL" },
+};
+
+static void ApplyRupeeCosmetic(const RupeeCosmetic& rupee) {
+    const CosmeticOption& option = cosmeticOptions.at(rupee.cosmeticId);
+
+    if (!CVarGetInteger(option.colorChangedCvar, 0)) {
+        ShadeRGBA16Revert(rupee.texture, 0, 15);
+        ResourceMgr_UnpatchGfxByName(rupee.innerColorDL, "setPrim");
+        ResourceMgr_UnpatchGfxByName(rupee.innerColorDL, "setEnv");
+        ResourceMgr_UnpatchGfxByName(rupee.outerColorDL, "setPrim");
+        ResourceMgr_UnpatchGfxByName(rupee.outerColorDL, "setEnv");
+        return;
+    }
+
+    Color_RGBA8 changedColor = CVarGetColor(option.colorCvar, option.defaultColor);
+    ShadeRGBA16NewBase(rupee.texture, 0, 15, changedColor, MODE_AVG);
+
+    Color_RGBA8 innerPrim =
+        CosmeticEditor_GetChangedColorEx(0, 0, 0, 255, rupee.cosmeticId, COSMETIC_COLOR_MODE_ADD, 55.0f);
+    Color_RGBA8 innerEnv = RupeeEnvWithoutLodBoost(
+        innerPrim, CosmeticEditor_GetChangedColorEx(0, 0, 0, 255, rupee.cosmeticId, COSMETIC_COLOR_MODE_DIVIDE, 2.0f));
+    Color_RGBA8 outerPrim =
+        CosmeticEditor_GetChangedColorEx(0, 0, 0, 255, rupee.cosmeticId, COSMETIC_COLOR_MODE_ADD, 120.0f);
+    Color_RGBA8 outerEnv = RupeeEnvWithoutLodBoost(outerPrim, changedColor);
+
+    ResourceMgr_PatchGfxByName(rupee.innerColorDL, "setPrim", 3,
+                               gsDPSetPrimColor(0, 0, innerPrim.r, innerPrim.g, innerPrim.b, 255));
+    ResourceMgr_PatchGfxByName(rupee.innerColorDL, "setEnv", 4,
+                               gsDPSetEnvColor(innerEnv.r, innerEnv.g, innerEnv.b, 255));
+    ResourceMgr_PatchGfxByName(rupee.outerColorDL, "setPrim", 3,
+                               gsDPSetPrimColor(0, 0, outerPrim.r, outerPrim.g, outerPrim.b, 255));
+    ResourceMgr_PatchGfxByName(rupee.outerColorDL, "setEnv", 4,
+                               gsDPSetEnvColor(outerEnv.r, outerEnv.g, outerEnv.b, 255));
+}
+
+// World.TingleBalloon
+
+static const uint32_t kTingleBalloonLastPixel = (16 * 16) - 1;
+
+static RegisterShipInitFunc tingleBalloonColor(
+    []() {
+        const CosmeticOption& option = cosmeticOptions.at("World.TingleBalloon");
+
+        if (CVarGetInteger(option.colorChangedCvar, 0)) {
+            Color_RGBA8 changedColor = CVarGetColor(option.colorCvar, option.defaultColor);
+            ShadeRGBA16NewBase("objects/object_bal/gTingleBalloonTex", 0, kTingleBalloonLastPixel, changedColor,
+                               MODE_AVG);
+        } else {
+            ShadeRGBA16Revert("objects/object_bal/gTingleBalloonTex", 0, kTingleBalloonLastPixel);
+        }
+    },
+    { CVAR_COSMETIC_COLOR("World.TingleBalloon"), CVAR_COSMETIC_CHANGED("World.TingleBalloon") });
+
+// World.EponaCoat
+
+// saturation difference between the hair and the body
+static const f32 kEponaCoatMinSaturation = 0.35f;
+
+static RegisterShipInitFunc eponaCoatColorFunc(
+    []() {
+        const CosmeticOption& option = cosmeticOptions.at("World.EponaCoat");
+
+        if (CVarGetInteger(option.colorChangedCvar, 0)) {
+            Color_RGBA8 changedColor = CVarGetColor(option.colorCvar, option.defaultColor);
+
+            ShadeRGBA16Recolor("objects/object_horse_link_child/object_horse_link_child_Tex_00DCF0", 0, 1023,
+                               changedColor, kEponaCoatMinSaturation); // neck
+            ShadeRGBA16Recolor("objects/object_horse_link_child/object_horse_link_child_Tex_00DAF0", 0, 255,
+                               changedColor, kEponaCoatMinSaturation);
+            ShadeRGBA16Recolor("objects/object_horse_link_child/object_horse_link_child_Tex_002788", 0, 255,
+                               changedColor, kEponaCoatMinSaturation); // head
+            ShadeRGBA16Recolor("objects/object_horse_link_child/object_horse_link_child_Tex_002168", 0, 255,
+                               changedColor, kEponaCoatMinSaturation); // eyes
+            ShadeRGBA16Recolor("objects/object_horse_link_child/object_horse_link_child_Tex_002568", 0, 15,
+                               changedColor, kEponaCoatMinSaturation); // neck strip
+            ShadeRGBA16Recolor("objects/object_horse_link_child/object_horse_link_child_Tex_002588", 0, 255,
+                               changedColor, kEponaCoatMinSaturation);
+            ShadeRGBA16Recolor("objects/object_horse_link_child/object_horse_link_child_Tex_002368", 0, 255,
+                               changedColor, kEponaCoatMinSaturation);
+
+            ShadePaletteTintMatchingHue("objects/object_horse_link_child/gEponaTLUT", 0, 255, { 214, 82, 8, 255 },
+                                        changedColor);
+        } else {
+            ShadeRGBA16Revert("objects/object_horse_link_child/object_horse_link_child_Tex_00DCF0", 0, 1023);
+            ShadeRGBA16Revert("objects/object_horse_link_child/object_horse_link_child_Tex_00DAF0", 0, 255);
+            ShadeRGBA16Revert("objects/object_horse_link_child/object_horse_link_child_Tex_002788", 0, 255);
+            ShadeRGBA16Revert("objects/object_horse_link_child/object_horse_link_child_Tex_002168", 0, 255);
+            ShadeRGBA16Revert("objects/object_horse_link_child/object_horse_link_child_Tex_002568", 0, 15);
+            ShadeRGBA16Revert("objects/object_horse_link_child/object_horse_link_child_Tex_002588", 0, 255);
+            ShadeRGBA16Revert("objects/object_horse_link_child/object_horse_link_child_Tex_002368", 0, 255);
+
+            ShadePaletteTintRevert("objects/object_horse_link_child/gEponaTLUT", 0, 255);
+        }
+    },
+    { CVAR_COSMETIC_COLOR("World.EponaCoat"), CVAR_COSMETIC_CHANGED("World.EponaCoat") });
+
+// World.GoldSkulltula
+
+static RegisterShipInitFunc goldSkulltulaColor(
+    []() {
+        const CosmeticOption& option = cosmeticOptions.at("World.GoldSkulltula");
+
+        if (CVarGetInteger(option.colorChangedCvar, 0)) {
+            Color_RGBA8 prim = CVarGetColor(option.colorCvar, option.defaultColor);
+            Color_RGBA8 env = CosmeticEditor_GetChangedColorEx(0, 0, 0, 255, "World.GoldSkulltula",
+                                                               COSMETIC_COLOR_MODE_DIVIDE, 12.0f);
+
+            ResourceMgr_PatchGfxByName("objects/object_st/object_st_DL_003FB0", "setPrim", 118,
+                                       gsDPSetPrimColor(0, 0, prim.r, prim.g, prim.b, 255));
+            ResourceMgr_PatchGfxByName("objects/object_st/object_st_DL_003FB0", "setEnv", 119,
+                                       gsDPSetEnvColor(env.r, env.g, env.b, 255));
+            ResourceMgr_PatchGfxByName("objects/object_st/object_st_DL_0043D8", "setPrim", 61,
+                                       gsDPSetPrimColor(0, 0, prim.r, prim.g, prim.b, 255));
+            ResourceMgr_PatchGfxByName("objects/object_st/object_st_DL_0043D8", "setEnv", 62,
+                                       gsDPSetEnvColor(env.r, env.g, env.b, 255));
+            ResourceMgr_PatchGfxByName("objects/object_st/object_st_DL_001C30", "setPrim", 22,
+                                       gsDPSetPrimColor(0, 0, prim.r, prim.g, prim.b, 255));
+            ResourceMgr_PatchGfxByName("objects/object_st/object_st_DL_001A40", "setPrim", 17,
+                                       gsDPSetPrimColor(0, 0, prim.r, prim.g, prim.b, 255));
+        } else {
+            ResourceMgr_UnpatchGfxByName("objects/object_st/object_st_DL_003FB0", "setPrim");
+            ResourceMgr_UnpatchGfxByName("objects/object_st/object_st_DL_003FB0", "setEnv");
+            ResourceMgr_UnpatchGfxByName("objects/object_st/object_st_DL_0043D8", "setPrim");
+            ResourceMgr_UnpatchGfxByName("objects/object_st/object_st_DL_0043D8", "setEnv");
+            ResourceMgr_UnpatchGfxByName("objects/object_st/object_st_DL_001C30", "setPrim");
+            ResourceMgr_UnpatchGfxByName("objects/object_st/object_st_DL_001A40", "setPrim");
+        }
+    },
+    { CVAR_COSMETIC_COLOR("World.GoldSkulltula"), CVAR_COSMETIC_CHANGED("World.GoldSkulltula") });
+
+static RegisterShipInitFunc rupeeShine(
+    []() {
+        if (CVarGetInteger(kSillyDullRupeesCvar, 0)) {
+            ResourceMgr_PatchGfxByName("objects/object_gi_rupy/gGiRupeeOuterDL", "dullRupees", 0, gsSPEndDisplayList());
+        } else {
+            ResourceMgr_UnpatchGfxByName("objects/object_gi_rupy/gGiRupeeOuterDL", "dullRupees");
+        }
+    },
+    { kSillyDullRupeesCvar });
+
+static RegisterShipInitFunc rupeeGreenColor([]() { ApplyRupeeCosmetic(sRupeeCosmetics[0]); },
+                                            { CVAR_COSMETIC_COLOR("Collectibles.RupeeGreen"),
+                                              CVAR_COSMETIC_CHANGED("Collectibles.RupeeGreen") });
+
+static RegisterShipInitFunc rupeeBlueColor([]() { ApplyRupeeCosmetic(sRupeeCosmetics[1]); },
+                                           { CVAR_COSMETIC_COLOR("Collectibles.RupeeBlue"),
+                                             CVAR_COSMETIC_CHANGED("Collectibles.RupeeBlue") });
+
+static RegisterShipInitFunc rupeeRedColor([]() { ApplyRupeeCosmetic(sRupeeCosmetics[2]); },
+                                          { CVAR_COSMETIC_COLOR("Collectibles.RupeeRed"),
+                                            CVAR_COSMETIC_CHANGED("Collectibles.RupeeRed") });
+
+static RegisterShipInitFunc rupeePurpleColor([]() { ApplyRupeeCosmetic(sRupeeCosmetics[3]); },
+                                             { CVAR_COSMETIC_COLOR("Collectibles.RupeePurple"),
+                                               CVAR_COSMETIC_CHANGED("Collectibles.RupeePurple") });
+
+static RegisterShipInitFunc rupeeOrangeColor([]() { ApplyRupeeCosmetic(sRupeeCosmetics[4]); },
+                                             { CVAR_COSMETIC_COLOR("Collectibles.RupeeOrange"),
+                                               CVAR_COSMETIC_CHANGED("Collectibles.RupeeOrange") });
+
+static RegisterShipInitFunc rupeeSilverColor([]() { ApplyRupeeCosmetic(sRupeeCosmetics[5]); },
+                                             { CVAR_COSMETIC_COLOR("Collectibles.RupeeSilver"),
+                                               CVAR_COSMETIC_CHANGED("Collectibles.RupeeSilver") });

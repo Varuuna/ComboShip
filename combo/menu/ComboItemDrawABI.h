@@ -59,6 +59,7 @@ typedef enum {
     CW_DRAW_KIND_MM_FAIRY_BOTTLE, /* OPA dl0; XLU dl1; seg8 scroll (32x320 layer 2); billboard dl2 */
     CW_DRAW_KIND_MM_SOUL_FLAME,   /* MM enemy soul: billboard seg8 flame (primColorXlu), dl0 */
     CW_DRAW_KIND_OPS,             /* ops[] bytecode below (transforms/colors/DLs); see CwDrawOpCode */
+    CW_DRAW_KIND_SILVER_RUPEE,    /* OPA seg8 = segTexPath (owner RM), dl0; primColorOpa = grayscale, a 0 = off */
 } CwDrawKind;
 
 #define CW_DRAW_MAX_OPS 20
@@ -129,6 +130,19 @@ typedef struct {
     /* ComboShip: CW_DRAW_KIND_OPS payload. */
     int32_t opCount;
     CwDrawOp ops[CW_DRAW_MAX_OPS];
+
+    /* ComboShip: the owner's setup DL for each stream (raw Gfx* in the owner's module — state-only
+     * commands, no resource refs), or NULL for the consumer's own 25 Opa/Xlu. Items authored for a
+     * different setup (OOT's 26 = 1-cycle, no fog) render through the wrong combiner under 25: the
+     * dead second cycle wins and samples TEXEL1, i.e. whatever tile the HOST last left bound. */
+    const void* setupDlOpa;
+    const void* setupDlXlu;
+
+    /* Resolved tier name when a progressive placeholder converted (e.g. "Large Quiver"), or NULL. */
+    const char* resolvedName;
+
+    /* ComboShip: owner's own (unrouted) texture path for seg 8; can't ride dlists[], which get routed. */
+    const char* segTexPath;
 } CwItemDrawInfo;
 
 /* Returns 1 and fills out on success; 0 if the item is unknown/undrawable; CW_DRAW_NOT_READY if the
@@ -158,6 +172,8 @@ static inline int32_t CwMinDlistsForKind(int32_t kind) {
             return 2;
         case CW_DRAW_KIND_OPS:
             return 0; /* the interpreter bounds-checks every CW_OP_DLIST index itself */
+        case CW_DRAW_KIND_SILVER_RUPEE:
+            return 1;
         default:
             return 1;
     }

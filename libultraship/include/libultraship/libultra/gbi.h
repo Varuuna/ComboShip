@@ -261,6 +261,10 @@
 
 /* macros for command parsing: */
 #define GDMACMD(x) (x)
+#ifdef COMBO_BUILD
+// ComboShip: fast/lus_gbi.h also defines GIMMCMD, and soh TUs now include it first (C4005 under /WX).
+#undef GIMMCMD
+#endif
 #define GIMMCMD(x) (G_IMMFIRST - (x))
 #define GRDPCMD(x) (0xff - (x))
 

@@ -1,13 +1,16 @@
 #include <unordered_set>
+
+#include <ship/Context.h>
+
+#include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "SohMenu.h"
 #include "soh/Enhancements/enhancementTypes.h"
 #include "soh/Enhancements/randomizer/randomizer_check_objects.h"
 #include "soh/Enhancements/randomizer/randomizer.h"
-#include "soh/Enhancements/randomizer/randomizerTypes.h"
 #include "soh/Enhancements/randomizer/settings.h"
-#include "soh/OTRGlobals.h"
 #include "soh/ShipUtils.h"
 #include "soh/SohGui/SohGui.hpp"
+#include "soh/SohGui/UIWidgets.hpp"
 
 extern "C" {
 #include "variables.h"
@@ -49,14 +52,7 @@ void SaveEnabledTricks() {
 }
 
 void SaveExcludedLocations() {
-    // todo: this efficiently when we build out cvar array support
-    std::string excludedLocationString = "";
-    for (auto excludedLocationIt : excludedLocations) {
-        if (!excludedLocationString.empty()) {
-            excludedLocationString += ",";
-        }
-        excludedLocationString += std::to_string(excludedLocationIt);
-    }
+    std::string excludedLocationString = Rando::StaticData::SerializeExcludedLocations(excludedLocations);
     if (excludedLocationString == "") {
         CVarClear(CVAR_RANDOMIZER_SETTING("ExcludedLocations"));
     } else {
@@ -67,11 +63,11 @@ void SaveExcludedLocations() {
 }
 
 void DrawLocationsMenu(WidgetInfo& info) {
-    auto ctx = OTRGlobals::Instance->gRandoContext;
+    auto ctx = Rando::Context::GetInstance();
     int32_t currMQDungeonSetting = CVarGetInteger(CVAR_RANDOMIZER_SETTING("MQDungeons"), 0) |
                                    CVarGetInteger(CVAR_RANDOMIZER_SETTING("MQDungeonCount"), 0) << 8;
     static ImVec2 cellPadding(8.0f, 8.0f);
-    bool generating = CVarGetInteger(CVAR_GENERAL("RandoGenerating"), 0);
+    bool generating = IsRandoGenerating();
     bool disableEditingRandoSettings = generating || CVarGetInteger(CVAR_GENERAL("OnFileSelectNameEntry"), 0);
     ImGui::BeginDisabled(CVarGetInteger(CVAR_SETTING("DisableChanges"), 0) || disableEditingRandoSettings);
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, cellPadding);
@@ -327,15 +323,8 @@ void MarkRandomizerMenusDirty() {
 
 void UpdateMenuLocations() {
     RandomizerCheckObjects::UpdateImGuiVisibility();
-    // todo: this efficiently when we build out cvar array support
-    std::stringstream excludedLocationStringStream(CVarGetString(CVAR_RANDOMIZER_SETTING("ExcludedLocations"), ""));
-    std::string excludedLocationString;
-    excludedLocations.clear();
-    while (getline(excludedLocationStringStream, excludedLocationString, ',')) {
-        if (!excludedLocationString.empty()) {
-            excludedLocations.insert((RandomizerCheck)std::stoi(excludedLocationString));
-        }
-    }
+    excludedLocations =
+        Rando::StaticData::ParseExcludedLocations(CVarGetString(CVAR_RANDOMIZER_SETTING("ExcludedLocations"), ""));
 }
 
 void UpdateMenuTricks() {
@@ -360,10 +349,10 @@ void UpdateMenuTricks() {
 }
 
 void DrawTricksMenu(WidgetInfo& info) {
-    auto ctx = OTRGlobals::Instance->gRandoContext;
+    auto ctx = Rando::Context::GetInstance();
     auto randoSettings = Rando::Settings::GetInstance();
     static ImVec2 cellPadding(8.0f, 8.0f);
-    bool generating = CVarGetInteger(CVAR_GENERAL("RandoGenerating"), 0);
+    bool generating = IsRandoGenerating();
     bool disableEditingRandoSettings = generating || CVarGetInteger(CVAR_GENERAL("OnFileSelectNameEntry"), 0);
     if (tricksDirty) {
         tricksDirty = false;
@@ -456,7 +445,7 @@ void DrawTricksMenu(WidgetInfo& info) {
     UIWidgets::PushStyleInput(THEME_COLOR);
     trickSearch.Draw("Filter (inc,-exc)", 490.0f);
     UIWidgets::PopStyleInput();
-    if (CVarGetInteger(CVAR_RANDOMIZER_SETTING("LogicRules"), RO_LOGIC_GLITCHLESS) != RO_LOGIC_NO_LOGIC) {
+    if (CVarGetInteger(CVAR_RANDOMIZER_SETTING("NoLogic"), RO_GENERIC_OFF) == RO_GENERIC_OFF) {
         ImGui::SameLine();
         if (UIWidgets::Button("Disable All", UIWidgets::ButtonOptions().Color(THEME_COLOR).Size(ImVec2(250.f, 0.f)))) {
             for (int i = 0; i < RT_MAX; i++) {
@@ -501,7 +490,7 @@ void DrawTricksMenu(WidgetInfo& info) {
         ImGui::PopItemFlag();
         ImGui::TableNextRow();
 
-        if (CVarGetInteger(CVAR_RANDOMIZER_SETTING("LogicRules"), RO_LOGIC_GLITCHLESS) != RO_LOGIC_NO_LOGIC) {
+        if (CVarGetInteger(CVAR_RANDOMIZER_SETTING("NoLogic"), RO_GENERIC_OFF) == RO_GENERIC_OFF) {
             // COLUMN 1 - DISABLED TRICKS
             ImGui::TableNextColumn();
             // window->DC.CurrLineTextBaseOffset = 0.0f;
@@ -564,7 +553,7 @@ void DrawTricksMenu(WidgetInfo& info) {
                                 Rando::Tricks::DrawTagChips(option.GetTags(), option.GetName());
                                 ImGui::SameLine();
                                 ImGui::Text("%s", option.GetName().c_str());
-                                UIWidgets::Tooltip(option.GetDescription().c_str());
+                                UIWidgets::Tooltip(option.GetDescription());
                             }
                         }
                         areaTreeDisabled.insert(area);
@@ -638,7 +627,7 @@ void DrawTricksMenu(WidgetInfo& info) {
                                 Rando::Tricks::DrawTagChips(option.GetTags(), option.GetName());
                                 ImGui::SameLine();
                                 ImGui::Text("%s", option.GetName().c_str());
-                                UIWidgets::Tooltip(option.GetDescription().c_str());
+                                UIWidgets::Tooltip(option.GetDescription());
                             }
                         }
                         areaTreeEnabled.insert(area);
@@ -653,11 +642,11 @@ void DrawTricksMenu(WidgetInfo& info) {
         } else {
             ImGui::TableNextColumn();
             ImGui::BeginChild("ChildTricksDisabled", ImVec2(0, -8));
-            ImGui::Text("Requires Logic Turned On.");
+            ImGui::Text("Disabled for No Logic.");
             ImGui::EndChild();
             ImGui::TableNextColumn();
             ImGui::BeginChild("ChildTricksEnabled", ImVec2(0, -8));
-            ImGui::Text("Requires Logic Turned On.");
+            ImGui::Text("Disabled for No Logic.");
             ImGui::EndChild();
         }
         ImGui::EndTable();
@@ -674,7 +663,7 @@ void SohMenu::AddMenuRandomizer() {
     WidgetPath path = { "Randomizer", "General", SECTION_COLUMN_1 };
     AddSidebarEntry("Randomizer", path.sidebarName, 2);
     AddWidget(path,
-              "Be sure to explore the Presets and Enhancements Menus for various Speedups and Quality of life changes!",
+              "Be sure to explore the Presets and Enhancements Menus for various Speedups and Quality of Life changes!",
               WIDGET_TEXT)
         .Options(TextOptions().Color(UIWidgets::Colors::Gray));
 #ifndef COMBO_BUILD // ComboShip: combo drives generation, so hide the per-game Seed Entry section.
@@ -718,7 +707,6 @@ void SohMenu::AddMenuRandomizer() {
     });
     AddWidget(path, "Generate Randomizer", WIDGET_BUTTON)
         .Callback([](WidgetInfo& info) {
-            OTRGlobals::Instance->gRandoContext->SetSpoilerLoaded(false);
             GenerateRandomizer(CVarGetInteger(CVAR_RANDOMIZER_SETTING("ManualSeedEntry"), 0) ? seedString : "");
         })
         .PreFunc([](WidgetInfo& info) {
@@ -730,18 +718,15 @@ void SohMenu::AddMenuRandomizer() {
     AddWidget(path, "Randomize All Settings", WIDGET_BUTTON)
         .Callback([](WidgetInfo& info) { Rando::Settings::GetInstance()->RandomizeAllSettings(); })
         .PreFunc([](WidgetInfo& info) {
-            info.options->disabled = CVarGetInteger(CVAR_GENERAL("RandoGenerating"), 0) ||
-                                     CVarGetInteger(CVAR_GENERAL("OnFileSelectNameEntry"), 0);
+            info.options->disabled = IsRandoGenerating() || CVarGetInteger(CVAR_GENERAL("OnFileSelectNameEntry"), 0);
         })
         .Options(ButtonOptions()
                      .Size(ImVec2(250.f, 0.f))
                      .Tooltip("Randomizes all randomizer settings to random valid values (excludes tricks)."))
         .SameLine(true);
     AddWidget(path, "Spoiler File", WIDGET_CUSTOM).CustomFunction([](WidgetInfo& info) {
-        JoinRandoGenerationThread();
         if (!CVarGetInteger(CVAR_RANDOMIZER_SETTING("DontGenerateSpoiler"), 0)) {
-            std::string spoilerfilepath = CVarGetString(CVAR_GENERAL("SpoilerLog"), "");
-            ImGui::Text("Spoiler File: %s", spoilerfilepath.c_str());
+            ImGui::Text("Spoiler File: %s", CVarGetString(CVAR_GENERAL("SpoilerLog"), ""));
         }
     });
 #endif
@@ -762,12 +747,6 @@ void SohMenu::AddMenuRandomizer() {
         .Options(CheckboxOptions()
                      .Tooltip("When obtaining Rupees, randomize what the Rupee is called in the textbox.")
                      .DefaultValue(true));
-    AddWidget(path, "Use Custom Key Models", WIDGET_CVAR_CHECKBOX)
-        .CVar(CVAR_RANDOMIZER_ENHANCEMENT("CustomKeyModels"))
-        .Options(
-            CheckboxOptions()
-                .Tooltip("Use Custom graphics for Dungeon Keys, Big and Small, so that they can be easily told apart.")
-                .DefaultValue(true));
     AddWidget(path, "Map & Compass Colors Match Dungeon", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_RANDOMIZER_ENHANCEMENT("ColoredMapsAndCompasses"))
         .Options(
@@ -781,7 +760,7 @@ void SohMenu::AddMenuRandomizer() {
         .CVar(CVAR_RANDOMIZER_ENHANCEMENT("GenericJabberNutModel"))
         .RaceDisable(false)
         .Options(CheckboxOptions()
-                     .Tooltip("With Shuffle Speak, jabber nut model & color will be generic.")
+                     .Tooltip("With Shuffle Speak, the jabber nut model & color will be generic.")
                      .DefaultValue(true));
     AddWidget(path, "Quest Item Fanfares", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_RANDOMIZER_ENHANCEMENT("QuestItemFanfares"))
@@ -799,7 +778,7 @@ void SohMenu::AddMenuRandomizer() {
         .CVar(CVAR_RANDOMIZER_ENHANCEMENT("SimplerBossSoulModels"))
         .RaceDisable(false)
         .Options(CheckboxOptions().Tooltip(
-            "When shuffling boss souls, they'll appear as a simpler model instead of showing the boss' models."
+            "When shuffling boss souls, they'll appear as a simpler model instead of showing the bosses' models. "
             "This might make boss souls more distinguishable from a distance, and can help with performance."));
     AddWidget(path, "Skip Get Item Animations", WIDGET_CVAR_COMBOBOX)
         .CVar(CVAR_RANDOMIZER_ENHANCEMENT("TimeSavers.SkipGetItemAnimation"))
@@ -816,7 +795,7 @@ void SohMenu::AddMenuRandomizer() {
             "The size of the item when it is picked up."));
     AddWidget(path, "Signs Hint Entrances", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_RANDOMIZER_ENHANCEMENT("EntrancesOnSigns"))
-        .Options(CheckboxOptions().Tooltip("If enabled, signs near loading zones will tell you where they lead to."));
+        .Options(CheckboxOptions().Tooltip("If enabled, signs near loading zones will tell you where they lead."));
 
     auto randoSettings = Rando::Settings::GetInstance();
     randoSettings->CreateOptions();
@@ -827,7 +806,7 @@ void SohMenu::AddMenuRandomizer() {
     path.sidebarName = "Starting Items";
     AddSidebarEntry("Randomizer", path.sidebarName, 1);
     AddWidget(path, "Starting Items", WIDGET_CUSTOM).CustomFunction(DrawStartingItemsMenu);
-    path.sidebarName = "Locations";
+    path.sidebarName = "Check Locations";
     AddSidebarEntry("Randomizer", path.sidebarName, 1);
     AddWidget(path, "Excluded Locations", WIDGET_CUSTOM).CustomFunction(DrawLocationsMenu);
     path.sidebarName = "Tricks/Glitches";

@@ -5,6 +5,9 @@ namespace Rando {
 
 namespace Logic {
 
+// if we keep adding more groups we should probably make this an enum or somthing
+static constexpr int CONFINEMENT_GROUP_SONGS = DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE_BOSS + 1;
+
 int SceneIdToDungeon(SceneId sceneId) {
     switch (sceneId) {
         case SCENE_MITURIN:
@@ -25,69 +28,144 @@ int SceneIdToDungeon(SceneId sceneId) {
     }
 }
 
-int RandoItemIdToDungeon(RandoItemId itemId) {
+int DungeonItemToDungeon(RandoItemId itemId) {
     int dungeon = -1;
     switch (itemId) {
         case RI_WOODFALL_SMALL_KEY:
         case RI_WOODFALL_BOSS_KEY:
         case RI_WOODFALL_STRAY_FAIRY:
+        case RI_REMAINS_ODOLWA:
             dungeon = DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE;
             break;
         case RI_SNOWHEAD_SMALL_KEY:
         case RI_SNOWHEAD_BOSS_KEY:
         case RI_SNOWHEAD_STRAY_FAIRY:
+        case RI_REMAINS_GOHT:
             dungeon = DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE;
             break;
         case RI_GREAT_BAY_SMALL_KEY:
         case RI_GREAT_BAY_BOSS_KEY:
         case RI_GREAT_BAY_STRAY_FAIRY:
+        case RI_REMAINS_GYORG:
             dungeon = DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE;
             break;
         case RI_STONE_TOWER_SMALL_KEY:
         case RI_STONE_TOWER_BOSS_KEY:
         case RI_STONE_TOWER_STRAY_FAIRY:
+        case RI_REMAINS_TWINMOLD:
             dungeon = DUNGEON_SCENE_INDEX_STONE_TOWER_TEMPLE;
             break;
         default:
             return -1;
     }
+    return dungeon;
+}
+
+RandoOptionId DungeonItemPlacementOption(RandoItemId itemId) {
+    if (DungeonItemToDungeon(itemId) < 0 && itemId != RI_CLOCK_TOWN_STRAY_FAIRY) {
+        return RO_MAX;
+    }
     switch (Rando::StaticData::Items[itemId].randoItemType) {
         case RITYPE_SMALL_KEY:
-            return RANDO_SAVE_OPTIONS[RO_PLACEMENT_SMALL_KEYS] == RO_DUNGEON_ITEM_OWN_DUNGEON ? dungeon : -1;
+            return RO_PLACEMENT_SMALL_KEYS;
         case RITYPE_BOSS_KEY:
-            return RANDO_SAVE_OPTIONS[RO_PLACEMENT_BOSS_KEYS] == RO_DUNGEON_ITEM_OWN_DUNGEON ? dungeon : -1;
+            return RO_PLACEMENT_BOSS_KEYS;
         case RITYPE_STRAY_FAIRY:
-            return RANDO_SAVE_OPTIONS[RO_PLACEMENT_STRAY_FAIRIES] == RO_DUNGEON_ITEM_OWN_DUNGEON ? dungeon : -1;
+            return RO_PLACEMENT_STRAY_FAIRIES;
         default:
-            return -1;
+            return RO_MAX;
     }
 }
 
+bool StaysAtVanillaCheck(RandoItemId itemId, const RandoSaveInfo& saveInfo) {
+    RandoOptionId placementOption = DungeonItemPlacementOption(itemId);
+    if (placementOption == RO_MAX) {
+        return false;
+    }
+    switch (saveInfo.randoSaveOptions[placementOption]) {
+        case RO_DUNGEON_ITEM_VANILLA:
+            return true;
+        case RO_DUNGEON_ITEM_OWN_DUNGEON:
+            return DungeonItemToDungeon(itemId) < 0;
+        default:
+            return false;
+    }
+}
+
+int RandoItemIdToDungeon(RandoItemId itemId) {
+    switch (itemId) {
+        case RI_REMAINS_ODOLWA:
+        case RI_REMAINS_GOHT:
+        case RI_REMAINS_GYORG:
+        case RI_REMAINS_TWINMOLD:
+            return RANDO_SAVE_OPTIONS[RO_SHUFFLE_BOSS_REMAINS] == RO_REMAINS_SHUFFLE_OWN_DUNGEON
+                       ? DungeonItemToDungeon(itemId)
+                       : -1;
+        default:
+            break;
+    }
+
+    RandoOptionId placementOption = DungeonItemPlacementOption(itemId);
+    if (placementOption == RO_MAX || RANDO_SAVE_OPTIONS[placementOption] != RO_DUNGEON_ITEM_OWN_DUNGEON) {
+        return -1;
+    }
+    return DungeonItemToDungeon(itemId);
+}
+
+bool IsSongLocationItem(RandoItemId itemId) {
+    static const std::array<bool, RI_MAX> songLocationItems = [] {
+        std::array<bool, RI_MAX> items{};
+        for (auto& [randoCheckId, randoStaticCheck] : Rando::StaticData::Checks) {
+            if (randoStaticCheck.randoCheckType == RCTYPE_SONG) {
+                items[randoStaticCheck.randoItemId] = true;
+            }
+        }
+        return items;
+    }();
+    return itemId < RI_MAX && songLocationItems[itemId];
+}
+
+int CheckIdToConfinementGroup(RandoCheckId checkId) {
+    auto& randoStaticCheck = Rando::StaticData::Checks[checkId];
+    if (RANDO_SAVE_OPTIONS[RO_SHUFFLE_SONGS] == RO_SONG_SHUFFLE_SONG_LOCATIONS &&
+        randoStaticCheck.randoCheckType == RCTYPE_SONG) {
+        return CONFINEMENT_GROUP_SONGS;
+    }
+    return SceneIdToDungeon(randoStaticCheck.sceneId);
+}
+
+int RandoItemIdToConfinementGroup(RandoItemId itemId) {
+    if (RANDO_SAVE_OPTIONS[RO_SHUFFLE_SONGS] == RO_SONG_SHUFFLE_SONG_LOCATIONS && IsSongLocationItem(itemId)) {
+        return CONFINEMENT_GROUP_SONGS;
+    }
+    return RandoItemIdToDungeon(itemId);
+}
+
 bool IsItemAllowedAtCheck(RandoItemId itemId, RandoCheckId checkId) {
-    int confinedDungeon = RandoItemIdToDungeon(itemId);
-    return confinedDungeon < 0 || confinedDungeon == SceneIdToDungeon(Rando::StaticData::Checks[checkId].sceneId);
+    int confinedGroup = RandoItemIdToConfinementGroup(itemId);
+    return confinedGroup < 0 || confinedGroup == CheckIdToConfinementGroup(checkId);
 }
 
 size_t SelectItemForCheck(const std::vector<RandoItemId>& itemPool, const std::vector<RandoCheckId>& checkPool,
                           RandoCheckId checkId) {
-    int dungeon = SceneIdToDungeon(Rando::StaticData::Checks[checkId].sceneId);
-    if (dungeon >= 0) {
+    int group = CheckIdToConfinementGroup(checkId);
+    if (group >= 0) {
         int confinedItems = 0;
         for (RandoItemId itemId : itemPool) {
-            if (RandoItemIdToDungeon(itemId) == dungeon) {
+            if (RandoItemIdToConfinementGroup(itemId) == group) {
                 confinedItems++;
             }
         }
         if (confinedItems > 0) {
-            int dungeonChecks = 1; // this check was already removed from checkPool
+            int groupChecks = 1; // this check was already removed from checkPool
             for (RandoCheckId other : checkPool) {
-                if (SceneIdToDungeon(Rando::StaticData::Checks[other].sceneId) == dungeon) {
-                    dungeonChecks++;
+                if (CheckIdToConfinementGroup(other) == group) {
+                    groupChecks++;
                 }
             }
-            if (confinedItems >= dungeonChecks) {
+            if (confinedItems >= groupChecks) {
                 for (size_t i = itemPool.size(); i-- > 0;) {
-                    if (RandoItemIdToDungeon(itemPool[i]) == dungeon) {
+                    if (RandoItemIdToConfinementGroup(itemPool[i]) == group) {
                         return i;
                     }
                 }
@@ -104,22 +182,22 @@ size_t SelectItemForCheck(const std::vector<RandoItemId>& itemPool, const std::v
 }
 
 void PreplaceConfinedItems(std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool) {
-    std::map<int, std::vector<RandoCheckId>> dungeonChecks;
+    std::map<int, std::vector<RandoCheckId>> groupChecks;
     for (RandoCheckId checkId : checkPool) {
-        int dungeon = SceneIdToDungeon(Rando::StaticData::Checks[checkId].sceneId);
-        if (dungeon >= 0) {
-            dungeonChecks[dungeon].push_back(checkId);
+        int group = CheckIdToConfinementGroup(checkId);
+        if (group >= 0) {
+            groupChecks[group].push_back(checkId);
         }
     }
 
     std::set<RandoCheckId> placedChecks;
     std::set<size_t> placedItems;
     for (size_t i = 0; i < itemPool.size(); i++) {
-        int dungeon = RandoItemIdToDungeon(itemPool[i]);
-        if (dungeon < 0) {
+        int group = RandoItemIdToConfinementGroup(itemPool[i]);
+        if (group < 0) {
             continue; // not confined to a dungeon
         }
-        auto& checks = dungeonChecks[dungeon];
+        auto& checks = groupChecks[group];
         if (checks.empty()) {
             continue; // dungeon out of room: leave it for the general pool
         }

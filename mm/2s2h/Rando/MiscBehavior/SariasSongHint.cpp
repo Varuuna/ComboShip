@@ -12,7 +12,11 @@ extern "C" {
 #include <variables.h>
 #include <z64ocarina.h>
 s32 Message_ShouldAdvanceSilent(PlayState* play);
+#ifdef COMBO_BUILD
+extern s16 sOcarinaSongFanfares[OCARINA_SONG_MAX]; // ComboShip (teleport songs): table grew past 17
+#else
 extern s16 sOcarinaSongFanfares[17];
+#endif
 extern s16 sLastPlayedSong;
 }
 

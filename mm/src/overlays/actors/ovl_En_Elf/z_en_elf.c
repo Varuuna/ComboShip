@@ -5,6 +5,8 @@
  */
 
 #include "z_en_elf.h"
+#include "2s2h/BenGui/CosmeticEditor.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 
 #define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED | ACTOR_FLAG_UPDATE_DURING_OCARINA)
 
@@ -1559,6 +1561,7 @@ s32 EnElf_OverrideLimbDraw(PlayState* play, s32 limbIndex, Gfx** dList, Vec3f* p
         if (this->fairyFlags & 0x200) {
             scale *= 2.0f;
         }
+        scale *= CVarGetFloat(CVAR_COSMETIC("Silly.FairySize"), 1.0f);
         scale *= this->actor.scale.x * (1.0f / 0.008f);
 
         Matrix_MultVec3f(&sZeroVec, &sp34);
@@ -1603,8 +1606,17 @@ void EnElf_Draw(Actor* thisx, PlayState* play) {
             gSPSegment(POLY_XLU_DISP++, 0x08, gfx);
 
             gDPPipeSync(gfx++);
-            gDPSetPrimColor(gfx++, 0, 0x01, (u8)(s8)this->innerColor.r, (u8)(s8)this->innerColor.g,
-                            (u8)(s8)this->innerColor.b, (u8)(s8)(this->innerColor.a * alphaScale));
+
+            // 2S2H [Cosmetic] Only Tatl gets recolored; the other fairies share this actor but have their own
+            // colors, and Tatl's are additionally driven by whatever she is currently pointing out.
+            if (&this->actor == player->tatlActor) {
+                gDPSetPrimColorOverride(gfx++, 0, 0x01, (u8)(s8)this->innerColor.r, (u8)(s8)this->innerColor.g,
+                                        (u8)(s8)this->innerColor.b, (u8)(s8)(this->innerColor.a * alphaScale),
+                                        COSMETIC_ID("World.TatlInner"));
+            } else {
+                gDPSetPrimColor(gfx++, 0, 0x01, (u8)(s8)this->innerColor.r, (u8)(s8)this->innerColor.g,
+                                (u8)(s8)this->innerColor.b, (u8)(s8)(this->innerColor.a * alphaScale));
+            }
 
             if (this->fairyFlags & 4) {
                 gDPSetRenderMode(gfx++, G_RM_PASS, G_RM_CLD_SURF2);
@@ -1614,8 +1626,14 @@ void EnElf_Draw(Actor* thisx, PlayState* play) {
 
             gSPEndDisplayList(gfx);
 
-            gDPSetEnvColor(POLY_XLU_DISP++, (u8)(s8)this->outerColor.r, (u8)(s8)this->outerColor.g,
-                           (u8)(s8)this->outerColor.b, (u8)(s8)(envAlpha * alphaScale));
+            if (&this->actor == player->tatlActor) {
+                gDPSetEnvColorOverride(POLY_XLU_DISP++, (u8)(s8)this->outerColor.r, (u8)(s8)this->outerColor.g,
+                                       (u8)(s8)this->outerColor.b, (u8)(s8)(envAlpha * alphaScale),
+                                       COSMETIC_ID("World.TatlOuter"));
+            } else {
+                gDPSetEnvColor(POLY_XLU_DISP++, (u8)(s8)this->outerColor.r, (u8)(s8)this->outerColor.g,
+                               (u8)(s8)this->outerColor.b, (u8)(s8)(envAlpha * alphaScale));
+            }
 
             POLY_XLU_DISP = SkelAnime_Draw(play, this->skelAnime.skeleton, this->skelAnime.jointTable,
                                            EnElf_OverrideLimbDraw, NULL, &this->actor, POLY_XLU_DISP);

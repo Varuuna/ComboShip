@@ -150,7 +150,7 @@ void OverrideMainJsText(u16* textId, bool* loadFromMessageTable) {
     }
 }
 
-void EnJs_PostLimbDraw_NoMask(PlayState* play, s32 limbIndex, Gfx** dList, Vec3s* rot, Actor* thisx) {
+void EnJs_PostLimbDraw_LinkMask(PlayState* play, s32 limbIndex, Gfx** dList, Vec3s* rot, Actor* thisx) {
     if (limbIndex == MOONCHILD_LIMB_HEAD) {
         Matrix_MultVec3f(&D_8096AC30, &thisx->focus.pos);
         OPEN_DISPS(play->state.gfxCtx);
@@ -162,12 +162,12 @@ void EnJs_PostLimbDraw_NoMask(PlayState* play, s32 limbIndex, Gfx** dList, Vec3s
     }
 }
 
-void EnJs_Draw_NoMask(Actor* thisx, PlayState* play) {
+void EnJs_Draw_LinkMask(Actor* thisx, PlayState* play) {
     EnJs* enJs = (EnJs*)thisx;
 
     Gfx_SetupDL25_Opa(play->state.gfxCtx);
     SkelAnime_DrawFlexOpa(play, enJs->skelAnime.skeleton, enJs->skelAnime.jointTable, enJs->skelAnime.dListCount, NULL,
-                          EnJs_PostLimbDraw_NoMask, &enJs->actor);
+                          EnJs_PostLimbDraw_LinkMask, &enJs->actor);
 }
 
 void EnJs_ResetTime(EnJs* enJs, PlayState* play) {
@@ -194,10 +194,19 @@ void EnJs_PromptForDialog(EnJs* enJs, PlayState* play) {
     }
 }
 
+void EnJs_SpawnResetNpc(float rotY) {
+    u32 params = 8;
+    Actor* actor = Actor_Spawn(&gPlayState->actorCtx, gPlayState, ACTOR_EN_JS, -150, 40, 50, 0, rotY, 0, params);
+    actor->draw = EnJs_Draw_LinkMask;
+    ((EnJs*)actor)->actionFunc = EnJs_PromptForDialog;
+}
+
 void Rando::ActorBehavior::InitEnJsBehavior() {
+    bool shouldOverrideTrialsAccess = IS_RANDO && RANDO_SAVE_OPTIONS[RO_ACCESS_TRIALS] != RO_ACCESS_TRIALS_VANILLA;
+
     COND_VB_SHOULD(VB_JS_CONSIDER_ELIGIBLE_FOR_DEITY, IS_RANDO, { *should = false; });
 
-    COND_VB_SHOULD(VB_JS_OVERRIDE_MASK_CHECK, IS_RANDO, {
+    COND_VB_SHOULD(VB_JS_OVERRIDE_MASK_CHECK, shouldOverrideTrialsAccess, {
         s32* jsType = va_arg(args, s32*);
         bool* result = va_arg(args, bool*);
 
@@ -223,21 +232,26 @@ void Rando::ActorBehavior::InitEnJsBehavior() {
         }
     });
 
-    COND_ID_HOOK(OnSceneInit, SCENE_SOUGEN, IS_RANDO, [](s8 sceneId, s8 spawnNum) {
-        u32 params = 8;
-        Actor* actor = Actor_Spawn(&gPlayState->actorCtx, gPlayState, ACTOR_EN_JS, -150, 40, 50, 0, -15000, 0, params);
-        actor->draw = EnJs_Draw_NoMask;
+    COND_ID_HOOK(OnSceneInit, SCENE_SOUGEN, IS_RANDO, [](s8 sceneId, s8 spawnNum) { EnJs_SpawnResetNpc(-15000); });
+    COND_ID_HOOK(OnSceneInit, SCENE_OKUJOU, IS_RANDO, [](s8 sceneId, s8 spawnNum) { EnJs_SpawnResetNpc(7000); });
+
+    // Need to disable this for spawning on the Clock Tower roof
+    COND_VB_SHOULD(VB_ENABLE_OBJECT_DEPENDENCY, IS_RANDO, {
+        ObjectId objectId = (ObjectId)va_arg(args, int);
+        if (objectId == OBJECT_OB) {
+            *should = false;
+        }
     });
 
     COND_ID_HOOK(OnActorInit, ACTOR_EN_JS, IS_RANDO, [](Actor* actor) {
-        if (actor->draw == EnJs_Draw_NoMask) {
+        if (actor->draw == EnJs_Draw_LinkMask) {
             ((EnJs*)actor)->actionFunc = EnJs_PromptForDialog;
             actor->world.pos.y = 0;
         }
     });
 
-    COND_ID_HOOK(OnOpenText, 0x2215, IS_RANDO, OverrideSubJsText);
-    COND_ID_HOOK(OnOpenText, 0x2216, IS_RANDO, OverrideSubJsText);
+    COND_ID_HOOK(OnOpenText, 0x2215, shouldOverrideTrialsAccess, OverrideSubJsText);
+    COND_ID_HOOK(OnOpenText, 0x2216, shouldOverrideTrialsAccess, OverrideSubJsText);
     COND_ID_HOOK(OnOpenText, 0x21FC, IS_RANDO, OverrideMainJsText);
     COND_ID_HOOK(OnOpenText, 0x21FE, IS_RANDO, OverrideMainJsText);
     COND_ID_HOOK(OnOpenText, 0x21FD, IS_RANDO, OverrideMainJsText);

@@ -4,7 +4,10 @@ set(CMAKE_SYSTEM_VERSION 10.0 CACHE STRING "" FORCE)
 set(CMAKE_CXX_STANDARD 20 CACHE STRING "The C++ standard to use")
 set(CMAKE_C_STANDARD 23 CACHE STRING "The C standard to use")
 
-set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum OS X deployment version")
+# ComboShip: upstream pins 10.15, but Xcode 26+ ships a libc++ that warns "The selected platform
+# is no longer supported by libc++." on every TU at that target, and arm64 has a hard 11.0 floor the
+# linker applies regardless ("building for macOS-11.0"). 11.0 (Big Sur) is what actually gets built.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum OS X deployment version")
 
 # ── ComboShip version ─────────────────────────────────────────────────────────
 # Pin-derived major.minor.patch: diagnostics/banner only (the o2r gate is MAJOR-only).
@@ -13,7 +16,7 @@ set(COMBO_EPOCH 1)  # ← bump for ComboShip-owned breaks / o2r-forcing releases
 
 # Manual release identity; SOLE authority for combosave compat (gated in combo/ComboShip.cpp).
 # See docs/UPSTREAM_MERGES.md for the bump rule.
-set(COMBO_RELEASE_VERSION "0.2.1" CACHE STRING "ComboShip release version (manual; gates combosave compat)" FORCE)
+set(COMBO_RELEASE_VERSION "0.3.0" CACHE STRING "ComboShip release version (manual; gates combosave compat)" FORCE)
 
 set(COMBO_PINS "${CMAKE_CURRENT_SOURCE_DIR}/upstream-pins.json")
 # Reconfigure whenever the pins change so the derived version stays in sync.
@@ -36,6 +39,13 @@ project(ComboShip VERSION ${COMBO_EPOCH}.${COMBO_MINOR}.${COMBO_PATCH} LANGUAGES
 message(STATUS "ComboShip version ${PROJECT_VERSION} "
                "(epoch ${COMBO_EPOCH}, soh ${COMBO_SOH_SHORT}, mm ${COMBO_MM_SHORT})")
 
+# ComboShip: libultraship/soh/2ship/comboui build as shared objects, so every vendored static
+# dependency (stormlib, ImGui, stb, prism, ...) that links into them must be compiled PIC on ELF.
+# MSVC doesn't need or use this.
+if (NOT MSVC)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
+
 # Include both game-specific cvars
 include(CMake/soh-cvars.cmake)
 include(CMake/2ship-cvars.cmake)
@@ -43,7 +53,9 @@ include(CMake/lus-cvars.cmake)
 
 # In-game banner (gBuildVersion): release version + readable upstream identity.
 set(PROJECT_BUILD_NAME "ComboShip v${COMBO_RELEASE_VERSION} | Combo Build e${COMBO_EPOCH} soh-${COMBO_SOH_SHORT} mm-${COMBO_MM_SHORT}" CACHE STRING "" FORCE)
+# Company field per binary: each game DLL credits its upstream, the launcher is ComboShip.
 set(PROJECT_TEAM "github.com/harbourmasters" CACHE STRING "" FORCE)
+set(COMBO_PROJECT_TEAM "github.com/Varuuna/ComboShip")
 
 # Git information
 execute_process(
@@ -262,12 +274,149 @@ if(MSVC AND TARGET OTRExporter)
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
 
+# ComboShip Linux: ZAPDLib/OTRExporter link statically into BOTH game shared objects; without
+# hidden visibility their identical symbols (ZFile, ZTexture, vendored bzip2, ...) land in the
+# global namespace twice and ELF interposition would bind both games to one copy — shared mutable
+# extractor state across games. Hide them like the game targets themselves (soh/mm CMakeLists).
+# libultraship keeps default visibility on purpose: it is the deliberately-shared engine (the ELF
+# replacement for the Windows /DEF full-export pipeline), and the games resolve ImGui/storm/prism
+# through it.
+if (NOT MSVC)
+    foreach(combo_hidden_tgt ZAPDLib OTRExporter storm)
+        if (TARGET ${combo_hidden_tgt})
+            set_target_properties(${combo_hidden_tgt} PROPERTIES
+                C_VISIBILITY_PRESET hidden
+                CXX_VISIBILITY_PRESET hidden
+                VISIBILITY_INLINES_HIDDEN ON)
+        endif()
+    endforeach()
+endif()
+
+################################################################################
+# Torch (soh ROM asset extraction; mm keeps ZAPD)
+################################################################################
+# ComboShip: found at root so soh's libzip and tinyxml2 users get the vcpkg copies, not Torch's
+# OVERRIDE_FIND_PACKAGE fetches. No spdlog pre-declare: libultraship found it above.
+find_package(ZLIB REQUIRED)
+find_package(tinyxml2 CONFIG REQUIRED)
+
+include(FetchContent)
+
+set(USE_STANDALONE          OFF CACHE BOOL "" FORCE)  # static lib, no CLI
+set(PORT_VERSION_ENDIANNESS ON  CACHE BOOL "" FORCE)  # 7-byte portVersion
+set(ROM_CRC_BSWAP           OFF CACHE BOOL "" FORCE)
+set(BUILD_UI                OFF CACHE BOOL "" FORCE)  # would fetch a 2nd libultraship
+set(BUILD_STORMLIB          OFF CACHE BOOL "" FORCE)  # target name clashes with LUS's `storm`
+set(BUILD_NAUDIO            OFF CACHE BOOL "" FORCE)
+
+set(BUILD_OOT               ON  CACHE BOOL "" FORCE)
+foreach(_torch_game SM64 MK64 SF64 PM64 FZERO BK64 MARIO_ARTIST)
+    set(BUILD_${_torch_game} OFF CACHE BOOL "" FORCE)
+endforeach()
+
+# SYSTEM only covers headers we include; torch and the libraries it fetches still warn while
+# compiling their own sources. None of that is ours to fix.
+if(MSVC)
+    set(DEP_WARNING_OVERRIDE /w)
+else()
+    set(DEP_WARNING_OVERRIDE -w)
+endif()
+
+# Drops the target's own warning level before adding ours: cl warns (D9025) about the
+# conflict instead of just taking the last flag. /O3 goes too, MSVC does not know it
+# (D9002) and the -O2 in CMAKE_CXX_FLAGS_RELEASE is what these actually get.
+function(quiet_target target override)
+    if(NOT override)
+        return()
+    endif()
+    get_target_property(_opts ${target} COMPILE_OPTIONS)
+    if(_opts)
+        list(REMOVE_ITEM _opts /O3 /W0 /W1 /W2 /W3 /W4 /Wall -Wall)
+        set_target_properties(${target} PROPERTIES COMPILE_OPTIONS "${_opts}")
+    endif()
+    target_compile_options(${target} PRIVATE ${override})
+endfunction()
+
+function(quiet_dependency_tree dir)
+    get_property(_targets DIRECTORY "${dir}" PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(_target IN LISTS _targets)
+        get_target_property(_type ${_target} TYPE)
+        if(_type STREQUAL "INTERFACE_LIBRARY" OR _type STREQUAL "UTILITY")
+            continue()
+        endif()
+        quiet_target(${_target} "${DEP_WARNING_OVERRIDE}")
+    endforeach()
+    get_property(_subdirs DIRECTORY "${dir}" PROPERTY SUBDIRECTORIES)
+    foreach(_subdir IN LISTS _subdirs)
+        quiet_dependency_tree("${_subdir}")
+    endforeach()
+endfunction()
+
+# ComboShip: Torch pins the static CRT (and its cmake_minimum_required leaves CMP0091 unset), which
+# would clash (LNK2038) with the combo's one dynamic UCRT. Force every torch-tree target back.
+function(combo_dynamic_crt_tree dir)
+    get_property(_targets DIRECTORY "${dir}" PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(_target IN LISTS _targets)
+        get_target_property(_type ${_target} TYPE)
+        if(_type STREQUAL "INTERFACE_LIBRARY" OR _type STREQUAL "UTILITY")
+            continue()
+        endif()
+        set_target_properties(${_target} PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+        get_target_property(_opts ${_target} COMPILE_OPTIONS)
+        if(_opts)
+            string(REGEX REPLACE "/MT(d?)" "/MD\\1" _opts "${_opts}")
+            set_target_properties(${_target} PROPERTIES COMPILE_OPTIONS "${_opts}")
+        endif()
+    endforeach()
+    get_property(_subdirs DIRECTORY "${dir}" PROPERTY SUBDIRECTORIES)
+    foreach(_subdir IN LISTS _subdirs)
+        combo_dynamic_crt_tree("${_subdir}")
+    endforeach()
+endfunction()
+
+set(CMAKE_POLICY_DEFAULT_CMP0091 NEW)
+add_subdirectory(torch ${CMAKE_BINARY_DIR}/torch SYSTEM)
+quiet_dependency_tree(${CMAKE_CURRENT_SOURCE_DIR}/torch)
+if(MSVC)
+    combo_dynamic_crt_tree(${CMAKE_CURRENT_SOURCE_DIR}/torch)
+endif()
+
+target_compile_definitions(torch INTERFACE YAML_CPP_STATIC_DEFINE)
+
+# ComboShip: torch/N64Graphics carry StringHelper/CRC64/stbi_* copies that must not bind to LUS's.
+if(NOT MSVC)
+    foreach(combo_hidden_tgt torch yaml-cpp BinaryTools N64Graphics tinyxml2 zlibstatic)
+        if(TARGET ${combo_hidden_tgt})
+            set_target_properties(${combo_hidden_tgt} PROPERTIES
+                C_VISIBILITY_PRESET hidden
+                CXX_VISIBILITY_PRESET hidden
+                VISIBILITY_INLINES_HIDDEN ON)
+        endif()
+    endforeach()
+endif()
+
+# ComboShip: libultraship.dll exports the same StringHelper (LNK2005 in soh.dll), so torch drops its
+# copy (as Torch does under BUILD_UI); the packer, which has no libultraship, links it separately.
+get_target_property(_torch_srcs torch SOURCES)
+list(FILTER _torch_srcs EXCLUDE REGEX "src/utils/StringHelper\\.cpp$")
+set_target_properties(torch PROPERTIES SOURCES "${_torch_srcs}")
+add_library(torch-stringhelper STATIC EXCLUDE_FROM_ALL ${CMAKE_CURRENT_SOURCE_DIR}/torch/src/utils/StringHelper.cpp)
+set_target_properties(torch-stringhelper PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+
+add_executable(soh-o2r-packer EXCLUDE_FROM_ALL
+    ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/tools/soh-o2r-packer/main.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/tools/soh-o2r-packer/PngTexture.cpp
+)
+target_link_libraries(soh-o2r-packer PRIVATE torch torch-stringhelper)
+
 ################################################################################
 # Sub-projects - Game-specific builds
 ################################################################################
 add_subdirectory(soh ${CMAKE_BINARY_DIR}/soh)
 
+set(PROJECT_TEAM "github.com/2ship2harkinian")
 add_subdirectory(mm ${CMAKE_BINARY_DIR}/mm)
+unset(PROJECT_TEAM)
 
 add_subdirectory(combo ${CMAKE_BINARY_DIR}/combo)
 
@@ -279,17 +428,26 @@ add_custom_target(combo ALL DEPENDS soh 2ship ComboShip)
 ################################################################################
 # Asset archive generation targets
 ################################################################################
+# ComboShip: gate on new custom-asset path collisions between the two games (issue #97).
+add_custom_target(
+    CheckAssetCollisions
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-asset-collisions.py
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "Checking custom asset trees for new path collisions...")
+add_dependencies(combo CheckAssetCollisions)
+
 add_custom_target(
     GenerateSohOtr
     COMMAND ${CMAKE_COMMAND} -E rm -f soh.o2r
     COMMAND ${CMAKE_COMMAND} -E rm -r -f ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/custom/shaders/
     # ComboShip: an upstream merge moved Fast3D shaders from src/graphic/Fast3D/ to src/fast/.
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/libultraship/src/fast/shaders/ ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/custom/shaders/
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/OTRExporter/extract_assets.py -z "$<TARGET_FILE:ZAPD>" --norom --custom-otr-file soh.o2r "--custom-assets-path" ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/custom --port-ver "${CMAKE_PROJECT_VERSION}"
-    COMMAND ${CMAKE_COMMAND} -DSYSTEM_NAME=${CMAKE_SYSTEM_NAME} -DTARGET_DIR="$<TARGET_FILE_DIR:ZAPD>" -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DBINARY_DIR=${CMAKE_BINARY_DIR} -DONLYSOHOTR=On -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/copy-existing-otrs.cmake
+    # ComboShip: Torch's packer replaced ZAPD here (mm still packs with ZAPD). Manual, not ALL.
+    COMMAND $<TARGET_FILE:soh-o2r-packer> ${CMAKE_CURRENT_SOURCE_DIR}/soh/assets/custom ${CMAKE_CURRENT_SOURCE_DIR}/soh/soh.o2r ${CMAKE_PROJECT_VERSION}
+    COMMAND ${CMAKE_COMMAND} -DSYSTEM_NAME=${CMAKE_SYSTEM_NAME} -DTARGET_DIR=${CMAKE_SOURCE_DIR}/x64/$<CONFIG> -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DBINARY_DIR=${CMAKE_BINARY_DIR} -DONLYSOHOTR=On -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/copy-existing-otrs.cmake
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/soh
     COMMENT "Generating soh.o2r..."
-    DEPENDS ZAPD)
+    DEPENDS soh-o2r-packer CheckAssetCollisions)
 
 add_custom_target(
     Generate2ShipOtr
@@ -298,7 +456,7 @@ add_custom_target(
     COMMAND ${CMAKE_COMMAND} -DSYSTEM_NAME=${CMAKE_SYSTEM_NAME} -DTARGET_DIR="$<TARGET_FILE_DIR:ZAPD>" -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DBINARY_DIR=${CMAKE_BINARY_DIR} -DONLY2SHIPOTR=On -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/copy-existing-otrs.cmake
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/mm
     COMMENT "Generating 2ship.o2r..."
-    DEPENDS ZAPD)
+    DEPENDS ZAPD CheckAssetCollisions)
 
 ################################################################################
 # Installation and Packaging
@@ -308,8 +466,7 @@ if("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
     install(FILES "${CMAKE_BINARY_DIR}/soh/soh.o2r" DESTINATION . COMPONENT ship)
     install(FILES "${CMAKE_BINARY_DIR}/mm/2ship.o2r" DESTINATION . COMPONENT ship)
     install(TARGETS ZAPD DESTINATION ./assets/extractor COMPONENT extractor)
-    install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/extractor/" DESTINATION ./assets/oot COMPONENT extractor)
-    install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/xml/" DESTINATION ./assets/xml/oot COMPONENT extractor)
+    install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/yml/" DESTINATION ./assets COMPONENT extractor)
     install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/extractor/" DESTINATION ./assets/mm COMPONENT extractor)
     install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/xml/" DESTINATION ./assets/xml/mm COMPONENT extractor)
 endif()
@@ -322,14 +479,57 @@ if ("${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
     install(FILES "$<TARGET_FILE:comboui>"      DESTINATION . COMPONENT combo)
     # (soh.o2r is installed by soh/CMakeLists.txt; 2ship.o2r by mm/CMakeLists.txt.)
 
-    # Extractor assets. These MUST match the flat, merged layout the runtime POST_BUILD produces
-    # (combo/CMakeLists.txt): both games' extractor dirs merged into assets/, both xml dirs into
-    # assets/xml/ — that is what CallZapd expects at extraction time. The previous rules split soh
-    # into assets/oot, which does NOT match the runtime layout and would break ROM extraction.
-    install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/extractor/" DESTINATION ./assets     COMPONENT combo)
-    install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/xml/"       DESTINATION ./assets/xml COMPONENT combo)
+    # Extractor assets. These MUST match the flat layout the runtime POST_BUILD produces
+    # (combo/CMakeLists.txt): soh's Torch ymls and mm's ZAPD extractor dir merged into assets/, mm's
+    # xml into assets/xml/. The previous rules split soh into assets/oot, which broke extraction.
+    install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/yml/"       DESTINATION ./assets     COMPONENT combo)
     install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/extractor/"  DESTINATION ./assets     COMPONENT combo)
     install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/xml/"        DESTINATION ./assets/xml COMPONENT combo)
+endif()
+
+# ─── macOS .app bundle payload ──────────────────────────────────────────────────────────────────
+# CPack's Bundle generator uses <bundle>/Contents/Resources as the install prefix, so "../MacOS"
+# reaches Contents/MacOS — the same relative trick soh/mm's own Darwin install rules use.
+#
+# Everything here is combo-owned on purpose. The vendored soh/mm Darwin rules install their .o2r
+# from ${CMAKE_BINARY_DIR}, but GenerateSohOtr/Generate2ShipOtr write to the SOURCE tree, so those
+# rules would fail; the Bundle branch in CPackProjectConfig.cmake therefore packs only the "combo"
+# component and we lay the whole runtime out here from paths that actually exist.
+if(APPLE)
+    configure_file(${CMAKE_SOURCE_DIR}/combo/macosx/Info.plist.in
+                   ${CMAKE_BINARY_DIR}/macosx/ComboShip-Info.plist @ONLY)
+    # Carried into CPackConfig.cmake for the pack-time Bundle branch (must be set before include(CPack)).
+    set(CPACK_COMBO_BUNDLE_PLIST "${CMAKE_BINARY_DIR}/macosx/ComboShip-Info.plist")
+    set(CPACK_COMBO_BUNDLE_ICON  "${CMAKE_SOURCE_DIR}/combo/macosx/ComboShip.icns")
+    set(CPACK_COMBO_BINARY_DIR   "${CMAKE_BINARY_DIR}")
+
+    # Executable + the four loadable modules -> Contents/MacOS.
+    install(PROGRAMS "$<TARGET_FILE:ComboShip>"    DESTINATION ../MacOS COMPONENT combo)
+    install(PROGRAMS "$<TARGET_FILE:libultraship>" DESTINATION ../MacOS COMPONENT combo)
+    install(PROGRAMS "$<TARGET_FILE:comboui>"      DESTINATION ../MacOS COMPONENT combo)
+    install(PROGRAMS "$<TARGET_FILE:soh>"          DESTINATION ../MacOS COMPONENT combo)
+    install(PROGRAMS "$<TARGET_FILE:2ship>"        DESTINATION ../MacOS COMPONENT combo)
+
+    # Read-only payload -> Contents/Resources (the install prefix itself). The SDL mapping DB goes
+    # here too, not beside the exe as soh/mm's own Darwin rules put it: libultraship looks for it in
+    # SHIP_HOME, then the bundle's Resources, then the CWD ("/" from Finder). The ROM-derived
+    # oot.o2r / mm.o2r are deliberately NOT packaged: they are player-extracted user data and live
+    # in SHIP_HOME, both on principle and so nothing ROM-derived ends up in a distributable bundle.
+    # Unconditional on purpose: a missing port archive must fail cpack (run GenerateSohOtr /
+    # Generate2ShipOtr first), not quietly produce a .app that cannot boot either game.
+    install(FILES "${CMAKE_SOURCE_DIR}/soh/soh.o2r" "${CMAKE_SOURCE_DIR}/mm/2ship.o2r"
+            DESTINATION . COMPONENT combo)
+    install(FILES "${CMAKE_SOURCE_DIR}/gamecontrollerdb.txt" DESTINATION . COMPONENT combo)
+
+    # Extractor assets, merged flat exactly as the runtime deploy does: soh's Torch ymls and mm's
+    # ZAPD extractor + xml dirs.
+    install(DIRECTORY "${CMAKE_SOURCE_DIR}/soh/assets/yml/"       DESTINATION ./assets     COMPONENT combo)
+    install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/extractor/"  DESTINATION ./assets     COMPONENT combo)
+    install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/xml/"        DESTINATION ./assets/xml COMPONENT combo)
+
+    # Last, once everything is staged: embed the non-system dylibs and set LSMinimumSystemVersion.
+    install(CODE "set(COMBO_BUNDLE_PLIST \"${CPACK_COMBO_BUNDLE_PLIST}\")
+                  include(\"${CMAKE_SOURCE_DIR}/combo/macosx/FixupBundle.cmake\")" COMPONENT combo)
 endif()
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows|NintendoSwitch|CafeOS")

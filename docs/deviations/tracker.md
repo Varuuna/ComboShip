@@ -69,6 +69,9 @@ though the emitters exist and work in standalone MM. The user wants the active g
 The "Sent to Hyrule" toast itself was already implemented (`mm/2s2h/Rando/MiscBehavior/CheckQueue.cpp`,
 `Rando_SendForeignCheck`); this change only makes MM's window survive registration so it can show.
 
+Since 2026-09-28 the Time Splits overlay uses the same Remove/Re-add gating (`SetForegroundOnlyWindows`;
+see ui-menu.md).
+
 ## Shared Item Tracker: master panel + hold-to-swap dormant peek (2026-07-04)
 
 **Why:** with both games in one process the item tracker should be controllable from one place and
@@ -142,5 +145,160 @@ on boot.
   settings content are hidden in combo builds (`gWindows.ItemTracker`/`.CheckTracker` are derived
   from the combo master toggle every frame; the buttons would fight it).
 
+**Dormant "only while paused" (#127, 2026-08-12):** the in-tracker dormant bypasses stay (stale
+pause state); instead `Reconcile` hides a dormant tracker whose game is set to only-while-paused
+unless the FOREGROUND game is paused, via new `SOH_IsPausedForCombo` / `MM_IsPausedForCombo`
+exports (fail open = paused). Peek-hold still overrides.
+
 **On future merges:** if upstream renames the tracker ImGui windows or the settings windows,
 update `combo/gui/ComboTrackerCommon.h` (`kKinds[].imguiWin`) and the inline-widget window names.
+
+## Tracker batch: spawn offset, icon parity, OOT check-tracker reset (2026-08-10)
+
+**Why:** (1) First-show placement latched a bad MM position (OOT's AlwaysAutoResize width isn't
+settled the frame both windows appear), so new configs opened the trackers stacked. (2) The two
+grids had different density: OOT draws icon + IconSpacing gaps, MM packed 46px cells edge-to-edge.
+(3) The OOT Check Tracker could permanently zero: a threaded trackerData save queued before a
+reload runs against the freshly recreated (all-UNCHECKED) gRandoContext and persists
+`"checkStatus": []`; separately, incremental saves demote COLLECTED->SCUMMED on disk and nothing
+ever promotes back (autosave is blocked for the whole Ocarina-without-Song-of-Time stretch).
+
+**Combo-owned:** `ComboTrackerSwap.cpp` placement waits for settled rects; `ComboTrackerBridge.*`
+adds canonical `gCombo.Tracker.IconSpacing` (separately seeded) and flips Draggable default to on;
+`ComboMenu.cpp` gets the shared "Icon spacing (px)" slider.
+
+**Vendored (`COMBO_BUILD`-guarded):**
+- `mm/.../ItemTracker/ItemTracker.cpp` — cell padded around the icon by
+  `gSettings.ItemTracker.IconSpacing` (bridge-mirrored) so both grids share icon+gap pitch;
+  count text anchored to the icon rect. Vanilla path unchanged (pad 0 / `#else`).
+- `soh/soh/SaveManager.cpp` — `Save_LoadFile`: `ThreadPoolWait()` before recreating gRandoContext
+  (reload paths reach here before OnExitGame's drain), and early-return keeping the current
+  context when the container has no OOT block (previously reset-then-bail left it all-unchecked).
+- `soh/.../randomizer_check_tracker.cpp` — `CheckTrackerLoadGame` promotes a persisted status to
+  SAVED when the loaded save's own flags prove the check was obtained (`ComboCheckFlagObtained`);
+  genuine save-scums stay SCUMMED (their flags are absent). Also self-heals already-wiped saves.
+  Tripwire WARN when persisting an empty checkStatus for a rando file.
+- `soh/soh/OTRGlobals.cpp` — `SOH_MarkForeignObtained` persists via full `SaveFile` (a foreign
+  check has no OOT flag to promote it back from SCUMMED).
+- `soh/.../SeedContext.cpp` — WARN tripwires in `ItemReset`/`ClearItemLocations` when called with
+  a save loaded (suspected mid-session wipe path; not yet root-caused).
+
+## Item Tracker settings: flat layout, icon-size parity, shared paused-only (2026-08-18)
+
+**Why:** (1) MM's `ItemTrackerSettingsWindow::DrawElement` wrapped everything in auto-sized
+`BeginChild`s. Embedded inline in the combo Settings hub the outer child only gets the parent's
+leftover height, so the group Available/Active lists (and the reorder chevrons / per-group options)
+were unreachable even though the hub scrolls. (2) Both games still exposed their own icon
+size/spacing editors, which the bridge silently overwrites at the next `SyncAppearance`. (3) MM's
+split-window-group mode used the per-group `scale` *instead of* the global one, so MM icons jumped
+to their 46px base while OOT sat at the shared 36px.
+
+**Combo-owned:** `ComboMenu.cpp` — shared "Icon size" max widened 64 → 128 (covers OOT's old
+range), new "Only enable while paused" checkbox + a hint when the window type is Window.
+`ComboTrackerBridge.{h,cpp}` — canonical `gCombo.Tracker.OnlyPaused` (default 0) mirrored into
+`gTrackers.ItemTracker.ShowOnlyPaused` and `gSettings.ItemTracker.VisibilityMode` (0/1).
+
+**Vendored — guard-free (equivalent-or-better standalone):**
+- `mm/.../ItemTrackerSettings.cpp` — `DrawElement` / `DrawTrackerAvailableGroups` /
+  `DrawTrackerActiveGroups` lay out flat, like SoH's item-tracker settings: the outer, per-column
+  and per-list `BeginChild`s are gone, so content extends the parent and the *window* scrolls when
+  popped out. The two lists regained ID scoping via `PushID` (they were previously separated by
+  their child windows, and ImGui table cells do not scope IDs). The right-aligned group buttons
+  now use a cursor-relative helper — `SameLine(absolute_x)` is cell-relative while
+  `GetContentRegionMax()` is window-relative, so the old form would have flown off-screen in the
+  second table column. The dead `SetNextWindowSize` before the removed outer child went with it
+  (`BeginChildEx` always overrides it; the popout's size comes from its `GuiWindow` registration).
+- `mm/.../ItemTracker.cpp` — `DrawItemCounts` restores `SetWindowFontScale(1.0f)`; it is
+  window-wide state and leaked into every widget drawn after a counted icon.
+
+**Vendored (`COMBO_BUILD`-guarded):**
+- `mm/.../ItemTracker.cpp` — new `GetItemTrackerGroupScale()`; in combo the effective scale is
+  `global × group.scale`, making the per-group scale a relative multiplier (1.0 = parity with OOT).
+  Standalone keeps the either/or.
+- `mm/.../ItemTrackerSettings.cpp` — global `Scale` slider and `Visibility` combobox hidden (combo
+  owns both); per-group scale slider relabelled "Group scale (x global)" with a 0.05 step (0.5
+  steps would snap the bridge-derived 0.7826 to 0.5/1.0); the Available/Active preview grids draw
+  at `min(effective scale, 1.0)` instead of a hardcoded 1.0.
+- `soh/.../randomizer_item_tracker.cpp` — "Icon size"/"Icon margins" sliders and the "Only Enable
+  While Paused" checkbox hidden (all three are bridge-derived).
+
+**Residuals (accepted):**
+- MM's Button Toggle / Button Hold visibility modes (2/3) are unreachable in combo builds — the
+  shared toggle only expresses Always (0) and Only-on-pause (1), and `SyncAppearance` forces one of
+  those every sync.
+- OOT's `ShowOnlyPaused` is a no-op when the tracker window type is Window rather than Floating
+  (pre-existing upstream nesting); MM honors paused-only in both. The shared panel says so inline.
+- The per-group scale is still MM-only; OOT has no equivalent, so a non-1.0 group scale breaks
+  cross-game icon parity by design.
+
+## Cross-game Personal Notes (issue #165)
+
+**Why:** SoH's item-tracker notes live in the OOT save's `itemTrackerData` section, so a note taken
+in OOT was invisible in MM and the MM-side tracker had no notes at all. Worse, the notes widget is
+reachable during the dormant-game peek, and its save path (`SaveSection(gSaveContext.fileNum, ...)`)
+would flush a stale OOT saveBlock while MM held the foreground. The note is per *slot*, not per game,
+so the launcher — the owner of the merged container — is the right place for it.
+
+**Vendored (`COMBO_BUILD`-guarded, all in `soh/.../randomizer_item_tracker.cpp`):**
+- The `DisplayType.Notes` clause in the main-window OR-condition (`ItemTrackerWindow::DrawElement`).
+- The main-window `DrawNotes()` call.
+- The separate "Personal Notes" floating-window block.
+- The `personalNotesWiget` `MenuDrawItem` call in `ItemTrackerSettingsWindow::DrawElement`.
+- The `personalNotesWiget` definition + `AddSearchWidget` registration.
+- `ItemTrackerSaveFile` writes an empty `personalNotes` (nothing in a combo build can edit or clear
+  the loaded buffer, so the pre-migration text would otherwise round-trip forever).
+
+`DrawNotes`, `itemTrackerNotes`, and the `itemTrackerData` load/init functions are untouched: the
+section keeps round-tripping so a combo container can be migrated (and standalone SoH is unaffected).
+Migration runs at container load, before any save could scrub the legacy field.
+
+**Combo-owned:**
+- `combo/gui/ComboNotesWindow.{h,cpp}` — `ComboNotesWindow` (registered in `ComboUI_Register`,
+  visibility CVar `gCombo.Tracker.NotesWindow`, ImGui identity `Personal Notes##Combo`). Buffer is a
+  `std::string` edited through the vendored `misc/cpp/imgui_stdlib` overload (compiled into comboui)
+  — never an `ImVector` (see `boot-shutdown.md`). Hidden entirely when no save is loaded. Toggled
+  from Shared > Item Tracker.
+- `combo/ComboShip.cpp` — `Combo_GetNotes`/`Combo_SetNotes` over `combo.notes` (find()-based so the
+  raw-fn-ptr calls can't throw and never deep-copy `combo.rando`; unchanged-value short-circuit so
+  the debounce doesn't rewrite the container); `LoadOrCreateContainer` one-time migration of
+  `oot.sections.itemTrackerData.data.personalNotes` into `combo.notes`, gated on the key being
+  *absent* so a deliberately cleared note is never resurrected; `Combo_OnOOTSaveInit` writes an empty
+  `combo.notes` so a fresh file starts blank (written, never erased — erasing would re-arm the
+  migration gate; outside the seed branch, so it runs even when seed parsing fails).
+- Seam: `ComboUI_SetNotesStore(getter, setter)`, resolved next to `ComboUI_SetAnchorRosterProvider`.
+- Flush points: window close, slot change, `IsItemDeactivatedAfterEdit`, a 2s wall-clock debounce
+  (SoH's 40-idle-frame equivalent), `ComboUI_OnForegroundGame` (OOT<->MM switch), and
+  `ComboUI_RestoreTrackerIntent` (launcher pre-shutdown). Every reload of the buffer flushes first,
+  so the pending text always belongs to `sDirtySlot`.
+
+## Check tracker `SetAreaSpoiled` under the bulk-load batch (2026-09-28)
+
+`sSuppressSpoilSave` (the combo bulk load batches area spoils into one container write) now skips
+only the `SaveSection` call. Upstream added `RefreshItemTrackerMainWindow()` after it, which must
+still run.
+
+## Tracker teardown on reset / quit-to-title (2026-10-10)
+
+OOT's check tracker appends on `OnLoadGame` and relies on `OnExitGame` to clear. A reset while MM is
+foreground, and an owl-save quit from MM, booted OOT to the title without firing `OnExitGame`, so the
+next load showed every check twice.
+
+| Path | Who fires `OnExitGame` |
+|---|---|
+| OOT-foreground reset (console, Ctrl+R, combo menu) | `ResetHandler` (unchanged) |
+| Save & Quit / `ENTR_LOAD_OPENING` | kaleido / `z_play.c` (unchanged) |
+| Portal return MM->OOT | `title_setup.c` exit/load pair (unchanged) |
+| Reset while MM foreground, owl-save quit from MM | **new:** `SOH_ResumeGame` when `sComboResetPending` |
+
+- **`SOH_ResumeGame` (`soh/soh/OTRGlobals.cpp`).** Fires `GameInteractor_ExecuteOnExitGame(fileNum)`
+  on a reset return, before TitleSetup wipes `fileNum`. Skipped when `fileNum == 0xFF` (no save).
+- **`CheckTrackerLoadGame` (`randomizer_check_tracker.cpp`).** Calls `ClearAreaChecksAndTotals()`
+  after `TrySetAreas()`, so a load without a prior exit can't double the lists. `areasSpoiled` is save
+  state and stays.
+- **Hint Tracker.** New `SOH_SetOnExitSaveCallback` seam; the launcher blanks the Hint Tracker on every
+  exit. Every `OnLoadGame` (including the portal return) pushes the slot's hints again.
+- **MM dormant peek.** `MM_LoadSaveForCombo` now calls `Rando::CheckTracker::OnFileLoad()` after a
+  successful load, so a reset into a different slot doesn't keep the old slot's scene map.
+
+Invariant: every path that takes a loaded OOT save to the title fires `OnExitGame` exactly once before
+the next `OnLoadGame`, and `CheckTrackerLoadGame` leaves each check once per area however often it runs.

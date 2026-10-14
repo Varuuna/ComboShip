@@ -31,6 +31,8 @@
 
 #include "z_obj_tokeidai.h"
 #include "objects/object_obj_tokeidai/object_obj_tokeidai.h"
+#include "2s2h/BenGui/CosmeticEditor.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 
 #define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED)
 
@@ -769,7 +771,7 @@ void ObjTokeidai_Counterweight_Idle(ObjTokeidai* this, PlayState* play) {
             }
         }
     } else {
-        this->actor.shape.rot.y -= 0x40;
+        this->actor.shape.rot.y -= (s16)(0x40 * CVarGetFloat(CVAR_COSMETIC("Silly.ClockTowerSpeed"), 1.0f));
         if (gSaveContext.save.isNight) {
             if (this->spotlightIntensity < 100) {
                 this->spotlightIntensity += 4;

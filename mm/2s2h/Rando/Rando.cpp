@@ -10,6 +10,8 @@
 #include <ship/Context.h>
 #ifdef COMBO_BUILD
 #include "rando/CrossForeign.h" // ComboShip: family-B foreign-item-location fallback
+// ComboShip (#164): combo Hint Tracker reveal sink (the launcher registers it, see BenPort.cpp).
+extern "C" void (*gMMComboHintReveal)(int fileNum, int kind, int poolIndex, const char* key, const char* text);
 #endif
 
 // When a save is loaded, we want to unregister all hooks and re-register them if it's a rando save
@@ -76,6 +78,10 @@ std::string Rando::GetItemLocationHintName(RandoItemId randoItemId, bool exact) 
             }
             auto hintIt = s_hints.itemLocations.find(friendlyName);
             if (hintIt != s_hints.itemLocations.end()) {
+                // ComboShip (#164): this NPC hint is about to be shown — mark it read in the tracker.
+                if (gMMComboHintReveal != nullptr) {
+                    gMMComboHintReveal(slot, 2, -1, friendlyName.c_str(), hintIt->second.c_str());
+                }
                 return hintIt->second;
             }
 

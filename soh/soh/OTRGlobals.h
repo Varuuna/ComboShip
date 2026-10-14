@@ -1,3 +1,4 @@
+// vim: ft=cpp
 #pragma once
 
 #define BTN_CUSTOM_MODIFIER1 0x0040
@@ -129,11 +130,14 @@ uint8_t Randomizer_IsSeedGenerated();
 uint8_t Randomizer_IsSpoilerLoaded();
 void Randomizer_SetSpoilerLoaded(bool spoilerLoaded);
 uint8_t Randomizer_GenerateRandomizer();
+bool Randomizer_IsGenerating();
+void Randomizer_WaitForGeneration();
 void Randomizer_ShowRandomizerMenu();
 // ComboShip: combo (cross-world) generation, driven from the file-select randomizer screen.
 void SOH_TriggerComboGenerate(void);
 int SOH_PollComboFinalize(void);
 int SOH_GetComboGenPercent(void);
+int SOH_GetComboGenPhase(void);
 uint8_t SOH_IsOnFileSelect(void);
 // Open the combo menu on the Randomizer tab (file-select "Open Randomizer Settings").
 void SOH_OpenComboRandoSettings(void);

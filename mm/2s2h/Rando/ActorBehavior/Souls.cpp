@@ -10,6 +10,7 @@ extern "C" {
 #include "functions.h"
 
 #include "overlays/actors/ovl_Boss_Hakugin/z_boss_hakugin.h"
+#include "overlays/actors/ovl_En_Invadepoh/z_en_invadepoh.h"
 
 void BossHakugin_DrawIce(BossHakugin*, PlayState*);
 extern PlayState* gPlayState;
@@ -109,6 +110,14 @@ bool HaveEnemySoul(ActorId enemyId) {
     return true;
 }
 
+bool IsEnemySoulMissing(Actor* actor) {
+    // ACTOR_EN_INVADEPOH is a shared actor so filter out the non aliens
+    if (actor->id == ACTOR_EN_INVADEPOH && EN_INVADEPOH_GET_TYPE(actor) != EN_INVADEPOH_TYPE_ALIEN) {
+        return false;
+    }
+    return !HaveEnemySoul((ActorId)actor->id);
+}
+
 void ShouldActorUpdate(Actor* actor, bool* should, RandoInf randoInf) {
     if (!Flags_GetRandoInf(randoInf)) {
         *should = false;
@@ -206,25 +215,20 @@ void Rando::ActorBehavior::InitSoulsBehavior() {
 
     COND_VB_SHOULD(VB_DRAW_LOCK_ON_ARROW, shouldEnemyInjure, {
         Actor* refActor = va_arg(args, Actor*);
-        ActorId actorId = (ActorId)refActor->id;
-        // ACTOR_EN_INVADEPOH represents multiple actors, including Romani and the dog. The aliens cannot be targeted
-        // anyway, so just don't draw this arrow if the actor is ACTOR_EN_INVADEPOH.
-        if (actorId != ACTOR_EN_INVADEPOH && !HaveEnemySoul(actorId)) {
+        if (IsEnemySoulMissing(refActor)) {
             DrawEnLight({ 155, 0, 0 }, { 1.0f, 1.0f, 1.0f });
             *should = false;
         }
     });
 
     COND_HOOK(ShouldActorDraw, shouldEnemyInjure, [](Actor* actor, bool* should) {
-        ActorId actorId = (ActorId)actor->id;
-        if (actorId != ACTOR_EN_INVADEPOH && !HaveEnemySoul(actorId)) {
+        if (IsEnemySoulMissing(actor)) {
             SetEnemyInjureGrayscale(true);
         }
     });
 
     COND_HOOK(OnActorDraw, shouldEnemyInjure, [](Actor* actor) {
-        ActorId actorId = (ActorId)actor->id;
-        if (actorId != ACTOR_EN_INVADEPOH && !HaveEnemySoul(actorId)) {
+        if (IsEnemySoulMissing(actor)) {
             SetEnemyInjureGrayscale(false);
         }
     });

@@ -24,6 +24,17 @@
 .PARAMETER Only
     Restrict to one upstream key: libultraship | soh | mm.
 
+.PARAMETER Target
+    Merge up to this upstream commit instead of the branch tip: a local SHA, or a ref/full SHA to
+    fetch directly (e.g. refs/tags/5.0.1, which may sit off the tracked branch). Requires -Only.
+    Must be a descendant of the pinned mergedSha, so a pin never moves backwards or sideways.
+
+.PARAMETER RepoRoot
+    Repo to operate on (default: this script's repo). Lets CI run a newer copy of the engine.
+
+.PARAMETER Branch
+    Tracked branch to use instead of the pins file's (CI passes develop's on the release track).
+
 .PARAMETER Depth
     Refetch depth for blob hydration (default 50). Increase if the fork is far behind the tip.
 
@@ -37,11 +48,16 @@ param(
     [switch]$Merge,
     [ValidateSet('libultraship', 'soh', 'mm')]
     [string]$Only,
-    [int]$Depth = 50
+    [string]$Target,
+    [string]$Branch,
+    [int]$Depth = 50,
+    [string]$RepoRoot = (Join-Path $PSScriptRoot '..')
 )
 
+if ($Target -and -not $Only) { throw '-Target requires -Only (it applies to a single upstream).' }
+
 $ErrorActionPreference = 'Stop'
-$repo = Resolve-Path (Join-Path $PSScriptRoot '..')
+$repo = Resolve-Path $RepoRoot
 Set-Location $repo
 
 # Auto-gc collides with promisor fetches ("Permission denied writing pack").
@@ -55,7 +71,7 @@ $keys = if ($Only) { @($Only) } else { @('libultraship', 'soh', 'mm') }
 foreach ($key in $keys) {
     $u = $pins.upstreams.$key
     $remote = $remotes[$key]
-    $branch = $u.branch
+    $branch = if ($Branch) { $Branch } else { $u.branch }
     $prefix = $u.prefix
     $subtree = $u.subtree   # '' means the upstream repo root maps to our prefix
     $vendorBranch = "vendor-$key"
@@ -72,8 +88,22 @@ foreach ($key in $keys) {
     git fetch $remote $branch 2>&1 | Select-Object -Last 2 | ForEach-Object { "  $_" }
 
     $tip = (git rev-parse "$remote/$branch").Trim()
+    # Refs and full SHAs are hydrated directly (a release target may sit off the branch).
+    $refetch = if ($Target -and $Target -notmatch '^[0-9a-f]{4,39}$') { $Target } else { $branch }
     $merged = $u.mergedSha
-    Write-Host "  last-merged $merged  ->  tip $($tip.Substring(0,9))"
+    if ($Target) {
+        $tip = git rev-parse -q --verify "$Target^{commit}" 2>$null
+        if (-not $tip) {
+            # Not local: fetch it directly, so a release tag off the tracked branch still works.
+            git fetch $remote $Target 2>&1 | Select-Object -Last 2 | ForEach-Object { "  $_" }
+            if ($LASTEXITCODE -ne 0) { throw "could not fetch -Target $Target from $remote" }
+            $tip = git rev-parse 'FETCH_HEAD^{commit}'
+        }
+        $tip = $tip.Trim()
+        git merge-base --is-ancestor $merged $tip
+        if ($LASTEXITCODE -ne 0) { throw "-Target $Target is not a descendant of the pinned $merged" }
+    }
+    Write-Host "  last-merged $merged  ->  target $($tip.Substring(0,9))$(if (-not $Target) { ' (branch tip)' })"
 
     if ((git rev-parse $merged) -eq (git rev-parse $tip)) {
         Write-Host "  up to date, nothing new." -ForegroundColor Green
@@ -82,7 +112,7 @@ foreach ($key in $keys) {
 
     # 2. Hydrate blobs (forced, filter-disabled refetch).
     Write-Host "  hydrating blobs (refetch depth=$Depth)..." -ForegroundColor Yellow
-    git -c "remote.$remote.promisor=false" -c "remote.$remote.partialclonefilter=" fetch --refetch --depth=$Depth $remote $branch 2>&1 | Select-Object -Last 1 | ForEach-Object { "  $_" }
+    git -c "remote.$remote.promisor=false" -c "remote.$remote.partialclonefilter=" fetch --refetch --depth=$Depth $remote $refetch 2>&1 | Select-Object -Last 1 | ForEach-Object { "  $_" }
 
     # 3. Rebuild vendor-<name> at tip (prefixed tree, parent = prior vendor tip).
     $tipTreeRef = if ($subtree) { "${tip}:$subtree" } else { "${tip}^{tree}" }
@@ -99,7 +129,7 @@ foreach ($key in $keys) {
         Remove-Item Env:GIT_INDEX_FILE -ErrorAction SilentlyContinue
         Remove-Item $tmpIndex -ErrorAction SilentlyContinue
     }
-    $newCommit = (git commit-tree $newTree -p $vendorBranch -m "vendor: $key $branch $($tip.Substring(0,9))").Trim()
+    $newCommit = (git commit-tree $newTree -p $vendorBranch -m "vendor: $key $(if ($Target) { 'target' } else { $branch }) $($tip.Substring(0,9))").Trim()
     git branch -f $vendorBranch $newCommit | Out-Null
     Write-Host "  rebuilt $vendorBranch @ $($newCommit.Substring(0,9))"
 
@@ -145,5 +175,5 @@ if ($Merge) {
     }
 }
 
-Write-Host "`nDone. After committing all merges: (1) add docs/merges/<YYYY-MM-DD>.md with the per-folder" -ForegroundColor Cyan
+Write-Host "`nDone. After committing all merges: (1) add docs/merges/<YYYY-MM-DD>-<upstream>.md with the" -ForegroundColor Cyan
 Write-Host "post-merge changes and link it from docs/UPSTREAM_MERGES.md, (2) update upstream-pins.json mergedSha/mergedDate." -ForegroundColor Cyan

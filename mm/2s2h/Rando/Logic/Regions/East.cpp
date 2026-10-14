@@ -247,6 +247,9 @@ static RegisterShipInitFunc initFunc([]() {
             CHECK(RC_IKANA_GRAVEYARD_WONDER_ITEM_07, true),
             CHECK(RC_IKANA_GRAVEYARD_WONDER_ITEM_08, true),
             CHECK(RC_IKANA_GRAVEYARD_WONDER_ITEM_09, true),
+            CHECK(RC_IKANA_GRAVEYARD_WONDER_ITEM_10, true),
+            CHECK(RC_IKANA_GRAVEYARD_WONDER_ITEM_11, true),
+            CHECK(RC_IKANA_GRAVEYARD_WONDER_ITEM_12, true),
             CHECK(RC_ENEMY_DROP_STALCHILD, CanKillEnemy(ACTOR_EN_SKB) && IS_NIGHT()), // Night only
             CHECK(RC_ENEMY_DROP_BAD_BAT, CanKillEnemy(ACTOR_EN_BAT) && IS_DAY()), // Day only
         },
@@ -267,12 +270,7 @@ static RegisterShipInitFunc initFunc([]() {
     Regions[RR_IKANA_GRAVEYARD_UPPER] = RandoRegion{ .name = "Upper", .sceneId = SCENE_BOTI,
         .checks = {
             CHECK(RC_IKANA_GRAVEYARD_CAPTAIN_MASK, CanKillEnemy(ACTOR_EN_SKB) && CanKillEnemy(ACTOR_EN_BSB)),
-            // Rocks can be picked up and thrown at this:
-            CHECK(RC_IKANA_GRAVEYARD_WONDER_ITEM_10, true),
-            CHECK(RC_IKANA_GRAVEYARD_WONDER_ITEM_11, true),
-            CHECK(RC_IKANA_GRAVEYARD_WONDER_ITEM_12, true),
             CHECK(RC_ENEMY_DROP_STALCHILD, CanKillEnemy(ACTOR_EN_SKB)),
-            CHECK(RC_ENEMY_DROP_BAD_BAT, CanKillEnemy(ACTOR_EN_BAT) && IS_DAY()), // Day only
             CHECK(RC_ENEMY_DROP_CAPTAIN_KEETA, CanKillEnemy(ACTOR_EN_SKB) && CanKillEnemy(ACTOR_EN_BSB)),
         },
         .connections = {

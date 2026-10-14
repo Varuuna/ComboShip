@@ -20,6 +20,7 @@ DEFINE_HOOK(OnGameCompletion, ())
 DEFINE_HOOK(OnSceneInit, (s8 sceneId, s8 spawnNum))
 DEFINE_HOOK(OnRoomInit, (s8 sceneId, s8 roomNum))
 DEFINE_HOOK(AfterRoomSceneCommands, (s8 sceneId, s8 roomNum))
+DEFINE_HOOK(OnPlayDrawWorldStart, ())
 DEFINE_HOOK(OnPlayDrawWorldEnd, ())
 DEFINE_HOOK(OnPlayDestroy, ())
 

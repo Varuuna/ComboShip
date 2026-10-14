@@ -209,11 +209,20 @@ void SetupGuiElements() {
     mDisplayOverlayWindow = std::make_shared<DisplayOverlayWindow>("gWindows.DisplayOverlay", "Display Overlay");
     gui->AddGuiWindow(mDisplayOverlayWindow);
 
-    mTimesplitsWindow = std::make_shared<TimesplitsWindow>("gWindows.Timesplits", "Time Splits Window");
+    mTimesplitsWindow =
+        std::make_shared<TimesplitsWindow>("gWindows.Timesplits", "Time Splits Window" COMBO_MM_TRACKER_SUFFIX);
     gui->AddGuiWindow(mTimesplitsWindow);
 
+#ifdef COMBO_BUILD
+    // ComboShip: "gWindows.Timesplits.Settings" is a subtree of the leaf above (breaks config save);
+    // use a sibling key and drop the old one so a stale copy can't clash either.
+    CVarClear("gWindows.Timesplits.Settings");
+    mTimesplitsSettingsWindow = std::make_shared<TimesplitsSettingsWindow>(
+        "gWindows.TimesplitsSettings", "Time Splits Settings Window" COMBO_MM_TRACKER_SUFFIX, ImVec2(567, 97));
+#else
     mTimesplitsSettingsWindow = std::make_shared<TimesplitsSettingsWindow>(
         "gWindows.Timesplits.Settings", "Time Splits Settings Window", ImVec2(567, 97));
+#endif
     gui->AddGuiWindow(mTimesplitsSettingsWindow);
 
     // ComboShip: suffix the registered name so MM's notification window does not collide with OOT's

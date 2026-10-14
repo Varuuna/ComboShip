@@ -1,11 +1,10 @@
-#include "soh/Network/Anchor/Anchor.h"
 #include <nlohmann/json.hpp>
-#include "soh/Enhancements/game-interactor/GameInteractor.h"
+
+#include "soh/Network/Anchor/Anchor.h"
+#include "soh/Enhancements/randomizer/static_data.h"
 #include "soh/Notification/Notification.h"
-#include "soh/Enhancements/randomizer/randomizer.h"
 #include "soh/SohGui/ImGuiUtils.h"
 #include "soh/Enhancements/item-tables/ItemTableManager.h"
-#include "soh/OTRGlobals.h"
 
 extern "C" {
 #include "functions.h"
@@ -18,7 +17,18 @@ extern PlayState* gPlayState;
 
 uint8_t incomingIceTrapsFromAnchor = 0;
 
+#ifdef COMBO_BUILD
+// ComboShip: Shared Items — suppresses this send around a local shared-tier raise (SOH_RaiseSharedTier),
+// which would otherwise broadcast a teammate toast for the player's own reconcile.
+extern "C" int gComboSuppressAnchorSend;
+#endif
+
 void Anchor::SendPacket_GiveItem(u16 modId, s16 getItemId) {
+#ifdef COMBO_BUILD
+    if (gComboSuppressAnchorSend) {
+        return;
+    }
+#endif
     if (!IsSaveLoaded() || isProcessingIncomingPacket || !roomState.syncItemsAndFlags) {
 #ifdef COMBO_BUILD
         SPDLOG_INFO("[Anchor] GIVE_ITEM not sent: saveLoaded={} processingIncoming={} syncItems={}", IsSaveLoaded(),

@@ -1,8 +1,14 @@
+#include <libultraship/bridge/consolevariablebridge.h>
+#include <fast/interpreter.h>
+#include <fast/resource/ResourceType.h>
+#include <fast/resource/type/DisplayList.h>
+#include <libultraship/bridge/resourcebridge.h>
+#include <ship/Context.h>
+#include <ship/resource/ResourceManager.h>
+#include <stb_image.h>
+
 #include "ResourceManagerHelpers.h"
 #include "OTRGlobals.h"
-#include "variables.h"
-#include "z64.h"
-#include "macros.h"
 #include "cvar_prefixes.h"
 #include "Enhancements/enhancementTypes.h"
 #include "Enhancements/randomizer/dungeon.h"
@@ -12,14 +18,12 @@
 #include "resource/type/Array.h"
 #include "resource/type/Skeleton.h"
 #include "resource/type/PlayerAnimation.h"
-#include <fast/Fast3dWindow.h>
-#include <fast/resource/ResourceType.h>
-#include <fast/resource/type/DisplayList.h>
-#include <libultraship/bridge/resourcebridge.h>
-#include <ship/Context.h>
-#include <ship/resource/ResourceManager.h>
 
-#include <stb_image.h>
+extern "C" {
+#include "variables.h"
+#include "z64.h"
+#include "macros.h"
+}
 
 #ifdef COMBO_BUILD
 // ComboShip: audio loads pinned to OOT's own RM — the audio thread races active-RM swaps
@@ -82,8 +86,8 @@ static const char* ResourceMgr_ResolveLinkTunicDListPath(const char* path) {
         return it->second.c_str();
     }
 
-    const std::string candidate =
-        fmt::format("__OTR__objects/{}_{}/{}", objectFolder, tunicSuffix, originalPath + objectPrefix.size());
+    const std::string candidate = spdlog::fmt_lib::format("__OTR__objects/{}_{}/{}", objectFolder, tunicSuffix,
+                                                          originalPath + objectPrefix.size());
 
     if (!ResourceMgr_IsAltAssetsEnabled() || !ResourceMgr_FileAltExists(candidate.c_str()) ||
         !ResourceGetIsCustomByName(candidate.c_str())) {
@@ -184,7 +188,7 @@ u32 IsSceneMasterQuest(s16 sceneNum) {
         }
 
         if (IS_RANDO) {
-            auto dungeon = OTRGlobals::Instance->gRandoContext->GetDungeons()->GetDungeonFromScene(sceneNum);
+            auto dungeon = OTRGlobals::Instance->gRandoContext->GetDungeonFromScene((SceneID)sceneNum);
             if (dungeon != nullptr && dungeon->IsMQ()) {
                 return true;
             }
@@ -349,6 +353,14 @@ extern "C" char* ResourceMgr_LoadJPEG(char* data, size_t dataSize) {
 extern "C" char* ResourceMgr_LoadTexOrDListByName(const char* filePath) {
     auto res = ResourceMgr_GetResourceByNameHandlingMQ(filePath);
 
+#ifdef COMBO_BUILD
+    // ComboShip: a miss returns null here (same as ResourceMgr_LoadIfDListByName). The GBI wrappers
+    // that reach this (gSPInvalidateTexCache / gSPSegmentLoadRes) tolerate a null address, so this
+    // turns a resolve miss into a no-op rather than an access violation on GetInitData().
+    if (res == nullptr) {
+        return nullptr;
+    }
+#endif
     if (res->GetInitData()->Type == static_cast<uint32_t>(Fast::ResourceType::DisplayList)) {
         return (char*)&((std::static_pointer_cast<Fast::DisplayList>(res))->Instructions[0]);
     }

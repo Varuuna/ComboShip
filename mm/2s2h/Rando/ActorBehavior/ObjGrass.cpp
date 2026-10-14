@@ -342,8 +342,7 @@ Gfx* GetObjGrassDList(RandoCheckId randoCheckId) {
         return (Gfx*)gRandoBushDL;
     }
 
-    RandoItemId randoItemId = Rando::ConvertItem(RANDO_SAVE_CHECKS[randoCheckId].randoItemId, randoCheckId);
-    RandoItemType randoItemType = Rando::StaticData::Items[randoItemId].randoItemType;
+    RandoItemType randoItemType = Rando::GetItemTypeForCheck(RANDO_SAVE_CHECKS[randoCheckId].randoItemId, randoCheckId);
 
     switch (randoItemType) {
         case RITYPE_BOSS_KEY:
@@ -384,8 +383,7 @@ Gfx* GetObjGrassXluDList(RandoCheckId randoCheckId) {
         return (Gfx*)gRandoBushXluDL;
     }
 
-    RandoItemId randoItemId = Rando::ConvertItem(RANDO_SAVE_CHECKS[randoCheckId].randoItemId, randoCheckId);
-    RandoItemType randoItemType = Rando::StaticData::Items[randoItemId].randoItemType;
+    RandoItemType randoItemType = Rando::GetItemTypeForCheck(RANDO_SAVE_CHECKS[randoCheckId].randoItemId, randoCheckId);
 
     switch (randoItemType) {
         case RITYPE_BOSS_KEY:
@@ -427,8 +425,7 @@ Gfx* GetCuttableGrassDList(RandoCheckId randoCheckId) {
         return (Gfx*)gRandoCuttableGrassRandomDL;
     }
 
-    RandoItemId randoItemId = Rando::ConvertItem(RANDO_SAVE_CHECKS[randoCheckId].randoItemId, randoCheckId);
-    RandoItemType randoItemType = Rando::StaticData::Items[randoItemId].randoItemType;
+    RandoItemType randoItemType = Rando::GetItemTypeForCheck(RANDO_SAVE_CHECKS[randoCheckId].randoItemId, randoCheckId);
 
     switch (randoItemType) {
         case RITYPE_BOSS_KEY:

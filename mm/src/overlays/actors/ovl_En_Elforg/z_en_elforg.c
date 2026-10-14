@@ -6,6 +6,7 @@
 
 #include "z_en_elforg.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
+#include "2s2h/BenGui/CosmeticEditor.h"
 
 #define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED)
 
@@ -644,6 +645,8 @@ void EnElforg_Draw(Actor* thisx, PlayState* play) {
     OPEN_DISPS(play->state.gfxCtx);
 
     Gfx_SetupDL25_Xlu(play->state.gfxCtx);
+
+    CosmeticEditor_SetStrayFairyMaterial(this->area);
 
     switch (this->area) {
         case STRAY_FAIRY_AREA_WOODFALL:

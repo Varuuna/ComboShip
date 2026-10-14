@@ -22,8 +22,8 @@ extern "C" {
 }
 
 static constexpr const char* CUSTOM_COSMETIC_GROUP = "Custom";
-static constexpr const char* CUSTOM_CVAR_PREFIX = "gCosmetic.Custom.";
-static constexpr const char* RAINBOW_SYNC_CVAR = "gCosmetics.RainbowSync";
+static constexpr const char* CUSTOM_CVAR_PREFIX = CVAR_COSMETIC("Custom.");
+static constexpr const char* RAINBOW_SYNC_CVAR = CVAR_COSMETIC("RainbowSync");
 
 struct CustomCosmeticBinding {
     std::string materialPath;
@@ -242,21 +242,22 @@ static void ClearCustomCosmeticValueCvars(const char* valuesCvar) {
 
 static void RefreshBuiltInSuppressedCosmetics() {
     static constexpr const char* kPlayerColorCvars[] = {
-        "gCosmetic.Player.HumanTunic.Color", "gCosmetic.Player.HumanHair.Color",  "gCosmetic.Player.DekuTunic.Color",
-        "gCosmetic.Player.DekuHair.Color",   "gCosmetic.Player.GoronTunic.Color", "gCosmetic.Player.ZoraTunic.Color",
-        "gCosmetic.Player.KafeiHair.Color",
+        "gCosmetic.Player.HumanTunic.Color",       "gCosmetic.Player.HumanHair.Color",
+        "gCosmetic.Player.DekuTunic.Color",        "gCosmetic.Player.DekuHair.Color",
+        "gCosmetic.Player.GoronTunic.Color",       "gCosmetic.Player.ZoraTunic.Color",
+        "gCosmetic.Player.FierceDeityTunic.Color", "gCosmetic.Player.KafeiHair.Color",
     };
     static constexpr const char* kPlayerChangedCvars[] = {
-        "gCosmetic.Player.HumanTunic.Changed", "gCosmetic.Player.HumanHair.Changed",
-        "gCosmetic.Player.DekuTunic.Changed",  "gCosmetic.Player.DekuHair.Changed",
-        "gCosmetic.Player.GoronTunic.Changed", "gCosmetic.Player.ZoraTunic.Changed",
-        "gCosmetic.Player.KafeiHair.Changed",
+        "gCosmetic.Player.HumanTunic.Changed",       "gCosmetic.Player.HumanHair.Changed",
+        "gCosmetic.Player.DekuTunic.Changed",        "gCosmetic.Player.DekuHair.Changed",
+        "gCosmetic.Player.GoronTunic.Changed",       "gCosmetic.Player.ZoraTunic.Changed",
+        "gCosmetic.Player.FierceDeityTunic.Changed", "gCosmetic.Player.KafeiHair.Changed",
     };
     static constexpr const char* kPlayerRainbowCvars[] = {
-        "gCosmetic.Player.HumanTunic.Rainbow", "gCosmetic.Player.HumanHair.Rainbow",
-        "gCosmetic.Player.DekuTunic.Rainbow",  "gCosmetic.Player.DekuHair.Rainbow",
-        "gCosmetic.Player.GoronTunic.Rainbow", "gCosmetic.Player.ZoraTunic.Rainbow",
-        "gCosmetic.Player.KafeiHair.Rainbow",
+        "gCosmetic.Player.HumanTunic.Rainbow",       "gCosmetic.Player.HumanHair.Rainbow",
+        "gCosmetic.Player.DekuTunic.Rainbow",        "gCosmetic.Player.DekuHair.Rainbow",
+        "gCosmetic.Player.GoronTunic.Rainbow",       "gCosmetic.Player.ZoraTunic.Rainbow",
+        "gCosmetic.Player.FierceDeityTunic.Rainbow", "gCosmetic.Player.KafeiHair.Rainbow",
     };
 
     for (const char* cvar : kPlayerColorCvars) {
@@ -287,6 +288,9 @@ bool IsCustomModelActiveForCosmeticId(const char* cosmeticId) {
     if (strcmp(cosmeticId, "Player.ZoraTunic") == 0) {
         return customZoraModelActive && customZoraCosmeticsAvailable;
     }
+    if (strcmp(cosmeticId, "Player.FierceDeityTunic") == 0) {
+        return customFierceDeityModelActive && customFierceDeityCosmeticsAvailable;
+    }
     if (strcmp(cosmeticId, "Player.KafeiHair") == 0) {
         return customKafeiModelActive && customKafeiCosmeticsAvailable;
     }
@@ -308,6 +312,10 @@ bool IsCustomGoronModelActive() {
 
 bool IsCustomZoraModelActive() {
     return customZoraModelActive;
+}
+
+bool IsCustomFierceDeityModelActive() {
+    return customFierceDeityModelActive;
 }
 
 bool IsCustomKafeiModelActive() {

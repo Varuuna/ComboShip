@@ -155,9 +155,9 @@ class CustomMessage {
      * options exist (2 blocks of text surrounded by |) choose the former if it 1,
      * and the latter otherwise, deleting the other and the |'s.
      *
-     * @param num the number to insert.
+     * @param num the number to insert. u32: a combined cross-game count can exceed 255.
      */
-    void InsertNumber(uint8_t num);
+    void InsertNumber(uint32_t num);
 
     /**
      * @brief A € sign at the end of an item name signals that it is plural.

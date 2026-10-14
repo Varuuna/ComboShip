@@ -493,7 +493,16 @@ static LRESULT CALLBACK gfx_dxgi_wnd_proc(HWND h_wnd, UINT message, WPARAM w_par
             break;
         case WM_DROPFILES:
             DragQueryFileA((HDROP)w_param, 0, fileName, 256);
+#ifdef COMBO_BUILD
+            // ComboShip: null-guard — a file dropped before full game init (e.g. on the ROM
+            // extraction screen, where only the window-only boot has run) reaches here with no
+            // FileDropMgr yet and would crash. Same guard as gfx_sdl2.cpp.
+            if (auto fileDropMgr = Ship::Context::GetRawInstance()->GetFileDropMgr()) {
+                fileDropMgr->SetDroppedFile(fileName);
+            }
+#else
             Ship::Context::GetRawInstance()->GetFileDropMgr()->SetDroppedFile(fileName);
+#endif
             break;
         case WM_DISPLAYCHANGE:
             self->monitor_list = GetMonitorList();

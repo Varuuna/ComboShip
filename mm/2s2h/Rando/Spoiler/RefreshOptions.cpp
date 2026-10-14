@@ -1,5 +1,6 @@
 #include "Spoiler.h"
 #include <libultraship/bridge/consolevariablebridge.h>
+#include "2s2h/ShipInit.hpp"
 #include <filesystem>
 #include "BenPort.h"
 
@@ -14,6 +15,7 @@ void Rando::Spoiler::SelectSpoiler(s32 index) {
 
     CVarSetInteger("gRando.SpoilerFileIndex", generateNew ? 0 : index);
     CVarSetString("gRando.SpoilerFile", generateNew ? "" : Rando::Spoiler::spoilerOptions[index].c_str());
+    ShipInit::Init("gRando.SpoilerFile");
 }
 
 // This function refreshes the list of spoiler files in the randomizer folder, this list is used in the Randomizer UI,

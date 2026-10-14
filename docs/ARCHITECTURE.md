@@ -58,8 +58,11 @@ layout and enables the transition hooks in both games.
 
 ### Exported Entry Points
 
-The launcher talks to each game purely through exported C functions resolved with `GetProcAddress`
-(see `combo/ComboShip.cpp`). Missing optional exports are tolerated (null-checked); only the core
+The launcher talks to each game purely through exported C functions, resolved through the portable
+`Combo_ResolveSym` seam (`combo/ComboResolve.h`): `GetModuleHandleA` + `GetProcAddress` on Windows,
+one process-wide `dlsym(RTLD_DEFAULT, ...)` elsewhere, since the launcher dlopens every module
+`RTLD_GLOBAL` and only the `COMBO_EXPORT` ABI (`combo/ComboExport.h`) has default visibility. See
+`combo/ComboShip.cpp`. Missing optional exports are tolerated (null-checked); only the core
 ones are required. The tables below are the **core transition surface** — a representative subset.
 The full surface (Anchor transport, randomizer oracle exports, cross-game item delivery, save
 callbacks) is larger and lives in `combo/ComboShip.cpp`; see [`deviations/`](deviations/) per feature.

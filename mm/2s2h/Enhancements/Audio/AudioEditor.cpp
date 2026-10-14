@@ -168,6 +168,13 @@ size_t AuthenticCountBySequenceType(SeqType type) {
 // which will lookup the proper override, or reset back to vanilla
 void ReplayCurrentBGM() {
     u16 curSeqId = AudioSeq_GetActiveSeqId(SEQ_PLAYER_BGM_MAIN);
+#ifdef COMBO_BUILD
+    // ComboShip: nothing to replay when no BGM is playing (e.g. MM dormant while combo generates) —
+    // queueing NA_BGM_DISABLED would index gSequenceMap[0xFFFF] on the next frame.
+    if (curSeqId == NA_BGM_DISABLED) {
+        return;
+    }
+#endif
     // TODO: replace with Audio_StartSeq when the macro is shared
     // The fade time and audio player flags will always be 0 in the case of replaying the BGM, so they are not set here
     // AudioSeq_QueueSeqCmd(0x00000000 | curSeqId);

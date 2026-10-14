@@ -577,6 +577,9 @@ static RegisterShipInitFunc initFunc([]() {
         .connections = {
             CONNECTION(RR_WOODFALL, CAN_BE_DEKU),
         },
+        .oneWayEntrances = {
+            ENTRANCE(WOODFALL, 4), // From Song of Soaring
+        }
     };
     Regions[RR_WOODS_OF_MYSTERY_GROTTO] = RandoRegion{ .name = "Woods of Mystery Grotto", .sceneId = SCENE_KAKUSIANA,
         .checks = {

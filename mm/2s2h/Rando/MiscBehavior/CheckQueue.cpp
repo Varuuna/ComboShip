@@ -16,6 +16,8 @@ extern "C" void MMAnchor_BroadcastCheckItem(int randoCheckId, int randoItemId);
 // routes a foreign item to the OTHER game's resident save NOW; MMAnchor_BroadcastCrossItem shares it
 // with networked teammates (no-op when Anchor is inactive).
 extern "C" void (*gMMComboCrossDeliver)(int targetGame, const char* itemName, const char* srcCheckName);
+extern "C" int gMMComboGoalRequired;
+extern "C" int (*gMMComboOtherTriforceCount)(void);
 extern "C" void MMAnchor_BroadcastCrossItem(int targetGame, const char* itemName, const char* srcCheckName);
 #endif
 
@@ -73,7 +75,10 @@ void Rando::MiscBehavior::SendForeignCheck(RandoCheckId rc) {
         if (gMMComboCrossDeliver)
             gMMComboCrossDeliver((int)it->second.itemGame, it->second.itemName.c_str(), checkName.c_str());
         MMAnchor_BroadcastCrossItem((int)it->second.itemGame, it->second.itemName.c_str(), checkName.c_str());
-        Notification::Emit({ .message = "Sent to Hyrule:", .suffix = it->second.displayName });
+        // A trap latches under its disguise's tier, not its own; never name a trap's toast with it.
+        const char* resolved = it->second.trap ? nullptr : Rando::ComboForeignLatchedName(rc);
+        Notification::Emit(
+            { .message = "Sent to Hyrule:", .suffix = ComboRando::ShownForeignName(it->second, resolved) });
         SPDLOG_INFO("[ComboShip] MM delivered foreign item '{}' to OOT (from check '{}')", it->second.itemName,
                     checkName);
     } else {
@@ -154,7 +159,22 @@ void Rando::MiscBehavior::CheckQueue() {
                             // A foreign trap fires on the FINDER, like a native RI_TRAP: MM's own trap
                             // message + effect, and never cross-delivered (nothing to send).
                             const bool foreignTrap = fi != nullptr && fi->trap;
+                            // ComboShip (bug 3): cycleObtained wipes every Song of Time, so this branch
+                            // re-runs on cycle re-collection. Only cross-deliver/broadcast the FIRST
+                            // time this check is permanently obtained, or a cycle reset would re-grant
+                            // the item into OOT's save on every replay.
+                            bool wasObtained = randoSaveCheck.obtained;
+                            if (!foreignTrap && !wasObtained) {
+                                // Freeze the held-up model/name BEFORE the cross-grant moves OOT's save.
+                                Rando::LatchComboForeign(cid);
+                            }
                             std::string foreignName = Rando::StaticData::GetItemName(RI_COMBO_FOREIGN, false, cid);
+                            if (fi != nullptr) {
+                                const char* peek = Rando::ComboForeignLatchedName(cid);
+                                if (peek != nullptr) {
+                                    foreignName = ComboRando::ShownForeignName(*fi, peek);
+                                }
+                            }
                             CustomMessage::Entry entry = {
                                 .textboxType = 2,
                                 .icon = Rando::StaticData::GetIconForZMessage(RI_COMBO_FOREIGN),
@@ -165,11 +185,6 @@ void Rando::MiscBehavior::CheckQueue() {
                             } else if (Rando::MiscBehavior::ShouldShowForeignCutscene(cid)) {
                                 CustomMessage::StartTextbox(entry.msg + "\x1C\x02\x10", entry);
                             }
-                            // ComboShip (bug 3): cycleObtained wipes every Song of Time, so this branch
-                            // re-runs on cycle re-collection. Only cross-deliver/broadcast the FIRST
-                            // time this check is permanently obtained, or a cycle reset would re-grant
-                            // the item into OOT's save on every replay.
-                            bool wasObtained = randoSaveCheck.obtained;
                             randoSaveCheck.cycleObtained = true;
                             randoSaveCheck.obtained = true;
                             randoSaveCheck.eligible = false;
@@ -202,11 +217,22 @@ void Rando::MiscBehavior::CheckQueue() {
                             randoItemId = Rando::CurrentJunkItem((RandoCheckId)CUSTOM_ITEM_PARAM);
                         }
                         if (randoItemId == RI_TRIFORCE_PIECE) {
+#ifdef COMBO_BUILD
+                            // ComboShip (#136): the goal counts BOTH games' pieces.
+                            const int comboPieces =
+                                gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces + 1 +
+                                (gMMComboOtherTriforceCount != NULL ? gMMComboOtherTriforceCount() : 0);
+                            if (gMMComboGoalRequired > 0 && comboPieces >= gMMComboGoalRequired) {
+                                prefix = "You";
+                                message = "completed the Triforce";
+                            }
+#else
                             if (gSaveContext.save.shipSaveInfo.rando.foundTriforcePieces + 1 >=
                                 RANDO_SAVE_OPTIONS[RO_TRIFORCE_PIECES_REQUIRED]) {
                                 prefix = "You";
                                 message = "completed the Triforce";
                             }
+#endif
                             randoItemId = RI_TRIFORCE_PIECE_PREVIOUS;
                         }
 

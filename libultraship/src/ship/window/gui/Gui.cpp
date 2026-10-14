@@ -136,6 +136,17 @@ void Gui::ImGuiWMInit() {
 }
 
 void Gui::ShutDownImGui(Ship::Window* window) {
+#ifdef COMBO_BUILD
+    // ComboShip: under COMBO_BUILD two game modules deinit against ONE shared ImGui context, so this
+    // is reached twice on exit — MM_Deinit tears it down, then SOH_Deinit destroys the shared Context
+    // and the Window destructor gets here again. Every ImGui backend asserts on a second shutdown
+    // ("No platform backend to shutdown, or already shutdown?"). Release compiles the assert out via
+    // NDEBUG, which is why only Debug builds abort on quit. Make the teardown idempotent instead of
+    // relying on asserts being disabled.
+    if (ImGui::GetCurrentContext() == nullptr || ImGui::GetIO().BackendPlatformUserData == nullptr) {
+        return;
+    }
+#endif
     ImGuiWMShutdown();
     ImGuiBackendShutdown();
     ImGui::DestroyContext();

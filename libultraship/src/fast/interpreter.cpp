@@ -629,6 +629,16 @@ static uint32_t GetTileSizeFromCoordinates(float low, float high) {
     return static_cast<uint32_t>(lroundf((high - low + 4.0f) / 4.0f));
 }
 
+// Loaded size is HD-scaled but the tile region is raw N64 texels; normalize before comparing.
+static bool IsPyramidLike(uint32_t width, uint32_t height, uint32_t tileW, uint32_t tileH, float hByteScale,
+                          float vPixelScale) {
+    const float hs = hByteScale > 0.0f ? hByteScale : 1.0f;
+    const float vs = vPixelScale > 0.0f ? vPixelScale : 1.0f;
+    const uint32_t loadedPixels = static_cast<uint32_t>(width / hs) * static_cast<uint32_t>(height / vs);
+    const uint32_t renderedPixels = tileW * tileH;
+    return renderedPixels > 0 && loadedPixels > renderedPixels && loadedPixels * 8 < renderedPixels * 13; // < 1.625x
+}
+
 void Interpreter::ImportTextureRgba16(int tile, bool importReplacement) {
     const RawTexMetadata* metadata = &mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].raw_tex_metadata;
     const uint8_t* addr =
@@ -656,10 +666,7 @@ void Interpreter::ImportTextureRgba16(int tile, bool importReplacement) {
     // skip both. CLAMP wrap mode always opts in.
     uint32_t tile_w = GetTileSizeFromCoordinates(mRdp->texture_tile[tile].uls, mRdp->texture_tile[tile].lrs);
     uint32_t tile_h = GetTileSizeFromCoordinates(mRdp->texture_tile[tile].ult, mRdp->texture_tile[tile].lrt);
-    uint32_t loadedPixels = width * height;
-    uint32_t renderedPixels = tile_w * tile_h;
-    bool pyramidLike =
-        renderedPixels > 0 && loadedPixels > renderedPixels && loadedPixels * 8 < renderedPixels * 13; // < 1.625x
+    bool pyramidLike = IsPyramidLike(width, height, tile_w, tile_h, metadata->h_byte_scale, metadata->v_pixel_scale);
     bool clampS = (mRdp->texture_tile[tile].cms & G_TX_CLAMP) != 0;
     bool clampT = (mRdp->texture_tile[tile].cmt & G_TX_CLAMP) != 0;
     // A masked axis wraps every 2^mask texels, so trim an over-loaded texture back to that.
@@ -672,12 +679,10 @@ void Interpreter::ImportTextureRgba16(int tile, bool importReplacement) {
     if (maskH != 0 && (1u << maskH) >= tile_h && (1u << maskH) < height) {
         height = 1u << maskH;
     }
-    // HD replacement textures must still clamp to the rendered tile region
-    bool isHd = metadata->h_byte_scale != 1 || metadata->v_pixel_scale != 1;
-    if ((isHd || pyramidLike || clampS) && tile_w > 0 && tile_w < width) {
+    if ((pyramidLike || clampS) && tile_w > 0 && tile_w < width) {
         width = tile_w;
     }
-    if ((isHd || pyramidLike || clampT) && tile_h > 0 && tile_h < height) {
+    if ((pyramidLike || clampT) && tile_h > 0 && tile_h < height) {
         height = tile_h;
     }
 
@@ -736,9 +741,7 @@ void Interpreter::ImportTextureRgba32(int tile, bool importReplacement) {
     // skip both. CLAMP wrap mode always opts in.
     uint32_t tile_w = GetTileSizeFromCoordinates(mRdp->texture_tile[tile].uls, mRdp->texture_tile[tile].lrs);
     uint32_t tile_h = GetTileSizeFromCoordinates(mRdp->texture_tile[tile].ult, mRdp->texture_tile[tile].lrt);
-    uint32_t loadedPixels = width * height;
-    uint32_t renderedPixels = tile_w * tile_h;
-    bool pyramidLike = renderedPixels > 0 && loadedPixels > renderedPixels && loadedPixels * 8 < renderedPixels * 13;
+    bool pyramidLike = IsPyramidLike(width, height, tile_w, tile_h, metadata->h_byte_scale, metadata->v_pixel_scale);
     bool clampS = (mRdp->texture_tile[tile].cms & G_TX_CLAMP) != 0;
     bool clampT = (mRdp->texture_tile[tile].cmt & G_TX_CLAMP) != 0;
     // A masked axis wraps every 2^mask texels, so trim an over-loaded texture back to that.
@@ -751,12 +754,10 @@ void Interpreter::ImportTextureRgba32(int tile, bool importReplacement) {
     if (maskH != 0 && (1u << maskH) >= tile_h && (1u << maskH) < height) {
         height = 1u << maskH;
     }
-    // HD replacement textures must still clamp to the rendered tile region
-    bool isHd = metadata->h_byte_scale != 1 || metadata->v_pixel_scale != 1;
-    if ((isHd || pyramidLike || clampS) && tile_w > 0 && tile_w < width) {
+    if ((pyramidLike || clampS) && tile_w > 0 && tile_w < width) {
         width = tile_w;
     }
-    if ((isHd || pyramidLike || clampT) && tile_h > 0 && tile_h < height) {
+    if ((pyramidLike || clampT) && tile_h > 0 && tile_h < height) {
         height = tile_h;
     }
 
@@ -1030,7 +1031,11 @@ void Interpreter::ImportTextureCi4(int tile, bool importReplacement) {
     const uint8_t* palette;
 
     if (mRdp->palettes[palIdx / 8] == nullptr) {
-        SPDLOG_WARN("CI4: null palette slot {} for palIdx={}", palIdx / 8, palIdx);
+        // As in the CI8 path: a silent return leaves a stale GPU texture. Log once per address.
+        static std::unordered_set<const void*> sReportedNullPalettes4;
+        if (sReportedNullPalettes4.insert((const void*)addr).second) {
+            SPDLOG_ERROR("CI4: null palette slot {} for palIdx={}", palIdx / 8, palIdx);
+        }
         return;
     }
     palette = mRdp->palettes[palIdx / 8] + (palIdx % 8) * 16 * 2;
@@ -1052,9 +1057,7 @@ void Interpreter::ImportTextureCi4(int tile, bool importReplacement) {
     // skip both. CLAMP wrap mode always opts in.
     uint32_t tile_w = GetTileSizeFromCoordinates(mRdp->texture_tile[tile].uls, mRdp->texture_tile[tile].lrs);
     uint32_t tile_h = GetTileSizeFromCoordinates(mRdp->texture_tile[tile].ult, mRdp->texture_tile[tile].lrt);
-    uint32_t loadedPixels = width * height;
-    uint32_t renderedPixels = tile_w * tile_h;
-    bool pyramidLike = renderedPixels > 0 && loadedPixels > renderedPixels && loadedPixels * 8 < renderedPixels * 13;
+    bool pyramidLike = IsPyramidLike(width, height, tile_w, tile_h, metadata->h_byte_scale, metadata->v_pixel_scale);
     bool clampS = (mRdp->texture_tile[tile].cms & G_TX_CLAMP) != 0;
     bool clampT = (mRdp->texture_tile[tile].cmt & G_TX_CLAMP) != 0;
     // A masked axis wraps every 2^mask texels, so trim an over-loaded texture back to that.
@@ -1067,12 +1070,10 @@ void Interpreter::ImportTextureCi4(int tile, bool importReplacement) {
     if (maskH != 0 && (1u << maskH) >= tile_h && (1u << maskH) < height) {
         height = 1u << maskH;
     }
-    // HD replacement textures must still clamp to the rendered tile region
-    bool isHd = metadata->h_byte_scale != 1 || metadata->v_pixel_scale != 1;
-    if ((isHd || pyramidLike || clampS) && tile_w > 0 && tile_w < width) {
+    if ((pyramidLike || clampS) && tile_w > 0 && tile_w < width) {
         width = tile_w;
     }
-    if ((isHd || pyramidLike || clampT) && tile_h > 0 && tile_h < height) {
+    if ((pyramidLike || clampT) && tile_h > 0 && tile_h < height) {
         height = tile_h;
     }
 
@@ -1120,8 +1121,13 @@ void Interpreter::ImportTextureCi8(int tile, bool importReplacement) {
     uint32_t lineSizeBytes = mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].line_size_bytes;
 
     if (mRdp->palettes[0] == nullptr || mRdp->palettes[1] == nullptr) {
-        SPDLOG_WARN("CI8: null palette (pal0={}, pal1={})", static_cast<const void*>(mRdp->palettes[0]),
-                    static_cast<const void*>(mRdp->palettes[1]));
+        // Returning here leaves the GPU texture holding whatever was in it — visible as noise on an
+        // otherwise correct model, so say so loudly (once per address, this runs per frame).
+        static std::unordered_set<const void*> sReportedNullPalettes;
+        if (sReportedNullPalettes.insert((const void*)addr).second) {
+            SPDLOG_ERROR("CI8: null palette (pal0={}, pal1={})", static_cast<const void*>(mRdp->palettes[0]),
+                         static_cast<const void*>(mRdp->palettes[1]));
+        }
         return;
     }
 
@@ -1156,9 +1162,7 @@ void Interpreter::ImportTextureCi8(int tile, bool importReplacement) {
     // skip both. CLAMP wrap mode always opts in.
     uint32_t tile_w = GetTileSizeFromCoordinates(mRdp->texture_tile[tile].uls, mRdp->texture_tile[tile].lrs);
     uint32_t tile_h = GetTileSizeFromCoordinates(mRdp->texture_tile[tile].ult, mRdp->texture_tile[tile].lrt);
-    uint32_t loadedPixels = width * height;
-    uint32_t renderedPixels = tile_w * tile_h;
-    bool pyramidLike = renderedPixels > 0 && loadedPixels > renderedPixels && loadedPixels * 8 < renderedPixels * 13;
+    bool pyramidLike = IsPyramidLike(width, height, tile_w, tile_h, metadata->h_byte_scale, metadata->v_pixel_scale);
     bool clampS = (mRdp->texture_tile[tile].cms & G_TX_CLAMP) != 0;
     bool clampT = (mRdp->texture_tile[tile].cmt & G_TX_CLAMP) != 0;
     // A masked axis wraps every 2^mask texels, so trim an over-loaded texture back to that.
@@ -1171,12 +1175,10 @@ void Interpreter::ImportTextureCi8(int tile, bool importReplacement) {
     if (maskH != 0 && (1u << maskH) >= tile_h && (1u << maskH) < height) {
         height = 1u << maskH;
     }
-    // HD replacement textures must still clamp to the rendered tile region
-    bool isHd = metadata->h_byte_scale != 1 || metadata->v_pixel_scale != 1;
-    if ((isHd || pyramidLike || clampS) && tile_w > 0 && tile_w < width) {
+    if ((pyramidLike || clampS) && tile_w > 0 && tile_w < width) {
         width = tile_w;
     }
-    if ((isHd || pyramidLike || clampT) && tile_h > 0 && tile_h < height) {
+    if ((pyramidLike || clampT) && tile_h > 0 && tile_h < height) {
         height = tile_h;
     }
 
@@ -2061,9 +2063,9 @@ void Interpreter::GfxSpTri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx
 
             // Same pyramid-like ratio gate as ImportTexture: only clamp when loaded pixels
             // are close to rendered pixels (mipmap), not when much bigger (window scroll).
-            uint32_t loadedPx = tex_width[i] * tex_height[i];
-            uint32_t renderedPx = tex_width2[i] * tex_height2[i];
-            bool pyrLike = renderedPx > 0 && loadedPx > renderedPx && loadedPx * 8 < renderedPx * 13;
+            const RawTexMetadata& triMeta = mRdp->loaded_texture[mRdp->texture_tile[tile].tmem_index].raw_tex_metadata;
+            bool pyrLike = IsPyramidLike(tex_width[i], tex_height[i], tex_width2[i], tex_height2[i],
+                                         triMeta.h_byte_scale, triMeta.v_pixel_scale);
             // Same wrap-period trim as the import paths. The >= tex_width2 guard skips a stale
             // mask left by an FB blit (the pause background), which would otherwise tile the FB.
             uint32_t maskW = mRdp->texture_tile[tile].masks;
@@ -2074,13 +2076,10 @@ void Interpreter::GfxSpTri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx
             if (maskH != 0 && (1u << maskH) >= tex_height2[i] && (1u << maskH) < tex_height[i]) {
                 tex_height[i] = 1u << maskH;
             }
-            // HD replacements must clamp to the tile region
-            bool isHd = mRdp->loaded_texture[i].raw_tex_metadata.h_byte_scale != 1 ||
-                        mRdp->loaded_texture[i].raw_tex_metadata.v_pixel_scale != 1;
-            if ((isHd || pyrLike || (cms & G_TX_CLAMP)) && tex_width2[i] > 0 && tex_width2[i] < tex_width[i]) {
+            if ((pyrLike || (cms & G_TX_CLAMP)) && tex_width2[i] > 0 && tex_width2[i] < tex_width[i]) {
                 tex_width[i] = tex_width2[i];
             }
-            if ((isHd || pyrLike || (cmt & G_TX_CLAMP)) && tex_height2[i] > 0 && tex_height2[i] < tex_height[i]) {
+            if ((pyrLike || (cmt & G_TX_CLAMP)) && tex_height2[i] > 0 && tex_height2[i] < tex_height[i]) {
                 tex_height[i] = tex_height2[i];
             }
 
@@ -3594,7 +3593,9 @@ bool gfx_pop_shader(F3DGfx** cmd0) {
     Interpreter* gfx = mInstance.lock().get();
     F3DGfx* cmd = *cmd0;
 
-    gfx->mShaderStack.pop();
+    if (!gfx->mShaderStack.empty()) {
+        gfx->mShaderStack.pop();
+    }
 
     return false;
 }
@@ -4272,7 +4273,11 @@ bool gfx_set_timg_otr_hash_handler_custom(F3DGfx** cmd0) {
             gfx->GfxDpSetTextureImage(fmt, size, width, fileName, texFlags, rawTexMetadata, tex);
         }
     } else {
-        SPDLOG_ERROR("G_SETTIMG_OTR_HASH: Texture is null");
+        // ComboShip: name it and log once per path — this fires every frame the model is on screen.
+        static std::unordered_set<std::string> sReportedNullTextures;
+        if (sReportedNullTextures.insert(fileName).second) {
+            SPDLOG_ERROR("G_SETTIMG_OTR_HASH: Texture is null ({})", fileName);
+        }
     }
 
     (*cmd0)++;

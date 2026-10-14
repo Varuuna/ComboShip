@@ -1,14 +1,15 @@
 # Regenerate the PORT/custom asset archives: soh.o2r (soh/) and 2ship.o2r (mm/).
-# These pack <game>/assets/custom into an .o2r via the ZAPD tool (extract_assets.py --norom).
+# These pack <game>/assets/custom into an .o2r: soh via Torch's soh-o2r-packer, mm via the ZAPD tool
+# (extract_assets.py --norom).
 # They are NOT the ROM-extracted archives (oot.o2r / mm.o2r) -- those come from the user's ROMs.
 #
 # Usage:  .\generate-o2r.ps1 [--Debug | --Release] [soh | 2ship | both]
 #   config  : defaults to Debug
 #   game    : defaults to both
 #
-# Builds the ZAPD executable first (the targets DEPEND on it). Requires Python 3 on PATH
+# Builds the packer/ZAPD first (the targets DEPEND on them). Requires Python 3 on PATH for mm
 # (OTRExporter/extract_assets.py). Regenerate after assets/custom or libultraship shaders change.
-# NOTE: overwrites the tracked soh/soh.o2r and mm/2ship.o2r, and refreshes soh/assets/custom/shaders/.
+# NOTE: overwrites soh/soh.o2r and mm/2ship.o2r (untracked build outputs) and refreshes soh/assets/custom/shaders/.
 
 $config = 'Debug'
 $game   = 'both'
@@ -27,7 +28,7 @@ foreach ($a in $args) {
     }
 }
 
-# Python 3 is required by OTRExporter/extract_assets.py.
+# Python 3 is required by OTRExporter/extract_assets.py (2ship.o2r) and the asset-collision gate.
 if (-not (Get-Command python -ErrorAction SilentlyContinue) -and
     -not (Get-Command python3 -ErrorAction SilentlyContinue) -and
     -not (Get-Command py -ErrorAction SilentlyContinue)) {

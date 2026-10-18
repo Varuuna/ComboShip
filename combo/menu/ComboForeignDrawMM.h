@@ -88,12 +88,21 @@ inline const char* ComboInternRoutedPathOOT(const std::string& s) {
 // not resident, OOT's rando context null while dormant), which must NEVER be negative-cached.
 enum class ComboForeignResolveOOT { Ok, Unknown, NotReady };
 
+// Resolve OOT's draw recipe for an OOT item name (OOT's English item name, as OOT_GetItemDrawInfo takes).
+inline ComboForeignResolveOOT ComboFillDrawInfoByNameOOT(const char* drawName, ComboForeignDrawInfoOOT& info);
+
 inline ComboForeignResolveOOT ComboFillForeignDrawInfoOOT(RandoCheckId rc, ComboForeignDrawInfoOOT& info) {
     const ComboRando::ForeignItem* fi = Rando::MiscBehavior::MM_LookupForeign(rc);
     if (fi == nullptr || fi->itemGame != ComboRando::GAME_OOT) {
         return ComboForeignResolveOOT::Unknown;
     }
+    // A disguised trap must draw the item it pretends to be. Same namespace, so the itemGame dispatch
+    // above is unaffected. Not state-dependent: like OOT, the disguise holds until the get-item cutscene.
+    const char* drawName = fi->HasDisguise() ? fi->fakeItemName.c_str() : fi->itemName.c_str();
+    return ComboFillDrawInfoByNameOOT(drawName, info);
+}
 
+inline ComboForeignResolveOOT ComboFillDrawInfoByNameOOT(const char* drawName, ComboForeignDrawInfoOOT& info) {
     static Fn_GetItemDrawInfo sGetItemDrawInfo = nullptr;
     if (sGetItemDrawInfo == nullptr) {
         // soh already loaded by the exe (ComboMenuModel pattern); resolution is process-wide.
@@ -102,9 +111,6 @@ inline ComboForeignResolveOOT ComboFillForeignDrawInfoOOT(RandoCheckId rc, Combo
     if (sGetItemDrawInfo == nullptr) {
         return ComboForeignResolveOOT::NotReady; // soh.dll may simply not be resident yet
     }
-    // A disguised trap must draw the item it pretends to be. Same namespace, so the itemGame dispatch
-    // above is unaffected. Not state-dependent: like OOT, the disguise holds until the get-item cutscene.
-    const char* drawName = fi->HasDisguise() ? fi->fakeItemName.c_str() : fi->itemName.c_str();
     CwItemDrawInfo raw{};
     int32_t rcStatic = sGetItemDrawInfo(drawName, &raw);
     if (rcStatic == CW_DRAW_NOT_READY) {
@@ -253,6 +259,26 @@ inline const char* ComboForeignLiveNameOOT(RandoCheckId rc) {
         return nullptr;
     }
     return info->resolvedName.c_str();
+}
+
+// ComboShip (cross-game items): MM's own copies of OOT gear (Iron Boots (MM), ...) draw OOT's real model by
+// OOT item name. Concrete names only, so recipes don't depend on save state; NotReady is never cached.
+inline const ComboForeignDrawInfoOOT* ComboResolveDrawInfoByNameOOT(const char* ootName) {
+    static std::unordered_map<std::string, ComboForeignDrawInfoOOT> sByName;
+    if (ootName == nullptr) {
+        return nullptr;
+    }
+    auto cached = sByName.find(ootName);
+    if (cached != sByName.end()) {
+        return cached->second.ok ? &cached->second : nullptr;
+    }
+    ComboForeignDrawInfoOOT info{};
+    if (ComboFillDrawInfoByNameOOT(ootName, info) == ComboForeignResolveOOT::NotReady) {
+        return nullptr;
+    }
+    ComboForeignDrawInfoOOT& entry = sByName[ootName];
+    entry = info;
+    return entry.ok ? &entry : nullptr;
 }
 
 } // namespace
@@ -837,14 +863,54 @@ inline bool MM_DrawForeignSilverRupee(const ComboForeignDrawInfoOOT* info) {
 // Draw a foreign (OOT-bound) item's real OOT model at the current model matrix. Any resolution
 // failure falls back to the sentinel blue rupee (the RI_COMBO_FOREIGN item's GID_RUPEE_BLUE), so we
 // never draw blank. Mirrors Randomizer_DrawComboForeign (soh/.../draw.cpp).
+inline void MM_DrawForeignResolved(const ComboForeignDrawInfoOOT* info);
+
+// ComboShip (cross-game items): OOT's copies of MM masks and songs (Blast Mask (OOT), ...) have no OOT model; MM draws
+// its own. Names are OOT's English item names for those items (item_list.cpp). RI_UNKNOWN for any other item.
+inline RandoItemId ComboCrossMaskNativeMM(const std::string& ootName) {
+    static const std::unordered_map<std::string, RandoItemId> kMap = {
+        { "Blast Mask", RI_MASK_BLAST },        { "Stone Mask", RI_MASK_STONE },
+        { "Kamaro's Mask", RI_MASK_KAMARO },    { "Elegy of Emptiness", RI_SONG_ELEGY },
+        { "Song of Healing", RI_SONG_HEALING }, { "Sonata of Awakening", RI_SONG_SONATA },
+        { "Goron Lullaby", RI_SONG_LULLABY },   { "New Wave Bossa Nova", RI_SONG_NOVA },
+        { "Oath to Order", RI_SONG_OATH },
+    };
+    auto it = kMap.find(ootName);
+    return (it == kMap.end()) ? RI_UNKNOWN : it->second;
+}
+
 inline void MM_DrawComboForeign(RandoCheckId randoCheckId) {
+    if (randoCheckId != RC_UNKNOWN) {
+        const ComboRando::ForeignItem* fi = Rando::MiscBehavior::MM_LookupForeign(randoCheckId);
+        if (fi != nullptr && fi->itemGame == ComboRando::GAME_OOT) {
+            RandoItemId native = ComboCrossMaskNativeMM(fi->HasDisguise() ? fi->fakeItemName : fi->itemName);
+            if (native != RI_UNKNOWN) {
+                Rando::DrawItem(native);
+                return;
+            }
+        }
+    }
     const ComboForeignDrawInfoOOT* info =
         (randoCheckId != RC_UNKNOWN) ? ComboResolveForeignDrawInfoOOT(randoCheckId) : nullptr;
     if (info == nullptr) {
         GetItem_Draw(gPlayState, GID_RUPEE_BLUE);
         return;
     }
+    MM_DrawForeignResolved(info);
+}
 
+// ComboShip (cross-game items): draw OOT's model for an OOT item name; false if it couldn't be resolved
+// (the caller picks its own fallback).
+inline bool MM_DrawOOTItemByName(const char* ootName) {
+    const ComboForeignDrawInfoOOT* info = ComboResolveDrawInfoByNameOOT(ootName);
+    if (info == nullptr) {
+        return false;
+    }
+    MM_DrawForeignResolved(info);
+    return true;
+}
+
+inline void MM_DrawForeignResolved(const ComboForeignDrawInfoOOT* info) {
     // ComboShip: animated class — combo-owned skeletal draw (any failure -> sentinel, never blank).
     if (info->animOk) {
         if (!ComboForeignAnim_Draw(&info->anim, "oot", gPlayState)) {

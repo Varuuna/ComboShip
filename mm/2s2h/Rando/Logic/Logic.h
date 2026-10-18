@@ -26,6 +26,17 @@ extern "C" {
 #endif
 
 #ifdef COMBO_BUILD
+#include "Rando/MiscBehavior/AgeRequirements.h"
+#endif
+
+#ifdef COMBO_BUILD
+// ComboShip (cross-game items): OOT masks MM logic credits, like OoTMM's can_enter_deku_palace (Skull Mask)
+// and can_evade_gerudo (Gerudo Mask). Owned = RandoInf flag (set by GiveItem and the combo oracle alike).
+// Cross-Games Age: only at an age that may use them (MiscBehavior/AgeRequirements.h).
+#define HAS_COMBO_MASK_SKULL \
+    (Flags_GetRandoInf(RANDO_INF_OBTAINED_MASK_SKULL) && Combo_AgeReq_LogicAllowsItem(ITEM_COMBO_MASK_SKULL))
+#define HAS_COMBO_MASK_GERUDO \
+    (Flags_GetRandoInf(RANDO_INF_OBTAINED_MASK_GERUDO) && Combo_AgeReq_LogicAllowsItem(ITEM_COMBO_MASK_GERUDO))
 // ComboShip (teleport songs): 1 while the combined fill's oracle knows OOT can play Song of Soaring.
 extern "C" int gMMComboOracleOotSoaring;
 #define CAN_SOAR_TO_OWL (CAN_PLAY_SONG(SOARING) || gMMComboOracleOotSoaring != 0)
@@ -142,6 +153,13 @@ void FindReachableRegions(RandoRegionId currentRegion, std::set<RandoRegionId>& 
                           std::unordered_map<RandoRegionId, RegionTimeState>& regionTimeStates);
 RandoRegionId GetRegionIdFromEntrance(s32 entrance);
 void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool);
+#ifdef COMBO_BUILD
+// Ship of Harkinian's shop price settings (ShopPrices.cpp): the price GeneratePools rolls for a check.
+uint16_t RollCheckPrice(const RandoSaveInfo& saveInfo, RandoCheckId randoCheckId);
+// Ship of Harkinian's "Key Rings": resolves which temples get one (writing them back into the save options) and
+// swaps their small keys in the pool for the ring.
+void ApplyKeyrings(RandoSaveInfo& saveInfo, std::vector<RandoItemId>& itemPool);
+#endif
 void ApplyGlitchlessLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool);
 void ApplyNearlyNoLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool);
 void ApplyNoLogicToSaveContext(std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool);
@@ -197,7 +215,20 @@ void ValidateRegionTimeOwnership(RandoRegionId regionId, RandoCheckId checkId, u
 #define IS_DEITY (GET_PLAYER_FORM == PLAYER_FORM_FIERCE_DEITY)
 #define IS_GORON (GET_PLAYER_FORM == PLAYER_FORM_GORON)
 #define IS_HUMAN (GET_PLAYER_FORM == PLAYER_FORM_HUMAN)
+#ifdef COMBO_BUILD
+// ComboShip (cross-game items): the Short Hookshot is MM's Hookshot in the inventory with OOT's shorter range; logic
+// only counts the full Hookshot (CrossUpgrades.cpp). The item test folds away for every other item.
+// Cross-Games Age: and only at an age that may use it (MiscBehavior/AgeRequirements.h; gComboLogicAge).
+#define HAS_ITEM(item)                                                                       \
+    ((INV_CONTENT(item) == item) &&                                                          \
+     (((item) != ITEM_HOOKSHOT) || !Flags_GetRandoInf(RANDO_INF_COMBO_HOOKSHOT_IS_SHORT)) && \
+     Combo_AgeReq_LogicAllowsItem(item))
+// Trade items MM logic tracks by their "obtained" flag (they share inventory slots): the flag, at a usable age.
+#define HAS_TRADE_ITEM(flag, item) (Flags_GetRandoInf(flag) && Combo_AgeReq_LogicAllowsItem(item))
+#else
 #define HAS_ITEM(item) (INV_CONTENT(item) == item)
+#define HAS_TRADE_ITEM(flag, item) (Flags_GetRandoInf(flag))
+#endif
 #define CAN_BE_DEKU (IS_DEKU || HAS_ITEM(ITEM_MASK_DEKU))
 #define CAN_BE_ZORA (IS_ZORA || HAS_ITEM(ITEM_MASK_ZORA))
 #define CAN_BE_DEITY (IS_DEITY || HAS_ITEM(ITEM_MASK_FIERCE_DEITY))
@@ -247,9 +278,17 @@ void ValidateRegionTimeOwnership(RandoRegionId regionId, RandoCheckId checkId, u
 #define CAN_USE_MAGIC_ARROW(arrowType) (HAS_ITEM(ITEM_BOW) && HAS_ITEM(ITEM_ARROW_##arrowType) && HAS_MAGIC)
 #define CAN_LIGHT_TORCH_NEAR_ANOTHER (HAS_ITEM(ITEM_DEKU_STICK) || CAN_USE_MAGIC_ARROW(FIRE))
 #define KEY_COUNT(dungeon) (gSaveContext.save.shipSaveInfo.rando.foundDungeonKeys[DUNGEON_SCENE_INDEX_##dungeon])
+#ifdef COMBO_BUILD
+// ComboShip: Ship of Harkinian's shop price settings can ask up to 999 rupees, so a Giant's Wallet (500) is no longer
+// enough for everything: past 500 takes the Tycoon's Wallet.
+#define CAN_AFFORD(rc)                                                                                                \
+    ((RANDO_SAVE_CHECKS[rc].price < 100) || (RANDO_SAVE_CHECKS[rc].price <= 200 && CUR_UPG_VALUE(UPG_WALLET) >= 1) || \
+     (RANDO_SAVE_CHECKS[rc].price <= 500 && CUR_UPG_VALUE(UPG_WALLET) >= 2) || (CUR_UPG_VALUE(UPG_WALLET) >= 3))
+#else
 #define CAN_AFFORD(rc)                                                                                                \
     ((RANDO_SAVE_CHECKS[rc].price < 100) || (RANDO_SAVE_CHECKS[rc].price <= 200 && CUR_UPG_VALUE(UPG_WALLET) >= 1) || \
      (CUR_UPG_VALUE(UPG_WALLET) >= 2))
+#endif
 #define HAS_ENOUGH_STRAY_FAIRIES(dungeonIndex) \
     (gSaveContext.save.saveInfo.inventory.strayFairies[dungeonIndex] >= RANDO_SAVE_OPTIONS[RO_STRAY_FAIRIES_REQUIRED])
 #define FOUND_ALL_FROGS                                                                  \

@@ -10,6 +10,11 @@
 #include "2s2h/BenGui/HudEditor.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include <libultraship/bridge/consolevariablebridge.h>
+#ifdef COMBO_BUILD
+// ComboShip: Ship of Harkinian's "Bombchu Bag" (Rando/MiscBehavior/BombchuBag.cpp).
+s32 Combo_Rando_BombchuBagOn(void);
+s32 Combo_Rando_BombchuCapacity(void);
+#endif
 
 s16 sEquipState = EQUIP_STATE_MAGIC_ARROW_GROW_ORB;
 
@@ -216,7 +221,12 @@ void KaleidoScope_DrawAmmoCount(PauseContext* pauseCtx, GraphicsContext* gfxCtx,
                    ((item == ITEM_BOW) && (AMMO(item) == CUR_CAPACITY(UPG_QUIVER))) ||
                    ((item == ITEM_DEKU_STICK) && (AMMO(item) == CUR_CAPACITY(UPG_DEKU_STICKS))) ||
                    ((item == ITEM_DEKU_NUT) && (AMMO(item) == CUR_CAPACITY(UPG_DEKU_NUTS))) ||
+#ifdef COMBO_BUILD
+                   // ComboShip: Ship of Harkinian's "Bombchu Bag" (Rando/MiscBehavior/BombchuBag.cpp).
+                   ((item == ITEM_BOMBCHU) && (AMMO(item) == Combo_Rando_BombchuCapacity())) ||
+#else
                    ((item == ITEM_BOMBCHU) && (AMMO(item) == CUR_CAPACITY(UPG_BOMB_BAG))) ||
+#endif
                    ((item == ITEM_POWDER_KEG) && GameInteractor_Should(VB_POWDER_KEG_AMMO_AT_CAPACITY, ammo == 1)) ||
                    ((item == ITEM_PICTOGRAPH_BOX) && (ammo == 1)) || ((item == ITEM_MAGIC_BEANS) && (ammo == 20))) {
             // Ammo at capacity

@@ -313,3 +313,21 @@ years (`z_scene_otr.cpp`, `Scene_CommandTransitionActorList`); MM never received
 in `Scene_CommandTransiActorList`, `ABS()`-normalize every transition actor id before
 `MapDisp_InitTransitionActorData`. Same code as SoH's fix, wrapped in `#ifdef COMBO_BUILD` with a
 `// ComboShip:` comment.
+
+## Garbage texture pointers skipped instead of crashing (MM HUD crash, 2026-10-16)
+
+**Why:** a player's crash log (MM, Windows) showed `ImportTextureRgba32` reading a non-canonical address while
+drawing a wide texture rectangle, the HUD's B/C/D-pad item icons (RGBA32 icons). Which icon pointer went bad
+isn't in the log. Feeding the HUD a garbage icon pointer reproduces the crash, in `SegAddr` (an odd garbage value
+read the segment table out of bounds) or in the texture import.
+
+**Vendored (`libultraship/src/fast/interpreter.cpp`):**
+- `SegAddr` — a segment number past `MAX_SEGMENT_POINTERS` is not a segment address; return the value unchanged.
+- `IsValidResolvedAddress` (used by `G_SETTIMG`) — on 64-bit, an address at or past 2^48 (outside the user address
+  space) is rejected, so the texture is skipped (logged once) instead of read.
+
+**MM (`mm/src/code/z_parameter.c`, `COMBO_BUILD`):**
+- `Interface_Dpad_LoadItemIconImpl` — an out-of-range D-pad item blanked `iconItemSegment[btn]` (a B/C button's
+  icon, upstream bug); it now blanks the D-pad slot.
+- The pause menu's equip animation drew OOT's items (`ITEM_COMBO_*`, past the magic arrows) as a magic arrow effect
+  with colors read past `sMagicArrowEffects*`; they fly to the button as their own icon.

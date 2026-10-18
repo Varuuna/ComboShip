@@ -2958,6 +2958,67 @@ typedef enum {
     // recognizes it and diverts the real (foreign) item through the cross-world mailbox instead of
     // granting locally. Appended before the terminators so existing RI values (and save data) are unchanged.
     RI_COMBO_FOREIGN,
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items, OoTMM "X (MM)" settings): OOT equipment usable in MM. Appended so
+    // existing RI values are unchanged. Gameplay: 2s2h/Rando/MiscBehavior/CrossGear.cpp.
+    RI_BOOTS_IRON,
+    RI_BOOTS_HOVER,
+    RI_TUNIC_GORON,
+    RI_TUNIC_ZORA,
+    RI_PROGRESSIVE_SCALE,
+    RI_SCALE_SILVER,
+    RI_SCALE_GOLDEN,
+    RI_PROGRESSIVE_STRENGTH,
+    RI_STRENGTH_GORONS_BRACELET,
+    RI_STRENGTH_SILVER_GAUNTLETS,
+    RI_STRENGTH_GOLDEN_GAUNTLETS,
+    // OOT masks human Link can wear in MM (OoTMM "Gerudo/Skull/Spooky Mask (MM)").
+    RI_MASK_GERUDO,
+    RI_MASK_SKULL,
+    RI_MASK_SPOOKY,
+    // OOT songs playable in MM (OoTMM "Zelda's Lullaby (MM)").
+    RI_SONG_ZELDA,
+    // OOT spells human Link can cast in MM (OoTMM "Din's Fire (MM)" etc.).
+    RI_SPELL_FIRE,
+    RI_SPELL_WIND,
+    RI_SPELL_LOVE,
+    // OOT tools used by human Link in MM (OoTMM "Megaton Hammer (MM)", "Boomerang (MM)", "Slingshot (MM)",
+    // "Deku Shield (MM)"); MiscBehavior/CrossTools.cpp.
+    RI_HAMMER,
+    RI_BOOMERANG,
+    RI_SLINGSHOT,
+    RI_SHIELD_DEKU,
+    // OOT items in MM (OoTMM "Stone of Agony in MM", "Fairy Ocarina in MM", "Short Hookshot in MM",
+    // "Deku Stick & Nut Upgrades in MM"); MiscBehavior/CrossUpgrades.cpp.
+    RI_STONE_OF_AGONY,
+    RI_OCARINA_FAIRY,
+    RI_HOOKSHOT_SHORT,
+    RI_PROGRESSIVE_STICK_UPGRADE,
+    RI_DEKU_STICK_UPGRADE_20,
+    RI_DEKU_STICK_UPGRADE_30,
+    RI_PROGRESSIVE_NUT_UPGRADE,
+    RI_DEKU_NUT_UPGRADE_30,
+    RI_DEKU_NUT_UPGRADE_40,
+    // Ship of Harkinian's "Infinite Upgrades" (MiscBehavior/InfiniteUpgrades.cpp): the copy past an upgrade's last
+    // tier.
+    RI_BOMB_BAG_INF,
+    RI_QUIVER_INF,
+    RI_WALLET_INF,
+    RI_MAGIC_INF,
+    RI_STICK_UPGRADE_INF,
+    RI_NUT_UPGRADE_INF,
+    RI_BOMBCHU_INF,
+    // Ship of Harkinian's "Bombchu Bag" (MiscBehavior/BombchuBag.cpp): bombchus need their own bag.
+    RI_PROGRESSIVE_BOMBCHU_BAG,
+    RI_BOMBCHU_BAG_20,
+    RI_BOMBCHU_BAG_30,
+    RI_BOMBCHU_BAG_40,
+    // Ship of Harkinian's "Key Rings": every small key of one temple at once.
+    RI_WOODFALL_KEYRING,
+    RI_SNOWHEAD_KEYRING,
+    RI_GREAT_BAY_KEYRING,
+    RI_STONE_TOWER_KEYRING,
+#endif
     RI_MAX_TRAP, // Just used for ice trap ice cube model
     RI_MAX,
 } RandoItemId;
@@ -3357,6 +3418,59 @@ typedef enum {
     RO_TRAP_AMOUNT,
     RO_TRIFORCE_PIECES_MAX,
     RO_TRIFORCE_PIECES_REQUIRED,
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): OoTMM's "Iron Boots (MM)" etc. Appended (save arrays are positional).
+    RO_CROSS_BOOTS_IRON,
+    RO_CROSS_BOOTS_HOVER,
+    RO_CROSS_TUNIC_GORON,
+    RO_CROSS_TUNIC_ZORA,
+    RO_CROSS_SCALES,
+    RO_CROSS_STRENGTH,
+    RO_CROSS_MASK_GERUDO,
+    RO_CROSS_MASK_SKULL,
+    RO_CROSS_MASK_SPOOKY,
+    RO_CROSS_SONG_ZELDA,
+    RO_CROSS_SPELL_FIRE,
+    RO_CROSS_SPELL_WIND,
+    RO_CROSS_SPELL_LOVE,
+    RO_CROSS_HAMMER,
+    RO_CROSS_BOOMERANG,
+    RO_CROSS_SLINGSHOT,
+    RO_CROSS_SHIELD_DEKU,
+    RO_CROSS_STONE_AGONY,
+    RO_CROSS_OCARINA_FAIRY,
+    RO_CROSS_HOOKSHOT_SHORT,
+    RO_CROSS_STICKS_NUTS,
+    RO_CROSS_GAME_FW,  // OoTMM "Cross-Games Farore's Wind" (needs RO_CROSS_SPELL_WIND)
+    RO_CROSS_GAME_AGE, // OoTMM "Cross-Games Age": Link enters Termina at his age in Hyrule
+// Cross-Games Age: OoTMM's MM age requirements, RO_AGE_REQ_<item> (values: RandoOptionAgeReq).
+#define AGE_REQ(suffix, label, ootmmId, item, poolOption) RO_AGE_REQ_##suffix,
+#include "MiscBehavior/AgeReqList.h"
+#undef AGE_REQ
+    // Ship of Harkinian's shop price settings (values: RandoOptionShopPrices); Logic/ShopPrices.cpp.
+    RO_SHOP_PRICES,
+    RO_SHOP_PRICES_FIXED,   // in units of 5 rupees
+    RO_SHOP_PRICES_RANGE_1, // in units of 5 rupees
+    RO_SHOP_PRICES_RANGE_2, // in units of 5 rupees
+    RO_SHOP_PRICES_WEIGHT_FREE,
+    RO_SHOP_PRICES_WEIGHT_STARTING_WALLET,
+    RO_SHOP_PRICES_WEIGHT_ADULT_WALLET,
+    RO_SHOP_PRICES_WEIGHT_GIANT_WALLET,
+    RO_SHOP_PRICES_WEIGHT_TYCOON_WALLET,
+    RO_SHOP_PRICES_AFFORDABLE,
+    // Ship of Harkinian's "Infinite Upgrades" (values: RandoOptionInfiniteUpgrades).
+    RO_INFINITE_UPGRADES,
+    // Ship of Harkinian's "Bombchu Bag" (values: RandoOptionBombchuBag).
+    RO_BOMBCHU_BAG,
+    // Ship of Harkinian's "Key Rings" (values: RandoOptionKeyrings). The per-temple options are the selection;
+    // generation writes the resolved temples back into them for Random and Count.
+    RO_KEYRINGS,
+    RO_KEYRINGS_COUNT,
+    RO_KEYRINGS_WOODFALL,
+    RO_KEYRINGS_SNOWHEAD,
+    RO_KEYRINGS_GREAT_BAY,
+    RO_KEYRINGS_STONE_TOWER,
+#endif
     RO_MAX,
 } RandoOptionId;
 
@@ -3364,6 +3478,47 @@ typedef enum {
     RO_GENERIC_OFF,
     RO_GENERIC_ON,
 } RandoOptionGenericOffOn;
+
+#ifdef COMBO_BUILD
+// Cross-Games Age: which age may use an MM item (OoTMM's "requires Child/Adult Link" pair; Random is resolved from the
+// seed when the save is created, so a save only holds the first three).
+typedef enum {
+    RO_AGE_ANY,
+    RO_AGE_CHILD_ONLY,
+    RO_AGE_ADULT_ONLY,
+    RO_AGE_RANDOM,
+} RandoOptionAgeReq;
+
+// Ship of Harkinian's shop price settings. Random is 2Ship's own 0-199 roll and stays the default.
+typedef enum {
+    RO_SHOP_PRICES_RANDOM,
+    RO_SHOP_PRICES_VANILLA,
+    RO_SHOP_PRICES_CHEAP_BALANCED,
+    RO_SHOP_PRICES_BALANCED,
+    RO_SHOP_PRICES_FIXED_PRICE,
+    RO_SHOP_PRICES_RANGE,
+    RO_SHOP_PRICES_SET_BY_WALLET,
+} RandoOptionShopPrices;
+
+typedef enum {
+    RO_INFINITE_UPGRADES_OFF,
+    RO_INFINITE_UPGRADES_PROGRESSIVE,
+    RO_INFINITE_UPGRADES_CONDENSED,
+} RandoOptionInfiniteUpgrades;
+
+typedef enum {
+    RO_BOMBCHU_BAG_NONE,
+    RO_BOMBCHU_BAG_SINGLE,
+    RO_BOMBCHU_BAG_PROGRESSIVE,
+} RandoOptionBombchuBag;
+
+typedef enum {
+    RO_KEYRINGS_MODE_OFF,
+    RO_KEYRINGS_MODE_RANDOM,
+    RO_KEYRINGS_MODE_COUNT,
+    RO_KEYRINGS_MODE_SELECTION,
+} RandoOptionKeyrings;
+#endif
 
 typedef enum {
     RO_GENERIC_NO,
@@ -3506,6 +3661,55 @@ typedef enum {
     RANDO_INF_OBTAINED_SONG_REQUIEM,
     RANDO_INF_OBTAINED_SONG_NOCTURNE,
     RANDO_INF_OBTAINED_SONG_PRELUDE,
+#endif
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): ownership of OOT equipment in MM, then what Link is wearing.
+    // Appended; saves written before this load with these clear (BenJsonConversions tolerant read).
+    RANDO_INF_OBTAINED_BOOTS_IRON,
+    RANDO_INF_OBTAINED_BOOTS_HOVER,
+    RANDO_INF_OBTAINED_TUNIC_GORON,
+    RANDO_INF_OBTAINED_TUNIC_ZORA,
+    RANDO_INF_OBTAINED_SCALE_SILVER,
+    RANDO_INF_OBTAINED_SCALE_GOLDEN,
+    RANDO_INF_OBTAINED_STRENGTH_GORONS_BRACELET,
+    RANDO_INF_OBTAINED_STRENGTH_SILVER_GAUNTLETS,
+    RANDO_INF_OBTAINED_STRENGTH_GOLDEN_GAUNTLETS,
+    RANDO_INF_COMBO_WEARING_BOOTS_IRON,
+    RANDO_INF_COMBO_WEARING_BOOTS_HOVER,
+    RANDO_INF_COMBO_WEARING_TUNIC_GORON,
+    RANDO_INF_COMBO_WEARING_TUNIC_ZORA,
+    RANDO_INF_OBTAINED_MASK_GERUDO,
+    RANDO_INF_OBTAINED_MASK_SKULL,
+    RANDO_INF_OBTAINED_MASK_SPOOKY,
+    RANDO_INF_COMBO_WEARING_MASK_GERUDO,
+    RANDO_INF_COMBO_WEARING_MASK_SKULL,
+    RANDO_INF_COMBO_WEARING_MASK_SPOOKY,
+    RANDO_INF_OBTAINED_SONG_ZELDA,
+    RANDO_INF_OBTAINED_SPELL_FIRE,
+    RANDO_INF_OBTAINED_SPELL_WIND,
+    RANDO_INF_OBTAINED_SPELL_LOVE,
+    RANDO_INF_OBTAINED_HAMMER,
+    RANDO_INF_OBTAINED_BOOMERANG,
+    RANDO_INF_OBTAINED_SLINGSHOT,
+    RANDO_INF_OBTAINED_SHIELD_DEKU,
+    // The equipped shield (EQUIP_VALUE_SHIELD_HERO) is the Deku Shield: drawn as OOT's, burns away.
+    RANDO_INF_COMBO_SHIELD_IS_DEKU,
+    RANDO_INF_OBTAINED_STONE_OF_AGONY,
+    // The ocarina / hookshot in the inventory is still the first tier: OOT's Fairy Ocarina, the Short Hookshot.
+    RANDO_INF_COMBO_OCARINA_IS_FAIRY,
+    RANDO_INF_COMBO_HOOKSHOT_IS_SHORT,
+    // Ship of Harkinian's "Infinite Upgrades" (MiscBehavior/InfiniteUpgrades.cpp).
+    RANDO_INF_HAS_INFINITE_BOMB_BAG,
+    RANDO_INF_HAS_INFINITE_QUIVER,
+    RANDO_INF_HAS_INFINITE_MONEY,
+    RANDO_INF_HAS_INFINITE_MAGIC,
+    RANDO_INF_HAS_INFINITE_STICKS,
+    RANDO_INF_HAS_INFINITE_NUTS,
+    RANDO_INF_HAS_INFINITE_BOMBCHUS,
+    // Ship of Harkinian's "Bombchu Bag": one flag per bag tier owned (MiscBehavior/BombchuBag.cpp).
+    RANDO_INF_OBTAINED_BOMBCHU_BAG_20,
+    RANDO_INF_OBTAINED_BOMBCHU_BAG_30,
+    RANDO_INF_OBTAINED_BOMBCHU_BAG_40,
 #endif
     RANDO_INF_MAX,
 } RandoInf;

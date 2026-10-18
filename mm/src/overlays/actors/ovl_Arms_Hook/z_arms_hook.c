@@ -8,6 +8,9 @@
 #include "objects/gameplay_keep/gameplay_keep.h"
 #include "objects/object_link_child/object_link_child.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
+#ifdef COMBO_BUILD
+#include "2s2h/Rando/MiscBehavior/CrossGear.h" // ComboShip: Short Hookshot (OOT items in MM)
+#endif
 
 #define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED)
 
@@ -79,6 +82,12 @@ void ArmsHook_Wait(ArmsHook* this, PlayState* play) {
         Actor_SetSpeeds(&this->actor, 20.0f);
         this->actor.parent = &GET_PLAYER(play)->actor;
         this->timer = 26;
+#ifdef COMBO_BUILD
+        // ComboShip (cross-game items): the Short Hookshot flies half as long, OOT's Hookshot range (OoTMM).
+        if (Combo_Upgrades_HookshotIsShort()) {
+            this->timer = 13;
+        }
+#endif
     }
 }
 

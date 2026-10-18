@@ -105,6 +105,18 @@ std::vector<u8> BuildAvailableItemsList(u8 slot) {
             if (Flags_GetRandoInf(RANDO_INF_OBTAINED_DEED_MOUNTAIN)) {
                 availableItems.push_back(ITEM_DEED_MOUNTAIN);
             }
+#ifdef COMBO_BUILD
+            // ComboShip (cross-game items): OOT's Gerudo Mask.
+            if (Flags_GetRandoInf(RANDO_INF_OBTAINED_MASK_GERUDO)) {
+                availableItems.push_back(ITEM_COMBO_MASK_GERUDO);
+            }
+            if (Flags_GetRandoInf(RANDO_INF_OBTAINED_SPELL_FIRE)) {
+                availableItems.push_back(ITEM_COMBO_SPELL_FIRE);
+            }
+            if (Flags_GetRandoInf(RANDO_INF_OBTAINED_HAMMER)) {
+                availableItems.push_back(ITEM_COMBO_HAMMER);
+            }
+#endif
             break;
         case SLOT_TRADE_KEY_MAMA:
             if (Flags_GetRandoInf(RANDO_INF_OBTAINED_ROOM_KEY)) {
@@ -113,6 +125,24 @@ std::vector<u8> BuildAvailableItemsList(u8 slot) {
             if (Flags_GetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_MAMA)) {
                 availableItems.push_back(ITEM_LETTER_MAMA);
             }
+#ifdef COMBO_BUILD
+            // ComboShip (cross-game items): OOT gear shares the trade-slot cycles, like OoTMM's extra items.
+            if (Flags_GetRandoInf(RANDO_INF_OBTAINED_BOOTS_IRON)) {
+                availableItems.push_back(ITEM_COMBO_BOOTS_IRON);
+            }
+            if (Flags_GetRandoInf(RANDO_INF_OBTAINED_TUNIC_GORON)) {
+                availableItems.push_back(ITEM_COMBO_TUNIC_GORON);
+            }
+            if (Flags_GetRandoInf(RANDO_INF_OBTAINED_MASK_SKULL)) {
+                availableItems.push_back(ITEM_COMBO_MASK_SKULL);
+            }
+            if (Flags_GetRandoInf(RANDO_INF_OBTAINED_SPELL_WIND)) {
+                availableItems.push_back(ITEM_COMBO_SPELL_WIND);
+            }
+            if (Flags_GetRandoInf(RANDO_INF_OBTAINED_BOOMERANG)) {
+                availableItems.push_back(ITEM_COMBO_BOOMERANG);
+            }
+#endif
             break;
         case SLOT_TRADE_COUPLE:
             if (Flags_GetRandoInf(RANDO_INF_OBTAINED_PENDANT_OF_MEMORIES)) {
@@ -121,6 +151,23 @@ std::vector<u8> BuildAvailableItemsList(u8 slot) {
             if (Flags_GetRandoInf(RANDO_INF_OBTAINED_LETTER_TO_KAFEI)) {
                 availableItems.push_back(ITEM_LETTER_TO_KAFEI);
             }
+#ifdef COMBO_BUILD
+            if (Flags_GetRandoInf(RANDO_INF_OBTAINED_BOOTS_HOVER)) {
+                availableItems.push_back(ITEM_COMBO_BOOTS_HOVER);
+            }
+            if (Flags_GetRandoInf(RANDO_INF_OBTAINED_TUNIC_ZORA)) {
+                availableItems.push_back(ITEM_COMBO_TUNIC_ZORA);
+            }
+            if (Flags_GetRandoInf(RANDO_INF_OBTAINED_MASK_SPOOKY)) {
+                availableItems.push_back(ITEM_COMBO_MASK_SPOOKY);
+            }
+            if (Flags_GetRandoInf(RANDO_INF_OBTAINED_SPELL_LOVE)) {
+                availableItems.push_back(ITEM_COMBO_SPELL_LOVE);
+            }
+            if (Flags_GetRandoInf(RANDO_INF_OBTAINED_SLINGSHOT)) {
+                availableItems.push_back(ITEM_COMBO_SLINGSHOT);
+            }
+#endif
             break;
     }
 

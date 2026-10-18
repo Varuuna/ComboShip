@@ -317,6 +317,17 @@ void EnWood02_Destroy(Actor* thisx, PlayState* play) {
     if (this->actor.params <= WOOD_TREE_KAKARIKO_ADULT) {
         Collider_DestroyCylinder(play, &this->collider);
     }
+#ifdef COMBO_BUILD
+    // ComboShip: a spawner placed over the void kills itself right after spawning its trees (Init), and the trees
+    // later write their state into their parent (EnWood02_Update). Once another actor reused that memory, the
+    // write corrupted it (it crashed ComboShip's Elegy shell in Hyrule Field). Orphan the trees instead; they then
+    // never despawn through the parent, as for trees that have none.
+    for (Actor* actor = play->actorCtx.actorLists[ACTORCAT_PROP].head; actor != NULL; actor = actor->next) {
+        if (actor->parent == thisx) {
+            actor->parent = NULL;
+        }
+    }
+#endif
 }
 
 void EnWood02_Update(Actor* thisx, PlayState* play2) {

@@ -462,6 +462,36 @@ extern "C" const char* Randomizer_ComboForeignLatchedName(int32_t rc) {
 extern "C" const char* Randomizer_ComboForeignLiveName(int32_t rc) {
     return ComboForeignLiveName((RandomizerCheck)rc);
 }
+
+// ComboShip (cross-game items): OOT's copies of MM masks (Blast/Stone/Kamaro) draw MM's real get-item model by
+// MM item name; if MM's archive isn't resident yet, the Mask of Truth stands in.
+extern "C" void Randomizer_DrawComboMmMask(PlayState* play, GetItemEntry* getItemEntry) {
+    const char* mmName = nullptr;
+    switch (getItemEntry->itemId) {
+        case RG_COMBO_MASK_BLAST:
+            mmName = "RI_MASK_BLAST";
+            break;
+        case RG_COMBO_MASK_STONE:
+            mmName = "RI_MASK_STONE";
+            break;
+        case RG_COMBO_MASK_KAMARO:
+            mmName = "RI_MASK_KAMARO";
+            break;
+        default:
+            break;
+    }
+    if (mmName == nullptr || !OOT_DrawMMItemByName(play, mmName)) {
+        GetItem_Draw(play, GID_MASK_TRUTH);
+    }
+}
+
+// ComboShip (cross-game items): the Kokiri Sword's MM upgrades, drawn with MM's own get-item models.
+extern "C" void Randomizer_DrawComboMmSword(PlayState* play, GetItemEntry* getItemEntry) {
+    const char* mmName = (getItemEntry->itemId == RG_COMBO_GILDED_SWORD) ? "RI_SWORD_GILDED" : "RI_SWORD_RAZOR";
+    if (!OOT_DrawMMItemByName(play, mmName)) {
+        GetItem_Draw(play, GID_SWORD_KOKIRI);
+    }
+}
 #endif
 
 Gfx* GetEmptyDlist(GraphicsContext* gfxCtx) {
@@ -1070,6 +1100,45 @@ static Gfx gGiSongOfSoaringColorDL[] = {
     gsDPSetEnvColor(200, 160, 255, 255),
     gsSPEndDisplayList(),
 };
+
+// ComboShip (cross-game items): MM songs in OOT as song notes in MM's colors (2ship's Rando DrawSong).
+extern "C" void Randomizer_DrawComboMmSong(PlayState* play, GetItemEntry* getItemEntry) {
+    u8 r = 255, g = 255, b = 255;
+    switch (getItemEntry->itemId) {
+        case RG_COMBO_SONG_ELEGY:
+            r = 255, g = 98, b = 0;
+            break;
+        case RG_COMBO_SONG_HEALING:
+            r = 255, g = 150, b = 230;
+            break;
+        case RG_COMBO_SONG_SONATA:
+            r = 98, g = 255, b = 98;
+            break;
+        case RG_COMBO_SONG_GORON:
+            r = 255, g = 20, b = 20;
+            break;
+        case RG_COMBO_SONG_BOSSA:
+            r = 20, g = 20, b = 255;
+            break;
+        case RG_COMBO_SONG_OATH:
+            r = 98, g = 0, b = 98;
+            break;
+        default:
+            break;
+    }
+    OPEN_DISPS(play->state.gfxCtx);
+
+    Gfx_SetupDL_25Xlu(play->state.gfxCtx);
+
+    gSPMatrix(POLY_XLU_DISP++, Matrix_NewMtx(play->state.gfxCtx, (char*)__FILE__, __LINE__),
+              G_MTX_MODELVIEW | G_MTX_LOAD);
+    gDPPipeSync(POLY_XLU_DISP++);
+    gDPSetPrimColor(POLY_XLU_DISP++, 0, 0x80, 255, 255, 255, 255);
+    gDPSetEnvColor(POLY_XLU_DISP++, r, g, b, 255);
+    gSPDisplayList(POLY_XLU_DISP++, (Gfx*)gGiSongNoteDL);
+
+    CLOSE_DISPS(play->state.gfxCtx);
+}
 
 extern "C" void Randomizer_DrawSongOfSoaring(PlayState* play, GetItemEntry* getItemEntry) {
     OPEN_DISPS(play->state.gfxCtx);

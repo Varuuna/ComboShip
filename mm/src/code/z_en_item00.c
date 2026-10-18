@@ -5,6 +5,9 @@
 #include "overlays/actors/ovl_En_Elf/z_en_elf.h"
 #include "overlays/actors/ovl_En_Elforg/z_en_elforg.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
+#ifdef COMBO_BUILD
+#include "2s2h/Rando/MiscBehavior/CrossGear.h" // ComboShip: cross-game items (Slingshot seeds)
+#endif
 
 #include "2s2h/Enhancements/FrameInterpolation/FrameInterpolation.h"
 
@@ -265,18 +268,30 @@ void EnItem00_Init(Actor* thisx, PlayState* play) {
 
         case ITEM00_ARROWS_10:
             Item_Give(play, ITEM_ARROWS_10);
+#ifdef COMBO_BUILD
+            Combo_Tools_OnArrowPickup(10); // ComboShip (cross-game items): OOT Slingshot seeds
+#endif
             break;
 
         case ITEM00_ARROWS_30:
             Item_Give(play, ITEM_ARROWS_30);
+#ifdef COMBO_BUILD
+            Combo_Tools_OnArrowPickup(30); // ComboShip (cross-game items): OOT Slingshot seeds
+#endif
             break;
 
         case ITEM00_ARROWS_40:
             Item_Give(play, ITEM_ARROWS_40);
+#ifdef COMBO_BUILD
+            Combo_Tools_OnArrowPickup(40); // ComboShip (cross-game items): OOT Slingshot seeds
+#endif
             break;
 
         case ITEM00_ARROWS_50:
             Item_Give(play, ITEM_ARROWS_50);
+#ifdef COMBO_BUILD
+            Combo_Tools_OnArrowPickup(50); // ComboShip (cross-game items): OOT Slingshot seeds
+#endif
             break;
 
         case ITEM00_MAGIC_JAR_BIG:
@@ -605,18 +620,30 @@ void EnItem00_Update(Actor* thisx, PlayState* play) {
 
         case ITEM00_ARROWS_10:
             Item_Give(play, ITEM_ARROWS_10);
+#ifdef COMBO_BUILD
+            Combo_Tools_OnArrowPickup(10); // ComboShip (cross-game items): OOT Slingshot seeds
+#endif
             break;
 
         case ITEM00_ARROWS_30:
             Item_Give(play, ITEM_ARROWS_30);
+#ifdef COMBO_BUILD
+            Combo_Tools_OnArrowPickup(30); // ComboShip (cross-game items): OOT Slingshot seeds
+#endif
             break;
 
         case ITEM00_ARROWS_40:
             Item_Give(play, ITEM_ARROWS_40);
+#ifdef COMBO_BUILD
+            Combo_Tools_OnArrowPickup(40); // ComboShip (cross-game items): OOT Slingshot seeds
+#endif
             break;
 
         case ITEM00_ARROWS_50:
             Item_Give(play, ITEM_ARROWS_50);
+#ifdef COMBO_BUILD
+            Combo_Tools_OnArrowPickup(50); // ComboShip (cross-game items): OOT Slingshot seeds
+#endif
             break;
 
         case ITEM00_SMALL_KEY:
@@ -901,6 +928,10 @@ s16 func_800A7650(s16 dropId) {
          (INV_CONTENT(ITEM_BOMB) == ITEM_NONE)) ||
         (((dropId == ITEM00_ARROWS_10) || (dropId == ITEM00_ARROWS_30) || (dropId == ITEM00_ARROWS_40) ||
           (dropId == ITEM00_ARROWS_50)) &&
+#ifdef COMBO_BUILD
+         // ComboShip (cross-game items): arrow drops also refill the OOT Slingshot's seeds.
+         !Combo_Tools_OwnsSlingshot() &&
+#endif
          (INV_CONTENT(ITEM_BOW) == ITEM_NONE)) ||
         (((dropId == ITEM00_MAGIC_JAR_BIG) || (dropId == ITEM00_MAGIC_JAR_SMALL)) &&
          (gSaveContext.save.saveInfo.playerData.magicLevel == 0))) {

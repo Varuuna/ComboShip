@@ -5,6 +5,11 @@
  */
 
 #include "z_en_girla.h"
+#ifdef COMBO_BUILD
+// ComboShip: Ship of Harkinian's "Bombchu Bag" (Rando/MiscBehavior/BombchuBag.cpp).
+s32 Combo_Rando_BombchuBagOn(void);
+s32 Combo_Rando_BombchuCapacity(void);
+#endif
 
 #define FLAGS (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_FRIENDLY | ACTOR_FLAG_UPDATE_CULLING_DISABLED)
 
@@ -311,11 +316,24 @@ s32 EnGirlA_CanBuyBombBag30BombShop(PlayState* play, EnGirlA* this) {
 }
 
 s32 EnGirlA_CanBuyBombchus(PlayState* play, EnGirlA* this) {
-    if (GET_CUR_UPG_VALUE(UPG_BOMB_BAG) == 0) {
-        return CANBUY_RESULT_CANNOT_GET_NOW;
-    }
-    if (AMMO(ITEM_BOMBCHU) >= CUR_CAPACITY(UPG_BOMB_BAG)) {
-        return CANBUY_RESULT_NO_ROOM;
+#ifdef COMBO_BUILD
+    // ComboShip: Ship of Harkinian's "Bombchu Bag" (Rando/MiscBehavior/BombchuBag.cpp): bombchus need their own bag.
+    if (Combo_Rando_BombchuBagOn()) {
+        if (INV_CONTENT(ITEM_BOMBCHU) != ITEM_BOMBCHU) {
+            return CANBUY_RESULT_CANNOT_GET_NOW;
+        }
+        if (AMMO(ITEM_BOMBCHU) >= Combo_Rando_BombchuCapacity()) {
+            return CANBUY_RESULT_NO_ROOM;
+        }
+    } else
+#endif
+    {
+        if (GET_CUR_UPG_VALUE(UPG_BOMB_BAG) == 0) {
+            return CANBUY_RESULT_CANNOT_GET_NOW;
+        }
+        if (AMMO(ITEM_BOMBCHU) >= CUR_CAPACITY(UPG_BOMB_BAG)) {
+            return CANBUY_RESULT_NO_ROOM;
+        }
     }
     if (gSaveContext.save.saveInfo.playerData.rupees < play->msgCtx.unk1206C) {
         return CANBUY_RESULT_NEED_RUPEES;

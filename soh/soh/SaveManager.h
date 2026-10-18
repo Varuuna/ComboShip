@@ -153,6 +153,10 @@ class SaveManager {
 
     static const int MaxFiles = 3;
     std::array<SaveFileMetaInfo, MaxFiles> fileMetaInfo;
+#ifdef COMBO_BUILD
+    // ComboShip (#27): re-read a slot's file-select info from its container (MM's file select changed the slot).
+    void ComboRefreshMeta(int fileNum);
+#endif
 
   private:
     std::filesystem::path GetFileName(int fileNum);

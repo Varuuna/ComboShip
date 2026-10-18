@@ -435,6 +435,14 @@ void FileSelect_CopyConfirm(GameState* thisx) {
         this->nextTitleLabel = FS_TITLE_COPY_COMPLETE;
         this->actionTimer = 4;
         Sram_CopySave(this, sramCtx);
+#ifdef COMBO_BUILD
+        // ComboShip (#27): a slot is one combined OOT+MM playthrough, so copying it copies OOT's save and the seed too
+        // (the launcher copies the whole slot, as OOT's file select does).
+        {
+            extern void Combo_MM_FrontEndCopied(int from, int to);
+            Combo_MM_FrontEndCopied(this->selectedFileIndex, this->copyDestFileIndex);
+        }
+#endif
         if (!gSaveContext.flashSaveAvailable) {
             this->configMode = CM_COPY_ANIM_1;
         } else {

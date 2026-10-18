@@ -179,6 +179,18 @@ bool Logic::HasItem(RandomizerGet itemName) {
 #ifdef COMBO_BUILD
             // ComboShip (teleport songs)
         case RG_SONG_OF_SOARING:
+            // ComboShip (cross-game items): MM masks in OOT
+        case RG_COMBO_MASK_BLAST:
+        case RG_COMBO_MASK_STONE:
+        case RG_COMBO_MASK_KAMARO:
+        case RG_COMBO_SONG_ELEGY:
+        case RG_COMBO_SONG_HEALING:
+        case RG_COMBO_SONG_SONATA:
+        case RG_COMBO_SONG_GORON:
+        case RG_COMBO_SONG_BOSSA:
+        case RG_COMBO_SONG_OATH:
+        case RG_COMBO_RAZOR_SWORD:
+        case RG_COMBO_GILDED_SWORD:
 #endif
             // Ocarina Buttons
         case RG_OCARINA_A_BUTTON:
@@ -200,6 +212,10 @@ bool Logic::HasItem(RandomizerGet itemName) {
         case RG_SKELETON_KEY:
         case RG_RUTOS_LETTER:
             return CheckRandoInf(StaticData::RandoGetToRandInf.at(itemName));
+#ifdef COMBO_BUILD
+        case RG_COMBO_PROGRESSIVE_CHILD_SWORD: // ComboShip (cross-game items): out of logic; "has one" = upgraded
+            return CheckRandoInf(RAND_INF_OBTAINED_COMBO_RAZOR_SWORD);
+#endif
             // Boss Souls
         case RG_GOHMA_SOUL:
         case RG_KING_DODONGO_SOUL:
@@ -568,6 +584,60 @@ bool Logic::CanUse(RandomizerGet itemName) {
         case RG_LIGHT_ARROWS:
             return CanUse(RG_MAGIC_SINGLE) && CanUse(RG_FAIRY_BOW);
 
+#ifdef COMBO_BUILD
+        // ComboShip: OoTMM's ageless settings (RSK_COMBO_AGELESS_*, ComboAgeless.cpp) fill in the "AsChild" /
+        // "AsAdult" usability settings these cases were waiting for.
+        // Adult items
+        case RG_FAIRY_BOW:
+            return IsAdult || ctx->GetOption(RSK_COMBO_AGELESS_BOW);
+        case RG_MEGATON_HAMMER:
+            return IsAdult || ctx->GetOption(RSK_COMBO_AGELESS_HAMMER);
+        case RG_IRON_BOOTS:
+        case RG_HOVER_BOOTS:
+            return IsAdult || ctx->GetOption(RSK_COMBO_AGELESS_BOOTS);
+        case RG_HOOKSHOT:
+        case RG_LONGSHOT:
+            return IsAdult || ctx->GetOption(RSK_COMBO_AGELESS_HOOKSHOT);
+        case RG_GORON_TUNIC:
+        case RG_ZORA_TUNIC:
+            return IsAdult || ctx->GetOption(RSK_COMBO_AGELESS_TUNICS);
+        case RG_MIRROR_SHIELD:
+            return IsAdult || ctx->GetOption(RSK_COMBO_AGELESS_SHIELDS);
+        case RG_MASTER_SWORD:
+        case RG_PROGRESSIVE_GORONSWORD:
+        case RG_GIANTS_KNIFE:
+        case RG_BIGGORON_SWORD:
+            return IsAdult || ctx->GetOption(RSK_COMBO_AGELESS_SWORDS);
+        case RG_SILVER_GAUNTLETS:
+        case RG_GOLDEN_GAUNTLETS:
+            return IsAdult || ctx->GetOption(RSK_COMBO_AGELESS_STRENGTH);
+        // Adult Trade
+        case RG_POCKET_EGG:
+        case RG_COJIRO:
+        case RG_ODD_MUSHROOM:
+        case RG_ODD_POTION:
+        case RG_POACHERS_SAW:
+        case RG_BROKEN_SWORD:
+        case RG_PRESCRIPTION:
+        case RG_EYEBALL_FROG:
+        case RG_EYEDROPS:
+        case RG_CLAIM_CHECK:
+            return IsAdult;
+
+        // Child items
+        case RG_FAIRY_SLINGSHOT:
+            return IsChild || ctx->GetOption(RSK_COMBO_AGELESS_SLINGSHOT);
+        case RG_BOOMERANG:
+            return IsChild || ctx->GetOption(RSK_COMBO_AGELESS_BOOMERANG);
+        case RG_KOKIRI_SWORD:
+            return IsChild || ctx->GetOption(RSK_COMBO_AGELESS_SWORDS);
+        case RG_NUTS:
+            return Get(LOGIC_NUT_ACCESS);
+        case RG_STICKS:
+            return (IsChild || ctx->GetOption(RSK_COMBO_AGELESS_STICKS)) && Get(LOGIC_STICK_ACCESS);
+        case RG_DEKU_SHIELD:
+            return IsChild || ctx->GetOption(RSK_COMBO_AGELESS_SHIELDS);
+#else
         // Adult items
         // TODO: Uncomment those if we ever implement more item usability settings
         case RG_FAIRY_BOW:
@@ -621,6 +691,7 @@ bool Logic::CanUse(RandomizerGet itemName) {
             return IsChild /* || StickAsAdult;*/ && Get(LOGIC_STICK_ACCESS);
         case RG_DEKU_SHIELD:
             return IsChild; // || DekuShieldAsAdult;
+#endif
         case RG_PROGRESSIVE_BOMB_BAG:
         case RG_BOMB_BAG:
             return true; // AmmoCanDrop || Get(LOGIC_BUY_BOMB)
@@ -629,6 +700,18 @@ bool Logic::CanUse(RandomizerGet itemName) {
         case RG_BOMBCHU_10:
         case RG_BOMBCHU_20:
             return BombchuRefill() && BombchusEnabled();
+#ifdef COMBO_BUILD
+        case RG_WEIRD_EGG: // ComboShip: OoTMM's ageless child trade
+            return IsChild || ctx->GetOption(RSK_COMBO_AGELESS_CHILD_TRADE);
+        case RG_RUTOS_LETTER:
+            return IsChild;
+        case RG_MAGIC_BEAN:
+            return IsChild;
+        case RG_SKULL_MASK:
+        case RG_MASK_OF_TRUTH:
+        case RG_BUNNY_HOOD:
+            return IsChild || ctx->GetOption(RSK_MASKS_AS_ADULT) || ctx->GetOption(RSK_COMBO_AGELESS_CHILD_TRADE);
+#else
         case RG_WEIRD_EGG:
         case RG_RUTOS_LETTER:
             return IsChild;
@@ -638,6 +721,7 @@ bool Logic::CanUse(RandomizerGet itemName) {
         case RG_MASK_OF_TRUTH:
         case RG_BUNNY_HOOD:
             return IsChild || ctx->GetOption(RSK_MASKS_AS_ADULT);
+#endif
 
         // Songs
         case RG_ZELDAS_LULLABY:
@@ -2053,7 +2137,18 @@ std::map<RandomizerGet, uint32_t> StaticData::RandoGetToRandInf = {
     { RG_OCARINA_C_LEFT_BUTTON, RAND_INF_HAS_OCARINA_C_LEFT },
     { RG_OCARINA_C_RIGHT_BUTTON, RAND_INF_HAS_OCARINA_C_RIGHT },
 #ifdef COMBO_BUILD
-    { RG_SONG_OF_SOARING, RAND_INF_HAS_SONG_OF_SOARING }, // ComboShip (teleport songs)
+    { RG_SONG_OF_SOARING, RAND_INF_HAS_SONG_OF_SOARING },        // ComboShip (teleport songs)
+    { RG_COMBO_MASK_BLAST, RAND_INF_OBTAINED_COMBO_MASK_BLAST }, // ComboShip (cross-game items)
+    { RG_COMBO_MASK_STONE, RAND_INF_OBTAINED_COMBO_MASK_STONE },
+    { RG_COMBO_MASK_KAMARO, RAND_INF_OBTAINED_COMBO_MASK_KAMARO },
+    { RG_COMBO_SONG_ELEGY, RAND_INF_OBTAINED_COMBO_SONG_ELEGY },
+    { RG_COMBO_SONG_HEALING, RAND_INF_OBTAINED_COMBO_SONG_HEALING },
+    { RG_COMBO_SONG_SONATA, RAND_INF_OBTAINED_COMBO_SONG_SONATA },
+    { RG_COMBO_SONG_GORON, RAND_INF_OBTAINED_COMBO_SONG_GORON },
+    { RG_COMBO_SONG_BOSSA, RAND_INF_OBTAINED_COMBO_SONG_BOSSA },
+    { RG_COMBO_SONG_OATH, RAND_INF_OBTAINED_COMBO_SONG_OATH },
+    { RG_COMBO_RAZOR_SWORD, RAND_INF_OBTAINED_COMBO_RAZOR_SWORD },
+    { RG_COMBO_GILDED_SWORD, RAND_INF_OBTAINED_COMBO_GILDED_SWORD },
 #endif
     { RG_KEATON_MASK, RAND_INF_CHILD_TRADES_HAS_MASK_KEATON },
     { RG_SKULL_MASK, RAND_INF_CHILD_TRADES_HAS_MASK_SKULL },
@@ -2530,7 +2625,18 @@ void Logic::ApplyItemEffect(Item& item, bool state) {
                 case RG_OCARINA_C_LEFT_BUTTON:
                 case RG_OCARINA_C_RIGHT_BUTTON:
 #ifdef COMBO_BUILD
-                case RG_SONG_OF_SOARING: // ComboShip (teleport songs)
+                case RG_SONG_OF_SOARING:  // ComboShip (teleport songs)
+                case RG_COMBO_MASK_BLAST: // ComboShip (cross-game items)
+                case RG_COMBO_MASK_STONE:
+                case RG_COMBO_MASK_KAMARO:
+                case RG_COMBO_SONG_ELEGY:
+                case RG_COMBO_SONG_HEALING:
+                case RG_COMBO_SONG_SONATA:
+                case RG_COMBO_SONG_GORON:
+                case RG_COMBO_SONG_BOSSA:
+                case RG_COMBO_SONG_OATH:
+                case RG_COMBO_RAZOR_SWORD:
+                case RG_COMBO_GILDED_SWORD:
 #endif
                 case RG_KEATON_MASK:
                 case RG_SKULL_MASK:

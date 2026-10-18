@@ -107,9 +107,18 @@ std::shared_ptr<GetItemEntry> Item::GetGIEntry(RandomizerGet* actualOut) const {
 #else
 std::shared_ptr<GetItemEntry> Item::GetGIEntry() const { // NOLINT(*-no-recursion)
 #endif
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): with Extra Child Swords the Kokiri Sword is one of the progressive child swords.
+    const bool comboChildSword = (randomizerGet == RG_KOKIRI_SWORD) &&
+                                 OTRGlobals::Instance->gRandomizer->GetRandoSettingValue(RSK_COMBO_CHILD_SWORDS);
+    if (giEntry != nullptr && giEntry->itemId != RG_PROGRESSIVE_BOMBCHU_BAG && !comboChildSword) {
+        return giEntry;
+    }
+#else
     if (giEntry != nullptr && giEntry->itemId != RG_PROGRESSIVE_BOMBCHU_BAG) {
         return giEntry;
     }
+#endif
     std::shared_ptr<Rando::Context> ctx = Rando::Context::GetInstance();
     auto logic = ctx->GetLogic();
     RandomizerGet actual = RG_NONE;
@@ -374,6 +383,21 @@ std::shared_ptr<GetItemEntry> Item::GetGIEntry() const { // NOLINT(*-no-recursio
             // owning the slot means the knife was already given, breaking it doesn't clear the flag
             actual = logic->CheckEquipment(EQUIP_FLAG_SWORD_BGS) ? RG_BIGGORON_SWORD : RG_GIANTS_KNIFE;
             break;
+#ifdef COMBO_BUILD
+        // ComboShip (cross-game items): Kokiri -> Razor -> Gilded, like MM's progressive sword. Any of the three
+        // copies (the Kokiri Sword or a Progressive Kokiri Sword) gives the next one. RG_NONE for the Kokiri Sword's
+        // own first tier returns its giEntry below (no recursion).
+        case RG_KOKIRI_SWORD:
+        case RG_COMBO_PROGRESSIVE_CHILD_SWORD:
+            if (!logic->CheckEquipment(EQUIP_FLAG_SWORD_KOKIRI)) {
+                actual = (randomizerGet == RG_KOKIRI_SWORD) ? RG_NONE : RG_KOKIRI_SWORD;
+            } else if (!logic->CheckRandoInf(RAND_INF_OBTAINED_COMBO_RAZOR_SWORD)) {
+                actual = RG_COMBO_RAZOR_SWORD;
+            } else {
+                actual = RG_COMBO_GILDED_SWORD;
+            }
+            break;
+#endif
         case RG_PROGRESSIVE_BOMBCHU_BAG:
             if (OTRGlobals::Instance->gRandoContext->GetOption(RSK_BOMBCHU_BAG).Is(RO_BOMBCHU_BAG_SINGLE)) {
                 if (logic->CurrentInventory(ITEM_BOMBCHU) != ITEM_NONE) {

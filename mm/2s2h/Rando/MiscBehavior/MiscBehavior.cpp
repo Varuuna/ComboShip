@@ -1,5 +1,8 @@
 #include "MiscBehavior.h"
 #include "2s2h/Rando/Logic/Logic.h"
+#ifdef COMBO_BUILD
+#include "AgeRequirements.h"
+#endif
 
 extern "C" {
 #include "variables.h"
@@ -19,6 +22,10 @@ void Rando::MiscBehavior::OnFileLoad() {
     Rando::MiscBehavior::SariasSongHint();
 #ifdef COMBO_BUILD
     Rando::MiscBehavior::WarpSongs();
+    Rando::MiscBehavior::CrossSongs();
+    Rando::MiscBehavior::CrossSpells();
+    Rando::MiscBehavior::CrossUpgrades();
+    Rando::AgeReq::Init(); // Cross-Games Age: MM items restricted to one age
 #endif
     Rando::MiscBehavior::BankSignHint();
     Rando::MiscBehavior::InitTycoonWallet();

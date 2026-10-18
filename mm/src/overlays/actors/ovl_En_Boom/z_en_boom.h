@@ -24,6 +24,9 @@ typedef struct EnBoom {
     /* 0x1D0 */ s32 effectIndex;
     /* 0x1D4 */ WeaponInfo weaponInfo;
     /* 0x1F0 */ EnBoomActionFunc actionFunc;
+#ifdef COMBO_BUILD
+    /* 0x1F4 */ u8 comboOot; // ComboShip (cross-game items): human Link's OOT Boomerang, flies as OOT's EnBoom
+#endif
 } EnBoom; // size = 0x1F4
 
 #endif // Z_EN_BOOM_H

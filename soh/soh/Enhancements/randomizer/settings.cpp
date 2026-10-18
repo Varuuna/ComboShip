@@ -22,7 +22,7 @@ extern "C" int gComboGoalPieces;
 // ComboShip (#135): 1 when the resolved starting game is MM, which forces age/forest/exclusions below.
 extern "C" int gComboStartingGameMM;
 // ComboShip: Shared Items bitmask (combo/rando/SharedItems.h), pushed by SOH_SetComboSharedItems.
-extern "C" int gComboSharedMask;
+extern "C" uint64_t gComboSharedMask;
 static constexpr bool kComboOwnsWincon = true;
 // ComboShip (#136): OOT's half of the combo-owned pool, for the menu-side dependent-count ranges.
 // Mirrors CwOotPieces in combo/rando/CrossWorldRando.h — the two splits must stay identical.
@@ -1475,6 +1475,28 @@ void Settings::CreateOptions() {
     OPT_BOOL(RSK_BUNNY_HOOD, CVAR_RANDOMIZER_SETTING("BunnyHood"));
     OPT_BOOL(RSK_MASKS_AS_ADULT, CVAR_RANDOMIZER_SETTING("MasksAsAdult"));
     OPT_BOOL(RSK_ROCS_FEATHER, CVAR_RANDOMIZER_SETTING("RocsFeather"));
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): MM masks in OOT (OoTMM blastMaskOot / stoneMaskOot / kamaroMaskOot)
+    OPT_BOOL(RSK_COMBO_MASK_BLAST, CVAR_RANDOMIZER_SETTING("ComboMaskBlast"));
+    OPT_BOOL(RSK_COMBO_MASK_STONE, CVAR_RANDOMIZER_SETTING("ComboMaskStone"));
+    OPT_BOOL(RSK_COMBO_MASK_KAMARO, CVAR_RANDOMIZER_SETTING("ComboMaskKamaro"));
+    OPT_BOOL(RSK_COMBO_MM_SONGS, CVAR_RANDOMIZER_SETTING("ComboMmSongs"));
+    // ComboShip (cross-game items): OoTMM's extraChildSwordsOot
+    OPT_BOOL(RSK_COMBO_CHILD_SWORDS, CVAR_RANDOMIZER_SETTING("ComboChildSwords"));
+    // ComboShip: OoTMM's ageless settings (agelessSwords, ...): items usable by either age (ComboAgeless.cpp, logic.cpp)
+    OPT_BOOL(RSK_COMBO_AGELESS_SWORDS, CVAR_RANDOMIZER_SETTING("ComboAgelessSwords"));
+    OPT_BOOL(RSK_COMBO_AGELESS_SHIELDS, CVAR_RANDOMIZER_SETTING("ComboAgelessShields"));
+    OPT_BOOL(RSK_COMBO_AGELESS_TUNICS, CVAR_RANDOMIZER_SETTING("ComboAgelessTunics"));
+    OPT_BOOL(RSK_COMBO_AGELESS_BOOTS, CVAR_RANDOMIZER_SETTING("ComboAgelessBoots"));
+    OPT_BOOL(RSK_COMBO_AGELESS_STICKS, CVAR_RANDOMIZER_SETTING("ComboAgelessSticks"));
+    OPT_BOOL(RSK_COMBO_AGELESS_BOOMERANG, CVAR_RANDOMIZER_SETTING("ComboAgelessBoomerang"));
+    OPT_BOOL(RSK_COMBO_AGELESS_HAMMER, CVAR_RANDOMIZER_SETTING("ComboAgelessHammer"));
+    OPT_BOOL(RSK_COMBO_AGELESS_HOOKSHOT, CVAR_RANDOMIZER_SETTING("ComboAgelessHookshot"));
+    OPT_BOOL(RSK_COMBO_AGELESS_SLINGSHOT, CVAR_RANDOMIZER_SETTING("ComboAgelessSlingshot"));
+    OPT_BOOL(RSK_COMBO_AGELESS_BOW, CVAR_RANDOMIZER_SETTING("ComboAgelessBow"));
+    OPT_BOOL(RSK_COMBO_AGELESS_CHILD_TRADE, CVAR_RANDOMIZER_SETTING("ComboAgelessChildTrade"));
+    OPT_BOOL(RSK_COMBO_AGELESS_STRENGTH, CVAR_RANDOMIZER_SETTING("ComboAgelessStrength"));
+#endif
     OPT_U8(RSK_INFINITE_UPGRADES, {"Off", "Progressive", "Condensed Progressive"}, OptionCategory::Setting, CVAR_RANDOMIZER_SETTING("InfiniteUpgrades"));
     OPT_BOOL(RSK_SKELETON_KEY, CVAR_RANDOMIZER_SETTING("SkeletonKey"));
     OPT_BOOL(RSK_SLINGBOW_BREAK_BEEHIVES, CVAR_RANDOMIZER_SETTING("SlingBowBeehives"));
@@ -1960,6 +1982,20 @@ void Settings::CreateOptions() {
                                                                       &mOptions[RSK_SUNLIGHT_ARROWS],
                                                                       &mOptions[RSK_BUNNY_HOOD],
                                                                       &mOptions[RSK_MASKS_AS_ADULT],
+#ifdef COMBO_BUILD
+                                                                      &mOptions[RSK_COMBO_AGELESS_SWORDS],
+                                                                      &mOptions[RSK_COMBO_AGELESS_SHIELDS],
+                                                                      &mOptions[RSK_COMBO_AGELESS_TUNICS],
+                                                                      &mOptions[RSK_COMBO_AGELESS_BOOTS],
+                                                                      &mOptions[RSK_COMBO_AGELESS_STICKS],
+                                                                      &mOptions[RSK_COMBO_AGELESS_BOOMERANG],
+                                                                      &mOptions[RSK_COMBO_AGELESS_HAMMER],
+                                                                      &mOptions[RSK_COMBO_AGELESS_HOOKSHOT],
+                                                                      &mOptions[RSK_COMBO_AGELESS_SLINGSHOT],
+                                                                      &mOptions[RSK_COMBO_AGELESS_BOW],
+                                                                      &mOptions[RSK_COMBO_AGELESS_CHILD_TRADE],
+                                                                      &mOptions[RSK_COMBO_AGELESS_STRENGTH],
+#endif
                                                                       &mOptions[RSK_FULL_WALLETS],
                                                                       &mOptions[RSK_SLINGBOW_BREAK_BEEHIVES],
                                                                       &mOptions[RSK_SWORDLESS_EPONA_ITEMS],
@@ -2210,6 +2246,13 @@ void Settings::CreateOptions() {
                                                                                  &mOptions[RSK_SHUFFLE_OPEN_CHEST],
                                                                                  &mOptions[RSK_SHUFFLE_BEAN_SOULS],
                                                                                  &mOptions[RSK_ROCS_FEATHER],
+#ifdef COMBO_BUILD
+                                                                                 &mOptions[RSK_COMBO_MASK_BLAST],
+                                                                                 &mOptions[RSK_COMBO_MASK_STONE],
+                                                                                 &mOptions[RSK_COMBO_MASK_KAMARO],
+                                                                                 &mOptions[RSK_COMBO_MM_SONGS],
+                                                                                 &mOptions[RSK_COMBO_CHILD_SWORDS],
+#endif
                                                                                  &mOptions[RSK_BOMBCHU_BAG],
                                                                                  &mOptions[RSK_ENABLE_BOMBCHU_DROPS],
                                                                                  &mOptions[RSK_PROGRESSIVE_GORON_SWORD],
@@ -2413,6 +2456,13 @@ void Settings::CreateOptions() {
                                             &mOptions[RSK_SHUFFLE_100_GS_REWARD],
                                             &mOptions[RSK_SHUFFLE_BEAN_SOULS],
                                             &mOptions[RSK_ROCS_FEATHER],
+#ifdef COMBO_BUILD
+                                            &mOptions[RSK_COMBO_MASK_BLAST],
+                                            &mOptions[RSK_COMBO_MASK_STONE],
+                                            &mOptions[RSK_COMBO_MASK_KAMARO],
+                                            &mOptions[RSK_COMBO_MM_SONGS],
+                                            &mOptions[RSK_COMBO_CHILD_SWORDS],
+#endif
                                             &mOptions[RSK_PROGRESSIVE_GORON_SWORD],
                                             &mOptions[RSK_SHUFFLE_BOSS_SOULS],
                                             &mOptions[RSK_SHUFFLE_DEKU_STICK_BAG],
@@ -2574,6 +2624,20 @@ void Settings::CreateOptions() {
                                               &mOptions[RSK_SUNLIGHT_ARROWS],
                                               &mOptions[RSK_BUNNY_HOOD],
                                               &mOptions[RSK_MASKS_AS_ADULT],
+#ifdef COMBO_BUILD
+                                              &mOptions[RSK_COMBO_AGELESS_SWORDS],
+                                              &mOptions[RSK_COMBO_AGELESS_SHIELDS],
+                                              &mOptions[RSK_COMBO_AGELESS_TUNICS],
+                                              &mOptions[RSK_COMBO_AGELESS_BOOTS],
+                                              &mOptions[RSK_COMBO_AGELESS_STICKS],
+                                              &mOptions[RSK_COMBO_AGELESS_BOOMERANG],
+                                              &mOptions[RSK_COMBO_AGELESS_HAMMER],
+                                              &mOptions[RSK_COMBO_AGELESS_HOOKSHOT],
+                                              &mOptions[RSK_COMBO_AGELESS_SLINGSHOT],
+                                              &mOptions[RSK_COMBO_AGELESS_BOW],
+                                              &mOptions[RSK_COMBO_AGELESS_CHILD_TRADE],
+                                              &mOptions[RSK_COMBO_AGELESS_STRENGTH],
+#endif
                                               &mOptions[RSK_INFINITE_UPGRADES],
                                               &mOptions[RSK_SKELETON_KEY],
                                               &mOptions[RSK_SLINGBOW_BREAK_BEEHIVES],
@@ -2781,7 +2845,7 @@ void Context::FinalizeSettings(const std::set<RandomizerCheck>& excludedLocation
         }
     }
     // ComboShip: Shared Wallets has no MM equivalent for Child Wallet, so force it off (see deviations/rando.md).
-    if (gComboSharedMask & (1 << ComboRando::SF_WALLET)) {
+    if (gComboSharedMask & ComboRando::SharedBit(ComboRando::SF_WALLET)) {
         mOptions[RSK_SHUFFLE_CHILD_WALLET].Set(RO_GENERIC_OFF);
     }
 #endif

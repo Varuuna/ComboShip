@@ -14,6 +14,7 @@
 #include "ComboTimersWindow.h"      // combo-owned overlay timers (#173)
 #include "rando/CrossForeign.h"     // ComboRando::ContainerPath — anchored save-container location
 #include "rando/ComboPlaythrough.h" // plando: ParseSpoilerPlacements + Suffix/BuildForeignArray + slot paths
+#include "rando/ComboGames.h"       // Games (OoT only / MM only / Combo)
 #include <imgui.h>
 #include <libultraship/libultraship.h>         // CVar bridge (CVarGet/Set* incl. color) + color.h (Color_RGBA8)
 #include <ship/window/gui/IconsFontAwesome4.h> // ICON_FA_* for the header action buttons
@@ -43,6 +44,8 @@ void ResolveComboGenSyms() {
         sTrigger = (FnTriggerGenerate)Combo_ResolveSym("soh", "SOH_TriggerComboGenerate");
     if (!sGetProgress)
         sGetProgress = (FnGetProgress)Combo_ResolveSym("soh", "SOH_GetComboGenProgress");
+    if (!sIsOnFileSelect) // either game's file select (#27: MM's front end), else OOT's
+        sIsOnFileSelect = (FnIsOnFileSelect)Combo_ResolveSym("soh", "SOH_IsOnComboFileSelect");
     if (!sIsOnFileSelect)
         sIsOnFileSelect = (FnIsOnFileSelect)Combo_ResolveSym("soh", "SOH_IsOnFileSelect");
     if (!sRefreshStartingGameUI)
@@ -447,7 +450,8 @@ struct HubEntry {
         COMBO_CHECK_TRACKER,
         COMBO_HINT_TRACKER,
         COMBO_TIMERS,
-        COMBO_NETWORK
+        COMBO_NETWORK,
+        COMBO_FRONTEND
     } kind;
     const ComboRando::GameMenu* game = nullptr; // ENGINE/OOT_RANDO/MM_RANDO
     int sectionIndex = -1;
@@ -1090,7 +1094,8 @@ void PlandoSavePlay() {
     }
     // Shared Items: the loaded seed's own effective mask — plando doesn't change which families are
     // shared, only where items land.
-    const uint32_t plandoSharedMask = ComboRando::SharedMaskFromKeys(j.value("sharedItems", nlohmann::json::array()));
+    const ComboRando::SharedMask plandoSharedMask =
+        ComboRando::SharedMaskFromKeys(j.value("sharedItems", nlohmann::json::array()));
     // Native cross-game name collisions get their own-game suffix; foreign checks are skipped (their
     // real item travels in foreign[]). Exactly the generator's write path.
     ComboRando::SuffixCrossGameItems(ootPl, mmPl, foreignRaw, sPlando.sohDump, sPlando.mmDump,
@@ -1259,6 +1264,33 @@ void DrawComboPlandoPanel() {
     }
     ImGui::EndChild();
 }
+
+// Title screen + file select front end (item #27): Ocarina of Time's (default) or Majora's Mask's. Read by the launcher
+// at startup and whenever the game goes back to the title screen.
+static void DrawFrontEndPanel() {
+    const ImVec4 theme = ComboRando::ComboMenu_ThemeColor();
+    ImGui::SeparatorText("Title Screen & File Select");
+    static const char* kFrontEnds[] = { "Ocarina of Time", "Majora's Mask" };
+    int fe = CVarGetInteger("gCombo.FrontEnd", 0) == 1 ? 1 : 0;
+    ImGui::SetNextItemWidth(260.0f);
+    ComboRando::ComboMenu_PushCombobox(theme);
+    if (ImGui::BeginCombo("##frontend", kFrontEnds[fe])) {
+        for (int i = 0; i < 2; ++i) {
+            if (ImGui::Selectable(kFrontEnds[i], i == fe)) {
+                CVarSetInteger("gCombo.FrontEnd", i);
+                if (auto* ctx = Ship::Context::GetRawInstance())
+                    ctx->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ComboRando::ComboMenu_PopCombobox();
+    ImGui::TextDisabled("Which game's title screen and file select ComboShip opens on. Both list the same three\n"
+                        "files and load each one into the game it was last saved in. Takes effect the next time\n"
+                        "the title screen comes up (resetting, or starting ComboShip).");
+    ImGui::TextDisabled("With Majora's Mask's: generate seeds from this menu (Randomizer > Generate) before making\n"
+                        "a new file; copying and erasing a file affects both games, as in Ocarina of Time's.");
+}
 } // namespace
 
 void ComboMenu::DrawSharedPanel() {
@@ -1304,6 +1336,12 @@ void ComboMenu::DrawSharedPanel() {
         tmr.group = "Settings";
         tmr.kind = HubEntry::COMBO_TIMERS;
         e.push_back(std::move(tmr));
+        // Which game's title screen and file select ComboShip opens on (item #27).
+        HubEntry fe;
+        fe.label = "Title & File Select";
+        fe.group = "Settings";
+        fe.kind = HubEntry::COMBO_FRONTEND;
+        e.push_back(std::move(fe));
         if (!e.empty())
             groups.push_back({ "Settings", std::move(e) });
         // Network group: the Anchor team-sync control (covers BOTH games) plus the Ship of Harkinian
@@ -1440,6 +1478,8 @@ void ComboMenu::DrawSharedPanel() {
         DrawTimersSharedPanel();
     } else if (active->kind == HubEntry::COMBO_NETWORK) {
         DrawNetworkSharedPanel();
+    } else if (active->kind == HubEntry::COMBO_FRONTEND) {
+        DrawFrontEndPanel();
     } else {
         const CwSidebar& side = active->game->menu->sections[active->sectionIndex].sidebars[active->sidebarIndex];
         RenderSidebarWidgets(side, *active->game);
@@ -1625,8 +1665,32 @@ void ComboMenu::DrawComboPanel() {
                        "You must Generate before starting a new file.");
     ImGui::Separator();
 
-    // Goal (#136): one combined win condition; each game's piece slider decides how many it contributes.
     const ImVec4 goalTheme = ComboRando::ComboMenu_ThemeColor();
+
+    // Games (combo/rando/ComboGames.h, OoTMM's "Games"): play both, or just one of them.
+    ImGui::SeparatorText("Games");
+    static const char* kGames[] = { "Ocarina of Time + Majora's Mask", "Ocarina of Time only", "Majora's Mask only" };
+    const int games = ComboRando::ComboGamesFromInt(CVarGetInteger(ComboRando::kComboGamesCVar, 0));
+    const bool solo = ComboRando::ComboGamesSolo(static_cast<ComboRando::ComboGames>(games));
+    ImGui::SetNextItemWidth(260.0f);
+    ComboRando::ComboMenu_PushCombobox(goalTheme);
+    if (ImGui::BeginCombo("##games", kGames[games])) {
+        for (int i = 0; i < 3; ++i) {
+            if (ImGui::Selectable(kGames[i], i == games)) {
+                CVarSetInteger(ComboRando::kComboGamesCVar, i);
+                if (sRefreshStartingGameUI)
+                    sRefreshStartingGameUI(); // MM only greys out the same OOT options as an MM start
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ComboRando::ComboMenu_PopCombobox();
+    ImGui::TextDisabled("One game only: every item stays in that game, the other game is never visited (the Happy\n"
+                        "Mask Shop and the Clock Tower stay in their own game), and its final boss alone finishes.\n"
+                        "Starting Game and Shared Items don't apply.");
+    ImGui::Separator();
+
+    // Goal (#136): one combined win condition; each game's piece slider decides how many it contributes.
     ImGui::SeparatorText("Goal");
     bool hunt = CVarGetInteger("gCombo.Rando.TriforceHunt", 0) != 0;
     ComboRando::ComboMenu_PushCheckbox(goalTheme);
@@ -1652,8 +1716,13 @@ void ComboMenu::DrawComboPanel() {
             CVarSetInteger("gCombo.Rando.TriforceTotal", std::clamp(total, required, kMaxPieces));
         }
         ComboRando::ComboMenu_PopInput();
-        ImGui::TextDisabled("Collect this many pieces across OOT and MM to finish; bosses are optional.");
-        ImGui::TextDisabled("The pool total is split evenly between the two games (OOT takes the odd one).");
+        if (solo) {
+            ImGui::TextDisabled("Collect this many pieces to finish; the boss is optional.");
+            ImGui::TextDisabled("Every piece is in the played game (up to %d).", ComboRando::kMaxSoloTriforcePieces);
+        } else {
+            ImGui::TextDisabled("Collect this many pieces across OOT and MM to finish; bosses are optional.");
+            ImGui::TextDisabled("The pool total is split evenly between the two games (OOT takes the odd one).");
+        }
         // The combined count is invisible to both games' own trackers, so combo draws its own line.
         bool line = CVarGetInteger("gCombo.Tracker.TriforceLine", 1) != 0;
         ComboRando::ComboMenu_PushCheckbox(goalTheme);
@@ -1662,12 +1731,16 @@ void ComboMenu::DrawComboPanel() {
         }
         ComboRando::ComboMenu_PopCheckbox();
     } else {
-        ImGui::TextDisabled("Beat Ganon and Majora to finish.");
+        ImGui::TextDisabled(games == ComboRando::COMBO_GAMES_OOT  ? "Beat Ganon to finish."
+                            : games == ComboRando::COMBO_GAMES_MM ? "Beat Majora to finish."
+                                                                  : "Beat Ganon and Majora to finish.");
     }
     ImGui::Separator();
 
-    // Starting Game (#135): which game a new file boots into. Random is resolved per seed.
+    // Starting Game (#135): which game a new file boots into. Random is resolved per seed. A solo seed starts in its
+    // game.
     ImGui::SeparatorText("Starting Game");
+    ImGui::BeginDisabled(solo);
     static const char* kStartingGames[] = { "Ocarina of Time", "Majora's Mask", "Random" };
     int startingGame = CVarGetInteger("gCombo.Rando.StartingGame", 0);
     if (startingGame < 0 || startingGame > 2)
@@ -1685,6 +1758,9 @@ void ComboMenu::DrawComboPanel() {
         ImGui::EndCombo();
     }
     ComboRando::ComboMenu_PopCombobox();
+    ImGui::EndDisabled();
+    if (solo)
+        ImGui::TextDisabled("A one-game seed starts in its game.");
     ImGui::TextDisabled("Majora's Mask starts the file in South Clock Town. It forces Child age, an openable forest,\n"
                         "and the Mask Shop key/entrance exclusions, so Ocarina of Time stays enterable from nothing.");
     ImGui::Separator();
@@ -1692,6 +1768,7 @@ void ComboMenu::DrawComboPanel() {
     // Shared Items (OoTMM-style): one item counts for both games, applied at generation. Deferred
     // families (Ocarina, Song of Time, Shields, Bottles, Health) are not drawn — see the plan doc.
     ImGui::SeparatorText("Shared Items");
+    ImGui::BeginDisabled(solo); // a one-game seed has nothing to share
     {
         const ImGuiTableFlags sharedTableFlags = ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings;
         if (ImGui::BeginTable("##sharedcols", 2, sharedTableFlags)) {
@@ -1719,7 +1796,12 @@ void ComboMenu::DrawComboPanel() {
     ImGui::TextDisabled("One item counts for both games. Applied at generation. Masks need Ocarina of\n"
                         "Time's Shuffle Masks on. Shared Wallets turns off Shuffle Child Wallet.\n"
                         "Song of Soaring needs Ocarina of Time's Song of Soaring setting; Warp Songs need\n"
-                        "Majora's Mask's OoT Warp Songs.");
+                        "Majora's Mask's OoT Warp Songs. Boots, tunics, scales and strength need the matching\n"
+                        "Majora's Mask Ocarina of Time Gear option. Kokiri Sword needs Ocarina of Time's\n"
+                        "Extra Child Swords.");
+    ImGui::EndDisabled();
+    if (solo)
+        ImGui::TextDisabled("Off in a one-game seed.");
     ImGui::Separator();
 
     // Cosmetics (#169): each game randomizes on its own by default; sync makes MM take OOT's colors.

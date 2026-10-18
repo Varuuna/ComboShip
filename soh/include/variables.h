@@ -103,7 +103,11 @@ extern "C"
 	extern u16 gUpgradeCapacities[8][4];
 	extern u32 gGsFlagsMasks[4];
 	extern u32 gGsFlagsShifts[4];
+#ifdef COMBO_BUILD
+	extern void* gItemIcons[ITEM_COMBO_TABLE_SIZE]; // ComboShip (cross-game items)
+#else
 	extern void* gItemIcons[158];
+#endif
 	extern u8 gItemAgeReqs[];
 	extern u8 gSlotAgeReqs[];
 	extern u8 gItemSlots[56];

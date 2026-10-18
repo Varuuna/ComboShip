@@ -194,9 +194,11 @@ inline constexpr const char* kStaticHintPrefix = "__STATIC__";
 // items/hintTextTable/requiredTrials). foreignArray: BuildForeignArray's output (used for the
 // hints.mm.itemLocations family-B upgrade). spoilerJson: the raw combined-fill spoiler (own-namespace
 // oot/mm placement maps + foreign[] — same shape RunPlaythrough/PareDownPlaythrough consume).
+// games (ComboGames.h): a solo seed only hints the played game's checks.
 inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJson, const std::string& sohHintDumpJson,
                                const std::string& mmDumpJson, const nlohmann::json& foreignArray,
-                               const std::string& spoilerJson, const RequirednessResult& pareDown) {
+                               const std::string& spoilerJson, const RequirednessResult& pareDown,
+                               ComboGames games = COMBO_GAMES_BOTH) {
     nlohmann::json out;
     out["version"] = 1;
     nlohmann::json ootHints = nlohmann::json::array();
@@ -315,17 +317,17 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
     auto placements = ParseSpoilerPlacements(spoilerJson, sohDumpJson, mmDumpJson);
     // Shared Items: point MM's item-location hints at the OOT copy of a trimmed family.
     {
-        uint32_t sharedMask = 0;
+        SharedMask sharedMask = 0;
         try {
             sharedMask =
                 SharedMaskFromKeys(nlohmann::json::parse(spoilerJson).value("sharedItems", nlohmann::json::array()));
         } catch (...) {}
         for (int i = 0; sharedMask != 0 && i < SF_COUNT; ++i) {
             const auto& def = SharedFamilyByIndex(i);
-            if (!(sharedMask & (1u << i)) || !def.mmHasItem || mmItemLocations.contains(def.mmName))
+            if (!(sharedMask & SharedBit(i)) || !def.mmHasItem || mmItemLocations.contains(def.mmName))
                 continue;
             for (const auto& p : placements) {
-                if (p.itemGame != GAME_OOT || p.item != def.ootName)
+                if (p.itemGame != GAME_OOT || !SharedFamilyOotNameMatches(def, p.item))
                     continue;
                 if (p.checkGame == GAME_OOT) {
                     auto ca = ootChecks.find(p.check);
@@ -378,6 +380,9 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
     for (auto& p : placements) {
         if (!p.advancement)
             continue; // junk is never hinted as WotH/Foolish/item content
+        if ((games == COMBO_GAMES_OOT && p.checkGame != GAME_OOT) ||
+            (games == COMBO_GAMES_MM && p.checkGame != GAME_MM))
+            continue; // a solo seed's other game is never played
         HintCandidate c;
         c.checkGame = p.checkGame;
         c.checkName = p.check;

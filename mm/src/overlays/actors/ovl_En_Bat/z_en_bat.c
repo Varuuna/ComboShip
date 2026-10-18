@@ -7,6 +7,11 @@
 #include "z_en_bat.h"
 #include "overlays/actors/ovl_En_Clear_Tag/z_en_clear_tag.h"
 #include "objects/object_bat/object_bat.h"
+#ifdef COMBO_BUILD
+#include "2s2h/Rando/MiscBehavior/CrossGear.h"
+// ComboShip (cross-game items): OOT's Skull Mask counts as the Stone Mask for this actor (OoTMM).
+#define Player_GetMask(play) ((PlayerMask)Combo_Gear_GetMaskSkullAsStone(play))
+#endif
 
 #define FLAGS \
     (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_HOSTILE | ACTOR_FLAG_IGNORE_QUAKE | ACTOR_FLAG_CAN_ATTACH_TO_ARROW)

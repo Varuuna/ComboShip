@@ -4,6 +4,9 @@
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include <assert.h>
 #include <libultraship/bridge/consolevariablebridge.h>
+#ifdef COMBO_BUILD
+f32 Combo_ChildSwordDamage(u32 dmgFlags, f32 damage); // ComboChildSwords.cpp
+#endif
 
 typedef s32 (*ColChkResetFunc)(PlayState*, Collider*);
 typedef void (*ColChkBloodFunc)(PlayState*, Collider*, Vec3f*);
@@ -3024,6 +3027,10 @@ void CollisionCheck_ApplyDamage(PlayState* play, CollisionCheckContext* colChkCt
         damage = tbl->table[i] & 0xF;
         collider->actor->colChkInfo.damageEffect = tbl->table[i] >> 4 & 0xF;
     }
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): Razor/Gilded Sword upgrades of the Kokiri Sword (ComboChildSwords.cpp).
+    damage = Combo_ChildSwordDamage(info->acHitInfo->toucher.dmgFlags, damage);
+#endif
     if (!(collider->acFlags & AC_HARD)) {
         collider->actor->colChkInfo.damage += damage;
     }

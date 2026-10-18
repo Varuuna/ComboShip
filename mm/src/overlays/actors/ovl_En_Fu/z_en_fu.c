@@ -10,6 +10,14 @@
 #include "overlays/actors/ovl_Bg_Fu_Kaiten/z_bg_fu_kaiten.h"
 #include "overlays/actors/ovl_En_Bom/z_en_bom.h"
 #include "objects/gameplay_keep/gameplay_keep.h"
+#ifdef COMBO_BUILD
+// ComboShip (Cross-Games Age): an item restricted to the other age counts as not usable here (OoTMM refuses these
+// minigames at the wrong age).
+#include "2s2h/Rando/MiscBehavior/AgeRequirements.h"
+#define COMBO_AGE_OK(item) Combo_AgeReq_CanUseItem(item)
+#else
+#define COMBO_AGE_OK(item) true
+#endif
 
 #include "2s2h/Enhancements/FrameInterpolation/FrameInterpolation.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
@@ -1050,7 +1058,7 @@ s32 func_809638F8(PlayState* play) {
 void func_809639D0(EnFu* this, PlayState* play) {
     switch (CURRENT_DAY) {
         case 1:
-            if (GET_PLAYER_FORM == PLAYER_FORM_HUMAN) {
+            if ((GET_PLAYER_FORM == PLAYER_FORM_HUMAN) && COMBO_AGE_OK(ITEM_BOMBCHU)) {
                 if (CUR_UPG_VALUE(UPG_BOMB_BAG) == 0) {
                     Message_StartTextbox(play, 0x2853, &this->actor);
                     this->unk_552 = 0x2853;
@@ -1072,7 +1080,7 @@ void func_809639D0(EnFu* this, PlayState* play) {
             break;
 
         case 2:
-            if (GET_PLAYER_FORM != PLAYER_FORM_HUMAN) {
+            if ((GET_PLAYER_FORM != PLAYER_FORM_HUMAN) || !COMBO_AGE_OK(ITEM_BOMB)) {
                 Message_StartTextbox(play, 0x286F, &this->actor);
                 this->unk_552 = 0x286F;
             } else if (CUR_UPG_VALUE(UPG_BOMB_BAG) == 0) {
@@ -1108,7 +1116,7 @@ void func_809639D0(EnFu* this, PlayState* play) {
                     Message_StartTextbox(play, 0x2841, &this->actor);
                     this->unk_552 = 0x2841;
                 }
-            } else if (CUR_UPG_VALUE(UPG_QUIVER) == 0) {
+            } else if ((CUR_UPG_VALUE(UPG_QUIVER) == 0) || !COMBO_AGE_OK(ITEM_BOW)) {
                 Message_StartTextbox(play, 0x284B, &this->actor);
                 this->unk_552 = 0x284B;
             } else if (CHECK_WEEKEVENTREG(WEEKEVENTREG_22_40)) {

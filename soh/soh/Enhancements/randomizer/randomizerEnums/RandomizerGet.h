@@ -353,6 +353,22 @@ RANDO_ENUM_ITEM(RG_COMBO_FOREIGN)
 #ifdef COMBO_BUILD
 // ComboShip (teleport songs): MM's Song of Soaring as an OOT item.
 RANDO_ENUM_ITEM(RG_SONG_OF_SOARING)
+// ComboShip (cross-game items): MM masks as OOT items.
+RANDO_ENUM_ITEM(RG_COMBO_MASK_BLAST)
+RANDO_ENUM_ITEM(RG_COMBO_MASK_STONE)
+RANDO_ENUM_ITEM(RG_COMBO_MASK_KAMARO)
+// ComboShip (cross-game items): MM songs as OOT items.
+RANDO_ENUM_ITEM(RG_COMBO_SONG_ELEGY)
+RANDO_ENUM_ITEM(RG_COMBO_SONG_HEALING)
+RANDO_ENUM_ITEM(RG_COMBO_SONG_SONATA)
+RANDO_ENUM_ITEM(RG_COMBO_SONG_GORON)
+RANDO_ENUM_ITEM(RG_COMBO_SONG_BOSSA)
+RANDO_ENUM_ITEM(RG_COMBO_SONG_OATH)
+// ComboShip (cross-game items): progressive child sword (Kokiri -> Razor -> Gilded, as in MM). The progressive item
+// resolves to the Kokiri Sword or one of the two upgrades below when it is given.
+RANDO_ENUM_ITEM(RG_COMBO_PROGRESSIVE_CHILD_SWORD)
+RANDO_ENUM_ITEM(RG_COMBO_RAZOR_SWORD)
+RANDO_ENUM_ITEM(RG_COMBO_GILDED_SWORD)
 #endif
 RANDO_ENUM_ITEM(RG_MAX)
 RANDO_ENUM_END(RandomizerGet)

@@ -24,6 +24,19 @@ extern "C" {
 #include "2s2h_assets.h"
 
 extern FileSelectState* gFileSelectState;
+#ifdef COMBO_BUILD
+int Combo_MM_FrontEndActive(void); // BenPort.cpp
+#endif
+}
+
+// ComboShip (#27): MM's file select as the combo front end makes combo files only (the seed comes from the ComboShip
+// menu), so it goes straight to the name entry.
+static bool SkipNewFileSetup() {
+#ifdef COMBO_BUILD
+    return Combo_MM_FrontEndActive() != 0;
+#else
+    return false;
+#endif
 }
 
 #define CVAR_NAME "gEnhancements.Saving.NewFileSetup"
@@ -529,6 +542,9 @@ extern "C" void FileSelect_DrawNewFileSetup(GameState* thisx) {
 
 void RegisterNewFileSetup() {
     COND_VB_SHOULD(VB_FILE_SELECT_ROTATE_TO_NAME_ENTRY, CVAR, {
+        if (SkipNewFileSetup()) {
+            return;
+        }
         FileSelectState* fileSelect = va_arg(args, FileSelectState*);
 
         sRow = NEW_FILE_SETUP_ROW_PRESET;

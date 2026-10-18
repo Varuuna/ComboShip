@@ -45,7 +45,10 @@ void OnSceneInit(s16 sceneId, s8 spawnNum);
 void OfferTrapItem();
 void SariasSongHint();
 #ifdef COMBO_BUILD
-void WarpSongs(); // ComboShip (teleport songs): OOT warp songs played in MM soar to Hyrule
+void WarpSongs();     // ComboShip (teleport songs): OOT warp songs played in MM soar to Hyrule
+void CrossSongs();    // ComboShip (cross-game items): OOT songs playable in MM (Zelda's Lullaby)
+void CrossSpells();   // ComboShip (cross-game items): OOT spells cast in MM (effect draw + scene reset)
+void CrossUpgrades(); // ComboShip (cross-game items): OOT items in MM (icons, Stone of Agony indicator)
 #endif
 void BankSignHint();
 void InitTycoonWallet();

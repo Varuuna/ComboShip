@@ -24,7 +24,11 @@ extern "C" void MMAnchor_BroadcastCrossItem(int targetGame, const char* itemName
 extern "C" {
 #include "variables.h"
 #include <functions.h>
+#ifdef COMBO_BUILD
+extern TexturePtr gItemIcons[ITEM_COMBO_TABLE_SIZE]; // ComboShip: widened (z64item.h)
+#else
 extern TexturePtr gItemIcons[131];
+#endif
 extern s16 D_801CFF94[250];
 }
 

@@ -5,6 +5,9 @@
  */
 
 #include "z_en_ge2.h"
+#ifdef COMBO_BUILD
+#include "2s2h/Rando/MiscBehavior/CrossGear.h" // ComboShip: cross-game items (OOT masks in MM)
+#endif
 
 #define FLAGS (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_FRIENDLY | ACTOR_FLAG_MINIMAP_ICON_ENABLED)
 
@@ -141,7 +144,13 @@ void EnGe2_Destroy(Actor* thisx, PlayState* play) {
 GerudoPurpleDetection EnGe2_DetectPlayer(PlayState* play, EnGe2* this) {
     if (this->picto.actor.xzDistToPlayer > 250.0f) {
         return GERUDO_PURPLE_DETECTION_UNDETECTED;
+#ifdef COMBO_BUILD
+        // ComboShip (cross-game items): OOT's Gerudo Mask keeps the guard from noticing Link up close (OoTMM).
+    } else if ((Player_GetMask(play) != PLAYER_MASK_STONE) && !Combo_Gear_IsWearingMask(play, COMBO_MASK_GERUDO) &&
+               (this->picto.actor.xzDistToPlayer < 50.0f)) {
+#else
     } else if ((Player_GetMask(play) != PLAYER_MASK_STONE) && (this->picto.actor.xzDistToPlayer < 50.0f)) {
+#endif
         return GERUDO_PURPLE_DETECTION_PROXIMITY;
     } else if (func_800B715C(play)) {
         return GERUDO_PURPLE_DETECTION_HEARD;

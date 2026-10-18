@@ -1,4 +1,8 @@
 #include "MiscBehavior.h"
+#ifdef COMBO_BUILD
+#include "AgeRequirements.h"
+#include "AdultLink.h"
+#endif
 #include "Rando/Rando.h"
 #include "Rando/Spoiler/Spoiler.h"
 #include "Rando/Logic/Logic.h"
@@ -61,6 +65,11 @@ void Rando::MiscBehavior::OnFileCreate(s16 fileNum) {
                     RANDO_SAVE_OPTIONS[randoOptionId] =
                         (uint32_t)CVarGetInteger(randoStaticOption.cvar, randoStaticOption.defaultValue);
                 }
+
+#ifdef COMBO_BUILD
+                // ComboShip (Cross-Games Age): "Random" MM age requirements become child or adult from the seed.
+                Rando::AgeReq::Resolve(finalSeed, RANDO_SAVE_OPTIONS, Combo_AdultLink_AgeSystemConfigured() != 0);
+#endif
 
                 // If Skulltula tokens are not shuffled, use the vanilla requirement
                 if (!RANDO_SAVE_OPTIONS[RO_SHUFFLE_GOLD_SKULLTULAS]) {

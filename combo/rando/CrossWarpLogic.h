@@ -19,6 +19,8 @@ inline constexpr const char* kCwMmWarpPrefix = "@combo:mmWarp:";    // + '0'..'5
 inline constexpr const char* kCwMmOwlActive = "@combo:mmOwlActive"; // MM logic has an activated owl -> OOT oracle
 inline constexpr const char* kCwMmStart = "@combo:mmStart";         // #135 MM start -> OOT oracle
 inline constexpr const char* kCwOotSoaring = "@combo:ootSoaring";   // OOT can play Soaring -> MM oracle
+// Cross-Games Age: adult Link can play Soaring in Hyrule, so he can land in Termina as adult -> MM oracle
+inline constexpr const char* kCwOotAdultSoaring = "@combo:ootAdultSoaring";
 
 // OOT oracle input bits from the pseudo names above
 enum : uint32_t {
@@ -29,14 +31,17 @@ enum : uint32_t {
 };
 // GetCrossOut bits.
 enum : uint32_t {
-    CW_OOT_OUT_CAN_SOAR = 1u << 0, // owns Song of Soaring + an ocarina + its three buttons
-    CW_MM_OUT_WARP_MASK = 0x3Fu,   // same bit order as CW_OOT_IN_WARP_MASK
+    CW_OOT_OUT_CAN_SOAR = 1u << 0,   // owns Song of Soaring + an ocarina + its three buttons
+    CW_OOT_OUT_ADULT_SOAR = 1u << 1, // ... and adult Link is reachable (Cross-Games Age)
+    CW_MM_OUT_WARP_MASK = 0x3Fu,     // same bit order as CW_OOT_IN_WARP_MASK
     CW_MM_OUT_OWL = 1u << 6,
+    CW_MM_OUT_AGE = 1u << 7, // Cross-Games Age is on: MM wants to know whether adult Link can get there
 };
 
 struct CrossWarpLatch {
     uint32_t ootIn = 0;
     bool mmIn = false;
+    bool mmAdultIn = false; // Cross-Games Age
 };
 
 // Give each game the other's new teleport-song abilities. True if anything changed: query again.
@@ -51,6 +56,12 @@ inline bool ApplyCrossWarps(uint32_t ootOut, uint32_t mmOut, bool mmOpen, bool m
     }
     if (!mmOpen)
         return changed;
+    // Cross-Games Age: only when MM asks for it, so seeds without it keep identical owned lists and memo keys.
+    if ((ootOut & CW_OOT_OUT_ADULT_SOAR) && (mmOut & CW_MM_OUT_AGE) && !latch.mmAdultIn) {
+        mmOwned.push_back(kCwOotAdultSoaring);
+        latch.mmAdultIn = true;
+        changed = true;
+    }
     uint32_t want = mmOut & CW_MM_OUT_WARP_MASK;
     if (mmOut & CW_MM_OUT_OWL)
         want |= CW_OOT_IN_MM_OWL;

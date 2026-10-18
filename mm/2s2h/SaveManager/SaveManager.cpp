@@ -38,6 +38,7 @@ const std::filesystem::path savesFolderPath(Ship::Context::GetPathRelativeToAppD
 #ifdef COMBO_BUILD
 #include "ComboExport.h"        // ComboShip: COMBO_EXPORT for MM_InvalidateOwlBlobSlot
 #include "rando/CrossForeign.h" // ComboShip: merged-save IO callback typedefs + GameId
+#include "ComboFileNames.h"     // ComboShip: OOT file name -> MM glyph codes
 
 // ComboShip: launcher-provided .combosav IO. When set, a main per-slot file{N}.json read/write routes
 // into the container's "mm" section; unset -> the vendored disk IO below. Both primitives funnel here.
@@ -203,11 +204,11 @@ extern "C" int gComboOwlBlobSlot = -1;
 void SaveManager_InitNewSaveForSlot(int mmFileNum, const unsigned char* ootName8) {
     Sram_InitNewSave();
 #ifdef COMBO_BUILD
-    // ComboShip: carry the OOT-entered file name over (same font codes in both games; anything
-    // outside the shared 0x00-0x3F range, e.g. JP glyphs, becomes a space).
+    // ComboShip: carry the OOT-entered file name over (the launcher hands it over already in MM's glyph
+    // codes; anything outside MM's 0x00-0x40 range becomes a space).
     if (ootName8 != nullptr) {
         for (int i = 0; i < 8; i++) {
-            gSaveContext.save.saveInfo.playerData.playerName[i] = (ootName8[i] <= 0x3F) ? ootName8[i] : 0x3E;
+            gSaveContext.save.saveInfo.playerData.playerName[i] = (ootName8[i] <= 0x40) ? ootName8[i] : 0x3E;
         }
     }
     // ComboShip: a fresh MM save is always entered mid-playthrough from OOT, never via MM's title/intro.
@@ -876,6 +877,39 @@ extern "C" void SaveManager_SysFlashrom_WriteData(u8* saveBuffer, u32 pageNum, u
     }
 }
 
+#ifdef COMBO_BUILD
+// ComboShip (#27): combo MM saves are built from Sram_InitNewSave (MM_InitRandoSaveFile), which leaves the "ZELDA3"
+// file marker empty: only MM's own file select sets it, and only MM's file select checks it. With MM's file select as
+// the combo front end, a slot's MM section is a real file, so it reads as one. The name shown is the OOT file's (the
+// one OOT's name entry or MM's front end set): files made before the name was converted carry a blank MM name.
+static void ComboFixupReadSave(Save& save, const std::string& fileName) {
+    if (gComboReadGameSave == nullptr) {
+        return;
+    }
+    if (!IS_VALID_FILE(save)) {
+        memcpy(save.saveInfo.playerData.newf, "ZELDA3", sizeof(save.saveInfo.playerData.newf));
+    }
+    bool isBackup, isGlobal;
+    const int n = SaveManager_ClassifySaveFile(fileName, isBackup, isGlobal);
+    if (n <= 0 || isBackup || isGlobal) {
+        return;
+    }
+    const char* oot = gComboReadGameSave(ComboRando::GAME_OOT, n - 1);
+    if (oot == nullptr || oot[0] == '\0') {
+        return;
+    }
+    try {
+        const nlohmann::json ootSave = nlohmann::json::parse(oot);
+        const nlohmann::json& base = ootSave.at("sections").at("base").at("data");
+        const nlohmann::json& name = base.at("playerName");
+        const int ntsc = base.value("filenameLanguage", 0) != 0; // 0 = NAME_LANGUAGE_PAL (soh SaveManager.h)
+        for (size_t i = 0; i < sizeof(save.saveInfo.playerData.playerName) && i < name.size(); i++) {
+            save.saveInfo.playerData.playerName[i] = ComboNameCharOotToMm(name[i].get<u8>(), ntsc);
+        }
+    } catch (...) {} // keep the MM save's own name
+}
+#endif
+
 extern "C" s32 SaveManager_SysFlashrom_ReadData(void* saveBuffer, u32 pageNum, u32 pageCount) {
     FlashSave flashSave = SaveManager_GetFlashSaveFromPages(pageNum, pageCount);
     std::string fileName = SaveManager_GetFileNameFromFlashSave(flashSave);
@@ -923,6 +957,9 @@ extern "C" s32 SaveManager_SysFlashrom_ReadData(void* saveBuffer, u32 pageNum, u
 
         try {
             SaveContext saveContext = j["owlSave"];
+#ifdef COMBO_BUILD
+            ComboFixupReadSave(saveContext.save, fileName);
+#endif
 
             // Recompute the checksum in case the save was edited externally or a migration changed it
             // By doing this we sacrifice "real" checksum verification of the save,
@@ -949,6 +986,9 @@ extern "C" s32 SaveManager_SysFlashrom_ReadData(void* saveBuffer, u32 pageNum, u
 
         try {
             Save save = j["newCycleSave"]["save"];
+#ifdef COMBO_BUILD
+            ComboFixupReadSave(save, fileName);
+#endif
 
             // Recompute the checksum, see message above
             save.saveInfo.checksum = 0;

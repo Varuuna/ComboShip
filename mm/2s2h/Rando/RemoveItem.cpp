@@ -1,6 +1,9 @@
 #include "Rando/Rando.h"
 #include "Rando/ActorBehavior/Souls.h"
 #include "Rando/MiscBehavior/ClockShuffle.h"
+#ifdef COMBO_BUILD
+#include "Rando/MiscBehavior/SohSettings.h" // Ship of Harkinian's Infinite Upgrades, Bombchu Bag, Key Rings
+#endif
 
 extern "C" {
 #include "variables.h"
@@ -11,6 +14,69 @@ extern "C" {
 
 void Rando::RemoveItem(RandoItemId randoItemId) {
     switch (randoItemId) {
+#ifdef COMBO_BUILD
+        // ComboShip (cross-game items): OOT gear usable in MM (MiscBehavior/CrossGear.cpp).
+        case RI_BOOTS_IRON:
+        case RI_BOOTS_HOVER:
+        case RI_TUNIC_GORON:
+        case RI_TUNIC_ZORA:
+        case RI_PROGRESSIVE_SCALE:
+        case RI_SCALE_SILVER:
+        case RI_SCALE_GOLDEN:
+        case RI_PROGRESSIVE_STRENGTH:
+        case RI_STRENGTH_GORONS_BRACELET:
+        case RI_STRENGTH_SILVER_GAUNTLETS:
+        case RI_STRENGTH_GOLDEN_GAUNTLETS:
+        case RI_MASK_GERUDO:
+        case RI_MASK_SKULL:
+        case RI_MASK_SPOOKY:
+        case RI_SPELL_FIRE:
+        case RI_SPELL_WIND:
+        case RI_SPELL_LOVE:
+        case RI_HAMMER:
+        case RI_BOOMERANG:
+        case RI_SLINGSHOT:
+        case RI_SHIELD_DEKU:
+        case RI_ROCS_FEATHER:
+            Rando::CrossGearRemove(randoItemId);
+            break;
+        case RI_STONE_OF_AGONY:
+        case RI_OCARINA_FAIRY:
+        case RI_HOOKSHOT_SHORT:
+        case RI_PROGRESSIVE_STICK_UPGRADE:
+        case RI_DEKU_STICK_UPGRADE_20:
+        case RI_DEKU_STICK_UPGRADE_30:
+        case RI_PROGRESSIVE_NUT_UPGRADE:
+        case RI_DEKU_NUT_UPGRADE_30:
+        case RI_DEKU_NUT_UPGRADE_40:
+            Rando::CrossUpgradesRemove(randoItemId); // MiscBehavior/CrossUpgrades.cpp
+            break;
+        case RI_SONG_ZELDA:
+            Flags_ClearRandoInf(RANDO_INF_OBTAINED_SONG_ZELDA);
+            break;
+        // Ship of Harkinian's "Infinite Upgrades", "Bombchu Bag" and "Key Rings" (MiscBehavior/SohSettings.h).
+        case RI_BOMB_BAG_INF:
+        case RI_QUIVER_INF:
+        case RI_WALLET_INF:
+        case RI_MAGIC_INF:
+        case RI_STICK_UPGRADE_INF:
+        case RI_NUT_UPGRADE_INF:
+        case RI_BOMBCHU_INF:
+            Rando::InfiniteUpgradesRemove(randoItemId);
+            break;
+        case RI_PROGRESSIVE_BOMBCHU_BAG:
+        case RI_BOMBCHU_BAG_20:
+        case RI_BOMBCHU_BAG_30:
+        case RI_BOMBCHU_BAG_40:
+            Rando::BombchuBagRemove(randoItemId);
+            break;
+        case RI_WOODFALL_KEYRING:
+        case RI_SNOWHEAD_KEYRING:
+        case RI_GREAT_BAY_KEYRING:
+        case RI_STONE_TOWER_KEYRING:
+            Rando::KeyringRemove(randoItemId);
+            break;
+#endif
         case RI_CLOCK_TOWN_STRAY_FAIRY:
             CLEAR_WEEKEVENTREG(WEEKEVENTREG_08_80);
             break;

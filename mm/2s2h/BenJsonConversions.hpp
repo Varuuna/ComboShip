@@ -62,16 +62,58 @@ inline void to_json(json& j, const RandoSaveInfo& rando) {
         { "sariaPriorityItems", rando.sariaPriorityItems },
     };
 #ifdef COMBO_BUILD
-    j["pendingTrapCount"] = rando.pendingTrapCount; // ComboShip: deferred cross-world traps
+    j["pendingTrapCount"] = rando.pendingTrapCount;       // ComboShip: deferred cross-world traps
+    j["comboSlingshotSeeds"] = rando.comboSlingshotSeeds; // ComboShip: OOT Slingshot ammo in MM
+    j["comboFwState"] = rando.comboFwState;               // ComboShip: Farore's Wind point
+    j["comboFw"] = {
+        { "x", rando.comboFw.pos.x },
+        { "y", rando.comboFw.pos.y },
+        { "z", rando.comboFw.pos.z },
+        { "yaw", rando.comboFw.yaw },
+        { "playerParams", rando.comboFw.playerParams },
+        { "entrance", rando.comboFw.entrance },
+        { "roomIndex", rando.comboFw.roomIndex },
+        { "tempSwitchFlags", rando.comboFw.tempSwitchFlags },
+        { "tempCollectFlags", rando.comboFw.tempCollectFlags },
+    };
+    // ComboShip (Cross-Games Age): Link's age in Termina and each age's loadout.
+    j["comboLinkAdult"] = rando.comboLinkAdult;
+    j["comboAgeLoadoutSet"] = rando.comboAgeLoadoutSet;
+    j["comboAgeLoadout"] = json::array();
+    for (const auto& loadout : rando.comboAgeLoadout) {
+        j["comboAgeLoadout"].push_back({ { "buttonItems", loadout.buttonItems },
+                                         { "cButtonSlots", loadout.cButtonSlots },
+                                         { "wear", loadout.wear } });
+    }
 #endif
 }
 
+#ifdef COMBO_BUILD
+// ComboShip (cross-game items): randoInf and randoSaveOptions grow when ComboShip appends flags/options.
+// A save written before the append has a shorter array; nlohmann's fixed-array get_to would throw on the
+// missing tail and fail the whole load. Read what is there and zero the rest (new flags start unset,
+// new options start at 0 == RO_GENERIC_OFF/NO).
+template <typename T, size_t N> inline void ComboGetArrayTolerant(const json& arr, T (&out)[N]) {
+    for (size_t i = 0; i < N; i++) {
+        out[i] = (arr.is_array() && i < arr.size()) ? arr.at(i).get<T>() : T{};
+    }
+}
+#endif
+
 inline void from_json(const json& j, RandoSaveInfo& rando) {
+#ifdef COMBO_BUILD
+    ComboGetArrayTolerant(j.at("randoInf"), rando.randoInf);
+#else
     j.at("randoInf").get_to(rando.randoInf);
+#endif
     j.at("randoEvents").get_to(rando.randoEvents);
     j.at("randoSaveChecks").get_to(rando.randoSaveChecks);
     j.at("finalSeed").get_to(rando.finalSeed);
+#ifdef COMBO_BUILD
+    ComboGetArrayTolerant(j.at("randoSaveOptions"), rando.randoSaveOptions);
+#else
     j.at("randoSaveOptions").get_to(rando.randoSaveOptions);
+#endif
     j.at("randoStartingItems").get_to(rando.randoStartingItems);
     j.at("foundDungeonKeys").get_to(rando.foundDungeonKeys);
     j.at("foundTriforcePieces").get_to(rando.foundTriforcePieces);
@@ -79,6 +121,37 @@ inline void from_json(const json& j, RandoSaveInfo& rando) {
     j.at("sariaPriorityItems").get_to(rando.sariaPriorityItems);
 #ifdef COMBO_BUILD
     rando.pendingTrapCount = j.value("pendingTrapCount", (u8)0); // tolerate pre-existing combo saves
+    rando.comboSlingshotSeeds = j.value("comboSlingshotSeeds", (u8)0);
+    rando.comboFwState = j.value("comboFwState", (u8)0);
+    rando.comboFw = {};
+    if (j.contains("comboFw") && j["comboFw"].is_object()) {
+        const json& fw = j["comboFw"];
+        rando.comboFw.pos.x = fw.value("x", 0.0f);
+        rando.comboFw.pos.y = fw.value("y", 0.0f);
+        rando.comboFw.pos.z = fw.value("z", 0.0f);
+        rando.comboFw.yaw = fw.value("yaw", (s16)0);
+        rando.comboFw.playerParams = fw.value("playerParams", (s16)0);
+        rando.comboFw.entrance = fw.value("entrance", (u16)0);
+        rando.comboFw.roomIndex = fw.value("roomIndex", (u8)0);
+        rando.comboFw.tempSwitchFlags = fw.value("tempSwitchFlags", (u32)0);
+        rando.comboFw.tempCollectFlags = fw.value("tempCollectFlags", (u32)0);
+    }
+    // ComboShip (Cross-Games Age): tolerant, a save from before it is child Link with no stored loadouts.
+    rando.comboLinkAdult = j.value("comboLinkAdult", (u8)0);
+    rando.comboAgeLoadoutSet = j.value("comboAgeLoadoutSet", (u8)0);
+    memset(rando.comboAgeLoadout, 0, sizeof(rando.comboAgeLoadout));
+    if (j.contains("comboAgeLoadout") && j["comboAgeLoadout"].is_array()) {
+        for (size_t n = 0; n < 2 && n < j["comboAgeLoadout"].size(); n++) {
+            const json& l = j["comboAgeLoadout"][n];
+            for (size_t b = 0; b < 4; b++) {
+                if (l.contains("buttonItems") && b < l["buttonItems"].size())
+                    rando.comboAgeLoadout[n].buttonItems[b] = l["buttonItems"][b].get<u8>();
+                if (l.contains("cButtonSlots") && b < l["cButtonSlots"].size())
+                    rando.comboAgeLoadout[n].cButtonSlots[b] = l["cButtonSlots"][b].get<u8>();
+            }
+            rando.comboAgeLoadout[n].wear = l.value("wear", (u8)0);
+        }
+    }
 #endif
 }
 

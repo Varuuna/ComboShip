@@ -5,6 +5,9 @@
  */
 
 #include "z_en_dns.h"
+#ifdef COMBO_BUILD
+#include "2s2h/Rando/MiscBehavior/CrossGear.h" // ComboShip: cross-game items (OOT masks in MM)
+#endif
 
 #define FLAGS (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_FRIENDLY | ACTOR_FLAG_UPDATE_CULLING_DISABLED)
 
@@ -325,8 +328,14 @@ s32 func_8092CC68(PlayState* play) {
     s32 ret = false;
     s16 bgId;
 
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): the Deku Palace guards let a Skull-Masked Link pass (OoTMM).
+    if (!Play_InCsMode(play) && (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) &&
+        (player->transformation != PLAYER_FORM_DEKU) && !Combo_Gear_IsWearingMask(play, COMBO_MASK_SKULL)) {
+#else
     if (!Play_InCsMode(play) && (player->actor.bgCheckFlags & BGCHECKFLAG_GROUND) &&
         (player->transformation != PLAYER_FORM_DEKU)) {
+#endif
         bgId = player->actor.floorBgId;
         if (SurfaceType_GetSceneExitIndex(&play->colCtx, player->actor.floorPoly, bgId) != 4) {
             ret = true;

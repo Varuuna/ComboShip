@@ -33,9 +33,17 @@ extern "C" {
 
 extern PlayState* gPlayState;
 extern SaveContext gSaveContext;
+#ifdef COMBO_BUILD
+extern TexturePtr gItemIcons[ITEM_COMBO_TABLE_SIZE]; // ComboShip: widened (z64item.h)
+#else
 extern TexturePtr gItemIcons[131];
+#endif
 extern s16 D_801CFF94[250];
+#ifdef COMBO_BUILD
+extern u8 gItemSlots[ITEM_COMBO_TABLE_SIZE]; // ComboShip: widened (z64item.h)
+#else
 extern u8 gItemSlots[77];
+#endif
 void Interface_LoadItemIconImpl(PlayState* play, u8 btn);
 void Interface_NewDay(PlayState* play, s32 day);
 extern RegEditor* gRegEditor;
@@ -94,6 +102,12 @@ void initSafeItemsForInventorySlot() {
     sInitialized = true;
     for (int i = 0; i < sizeof(gItemSlots); i++) {
         InventorySlot slot = static_cast<InventorySlot>(gItemSlots[i]);
+#ifdef COMBO_BUILD
+        // ComboShip (cross-game items): the widened table's gap ids have no slot.
+        if (slot == SLOT_NONE) {
+            continue;
+        }
+#endif
         switch (slot) {
             case SLOT_BOTTLE_1:
                 if (i != ITEM_LONGSHOT) { // No longshot in bottles

@@ -21,6 +21,9 @@ void Randomizer_DrawTriforcePieceGI(PlayState* play, GetItemEntry getItemEntry);
 void Randomizer_DrawOcarinaButton(PlayState* play, GetItemEntry* getItemEntry);
 #ifdef COMBO_BUILD
 void Randomizer_DrawSongOfSoaring(PlayState* play, GetItemEntry* getItemEntry); // ComboShip (teleport songs)
+void Randomizer_DrawComboMmMask(PlayState* play, GetItemEntry* getItemEntry);   // ComboShip (cross-game items)
+void Randomizer_DrawComboMmSword(PlayState* play, GetItemEntry* getItemEntry);  // ComboShip (cross-game items)
+void Randomizer_DrawComboMmSong(PlayState* play, GetItemEntry* getItemEntry);   // ComboShip (cross-game items)
 #endif
 void Randomizer_DrawBronzeScale(PlayState* play, GetItemEntry* getItemEntry);
 void Randomizer_DrawPowerBracelet(PlayState* play, GetItemEntry* getItemEntry);

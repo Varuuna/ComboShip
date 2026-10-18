@@ -36,6 +36,7 @@ typedef enum {
     DISABLE_FOR_LINKS_VOICE_PITCH_MULTIPLIER_OFF,
     DISABLE_FOR_KOUME_INVINCIBLE,
     DISABLE_FOR_INVASION_SKIP,
+    DISABLE_FOR_IMPROVED_ROLL_OFF, // ComboShip: SoH's Improved Roll
 } DisableOption;
 
 struct WidgetInfo;

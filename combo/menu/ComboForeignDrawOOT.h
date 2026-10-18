@@ -75,13 +75,22 @@ inline const char* ComboInternRoutedPath(const std::string& s) {
 // not resident, foreign map not built, MM's rando state null), which must NEVER be negative-cached.
 enum class ComboForeignResolve { Ok, Unknown, NotReady };
 
+inline ComboForeignResolve ComboFillDrawInfoByNameMM(const char* drawName, ComboForeignDrawInfo& info);
+
 inline ComboForeignResolve ComboFillForeignDrawInfo(RandomizerCheck rc, int slot, ComboForeignDrawInfo& info) {
     const std::string checkName = Rando::StaticData::GetLocation(rc)->GetName();
     const ComboRando::ForeignItem* fi = OOT_LookupForeign(slot, checkName);
     if (fi == nullptr || fi->itemGame != ComboRando::GAME_MM) {
         return ComboForeignResolve::Unknown;
     }
+    // A disguised trap must draw the item it pretends to be. Same namespace, so the itemGame dispatch
+    // above is unaffected. Not state-dependent: like OOT, the disguise holds until the get-item cutscene.
+    const char* drawName = fi->HasDisguise() ? fi->fakeItemName.c_str() : fi->itemName.c_str();
+    return ComboFillDrawInfoByNameMM(drawName, info);
+}
 
+// Resolve MM's draw recipe for an MM item name (MM's RI_* spoiler name, as MM_GetItemDrawInfo takes).
+inline ComboForeignResolve ComboFillDrawInfoByNameMM(const char* drawName, ComboForeignDrawInfo& info) {
     static Fn_GetItemDrawInfo sGetItemDrawInfo = nullptr;
     if (sGetItemDrawInfo == nullptr) {
         // 2ship already loaded by the exe (ComboMenuModel pattern); resolution is process-wide.
@@ -90,9 +99,6 @@ inline ComboForeignResolve ComboFillForeignDrawInfo(RandomizerCheck rc, int slot
     if (sGetItemDrawInfo == nullptr) {
         return ComboForeignResolve::NotReady; // 2ship.dll may simply not be resident yet
     }
-    // A disguised trap must draw the item it pretends to be. Same namespace, so the itemGame dispatch
-    // above is unaffected. Not state-dependent: like OOT, the disguise holds until the get-item cutscene.
-    const char* drawName = fi->HasDisguise() ? fi->fakeItemName.c_str() : fi->itemName.c_str();
     CwItemDrawInfo raw{};
     int32_t rcStatic = sGetItemDrawInfo(drawName, &raw);
     if (rcStatic == CW_DRAW_NOT_READY) {
@@ -194,6 +200,26 @@ inline const ComboForeignDrawInfo* ComboResolveForeignDrawInfo(RandomizerCheck r
         return nullptr;
     }
     ComboForeignDrawInfo& entry = c.map[rc]; // Unknown caches ok=false: one lookup, then sentinel
+    entry = info;
+    return entry.ok ? &entry : nullptr;
+}
+
+// ComboShip (cross-game items): OOT's own copies of MM items (Blast Mask (OOT), ...) draw MM's real model by
+// MM item name. Concrete names only, so recipes don't depend on save state; NotReady is never cached.
+inline const ComboForeignDrawInfo* ComboResolveDrawInfoByNameMM(const char* mmName) {
+    static std::unordered_map<std::string, ComboForeignDrawInfo> sByName;
+    if (mmName == nullptr) {
+        return nullptr;
+    }
+    auto cached = sByName.find(mmName);
+    if (cached != sByName.end()) {
+        return cached->second.ok ? &cached->second : nullptr;
+    }
+    ComboForeignDrawInfo info{};
+    if (ComboFillDrawInfoByNameMM(mmName, info) == ComboForeignResolve::NotReady) {
+        return nullptr;
+    }
+    ComboForeignDrawInfo& entry = sByName[mmName];
     entry = info;
     return entry.ok ? &entry : nullptr;
 }
@@ -637,6 +663,46 @@ inline void OOT_DrawForeignSimple(PlayState* play, const ComboForeignDrawInfo* i
 // Draw a foreign (MM-bound) item's real MM model at the current model matrix. Any resolution
 // failure falls back to the sentinel (the RG_COMBO_FOREIGN entry's blue rupee), so we never draw
 // blank. Mirror of MM_DrawComboForeign (combo/menu/ComboForeignDrawMM.h).
+// ComboShip (cross-game items): MM's copies of OOT gear (Iron Boots (MM), ...) have no MM model; OOT draws its
+// own. Names are MM's combo names for those items (MiscBehavior/CrossGear.cpp); a progressive copy draws its
+// first tier (the tier MM grants depends on MM's dormant save). RG_NONE for any other item.
+inline RandomizerGet ComboCrossGearNativeOOT(const std::string& mmName) {
+    static const std::unordered_map<std::string, RandomizerGet> kMap = {
+        { "Iron Boots", RG_IRON_BOOTS },
+        { "Hover Boots", RG_HOVER_BOOTS },
+        { "Goron Tunic", RG_GORON_TUNIC },
+        { "Zora Tunic", RG_ZORA_TUNIC },
+        { "Progressive Scale", RG_SILVER_SCALE },
+        { "Silver Scale", RG_SILVER_SCALE },
+        { "Golden Scale", RG_GOLDEN_SCALE },
+        { "Strength Upgrade", RG_GORONS_BRACELET },
+        { "Goron's Bracelet", RG_GORONS_BRACELET },
+        { "Silver Gauntlets", RG_SILVER_GAUNTLETS },
+        { "Golden Gauntlets", RG_GOLDEN_GAUNTLETS },
+        { "Zelda's Lullaby", RG_ZELDAS_LULLABY },
+        { "Din's Fire", RG_DINS_FIRE },
+        { "Farore's Wind", RG_FARORES_WIND },
+        { "Nayru's Love", RG_NAYRUS_LOVE },
+        { "Megaton Hammer", RG_MEGATON_HAMMER },
+        { "Boomerang", RG_BOOMERANG },
+        { "Fairy Slingshot", RG_FAIRY_SLINGSHOT },
+        { "Deku Shield", RG_DEKU_SHIELD },
+        { "Stone of Agony", RG_STONE_OF_AGONY },
+        { "Roc's Feather", RG_ROCS_FEATHER },
+        { "Progressive Stick Capacity", RG_DEKU_STICK_CAPACITY_20 },
+        { "Deku Stick Capacity (20)", RG_DEKU_STICK_CAPACITY_20 },
+        { "Deku Stick Capacity (30)", RG_DEKU_STICK_CAPACITY_30 },
+        { "Progressive Nut Capacity", RG_DEKU_NUT_CAPACITY_30 },
+        { "Deku Nut Capacity (30)", RG_DEKU_NUT_CAPACITY_30 },
+        { "Deku Nut Capacity (40)", RG_DEKU_NUT_CAPACITY_40 },
+        { "Fairy Ocarina", RG_FAIRY_OCARINA },
+    };
+    auto it = kMap.find(mmName);
+    return (it == kMap.end()) ? RG_NONE : it->second;
+}
+
+inline void OOT_DrawForeignResolved(PlayState* play, const ComboForeignDrawInfo* info, int16_t fallbackGid);
+
 inline void OOT_DrawComboForeign(PlayState* play, GetItemEntry* getItemEntry) {
     RandomizerCheck rc = (RandomizerCheck)getItemEntry->comboForeignCheck;
     if (rc == RC_UNKNOWN_CHECK) {
@@ -645,16 +711,41 @@ inline void OOT_DrawComboForeign(PlayState* play, GetItemEntry* getItemEntry) {
         rc = OOT_GetQueuedDrawCheck();
     }
 
+    if (rc != RC_UNKNOWN_CHECK) {
+        const ComboRando::ForeignItem* fi = OOT_LookupForeignByCheck(rc);
+        if (fi != nullptr && fi->itemGame == ComboRando::GAME_MM) {
+            RandomizerGet native = ComboCrossGearNativeOOT(fi->HasDisguise() ? fi->fakeItemName : fi->itemName);
+            if (native != RG_NONE) {
+                GetItemEntry_Draw(play, Rando::StaticData::RetrieveItem(native).GetGIEntry_Copy());
+                return;
+            }
+        }
+    }
+
     const ComboForeignDrawInfo* info = (rc != RC_UNKNOWN_CHECK) ? ComboResolveForeignDrawInfo(rc) : nullptr;
     if (info == nullptr) {
         GetItem_Draw(play, getItemEntry->gid);
         return;
     }
+    OOT_DrawForeignResolved(play, info, getItemEntry->gid);
+}
 
+// ComboShip (cross-game items): draw MM's model for an MM item name (RI_* spoiler name); false if it couldn't
+// be resolved (the caller picks its own fallback).
+inline bool OOT_DrawMMItemByName(PlayState* play, const char* mmName) {
+    const ComboForeignDrawInfo* info = ComboResolveDrawInfoByNameMM(mmName);
+    if (info == nullptr) {
+        return false;
+    }
+    OOT_DrawForeignResolved(play, info, GID_RUPEE_BLUE);
+    return true;
+}
+
+inline void OOT_DrawForeignResolved(PlayState* play, const ComboForeignDrawInfo* info, int16_t fallbackGid) {
     // ComboShip: animated class — combo-owned skeletal draw (any failure -> sentinel, never blank).
     if (info->animOk) {
         if (!ComboForeignAnim_Draw(&info->anim, "mm", play)) {
-            GetItem_Draw(play, getItemEntry->gid);
+            GetItem_Draw(play, fallbackGid);
         }
         return;
     }

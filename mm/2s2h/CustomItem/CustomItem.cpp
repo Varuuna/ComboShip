@@ -1,6 +1,9 @@
 #include "CustomItem.h"
 #include "2s2h/CustomMessage/CustomMessage.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
+#ifdef COMBO_BUILD
+#include "2s2h/Rando/MiscBehavior/AdultLink.h" // ComboShip: Cross-Games Age (adult Link's held-item height)
+#endif
 
 extern "C" {
 #include "z64actor.h"
@@ -180,6 +183,12 @@ void CustomItem00_Update(Actor* actor, PlayState* play) {
                     height = 60.0f;
                     break;
             }
+#ifdef COMBO_BUILD
+            // ComboShip (Cross-Games Age): OOT's adult Link is taller than human Link; hold it over his head.
+            if (Combo_AdultLink_Is(player)) {
+                height = 68.0f;
+            }
+#endif
 
             // Bob the item up and down
             actor->world.pos.y += (height + (Math_SinS(enItem00->unk152 * 15000) * (enItem00->unk152 * 0.3f)));
@@ -233,6 +242,12 @@ void CustomItem00_Update(Actor* actor, PlayState* play) {
                         height = 75.0f;
                         break;
                 }
+#ifdef COMBO_BUILD
+                // ComboShip (Cross-Games Age): OOT's adult Link raises his hands higher than human Link.
+                if (Combo_AdultLink_Is(player)) {
+                    height = 72.0f;
+                }
+#endif
 
                 actor->world.pos.y += height;
             }

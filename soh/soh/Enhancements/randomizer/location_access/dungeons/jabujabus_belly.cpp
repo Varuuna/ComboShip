@@ -396,7 +396,7 @@ void RegionTable_Init_JabuJabusBelly() {
         //Exits
         //without swim, jump from rang chest to the other side
         //you can also bunnyhovers to force your way through but that's a trick
-        ENTRANCE(RR_JABU_JABUS_BELLY_MQ_WATER_SWITCH_ROOM_PAST_GEYSER, AnyAgeTime([]{return logic->CanKillEnemy(RE_LIZALFOS) && (logic->IsAdult || logic->CanUse(RG_CLIMB) || logic->HasItem(RG_BRONZE_SCALE));})),
+        ENTRANCE(RR_JABU_JABUS_BELLY_MQ_WATER_SWITCH_ROOM_PAST_GEYSER, AnyAgeTime([]{return logic->CanKillEnemy(RE_LIZALFOS) && (logic->IsAdult || logic->HasItem(RG_CLIMB) || logic->HasItem(RG_BRONZE_SCALE));})),
         ENTRANCE(RR_JABU_JABUS_BELLY_MQ_HOLES_ROOM,                    (logic->IsAdult || logic->HasItem(RG_BRONZE_SCALE)) && AnyAgeTime([]{return logic->CanKillEnemy(RE_LIZALFOS);})),
     });
 
@@ -594,7 +594,7 @@ void RegionTable_Init_JabuJabusBelly() {
         EVENT_ACCESS(LOGIC_FAIRY_ACCESS, logic->CanBreakPots()),
     }, {
         //Locations
-        LOCATION(RC_JABU_JABUS_BELLY_MQ_NEAR_BOSS_CHEST,                logic->CanUse(RG_FAIRY_SLINGSHOT)),
+        LOCATION(RC_JABU_JABUS_BELLY_MQ_NEAR_BOSS_CHEST,                logic->CanUse(RG_FAIRY_SLINGSHOT) && logic->HasItem(RG_OPEN_CHEST)),
         LOCATION(RC_JABU_JABUS_BELLY_MQ_GS_NEAR_BOSS,                   (logic->HasItem(RG_CLIMB) && (logic->CanUse(RG_BOOMERANG) || (ctx->GetTrickOption(RT_JABU_NEAR_BOSS_RANGED) && logic->CanUse(RG_HOOKSHOT)))) || (ctx->GetTrickOption(RT_JABU_NEAR_BOSS_RANGED) && logic->CanUse(RG_LONGSHOT))),
         LOCATION(RC_JABU_JABUS_BELLY_MQ_BEFORE_BOSS_POT_1,              logic->CanBreakPots()),
         LOCATION(RC_JABU_JABUS_BELLY_MQ_BEFORE_BOSS_GRASS_1,            logic->CanCutShrubs()),

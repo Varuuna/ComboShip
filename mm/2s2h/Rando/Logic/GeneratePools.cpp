@@ -17,6 +17,60 @@ namespace Rando {
 
 namespace Logic {
 
+#ifdef COMBO_BUILD
+// ComboShip: Ship of Harkinian's "Key Rings". A temple's ring replaces all of its small keys in the pool; a Vanilla
+// or Start With small key placement leaves no keys to replace, so it ignores the setting.
+void ApplyKeyrings(RandoSaveInfo& saveInfo, std::vector<RandoItemId>& itemPool) {
+    struct Temple {
+        RandoOptionId option;
+        RandoItemId smallKey;
+        RandoItemId keyring;
+    };
+    static const Temple kTemples[] = {
+        { RO_KEYRINGS_WOODFALL, RI_WOODFALL_SMALL_KEY, RI_WOODFALL_KEYRING },
+        { RO_KEYRINGS_SNOWHEAD, RI_SNOWHEAD_SMALL_KEY, RI_SNOWHEAD_KEYRING },
+        { RO_KEYRINGS_GREAT_BAY, RI_GREAT_BAY_SMALL_KEY, RI_GREAT_BAY_KEYRING },
+        { RO_KEYRINGS_STONE_TOWER, RI_STONE_TOWER_SMALL_KEY, RI_STONE_TOWER_KEYRING },
+    };
+    uint32_t* options = saveInfo.randoSaveOptions;
+    uint32_t mode = options[RO_KEYRINGS];
+    if (mode == RO_KEYRINGS_MODE_OFF || options[RO_PLACEMENT_SMALL_KEYS] == RO_DUNGEON_ITEM_VANILLA ||
+        options[RO_PLACEMENT_SMALL_KEYS] == RO_DUNGEON_ITEM_START_WITH) {
+        for (const Temple& t : kTemples) {
+            options[t.option] = RO_GENERIC_OFF;
+        }
+        return;
+    }
+
+    if (mode == RO_KEYRINGS_MODE_RANDOM || mode == RO_KEYRINGS_MODE_COUNT) {
+        // Ship of Harkinian: Random picks how many too; Count takes the number set.
+        int count =
+            (mode == RO_KEYRINGS_MODE_RANDOM) ? Ship_Random(0, 5) : std::min<int>(options[RO_KEYRINGS_COUNT], 4);
+        int order[] = { 0, 1, 2, 3 };
+        for (int i = 3; i > 0; i--) {
+            std::swap(order[i], order[Ship_Random(0, i + 1)]);
+        }
+        for (const Temple& t : kTemples) {
+            options[t.option] = RO_GENERIC_OFF;
+        }
+        for (int i = 0; i < count; i++) {
+            options[kTemples[order[i]].option] = RO_GENERIC_ON;
+        }
+    }
+
+    for (const Temple& t : kTemples) {
+        if (options[t.option] != RO_GENERIC_ON) {
+            continue;
+        }
+        size_t before = itemPool.size();
+        itemPool.erase(std::remove(itemPool.begin(), itemPool.end(), t.smallKey), itemPool.end());
+        if (itemPool.size() != before) {
+            itemPool.push_back(t.keyring);
+        }
+    }
+}
+#endif
+
 void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool, std::vector<RandoItemId>& itemPool) {
 #ifdef COMBO_BUILD
     // ComboShip (#136): the launcher owns the goal, so the hunt toggle follows it (the Majora soul-lock
@@ -179,7 +233,12 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
                 saveInfo.randoSaveOptions[RO_SHUFFLE_TINGLE_SHOPS] == RO_GENERIC_NO) {
                 continue;
             } else {
+#ifdef COMBO_BUILD
+                // ComboShip: Ship of Harkinian's shop price settings (ShopPrices.cpp); Random is this same roll.
+                int price = RollCheckPrice(saveInfo, randoCheckId);
+#else
                 int price = Ship_Random(0, 200);
+#endif
                 saveInfo.randoSaveChecks[randoCheckId].price = price;
             }
 
@@ -193,7 +252,11 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
                 } else {
                     // We may come up with a better solution for this in the future, but for now we choose a
                     // random price ahead of time, logic will account for whatever price we choose
+#ifdef COMBO_BUILD
+                    int price = RollCheckPrice(saveInfo, randoCheckId); // ComboShip: shop price settings
+#else
                     int price = Ship_Random(0, 200);
+#endif
                     saveInfo.randoSaveChecks[randoCheckId].price = price;
                 }
             }
@@ -302,10 +365,118 @@ void GeneratePools(RandoSaveInfo& saveInfo, std::vector<RandoCheckId>& checkPool
     }
 #endif
 
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): OOT gear usable in MM. Only the combined fill places these, and
+    // MM's logic never requires them (they open no new MM checks yet), so they fill as non-required majors.
+    if (saveInfo.randoSaveOptions[RO_CROSS_BOOTS_IRON] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_BOOTS_IRON);
+    }
+    if (saveInfo.randoSaveOptions[RO_CROSS_BOOTS_HOVER] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_BOOTS_HOVER);
+    }
+    if (saveInfo.randoSaveOptions[RO_CROSS_TUNIC_GORON] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_TUNIC_GORON);
+    }
+    if (saveInfo.randoSaveOptions[RO_CROSS_TUNIC_ZORA] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_TUNIC_ZORA);
+    }
+    if (saveInfo.randoSaveOptions[RO_CROSS_SCALES] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_PROGRESSIVE_SCALE);
+        itemPool.push_back(RI_PROGRESSIVE_SCALE);
+    }
+    if (saveInfo.randoSaveOptions[RO_CROSS_STRENGTH] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_PROGRESSIVE_STRENGTH);
+        itemPool.push_back(RI_PROGRESSIVE_STRENGTH);
+        itemPool.push_back(RI_PROGRESSIVE_STRENGTH);
+    }
+    if (saveInfo.randoSaveOptions[RO_CROSS_MASK_GERUDO] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_MASK_GERUDO);
+    }
+    if (saveInfo.randoSaveOptions[RO_CROSS_MASK_SKULL] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_MASK_SKULL);
+    }
+    if (saveInfo.randoSaveOptions[RO_CROSS_MASK_SPOOKY] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_MASK_SPOOKY);
+    }
+    if (saveInfo.randoSaveOptions[RO_CROSS_SONG_ZELDA] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_SONG_ZELDA);
+    }
+    if (saveInfo.randoSaveOptions[RO_CROSS_SPELL_FIRE] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_SPELL_FIRE);
+    }
+    if (saveInfo.randoSaveOptions[RO_CROSS_SPELL_WIND] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_SPELL_WIND);
+    }
+    if (saveInfo.randoSaveOptions[RO_CROSS_SPELL_LOVE] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_SPELL_LOVE);
+    }
+    if (saveInfo.randoSaveOptions[RO_CROSS_HAMMER] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_HAMMER);
+    }
+    if (saveInfo.randoSaveOptions[RO_CROSS_BOOMERANG] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_BOOMERANG);
+    }
+    if (saveInfo.randoSaveOptions[RO_CROSS_SLINGSHOT] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_SLINGSHOT);
+    }
+    if (saveInfo.randoSaveOptions[RO_CROSS_SHIELD_DEKU] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_SHIELD_DEKU);
+    }
+    if (saveInfo.randoSaveOptions[RO_CROSS_STONE_AGONY] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_STONE_OF_AGONY);
+    }
+    if (saveInfo.randoSaveOptions[RO_CROSS_ROCS_FEATHER] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_ROCS_FEATHER);
+    }
+    // A second ocarina / hookshot: the first copy resolves to the Fairy Ocarina / Short Hookshot (ConvertItem).
+    if (saveInfo.randoSaveOptions[RO_CROSS_OCARINA_FAIRY] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_OCARINA);
+    }
+    if (saveInfo.randoSaveOptions[RO_CROSS_HOOKSHOT_SHORT] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_HOOKSHOT);
+    }
+    if (saveInfo.randoSaveOptions[RO_CROSS_STICKS_NUTS] == RO_GENERIC_YES) {
+        itemPool.push_back(RI_PROGRESSIVE_STICK_UPGRADE);
+        itemPool.push_back(RI_PROGRESSIVE_STICK_UPGRADE);
+        itemPool.push_back(RI_PROGRESSIVE_NUT_UPGRADE);
+        itemPool.push_back(RI_PROGRESSIVE_NUT_UPGRADE);
+    }
+#endif
+
     // Tycoon's Wallet
     if (saveInfo.randoSaveOptions[RO_SHUFFLE_TYCOON_WALLET] == RO_GENERIC_YES) {
         itemPool.push_back(RI_PROGRESSIVE_WALLET);
     }
+
+#ifdef COMBO_BUILD
+    // ComboShip: Ship of Harkinian's "Bombchu Bag" - one bag, or three progressive ones (MiscBehavior/BombchuBag.cpp).
+    if (saveInfo.randoSaveOptions[RO_BOMBCHU_BAG] == RO_BOMBCHU_BAG_SINGLE) {
+        itemPool.push_back(RI_PROGRESSIVE_BOMBCHU_BAG);
+    } else if (saveInfo.randoSaveOptions[RO_BOMBCHU_BAG] == RO_BOMBCHU_BAG_PROGRESSIVE) {
+        for (int i = 0; i < 3; i++) {
+            itemPool.push_back(RI_PROGRESSIVE_BOMBCHU_BAG);
+        }
+    }
+
+    // ComboShip: Ship of Harkinian's "Infinite Upgrades" (Progressive) - one more copy of each upgrade, the one past
+    // its last tier (MiscBehavior/InfiniteUpgrades.cpp). Condensed adds none: an earlier copy is already infinite.
+    if (saveInfo.randoSaveOptions[RO_INFINITE_UPGRADES] == RO_INFINITE_UPGRADES_PROGRESSIVE) {
+        itemPool.push_back(RI_PROGRESSIVE_BOMB_BAG);
+        itemPool.push_back(RI_PROGRESSIVE_BOW);
+        itemPool.push_back(RI_PROGRESSIVE_WALLET);
+        itemPool.push_back(RI_PROGRESSIVE_MAGIC);
+        if (saveInfo.randoSaveOptions[RO_CROSS_STICKS_NUTS] == RO_GENERIC_YES) {
+            itemPool.push_back(RI_PROGRESSIVE_STICK_UPGRADE);
+            itemPool.push_back(RI_PROGRESSIVE_NUT_UPGRADE);
+        }
+        if (saveInfo.randoSaveOptions[RO_BOMBCHU_BAG] != RO_BOMBCHU_BAG_NONE) {
+            itemPool.push_back(RI_PROGRESSIVE_BOMBCHU_BAG);
+        }
+    }
+
+    // ComboShip: Ship of Harkinian's "Key Rings".
+    ApplyKeyrings(saveInfo, itemPool);
+#endif
 
     // Shuffle Triforce Pieces into the Pool
     if (saveInfo.randoSaveOptions[RO_SHUFFLE_TRIFORCE_PIECES] == RO_GENERIC_YES) {

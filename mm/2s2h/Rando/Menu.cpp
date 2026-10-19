@@ -1,3 +1,6 @@
+#ifdef COMBO_BUILD
+#include "2s2h/Rando/MiscBehavior/AdultLink.h"
+#endif
 #include "Rando/Rando.h"
 #include <fast/Fast3dGui.h>
 #include "Rando/Spoiler/Spoiler.h"
@@ -76,6 +79,38 @@ std::unordered_map<int32_t, const char*> songShuffleOptions = {
     { RO_SONG_SHUFFLE_SONG_LOCATIONS, "Song Locations" },
     { RO_SONG_SHUFFLE_VANILLA, "Vanilla" },
 };
+
+#ifdef COMBO_BUILD
+// ComboShip: Ship of Harkinian's shop prices, Infinite Upgrades, Bombchu Bag and Key Rings.
+std::unordered_map<int32_t, const char*> shopPricesOptions = {
+    { RO_SHOP_PRICES_RANDOM, "Random" },
+    { RO_SHOP_PRICES_VANILLA, "Vanilla" },
+    { RO_SHOP_PRICES_CHEAP_BALANCED, "Cheap Balanced" },
+    { RO_SHOP_PRICES_BALANCED, "Balanced" },
+    { RO_SHOP_PRICES_FIXED_PRICE, "Fixed" },
+    { RO_SHOP_PRICES_RANGE, "Range" },
+    { RO_SHOP_PRICES_SET_BY_WALLET, "Set By Wallet" },
+};
+
+std::unordered_map<int32_t, const char*> infiniteUpgradesOptions = {
+    { RO_INFINITE_UPGRADES_OFF, "Off" },
+    { RO_INFINITE_UPGRADES_PROGRESSIVE, "Progressive" },
+    { RO_INFINITE_UPGRADES_CONDENSED, "Condensed Progressive" },
+};
+
+std::unordered_map<int32_t, const char*> bombchuBagOptions = {
+    { RO_BOMBCHU_BAG_NONE, "None" },
+    { RO_BOMBCHU_BAG_SINGLE, "Single Bag" },
+    { RO_BOMBCHU_BAG_PROGRESSIVE, "Progressive Bags" },
+};
+
+std::unordered_map<int32_t, const char*> keyringsOptions = {
+    { RO_KEYRINGS_MODE_OFF, "Off" },
+    { RO_KEYRINGS_MODE_RANDOM, "Random" },
+    { RO_KEYRINGS_MODE_COUNT, "Count" },
+    { RO_KEYRINGS_MODE_SELECTION, "Selection" },
+};
+#endif
 
 // clang-format off
 std::vector<int32_t> incompatibleWithVanilla = {
@@ -455,6 +490,39 @@ static RegisterShipInitFunc refreshMetricsInit(RefreshMetrics, {
                                                                    "gRando.Options.RO_TRAP_AMOUNT",
                                                                    "gRando.Options.RO_TRIFORCE_PIECES_MAX",
                                                                    "gRando.Options.RO_TRIFORCE_PIECES_REQUIRED",
+#ifdef COMBO_BUILD
+                                                                   "gRando.Options.RO_CROSS_BOOTS_IRON",
+                                                                   "gRando.Options.RO_CROSS_BOOTS_HOVER",
+                                                                   "gRando.Options.RO_CROSS_TUNIC_GORON",
+                                                                   "gRando.Options.RO_CROSS_TUNIC_ZORA",
+                                                                   "gRando.Options.RO_CROSS_SCALES",
+                                                                   "gRando.Options.RO_CROSS_STRENGTH",
+                                                                   "gRando.Options.RO_CROSS_MASK_GERUDO",
+                                                                   "gRando.Options.RO_CROSS_MASK_SKULL",
+                                                                   "gRando.Options.RO_CROSS_MASK_SPOOKY",
+                                                                   "gRando.Options.RO_CROSS_SONG_ZELDA",
+                                                                   "gRando.Options.RO_CROSS_SPELL_FIRE",
+                                                                   "gRando.Options.RO_CROSS_SPELL_WIND",
+                                                                   "gRando.Options.RO_CROSS_SPELL_LOVE",
+                                                                   "gRando.Options.RO_CROSS_HAMMER",
+                                                                   "gRando.Options.RO_CROSS_BOOMERANG",
+                                                                   "gRando.Options.RO_CROSS_SLINGSHOT",
+                                                                   "gRando.Options.RO_CROSS_SHIELD_DEKU",
+                                                                   "gRando.Options.RO_CROSS_STONE_AGONY",
+                                                                   "gRando.Options.RO_CROSS_OCARINA_FAIRY",
+                                                                   "gRando.Options.RO_CROSS_HOOKSHOT_SHORT",
+                                                                   "gRando.Options.RO_CROSS_STICKS_NUTS",
+                                                                   "gRando.Options.RO_CROSS_ROCS_FEATHER",
+                                                                   "gRando.Options.RO_CROSS_GAME_FW",
+                                                                   "gRando.Options.RO_INFINITE_UPGRADES",
+                                                                   "gRando.Options.RO_BOMBCHU_BAG",
+                                                                   "gRando.Options.RO_KEYRINGS",
+                                                                   "gRando.Options.RO_KEYRINGS_COUNT",
+                                                                   "gRando.Options.RO_KEYRINGS_WOODFALL",
+                                                                   "gRando.Options.RO_KEYRINGS_SNOWHEAD",
+                                                                   "gRando.Options.RO_KEYRINGS_GREAT_BAY",
+                                                                   "gRando.Options.RO_KEYRINGS_STONE_TOWER",
+#endif
                                                                });
 
 // Shop checks that Rando::Logic::GeneratePools always shuffles even with Shops off
@@ -730,6 +798,64 @@ static const UIWidgets::CardLayoutOptions POOL_CARD_LAYOUT = { .columnsPerRow = 
                                                                .minColumnWidth = 400.0f,
                                                                .childFlags = ImGuiChildFlags_AutoResizeY };
 
+#ifdef COMBO_BUILD
+// ComboShip: Ship of Harkinian's shop price settings (Logic/ShopPrices.cpp).
+static void DrawShopPrices() {
+    UIWidgets::CVarCombobox(
+        "Shop Prices", Rando::StaticData::Options[RO_SHOP_PRICES].cvar, &shopPricesOptions,
+        UIWidgets::ComboboxOptions()
+            .ComponentAlignment(UIWidgets::ComponentAlignment::Right)
+            .LabelPosition(UIWidgets::LabelPosition::Near)
+            .Tooltip("The price of each shuffled shop item and Tingle map, as in Ship of Harkinian.\n\n"
+                     "Random - Any price from 0 to 199 rupees.\n\n"
+                     "Vanilla - Majora's Mask's own prices.\n\n"
+                     "Cheap Balanced - Mostly cheap: 0 to 95 rupees, about 30 on average.\n\n"
+                     "Balanced - 0 to 295 rupees, about 125 on average.\n\n"
+                     "Fixed - Every price is the one set below.\n\n"
+                     "Range - Any price between the two set below.\n\n"
+                     "Set By Wallet - Weights for which wallet a price needs: free, the starting wallet (1-99), "
+                     "the Adult's (100-200), the Giant's (201-500) or the Tycoon's (501-999).\n\n"
+                     "Prices never exceed the biggest wallet in the seed (500 rupees, 999 with the Tycoon's "
+                     "Wallet), and logic expects the wallet a price needs."));
+    int32_t mode = CVarGetInteger(Rando::StaticData::Options[RO_SHOP_PRICES].cvar, RO_SHOP_PRICES_RANDOM);
+    auto priceSlider = [](const char* label, RandoOptionId option, const char* format, int32_t defaultValue) {
+        CVarSliderInt(label, Rando::StaticData::Options[option].cvar,
+                      IntSliderOptions()
+                          .LabelPosition(UIWidgets::LabelPosition::None)
+                          .Min(0)
+                          .Max(199)
+                          .Format(format)
+                          .DefaultValue(defaultValue));
+    };
+    if (mode == RO_SHOP_PRICES_FIXED_PRICE) {
+        priceSlider("Fixed Price", RO_SHOP_PRICES_FIXED, "Price: %d x 5 Rupees", 10);
+    } else if (mode == RO_SHOP_PRICES_RANGE) {
+        priceSlider("Lower Bound", RO_SHOP_PRICES_RANGE_1, "Lower Bound: %d x 5 Rupees", 4);
+        priceSlider("Upper Bound", RO_SHOP_PRICES_RANGE_2, "Upper Bound: %d x 5 Rupees", 40);
+    } else if (mode == RO_SHOP_PRICES_SET_BY_WALLET) {
+        auto weightSlider = [](const char* label, RandoOptionId option, const char* format, int32_t defaultValue) {
+            CVarSliderInt(label, Rando::StaticData::Options[option].cvar,
+                          IntSliderOptions()
+                              .LabelPosition(UIWidgets::LabelPosition::None)
+                              .Min(0)
+                              .Max(100)
+                              .Format(format)
+                              .DefaultValue(defaultValue));
+        };
+        weightSlider("Free Weight", RO_SHOP_PRICES_WEIGHT_FREE, "Free: %d", 0);
+        weightSlider("Starting Wallet Weight", RO_SHOP_PRICES_WEIGHT_STARTING_WALLET, "Starting Wallet: %d", 1);
+        weightSlider("Adult Wallet Weight", RO_SHOP_PRICES_WEIGHT_ADULT_WALLET, "Adult's Wallet: %d", 1);
+        weightSlider("Giant Wallet Weight", RO_SHOP_PRICES_WEIGHT_GIANT_WALLET, "Giant's Wallet: %d", 1);
+        weightSlider("Tycoon Wallet Weight", RO_SHOP_PRICES_WEIGHT_TYCOON_WALLET, "Tycoon's Wallet: %d", 1);
+    }
+    if (mode != RO_SHOP_PRICES_FIXED_PRICE) {
+        CVarCheckbox("Affordable Prices", Rando::StaticData::Options[RO_SHOP_PRICES_AFFORDABLE].cvar,
+                     CheckboxOptions({ { .tooltip = "Each price drops to the cheapest one of the wallet it needs: 0, "
+                                                    "5, 100, 205 or 505 rupees." } }));
+    }
+}
+#endif
+
 static void DrawCheckPoolTab() {
     DrawSeedHealthStrip();
 
@@ -777,6 +903,9 @@ static void DrawCheckPoolTab() {
                       "and the Bomb Shop's bomb bags are always shuffled, even with this off.");
     CheckPoolCheckbox("Tingle Maps", RO_SHUFFLE_TINGLE_SHOPS, RCTYPE_TINGLE_SHOP,
                       "Maps sold by Tingle are checks, with randomized prices.");
+#ifdef COMBO_BUILD
+    DrawShopPrices();
+#endif
     CheckPoolCheckbox("Cows", RO_SHUFFLE_COWS, RCTYPE_COW, "Playing Epona's Song to a cow is a check.");
     UIWidgets::EndCard();
 
@@ -990,6 +1119,106 @@ static bool ItemPoolCheckbox(const char* label, RandoOptionId optionId, const ch
     return changed;
 }
 
+#ifdef COMBO_BUILD
+// ComboShip (Cross-Games Age): OoTMM's "requires Child/Adult Link" per MM item (AgeReqList.h), shown while MM can have
+// an adult Link.
+static void DrawAgeRequirementsCard() {
+    if (!Combo_AdultLink_AgeSystemConfigured()) {
+        return;
+    }
+    static const std::unordered_map<int32_t, const char*> kAgeReqOptions = {
+        { RO_AGE_ANY, "Any age" },
+        { RO_AGE_CHILD_ONLY, "Child only" },
+        { RO_AGE_ADULT_ONLY, "Adult only" },
+        { RO_AGE_RANDOM, "Random" },
+    };
+    struct Row {
+        RandoOptionId option;
+        const char* label;
+        RandoOptionId poolOption;
+    };
+    static const Row kRows[] = {
+#define AGE_REQ(suffix, label, ootmmId, item, poolOption) { RO_AGE_REQ_##suffix, label, poolOption },
+#include "MiscBehavior/AgeReqList.h"
+#undef AGE_REQ
+    };
+
+    UIWidgets::BeginCard("itemPoolAgeRequirements");
+    ImGui::SeparatorText("Age Requirements (MM)");
+    ImGui::TextWrapped(
+        "Which age of Link may use each item in Termina. An item for the other age is greyed out like an "
+        "item your form can't use. Random picks child or adult from the seed, keeping each form's mask "
+        "with what that form needs (its title deed; the Powder Keg with the Goron Mask or Strength) and "
+        "elemental arrows with the Bow.");
+    auto setAll = [](int32_t value) {
+        for (const Row& row : kRows) {
+            CVarSetInteger(Rando::StaticData::Options[row.option].cvar, value);
+        }
+        Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+    };
+    if (UIWidgets::Button("All: Any age", UIWidgets::ButtonOptions().Size(UIWidgets::Sizes::Inline))) {
+        setAll(RO_AGE_ANY);
+    }
+    ImGui::SameLine();
+    if (UIWidgets::Button("All: Random", UIWidgets::ButtonOptions().Size(UIWidgets::Sizes::Inline))) {
+        setAll(RO_AGE_RANDOM);
+    }
+    if (ImGui::BeginTable("ageRequirements", 2, ImGuiTableFlags_SizingStretchSame)) {
+        for (const Row& row : kRows) {
+            ImGui::TableNextColumn();
+            const bool inPool = (row.poolOption == RO_MAX) ||
+                                (CVarGetInteger(Rando::StaticData::Options[row.poolOption].cvar,
+                                                Rando::StaticData::Options[row.poolOption].defaultValue) != 0);
+            UIWidgets::ComboboxOptions options;
+            options.labelPosition = UIWidgets::LabelPosition::Near;
+            options.alignment = UIWidgets::ComponentAlignment::Right;
+            options.disabled = !inPool;
+            options.disabledTooltip = "Not in the item pool (see Ocarina of Time Gear above).";
+            UIWidgets::CVarCombobox(row.label, Rando::StaticData::Options[row.option].cvar, &kAgeReqOptions, options);
+        }
+        ImGui::EndTable();
+    }
+    UIWidgets::EndCard();
+}
+#endif
+
+#ifdef COMBO_BUILD
+// ComboShip: Ship of Harkinian's "Key Rings" (Logic/GeneratePools.cpp ApplyKeyrings).
+static void DrawKeyrings() {
+    int32_t smallKeys =
+        CVarGetInteger(Rando::StaticData::Options[RO_PLACEMENT_SMALL_KEYS].cvar, RO_DUNGEON_ITEM_ANYWHERE);
+    bool noKeys = (smallKeys == RO_DUNGEON_ITEM_VANILLA) || (smallKeys == RO_DUNGEON_ITEM_START_WITH);
+    UIWidgets::ComboboxOptions keyringOptions = UIWidgets::ComboboxOptions().Tooltip(
+        "As in Ship of Harkinian: a temple's key ring replaces all of its small keys in the item pool and gives "
+        "every one at once. Follows the Small Keys placement.\n\n"
+        "Random - A random number of random temples.\n\n"
+        "Count - The number of random temples set below.\n\n"
+        "Selection - The temples checked below.");
+    keyringOptions.disabled = noKeys;
+    keyringOptions.disabledTooltip = "Small Keys are Vanilla or Start With, so no small keys are shuffled";
+    UIWidgets::CVarCombobox("Key Rings", Rando::StaticData::Options[RO_KEYRINGS].cvar, &keyringsOptions,
+                            keyringOptions);
+    int32_t mode = CVarGetInteger(Rando::StaticData::Options[RO_KEYRINGS].cvar, RO_KEYRINGS_MODE_OFF);
+    if (noKeys) {
+        return;
+    }
+    if (mode == RO_KEYRINGS_MODE_COUNT) {
+        CVarSliderInt("Key Ring Count", Rando::StaticData::Options[RO_KEYRINGS_COUNT].cvar,
+                      IntSliderOptions()
+                          .LabelPosition(UIWidgets::LabelPosition::None)
+                          .Min(0)
+                          .Max(4)
+                          .Format("%d Key Rings")
+                          .DefaultValue(2));
+    } else if (mode == RO_KEYRINGS_MODE_SELECTION) {
+        CVarCheckbox("Woodfall Temple Key Ring", Rando::StaticData::Options[RO_KEYRINGS_WOODFALL].cvar);
+        CVarCheckbox("Snowhead Temple Key Ring", Rando::StaticData::Options[RO_KEYRINGS_SNOWHEAD].cvar);
+        CVarCheckbox("Great Bay Temple Key Ring", Rando::StaticData::Options[RO_KEYRINGS_GREAT_BAY].cvar);
+        CVarCheckbox("Stone Tower Temple Key Ring", Rando::StaticData::Options[RO_KEYRINGS_STONE_TOWER].cvar);
+    }
+}
+#endif
+
 static void DrawItemPoolTab() {
     DrawSeedHealthStrip();
 
@@ -1019,6 +1248,141 @@ static void DrawItemPoolTab() {
                      "Adds the Tycoon's Wallet (5,000 rupees) to the item pool\n"
                      "as a third progressive wallet upgrade.",
                      1);
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): OoTMM's "Iron Boots (MM)" etc. - OOT gear human Link can use in Termina.
+    ImGui::SeparatorText("Ocarina of Time Gear");
+    ItemPoolCheckbox("Iron Boots", RO_CROSS_BOOTS_IRON,
+                     "Adds Ocarina of Time's Iron Boots to the item pool. Human Link can wear them in Termina "
+                     "(assign them to a C button from the Room Key / Letter to Mama slot): he sinks in water, "
+                     "walks along the bottom and presses heavy switches.",
+                     1);
+    ItemPoolCheckbox("Hover Boots", RO_CROSS_BOOTS_HOVER,
+                     "Adds Ocarina of Time's Hover Boots to the item pool. Human Link can wear them in Termina "
+                     "(from the Letter to Kafei / Pendant slot) to float briefly off ledges, with no traction.",
+                     1);
+    ItemPoolCheckbox("Goron Tunic", RO_CROSS_TUNIC_GORON,
+                     "Adds Ocarina of Time's Goron Tunic to the item pool. Worn by human Link in Termina, it "
+                     "delays damage from hot floors and keeps him from catching fire.",
+                     1);
+    ItemPoolCheckbox("Zora Tunic", RO_CROSS_TUNIC_ZORA,
+                     "Adds Ocarina of Time's Zora Tunic to the item pool. Worn by human Link in Termina, he can "
+                     "breathe underwater (pair it with the Iron Boots to explore the bottom).",
+                     1);
+    ItemPoolCheckbox("Scales", RO_CROSS_SCALES,
+                     "Adds two Progressive Scales to the item pool (Silver, then Golden). Human Link dives "
+                     "deeper in Termina with each one.",
+                     2);
+    ItemPoolCheckbox("Strength", RO_CROSS_STRENGTH,
+                     "Adds three Strength Upgrades to the item pool (Goron's Bracelet, Silver Gauntlets, Golden "
+                     "Gauntlets). Silver lets human Link push heavy blocks like Zora Link; Golden lets him lift "
+                     "boulders and Powder Kegs like Goron Link.",
+                     3);
+    ItemPoolCheckbox("Gerudo Mask", RO_CROSS_MASK_GERUDO,
+                     "Adds Ocarina of Time's Gerudo Mask to the item pool (Moon's Tear / Title Deed slot). Worn "
+                     "by human Link in Termina, Pirates' Fortress guards don't spot him up close.",
+                     1);
+    ItemPoolCheckbox("Skull Mask", RO_CROSS_MASK_SKULL,
+                     "Adds Ocarina of Time's Skull Mask to the item pool (Room Key / Letter to Mama slot). Worn by "
+                     "human Link in Termina, the Deku Palace guards let him in, and Keese, Guays and Bad Bats "
+                     "leave him alone (like the Stone Mask).",
+                     1);
+    ItemPoolCheckbox("Spooky Mask", RO_CROSS_MASK_SPOOKY,
+                     "Adds Ocarina of Time's Spooky Mask to the item pool (Letter to Kafei / Pendant slot). "
+                     "Human Link can wear it in Termina.",
+                     1);
+    ItemPoolCheckbox("Zelda's Lullaby", RO_CROSS_SONG_ZELDA,
+                     "Adds Ocarina of Time's Zelda's Lullaby to the item pool as a song Link can play in Termina "
+                     "(no effect there; combine with Shared Items so one copy counts for both games).",
+                     1);
+    ItemPoolCheckbox("Din's Fire", RO_CROSS_SPELL_FIRE,
+                     "Adds Ocarina of Time's Din's Fire to the item pool (Moon's Tear / Title Deed slot). Human Link "
+                     "casts it in Termina for 12 magic: a sphere of fire that burns nearby enemies.",
+                     1);
+    ItemPoolCheckbox("Farore's Wind", RO_CROSS_SPELL_WIND,
+                     "Adds Ocarina of Time's Farore's Wind to the item pool (Room Key / Letter to Mama slot). Cast it "
+                     "once to set a warp point where human Link stands, again to return there (12 magic each). Not "
+                     "where the Song of Soaring is refused.",
+                     1);
+    ItemPoolCheckbox("Nayru's Love", RO_CROSS_SPELL_LOVE,
+                     "Adds Ocarina of Time's Nayru's Love to the item pool (Letter to Kafei / Pendant slot). Cast by "
+                     "human Link in Termina for 24 magic, nothing can hurt him for about a minute.",
+                     1);
+    ItemPoolCheckbox("Cross-Games Age", RO_CROSS_GAME_AGE,
+                     "Link enters Termina at the age he has in Hyrule: as adult Link after time travel (he gets "
+                     "there by playing the Song of Soaring in Hyrule onto an owl statue; the Happy Mask Shop is only "
+                     "open to child Link). Each age keeps its own C buttons and worn boots and tunic. Age "
+                     "Requirements (below) decide which items each age can use.");
+    ItemPoolCheckbox("Cross-Games Farore's Wind", RO_CROSS_GAME_FW,
+                     "With Farore's Wind above, there is one Farore's Wind point across both games: set it in "
+                     "Termina and casting Farore's Wind in Hyrule warps you back to it, or the other way round.",
+                     1);
+    ItemPoolCheckbox("Megaton Hammer", RO_CROSS_HAMMER,
+                     "Adds Ocarina of Time's Megaton Hammer to the item pool (Moon's Tear / Title Deed slot). Human "
+                     "Link swings it two-handed like the Great Fairy's Sword; it hits like a Goron punch.",
+                     1);
+    ItemPoolCheckbox(
+        "Boomerang", RO_CROSS_BOOMERANG,
+        "Adds Ocarina of Time's Boomerang to the item pool (Room Key / Letter to Mama slot). Human Link "
+        "throws it like OOT: hold to aim, release to throw; it hits like Zora Link's fins and fetches items.",
+        1);
+    ItemPoolCheckbox("Fairy Slingshot", RO_CROSS_SLINGSHOT,
+                     "Adds Ocarina of Time's Fairy Slingshot to the item pool (Letter to Kafei / Pendant slot). Human "
+                     "Link aims it like the Hero's Bow and fires Deku Seeds (30 max); arrow pickups also refill seeds "
+                     "while you own it.",
+                     1);
+    ItemPoolCheckbox("Deku Shield", RO_CROSS_SHIELD_DEKU,
+                     "Adds Ocarina of Time's Deku Shield to the item pool. With no shield it is equipped like the "
+                     "Hero's Shield, but burns away on fire. Getting the Hero's or Mirror Shield replaces it.",
+                     1);
+    ItemPoolCheckbox("Stone of Agony", RO_CROSS_STONE_AGONY,
+                     "Adds Ocarina of Time's Stone of Agony to the item pool. Until you find it, nothing rumbles near "
+                     "hidden grottos and other secrets; once you have it, the rumble comes with OOT's Stone of Agony "
+                     "icon flashing on screen. Not considered by logic.",
+                     1);
+    ItemPoolCheckbox("Fairy Ocarina", RO_CROSS_OCARINA_FAIRY,
+                     "Adds a second ocarina to the item pool. The first one found (or the one you start with) is "
+                     "Ocarina of Time's Fairy Ocarina, which plays every song; the second turns it into the Ocarina "
+                     "of Time.",
+                     1);
+    ItemPoolCheckbox("Short Hookshot", RO_CROSS_HOOKSHOT_SHORT,
+                     "Adds a second Hookshot to the item pool. The first one found is a Short Hookshot with half the "
+                     "range (Ocarina of Time's Hookshot); the second gives the full Hookshot. Logic only counts the "
+                     "full Hookshot.",
+                     1);
+    ItemPoolCheckbox("Deku Stick & Nut Upgrades", RO_CROSS_STICKS_NUTS,
+                     "Adds two Deku Stick and two Deku Nut capacity upgrades to the item pool, as in Ocarina of Time: "
+                     "sticks 10 -> 20 -> 30, nuts 20 -> 30 -> 40.",
+                     1);
+    ItemPoolCheckbox("Roc's Feather", RO_CROSS_ROCS_FEATHER,
+                     "Adds Ship of Harkinian's Roc's Feather to the item pool (Letter to Kafei / Pendant slot). Human "
+                     "Link uses it from a C button to jump, once each time he is in the air. Not considered by logic.",
+                     1);
+#endif
+#ifdef COMBO_BUILD
+    // ComboShip: Ship of Harkinian's "Infinite Upgrades" and "Bombchu Bag".
+    UIWidgets::CVarCombobox(
+        "Infinite Upgrades", Rando::StaticData::Options[RO_INFINITE_UPGRADES].cvar, &infiniteUpgradesOptions,
+        UIWidgets::ComboboxOptions()
+            .ComponentAlignment(UIWidgets::ComponentAlignment::Right)
+            .LabelPosition(UIWidgets::LabelPosition::Near)
+            .Tooltip("As in Ship of Harkinian: an upgrade past its last tier makes its ammo, magic or rupees "
+                     "infinite, and hides the ammo count.\n\n"
+                     "Progressive - Each upgrade gets one more copy in the item pool, the infinite one.\n\n"
+                     "Condensed Progressive - No extra copies: the second copy of an upgrade is already infinite "
+                     "(the first one for Deku Stick & Nut Upgrades).\n\n"
+                     "Covers the bomb bag, quiver, wallet, magic meter, Bombchu Bag and the Deku Stick & Nut "
+                     "Upgrades."));
+    UIWidgets::CVarCombobox(
+        "Bombchu Bag", Rando::StaticData::Options[RO_BOMBCHU_BAG].cvar, &bombchuBagOptions,
+        UIWidgets::ComboboxOptions()
+            .ComponentAlignment(UIWidgets::ComponentAlignment::Right)
+            .LabelPosition(UIWidgets::LabelPosition::Near)
+            .Tooltip("As in Ship of Harkinian: bombchus need a bag of their own, and the bomb bag stops "
+                     "carrying them.\n\n"
+                     "None - Vanilla: the bomb bag holds as many bombchus as bombs.\n\n"
+                     "Single Bag - One Bombchu Bag in the item pool, holding 40.\n\n"
+                     "Progressive Bags - Three Bombchu Bags in the item pool, holding 20, 30 and 40."));
+#endif
     CVarCheckbox("Repeatable Rupee Purchases", Rando::StaticData::Options[RO_PURCHASE_INFINITE_RUPEES].cvar,
                  CheckboxOptions({ { .tooltip = "Shops can end up selling rupees as their randomized stock (e.g. a "
                                                 "Silver Rupee for 1 rupee). When enabled, those rupees can be "
@@ -1033,9 +1397,11 @@ static void DrawItemPoolTab() {
                  CheckboxOptions({ { .disabled = true, .disabledTooltip = "Coming Soon" } }));
     CVarCheckbox("Child Wallet", "gPlaceholderBool",
                  CheckboxOptions({ { .disabled = true, .disabledTooltip = "Coming Soon" } }));
-    CVarCheckbox("Infinite Upgrades", "gPlaceholderBool",
-                 CheckboxOptions({ { .disabled = true, .disabledTooltip = "Coming Soon" } }));
+
     UIWidgets::EndCard();
+#ifdef COMBO_BUILD
+    DrawAgeRequirementsCard();
+#endif
 
     UIWidgets::BeginCard("itemPoolSongs");
     ImGui::SeparatorText("Extra Songs");
@@ -1188,6 +1554,9 @@ static void DrawItemPoolTab() {
             "Vanilla - Boss keys stay on the checks that hold them in the vanilla game, and none are added to "
             "the item pool.\n\n"
             "Start With - You begin with every dungeon's boss key, and none are added to the item pool."));
+#ifdef COMBO_BUILD
+    DrawKeyrings();
+#endif
     bool strayFairyPlacementChanged = UIWidgets::CVarCombobox(
         "Stray Fairies", Rando::StaticData::Options[RO_PLACEMENT_STRAY_FAIRIES].cvar, &dungeonItemPlacementOptions,
         UIWidgets::ComboboxOptions().Tooltip(

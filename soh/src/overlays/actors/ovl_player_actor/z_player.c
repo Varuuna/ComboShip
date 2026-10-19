@@ -37,6 +37,16 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <libultraship/bridge/consolevariablebridge.h>
+#ifdef COMBO_BUILD
+// ComboShip: Cross-Games Farore's Wind (ComboCrossFw.cpp)
+int Combo_Fw_OotWantsPrompt(void);
+int Combo_Fw_OotPromptKind(void);
+void Combo_Fw_OotStartThere(PlayState* play);
+void Combo_Fw_OotStartWhich(PlayState* play);
+int Combo_Fw_OotWarpThere(PlayState* play);
+void Combo_Fw_OotOnSet(void);
+void Combo_Fw_OotOnDispel(void);
+#endif
 
 // Some player animations are played at this reduced speed, for reasons yet unclear.
 // This is called "adjusted" for now.
@@ -3458,6 +3468,10 @@ void Player_UseItem(PlayState* play, Player* this, s32 item) {
             } else if ((temp = Player_ActionToMagicSpell(this, itemAction)) >= 0) {
                 // Handle magic spells
                 if (((itemAction == PLAYER_IA_FARORES_WIND) && (gSaveContext.respawn[RESPAWN_MODE_TOP].data > 0)) ||
+#ifdef COMBO_BUILD
+                    // ComboShip: Termina's Farore's Wind point opens the prompt, which is free (ComboCrossFw.cpp).
+                    ((itemAction == PLAYER_IA_FARORES_WIND) && Combo_Fw_OotWantsPrompt()) ||
+#endif
                     ((gSaveContext.magicCapacity != 0) && (gSaveContext.magicState == MAGIC_STATE_IDLE) &&
                      (gSaveContext.magic >= sMagicSpellCosts[temp]))) {
                     this->itemAction = itemAction;
@@ -5997,7 +6011,14 @@ s32 Player_ActionHandler_13(Player* this, PlayState* play) {
             if (this->unk_6AD == 4) {
                 sp2C = Player_ActionToMagicSpell(this, this->itemAction);
                 if (sp2C >= 0) {
+#ifdef COMBO_BUILD
+                    // ComboShip: Cross-Games Farore's Wind - with no point of OOT's own, Termina's still opens the
+                    // prompt (ComboCrossFw.cpp).
+                    if ((sp2C != 3) ||
+                        ((gSaveContext.respawn[RESPAWN_MODE_TOP].data <= 0) && !Combo_Fw_OotWantsPrompt())) {
+#else
                     if ((sp2C != 3) || (gSaveContext.respawn[RESPAWN_MODE_TOP].data <= 0)) {
+#endif
                         func_8083AF44(play, this, sp2C);
                     } else {
                         Player_SetupAction(play, this, Player_Action_8085063C, 1);
@@ -12329,6 +12350,10 @@ typedef struct BunnyEarKinematics {
 
 static BunnyEarKinematics sBunnyEarKinematics;
 
+#ifdef COMBO_BUILD
+void Combo_OotMask_Draw(PlayState* play, Player* player); // ComboShip: ComboMmMasks.cpp
+#endif
+
 static Gfx* sMaskDlists[PLAYER_MASK_MAX - 1] = {
     gLinkChildKeatonMaskDL, gLinkChildSkullMaskDL, gLinkChildSpookyMaskDL, gLinkChildBunnyHoodDL,
     gLinkChildGoronMaskDL,  gLinkChildZoraMaskDL,  gLinkChildGerudoMaskDL, gLinkChildMaskOfTruthDL,
@@ -12387,6 +12412,13 @@ void Player_DrawGameplay(PlayState* play, Player* this, s32 lod, Gfx* cullDList,
         if (CVarGetInteger(CVAR_GENERAL("FixIceTrapWithBunnyHood"), 1))
             Matrix_Pop();
     }
+
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): a worn MM mask (Blast/Stone/Kamaro) - see ComboMmMasks.cpp.
+    if (overrideLimbDraw == Player_OverrideLimbDrawGameplayDefault) {
+        Combo_OotMask_Draw(play, this);
+    }
+#endif
 
     if ((this->currentBoots == PLAYER_BOOTS_HOVER) && !(this->actor.bgCheckFlags & BGCHECKFLAG_GROUND) &&
         !(this->stateFlags1 & PLAYER_STATE1_ON_HORSE) && (this->hoverBootsTimer != 0)) {
@@ -15119,15 +15151,74 @@ void Player_Action_8085063C(Player* this, PlayState* play) {
     LinkAnimation_Update(play, &this->skelAnime);
     Player_UpdateUpperBody(this, play);
 
+#ifdef COMBO_BUILD
+    // ComboShip: Cross-Games Farore's Wind, a point per game (ComboCrossFw.cpp). av1 = which prompt:
+    // 0 = OOT's own point (vanilla), 1 = Termina's point only, 2 = both. av2: 1 = first box up, 3 = waiting for it to
+    // close before "which point?", 2 = "which point?" up.
+    if (this->av2.actionVar2 == 0) {
+        this->av1.actionVar1 = Combo_Fw_OotPromptKind();
+        if (this->av1.actionVar1 == 1) {
+            Combo_Fw_OotStartThere(play);
+        } else {
+            Message_StartTextbox(play, 0x3B, &this->actor);
+        }
+        this->av2.actionVar2 = 1;
+        return;
+    }
+    if (this->av2.actionVar2 == 3) {
+        if (Message_GetState(&play->msgCtx) == TEXT_STATE_NONE) {
+            Combo_Fw_OotStartWhich(play);
+            this->av2.actionVar2 = 2;
+        }
+        return;
+    }
+#else
     if (this->av2.actionVar2 == 0) {
         Message_StartTextbox(play, 0x3B, &this->actor);
         this->av2.actionVar2 = 1;
         return;
     }
+#endif
 
     if (Message_GetState(&play->msgCtx) == TEXT_STATE_CLOSING) {
         s32 respawnData = gSaveContext.respawn[RESPAWN_MODE_TOP].data;
 
+#ifdef COMBO_BUILD
+        if ((this->av2.actionVar2 == 1) && (this->av1.actionVar1 == 1)) {
+            // Termina's point only: Warp to Termina / Set a warp point here / Exit.
+            if ((play->msgCtx.choiceIndex == 0) && Combo_Fw_OotWarpThere(play)) {
+                func_80853080(this, play);
+                func_8005B1A4(Play_GetCamera(play, 0));
+                return;
+            }
+            if (play->msgCtx.choiceIndex == 1) {
+                s32 spell = Player_ActionToMagicSpell(this, PLAYER_IA_FARORES_WIND);
+                if ((gSaveContext.magicCapacity != 0) && (gSaveContext.magicState == MAGIC_STATE_IDLE) &&
+                    (gSaveContext.magic >= sMagicSpellCosts[spell])) {
+                    func_8083AF44(play, this, spell); // a normal cast: sets the point here
+                    return;
+                }
+                Sfx_PlaySfxCentered(NA_SE_SY_ERROR);
+            }
+            func_80853080(this, play);
+            func_8005B1A4(Play_GetCamera(play, 0));
+            return;
+        }
+        if ((this->av2.actionVar2 == 1) && (this->av1.actionVar1 == 2) && (play->msgCtx.choiceIndex == 0)) {
+            this->av2.actionVar2 = 3; // Return: which point? once this box has closed
+            return;
+        }
+        if (this->av2.actionVar2 == 2) {
+            // Which point: Hyrule (OOT's own return below) / Termina.
+            if (play->msgCtx.choiceIndex == 1) {
+                Combo_Fw_OotWarpThere(play);
+                func_80853080(this, play);
+                func_8005B1A4(Play_GetCamera(play, 0));
+                return;
+            }
+            play->msgCtx.choiceIndex = 0;
+        }
+#endif
         if (play->msgCtx.choiceIndex == 0) { // Returns to FW
             gSaveContext.respawnFlag = 3;
             play->transitionTrigger = TRANS_TRIGGER_START;
@@ -15138,6 +15229,9 @@ void Player_Action_8085063C(Player* this, PlayState* play) {
         }
 
         if (play->msgCtx.choiceIndex == 1) { // Unsets FW
+#ifdef COMBO_BUILD
+            Combo_Fw_OotOnDispel(); // ComboShip: Cross-Games Farore's Wind (ComboCrossFw.cpp)
+#endif
             gSaveContext.respawn[RESPAWN_MODE_TOP].data = -respawnData;
             gSaveContext.fw.set = 0;
             Sfx_PlaySfxAtPos(&gSaveContext.respawn[RESPAWN_MODE_TOP].pos, NA_SE_PL_MAGIC_WIND_VANISH);
@@ -15255,6 +15349,9 @@ void Player_Action_808507F4(Player* this, PlayState* play) {
                 gSaveContext.fw.roomIndex = gSaveContext.respawn[RESPAWN_MODE_DOWN].roomIndex;
                 gSaveContext.fw.tempSwchFlags = gSaveContext.respawn[RESPAWN_MODE_DOWN].tempSwchFlags;
                 gSaveContext.fw.tempCollectFlags = gSaveContext.respawn[RESPAWN_MODE_DOWN].tempCollectFlags;
+#ifdef COMBO_BUILD
+                Combo_Fw_OotOnSet(); // ComboShip: Cross-Games Farore's Wind (ComboCrossFw.cpp)
+#endif
                 this->av2.actionVar2 = 2;
             }
         } else if (this->av1.actionVar1 >= 0) {

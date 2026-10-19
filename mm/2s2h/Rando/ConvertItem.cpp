@@ -6,6 +6,7 @@
 #include <cassert>
 #ifdef COMBO_BUILD
 #include "Rando/MiscBehavior/MiscBehavior.h" // ComboShip: MM_LookupForeign for foreign container art
+#include "Rando/MiscBehavior/SohSettings.h"  // ComboShip: Infinite Upgrades, Bombchu Bag, Key Rings
 extern "C" int Combo_MM_BombchuBagShared(void);
 #endif
 
@@ -23,6 +24,9 @@ typedef struct GetItemEntry {
 extern "C" {
 #include "variables.h"
 #include "functions.h"
+#ifdef COMBO_BUILD
+#include "Rando/MiscBehavior/CrossGear.h" // ComboShip: cross-game items (OOT gear in MM)
+#endif
 
 extern GetItemEntry sGetItemTable[GI_MAX - 1];
 }
@@ -235,9 +239,116 @@ bool Rando::IsItemObtainable(RandoItemId randoItemId, RandoCheckId randoCheckId)
             ((Item_CheckObtainability(giEntry->itemId) == ITEM_NONE) && (giEntry->field & GIFIELD_40));
     }
 
+#ifdef COMBO_BUILD
+    // Ship of Harkinian's "Infinite Upgrades": a progressive copy past its last tier still gives the infinite item.
+    if (!hasObtainedCheck && Rando::InfiniteUpgradeFor(randoItemId) != RI_UNKNOWN) {
+        return true;
+    }
+#endif
     switch (randoItemId) {
         case RI_UNKNOWN:
             return false;
+#ifdef COMBO_BUILD
+        // Ship of Harkinian's "Infinite Upgrades", "Bombchu Bag" and "Key Rings" (MiscBehavior/SohSettings.h).
+        case RI_BOMB_BAG_INF:
+        case RI_QUIVER_INF:
+        case RI_WALLET_INF:
+        case RI_MAGIC_INF:
+        case RI_STICK_UPGRADE_INF:
+        case RI_NUT_UPGRADE_INF:
+        case RI_BOMBCHU_INF:
+            return !Rando::InfiniteUpgradeOwned(randoItemId);
+        case RI_PROGRESSIVE_BOMBCHU_BAG:
+            return !hasObtainedCheck && Rando::BombchuBagNext() != RI_UNKNOWN;
+        case RI_BOMBCHU_BAG_20:
+            return Rando::BombchuBagLevel() < 1;
+        case RI_BOMBCHU_BAG_30:
+            return Rando::BombchuBagLevel() < 2;
+        case RI_BOMBCHU_BAG_40:
+            return Rando::BombchuBagLevel() < 3;
+        case RI_WOODFALL_KEYRING:
+        case RI_SNOWHEAD_KEYRING:
+        case RI_GREAT_BAY_KEYRING:
+        case RI_STONE_TOWER_KEYRING:
+            return !hasObtainedCheck;
+        // ComboShip (cross-game items): OOT gear in MM. A copy already owned converts to junk.
+        case RI_BOOTS_IRON:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_BOOTS_IRON);
+        case RI_BOOTS_HOVER:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_BOOTS_HOVER);
+        case RI_TUNIC_GORON:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_TUNIC_GORON);
+        case RI_TUNIC_ZORA:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_TUNIC_ZORA);
+        case RI_PROGRESSIVE_SCALE:
+            return !hasObtainedCheck && (Combo_Gear_GetScale() < 2);
+        case RI_SCALE_SILVER:
+            return Combo_Gear_GetScale() < 1;
+        case RI_SCALE_GOLDEN:
+            return Combo_Gear_GetScale() < 2;
+        case RI_PROGRESSIVE_STRENGTH:
+            return !hasObtainedCheck && (Combo_Gear_GetStrengthOwned() < 3);
+        case RI_STRENGTH_GORONS_BRACELET:
+            return Combo_Gear_GetStrengthOwned() < 1;
+        case RI_STRENGTH_SILVER_GAUNTLETS:
+            return Combo_Gear_GetStrengthOwned() < 2;
+        case RI_STRENGTH_GOLDEN_GAUNTLETS:
+            return Combo_Gear_GetStrengthOwned() < 3;
+        case RI_MASK_GERUDO:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_MASK_GERUDO);
+        case RI_MASK_SKULL:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_MASK_SKULL);
+        case RI_MASK_SPOOKY:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_MASK_SPOOKY);
+        case RI_SONG_ZELDA:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_SONG_ZELDA);
+        case RI_SPELL_FIRE:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_SPELL_FIRE);
+        case RI_SPELL_WIND:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_SPELL_WIND);
+        case RI_SPELL_LOVE:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_SPELL_LOVE);
+        case RI_HAMMER:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_HAMMER);
+        case RI_BOOMERANG:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_BOOMERANG);
+        case RI_SLINGSHOT:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_SLINGSHOT);
+        case RI_SHIELD_DEKU:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_SHIELD_DEKU);
+        case RI_ROCS_FEATHER:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_ROCS_FEATHER);
+        // OOT items in MM (CrossUpgrades.cpp). The first ocarina / hookshot is the Fairy Ocarina / Short Hookshot;
+        // with one of those in the inventory, the ocarina / hookshot is still obtainable as the upgrade.
+        case RI_STONE_OF_AGONY:
+            return !Flags_GetRandoInf(RANDO_INF_OBTAINED_STONE_OF_AGONY);
+        case RI_OCARINA_FAIRY:
+            return INV_CONTENT(ITEM_OCARINA_OF_TIME) == ITEM_NONE;
+        case RI_HOOKSHOT_SHORT:
+            return INV_CONTENT(ITEM_HOOKSHOT) == ITEM_NONE;
+        case RI_OCARINA:
+            if (Flags_GetRandoInf(RANDO_INF_COMBO_OCARINA_IS_FAIRY)) {
+                return true;
+            }
+            break;
+        case RI_HOOKSHOT:
+            if (Flags_GetRandoInf(RANDO_INF_COMBO_HOOKSHOT_IS_SHORT)) {
+                return true;
+            }
+            break;
+        case RI_PROGRESSIVE_STICK_UPGRADE:
+            return !hasObtainedCheck && (CUR_UPG_VALUE(UPG_DEKU_STICKS) < 3);
+        case RI_DEKU_STICK_UPGRADE_20:
+            return CUR_UPG_VALUE(UPG_DEKU_STICKS) < 2;
+        case RI_DEKU_STICK_UPGRADE_30:
+            return CUR_UPG_VALUE(UPG_DEKU_STICKS) < 3;
+        case RI_PROGRESSIVE_NUT_UPGRADE:
+            return !hasObtainedCheck && (CUR_UPG_VALUE(UPG_DEKU_NUTS) < 3);
+        case RI_DEKU_NUT_UPGRADE_30:
+            return CUR_UPG_VALUE(UPG_DEKU_NUTS) < 2;
+        case RI_DEKU_NUT_UPGRADE_40:
+            return CUR_UPG_VALUE(UPG_DEKU_NUTS) < 3;
+#endif
         case RI_PROGRESSIVE_WALLET:
             if (hasObtainedCheck) {
                 return false;
@@ -407,6 +518,15 @@ bool Rando::IsItemObtainable(RandoItemId randoItemId, RandoCheckId randoCheckId)
         case RI_BOMBCHU:
         case RI_BOMBCHU_5:
         case RI_BOMBCHU_10:
+#ifdef COMBO_BUILD
+            // Ship of Harkinian's "Bombchu Bag": bombchus need their own bag, not a bomb bag.
+            if (Rando::BombchuBagOn()) {
+                if (INV_CONTENT(ITEM_BOMBCHU) != ITEM_BOMBCHU) {
+                    return false;
+                }
+                break;
+            }
+#endif
             if (CUR_UPG_VALUE(UPG_BOMB_BAG) == 0) {
                 return false;
             }
@@ -418,6 +538,13 @@ bool Rando::IsItemObtainable(RandoItemId randoItemId, RandoCheckId randoCheckId)
 #endif
             break;
         case RI_SHIELD_HERO:
+#ifdef COMBO_BUILD
+            // ComboShip (cross-game items): an equipped Deku Shield sits in the Hero's Shield value; it does not
+            // make the Hero's Shield unobtainable (getting it replaces the Deku Shield).
+            if (Flags_GetRandoInf(RANDO_INF_COMBO_SHIELD_IS_DEKU)) {
+                break;
+            }
+#endif
             if (GET_CUR_EQUIP_VALUE(EQUIP_TYPE_SHIELD) != EQUIP_VALUE_SHIELD_NONE) {
                 return false;
             }
@@ -712,7 +839,46 @@ bool Rando::IsItemObtainable(RandoItemId randoItemId, RandoCheckId randoCheckId)
 
 RandoItemId Rando::ConvertItem(RandoItemId randoItemId, RandoCheckId randoCheckId) {
     if (IsItemObtainable(randoItemId, randoCheckId)) {
+#ifdef COMBO_BUILD
+        // Ship of Harkinian's "Infinite Upgrades": the copy past the last tier (Condensed: the first) is infinite.
+        RandoItemId infinite = Rando::InfiniteUpgradeFor(randoItemId);
+        if (infinite != RI_UNKNOWN) {
+            return infinite;
+        }
+#endif
         switch (randoItemId) {
+#ifdef COMBO_BUILD
+            // Ship of Harkinian's "Bombchu Bag": 20 -> 30 -> 40 (a Single bag holds 40).
+            case RI_PROGRESSIVE_BOMBCHU_BAG:
+                return Rando::BombchuBagNext();
+            // ComboShip (cross-game items): OOT's scale and strength tiers, owned as RandoInf flags in MM.
+            case RI_PROGRESSIVE_SCALE:
+                return (Combo_Gear_GetScale() == 0) ? RI_SCALE_SILVER : RI_SCALE_GOLDEN;
+            case RI_PROGRESSIVE_STRENGTH: {
+                s32 tier = Combo_Gear_GetStrengthOwned();
+                return (tier == 0)   ? RI_STRENGTH_GORONS_BRACELET
+                       : (tier == 1) ? RI_STRENGTH_SILVER_GAUNTLETS
+                                     : RI_STRENGTH_GOLDEN_GAUNTLETS;
+            }
+            // OOT items in MM (CrossUpgrades.cpp): the first ocarina / hookshot is OOT's Fairy Ocarina / Short
+            // Hookshot.
+            case RI_OCARINA:
+                if ((RANDO_SAVE_OPTIONS[RO_CROSS_OCARINA_FAIRY] == RO_GENERIC_YES) &&
+                    (INV_CONTENT(ITEM_OCARINA_OF_TIME) == ITEM_NONE)) {
+                    return RI_OCARINA_FAIRY;
+                }
+                break;
+            case RI_HOOKSHOT:
+                if ((RANDO_SAVE_OPTIONS[RO_CROSS_HOOKSHOT_SHORT] == RO_GENERIC_YES) &&
+                    (INV_CONTENT(ITEM_HOOKSHOT) == ITEM_NONE)) {
+                    return RI_HOOKSHOT_SHORT;
+                }
+                break;
+            case RI_PROGRESSIVE_STICK_UPGRADE:
+                return (CUR_UPG_VALUE(UPG_DEKU_STICKS) < 2) ? RI_DEKU_STICK_UPGRADE_20 : RI_DEKU_STICK_UPGRADE_30;
+            case RI_PROGRESSIVE_NUT_UPGRADE:
+                return (CUR_UPG_VALUE(UPG_DEKU_NUTS) < 2) ? RI_DEKU_NUT_UPGRADE_30 : RI_DEKU_NUT_UPGRADE_40;
+#endif
             case RI_TIME_PROGRESSIVE: {
                 // Choose the next clock according to mode and current owned half-days
                 int mode = RANDO_SAVE_OPTIONS[RO_CLOCK_SHUFFLE_PROGRESSIVE];

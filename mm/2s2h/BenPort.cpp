@@ -67,8 +67,10 @@ CrowdControl* CrowdControl::Instance;
 #ifdef COMBO_BUILD
 #include "ComboMenuSharedContext.h"               // ComboShip: shared per-DLL ImGui context helper (combo-owned)
 #include "rando/SharedItems.h"                    // ComboShip: Shared Items family table
+#include "rando/ComboGames.h"                     // ComboShip: Games (OoT only / MM only / Combo)
 #include "rando/CrossWarpLogic.h"                 // ComboShip (teleport songs): cross-game warp logic bits
 #include "2s2h/Rando/MiscBehavior/MiscBehavior.h" // ComboShip: MM_LoadComboRando cache invalidation + ComboRando types
+#include "2s2h/Rando/MiscBehavior/SohSettings.h" // ComboShip: Ship of Harkinian's Infinite Upgrades, Bombchu Bag, Key Rings
 #endif
 
 #include "2s2h/GameInteractor/GameInteractor.h"
@@ -77,6 +79,10 @@ CrowdControl* CrowdControl::Instance;
 #include "2s2h/Enhancements/GfxPatcher/PlayerCustomFlipbooks.h"
 #include "2s2h/Enhancements/ModMenu/ModMenu.h"
 #include "2s2h/DeveloperTools/DebugConsole.h"
+#ifdef COMBO_BUILD
+#include "2s2h/Rando/MiscBehavior/AgeRequirements.h"
+#include "2s2h/Rando/MiscBehavior/AdultLink.h"
+#endif
 #include "2s2h/Rando/Rando.h"
 #include "2s2h/Rando/Spoiler/Spoiler.h"
 #include "2s2h/Rando/Logic/Logic.h"
@@ -179,6 +185,86 @@ static bool sComboOwlSaveQuitPending = false;
 extern "C" void Combo_RequestOwlSaveQuit(void) {
     sComboOwlSaveQuitPending = true;
 }
+// ComboShip (#27): Majora's Mask's title screen + file select as ComboShip's front end. The launcher turns it on
+// (MM_SetComboFrontEnd) and opens MM's title; MM's file select hands each file action to OOT's file select, which loads
+// or creates the slot exactly as its own would (soh title_setup.c / z_file_choose.c). 3 = the kind passed to the return
+// callback; the action itself is read back with MM_TakeComboFrontEndAction.
+static bool sComboFrontEnd = false;
+static int (*sComboFrontEndSeedReady)(void) = nullptr; // a combo seed is generated/loaded (reloads the remembered one)
+static void (*sComboFrontEndFrame)(void) = nullptr;    // once a frame on MM's file select (generation finalize)
+static void (*sComboFrontEndCopy)(int from, int to) = nullptr;
+static int (*sComboFrontEndBusy)(void) = nullptr; // a seed is generating: MM's file select ignores input
+static int sComboFrontEndActionKind = 0;          // 1 = load the slot, 2 = create it (name below), as OOT's action
+static int sComboFrontEndActionSlot = -1;
+static u8 sComboFrontEndActionName[8] = { 0 };
+extern "C" COMBO_EXPORT void MM_SetComboFrontEnd(int on, int (*seedReady)(void), void (*frame)(void),
+                                                 void (*copy)(int, int), int (*busy)(void)) {
+    sComboFrontEnd = on != 0;
+    sComboFrontEndSeedReady = seedReady;
+    sComboFrontEndFrame = frame;
+    sComboFrontEndCopy = copy;
+    sComboFrontEndBusy = busy;
+}
+extern "C" COMBO_EXPORT int MM_TakeComboFrontEndAction(int* slot, u8* name8) {
+    const int kind = sComboFrontEndActionKind;
+    if (slot != nullptr)
+        *slot = sComboFrontEndActionSlot;
+    if (name8 != nullptr)
+        memcpy(name8, sComboFrontEndActionName, sizeof(sComboFrontEndActionName));
+    sComboFrontEndActionKind = 0;
+    sComboFrontEndActionSlot = -1;
+    return kind;
+}
+extern "C" int Combo_MM_FileSelectIsUp(void); // z_file_choose_NES.c
+extern "C" COMBO_EXPORT int MM_IsOnFileSelect(void) {
+    return (sComboFrontEnd && Combo_MM_FileSelectIsUp()) ? 1 : 0;
+}
+extern "C" int Combo_MM_FrontEndActive(void) {
+    return sComboFrontEnd ? 1 : 0;
+}
+// MM's file select picked an existing file: OOT loads it (1 = handed over; MM's loop ends at the next frame start).
+extern "C" int Combo_MM_FrontEndOpenFile(int slot) {
+    if (!sComboFrontEnd || slot < 0 || slot > 2)
+        return 0;
+    sComboFrontEndActionKind = 1;
+    sComboFrontEndActionSlot = slot;
+    return 1;
+}
+// MM's name entry finished a new file: OOT creates the slot (both saves, the loaded combo seed) and loads it. 0 when
+// there is no combo seed to make it with: MM's name entry stays open.
+extern "C" int Combo_MM_FrontEndNewFile(int slot, const u8* name8) {
+    if (!sComboFrontEnd || slot < 0 || slot > 2)
+        return 0;
+    if (sComboFrontEndSeedReady == nullptr || !sComboFrontEndSeedReady()) {
+        Notification::Emit({ .message = "Generate a seed first: Randomizer > Generate in the ComboShip menu." });
+        return 0;
+    }
+    sComboFrontEndActionKind = 2;
+    sComboFrontEndActionSlot = slot;
+    memcpy(sComboFrontEndActionName, name8, sizeof(sComboFrontEndActionName));
+    return 1;
+}
+// MM's name entry finished (z_file_nameset_NES.c): 1 when the front end took it, with its own sound.
+extern "C" int Combo_MM_FrontEndNameEntryDone(int slot, const u8* name8) {
+    if (!sComboFrontEnd)
+        return 0;
+    Audio_PlaySfx(Combo_MM_FrontEndNewFile(slot, name8) ? NA_SE_SY_FSEL_DECIDE_L : NA_SE_SY_FSEL_ERROR);
+    return 1;
+}
+extern "C" void Combo_MM_FrontEndCopied(int from, int to) {
+    if (sComboFrontEndCopy != nullptr)
+        sComboFrontEndCopy(from, to);
+}
+// Once a frame from FileSelect_Main; 1 while a seed generates (the file select then ignores input: generation borrows
+// MM's gSaveContext for its reachability searches).
+extern "C" int Combo_MM_FrontEndFileSelectFrame(void) {
+    if (!sComboFrontEnd)
+        return 0;
+    if (sComboFrontEndFrame != nullptr)
+        sComboFrontEndFrame();
+    return (sComboFrontEndBusy != nullptr && sComboFrontEndBusy()) ? 1 : 0;
+}
+
 // Drop any unconsumed return request. Called as MM is entered: one left over from the previous session
 // would immediately quit the new one.
 static void Combo_ClearReturnRequests(void) {
@@ -186,12 +272,19 @@ static void Combo_ClearReturnRequests(void) {
     sComboResetReturnPending = false;
     sComboOwlSaveQuitPending = false;
     sComboCrossTargetOOT = -1;
+    sComboFrontEndActionKind = 0;
+    sComboFrontEndActionSlot = -1;
 }
 
 // ComboShip (teleport songs): switch to OOT and arrive at this entrance. Console: combo_warp_oot.
+extern "C" int Combo_GamesSolo(void);
 extern "C" void Combo_RequestCrossSwitch(int ootEntrance) {
     if (gSaveContext.gameMode != GAMEMODE_NORMAL) {
         SPDLOG_WARN("[ComboShip] Combo_RequestCrossSwitch: not in gameplay (gameMode={})", (int)gSaveContext.gameMode);
+        return;
+    }
+    if (Combo_GamesSolo()) { // a solo seed never goes to the other game (ComboGames.h)
+        SPDLOG_WARN("[ComboShip] Combo_RequestCrossSwitch: refused, this seed is one game only");
         return;
     }
     sComboCrossTargetOOT = ootEntrance;
@@ -1172,11 +1265,23 @@ extern "C" void InitOTR(int argc, char* argv[]) {
         // GAMEMODE_NORMAL only: MM's attract demo (GAMEMODE_TITLE_SCREEN, after Sram_InitNewSave wiped
         // the save) scene-hops through here, and would both teleport the player to OOT and persist the
         // wiped save over the slot.
-        if (sceneId == SCENE_INSIDETOWER && spawnNum == 1 && gSaveContext.gameMode == GAMEMODE_NORMAL) {
+        // Not in a solo seed (ComboGames.h): the Clock Tower is just MM's Clock Tower there.
+        if (sceneId == SCENE_INSIDETOWER && spawnNum == 1 && gSaveContext.gameMode == GAMEMODE_NORMAL &&
+            !Combo_GamesSolo()) {
             sComboReturnPending = true;
         }
     });
     GameInteractor::Instance->RegisterGameHook<GameInteractor::OnGameStateMainStart>([]() {
+        // ComboShip (#27): MM's file select handed a file to OOT. Nothing to save (no file is loaded here).
+        if (sComboFrontEndActionKind != 0) {
+            if (gComboReturnCallback)
+                gComboReturnCallback(3);
+            if (auto fast3d =
+                    std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow())) {
+                fast3d->SetIsRunning(false);
+            }
+            return;
+        }
         if (!sComboReturnPending && !sComboResetReturnPending && !sComboOwlSaveQuitPending)
             return;
         const bool isReset = sComboResetReturnPending;
@@ -1184,8 +1289,9 @@ extern "C" void InitOTR(int argc, char* argv[]) {
         sComboReturnPending = false;
         sComboResetReturnPending = false;
         sComboOwlSaveQuitPending = false;
-        // An owl save quit lands on OOT's title, like Ctrl+R, rather than resuming OOT gameplay.
-        if (isOwlSaveQuit) {
+        // An owl save quit lands on OOT's title, like Ctrl+R, rather than resuming OOT gameplay (MM's title with
+        // MM's front end: the launcher decides).
+        if (isOwlSaveQuit && !sComboFrontEnd) {
             static void (*sFn)(void) = nullptr;
             static bool sTried = false;
             if (!sTried) {
@@ -2082,7 +2188,41 @@ extern "C" int ResourceMgr_OTRSigCheck(char* imgData) {
 // Load animation with explicit alt asset path checking.
 // When Alt Assets is OFF: use original path directly (O2R or vanilla)
 // When Alt Assets is ON: try alt/ prefix first, fall back to regular path if not found or invalid
+#ifdef COMBO_BUILD
+// ComboShip (cross-game items): "__OTR__@<game>:<path>" animations load from that game's archive (OOT's boomerang
+// animations for human Link, z_player.c). The owning game's Animation factory nested-loads a Link animation's frame
+// data through the *active* ResourceManager, so the load is scoped to the owning RM (as ComboForeignAnim.h does). The
+// RM caches the resource, which keeps the raw pointer valid. Missing game/resource: MM's own boomerang aim loop, so
+// callers never see NULL.
+static AnimationHeaderCommon* Combo_LoadRoutedAnim(const char* path) {
+    const char* game = path + sizeof("__OTR__@") - 1;
+    const char* colon = strchr(game, ':');
+    if (colon != nullptr) {
+        auto rm = Ship::CrossRMRegistry::Get(std::string(game, colon - game));
+        if (rm != nullptr) {
+            Ship::ResourceManagerScope rmScope(rm);
+            auto res = rm->LoadResource(std::string(colon + 1));
+            if (res != nullptr && res->GetRawPointer() != nullptr) {
+                return (AnimationHeaderCommon*)res->GetRawPointer();
+            }
+        }
+    }
+    static bool sReported = false;
+    if (!sReported) {
+        sReported = true;
+        SPDLOG_ERROR("[ComboShip] routed animation not available: {}", path);
+    }
+    return (AnimationHeaderCommon*)ResourceGetDataByName(
+        "__OTR__objects/gameplay_keep/gPlayerAnim_link_boom_throw_waitR");
+}
+#endif
+
 extern "C" AnimationHeaderCommon* ResourceMgr_LoadAnimByName(const char* path) {
+#ifdef COMBO_BUILD
+    if (strncmp(path, "__OTR__@", sizeof("__OTR__@") - 1) == 0) {
+        return Combo_LoadRoutedAnim(path);
+    }
+#endif
     bool isAlt = ResourceMgr_IsAltAssetsEnabled();
 
     if (isAlt) {
@@ -2666,6 +2806,13 @@ extern "C" COMBO_EXPORT void MM_SetComboEntryIsResume(int isResume) {
     Combo_ClearReturnRequests(); // a stale request would quit the session we're about to start
 }
 
+// ComboShip (Cross-Games Age): OOT Link's age for the next entry (-1 = a resume, which keeps the age MM
+// was saved at). Set by the launcher before each MM_RunGame/MM_ResumeGame; applied in title_setup.c.
+extern "C" void Combo_AdultLink_SetEntryAge(int ootAdult);
+extern "C" COMBO_EXPORT void MM_SetComboEntryAge(int ootAdult) {
+    Combo_AdultLink_SetEntryAge(ootAdult);
+}
+
 // ComboShip (#83): adopt OOT's targeting/audio. MM normally reads these from global.json, which combo
 // never writes (its file select is never reached), leaving SaveContext_Init's defaults — so
 // Z-targeting silently reverted to Switch. Queries soh.dll; no-op if the export is missing.
@@ -2965,6 +3112,10 @@ extern "C" COMBO_EXPORT int MM_InitRandoSaveFile(int fileNum, const char* placem
         spoiler["checks"] = std::move(checks);
 
         Rando::Spoiler::ApplyToSaveContext(spoiler);
+
+        // ComboShip (Cross-Games Age): "Random" MM age requirements become child or adult from the combo seed (the
+        // combo logic resolves them the same way); off when MM has no adult Link.
+        Rando::AgeReq::Resolve((uint32_t)sMMComboRandoSeed, RANDO_SAVE_OPTIONS, Combo_AdultLink_AgeSystemOn() != 0);
 
         // ComboShip: the apply stamps shuffled=true on every payload check incl. non-shuffled Remains;
         // restore native state (delivery reads randoItemId, not shuffled) so stones/tracker skip them.
@@ -3549,11 +3700,26 @@ extern "C" COMBO_EXPORT const char* MM_DumpRandoStaticData(void) {
         junkPool.push_back(Rando::StaticData::GetItemDisplayName(id));
     }
 
+    // ComboShip (Cross-Games Age): some MM item may be for adult Link only (or Random), so the seed may need him in
+    // Termina; the combo fill names that when it fails without ever getting him there.
+    bool needsAdult = false;
+    if (Combo_AdultLink_AgeSystemConfigured()) {
+#define AGE_REQ(suffix, label, ootmmId, item, poolOption)                                    \
+    {                                                                                        \
+        const auto& opt = Rando::StaticData::Options[RO_AGE_REQ_##suffix];                   \
+        const int value = CVarGetInteger(opt.cvar, opt.defaultValue);                        \
+        needsAdult = needsAdult || (value == RO_AGE_ADULT_ONLY) || (value == RO_AGE_RANDOM); \
+    }
+#include "2s2h/Rando/MiscBehavior/AgeReqList.h"
+#undef AGE_REQ
+    }
+
     cached = nlohmann::json{
         { "checks", std::move(checks) },   { "pool", std::move(pool) },
         { "fixed", std::move(fixed) },     { "items", std::move(items) },
         { "prices", std::move(prices) },   { "locationHints", std::move(locationHints) },
-        { "options", std::move(options) }, { "junkPool", std::move(junkPool) }
+        { "options", std::move(options) }, { "junkPool", std::move(junkPool) },
+        { "ageNeedsAdult", needsAdult }
     }.dump();
     return cached.c_str();
 }
@@ -3562,6 +3728,8 @@ extern "C" COMBO_EXPORT const char* MM_DumpRandoStaticData(void) {
 // these to query "given owned items, which checks are reachable?"
 
 static SaveContext sMM_OracleSavedContext;
+// ComboShip (Cross-Games Age): adult Link can soar into Termina from Hyrule (CrossWarpLogic.h), for the next search.
+static bool sMMComboOracleAdultIn = false;
 static uint64_t sMM_OracleSavedRegionTime;
 // ComboShip: Reset runs once PER REACHABILITY QUERY (dozens per fill) but Restore only once at the
 // end of the whole fill. Without this flag the second Reset snapshots the already-zeroed context,
@@ -3586,6 +3754,12 @@ static void ComboGrantTradeSlot(u8 itemId) {
 // Covers the save-context mutations that logic conditions read (INV_CONTENT, equipment,
 // quest items, rando flags, dungeon items, week event regs). Derived from GiveItem.cpp.
 static void GiveItemForOracle(RandoItemId ri) {
+    // ComboShip (cross-game items): the full ocarina / hookshot upgrades the Fairy Ocarina / Short Hookshot.
+    if (ri == RI_OCARINA) {
+        Flags_ClearRandoInf(RANDO_INF_COMBO_OCARINA_IS_FAIRY);
+    } else if (ri == RI_HOOKSHOT) {
+        Flags_ClearRandoInf(RANDO_INF_COMBO_HOOKSHOT_IS_SHORT);
+    }
     switch (ri) {
         case RI_JUNK:
         case RI_NONE:
@@ -3634,23 +3808,49 @@ static void GiveItemForOracle(RandoItemId ri) {
 
         // Bomb bags — set upgrade + inventory. Chu grant left unconditional: gen-time mask is the
         // loaded slot's, not the seed's, and MM logic never gates on chus alone (see GiveItem.cpp).
+        // Ship of Harkinian's "Bombchu Bag" is a seed option, so with it on the chus need their own bag.
         case RI_BOMB_BAG_20:
             Inventory_ChangeUpgrade(UPG_BOMB_BAG, 1);
             INV_CONTENT(ITEM_BOMB) = ITEM_BOMB;
-            INV_CONTENT(ITEM_BOMBCHU) = ITEM_BOMBCHU;
+            if (!Rando::BombchuBagOn())
+                INV_CONTENT(ITEM_BOMBCHU) = ITEM_BOMBCHU;
             AMMO(ITEM_BOMB) = 20;
             break;
         case RI_BOMB_BAG_30:
             Inventory_ChangeUpgrade(UPG_BOMB_BAG, 2);
             INV_CONTENT(ITEM_BOMB) = ITEM_BOMB;
-            INV_CONTENT(ITEM_BOMBCHU) = ITEM_BOMBCHU;
+            if (!Rando::BombchuBagOn())
+                INV_CONTENT(ITEM_BOMBCHU) = ITEM_BOMBCHU;
             AMMO(ITEM_BOMB) = 30;
             break;
         case RI_BOMB_BAG_40:
             Inventory_ChangeUpgrade(UPG_BOMB_BAG, 3);
             INV_CONTENT(ITEM_BOMB) = ITEM_BOMB;
-            INV_CONTENT(ITEM_BOMBCHU) = ITEM_BOMBCHU;
+            if (!Rando::BombchuBagOn())
+                INV_CONTENT(ITEM_BOMBCHU) = ITEM_BOMBCHU;
             AMMO(ITEM_BOMB) = 40;
+            break;
+        // Ship of Harkinian's "Infinite Upgrades", "Bombchu Bag" and "Key Rings": save writes only.
+        case RI_BOMB_BAG_INF:
+        case RI_QUIVER_INF:
+        case RI_WALLET_INF:
+        case RI_MAGIC_INF:
+        case RI_STICK_UPGRADE_INF:
+        case RI_NUT_UPGRADE_INF:
+        case RI_BOMBCHU_INF:
+            Rando::InfiniteUpgradesGive(ri);
+            break;
+        case RI_PROGRESSIVE_BOMBCHU_BAG:
+        case RI_BOMBCHU_BAG_20:
+        case RI_BOMBCHU_BAG_30:
+        case RI_BOMBCHU_BAG_40:
+            Rando::BombchuBagGive(ri);
+            break;
+        case RI_WOODFALL_KEYRING:
+        case RI_SNOWHEAD_KEYRING:
+        case RI_GREAT_BAY_KEYRING:
+        case RI_STONE_TOWER_KEYRING:
+            Rando::KeyringGive(ri);
             break;
 
         // Wallets
@@ -3799,6 +3999,46 @@ static void GiveItemForOracle(RandoItemId ri) {
             break;
         case RI_ABILITY_SWIM:
             Flags_SetRandoInf(RANDO_INF_OBTAINED_SWIM);
+            break;
+        // ComboShip (cross-game items): OOT gear in MM - pure RandoInf/trade-slot writes, headless-safe.
+        case RI_BOOTS_IRON:
+        case RI_BOOTS_HOVER:
+        case RI_TUNIC_GORON:
+        case RI_TUNIC_ZORA:
+        case RI_PROGRESSIVE_SCALE:
+        case RI_SCALE_SILVER:
+        case RI_SCALE_GOLDEN:
+        case RI_PROGRESSIVE_STRENGTH:
+        case RI_STRENGTH_GORONS_BRACELET:
+        case RI_STRENGTH_SILVER_GAUNTLETS:
+        case RI_STRENGTH_GOLDEN_GAUNTLETS:
+        case RI_MASK_GERUDO:
+        case RI_MASK_SKULL:
+        case RI_MASK_SPOOKY:
+        case RI_SPELL_FIRE:
+        case RI_SPELL_WIND:
+        case RI_SPELL_LOVE:
+        case RI_HAMMER:
+        case RI_BOOMERANG:
+        case RI_SLINGSHOT:
+        case RI_SHIELD_DEKU:
+        case RI_ROCS_FEATHER:
+            Rando::CrossGearGive(ri);
+            break;
+        // ComboShip (cross-game items): OOT items in MM - flag / inventory / upgrade writes, headless-safe.
+        case RI_STONE_OF_AGONY:
+        case RI_OCARINA_FAIRY:
+        case RI_HOOKSHOT_SHORT:
+        case RI_PROGRESSIVE_STICK_UPGRADE:
+        case RI_DEKU_STICK_UPGRADE_20:
+        case RI_DEKU_STICK_UPGRADE_30:
+        case RI_PROGRESSIVE_NUT_UPGRADE:
+        case RI_DEKU_NUT_UPGRADE_30:
+        case RI_DEKU_NUT_UPGRADE_40:
+            Rando::CrossUpgradesGive(ri);
+            break;
+        case RI_SONG_ZELDA: // ComboShip (cross-game items)
+            Flags_SetRandoInf(RANDO_INF_OBTAINED_SONG_ZELDA);
             break;
 
         // ComboShip: owl-warp statues. Logic gates nearly every exit from the root region on
@@ -3973,8 +4213,9 @@ static void GiveItemForOracle(RandoItemId ri) {
 extern "C" COMBO_EXPORT void Combo_MM_Rando_Reset(void) {
     // ComboShip: MM's region graph + static data are built by the eager boot
     // (MM_BootForCombo -> ShipInit::InitAll), so the oracle needs no lazy init here.
-    gMMComboOracleOotSoaring = 0; // ComboShip (teleport songs): the input belongs to one query
-    if (!sMM_OracleActive) {      // snapshot the REAL live context only on the first Reset of a fill
+    gMMComboOracleOotSoaring = 0;  // ComboShip (teleport songs): the input belongs to one query
+    sMMComboOracleAdultIn = false; // ComboShip (Cross-Games Age): likewise
+    if (!sMM_OracleActive) {       // snapshot the REAL live context only on the first Reset of a fill
         memcpy(&sMM_OracleSavedContext, &gSaveContext, sizeof(SaveContext));
         sMM_OracleSavedRegionTime = gCurrentRegionTime;
         sMM_OracleActive = true;
@@ -4007,6 +4248,9 @@ extern "C" COMBO_EXPORT void Combo_MM_Rando_Reset(void) {
         gSaveContext.save.shipSaveInfo.rando.randoSaveOptions[id] =
             (uint32_t)CVarGetInteger(opt.cvar, opt.defaultValue);
     }
+    // ComboShip (Cross-Games Age): the same "Random" age requirements the save will get (MM_InitRandoSaveFile).
+    Rando::AgeReq::Resolve((uint32_t)sMMComboRandoSeed, gSaveContext.save.shipSaveInfo.rando.randoSaveOptions,
+                           Combo_AdultLink_AgeSystemOn() != 0);
     // ComboShip (#136): combo owns the goal, so the hidden CVars above must not decide it here either.
     gSaveContext.save.shipSaveInfo.rando.randoSaveOptions[RO_SHUFFLE_TRIFORCE_PIECES] =
         gMMComboGoalHunt ? RO_GENERIC_YES : RO_GENERIC_NO;
@@ -4100,6 +4344,10 @@ extern "C" COMBO_EXPORT void Combo_MM_Rando_SetOwnedItems(const char* itemNamesJ
         for (const auto& name : items) {
             if (name.get<std::string>() == ComboRando::kCwOotSoaring) {
                 gMMComboOracleOotSoaring = 1;
+                continue;
+            }
+            if (name.get<std::string>() == ComboRando::kCwOotAdultSoaring) { // Cross-Games Age
+                sMMComboOracleAdultIn = true;
                 continue;
             }
             auto it = nameToId.find(name.get<std::string>());
@@ -4257,9 +4505,18 @@ extern "C" COMBO_EXPORT void MM_SetComboGoal(int hunt, int required, int pieces)
 // gMMComboSharedMask mirrors the loaded slot's effective mask (SOH_SetComboSharedItems's MM twin) —
 // vendored pokes (Bomb Bag / Bombchu Bag) read it through Combo_MM_BombchuBagShared so they never
 // need the family header.
-extern "C" int gMMComboSharedMask = 0;
-extern "C" COMBO_EXPORT void MM_SetComboSharedItems(uint32_t mask) {
-    gMMComboSharedMask = static_cast<int>(mask);
+extern "C" uint64_t gMMComboSharedMask = 0; // ComboRando::SharedMask
+extern "C" COMBO_EXPORT void MM_SetComboSharedItems(ComboRando::SharedMask mask) {
+    gMMComboSharedMask = mask;
+}
+// ComboShip: Games (combo/rando/ComboGames.h) of the loaded seed, pushed by the launcher. A solo seed never crosses
+// into the other game: the Clock Tower door stays in Termina and cross-game teleports are refused.
+extern "C" int gMMComboGames = ComboRando::COMBO_GAMES_BOTH;
+extern "C" COMBO_EXPORT void MM_SetComboGames(int games) {
+    gMMComboGames = ComboRando::ComboGamesFromInt(games);
+}
+extern "C" int Combo_GamesSolo(void) {
+    return ComboRando::ComboGamesSolo(static_cast<ComboRando::ComboGames>(gMMComboGames)) ? 1 : 0;
 }
 extern "C" int Combo_MM_BombchuBagShared(void) {
     return (gMMComboSharedMask >> ComboRando::SF_BOMBCHU_BAG) & 1;
@@ -4281,7 +4538,14 @@ extern "C" COMBO_EXPORT int MM_GetSharedTier(int family) try {
         case ComboRando::SF_WALLET:
             return CUR_UPG_VALUE(UPG_WALLET);
         case ComboRando::SF_HOOKSHOT:
-            return INV_CONTENT(ITEM_HOOKSHOT) != ITEM_NONE ? 1 : 0;
+            // ComboShip (cross-game items): with MM's Short Hookshot, tier 1 is the Short Hookshot and 2 the Hookshot.
+            if (INV_CONTENT(ITEM_HOOKSHOT) == ITEM_NONE) {
+                return 0;
+            }
+            return ((RANDO_SAVE_OPTIONS[RO_CROSS_HOOKSHOT_SHORT] == RO_GENERIC_YES) &&
+                    !Flags_GetRandoInf(RANDO_INF_COMBO_HOOKSHOT_IS_SHORT))
+                       ? 2
+                       : 1;
         case ComboRando::SF_FIRE_ARROWS:
             return INV_CONTENT(ITEM_ARROW_FIRE) != ITEM_NONE ? 1 : 0;
         case ComboRando::SF_ICE_ARROWS:
@@ -4318,6 +4582,87 @@ extern "C" COMBO_EXPORT int MM_GetSharedTier(int family) try {
                        (RandoInf)(RANDO_INF_OBTAINED_SONG_MINUET + (family - ComboRando::SF_MINUET_OF_FOREST)))
                        ? 1
                        : 0;
+        // Cross-game items: OOT gear owned in MM (RandoInf-backed, MiscBehavior/CrossGear.cpp).
+        case ComboRando::SF_IRON_BOOTS:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_BOOTS_IRON) ? 1 : 0;
+        case ComboRando::SF_HOVER_BOOTS:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_BOOTS_HOVER) ? 1 : 0;
+        case ComboRando::SF_GORON_TUNIC:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_TUNIC_GORON) ? 1 : 0;
+        case ComboRando::SF_ZORA_TUNIC:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_TUNIC_ZORA) ? 1 : 0;
+        case ComboRando::SF_SCALES:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_SCALE_GOLDEN)   ? 2
+                   : Flags_GetRandoInf(RANDO_INF_OBTAINED_SCALE_SILVER) ? 1
+                                                                        : 0;
+        case ComboRando::SF_STRENGTH:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_STRENGTH_GOLDEN_GAUNTLETS)   ? 3
+                   : Flags_GetRandoInf(RANDO_INF_OBTAINED_STRENGTH_SILVER_GAUNTLETS) ? 2
+                   : Flags_GetRandoInf(RANDO_INF_OBTAINED_STRENGTH_GORONS_BRACELET)  ? 1
+                                                                                     : 0;
+        case ComboRando::SF_ELEGY:
+            return CHECK_QUEST_ITEM(QUEST_SONG_ELEGY) ? 1 : 0;
+        case ComboRando::SF_SONG_OF_HEALING:
+            return CHECK_QUEST_ITEM(QUEST_SONG_HEALING) ? 1 : 0;
+        case ComboRando::SF_SONATA:
+            return CHECK_QUEST_ITEM(QUEST_SONG_SONATA) ? 1 : 0;
+        case ComboRando::SF_BOSSA_NOVA:
+            return CHECK_QUEST_ITEM(QUEST_SONG_BOSSA_NOVA) ? 1 : 0;
+        case ComboRando::SF_OATH:
+            return CHECK_QUEST_ITEM(QUEST_SONG_OATH) ? 1 : 0;
+        case ComboRando::SF_ZELDAS_LULLABY:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_SONG_ZELDA) ? 1 : 0;
+        case ComboRando::SF_DINS_FIRE:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_SPELL_FIRE) ? 1 : 0;
+        case ComboRando::SF_FARORES_WIND:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_SPELL_WIND) ? 1 : 0;
+        case ComboRando::SF_NAYRUS_LOVE:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_SPELL_LOVE) ? 1 : 0;
+        case ComboRando::SF_HAMMER:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_HAMMER) ? 1 : 0;
+        case ComboRando::SF_BOOMERANG:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_BOOMERANG) ? 1 : 0;
+        case ComboRando::SF_SLINGSHOT:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_SLINGSHOT) ? 1 : 0;
+        case ComboRando::SF_STONE_OF_AGONY:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_STONE_OF_AGONY) ? 1 : 0;
+        case ComboRando::SF_ROCS_FEATHER:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_ROCS_FEATHER) ? 1 : 0;
+        // MM starts at capacity tier 1 (10 sticks / 20 nuts); the family counts the upgrades past it.
+        case ComboRando::SF_STICK_UPGRADES:
+            return std::max(0, (int)CUR_UPG_VALUE(UPG_DEKU_STICKS) - 1);
+        case ComboRando::SF_NUT_UPGRADES:
+            return std::max(0, (int)CUR_UPG_VALUE(UPG_DEKU_NUTS) - 1);
+        case ComboRando::SF_BLAST_MASK:
+            return INV_CONTENT(ITEM_MASK_BLAST) != ITEM_NONE ? 1 : 0;
+        case ComboRando::SF_STONE_MASK:
+            return INV_CONTENT(ITEM_MASK_STONE) != ITEM_NONE ? 1 : 0;
+        case ComboRando::SF_KAMARO_MASK:
+            return INV_CONTENT(ITEM_MASK_KAMARO) != ITEM_NONE ? 1 : 0;
+        case ComboRando::SF_GERUDO_MASK:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_MASK_GERUDO) ? 1 : 0;
+        case ComboRando::SF_SKULL_MASK:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_MASK_SKULL) ? 1 : 0;
+        case ComboRando::SF_SPOOKY_MASK:
+            return Flags_GetRandoInf(RANDO_INF_OBTAINED_MASK_SPOOKY) ? 1 : 0;
+        case ComboRando::SF_SUNS_SONG:
+            return CHECK_QUEST_ITEM(QUEST_SONG_SUN) ? 1 : 0;
+        case ComboRando::SF_SARIAS_SONG:
+            return CHECK_QUEST_ITEM(QUEST_SONG_SARIA) ? 1 : 0;
+        // Shared Kokiri Sword: MM's sword level, counting one the Takkuri stole (as ConvertItem does) so a theft
+        // isn't undone by the sync.
+        case ComboRando::SF_CHILD_SWORDS: {
+            int tier = GET_CUR_EQUIP_VALUE(EQUIP_TYPE_SWORD);
+            if (tier > EQUIP_VALUE_SWORD_GILDED) {
+                tier = EQUIP_VALUE_SWORD_GILDED; // never the Fierce Deity's
+            }
+            for (u8 stolen : { (u8)STOLEN_ITEM_1, (u8)STOLEN_ITEM_2 }) {
+                if (stolen >= ITEM_SWORD_KOKIRI && stolen <= ITEM_SWORD_GILDED) {
+                    tier = std::max(tier, (int)(stolen - ITEM_SWORD_KOKIRI) + EQUIP_VALUE_SWORD_KOKIRI);
+                }
+            }
+            return tier;
+        }
         default:
             return 0;
     }
@@ -4412,6 +4757,99 @@ extern "C" COMBO_EXPORT void MM_RaiseSharedTier(int family, int tier) try {
                 // RI_SONG_MINUET..PRELUDE are contiguous in the same order as the SF_ rows.
                 base = (RandoItemId)(RI_SONG_MINUET + (family - ComboRando::SF_MINUET_OF_FOREST));
                 break;
+            case ComboRando::SF_IRON_BOOTS:
+                base = RI_BOOTS_IRON;
+                break;
+            case ComboRando::SF_HOVER_BOOTS:
+                base = RI_BOOTS_HOVER;
+                break;
+            case ComboRando::SF_GORON_TUNIC:
+                base = RI_TUNIC_GORON;
+                break;
+            case ComboRando::SF_ZORA_TUNIC:
+                base = RI_TUNIC_ZORA;
+                break;
+            case ComboRando::SF_SCALES:
+                base = RI_PROGRESSIVE_SCALE;
+                break;
+            case ComboRando::SF_STRENGTH:
+                base = RI_PROGRESSIVE_STRENGTH;
+                break;
+            case ComboRando::SF_ELEGY:
+                base = RI_SONG_ELEGY;
+                break;
+            case ComboRando::SF_SONG_OF_HEALING:
+                base = RI_SONG_HEALING;
+                break;
+            case ComboRando::SF_SONATA:
+                base = RI_SONG_SONATA;
+                break;
+            case ComboRando::SF_BOSSA_NOVA:
+                base = RI_SONG_NOVA;
+                break;
+            case ComboRando::SF_OATH:
+                base = RI_SONG_OATH;
+                break;
+            case ComboRando::SF_ZELDAS_LULLABY:
+                base = RI_SONG_ZELDA;
+                break;
+            case ComboRando::SF_DINS_FIRE:
+                base = RI_SPELL_FIRE;
+                break;
+            case ComboRando::SF_FARORES_WIND:
+                base = RI_SPELL_WIND;
+                break;
+            case ComboRando::SF_NAYRUS_LOVE:
+                base = RI_SPELL_LOVE;
+                break;
+            case ComboRando::SF_HAMMER:
+                base = RI_HAMMER;
+                break;
+            case ComboRando::SF_BOOMERANG:
+                base = RI_BOOMERANG;
+                break;
+            case ComboRando::SF_SLINGSHOT:
+                base = RI_SLINGSHOT;
+                break;
+            case ComboRando::SF_STONE_OF_AGONY:
+                base = RI_STONE_OF_AGONY;
+                break;
+            case ComboRando::SF_ROCS_FEATHER:
+                base = RI_ROCS_FEATHER;
+                break;
+            case ComboRando::SF_STICK_UPGRADES:
+                base = RI_PROGRESSIVE_STICK_UPGRADE;
+                break;
+            case ComboRando::SF_NUT_UPGRADES:
+                base = RI_PROGRESSIVE_NUT_UPGRADE;
+                break;
+            case ComboRando::SF_BLAST_MASK:
+                base = RI_MASK_BLAST;
+                break;
+            case ComboRando::SF_STONE_MASK:
+                base = RI_MASK_STONE;
+                break;
+            case ComboRando::SF_KAMARO_MASK:
+                base = RI_MASK_KAMARO;
+                break;
+            case ComboRando::SF_GERUDO_MASK:
+                base = RI_MASK_GERUDO;
+                break;
+            case ComboRando::SF_SKULL_MASK:
+                base = RI_MASK_SKULL;
+                break;
+            case ComboRando::SF_SPOOKY_MASK:
+                base = RI_MASK_SPOOKY;
+                break;
+            case ComboRando::SF_SUNS_SONG:
+                base = RI_SONG_SUN;
+                break;
+            case ComboRando::SF_SARIAS_SONG:
+                base = RI_SONG_SARIA;
+                break;
+            case ComboRando::SF_CHILD_SWORDS:
+                base = RI_PROGRESSIVE_SWORD;
+                break;
             default:
                 break;
         }
@@ -4495,37 +4933,102 @@ extern "C" COMBO_EXPORT void MM_TriggerTriforceCredits(int dormant) try {
 extern "C" COMBO_EXPORT const char* Combo_MM_Rando_GetReachableChecks(void) {
     static std::string buf;
 
-    std::set<RandoRegionId> reachable = { RR_MAX };
-    auto timeStates = Rando::Logic::InitializeRegionTimeStates(RR_MAX);
-
     // ComboShip: mirror GlitchlessLogic's reachability fixpoint (Rando/Logic/GlitchlessLogic.cpp).
     // Crawling region connections alone isn't enough — MM's logic is event-gated (raising Woodfall,
     // opening dungeon entrances, cutscenes). Those events must be applied (RANDO_EVENTS[event]++) as
     // their regions become reachable, which then unlocks the connections and checks that depend on
     // them. Without it the oracle saw only the event-free overworld and the fill dead-ended. Loop
     // until regions and events both stabilize (each can unlock the other).
+    //
+    // ComboShip (Cross-Games Age): MM is explored once per age Link can be in it, like OoTMM's pathfinder
+    // explores per age. Child always; adult when the age system is on, adult Link can soar in from Hyrule and an
+    // owl statue is active to land on (after which a reload keeps him in Termina). Regions are per age, events
+    // are shared (the world remembers them), and HAS_ITEM follows gComboLogicAge (the age requirements).
+    struct AgePass {
+        int age;
+        std::set<RandoRegionId> reachable = { RR_MAX };
+        decltype(Rando::Logic::InitializeRegionTimeStates(RR_MAX)) timeStates =
+            Rando::Logic::InitializeRegionTimeStates(RR_MAX);
+    };
+    std::vector<AgePass> passes;
+    passes.push_back(AgePass{ 0 });
+    const bool ageSystem = Combo_AdultLink_AgeSystemOn() != 0;
+    auto anyOwlActive = [] { return (gSaveContext.save.saveInfo.playerData.owlActivationFlags & 0x3FF) != 0; };
+    auto tryAddAdultPass = [&] {
+        if ((passes.size() == 1) && sMMComboOracleAdultIn && ageSystem && anyOwlActive()) {
+            passes.push_back(AgePass{ 1 });
+            return true;
+        }
+        return false;
+    };
+    tryAddAdultPass();
+    // Cross-Games Age: unshuffled owl statues aren't items, so the oracle never owns one. Like hitting it in game,
+    // an owl is active once its statue's check is reachable (at either age), which gives adult Link somewhere to land.
+    const bool owlsByStatue = ageSystem && (RANDO_SAVE_OPTIONS[RO_SHUFFLE_OWL_STATUES] == RO_GENERIC_NO);
+    std::set<RandoCheckId> owlsActivated;
+
     std::set<std::pair<RandoEvent, std::function<bool()>>*> eventsInLogic;
     std::set<RandoCheckId> given;
     bool changed = true;
     while (changed) {
         changed = false;
-        size_t prevSize = reachable.size();
-        for (auto regionId : std::set<RandoRegionId>(reachable)) {
-            Rando::Logic::FindReachableRegions(regionId, reachable, timeStates);
-        }
-        if (reachable.size() != prevSize)
-            changed = true;
+        for (AgePass& pass : passes) {
+            gComboLogicAge = pass.age;
+            size_t prevSize = pass.reachable.size();
+            for (auto regionId : std::set<RandoRegionId>(pass.reachable)) {
+                Rando::Logic::FindReachableRegions(regionId, pass.reachable, pass.timeStates);
+            }
+            if (pass.reachable.size() != prevSize)
+                changed = true;
 
-        for (RandoRegionId regionId : reachable) {
+            for (RandoRegionId regionId : pass.reachable) {
+                auto regIt = Rando::Logic::Regions.find(regionId);
+                if (regIt == Rando::Logic::Regions.end())
+                    continue;
+                Rando::Logic::SetCurrentRegionTime(pass.timeStates, regionId);
+                for (auto& randoEvent : regIt->second.events) {
+                    if (!eventsInLogic.contains(&randoEvent) && randoEvent.second()) {
+                        RANDO_EVENTS[randoEvent.first]++;
+                        eventsInLogic.insert(&randoEvent);
+                        changed = true;
+                    }
+                }
+                if (owlsByStatue) {
+                    for (auto& [checkId, checkLogic] : regIt->second.checks) {
+                        const auto& staticCheck = Rando::StaticData::Checks[checkId];
+                        if ((staticCheck.randoCheckType == RCTYPE_OWL) && !owlsActivated.contains(checkId) &&
+                            checkLogic.first()) {
+                            GiveItemForOracle(staticCheck.randoItemId); // its own owl: Sram_ActivateOwl
+                            owlsActivated.insert(checkId);
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+        if (tryAddAdultPass()) {
+            changed = true;
+        }
+    }
+
+    std::set<std::string> seen;
+    nlohmann::json out = nlohmann::json::array();
+    for (AgePass& pass : passes) {
+        gComboLogicAge = pass.age;
+        for (RandoRegionId regionId : pass.reachable) {
             auto regIt = Rando::Logic::Regions.find(regionId);
             if (regIt == Rando::Logic::Regions.end())
                 continue;
-            Rando::Logic::SetCurrentRegionTime(timeStates, regionId);
-            for (auto& randoEvent : regIt->second.events) {
-                if (!eventsInLogic.contains(&randoEvent) && randoEvent.second()) {
-                    RANDO_EVENTS[randoEvent.first]++;
-                    eventsInLogic.insert(&randoEvent);
-                    changed = true;
+            auto& region = regIt->second;
+
+            Rando::Logic::SetCurrentRegionTime(pass.timeStates, regionId);
+
+            for (auto& [checkId, checkLogic] : region.checks) {
+                if (checkLogic.first()) {
+                    // ComboShip: emit the friendly combo-spoiler name the fill/oracle key on.
+                    const std::string& n = Rando::StaticData::GetCheckDisplayName(checkId);
+                    if (!n.empty() && seen.insert(n).second)
+                        out.push_back(n);
                 }
             }
             // ComboShip: credit reachable unshuffled checks' vanilla items, as native's fill does.
@@ -4539,25 +5042,7 @@ extern "C" COMBO_EXPORT const char* Combo_MM_Rando_GetReachableChecks(void) {
             }
         }
     }
-
-    nlohmann::json out = nlohmann::json::array();
-    for (RandoRegionId regionId : reachable) {
-        auto regIt = Rando::Logic::Regions.find(regionId);
-        if (regIt == Rando::Logic::Regions.end())
-            continue;
-        auto& region = regIt->second;
-
-        Rando::Logic::SetCurrentRegionTime(timeStates, regionId);
-
-        for (auto& [checkId, checkLogic] : region.checks) {
-            if (checkLogic.first()) {
-                // ComboShip: emit the friendly combo-spoiler name the fill/oracle key on.
-                const std::string& n = Rando::StaticData::GetCheckDisplayName(checkId);
-                if (!n.empty())
-                    out.push_back(n);
-            }
-        }
-    }
+    gComboLogicAge = -1;
 
     // ComboShip (teleport songs): OOT warp songs this owned-set can play, and whether any owl is active.
     sMMComboCrossOut = 0;
@@ -4584,6 +5069,8 @@ extern "C" COMBO_EXPORT const char* Combo_MM_Rando_GetReachableChecks(void) {
         }
         if ((gSaveContext.save.saveInfo.playerData.owlActivationFlags & 0x3FF) != 0)
             sMMComboCrossOut |= ComboRando::CW_MM_OUT_OWL;
+        if (Combo_AdultLink_AgeSystemOn()) // Cross-Games Age: ask the OOT side for adult access
+            sMMComboCrossOut |= ComboRando::CW_MM_OUT_AGE;
     }
     gMMComboOracleOotSoaring = 0;
 

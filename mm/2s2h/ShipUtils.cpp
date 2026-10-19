@@ -1,7 +1,11 @@
 #include "ShipUtils.h"
 #include <fast/Fast3dGui.h>
 #include "assets/2s2h_assets.h"
+#ifdef COMBO_BUILD
+#include "Rando/MiscBehavior/CrossItemAssets.h" // ComboShip: OOT icons for cross-game items
+#endif
 #include <string>
+#include <cstring>
 #include <bit>
 #include <random>
 #include <vector>
@@ -29,7 +33,11 @@ extern float OTRGetAspectRatio();
 
 extern f32 sNESFontWidths[160];
 extern const char* fontTbl[156];
+#ifdef COMBO_BUILD
+extern TexturePtr gItemIcons[ITEM_COMBO_TABLE_SIZE]; // ComboShip: widened (z64item.h)
+#else
 extern TexturePtr gItemIcons[131];
+#endif
 extern TexturePtr gQuestIcons[14];
 extern TexturePtr gBombersNotebookPhotos[24];
 }
@@ -351,6 +359,13 @@ extern uint32_t Ship_Hash(std::string str) {
 void LoadGuiTextures() {
     for (const TexturePtr entry : gItemIcons) {
         auto path = static_cast<const char*>(entry);
+#ifdef COMBO_BUILD
+        // ComboShip (cross-game items): gItemIcons is widened to ITEM_COMBO_TABLE_SIZE; the unused ids in
+        // between point at the virtual empty texture, which has no resource to load.
+        if (path == nullptr || strcmp(path, "__OTR__textures/virtual/gEmptyTexture") == 0) {
+            continue;
+        }
+#endif
         std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui())
             ->LoadGuiTexture(path, path, "", ImVec4(1, 1, 1, 1));
     }
@@ -372,6 +387,16 @@ void LoadGuiTextures() {
         std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui())
             ->LoadGuiTexture(entry, entry, "", ImVec4(1, 1, 1, 1));
     }
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): OOT icons for passive cross-game items, which have no gItemIcons entry
+    // (Rando::StaticData::GetIconTexturePath returns these for the menus, tracker and notifications).
+    for (const char* entry : { gComboIconScaleSilverTex, gComboIconScaleGoldenTex, gComboIconGoronsBraceletTex,
+                               gComboIconSilverGauntletsTex, gComboIconGoldenGauntletsTex, gComboIconStoneOfAgonyTex,
+                               gComboIconShieldDekuTex, gComboIconOcarinaFairyTex }) {
+        std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui())
+            ->LoadGuiTexture(entry, entry, "", ImVec4(1, 1, 1, 1));
+    }
+#endif
 }
 
 std::string convertEnumToReadableName(const std::string& input, const std::string& prefix) {

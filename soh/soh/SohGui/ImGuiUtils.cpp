@@ -261,6 +261,25 @@ void RegisterImGuiItemIcons() {
         gui->LoadGuiTexture(entry.second.nameFaded, entry.second.texturePath, "", ImVec4(1, 1, 1, 0.3f));
     }
 
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): Majora's Mask's songs in OOT, as notes in the colors MM's item tracker uses.
+    // (MM's icons for the other MM items load later, in the item tracker: MM's archive isn't open yet here.)
+    static const std::pair<const char*, ImVec4> kComboMmSongColors[] = {
+        { "RG_COMBO_SONG_HEALING", ImVec4(1.0f, 1.0f, 1.0f, 1.0f) },
+        { "RG_COMBO_SONG_SONATA", ImVec4(0.588f, 1.0f, 0.392f, 1.0f) },
+        { "RG_COMBO_SONG_GORON", ImVec4(1.0f, 0.313f, 0.156f, 1.0f) },
+        { "RG_COMBO_SONG_BOSSA", ImVec4(0.392f, 0.588f, 1.0f, 1.0f) },
+        { "RG_COMBO_SONG_ELEGY", ImVec4(1.0f, 0.627f, 0.0f, 1.0f) },
+        { "RG_COMBO_SONG_OATH", ImVec4(1.0f, 0.392f, 1.0f, 1.0f) },
+    };
+    for (const auto& [name, color] : kComboMmSongColors) {
+        gui->LoadGuiTexture(name, gSongNoteTex, "", color);
+        ImVec4 fadedCol = color;
+        fadedCol.w = 0.3f;
+        gui->LoadGuiTexture(std::string(name) + "_Faded", gSongNoteTex, "", fadedCol);
+    }
+#endif
+
     for (const auto& [quest, entry] : songMapping) {
         gui->LoadGuiTexture(entry.name, gSongNoteTex, "", entry.color);
         ImVec4 fadedCol = entry.color;

@@ -562,6 +562,12 @@ void Play_Init(GameState* thisx) {
     // Handle Rocs Feather requirement
     gItemAgeReqs[ITEM_ROCS_FEATHER] = AGE_REQ_NONE;
     gSlotAgeReqs[SLOT_NAYRUS_LOVE] = AGE_REQ_NONE;
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): MM masks live in the child trade slot.
+    gItemAgeReqs[ITEM_COMBO_MASK_BLAST] = AGE_REQ_CHILD;
+    gItemAgeReqs[ITEM_COMBO_MASK_STONE] = AGE_REQ_CHILD;
+    gItemAgeReqs[ITEM_COMBO_MASK_KAMARO] = AGE_REQ_CHILD;
+#endif
 
     Actor_InitContext(play, &play->actorCtx, play->linkActorEntry);
 

@@ -5,6 +5,7 @@
 #include "ship/config/Config.h"
 #include "2s2h/ShipInit.hpp"
 #include "2s2h/BenPort.h"
+#include <algorithm>
 
 namespace BenGui {
 extern std::shared_ptr<ItemTrackerWindow> mItemTrackerWindow;
@@ -48,6 +49,9 @@ static const std::unordered_map<u32, const char*> sVanillaItemNames = {
 std::string GetItemTrackerItemName(TrackerItemType itemType, u32 itemId) {
     switch (itemType) {
         case TRACKER_ITEM_RANDO: {
+#ifdef COMBO_BUILD
+            itemId = Combo_TrackerTierItem(itemType, itemId); // OOT's scale / strength: the tier shown
+#endif
             return Rando::StaticData::Items[(RandoItemId)itemId].name;
         } break;
         case TRACKER_ITEM_SLOT: {
@@ -486,13 +490,53 @@ void LoadAvailableWindows() {
             { TRACKER_ITEM_RANDO, RI_ABILITY_SWIM },
         },
     });
+
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): every Ocarina of Time item MM can hold. The tracker shows only the ones the
+    // loaded seed has (Combo_TrackerItemHidden); the scale and strength show their highest tier owned.
+    itemTrackerGroupsAvailable.push_back(TrackerGroup{
+        .name = COMBO_OOT_ITEMS_GROUP,
+        .columns = 6,
+        .scale = 1.0f,
+        .items = {
+            { TRACKER_ITEM_RANDO, RI_BOOTS_IRON },
+            { TRACKER_ITEM_RANDO, RI_BOOTS_HOVER },
+            { TRACKER_ITEM_RANDO, RI_TUNIC_GORON },
+            { TRACKER_ITEM_RANDO, RI_TUNIC_ZORA },
+            { TRACKER_ITEM_RANDO, RI_SCALE_SILVER },
+            { TRACKER_ITEM_RANDO, RI_STRENGTH_GORONS_BRACELET },
+            { TRACKER_ITEM_RANDO, RI_MASK_GERUDO },
+            { TRACKER_ITEM_RANDO, RI_MASK_SKULL },
+            { TRACKER_ITEM_RANDO, RI_MASK_SPOOKY },
+            { TRACKER_ITEM_RANDO, RI_SPELL_FIRE },
+            { TRACKER_ITEM_RANDO, RI_SPELL_WIND },
+            { TRACKER_ITEM_RANDO, RI_SPELL_LOVE },
+            { TRACKER_ITEM_RANDO, RI_HAMMER },
+            { TRACKER_ITEM_RANDO, RI_BOOMERANG },
+            { TRACKER_ITEM_RANDO, RI_SLINGSHOT },
+            { TRACKER_ITEM_RANDO, RI_SHIELD_DEKU },
+            { TRACKER_ITEM_RANDO, RI_STONE_OF_AGONY },
+            { TRACKER_ITEM_RANDO, RI_ROCS_FEATHER },
+            { TRACKER_ITEM_RANDO, RI_SONG_ZELDA },
+            { TRACKER_ITEM_RANDO, RI_SONG_MINUET },
+            { TRACKER_ITEM_RANDO, RI_SONG_BOLERO },
+            { TRACKER_ITEM_RANDO, RI_SONG_SERENADE },
+            { TRACKER_ITEM_RANDO, RI_SONG_REQUIEM },
+            { TRACKER_ITEM_RANDO, RI_SONG_NOCTURNE },
+            { TRACKER_ITEM_RANDO, RI_SONG_PRELUDE },
+        },
+    });
+#endif
 }
 
 void ApplyDefaultItemPreset() {
     itemTrackerGroups.clear();
 
     std::set<std::string> defaultGroups = {
-        "Inventory", "Masks", "Songs", "Quest", "Tokens", "Stray Fairies", "Dungeon",
+        "Inventory",           "Masks", "Songs", "Quest", "Tokens", "Stray Fairies", "Dungeon",
+#ifdef COMBO_BUILD
+        COMBO_OOT_ITEMS_GROUP,
+#endif
     };
 
     for (auto& group : itemTrackerGroupsAvailable) {
@@ -556,6 +600,24 @@ void LoadItemTrackerConfig() {
             });
         }
     }
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): a layout saved before the Ocarina of Time Items group existed gets it once, at
+    // the end. Removing it afterwards sticks (the CVar records that it was offered).
+    if (!CVarGetInteger("gCombo.Tracker.MmOotItemsGroupAdded", 0)) {
+        const bool present = std::any_of(itemTrackerGroups.begin(), itemTrackerGroups.end(),
+                                         [](const TrackerGroup& g) { return g.name == COMBO_OOT_ITEMS_GROUP; });
+        if (!present) {
+            for (auto& group : itemTrackerGroupsAvailable) {
+                if (group.name == COMBO_OOT_ITEMS_GROUP) {
+                    itemTrackerGroups.push_back(group);
+                }
+            }
+            SaveItemTrackerLayout();
+        }
+        CVarSetInteger("gCombo.Tracker.MmOotItemsGroupAdded", 1);
+        Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+    }
+#endif
 }
 
 void DrawTrackerOptions() {

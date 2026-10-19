@@ -16,7 +16,8 @@
 #include "ComboMenuSharedContext.h"        // ComboShip: per-DLL ImGui context helper (combo-owned)
 #include <ship/resource/CrossRMRegistry.h> // ComboShip: dormant-draw texture lookups need MM's RM
 #include <ship/resource/ResourceManagerScope.h>
-bool Combo_MmIsForeground(void); // defined in BenPort.cpp
+bool Combo_MmIsForeground(void);          // defined in BenPort.cpp
+#include "Rando/MiscBehavior/CrossGear.h" // ComboShip (cross-game items): OOT scale / strength tiers
 #endif
 
 extern "C" {
@@ -75,6 +76,106 @@ static bool IsTradeItemObtained(RandoItemId randoItemId) {
     }
 }
 
+#ifdef COMBO_BUILD
+// ComboShip (cross-game items): the MM option that puts an Ocarina of Time item in MM, or -1 for MM's own items.
+static int ComboCrossItemOption(u32 randoItemId) {
+    switch (randoItemId) {
+        case RI_BOOTS_IRON:
+            return RO_CROSS_BOOTS_IRON;
+        case RI_BOOTS_HOVER:
+            return RO_CROSS_BOOTS_HOVER;
+        case RI_TUNIC_GORON:
+            return RO_CROSS_TUNIC_GORON;
+        case RI_TUNIC_ZORA:
+            return RO_CROSS_TUNIC_ZORA;
+        case RI_SCALE_SILVER:
+        case RI_SCALE_GOLDEN:
+            return RO_CROSS_SCALES;
+        case RI_STRENGTH_GORONS_BRACELET:
+        case RI_STRENGTH_SILVER_GAUNTLETS:
+        case RI_STRENGTH_GOLDEN_GAUNTLETS:
+            return RO_CROSS_STRENGTH;
+        case RI_MASK_GERUDO:
+            return RO_CROSS_MASK_GERUDO;
+        case RI_MASK_SKULL:
+            return RO_CROSS_MASK_SKULL;
+        case RI_MASK_SPOOKY:
+            return RO_CROSS_MASK_SPOOKY;
+        case RI_SONG_ZELDA:
+            return RO_CROSS_SONG_ZELDA;
+        case RI_SPELL_FIRE:
+            return RO_CROSS_SPELL_FIRE;
+        case RI_SPELL_WIND:
+            return RO_CROSS_SPELL_WIND;
+        case RI_SPELL_LOVE:
+            return RO_CROSS_SPELL_LOVE;
+        case RI_HAMMER:
+            return RO_CROSS_HAMMER;
+        case RI_BOOMERANG:
+            return RO_CROSS_BOOMERANG;
+        case RI_SLINGSHOT:
+            return RO_CROSS_SLINGSHOT;
+        case RI_SHIELD_DEKU:
+            return RO_CROSS_SHIELD_DEKU;
+        case RI_STONE_OF_AGONY:
+            return RO_CROSS_STONE_AGONY;
+        case RI_ROCS_FEATHER:
+            return RO_CROSS_ROCS_FEATHER;
+        case RI_SONG_MINUET:
+        case RI_SONG_BOLERO:
+        case RI_SONG_SERENADE:
+        case RI_SONG_REQUIEM:
+        case RI_SONG_NOCTURNE:
+        case RI_SONG_PRELUDE:
+            return RO_SHUFFLE_SONG_WARP_SONGS;
+        default:
+            return -1;
+    }
+}
+
+bool Combo_TrackerItemHidden(TrackerItemType itemType, u32 itemId) {
+    if (itemType != TRACKER_ITEM_RANDO) {
+        return false;
+    }
+    const int option = ComboCrossItemOption(itemId);
+    if (option < 0) {
+        return false;
+    }
+    if (!IS_RANDO) {
+        return true; // no seed: no Ocarina of Time items
+    }
+    // Shown when the seed has it, or when it is owned anyway (a starting item, a shared copy).
+    return RANDO_SAVE_OPTIONS[option] == 0 && Rando::IsItemObtainable((RandoItemId)itemId);
+}
+
+u32 Combo_TrackerTierItem(TrackerItemType itemType, u32 itemId) {
+    if (itemType != TRACKER_ITEM_RANDO) {
+        return itemId;
+    }
+    if (itemId == RI_SCALE_SILVER) {
+        return (Combo_Gear_GetScale() >= 2) ? RI_SCALE_GOLDEN : RI_SCALE_SILVER;
+    }
+    if (itemId == RI_STRENGTH_GORONS_BRACELET) {
+        const int tier = Combo_Gear_GetStrengthOwned();
+        return (tier >= 3)   ? RI_STRENGTH_GOLDEN_GAUNTLETS
+               : (tier == 2) ? RI_STRENGTH_SILVER_GAUNTLETS
+                             : RI_STRENGTH_GORONS_BRACELET;
+    }
+    return itemId;
+}
+
+// The items of a group the tracker draws (the hidden Ocarina of Time items left out).
+static std::vector<std::pair<TrackerItemType, u32>> ComboVisibleItems(const TrackerGroup& group) {
+    std::vector<std::pair<TrackerItemType, u32>> items;
+    for (const auto& item : group.items) {
+        if (!Combo_TrackerItemHidden(item.first, item.second)) {
+            items.push_back(item);
+        }
+    }
+    return items;
+}
+#endif
+
 // When the file isn't loaded everythin is ocarinas, so we fall back to the first safe item
 u32 GetVanillaItemIdForSlot(u32 slot) {
     bool isSaveLoaded = gPlayState != NULL && gSaveContext.gameMode == GAMEMODE_NORMAL;
@@ -113,6 +214,9 @@ TrackerImageObject GetImageObject(TrackerItemType itemType, u32 itemId) {
 
     switch (itemType) {
         case TRACKER_ITEM_RANDO: {
+#ifdef COMBO_BUILD
+            itemId = Combo_TrackerTierItem(itemType, itemId); // OOT's scale / strength: the highest tier owned
+#endif
             RandoItemId randoItemId = (RandoItemId)itemId;
             switch (randoItemId) {
                 case RI_GS_TOKEN_SWAMP: {
@@ -183,6 +287,38 @@ TrackerImageObject GetImageObject(TrackerItemType itemType, u32 itemId) {
             } else if (randoItemId >= RI_SONG_DOUBLE_TIME && randoItemId <= RI_SONG_TIME) {
                 trackerImageObject.textureDimensions.x = 32.0f;
             }
+#ifdef COMBO_BUILD
+            if (randoItemId == RI_SONG_ZELDA) { // ComboShip: a song note like the others (outside their id range)
+                trackerImageObject.textureDimensions.x = 32.0f;
+            }
+            // ComboShip (cross-game items): Zelda's Lullaby and the warp songs all borrow MM's soaring note; tint each
+            // with OOT's own song color (SoH's item tracker) so they can be told apart.
+            switch (randoItemId) {
+                case RI_SONG_ZELDA:
+                    trackerImageObject.textureColor = ImVec4(224 / 255.0f, 107 / 255.0f, 1.0f, 1.0f);
+                    break;
+                case RI_SONG_MINUET:
+                    trackerImageObject.textureColor = ImVec4(150 / 255.0f, 1.0f, 100 / 255.0f, 1.0f);
+                    break;
+                case RI_SONG_BOLERO:
+                    trackerImageObject.textureColor = ImVec4(1.0f, 80 / 255.0f, 40 / 255.0f, 1.0f);
+                    break;
+                case RI_SONG_SERENADE:
+                    trackerImageObject.textureColor = ImVec4(100 / 255.0f, 150 / 255.0f, 1.0f, 1.0f);
+                    break;
+                case RI_SONG_REQUIEM:
+                    trackerImageObject.textureColor = ImVec4(1.0f, 160 / 255.0f, 0.0f, 1.0f);
+                    break;
+                case RI_SONG_NOCTURNE:
+                    trackerImageObject.textureColor = ImVec4(1.0f, 100 / 255.0f, 1.0f, 1.0f);
+                    break;
+                case RI_SONG_PRELUDE:
+                    trackerImageObject.textureColor = ImVec4(1.0f, 240 / 255.0f, 100 / 255.0f, 1.0f);
+                    break;
+                default:
+                    break;
+            }
+#endif
         } break;
         case TRACKER_ITEM_SLOT: {
             itemObtained = gSaveContext.save.saveInfo.inventory.items[itemId] != ITEM_NONE;
@@ -281,6 +417,13 @@ std::string GetItemCounts(TrackerItemType itemType, u32 itemId) {
                         countStr = std::to_string(count);
                     }
                 } break;
+#ifdef COMBO_BUILD
+                case RI_SLINGSHOT: { // ComboShip (cross-game items): the OOT Slingshot's own seeds
+                    if (Flags_GetRandoInf(RANDO_INF_OBTAINED_SLINGSHOT)) {
+                        countStr = std::to_string(gSaveContext.save.shipSaveInfo.rando.comboSlingshotSeeds);
+                    }
+                } break;
+#endif
                 case RI_GS_TOKEN_OCEAN:
                 case RI_GS_TOKEN_SWAMP: {
                     auto max =
@@ -517,9 +660,18 @@ float GetItemTrackerGroupScale(const TrackerGroup& trackerGroup) {
 }
 
 void DrawItemTrackerGroup(TrackerGroup& trackerGroup) {
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): Ocarina of Time items the seed doesn't have are left out.
+    const auto groupItems = ComboVisibleItems(trackerGroup);
+    if (groupItems.empty()) {
+        return;
+    }
+#else
+    const auto& groupItems = trackerGroup.items;
+#endif
     int columns = trackerGroup.columns;
-    if (trackerGroup.items.size() < trackerGroup.columns) {
-        columns = trackerGroup.items.size();
+    if (groupItems.size() < trackerGroup.columns) {
+        columns = groupItems.size();
     }
 
     float scale = GetItemTrackerGroupScale(trackerGroup);
@@ -532,7 +684,7 @@ void DrawItemTrackerGroup(TrackerGroup& trackerGroup) {
     if (ImGui::BeginTable(trackerGroup.name.c_str(), columns)) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
-        for (auto& [itemType, itemId] : trackerGroup.items) {
+        for (auto& [itemType, itemId] : groupItems) {
             ImGui::TableNextColumn();
             DrawItemTrackerSlot(itemType, itemId, scale, false);
         }
@@ -625,7 +777,13 @@ comboSkipVisibilityGates:;
 #endif
     uint32_t index = 0;
     for (auto& group : itemTrackerGroups) {
-        if (group.items.empty()) {
+#ifdef COMBO_BUILD
+        // Nothing to draw, e.g. the Ocarina of Time items group in a seed without any.
+        const bool groupEmpty = ComboVisibleItems(group).empty();
+#else
+        const bool groupEmpty = group.items.empty();
+#endif
+        if (groupEmpty) {
             index++;
             continue;
         }

@@ -134,11 +134,23 @@ extern u8 gUpgradeShifts[8];
 extern u16 gUpgradeCapacities[][4];
 extern u32 gGsFlagsMask[];
 extern u32 gGsFlagsShift[];
+#ifdef COMBO_BUILD
+extern TexturePtr gItemIcons[ITEM_COMBO_TABLE_SIZE];
+#else
 extern TexturePtr gItemIcons[131];
+#endif
+#ifdef COMBO_BUILD
+extern u8 gItemSlots[ITEM_COMBO_TABLE_SIZE];
+#else
 extern u8 gItemSlots[77];
+#endif
 extern s16 gItemPrices[];
 extern u16 gSceneIdsPerRegion[11][27];
+#ifdef COMBO_BUILD
+extern u8 gPlayerFormItemRestrictions[PLAYER_FORM_MAX][ITEM_COMBO_TABLE_SIZE];
+#else
 extern u8 gPlayerFormItemRestrictions[PLAYER_FORM_MAX][114];
+#endif
 
 extern s16 gPlayerFormObjectIds[PLAYER_FORM_MAX];
 extern ObjectId gObjectTableSize;

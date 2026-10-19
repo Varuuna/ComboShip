@@ -39,6 +39,15 @@ extern bool DrawItemTrackerSlot(TrackerItemType itemType, u32 itemId, float scal
 extern std::string GetItemTrackerItemName(TrackerItemType itemType, u32 itemId);
 extern float GetItemTrackerGroupScale(const TrackerGroup& trackerGroup);
 
+#ifdef COMBO_BUILD
+// ComboShip (cross-game items): the group of Ocarina of Time items MM can hold (ItemTrackerSettings.cpp).
+#define COMBO_OOT_ITEMS_GROUP "Ocarina of Time Items"
+// An Ocarina of Time item the loaded seed doesn't have (its option off and none owned): not drawn.
+extern bool Combo_TrackerItemHidden(TrackerItemType itemType, u32 itemId);
+// The tier to show for OOT's scale and strength (the highest owned); any other item unchanged.
+extern u32 Combo_TrackerTierItem(TrackerItemType itemType, u32 itemId);
+#endif
+
 class ItemTrackerWindow : public Ship::GuiWindow {
   public:
     using GuiWindow::GuiWindow;

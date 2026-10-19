@@ -21,11 +21,22 @@ extern u8 gAreaGsFlags[];
 #define AGE_REQ_CHILD LINK_AGE_CHILD
 #define AGE_REQ_NONE 9
 
+#ifdef COMBO_BUILD
+// ComboShip: OoTMM's ageless swords / shields / tunics / boots (ComboAgeless.cpp); the VB only carries the age.
+int Combo_Ageless_Equip(s32 equipType);
+#define CHECK_AGE_REQ_EQUIP(i, j)                                                                  \
+    GameInteractor_Should(VB_PLAYER_MEETS_AGE_REQ,                                                 \
+                          (gEquipAgeReqs[i][j] == AGE_REQ_NONE) ||                                 \
+                              (gEquipAgeReqs[i][j] == ((void)0, gSaveContext.linkAge)) ||          \
+                              Combo_Ageless_Equip(i),                                              \
+                          gEquipAgeReqs[i][j])
+#else
 #define CHECK_AGE_REQ_EQUIP(i, j)                                           \
     GameInteractor_Should(VB_PLAYER_MEETS_AGE_REQ,                          \
                           (gEquipAgeReqs[i][j] == AGE_REQ_NONE) ||          \
                               (gEquipAgeReqs[i][j] == ((void)0, gSaveContext.linkAge)), \
                           gEquipAgeReqs[i][j])
+#endif
 
 #define CHECK_AGE_REQ_SLOT(slotIndex)                                       \
     GameInteractor_Should(VB_SLOT_MEETS_AGE_REQ,                            \

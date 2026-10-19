@@ -120,6 +120,20 @@ std::map<std::string, CosmeticOption> cosmeticOptions = {
     COSMETIC_OPTION("Player.KafeiHair",             "Kafei Hair",                       COSMETICS_GROUP_PLAYER,             ColorRGBA8( 64,   0, 163, 255), false, true, false),
     COSMETIC_OPTION("Player.MirrorShield",          "Mirror Shield",                    COSMETICS_GROUP_PLAYER,             ColorRGBA8(128,  90,  20, 255), false, true, false),
     COSMETIC_OPTION("Player.MirrorShieldMirror",    "Mirror Shield Reflection",         COSMETICS_GROUP_PLAYER,             ColorRGBA8(120, 120, 120, 255), false, true, false),
+#ifdef COMBO_BUILD
+    // ComboShip: Ocarina of Time's gear worn in Termina (CrossGear.cpp) and OOT's adult Link (AdultLink.cpp).
+    COSMETIC_OPTION("Player.OotGoronTunic",         "Goron Tunic (OoT)",                COSMETICS_GROUP_PLAYER,             ColorRGBA8(100,  20,   0, 255), false, true, false),
+    COSMETIC_OPTION("Player.OotZoraTunic",          "Zora Tunic (OoT)",                 COSMETICS_GROUP_PLAYER,             ColorRGBA8(  0,  60, 100, 255), false, true, false),
+    COSMETIC_OPTION("Player.AdultTunic",            "Adult Link Tunic",                 COSMETICS_GROUP_PLAYER,             ColorRGBA8( 30, 105,  27, 255), false, true, false),
+    COSMETIC_OPTION("Player.SilverGauntlets",       "Silver Gauntlets (OoT)",           COSMETICS_GROUP_PLAYER,             ColorRGBA8(255, 255, 255, 255), false, true, false),
+    COSMETIC_OPTION("Player.GoldenGauntlets",       "Golden Gauntlets (OoT)",           COSMETICS_GROUP_PLAYER,             ColorRGBA8(254, 207,  15, 255), false, true, false),
+    // ComboShip: MM's colors for the OOT models Link wears in MM (Rando/MiscBehavior/CrossGearColors.cpp).
+    COSMETIC_OPTION("Player.AdultHair",             "Adult Link Hair",                  COSMETICS_GROUP_PLAYER,             ColorRGBA8(255, 173,  27, 255), false, true, false),
+    COSMETIC_OPTION("Player.AdultLinen",            "Adult Link Linen",                 COSMETICS_GROUP_PLAYER,             ColorRGBA8(255, 255, 255, 255), false, true, false),
+    COSMETIC_OPTION("Player.AdultBoots",            "Adult Link Boots",                 COSMETICS_GROUP_PLAYER,             ColorRGBA8( 93,  44,  18, 255), false, true, false),
+    COSMETIC_OPTION("Player.OotGoronBracelet",      "Goron's Bracelet (OoT)",           COSMETICS_GROUP_PLAYER,             ColorRGBA8(255, 255, 170, 255), false, true, false),
+    COSMETIC_OPTION("Player.OotGauntletsGem",       "Gauntlets Gem (OoT)",              COSMETICS_GROUP_PLAYER,             ColorRGBA8(255,  60, 100, 255), false, true, false),
+#endif
     COSMETIC_OPTION("Dungeon.Woodfall",             "Woodfall",                         COSMETICS_GROUP_DUNGEONS,           ColorRGBA8(255, 170, 246, 255), false, true, false),
     COSMETIC_OPTION("Dungeon.Snowhead",             "Snowhead",                         COSMETICS_GROUP_DUNGEONS,           ColorRGBA8(116, 226,  61, 255), false, true, false),
     COSMETIC_OPTION("Dungeon.GreatBay",             "Great Bay",                        COSMETICS_GROUP_DUNGEONS,           ColorRGBA8(143, 103, 226, 255), false, true, false),
@@ -1121,53 +1135,99 @@ Gfx humanTunic[] = {
     gsSPEndDisplayList(),
 };
 
-static RegisterShipInitFunc humanTunicPatch(
-    []() {
-        if (!IsCustomHumanModelActive() && CVarGetInteger(kHumanTunicOption.colorChangedCvar, 0)) {
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanWaistDL", "setPrim", 5,
-                                       gsSPDisplayList(humanTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanRightThighDL", "setPrim", 10,
-                                       gsSPDisplayList(humanTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanLeftThighDL", "setPrim", 10,
-                                       gsSPDisplayList(humanTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanHeadDL", "setPrim", 92,
-                                       gsSPDisplayList(humanTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanHatDL", "setPrim", 10,
-                                       gsSPDisplayList(humanTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanCollarDL", "setPrim", 5,
-                                       gsSPDisplayList(humanTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanLeftShoulderDL", "setPrim1", 10,
-                                       gsSPDisplayList(humanTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanLeftShoulderDL", "setPrim2", 65,
-                                       gsSPDisplayList(humanTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanRightShoulderDL", "setPrim1", 10,
-                                       gsSPDisplayList(humanTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanRightShoulderDL", "setPrim2", 65,
-                                       gsSPDisplayList(humanTunic));
-            ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanTorsoDL", "setPrim", 5,
-                                       gsSPDisplayList(humanTunic));
-        } else {
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanWaistDL", "setPrim");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanRightThighDL", "setPrim");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanLeftThighDL", "setPrim");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanHeadDL", "setPrim");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanHatDL", "setPrim");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanCollarDL", "setPrim");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanLeftShoulderDL", "setPrim1");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanLeftShoulderDL", "setPrim2");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanRightShoulderDL", "setPrim1");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanRightShoulderDL", "setPrim2");
-            ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanTorsoDL", "setPrim");
-        }
-    },
-    { kHumanTunicOption.colorChangedCvar });
+#ifdef COMBO_BUILD
+// ComboShip (cross-game items): OOT's Goron/Zora Tunic worn in MM recolors the human tunic through this
+// same display-list patch, overriding the cosmetic color while worn (CrossGear.cpp).
+static bool sComboTunicOverrideActive = false;
+static Color_RGB8 sComboTunicOverrideColor = { 0, 0, 0 };
+#endif
 
-static RegisterShipInitFunc humanTunicColor(
-    []() {
-        Color_RGBA8 changedColor = CVarGetColor(kHumanTunicOption.colorCvar, {});
-        humanTunic[0] = gsDPSetPrimColor(0, 0, changedColor.r, changedColor.g, changedColor.b, 255);
-    },
-    { kHumanTunicOption.colorCvar });
+static void HumanTunicApplyPatch() {
+    bool wantPatch = CVarGetInteger(kHumanTunicOption.colorChangedCvar, 0) != 0;
+#ifdef COMBO_BUILD
+    wantPatch = wantPatch || sComboTunicOverrideActive;
+#endif
+    if (!IsCustomHumanModelActive() && wantPatch) {
+        ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanWaistDL", "setPrim", 5,
+                                   gsSPDisplayList(humanTunic));
+        ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanRightThighDL", "setPrim", 10,
+                                   gsSPDisplayList(humanTunic));
+        ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanLeftThighDL", "setPrim", 10,
+                                   gsSPDisplayList(humanTunic));
+        ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanHeadDL", "setPrim", 92,
+                                   gsSPDisplayList(humanTunic));
+        ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanHatDL", "setPrim", 10,
+                                   gsSPDisplayList(humanTunic));
+        ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanCollarDL", "setPrim", 5,
+                                   gsSPDisplayList(humanTunic));
+        ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanLeftShoulderDL", "setPrim1", 10,
+                                   gsSPDisplayList(humanTunic));
+        ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanLeftShoulderDL", "setPrim2", 65,
+                                   gsSPDisplayList(humanTunic));
+        ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanRightShoulderDL", "setPrim1", 10,
+                                   gsSPDisplayList(humanTunic));
+        ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanRightShoulderDL", "setPrim2", 65,
+                                   gsSPDisplayList(humanTunic));
+        ResourceMgr_PatchGfxByName("objects/object_link_child/gLinkHumanTorsoDL", "setPrim", 5,
+                                   gsSPDisplayList(humanTunic));
+    } else {
+        ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanWaistDL", "setPrim");
+        ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanRightThighDL", "setPrim");
+        ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanLeftThighDL", "setPrim");
+        ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanHeadDL", "setPrim");
+        ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanHatDL", "setPrim");
+        ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanCollarDL", "setPrim");
+        ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanLeftShoulderDL", "setPrim1");
+        ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanLeftShoulderDL", "setPrim2");
+        ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanRightShoulderDL", "setPrim1");
+        ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanRightShoulderDL", "setPrim2");
+        ResourceMgr_UnpatchGfxByName("objects/object_link_child/gLinkHumanTorsoDL", "setPrim");
+    }
+}
+
+static void HumanTunicApplyColor() {
+#ifdef COMBO_BUILD
+    if (sComboTunicOverrideActive) {
+        humanTunic[0] = gsDPSetPrimColor(0, 0, sComboTunicOverrideColor.r, sComboTunicOverrideColor.g,
+                                         sComboTunicOverrideColor.b, 255);
+        return;
+    }
+#endif
+    Color_RGBA8 changedColor = CVarGetColor(kHumanTunicOption.colorCvar, {});
+    humanTunic[0] = gsDPSetPrimColor(0, 0, changedColor.r, changedColor.g, changedColor.b, 255);
+}
+
+static RegisterShipInitFunc humanTunicPatch([]() { HumanTunicApplyPatch(); }, { kHumanTunicOption.colorChangedCvar });
+
+static RegisterShipInitFunc humanTunicColor([]() { HumanTunicApplyColor(); }, { kHumanTunicOption.colorCvar });
+
+#ifdef COMBO_BUILD
+// ComboShip: a ComboShip cosmetic color (Player.Oot*Tunic, Player.AdultTunic, Player.*Gauntlets), or its default when
+// the player hasn't changed it.
+extern "C" Color_RGB8 CosmeticEditor_GetComboColor(const char* id, Color_RGB8 defaultColor) {
+    auto it = cosmeticOptions.find(id);
+    if ((it == cosmeticOptions.end()) || !CVarGetInteger(it->second.colorChangedCvar, 0)) {
+        return defaultColor;
+    }
+    Color_RGBA8 color = CVarGetColor(it->second.colorCvar, {});
+    return { color.r, color.g, color.b };
+}
+
+// ComboShip: whether a ComboShip cosmetic color is set (CrossGearColors.cpp draws OOT's own colors otherwise).
+extern "C" int CosmeticEditor_IsComboColorChanged(const char* id) {
+    auto it = cosmeticOptions.find(id);
+    return (it != cosmeticOptions.end()) && CVarGetInteger(it->second.colorChangedCvar, 0);
+}
+
+extern "C" void CosmeticEditor_SetHumanTunicOverride(const Color_RGB8* color) {
+    sComboTunicOverrideActive = (color != nullptr);
+    if (color != nullptr) {
+        sComboTunicOverrideColor = *color;
+    }
+    HumanTunicApplyPatch();
+    HumanTunicApplyColor();
+}
+#endif
 
 // Player.HumanHair
 

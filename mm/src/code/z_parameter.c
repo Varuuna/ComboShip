@@ -1,4 +1,13 @@
 #include "global.h"
+#ifdef COMBO_BUILD
+#include "2s2h/Rando/MiscBehavior/CrossGear.h" // ComboShip: cross-game items (OOT gear in MM)
+// ComboShip: Ship of Harkinian's "Bombchu Bag" (Rando/MiscBehavior/BombchuBag.cpp): bombchus with a bag of their own.
+s32 Combo_Rando_BombchuBagOn(void);
+s32 Combo_Rando_BombchuCapacity(void);
+#define BOMBCHU_CAPACITY() ((u16)Combo_Rando_BombchuCapacity())
+#else
+#define BOMBCHU_CAPACITY() CUR_CAPACITY(UPG_BOMB_BAG)
+#endif
 #include "PR/gs2dex.h"
 #include "sys_cfb.h"
 #include "z64malloc.h"
@@ -63,7 +72,12 @@ static const char* emptyCButtonArrows[] = {
     gEmptyCRightArrowTex,
 };
 
+#ifdef COMBO_BUILD
+// ComboShip (cross-game items): widened so the ITEM_COMBO_* ids (z64item.h) index in bounds.
+u8 gPlayerFormItemRestrictions[PLAYER_FORM_MAX][ITEM_COMBO_TABLE_SIZE] = {
+#else
 u8 gPlayerFormItemRestrictions[PLAYER_FORM_MAX][114] = {
+#endif
     // PLAYER_FORM_FIERCE_DEITY
     {
         false, // ITEM_OCARINA_OF_TIME
@@ -648,6 +662,23 @@ u8 gPlayerFormItemRestrictions[PLAYER_FORM_MAX][114] = {
         false, // ITEM_HEART_CONTAINER
         false, // ITEM_HEART_PIECE
         false, // ITEM_71
+#ifdef COMBO_BUILD
+        // ComboShip (cross-game items): OOT items are Human-only, like OoTMM.
+        [ITEM_COMBO_BOOTS_IRON] = true,
+        [ITEM_COMBO_BOOTS_HOVER] = true,
+        [ITEM_COMBO_TUNIC_GORON] = true,
+        [ITEM_COMBO_TUNIC_ZORA] = true,
+        [ITEM_COMBO_MASK_GERUDO] = true,
+        [ITEM_COMBO_MASK_SKULL] = true,
+        [ITEM_COMBO_MASK_SPOOKY] = true,
+        [ITEM_COMBO_SPELL_FIRE] = true,
+        [ITEM_COMBO_SPELL_WIND] = true,
+        [ITEM_COMBO_SPELL_LOVE] = true,
+        [ITEM_COMBO_HAMMER] = true,
+        [ITEM_COMBO_BOOMERANG] = true,
+        [ITEM_COMBO_SLINGSHOT] = true,
+        [ITEM_COMBO_ROCS_FEATHER] = true,
+#endif
     },
 };
 // #endregion
@@ -4041,7 +4072,12 @@ void Interface_Dpad_LoadItemIconImpl(PlayState* play, u8 btn) {
     if (DPAD_GET_CUR_FORM_BTN_ITEM(btn) < ARRAY_COUNT(gItemIcons)) {
         interfaceCtx->iconItemSegment[DPAD_BUTTON(btn) + EQUIP_SLOT_MAX] = gItemIcons[DPAD_GET_CUR_FORM_BTN_ITEM(btn)];
     } else {
+#ifdef COMBO_BUILD
+        // ComboShip: blank this D-pad slot's icon; upstream wrote iconItemSegment[btn] (a B/C button's icon).
+        interfaceCtx->iconItemSegment[DPAD_BUTTON(btn) + EQUIP_SLOT_MAX] = gEmptyTexture;
+#else
         interfaceCtx->iconItemSegment[btn] = gEmptyTexture;
+#endif
     }
 }
 
@@ -4210,6 +4246,13 @@ u8 Item_GiveImpl(PlayState* play, u8 item) {
         return ITEM_NONE;
 
     } else if ((item >= ITEM_SHIELD_HERO) && (item <= ITEM_SHIELD_MIRROR)) {
+#ifdef COMBO_BUILD
+        // ComboShip (cross-game items): a real Hero's/Mirror Shield replaces an equipped OOT Deku Shield (which
+        // occupies the Hero's Shield value), so the value check below would otherwise see "already owned".
+        if (Combo_Tools_ReplaceDekuShield()) {
+            SET_EQUIP_VALUE(EQUIP_TYPE_SHIELD, EQUIP_VALUE_SHIELD_NONE);
+        }
+#endif
         if (GET_CUR_EQUIP_VALUE(EQUIP_TYPE_SHIELD) != (u16)(item - ITEM_SHIELD_HERO + EQUIP_VALUE_SHIELD_HERO)) {
             SET_EQUIP_VALUE(EQUIP_TYPE_SHIELD, item - ITEM_SHIELD_HERO + EQUIP_VALUE_SHIELD_HERO);
             // 2S2H [Randomizer] Added a nullptr check so that we can call this function outside of gameplay for logic
@@ -4327,7 +4370,15 @@ u8 Item_GiveImpl(PlayState* play, u8 item) {
 
     } else if (item == ITEM_DEKU_STICK) {
         if (INV_CONTENT(ITEM_DEKU_STICK) != ITEM_DEKU_STICK) {
+#ifdef COMBO_BUILD
+            // ComboShip: a capacity upgrade owned before the first pickup (Deku Stick & Nut Upgrades, Infinite
+            // Upgrades) is kept; vanilla MM only ever has the first tier here.
+            if (CUR_UPG_VALUE(UPG_DEKU_STICKS) == 0) {
+                Inventory_ChangeUpgrade(UPG_DEKU_STICKS, 1);
+            }
+#else
             Inventory_ChangeUpgrade(UPG_DEKU_STICKS, 1);
+#endif
             AMMO(ITEM_DEKU_STICK) = 1;
         } else {
             AMMO(ITEM_DEKU_STICK)++;
@@ -4338,7 +4389,15 @@ u8 Item_GiveImpl(PlayState* play, u8 item) {
 
     } else if ((item == ITEM_DEKU_STICKS_5) || (item == ITEM_DEKU_STICKS_10)) {
         if (INV_CONTENT(ITEM_DEKU_STICK) != ITEM_DEKU_STICK) {
+#ifdef COMBO_BUILD
+            // ComboShip: a capacity upgrade owned before the first pickup (Deku Stick & Nut Upgrades, Infinite
+            // Upgrades) is kept; vanilla MM only ever has the first tier here.
+            if (CUR_UPG_VALUE(UPG_DEKU_STICKS) == 0) {
+                Inventory_ChangeUpgrade(UPG_DEKU_STICKS, 1);
+            }
+#else
             Inventory_ChangeUpgrade(UPG_DEKU_STICKS, 1);
+#endif
             AMMO(ITEM_DEKU_STICK) = sAmmoRefillCounts[item - ITEM_DEKU_STICKS_5];
         } else {
             AMMO(ITEM_DEKU_STICK) += sAmmoRefillCounts[item - ITEM_DEKU_STICKS_5];
@@ -4351,7 +4410,15 @@ u8 Item_GiveImpl(PlayState* play, u8 item) {
 
     } else if (item == ITEM_DEKU_NUT) {
         if (INV_CONTENT(ITEM_DEKU_NUT) != ITEM_DEKU_NUT) {
+#ifdef COMBO_BUILD
+            // ComboShip: a capacity upgrade owned before the first pickup (Deku Stick & Nut Upgrades, Infinite
+            // Upgrades) is kept; vanilla MM only ever has the first tier here.
+            if (CUR_UPG_VALUE(UPG_DEKU_NUTS) == 0) {
+                Inventory_ChangeUpgrade(UPG_DEKU_NUTS, 1);
+            }
+#else
             Inventory_ChangeUpgrade(UPG_DEKU_NUTS, 1);
+#endif
             AMMO(ITEM_DEKU_NUT) = 1;
         } else {
             AMMO(ITEM_DEKU_NUT)++;
@@ -4362,7 +4429,15 @@ u8 Item_GiveImpl(PlayState* play, u8 item) {
 
     } else if ((item == ITEM_DEKU_NUTS_5) || (item == ITEM_DEKU_NUTS_10)) {
         if (INV_CONTENT(ITEM_DEKU_NUT) != ITEM_DEKU_NUT) {
+#ifdef COMBO_BUILD
+            // ComboShip: a capacity upgrade owned before the first pickup (Deku Stick & Nut Upgrades, Infinite
+            // Upgrades) is kept; vanilla MM only ever has the first tier here.
+            if (CUR_UPG_VALUE(UPG_DEKU_NUTS) == 0) {
+                Inventory_ChangeUpgrade(UPG_DEKU_NUTS, 1);
+            }
+#else
             Inventory_ChangeUpgrade(UPG_DEKU_NUTS, 1);
+#endif
             AMMO(ITEM_DEKU_NUT) += sAmmoRefillCounts[item - ITEM_DEKU_NUTS_5];
         } else {
             AMMO(ITEM_DEKU_NUT) += sAmmoRefillCounts[item - ITEM_DEKU_NUTS_5];
@@ -4406,24 +4481,30 @@ u8 Item_GiveImpl(PlayState* play, u8 item) {
             AMMO(ITEM_BOMBCHU) = 10;
             return ITEM_NONE;
         }
-        if ((AMMO(ITEM_BOMBCHU) += 10) > CUR_CAPACITY(UPG_BOMB_BAG)) {
-            AMMO(ITEM_BOMBCHU) = CUR_CAPACITY(UPG_BOMB_BAG);
+        if ((AMMO(ITEM_BOMBCHU) += 10) > BOMBCHU_CAPACITY()) {
+            AMMO(ITEM_BOMBCHU) = BOMBCHU_CAPACITY();
         }
         return ITEM_NONE;
 
     } else if ((item >= ITEM_BOMBCHUS_20) && (item <= ITEM_BOMBCHUS_5)) {
+#ifdef COMBO_BUILD
+        // ComboShip: with Ship of Harkinian's "Bombchu Bag", refills need the bag.
+        if (Combo_Rando_BombchuBagOn() && (gSaveContext.save.saveInfo.inventory.items[SLOT_BOMBCHU] != ITEM_BOMBCHU)) {
+            return ITEM_NONE;
+        }
+#endif
         if (gSaveContext.save.saveInfo.inventory.items[SLOT_BOMBCHU] != ITEM_BOMBCHU) {
             INV_CONTENT(ITEM_BOMBCHU) = ITEM_BOMBCHU;
             AMMO(ITEM_BOMBCHU) += sBombchuRefillCounts[item - ITEM_BOMBCHUS_20];
 
-            if (AMMO(ITEM_BOMBCHU) > CUR_CAPACITY(UPG_BOMB_BAG)) {
-                AMMO(ITEM_BOMBCHU) = CUR_CAPACITY(UPG_BOMB_BAG);
+            if (AMMO(ITEM_BOMBCHU) > BOMBCHU_CAPACITY()) {
+                AMMO(ITEM_BOMBCHU) = BOMBCHU_CAPACITY();
             }
             return ITEM_NONE;
         }
 
-        if ((AMMO(ITEM_BOMBCHU) += sBombchuRefillCounts[item - ITEM_BOMBCHUS_20]) > CUR_CAPACITY(UPG_BOMB_BAG)) {
-            AMMO(ITEM_BOMBCHU) = CUR_CAPACITY(UPG_BOMB_BAG);
+        if ((AMMO(ITEM_BOMBCHU) += sBombchuRefillCounts[item - ITEM_BOMBCHUS_20]) > BOMBCHU_CAPACITY()) {
+            AMMO(ITEM_BOMBCHU) = BOMBCHU_CAPACITY();
         }
         return ITEM_NONE;
 
@@ -4682,6 +4763,12 @@ u8 Item_CheckObtainabilityImpl(u8 item) {
         return 0;
 
     } else if ((item >= ITEM_BOMBCHUS_20) && (item <= ITEM_BOMBCHUS_5)) {
+#ifdef COMBO_BUILD
+        // ComboShip: with Ship of Harkinian's "Bombchu Bag", bombchus need that bag instead of a bomb bag.
+        if (Combo_Rando_BombchuBagOn()) {
+            return (INV_CONTENT(ITEM_BOMBCHU) == ITEM_BOMBCHU) ? 0 : ITEM_NONE;
+        }
+#endif
         if (CUR_UPG_VALUE(UPG_BOMB_BAG) == 0) {
             return ITEM_NONE;
         }
@@ -5186,6 +5273,12 @@ void Rupees_ChangeBy(s16 rupeeChange) {
 }
 
 void Inventory_ChangeAmmo(s16 item, s16 ammoChange) {
+#ifdef COMBO_BUILD
+    if (item == ITEM_COMBO_SLINGSHOT) { // ComboShip (cross-game items): OOT Slingshot seeds
+        Combo_Tools_ChangeSlingshotSeeds(ammoChange);
+        return;
+    }
+#endif
     if (item == ITEM_DEKU_STICK) {
         AMMO(ITEM_DEKU_STICK) += ammoChange;
 
@@ -5207,8 +5300,8 @@ void Inventory_ChangeAmmo(s16 item, s16 ammoChange) {
     } else if (item == ITEM_BOMBCHU) {
         AMMO(ITEM_BOMBCHU) += ammoChange;
 
-        if (AMMO(ITEM_BOMBCHU) >= CUR_CAPACITY(UPG_BOMB_BAG)) {
-            AMMO(ITEM_BOMBCHU) = CUR_CAPACITY(UPG_BOMB_BAG);
+        if (AMMO(ITEM_BOMBCHU) >= BOMBCHU_CAPACITY()) {
+            AMMO(ITEM_BOMBCHU) = BOMBCHU_CAPACITY();
         } else if (AMMO(ITEM_BOMBCHU) < 0) {
             AMMO(ITEM_BOMBCHU) = 0;
         }
@@ -6206,7 +6299,7 @@ void Interface_Dpad_DrawAmmoCount(PlayState* play, s16 button, s16 alpha) {
             ((i == ITEM_BOMB) && (AMMO(i) == CUR_CAPACITY(UPG_BOMB_BAG))) ||
             ((i == ITEM_DEKU_STICK) && (AMMO(i) == CUR_CAPACITY(UPG_DEKU_STICKS))) ||
             ((i == ITEM_DEKU_NUT) && (AMMO(i) == CUR_CAPACITY(UPG_DEKU_NUTS))) ||
-            ((i == ITEM_BOMBCHU) && (AMMO(i) == CUR_CAPACITY(UPG_BOMB_BAG))) ||
+            ((i == ITEM_BOMBCHU) && (AMMO(i) == BOMBCHU_CAPACITY())) ||
             ((i == ITEM_POWDER_KEG) && GameInteractor_Should(VB_POWDER_KEG_AMMO_AT_CAPACITY, ammo == 1)) ||
             ((i == ITEM_PICTOGRAPH_BOX) && (ammo == 1)) || ((i == ITEM_MAGIC_BEANS) && (ammo == 20))) {
             gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 120, 255, 0, alpha);
@@ -6298,6 +6391,32 @@ void Interface_DrawAmmoCount(PlayState* play, s16 button, s16 alpha) {
 
     i = ((void)0, GET_CUR_FORM_BTN_ITEM(button));
 
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): the OOT Slingshot shows its seed count, green when the bag is full.
+    if (i == ITEM_COMBO_SLINGSHOT) {
+        u16 seeds = (u16)Combo_Tools_GetSlingshotSeeds();
+
+        gDPPipeSync(OVERLAY_DISP++);
+        GameInteractor_Should(VB_SET_BUTTON_ENV_COLOR, false);
+        if (seeds >= COMBO_SLINGSHOT_MAX_SEEDS) {
+            gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 120, 255, 0, alpha);
+        } else if (seeds == 0) {
+            gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 100, 100, 100, alpha);
+        }
+        if (seeds >= 10) {
+            HudEditor_SetActiveElement(button);
+            OVERLAY_DISP =
+                Gfx_DrawTexRectIA8(OVERLAY_DISP, gAmmoDigitTextures[seeds / 10], AMMO_DIGIT_TEX_WIDTH,
+                                   AMMO_DIGIT_TEX_HEIGHT, sAmmoDigitsXPositions[button], sAmmoDigitsYPositions[button],
+                                   AMMO_DIGIT_TEX_WIDTH, AMMO_DIGIT_TEX_HEIGHT, 1 << 10, 1 << 10);
+        }
+        HudEditor_SetActiveElement(button);
+        OVERLAY_DISP =
+            Gfx_DrawTexRectIA8(OVERLAY_DISP, gAmmoDigitTextures[seeds % 10], 8, 8, sAmmoDigitsXPositions[button] + 6,
+                               sAmmoDigitsYPositions[button], 8, 8, 1 << 10, 1 << 10);
+    }
+#endif
+
     if ((i == ITEM_DEKU_STICK) || (i == ITEM_DEKU_NUT) || (i == ITEM_BOMB) || (i == ITEM_BOW) ||
         ((i >= ITEM_BOW_FIRE) && (i <= ITEM_BOW_LIGHT)) || (i == ITEM_BOMBCHU) || (i == ITEM_POWDER_KEG) ||
         (i == ITEM_MAGIC_BEANS) || (i == ITEM_PICTOGRAPH_BOX)) {
@@ -6332,7 +6451,7 @@ void Interface_DrawAmmoCount(PlayState* play, s16 button, s16 alpha) {
                    ((i == ITEM_BOMB) && (AMMO(i) == CUR_CAPACITY(UPG_BOMB_BAG))) ||
                    ((i == ITEM_DEKU_STICK) && (AMMO(i) == CUR_CAPACITY(UPG_DEKU_STICKS))) ||
                    ((i == ITEM_DEKU_NUT) && (AMMO(i) == CUR_CAPACITY(UPG_DEKU_NUTS))) ||
-                   ((i == ITEM_BOMBCHU) && (AMMO(i) == CUR_CAPACITY(UPG_BOMB_BAG))) ||
+                   ((i == ITEM_BOMBCHU) && (AMMO(i) == BOMBCHU_CAPACITY())) ||
                    ((i == ITEM_POWDER_KEG) && GameInteractor_Should(VB_POWDER_KEG_AMMO_AT_CAPACITY, ammo == 1)) ||
                    ((i == ITEM_PICTOGRAPH_BOX) && (ammo == 1)) || ((i == ITEM_MAGIC_BEANS) && (ammo == 20))) {
             gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 120, 255, 0, alpha);
@@ -6729,7 +6848,13 @@ void Interface_DrawPauseMenuEquippingIcons(PlayState* play) {
         ItemId equipAnimDrawItem = pauseCtx->equipTargetItem;
         if (GameInteractor_Should(VB_KALEIDO_DRAW_EQUIP_ANIM_ICON, true, &equipAnimDrawItem)) {
 
+#ifdef COMBO_BUILD
+            // ComboShip (cross-game items): OOT's items (ITEM_COMBO_*) sit past the magic arrows (0xB5..0xB7) and
+            // fly to the C button as their own icon, not as a magic arrow effect (which indexed past its colors).
+            if ((pauseCtx->equipTargetItem < 0xB5) || IS_COMBO_CROSS_ITEM(pauseCtx->equipTargetItem)) {
+#else
             if (pauseCtx->equipTargetItem < 0xB5) {
+#endif
                 // Normal Equip (icon goes from the inventory slot to the C button when equipping it)
                 gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 255, 255, pauseCtx->equipAnimAlpha);
                 gSPVertex(OVERLAY_DISP++, &pauseCtx->cursorVtx[16], 4, 0);
@@ -9710,11 +9835,23 @@ void Interface_Update(PlayState* play) {
         if (GET_CUR_EQUIP_VALUE(EQUIP_TYPE_TUNIC) == EQUIP_VALUE_TUNIC_GORON) {
             sEnvHazard = PLAYER_ENV_HAZARD_NONE;
         }
+#ifdef COMBO_BUILD
+        // ComboShip (cross-game items): OOT's Goron Tunic worn in MM (this OOT check is still here).
+        if (Combo_Gear_GetTunic(GET_PLAYER(play)) == COMBO_TUNIC_GORON) {
+            sEnvHazard = PLAYER_ENV_HAZARD_NONE;
+        }
+#endif
     } else if ((Player_GetEnvironmentalHazard(play) >= PLAYER_ENV_HAZARD_UNDERWATER_FLOOR) &&
                (Player_GetEnvironmentalHazard(play) <= PLAYER_ENV_HAZARD_UNDERWATER_FREE)) {
         if (GET_CUR_EQUIP_VALUE(EQUIP_TYPE_TUNIC) == EQUIP_VALUE_TUNIC_ZORA) {
             sEnvHazard = PLAYER_ENV_HAZARD_NONE;
         }
+#ifdef COMBO_BUILD
+        // ComboShip (cross-game items): OOT's Zora Tunic lets human Link breathe underwater.
+        if (Combo_Gear_GetTunic(GET_PLAYER(play)) == COMBO_TUNIC_ZORA) {
+            sEnvHazard = PLAYER_ENV_HAZARD_NONE;
+        }
+#endif
     }
 
     LifeMeter_UpdateColors(play);

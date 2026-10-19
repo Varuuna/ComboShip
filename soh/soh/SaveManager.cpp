@@ -3075,6 +3075,24 @@ extern "C" COMBO_EXPORT void SOH_SetComboSaveIO(ComboRando::FnComboReadSave r, C
 extern "C" COMBO_EXPORT void SOH_SetCopyContainer(void (*cb)(int, int)) {
     gComboCopyContainer = cb;
 }
+
+void SaveManager::ComboRefreshMeta(int fileNum) {
+    if (fileNum < 0 || fileNum >= MaxFiles) {
+        return;
+    }
+    fileMetaInfo[fileNum].valid = false;
+    if (gComboReadGameSave != nullptr && gComboReadGameSave(ComboRando::GAME_OOT, fileNum)[0] != '\0') {
+        StartupCheckAndInitMeta(fileNum);
+    }
+}
+
+// ComboShip (#27): MM's file select (the Majora's Mask front end) created, copied or erased a slot; OOT's file-select
+// info for it is re-read before OOT's file select acts on it.
+extern "C" COMBO_EXPORT void SOH_RefreshSaveMeta(int fileNum) {
+    if (SaveManager::Instance != nullptr) {
+        SaveManager::Instance->ComboRefreshMeta(fileNum);
+    }
+}
 #endif
 
 extern "C" void Save_DeleteFile(int fileNum) {

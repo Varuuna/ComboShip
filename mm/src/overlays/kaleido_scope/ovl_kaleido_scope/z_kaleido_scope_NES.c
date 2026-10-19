@@ -23,6 +23,10 @@
 #include "2s2h/BenGui/CosmeticEditor.h"
 
 #include "2s2h_assets.h"
+#ifdef COMBO_BUILD
+#include "2s2h/Rando/MiscBehavior/CrossItemAssets.h" // ComboShip: cross-game item names
+#include "2s2h/Rando/MiscBehavior/CrossGear.h"       // ComboShip: Fairy Ocarina name (OOT items in MM)
+#endif
 
 #include "2s2h/GameInteractor/GameInteractor.h"
 
@@ -415,6 +419,35 @@ void Kaleido_LoadItemNameStatic(void** segment, u32 texIndex) {
     };
 
     // 2S2H [Port] Bounds check texture to load to prevent crashes
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): OOT items in MM show OOT's own name textures ("@oot:" routed,
+    // CrossItemAssets.h).
+    static const char* sComboCrossItemNames[ITEM_COMBO_MAX - ITEM_COMBO_MIN] = {
+        gComboNameIronBootsTex,      // ITEM_COMBO_BOOTS_IRON
+        gComboNameHoverBootsTex,     // ITEM_COMBO_BOOTS_HOVER
+        gComboNameGoronTunicTex,     // ITEM_COMBO_TUNIC_GORON
+        gComboNameZoraTunicTex,      // ITEM_COMBO_TUNIC_ZORA
+        gComboNameGerudoMaskTex,     // ITEM_COMBO_MASK_GERUDO
+        gComboNameSkullMaskTex,      // ITEM_COMBO_MASK_SKULL
+        gComboNameSpookyMaskTex,     // ITEM_COMBO_MASK_SPOOKY
+        gComboNameDinsFireTex,       // ITEM_COMBO_SPELL_FIRE
+        gComboNameFaroresWindTex,    // ITEM_COMBO_SPELL_WIND
+        gComboNameNayrusLoveTex,     // ITEM_COMBO_SPELL_LOVE
+        gComboNameMegatonHammerTex,  // ITEM_COMBO_HAMMER
+        gComboNameBoomerangTex,      // ITEM_COMBO_BOOMERANG
+        gComboNameFairySlingshotTex, // ITEM_COMBO_SLINGSHOT
+        gComboNameRocsFeatherTex,    // ITEM_COMBO_ROCS_FEATHER
+    };
+    if (IS_COMBO_CROSS_ITEM(texIndex)) {
+        *segment = (void*)sComboCrossItemNames[texIndex - ITEM_COMBO_MIN];
+        return;
+    }
+    // OOT items in MM (CrossUpgrades.cpp): the first-tier ocarina is OOT's Fairy Ocarina.
+    if ((texIndex == ITEM_OCARINA_OF_TIME) && Combo_Upgrades_OcarinaIsFairy()) {
+        *segment = (void*)gComboNameFairyOcarinaTex;
+        return;
+    }
+#endif
     if (texIndex < ARRAY_COUNTU(gItemNameStatics)) {
         *segment = gItemNameStatics[texIndex];
     } else {

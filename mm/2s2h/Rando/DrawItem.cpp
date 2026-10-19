@@ -162,6 +162,9 @@ void DrawSong(RandoItemId randoItemId) {
         case RI_SONG_PRELUDE:
             gDPSetEnvColor(POLY_XLU_DISP++, 255, 240, 100, 255);
             break;
+        case RI_SONG_ZELDA: // ComboShip (cross-game items): OOT's lullaby purple
+            gDPSetEnvColor(POLY_XLU_DISP++, 186, 120, 255, 255);
+            break;
 #endif
         case RI_SONG_ELEGY:
             gDPSetEnvColor(POLY_XLU_DISP++, 255, 98, 0, 255);
@@ -272,15 +275,27 @@ void DrawSmallKey(RandoItemId randoItemId) {
     int slot;
     switch (randoItemId) {
         case RI_WOODFALL_SMALL_KEY:
+#ifdef COMBO_BUILD
+        case RI_WOODFALL_KEYRING: // ComboShip: Ship of Harkinian's "Key Rings" (DrawKeyring)
+#endif
             slot = 0;
             break;
         case RI_SNOWHEAD_SMALL_KEY:
+#ifdef COMBO_BUILD
+        case RI_SNOWHEAD_KEYRING:
+#endif
             slot = 1;
             break;
         case RI_GREAT_BAY_SMALL_KEY:
+#ifdef COMBO_BUILD
+        case RI_GREAT_BAY_KEYRING:
+#endif
             slot = 2;
             break;
         case RI_STONE_TOWER_SMALL_KEY:
+#ifdef COMBO_BUILD
+        case RI_STONE_TOWER_KEYRING:
+#endif
             slot = 3;
             break;
         default:
@@ -304,6 +319,27 @@ void DrawSmallKey(RandoItemId randoItemId) {
 
     CLOSE_DISPS(gPlayState->state.gfxCtx);
 }
+
+#ifdef COMBO_BUILD
+// ComboShip: Ship of Harkinian's "Key Rings" - the temple's small key, fanned out three times.
+void DrawKeyring(RandoItemId randoItemId) {
+    static const s16 kFanAngles[] = { -0x1000, 0, 0x1000 };
+    for (s16 angle : kFanAngles) {
+        Matrix_Push();
+        Matrix_RotateZS(angle, MTXMODE_APPLY);
+        Matrix_Translate(0.0f, 4.0f, 0.0f, MTXMODE_APPLY);
+        DrawSmallKey(randoItemId);
+        Matrix_Pop();
+    }
+}
+
+// ComboShip: Ship of Harkinian's "Bombchu Bag" - MM has no bag model, so draw Ocarina of Time's.
+void DrawBombchuBag() {
+    if (!MM_DrawOOTItemByName("Bombchu Bag")) {
+        GetItem_Draw(gPlayState, GID_BOMBCHU); // OOT not resident yet: never draw blank
+    }
+}
+#endif
 
 void DrawBossKey(RandoItemId randoItemId) {
     int slot;
@@ -608,6 +644,31 @@ void Rando::DrawItem(RandoItemId randoItemId, RandoCheckId randoCheckId, Actor* 
         case RI_WOODFALL_BOSS_KEY:
             DrawBossKey(randoItemId);
             break;
+#ifdef COMBO_BUILD
+        // ComboShip: Ship of Harkinian's "Key Rings" and "Bombchu Bag".
+        case RI_WOODFALL_KEYRING:
+        case RI_SNOWHEAD_KEYRING:
+        case RI_GREAT_BAY_KEYRING:
+        case RI_STONE_TOWER_KEYRING:
+            DrawKeyring(randoItemId);
+            break;
+        case RI_PROGRESSIVE_BOMBCHU_BAG: {
+            RandoItemId concrete = Rando::ConvertItem(randoItemId, randoCheckId);
+            if (concrete == RI_BOMBCHU_BAG_20 || concrete == RI_BOMBCHU_BAG_30 || concrete == RI_BOMBCHU_BAG_40) {
+                DrawBombchuBag();
+            } else {
+                // A copy past the last bag: the infinite item or the junk it gives.
+                Rando::DrawItem(concrete, randoCheckId, actor);
+            }
+            break;
+        }
+        case RI_BOMBCHU_BAG_20:
+        case RI_BOMBCHU_BAG_30:
+        case RI_BOMBCHU_BAG_40:
+        case RI_BOMBCHU_INF: // as in Ship of Harkinian, the infinite one is a bag too
+            DrawBombchuBag();
+            break;
+#endif
         case RI_SONG_TIME:
         case RI_SONG_STORMS:
         case RI_SONG_SUN:
@@ -630,6 +691,7 @@ void Rando::DrawItem(RandoItemId randoItemId, RandoCheckId randoCheckId, Actor* 
         case RI_SONG_REQUIEM:
         case RI_SONG_NOCTURNE:
         case RI_SONG_PRELUDE:
+        case RI_SONG_ZELDA: // ComboShip (cross-game items)
 #endif
             DrawSong(randoItemId);
             break;
@@ -784,6 +846,53 @@ void Rando::DrawItem(RandoItemId randoItemId, RandoCheckId randoCheckId, Actor* 
             // rupee on any failure). The originating check identity is passed straight through.
             MM_DrawComboForeign(randoCheckId);
             break;
+        // ComboShip (cross-game items): MM's copies of OOT gear draw OOT's own get-item models.
+        case RI_BOOTS_IRON:
+        case RI_BOOTS_HOVER:
+        case RI_TUNIC_GORON:
+        case RI_TUNIC_ZORA:
+        case RI_PROGRESSIVE_SCALE:
+        case RI_SCALE_SILVER:
+        case RI_SCALE_GOLDEN:
+        case RI_PROGRESSIVE_STRENGTH:
+        case RI_STRENGTH_GORONS_BRACELET:
+        case RI_STRENGTH_SILVER_GAUNTLETS:
+        case RI_STRENGTH_GOLDEN_GAUNTLETS:
+        case RI_MASK_GERUDO:
+        case RI_MASK_SKULL:
+        case RI_MASK_SPOOKY:
+        case RI_SPELL_FIRE:
+        case RI_SPELL_WIND:
+        case RI_SPELL_LOVE:
+        case RI_HAMMER:
+        case RI_BOOMERANG:
+        case RI_SLINGSHOT:
+        case RI_SHIELD_DEKU:
+        case RI_ROCS_FEATHER:
+        case RI_STONE_OF_AGONY:
+        case RI_OCARINA_FAIRY:
+        case RI_HOOKSHOT_SHORT:
+        case RI_PROGRESSIVE_STICK_UPGRADE:
+        case RI_DEKU_STICK_UPGRADE_20:
+        case RI_DEKU_STICK_UPGRADE_30:
+        case RI_PROGRESSIVE_NUT_UPGRADE:
+        case RI_DEKU_NUT_UPGRADE_30:
+        case RI_DEKU_NUT_UPGRADE_40: {
+            RandoItemId concrete = randoItemId;
+            if ((randoItemId == RI_PROGRESSIVE_SCALE) || (randoItemId == RI_PROGRESSIVE_STRENGTH) ||
+                (randoItemId == RI_PROGRESSIVE_STICK_UPGRADE) || (randoItemId == RI_PROGRESSIVE_NUT_UPGRADE)) {
+                concrete = Rando::ConvertItem(randoItemId, randoCheckId); // the tier this copy will give
+            }
+            const char* ootName = Rando::CrossGearOOTItemName(concrete);
+            if ((ootName == nullptr) && (concrete != randoItemId)) {
+                Rando::DrawItem(concrete, randoCheckId, actor); // maxed-out progressive copy: the junk it gives
+            } else if (ootName == nullptr) {
+                GetItem_Draw(gPlayState, GID_RUPEE_BLUE);
+            } else if (!MM_DrawOOTItemByName(ootName)) {
+                GetItem_Draw(gPlayState, GID_RUPEE_BLUE); // OOT not resident yet: never draw blank
+            }
+            break;
+        }
 #endif
         default:
             GetItem_Draw(gPlayState, Rando::StaticData::Items[randoItemId].drawId);

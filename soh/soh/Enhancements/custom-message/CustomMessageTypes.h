@@ -247,6 +247,9 @@ typedef enum {
     // ComboShip (teleport songs): Song of Soaring in OOT
     TEXT_COMBO_SOARING_NO_MARK = 0x9216,
     TEXT_COMBO_SOARING_CONFIRM = 0x9217,
+    // ComboShip: Cross-Games Farore's Wind, a point per game (ComboCrossFw.cpp)
+    TEXT_COMBO_FW_THERE = 0x9218,
+    TEXT_COMBO_FW_WHICH = 0x9219,
 #endif
 } TextIDs;
 

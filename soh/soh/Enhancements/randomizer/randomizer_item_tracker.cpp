@@ -34,8 +34,9 @@
 #include "ComboMenuSharedContext.h"        // ComboShip: per-DLL ImGui context helper (combo-owned)
 #include <ship/resource/CrossRMRegistry.h> // ComboShip: dormant-draw texture lookups need OOT's RM
 #include <ship/resource/ResourceManagerScope.h>
-bool Combo_OotIsForeground(void);           // defined in OTRGlobals.cpp
-extern "C" int gComboTrackerPeekSaveLoaded; // defined in GameInteractor.cpp
+bool Combo_OotIsForeground(void);                 // defined in OTRGlobals.cpp
+extern "C" int gComboTrackerPeekSaveLoaded;       // defined in GameInteractor.cpp
+#include "soh/Enhancements/combo/ComboMmAssets.h" // ComboShip (cross-game items): MM's mask icons
 #endif
 
 extern "C" {
@@ -157,6 +158,18 @@ std::vector<ItemTrackerItem> songItems = {
 #endif
     // clang-format on
 };
+
+#ifdef COMBO_BUILD
+// ComboShip (cross-game items): Majora's Mask's songs, joined to songItems when the seed has them (UpdateVectors).
+std::vector<ItemTrackerItem> comboMmSongItems = {
+    ITEM_TRACKER_RG(RG_COMBO_SONG_HEALING, "", 0, DrawSong), ITEM_TRACKER_RG(RG_COMBO_SONG_SONATA, "", 0, DrawSong),
+    ITEM_TRACKER_RG(RG_COMBO_SONG_GORON, "", 0, DrawSong),   ITEM_TRACKER_RG(RG_COMBO_SONG_BOSSA, "", 0, DrawSong),
+    ITEM_TRACKER_RG(RG_COMBO_SONG_ELEGY, "", 0, DrawSong),   ITEM_TRACKER_RG(RG_COMBO_SONG_OATH, "", 0, DrawSong),
+};
+// The other Majora's Mask items the seed has (masks, the child swords), a row of the main window. Rebuilt by
+// UpdateVectors; the swords are one progressive icon (Razor, then Gilded).
+std::vector<ItemTrackerItem> comboMmItems = {};
+#endif
 
 std::vector<ItemTrackerItem> gregItems = {
     ITEM_TRACKER_ITEM(ITEM_RUPEE_GREEN, "", 0, DrawItem),
@@ -992,6 +1005,27 @@ void DrawItem(ItemTrackerItem item) {
             case RG_ROCS_FEATHER:
                 itemName = "Roc's Feather";
                 break;
+#ifdef COMBO_BUILD
+            // ComboShip (cross-game items): Majora's Mask items in OOT.
+            case RG_COMBO_MASK_BLAST:
+                itemName = "Blast Mask";
+                break;
+            case RG_COMBO_MASK_STONE:
+                itemName = "Stone Mask";
+                break;
+            case RG_COMBO_MASK_KAMARO:
+                itemName = "Kamaro's Mask";
+                break;
+            case RG_COMBO_RAZOR_SWORD: // the progressive child sword: the Gilded Sword's icon once it's owned
+                if (Flags_GetRandomizerInf(RAND_INF_OBTAINED_COMBO_GILDED_SWORD)) {
+                    hasItem = true;
+                    item.iconName = "RG_COMBO_GILDED_SWORD";
+                    itemName = "Gilded Sword";
+                } else {
+                    itemName = "Razor Sword";
+                }
+                break;
+#endif
             case RG_DEATH_MOUNTAIN_CRATER_BEAN_SOUL:
                 itemName = "Death Mountain Crater Bean Soul";
                 break;
@@ -1321,10 +1355,17 @@ void DrawSong(ItemTrackerItem item) {
     float iconSize = static_cast<float>(CVarGetInteger(CVAR_TRACKER_ITEM("IconSize"), 36));
     ImVec2 p = ImGui::GetCursorScreenPos();
 #ifdef COMBO_BUILD
-    // ComboShip (teleport songs): Soaring's ownership and name come from its RandInf.
+    // ComboShip (teleport songs, cross-game items): MM's songs (Soaring and the ones in comboMmSongItems) are RG
+    // items; their ownership and name come from their RandInf.
     bool isSoaring = item.kind == ITEM_KIND_RG && item.id == RG_SONG_OF_SOARING;
-    assert(isSoaring || item.kind == ITEM_KIND_QUEST);
-    bool hasSong = isSoaring ? TrackerHasSave() && Flags_GetRandomizerInf(RAND_INF_HAS_SONG_OF_SOARING) : HasSong(item);
+    bool isMmSong = item.kind == ITEM_KIND_RG;
+    assert(isMmSong || item.kind == ITEM_KIND_QUEST);
+    bool hasSong = HasSong(item);
+    if (isMmSong) {
+        const auto rg = static_cast<RandomizerGet>(item.id);
+        hasSong = TrackerHasSave() && Rando::StaticData::RandoGetToRandInf.contains(rg) &&
+                  Flags_GetRandomizerInf(static_cast<RandomizerInf>(Rando::StaticData::RandoGetToRandInf.at(rg)));
+    }
 #else
     assert(item.kind == ITEM_KIND_QUEST);
     bool hasSong = HasSong(item);
@@ -1333,7 +1374,15 @@ void DrawSong(ItemTrackerItem item) {
     ImGui::Image(gui->GetTextureByName(hasSong ? item.iconName : item.fadedIconName), ImVec2(iconSize / 1.5f, iconSize),
                  ImVec2(0, 0), ImVec2(1, 1));
 #ifdef COMBO_BUILD
-    Tooltip(isSoaring ? "Song of Soaring" : SohUtils::GetQuestItemName(item.id).c_str());
+    if (isMmSong) {
+        Tooltip(isSoaring ? "Song of Soaring"
+                          : Rando::StaticData::RetrieveItem(static_cast<RandomizerGet>(item.id))
+                                .GetName()
+                                .GetForLanguage(CVarGetInteger(CVAR_SETTING("Languages"), LANGUAGE_ENG))
+                                .c_str());
+    } else {
+        Tooltip(SohUtils::GetQuestItemName(item.id).c_str());
+    }
 #else
     Tooltip(SohUtils::GetQuestItemName(item.id).c_str());
 #endif
@@ -1590,6 +1639,34 @@ void UpdateVectors() {
         }
     }
 
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): Majora's Mask's items, shown when the seed has them.
+    songItems.erase(std::remove_if(songItems.begin(), songItems.end(),
+                                   [](const ItemTrackerItem& i) {
+                                       return i.kind == ITEM_KIND_RG && i.id >= RG_COMBO_SONG_ELEGY &&
+                                              i.id <= RG_COMBO_SONG_OATH;
+                                   }),
+                    songItems.end());
+    if (IS_RANDO && RAND_GET_OPTION(RSK_COMBO_MM_SONGS)) {
+        songItems.insert(songItems.end(), comboMmSongItems.begin(), comboMmSongItems.end());
+    }
+    comboMmItems.clear();
+    if (IS_RANDO) {
+        if (RAND_GET_OPTION(RSK_COMBO_MASK_BLAST)) {
+            comboMmItems.push_back(ITEM_TRACKER_RG(RG_COMBO_MASK_BLAST, "", 0, DrawItem));
+        }
+        if (RAND_GET_OPTION(RSK_COMBO_MASK_STONE)) {
+            comboMmItems.push_back(ITEM_TRACKER_RG(RG_COMBO_MASK_STONE, "", 0, DrawItem));
+        }
+        if (RAND_GET_OPTION(RSK_COMBO_MASK_KAMARO)) {
+            comboMmItems.push_back(ITEM_TRACKER_RG(RG_COMBO_MASK_KAMARO, "", 0, DrawItem));
+        }
+        if (RAND_GET_OPTION(RSK_COMBO_CHILD_SWORDS)) {
+            comboMmItems.push_back(ITEM_TRACKER_RG(RG_COMBO_RAZOR_SWORD, "", 0, DrawItem));
+        }
+    }
+#endif
+
     mainWindowItems.clear();
     if (CVarGetInteger(CVAR_TRACKER_ITEM("DisplayType.Inventory"), SECTION_DISPLAY_MAIN_WINDOW) ==
         SECTION_DISPLAY_MAIN_WINDOW) {
@@ -1645,6 +1722,9 @@ void UpdateVectors() {
     if (IS_RANDO && RAND_GET_OPTION(RSK_SHUFFLE_SCARECROWS_SONG)) {
         mainWindowItems.insert(mainWindowItems.end(), scarecrowsSongItems.begin(), scarecrowsSongItems.end());
     }
+#ifdef COMBO_BUILD
+    mainWindowItems.insert(mainWindowItems.end(), comboMmItems.begin(), comboMmItems.end());
+#endif
 
     // if we're adding greg to the misc window,
     // and misc isn't on the main window,
@@ -1836,7 +1916,52 @@ void ItemTrackerWindow::Draw() {
 #endif
 }
 
+#ifdef COMBO_BUILD
+// ComboShip (cross-game items): which of the seed's options add items to the tracker. The lists are rebuilt only
+// when something asks (a setting toggle), so a seed loaded or generated with different ones refreshes them here.
+static int ComboTrackerItemsSignature() {
+    if (!IS_RANDO) {
+        return 0;
+    }
+    return 1 | (RAND_GET_OPTION(RSK_COMBO_MM_SONGS) ? 1 << 1 : 0) |
+           (RAND_GET_OPTION(RSK_COMBO_MASK_BLAST) ? 1 << 2 : 0) | (RAND_GET_OPTION(RSK_COMBO_MASK_STONE) ? 1 << 3 : 0) |
+           (RAND_GET_OPTION(RSK_COMBO_MASK_KAMARO) ? 1 << 4 : 0) |
+           (RAND_GET_OPTION(RSK_COMBO_CHILD_SWORDS) ? 1 << 5 : 0) | (RAND_GET_OPTION(RSK_ROCS_FEATHER) ? 1 << 6 : 0);
+}
+
+// MM's icons for its items in OOT, loaded on the first draw after MM's archive is open (it opens after OOT's
+// ImGui icons are registered at startup).
+static void ComboLoadMmTrackerIcons() {
+    static bool sLoaded = false;
+    if (sLoaded || Ship::CrossRMRegistry::Get("mm") == nullptr) {
+        return;
+    }
+    sLoaded = true;
+    static const std::pair<const char*, const char*> kIcons[] = {
+        { "RG_COMBO_MASK_BLAST", gComboMmIconBlastMaskTex },
+        { "RG_COMBO_MASK_STONE", gComboMmIconStoneMaskTex },
+        { "RG_COMBO_MASK_KAMARO", gComboMmIconKamaroMaskTex },
+        { "RG_COMBO_RAZOR_SWORD", "__OTR__@mm:icon_item_static_yar/gItemIconRazorSwordTex" },
+        { "RG_COMBO_GILDED_SWORD", "__OTR__@mm:icon_item_static_yar/gItemIconGildedSwordTex" },
+    };
+    auto gui = std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui());
+    for (const auto& [name, path] : kIcons) {
+        gui->LoadGuiTexture(name, path, "", ImVec4(1, 1, 1, 1));
+        gui->LoadGuiTexture(std::string(name) + "_Faded", path, "", ImVec4(1, 1, 1, 0.3f));
+    }
+}
+#endif
+
 void ItemTrackerWindow::DrawElement() {
+#ifdef COMBO_BUILD
+    static int sComboItemsSignature = -1;
+    const int comboItemsSignature = ComboTrackerItemsSignature();
+    if (comboItemsSignature != sComboItemsSignature) {
+        sComboItemsSignature = comboItemsSignature;
+        shouldUpdateVectors = true;
+    }
+    ComboLoadMmTrackerIcons();
+#endif
     UpdateVectors();
 
     int iconSize = CVarGetInteger(CVAR_TRACKER_ITEM("IconSize"), 36);

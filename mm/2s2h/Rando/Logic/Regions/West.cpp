@@ -379,8 +379,8 @@ static RegisterShipInitFunc initFunc([]() {
     };
     Regions[RR_ZORA_HALL_LULUS_ROOM] = RandoRegion{ .name = "Lulu's Room", .sceneId = SCENE_BANDROOM,
         .checks = {
-            CHECK(RC_ZORA_HALL_SCRUB_DEED,           Flags_GetRandoInf(RANDO_INF_OBTAINED_DEED_MOUNTAIN) && CAN_BE_GORON),
-            CHECK(RC_ZORA_HALL_SCRUB_PIECE_OF_HEART, Flags_GetRandoInf(RANDO_INF_OBTAINED_DEED_MOUNTAIN) && CAN_BE_GORON && CAN_BE_DEKU),
+            CHECK(RC_ZORA_HALL_SCRUB_DEED,           HAS_TRADE_ITEM(RANDO_INF_OBTAINED_DEED_MOUNTAIN, ITEM_DEED_MOUNTAIN) && CAN_BE_GORON),
+            CHECK(RC_ZORA_HALL_SCRUB_PIECE_OF_HEART, HAS_TRADE_ITEM(RANDO_INF_OBTAINED_DEED_MOUNTAIN, ITEM_DEED_MOUNTAIN) && CAN_BE_GORON && CAN_BE_DEKU),
             CHECK(RC_ZORA_HALL_SCRUB_POTION_REFILL,  CAN_BE_ZORA),
         },
         .exits = { //     TO                                         FROM

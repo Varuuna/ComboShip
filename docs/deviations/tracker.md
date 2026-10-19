@@ -302,3 +302,49 @@ next load showed every check twice.
 
 Invariant: every path that takes a loaded OOT save to the title fires `OnExitGame` exactly once before
 the next `OnLoadGame`, and `CheckTrackerLoadGame` leaves each check once per area however often it runs.
+
+## Cross-game items on both item trackers (2026-10-18)
+
+Each game's item tracker now shows the other game's items that the seed puts in it, the ones the cross-game
+item options add (see rando.md "Cross-game items" and "Songs in the other game").
+
+**OOT's tracker (`randomizer_item_tracker.cpp`, guarded):**
+- **Songs:** MM's six songs (`RSK_COMBO_MM_SONGS`: Healing, Sonata, Goron Lullaby, Bossa Nova, Elegy, Oath) join the
+  song section after the Song of Soaring, as notes in the colors MM's tracker uses (`ImGuiUtils.cpp` registers
+  `RG_COMBO_SONG_*`). `DrawSong` reads any RG song's ownership from `RandoGetToRandInf`.
+- **Other MM items:** Blast, Stone and Kamaro's Masks (`RSK_COMBO_MASK_*`) and the extra child swords
+  (`RSK_COMBO_CHILD_SWORDS`, one icon: the Razor Sword, the Gilded Sword once owned) are a row of the main window
+  (`comboMmItems`). Their MM icons load on the first tracker draw after MM's archive opens
+  (`ComboLoadMmTrackerIcons`): OOT registers its ImGui icons at startup, before the eager MM boot.
+- **Refresh:** the item lists are only rebuilt when something asks (a setting toggle, an area spoiled), so a
+  signature of the seed's item options (`ComboTrackerItemsSignature`, Roc's Feather included) rebuilds them when
+  another seed is loaded or generated.
+
+**MM's tracker (`ItemTracker.cpp`, `ItemTrackerSettings.cpp`, guarded):**
+- **New group "Ocarina of Time Items":** boots, tunics, scale, strength, Gerudo/Skull/Spooky Masks, the three spells,
+  Hammer, Boomerang, Slingshot, Deku Shield, Stone of Agony, Roc's Feather, Zelda's Lullaby and the six warp songs.
+  The scale and strength are one icon each at the highest tier owned (`Combo_TrackerTierItem`). It is in the default
+  groups, and a layout saved before it existed gets it appended once (`gCombo.Tracker.MmOotItemsGroupAdded`; removing
+  it afterwards sticks).
+- **Only what the seed has:** an OOT item is drawn when its MM option is on or it is owned anyway
+  (`Combo_TrackerItemHidden`); with no rando save, none. This applies in every group (the warp songs in "Songs" too),
+  and a group with nothing to draw is skipped.
+- `ShipUtils.cpp` loads the Stone of Agony, Deku Shield and Fairy Ocarina icons for ImGui (they have no
+  `gItemIcons` entry; the Fairy Ocarina is swapped into the ocarina slot's icon).
+- **Song colors:** Zelda's Lullaby and the six warp songs all borrow MM's soaring note icon, so each is tinted with
+  OOT's own song color (SoH's tracker colors) to tell them apart (2026-10-19).
+- **Slingshot seeds:** the Slingshot's count is its own Deku Seeds (`comboSlingshotSeeds`), like MM's ammo items
+  (2026-10-19).
+
+Not shown: the Fairy Ocarina and Short Hookshot (first tiers of MM's own ocarina / hookshot, in its inventory slots)
+and the Deku Stick / Nut upgrades (capacity, in the stick / nut counts).
+
+**Tested (Linux build, 2026-10-18):** a seed with every cross-game item option on shows MM's six songs, Blast /
+Stone / Kamaro's Masks and the child sword on OOT's tracker and the whole "Ocarina of Time Items" group on MM's, all
+faded; owning some lights exactly those (the scale at Golden, the gauntlets at Silver, the sword as Gilded), in both
+the foreground and the other game's tracker. Loading a seed with only Roc's Feather on leaves just Roc's Feather on
+both.
+
+Re-tested 2026-10-19 on current develop: with every option on, both trackers list the other game's items faded;
+granting Hover Boots, two scales, two strength upgrades, the Skull Mask, Zelda's Lullaby and the Slingshot in MM lit
+exactly those (Golden Scale, Silver Gauntlets, the Slingshot with "30"), and the OOT songs show in their own colors.

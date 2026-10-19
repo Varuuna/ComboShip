@@ -24,6 +24,7 @@ extern PlayState* gPlayState;
 extern int (*gComboOwlFlagsProvider)(void);
 extern int (*gComboOwlWarpEntranceProvider)(int owlId);
 void Combo_RequestCrossSwitch(int mmEntrance);
+int Combo_GamesSolo(void); // OTRGlobals.cpp
 // Declared first so OPEN_DISPS' block-scope declarations keep C linkage.
 void FrameInterpolation_RecordOpenChild(const void* a, int b);
 void FrameInterpolation_RecordCloseChild(void);
@@ -213,8 +214,9 @@ void CowOnSongPlayed(PlayState* play) {
     Sfx_PlaySfxCentered(NA_SE_SY_CORRECT_CHIME); // OOT's bank has no MM soaring jingle
     msgCtx->ocarinaMode = OCARINA_MODE_04;       // Link puts the ocarina away
     Message_CloseTextbox(play);
-    // Vanilla warp-song refusal order (restriction flag is rando-exempt there too).
-    if (msgCtx->disableWarpSongs) {
+    // Vanilla warp-song refusal order (restriction flag is rando-exempt there too). A solo seed (combo/rando/
+    // ComboGames.h) never goes to Termina.
+    if (msgCtx->disableWarpSongs || Combo_GamesSolo()) {
         sPendingText = 0x88C; // "You can't warp here!"
     } else {
         const int flags = gComboOwlFlagsProvider ? gComboOwlFlagsProvider() : -1;

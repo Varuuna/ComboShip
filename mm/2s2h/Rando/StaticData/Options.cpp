@@ -88,6 +88,55 @@ std::map<RandoOptionId, RandoStaticOption> Options = {
     RO(RO_TRAP_AMOUNT,                 5),
     RO(RO_TRIFORCE_PIECES_MAX,         DEFAULT_TRIFORCE_PIECES_MAX),
     RO(RO_TRIFORCE_PIECES_REQUIRED,    DEFAULT_TRIFORCE_PIECES_MAX),
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): OoTMM's "Iron Boots (MM)" etc.
+    RO(RO_CROSS_BOOTS_IRON,            RO_GENERIC_OFF),
+    RO(RO_CROSS_BOOTS_HOVER,           RO_GENERIC_OFF),
+    RO(RO_CROSS_TUNIC_GORON,           RO_GENERIC_OFF),
+    RO(RO_CROSS_TUNIC_ZORA,            RO_GENERIC_OFF),
+    RO(RO_CROSS_SCALES,                RO_GENERIC_OFF),
+    RO(RO_CROSS_STRENGTH,              RO_GENERIC_OFF),
+    RO(RO_CROSS_MASK_GERUDO,           RO_GENERIC_OFF),
+    RO(RO_CROSS_MASK_SKULL,            RO_GENERIC_OFF),
+    RO(RO_CROSS_MASK_SPOOKY,           RO_GENERIC_OFF),
+    RO(RO_CROSS_SONG_ZELDA,            RO_GENERIC_OFF),
+    RO(RO_CROSS_SPELL_FIRE,         RO_GENERIC_OFF),
+    RO(RO_CROSS_SPELL_WIND,         RO_GENERIC_OFF),
+    RO(RO_CROSS_SPELL_LOVE,         RO_GENERIC_OFF),
+    RO(RO_CROSS_HAMMER,             RO_GENERIC_OFF),
+    RO(RO_CROSS_BOOMERANG,          RO_GENERIC_OFF),
+    RO(RO_CROSS_SLINGSHOT,          RO_GENERIC_OFF),
+    RO(RO_CROSS_SHIELD_DEKU,        RO_GENERIC_OFF),
+    RO(RO_CROSS_STONE_AGONY,        RO_GENERIC_OFF),
+    RO(RO_CROSS_OCARINA_FAIRY,      RO_GENERIC_OFF),
+    RO(RO_CROSS_HOOKSHOT_SHORT,     RO_GENERIC_OFF),
+    RO(RO_CROSS_STICKS_NUTS,        RO_GENERIC_OFF),
+    RO(RO_CROSS_GAME_FW,            RO_GENERIC_OFF),
+    RO(RO_CROSS_GAME_AGE,           RO_GENERIC_OFF),
+#define AGE_REQ(suffix, label, ootmmId, item, poolOption) RO(RO_AGE_REQ_##suffix, RO_AGE_ANY),
+#include "2s2h/Rando/MiscBehavior/AgeReqList.h"
+#undef AGE_REQ
+    // Ship of Harkinian's shop prices, Infinite Upgrades, Bombchu Bag and Key Rings.
+    RO(RO_SHOP_PRICES,                      RO_SHOP_PRICES_RANDOM),
+    RO(RO_SHOP_PRICES_FIXED,                10), // 50 rupees
+    RO(RO_SHOP_PRICES_RANGE_1,              4),  // 20 rupees
+    RO(RO_SHOP_PRICES_RANGE_2,              40), // 200 rupees
+    RO(RO_SHOP_PRICES_WEIGHT_FREE,          0),
+    RO(RO_SHOP_PRICES_WEIGHT_STARTING_WALLET, 1),
+    RO(RO_SHOP_PRICES_WEIGHT_ADULT_WALLET,  1),
+    RO(RO_SHOP_PRICES_WEIGHT_GIANT_WALLET,  1),
+    RO(RO_SHOP_PRICES_WEIGHT_TYCOON_WALLET, 1),
+    RO(RO_SHOP_PRICES_AFFORDABLE,           RO_GENERIC_OFF),
+    RO(RO_INFINITE_UPGRADES,                RO_INFINITE_UPGRADES_OFF),
+    RO(RO_BOMBCHU_BAG,                      RO_BOMBCHU_BAG_NONE),
+    RO(RO_KEYRINGS,                         RO_KEYRINGS_MODE_OFF),
+    RO(RO_KEYRINGS_COUNT,                   2),
+    RO(RO_KEYRINGS_WOODFALL,                RO_GENERIC_OFF),
+    RO(RO_KEYRINGS_SNOWHEAD,                RO_GENERIC_OFF),
+    RO(RO_KEYRINGS_GREAT_BAY,               RO_GENERIC_OFF),
+    RO(RO_KEYRINGS_STONE_TOWER,             RO_GENERIC_OFF),
+    RO(RO_CROSS_ROCS_FEATHER,               RO_GENERIC_OFF),
+#endif
 };
 // clang-format on
 

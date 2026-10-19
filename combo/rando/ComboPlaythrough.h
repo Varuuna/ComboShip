@@ -39,17 +39,17 @@ inline std::vector<std::string> SharedStartingMmFromSpoiler(const std::string& s
 
 // Shared Items mirror: pushes newly-owed mmOwned copies per ootOwned's count; `given` tracks what's
 // already pushed so repeat calls don't duplicate.
-inline void ApplySharedMirror(uint32_t sharedMask, const std::vector<std::string>& ootOwned,
+inline void ApplySharedMirror(SharedMask sharedMask, const std::vector<std::string>& ootOwned,
                               std::vector<std::string>& mmOwned, size_t (&given)[SF_COUNT]) {
     if (sharedMask == 0)
         return;
     for (int i = 0; i < SF_COUNT; ++i) {
-        if (!(sharedMask & (1u << i)))
+        if (!(sharedMask & SharedBit(i)))
             continue;
         const auto& def = SharedFamilyByIndex(i);
         if (!def.mmHasItem)
             continue; // nothing to push; MM logic doesn't need it
-        size_t k = static_cast<size_t>(std::count(ootOwned.begin(), ootOwned.end(), std::string(def.ootName)));
+        size_t k = SharedFamilyOotCount(def, ootOwned);
         size_t target = std::min<size_t>(k, static_cast<size_t>(def.mmTierCap));
         for (size_t n = given[i]; n < target; ++n)
             mmOwned.push_back(def.mmName);
@@ -234,6 +234,14 @@ inline bool MmOnlyMajoraGoal(const std::unordered_set<std::string>& /*ootReach*/
     return mmReach.count(kMmWin) > 0;
 }
 
+// OoT-only seed (ComboGames.h): Ganon alone.
+inline bool OotOnlyGanonGoal(const std::unordered_set<std::string>& ootReach,
+                             const std::unordered_set<std::string>& /*mmReach*/,
+                             const std::vector<std::string>& /*ownedOot*/,
+                             const std::vector<std::string>& /*ownedMm*/) {
+    return ootReach.count("Ganon") > 0;
+}
+
 // Counts Triforce Pieces held across BOTH games (#136). Owned-based, not reachability-based, so the
 // pare-down counterfactuals (which blank one placement) actually change the answer.
 inline int CountOwnedTriforcePieces(const std::vector<std::string>& ownedOot, const std::vector<std::string>& ownedMm) {
@@ -285,7 +293,7 @@ inline RequirednessResult PareDownPlaythrough(const std::string& spoilerJson, co
     };
 
     // Shared Items: the fill's effective mask (0 = off).
-    uint32_t sharedMask = 0;
+    SharedMask sharedMask = 0;
     try {
         sharedMask =
             SharedMaskFromKeys(nlohmann::json::parse(spoilerJson).value("sharedItems", nlohmann::json::array()));
@@ -452,7 +460,7 @@ inline PlaythroughResult RunPlaythrough(const std::string& spoilerJson, const Or
                                         nlohmann::json* playthroughOut = nullptr, const std::string& sohDumpJson = "",
                                         const std::string& mmDumpJson = "", bool portalGated = true,
                                         bool progressionOnly = false, CwGoal goal = {}, bool mmStart = false,
-                                        uint32_t sharedMask = 0) {
+                                        SharedMask sharedMask = 0) {
     static const char* kOotGanon = "Ganon";           // RC_GANON reachable = OOT beatable (see CrossWorldRando.h)
     static const char* kMmWin = "Moon Majora Pot 01"; // ComboShip: friendly form of RC_MOON_MAJORA_POT_01
 

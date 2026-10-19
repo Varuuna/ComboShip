@@ -10,6 +10,14 @@
 #include "z_en_syateki_man.h"
 #include "overlays/actors/ovl_En_Syateki_Crow/z_en_syateki_crow.h"
 #include "overlays/actors/ovl_En_Syateki_Dekunuts/z_en_syateki_dekunuts.h"
+#ifdef COMBO_BUILD
+// ComboShip (Cross-Games Age): an item restricted to the other age counts as not usable here (OoTMM refuses these
+// minigames at the wrong age).
+#include "2s2h/Rando/MiscBehavior/AgeRequirements.h"
+#define COMBO_AGE_OK(item) Combo_AgeReq_CanUseItem(item)
+#else
+#define COMBO_AGE_OK(item) true
+#endif
 #include "overlays/actors/ovl_En_Syateki_Okuta/z_en_syateki_okuta.h"
 #include "overlays/actors/ovl_En_Syateki_Wf/z_en_syateki_wf.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
@@ -343,7 +351,7 @@ void EnSyatekiMan_Swamp_HandleChoice(EnSyatekiMan* this, PlayState* play) {
 
     if (Message_ShouldAdvance(play)) {
         if (play->msgCtx.choiceIndex == 0) {
-            if (CUR_UPG_VALUE(UPG_QUIVER) == 0) {
+            if ((CUR_UPG_VALUE(UPG_QUIVER) == 0) || !COMBO_AGE_OK(ITEM_BOW)) {
                 Audio_PlaySfx(NA_SE_SY_ERROR);
 
                 // You don't have a bow!
@@ -644,7 +652,7 @@ void EnSyatekiMan_Town_HandleChoice(EnSyatekiMan* this, PlayState* play) {
 
     if (Message_ShouldAdvance(play)) {
         if (play->msgCtx.choiceIndex == 0) {
-            if (CUR_UPG_VALUE(UPG_QUIVER) == 0) {
+            if ((CUR_UPG_VALUE(UPG_QUIVER) == 0) || !COMBO_AGE_OK(ITEM_BOW)) {
                 Audio_PlaySfx(NA_SE_SY_ERROR);
                 if (CURRENT_DAY != 3) {
                     // You don't have a bow? Then you can't play.

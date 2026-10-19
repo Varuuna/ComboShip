@@ -22,6 +22,7 @@
 #include "CrossForeign.h" // for ComboRando::GameId
 #include "SharedItems.h"
 #include "CrossWarpLogic.h"
+#include "ComboGames.h"
 
 namespace ComboRando {
 
@@ -112,12 +113,12 @@ struct CwGoal {
 };
 
 // Even split of the combined total across the two pools; OOT takes the odd piece. -1 passes through
-// so each game keeps its own slider (old seeds).
-inline int CwOotPieces(int total) {
-    return total < 0 ? -1 : total - total / 2;
+// so each game keeps its own slider (old seeds). A solo seed (ComboGames.h) puts every piece in its game.
+inline int CwOotPieces(int total, ComboGames games = COMBO_GAMES_BOTH) {
+    return ComboGamesOotPieces(games, total);
 }
-inline int CwMmPieces(int total) {
-    return total < 0 ? -1 : total / 2;
+inline int CwMmPieces(int total, ComboGames games = COMBO_GAMES_BOTH) {
+    return ComboGamesMmPieces(games, total);
 }
 // Ceiling on the combined total. OOT's pool can't absorb its half much past this (100/100 trips
 // item_pool.cpp's itemPool <= locCount assert); 50/50 is verified to generate.
@@ -129,7 +130,8 @@ inline bool CwIsTriforcePiece(GameId itemGame, const std::string& itemName) {
 
 // How many pieces the two settings-scoped pools actually hold. Logged loudly: the names above are
 // coupled to each game's item table, so a rename would otherwise silently drop that game's pieces.
-inline int CountPoolTriforcePieces(const std::string& sohDumpJson, const std::string& mmDumpJson) {
+inline int CountPoolTriforcePieces(const std::string& sohDumpJson, const std::string& mmDumpJson,
+                                   ComboGames games = COMBO_GAMES_BOTH) {
     auto countIn = [](const std::string& dump, GameId g) {
         int n = 0;
         try {
@@ -142,7 +144,7 @@ inline int CountPoolTriforcePieces(const std::string& sohDumpJson, const std::st
     const int oot = countIn(sohDumpJson, GAME_OOT);
     const int mm = countIn(mmDumpJson, GAME_MM);
     std::cout << "[ComboShip] Triforce Hunt: combined pool holds " << oot << " OOT + " << mm << " MM piece(s)\n";
-    if (oot == 0 || mm == 0)
+    if ((oot == 0 || mm == 0) && !ComboGamesSolo(games)) // a solo seed has every piece in its game
         std::cerr << "[ComboShip] Triforce Hunt: WARNING — one game contributes no pieces (slider at 0, or its "
                      "piece item was renamed)\n";
     return oot + mm;
@@ -247,15 +249,18 @@ constexpr int kMaxPrereqTries = 4; // Tier-1 repicks of just the portal prerequi
 // out of the cross pool, owned-from-start for logic, and appended to the OOT placements.
 // startingGame (#135): GAME_MM roots MM from the start instead of behind the portal; the portal
 // prerequisites are still derived, as the re-entry guarantee for a player who strays into OOT.
-inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson, const std::string& mmDumpJson,
-                                                 uint32_t masterSeed, const OracleFns& ootOracle,
-                                                 const OracleFns& mmOracle,
-                                                 ComboRando::ComboGenProgress* progress = nullptr,
-                                                 const std::string& forcedOotJson = "",
-                                                 OotAccess ootAccess = OotAccess::ALL_REACHABLE, CwGoal goal = {},
-                                                 GameId startingGame = GAME_OOT, uint32_t sharedMask = 0) {
+// games (ComboGames.h): a solo seed keeps every item in its own game (both phases pick only checks of the item's
+// game), uses no cross-game teleports in logic, and skips the portal prerequisites / re-entry guarantee, since
+// nothing crosses between the games at runtime.
+inline CombinedFillResult
+CrossWorldCombinedFill(const std::string& sohDumpJson, const std::string& mmDumpJson, uint32_t masterSeed,
+                       const OracleFns& ootOracle, const OracleFns& mmOracle,
+                       ComboRando::ComboGenProgress* progress = nullptr, const std::string& forcedOotJson = "",
+                       OotAccess ootAccess = OotAccess::ALL_REACHABLE, CwGoal goal = {}, GameId startingGame = GAME_OOT,
+                       SharedMask sharedMask = 0, ComboGames games = COMBO_GAMES_BOTH) {
     CombinedFillResult result;
     result.success = false;
+    const bool solo = ComboGamesSolo(games);
 
     // Portal gate: NO_LOGIC deliberately skips it (an impossible seed is that mode's point). Any other
     // mode without the export would silently fill MM as sphere-0 reachable — the bug this gate fixes.
@@ -283,8 +288,12 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     // unbalanceable pool ("no discardable junk") instead of the rebuild it actually needs.
     std::string missingCategory;
 
+    bool mmAgeNeedsAdult = false; // Cross-Games Age: MM has adult-only (or Random) items (MM dump "ageNeedsAdult")
     auto parsePool = [&](Game game, const std::string& dumpJson) {
         auto d = nlohmann::json::parse(dumpJson);
+        if (game == GAME_MM) {
+            mmAgeNeedsAdult = d.value("ageNeedsAdult", false);
+        }
 
         // Fillable checks (name only; the pool below feeds the items).
         for (auto& c : d.value("checks", nlohmann::json::array())) {
@@ -440,7 +449,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
 
     // Shared Items (OoTMM-style): trim MM's copies of each effective family; the fixpoint below
     // mirrors the OOT-owned count back onto MM's oracle. See deviations/rando.md.
-    uint32_t effectiveSharedMask = 0;
+    SharedMask effectiveSharedMask = 0;
     // Shared items OOT starts with (MM names); MM logic starts with them too.
     std::vector<std::string> sharedStartingMm;
     if (sharedMask != 0) {
@@ -454,7 +463,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                     ootStarting.push_back(n.get<std::string>());
         } catch (...) {}
         for (int i = 0; i < SF_COUNT; ++i) {
-            if (!(sharedMask & (1u << i)))
+            if (!(sharedMask & SharedBit(i)))
                 continue;
             const auto& def = SharedFamilyByIndex(i);
             if (def.isMask && !maskQuestShuffle) {
@@ -462,16 +471,28 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                 continue;
             }
             size_t ootCopies = 0;
+            size_t ootMainCopies = 0; // the main ootName only (a family with an alt name needs one)
             for (const auto& it : advItems)
-                if (it.game == GAME_OOT && it.name == def.ootName)
+                if (it.game == GAME_OOT && SharedFamilyOotNameMatches(def, it.name)) {
                     ++ootCopies;
+                    ootMainCopies += (it.name == def.ootName) ? 1 : 0;
+                }
             for (const auto& p : lockedPlacements)
-                if (p.item.game == GAME_OOT && p.item.name == def.ootName)
+                if (p.item.game == GAME_OOT && SharedFamilyOotNameMatches(def, p.item.name)) {
                     ++ootCopies;
-            const size_t ootStartingCopies =
+                    ootMainCopies += (p.item.name == def.ootName) ? 1 : 0;
+                }
+            const size_t ootStartingCopies = SharedFamilyOotCount(def, ootStarting);
+            ootMainCopies +=
                 static_cast<size_t>(std::count(ootStarting.begin(), ootStarting.end(), std::string(def.ootName)));
             if (ootCopies == 0 && ootStartingCopies == 0) {
                 std::cout << "[ComboShip] Shared " << def.key << ": OOT pool has none, left MM copies alone\n";
+                continue;
+            }
+            if (def.ootAltName != nullptr && ootMainCopies == 0) {
+                // e.g. Shared Kokiri Sword without OOT's Extra Child Swords: OOT has one tier, MM keeps its own.
+                std::cout << "[ComboShip] Shared " << def.key << ": OOT pool has no '" << def.ootName
+                          << "', left MM copies alone\n";
                 continue;
             }
             if (ootCopies == 0)
@@ -482,7 +503,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                     sharedStartingMm.push_back(def.mmName);
             if (!def.mmHasItem) {
                 // MM has no pool copy of this item — nothing to trim, just mark the family effective.
-                effectiveSharedMask |= (1u << i);
+                effectiveSharedMask |= SharedBit(i);
                 std::cout << "[ComboShip] Shared " << def.key << ": MM has no item, not trimmed\n";
                 continue;
             }
@@ -504,14 +525,14 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                           << "', not shared\n";
                 continue;
             }
-            effectiveSharedMask |= (1u << i);
+            effectiveSharedMask |= SharedBit(i);
             std::cout << "[ComboShip] Shared " << def.key << ": trimmed " << removed << " MM '" << def.mmName
                       << "' (balancer will pad with junk)\n";
         }
         // Keep only the families that ended up effective (a bail-out above may follow the push).
         std::erase_if(sharedStartingMm, [&](const std::string& mmName) {
             for (int i = 0; i < SF_COUNT; ++i)
-                if ((effectiveSharedMask & (1u << i)) && mmName == SharedFamilyByIndex(i).mmName)
+                if ((effectiveSharedMask & SharedBit(i)) && mmName == SharedFamilyByIndex(i).mmName)
                     return false;
             return true;
         });
@@ -696,7 +717,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     // Portal prerequisites: a SUFFICIENT witness set for the OOT->MM portal, built FORWARD from empty.
     // RNG-free (canonical order) so it can't shift the seeded stream. See docs/deviations/rando.md.
     std::vector<std::string> portalPrereqs;
-    if (portalGated) {
+    if (portalGated && !solo) {
         // Each probe is a fixpoint (several queries), so this bounds queries, not probes.
         const int kMaxDeriveQueries = 1500;
         const uint32_t queries0 = ootStats.count;
@@ -778,8 +799,9 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         mmOwned.insert(mmOwned.end(), mmForcedOwned.begin(), mmForcedOwned.end());
         std::vector<bool> credited(placements.size(), false);
         std::unordered_set<std::string> ootReachable, mmReachable;
-        // Latched: once OOT can reach the portal it stays open. An MM start roots MM immediately (#135).
-        bool portalOpen = !portalGated || mmStart;
+        // Latched: once OOT can reach the portal it stays open. An MM start roots MM immediately (#135), and so
+        // does a solo seed: each game is filled from its own start, as nothing crosses between them.
+        bool portalOpen = !portalGated || mmStart || solo;
         // Shared Items mirror: how many copies of each effective family have already been pushed onto
         // mmOwned this call, so re-querying doesn't duplicate them as ootOwned grows.
         size_t sharedGiven[SF_COUNT] = { 0 };
@@ -794,13 +816,12 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                 portalOpen = ootOracle.GetPortalOpen() != 0;
             if (effectiveSharedMask != 0) {
                 for (int i = 0; i < SF_COUNT; ++i) {
-                    if (!(effectiveSharedMask & (1u << i)))
+                    if (!(effectiveSharedMask & SharedBit(i)))
                         continue;
                     const auto& def = SharedFamilyByIndex(i);
                     if (!def.mmHasItem)
                         continue; // nothing to push; MM logic doesn't need it
-                    size_t k =
-                        static_cast<size_t>(std::count(ootOwned.begin(), ootOwned.end(), std::string(def.ootName)));
+                    size_t k = SharedFamilyOotCount(def, ootOwned);
                     size_t target = std::min<size_t>(k, static_cast<size_t>(def.mmTierCap));
                     for (size_t n = sharedGiven[i]; n < target; ++n)
                         mmOwned.push_back(def.mmName);
@@ -809,8 +830,9 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
             }
             mmReachable = portalOpen ? queryReachable(mmOracle, mmOwned) : std::unordered_set<std::string>{};
             // Push each side's new warp abilities onto the other's owned list and repeat.
-            bool changed = ApplyCrossWarps(ootCrossOut, portalOpen ? OracleCrossOut(mmOracle) : 0u, portalOpen, mmStart,
-                                           ootOwned, mmOwned, crossLatch);
+            // A solo seed never crosses between the games: no teleport songs into the other one.
+            bool changed = !solo && ApplyCrossWarps(ootCrossOut, portalOpen ? OracleCrossOut(mmOracle) : 0u, portalOpen,
+                                                    mmStart, ootOwned, mmOwned, crossLatch);
             for (size_t i = 0; i < placements.size(); ++i) {
                 if (credited[i])
                     continue;
@@ -839,6 +861,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     bool fillOk = false;
     int passesUsed = 0;
     std::string lastPassError; // names the terminal cause instead of a generic "fill failed"
+    bool sawAdultInMm = false; // Cross-Games Age: some search let adult Link into Termina
 
     // Expected post-balance multiset, for the per-pass backstop below: every pool item must reach
     // `placements`. This is the assertion that catches item loss from ANY cause, not just truncation.
@@ -979,6 +1002,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
             }
 
             auto fr = reachableFixpoint(ootRemaining, mmRemaining);
+            sawAdultInMm = sawAdultInMm || fr.cross.mmAdultIn;
             auto& ootReachable = fr.ootReachable;
             auto& mmReachable = fr.mmReachable;
 
@@ -990,8 +1014,18 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                 if (reach.count(allChecks[ci].name))
                     candidates.push_back(ci);
             }
+            // Solo: each item only takes a check of its own game, so each game needs room for its part of the batch.
+            bool soloShort = false;
+            if (solo) {
+                size_t need[2] = { 0, 0 }, have[2] = { 0, 0 };
+                for (const auto& item : batch)
+                    ++need[item.game == GAME_OOT ? 0 : 1];
+                for (size_t ci : candidates)
+                    ++have[allChecks[ci].game == GAME_OOT ? 0 : 1];
+                soloShort = have[0] < need[0] || have[1] < need[1];
+            }
 
-            if (candidates.size() < batch.size()) {
+            if (candidates.size() < batch.size() || soloShort) {
                 // BEATABLE_ONLY: a single OOT advancement item with no reachable check may strand
                 // off-path — move it to the junk fast-fill and continue (already removed from
                 // toPlace/ootRemaining above). MM items and ALL_REACHABLE always retry instead.
@@ -1017,6 +1051,20 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
             }
 
             for (const auto& item : batch) {
+                if (solo) {
+                    // Same draw over the item's own game's candidates (checked above to be non-empty).
+                    std::vector<size_t> own;
+                    for (size_t s = 0; s < candidates.size(); ++s)
+                        if (allChecks[candidates[s]].game == item.game)
+                            own.push_back(s);
+                    size_t slot = own[rng.below(static_cast<uint32_t>(own.size()))];
+                    size_t pick = candidates[slot];
+                    candidates[slot] = candidates.back();
+                    candidates.pop_back();
+                    placements.push_back({ allChecks[pick], item });
+                    filledChecks.insert(checkKey(allChecks[pick]));
+                    continue;
+                }
                 size_t slot = rng.below(static_cast<uint32_t>(candidates.size()));
                 size_t pick = candidates[slot];
                 candidates[slot] = candidates.back();
@@ -1048,11 +1096,35 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                                               [](const CwItem& i) { return i.advancement; });
         const size_t mustPlace = static_cast<size_t>(dropFrom - fastFillItems.begin());
         size_t ji = 0;
-        for (size_t ci = 0; ci < allChecks.size() && ji < fastFillItems.size(); ++ci) {
-            if (filledChecks.count(checkKey(allChecks[ci])))
-                continue;
-            placements.push_back({ allChecks[ci], fastFillItems[ji++] });
-            filledChecks.insert(checkKey(allChecks[ci]));
+        if (solo) {
+            // Each game's checks take that game's items, in the same order. The balancer made items == checks per
+            // game, so this places everything; whatever is left is moved to the tail for the arithmetic check below.
+            std::vector<CwItem> perGame[2];
+            for (const auto& it : fastFillItems)
+                perGame[it.game == GAME_OOT ? 0 : 1].push_back(it);
+            size_t next[2] = { 0, 0 };
+            std::vector<CwItem> placedOrder;
+            for (size_t ci = 0; ci < allChecks.size(); ++ci) {
+                if (filledChecks.count(checkKey(allChecks[ci])))
+                    continue;
+                const int g = allChecks[ci].game == GAME_OOT ? 0 : 1;
+                if (next[g] >= perGame[g].size())
+                    continue;
+                placements.push_back({ allChecks[ci], perGame[g][next[g]] });
+                placedOrder.push_back(perGame[g][next[g]++]);
+                filledChecks.insert(checkKey(allChecks[ci]));
+            }
+            ji = placedOrder.size();
+            for (int g = 0; g < 2; ++g)
+                placedOrder.insert(placedOrder.end(), perGame[g].begin() + next[g], perGame[g].end());
+            fastFillItems = std::move(placedOrder);
+        } else {
+            for (size_t ci = 0; ci < allChecks.size() && ji < fastFillItems.size(); ++ci) {
+                if (filledChecks.count(checkKey(allChecks[ci])))
+                    continue;
+                placements.push_back({ allChecks[ci], fastFillItems[ji++] });
+                filledChecks.insert(checkKey(allChecks[ci]));
+            }
         }
         // The balancer made items == checks per game, so ANY leftover or unfilled check is an
         // arithmetic bug — nothing is discarded here. Non-junk leftovers are named first: they are the
@@ -1219,7 +1291,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
         }
         // #135: MM start frees the OOT root, so mmAdvUnreachable can't catch a portal that A0's fallback
         // paths left unopenable. Check directly: a strayed itemless player must always be able to walk back in.
-        if (mmStart && portalGated && !ootClosedFixpoint(placements, {}).portalOpen) {
+        if (mmStart && portalGated && !solo && !ootClosedFixpoint(placements, {}).portalOpen) {
             lastPassError = "MM start: the OOT->MM portal is not re-openable from an empty OOT start";
             std::cerr << "[ComboShip] CrossWorldCombinedFill: " << lastPassError << " (pass " << pass << ", "
                       << passMs() << " ms) — retrying\n";
@@ -1243,6 +1315,12 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     if (!fillOk) {
         result.error = "assumed fill failed after " + std::to_string(kMaxPasses) +
                        " passes; last cause: " + (lastPassError.empty() ? "unknown (see log)" : lastPassError);
+        // Cross-Games Age: name the usual culprit when MM wanted adult Link and logic never got him to Termina.
+        if (mmAgeNeedsAdult && !sawAdultInMm) {
+            result.error += ". Some MM items are for adult Link only, but in this seed adult Link never reaches "
+                            "Termina: he gets there by playing the Song of Soaring in Hyrule (Song of Soaring (OoT), "
+                            "Shared Song of Soaring, or starting with it) onto an owl statue";
+        }
         return result;
     }
 

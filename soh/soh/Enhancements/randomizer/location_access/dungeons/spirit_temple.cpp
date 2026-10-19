@@ -256,7 +256,7 @@ void RegionTable_Init_SpiritTemple() {
                                                          RR_SPIRIT_TEMPLE_STATUE_ROOM_CHILD, []{return logic->CanGetEnemyDrop(RE_GOLD_SKULLTULA, ED_LONGSHOT);})),
     }, {
         //Exits
-        //Adult can barely make it with just a jump, but it's a bit tight with a bad retry if it is relevent, so it would be it's own trick.
+        //Adult can barely make it with just a jump, but it's a bit tight with a bad retry if it is relevant, so it would be it's own trick.
         ENTRANCE(RR_SPIRIT_TEMPLE_STATUE_ROOM_CHILD, logic->CanUse(RG_HOVER_BOOTS) || logic->BunnyHood() || logic->CanJumpslash() || logic->CanUse(RG_HOOKSHOT)),
         ENTRANCE(RR_SPIRIT_TEMPLE_STATUE_ROOM,       true),
         ENTRANCE(RR_SPIRIT_TEMPLE_GS_LEDGE,          logic->IsAdult && (ctx->GetTrickOption(RT_SPIRIT_STATUE_JUMP) || logic->BunnyHood())),
@@ -570,7 +570,7 @@ void RegionTable_Init_SpiritTemple() {
         // Exits
         ENTRANCE(RR_SPIRIT_TEMPLE_STATUE_ROOM,      true),
         //Bunny hood jumps with a jumpslash can reach either hand and with good timing the platform as child.
-        //The latter is definitely a trick, the former may not be but I am dissalowing it because I would have to spend a week writing a new branch of spirit key logic.
+        //The latter is definitely a trick, the former may not be but I am disallowing it because I would have to spend a week writing a new branch of spirit key logic.
         //If this interaction with the hands is added, SpiritSharedLogic needs updating for it
         ENTRANCE(RR_SPIRIT_TEMPLE_INNER_WEST_HAND,  logic->CanUse(RG_HOVER_BOOTS) || (logic->BunnyHood() && logic->CanJumpslash() && logic->IsAdult)),
         ENTRANCE(RR_SPIRIT_TEMPLE_INNER_LEFT_HAND,  logic->CanUse(RG_HOVER_BOOTS) || (logic->BunnyHood() && logic->CanJumpslash() && logic->IsAdult)),
@@ -659,7 +659,7 @@ void RegionTable_Init_SpiritTemple() {
         LOCATION(RC_SPIRIT_TEMPLE_MQ_GIBDO_BOULDER,     logic->BlastOrSmash()),
     }, {
         //Exits
-        //climbing the grate through the celing allows you to go backwards here, but that's a clip not visible collision
+        //climbing the grate through the ceiling allows you to go backwards here, but that's a clip not visible collision
         ENTRANCE(RR_SPIRIT_TEMPLE_MQ_TURNTABLE, logic->Get(LOGIC_SPIRIT_MQ_GIBDOS_CLEARED)),
     });
 
@@ -724,7 +724,7 @@ void RegionTable_Init_SpiritTemple() {
         //Needs 2 keys if hover recoils are on because you can recoil past the jet and waste a key without having Statue Room Access.
         //If the clip through the grate in 3 suns room is added to logic, being able to perform that will reduce the requirement as well.
         ENTRANCE(RR_SPIRIT_TEMPLE_MQ_UNDER_LIKE_LIKE, logic->SmallKeys(SCENE_SPIRIT_TEMPLE,
-                                                                           (ctx->GetTrickOption(RT_HOVER_BOOST_SIMPLE) && !((logic->Get(LOGIC_SPIRIT_MQ_3SUNS_ENEMIES) && (logic->CanUse(RG_CLIMB) || logic->CanUse(RG_LONGSHOT))) || logic->Get(LOGIC_REVERSE_SPIRIT_ADULT))) ? 2 : 1)),
+                                                                           (ctx->GetTrickOption(RT_HOVER_BOOST_SIMPLE) && !((logic->Get(LOGIC_SPIRIT_MQ_3SUNS_ENEMIES) && (logic->HasItem(RG_CLIMB) || logic->CanUse(RG_LONGSHOT))) || logic->Get(LOGIC_REVERSE_SPIRIT_ADULT))) ? 2 : 1)),
     });
 
     areaTable[RR_SPIRIT_TEMPLE_MQ_UNDER_LIKE_LIKE] = Region("Spirit Temple MQ Under Like Like", SCENE_SPIRIT_TEMPLE, {}, {
@@ -748,7 +748,7 @@ void RegionTable_Init_SpiritTemple() {
         ENTRANCE(RR_SPIRIT_TEMPLE_MQ_UNDER_LIKE_LIKE,  logic->CanHitSwitch()),
         //This exit only governs child forwards access, adult and reverse access starts on the other side so never checks this
         ENTRANCE(RR_SPIRIT_TEMPLE_MQ_STATUE_ROOM_CHILD, logic->SmallKeys(SCENE_SPIRIT_TEMPLE,
-                                                                           (ctx->GetTrickOption(RT_HOVER_BOOST_SIMPLE) && !((logic->Get(LOGIC_SPIRIT_MQ_3SUNS_ENEMIES) && (logic->CanUse(RG_CLIMB) || logic->CanUse(RG_LONGSHOT))) || logic->Get(LOGIC_REVERSE_SPIRIT_ADULT))) ? 3 : 2)),
+                                                                           (ctx->GetTrickOption(RT_HOVER_BOOST_SIMPLE) && !((logic->Get(LOGIC_SPIRIT_MQ_3SUNS_ENEMIES) && (logic->HasItem(RG_CLIMB) || logic->CanUse(RG_LONGSHOT))) || logic->Get(LOGIC_REVERSE_SPIRIT_ADULT))) ? 3 : 2)),
     });
 
     areaTable[RR_SPIRIT_TEMPLE_MQ_STATUE_ROOM_CHILD] = Region("Spirit Temple MQ Statue Room Child", SCENE_SPIRIT_TEMPLE, {}, {
@@ -1192,7 +1192,7 @@ void RegionTable_Init_SpiritTemple() {
         // Exits
         ENTRANCE(RR_SPIRIT_TEMPLE_MQ_STATUE_ROOM,      true),
         //Bunny hood jumps with a jumpslash can reach either hand and with good timing the platform as child.
-        //The latter is definitely a trick, the former may not be but I am dissalowing it because I would have to spend a week writing a new branch of spirit key logic.
+        //The latter is definitely a trick, the former may not be but I am disallowing it because I would have to spend a week writing a new branch of spirit key logic.
         //If this interaction with the hands is added, SpiritSharedLogic needs updating for it
         ENTRANCE(RR_SPIRIT_TEMPLE_MQ_INNER_RIGHT_HAND, logic->CanUse(RG_HOVER_BOOTS)),
         ENTRANCE(RR_SPIRIT_TEMPLE_MQ_INNER_LEFT_HAND,  logic->CanUse(RG_HOVER_BOOTS)),

@@ -43,10 +43,9 @@ void Context::DestroyInstance() {
 
 Context::~Context() {
     SPDLOG_TRACE("destruct context");
-    // ComboShip: null-guarded — a CreateUninitializedInstance() Context that never got Init*()
-    // has no Window/Config, and destroying one segfaulted here.
-    if (GetWindow() != nullptr) {
-        GetWindow()->SaveWindowToConfig();
+    // A context is built in stages, so an early exit can destroy one before every Init* has run.
+    if (mWindow != nullptr) {
+        mWindow->SaveWindowToConfig();
     }
     // Explicitly destructing everything so that logging is done last.
     mAudio = nullptr;
@@ -64,11 +63,11 @@ Context::~Context() {
     mScriptLoader = nullptr;
     mKeystore = nullptr;
 #endif
-    if (GetConfig() != nullptr) { // ComboShip: see the Window guard above.
-        GetConfig()->Save();
+    if (mConfig != nullptr) {
+        mConfig->Save();
     }
     mConfig = nullptr;
-    if (mLogger != nullptr) { // ComboShip: a headless CreateUninitializedInstance() never ran InitLogging.
+    if (mLogger != nullptr) {
         mLogger->flush();
     }
 #ifdef COMBO_BUILD

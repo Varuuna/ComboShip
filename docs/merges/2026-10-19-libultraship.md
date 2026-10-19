@@ -26,3 +26,7 @@ cmake/dependencies/common.cmake
 src/fast/interpreter.cpp
 src/ship/Context.cpp
 ```
+
+## Post-merge changes
+
+- `src/ship/Context.cpp`: upstream #1232 adds the same `~Context` null guards (Window, Config, Logger) we carried. Took upstream's; our `COMBO_BUILD` spdlog shutdown block stays (docs/deviations/boot-shutdown.md).

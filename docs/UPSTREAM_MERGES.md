@@ -307,3 +307,11 @@ Recent vendored signature changes (full rationale in [`deviations/rando.md`](dev
   `ActorBehavior/EnBal.cpp`). Why: opt-in per call site, not a check-type gate — `GetItemName` is one
   choke point for ~25 callers including hint feeders that pass a hinted check's id, so a blanket rule
   would leak a live tier into persisted hint text.
+
+### Clock Shuffle guards from 2Ship-AP (2026-10-22)
+
+`mm/2s2h/Rando/MiscBehavior/ClockShuffle.cpp` — `CheckSkippedTime` and `EnforceOwnedTime` return early
+when no half-day is owned, and `isCycleStart` requires `gPlayState == NULL`. Copied from 2Ship-AP
+(`9f5f1da7`, AP commit `532f41f1`); not in upstream develop yet. Why: without them a save that owns no
+half-day (e.g. an AP save before its start-time item arrives) gets forced time jumps, and a mid-session
+day 1 06:00 was mistaken for a cycle start. No COMBO_BUILD guard; drop it if upstream absorbs the branch.

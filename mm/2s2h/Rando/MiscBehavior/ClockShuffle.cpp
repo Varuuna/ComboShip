@@ -185,6 +185,11 @@ static void ForceSceneReload() {
 }
 
 static bool CheckSkippedTime(u8* day, u16* time) {
+    // ComboShip: from 2Ship-AP; with no half-day owned there is nothing to enforce.
+    if (Rando::ClockItems::GetAllOwnedHalfDaysMask() == 0) {
+        return false;
+    }
+
     if (gPlayState->envCtx.sceneTimeSpeed == 0 || Player_InCsMode(gPlayState) || *day >= 4) {
         return false;
     }
@@ -377,8 +382,15 @@ static void ProcessClockShuffleMessage(u16* textId, bool* loadFromMessageTable, 
 // Called at OnFileLoad and OnPlayDestroy. Validates time at cycle start or when a day telop
 // transition is pending (respawnFlag -4). Jumps to first owned half-day if needed.
 static void EnforceOwnedTime() {
+    // ComboShip: from 2Ship-AP; with no half-day owned there is nowhere to jump to.
+    if (Rando::ClockItems::GetAllOwnedHalfDaysMask() == 0) {
+        return;
+    }
+
+    // ComboShip: from 2Ship-AP; a cycle only starts outside gameplay, not mid-session at day 1 06:00.
     bool isCycleStart =
-        (gSaveContext.save.day == 0 || (gSaveContext.save.day == 1 && gSaveContext.save.time == CLOCK_TIME(6, 0)));
+        (gPlayState == NULL) &&
+        (gSaveContext.save.day == 0 || ((gSaveContext.save.day == 1) && (gSaveContext.save.time == CLOCK_TIME(6, 0))));
     bool isPendingDayTelop = (CHECK_EVENTINF(EVENTINF_TRIGGER_DAYTELOP) && gSaveContext.respawnFlag == -4);
 
     if (!isCycleStart && !isPendingDayTelop) {

@@ -74,10 +74,11 @@
             "song_of_soaring_oot": {
                 "name": "Song of Soaring (soar to Termina)",
                 "description": [
-                    "Adds Majora's Mask's Song of Soaring to the item pool. Playing it in Hyrule opens Termina's owl-statue ",
-                    "map (statues already activated in the MM save) and switches games to the chosen statue.\n",
+                    "Adds Majora's Mask's Song of Soaring to the item pool. Play it in Hyrule to pick an owl statue ",
+                    "and warp to it in Termina.\n",
                     "\n",
-                    "Refused wherever OOT's own warp songs are."
+                    "Only owl statues you've activated in Majora's Mask can be picked. It can be played wherever ",
+                    "Ocarina of Time's warp songs can."
                 ]
             },
             "starting_age": {

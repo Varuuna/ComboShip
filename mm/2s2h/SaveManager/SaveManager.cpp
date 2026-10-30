@@ -233,6 +233,15 @@ void SaveManager_InitNewSaveForSlot(int mmFileNum, const unsigned char* ootName8
     // this function PERSISTS, so leaving it VANILLA opened a window where the container briefly held a
     // vanilla MM save, which silently disables every IS_RANDO hook. Combo has no vanilla mode.
     gSaveContext.save.shipSaveInfo.saveType = SAVETYPE_RANDO;
+    // ComboShip: Sram_InitNewSave uses sSaveDefaultPlayerData which has empty newf. Vanilla sets
+    // "ZELDA3" in file select (Sram_OpenSave), but combo bypasses that. Without valid newf,
+    // IS_VALID_FILE fails and owl saves (pause menu, owl statues) get discarded on write.
+    gSaveContext.save.saveInfo.playerData.newf[0] = 'Z';
+    gSaveContext.save.saveInfo.playerData.newf[1] = 'E';
+    gSaveContext.save.saveInfo.playerData.newf[2] = 'L';
+    gSaveContext.save.saveInfo.playerData.newf[3] = 'D';
+    gSaveContext.save.saveInfo.playerData.newf[4] = 'A';
+    gSaveContext.save.saveInfo.playerData.newf[5] = '3';
 #endif
     nlohmann::json j;
     // Fresh json with no owlSave, and Combo_WriteGameSave replaces the whole mm section — that is what

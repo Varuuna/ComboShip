@@ -2043,6 +2043,69 @@ void StaticData::HintTable_Init_Item() {
                                                   CustomMessage("something melodic", /*german*/"etwas Melodisches", /*french*/"quelque chose de mélodieux")
                                                   }, {
                                                   CustomMessage("a way out of Hyrule", /*german*/"ein Weg aus Hyrule", /*french*/"un chemin hors d'Hyrule")});
+    // ComboShip (cross-game items): MM masks in OOT
+    hintTextTable[RHT_COMBO_MASK_BLAST] = HintText(CustomMessage("the Blast Mask", /*german*/"die Explosionsmaske", /*french*/"le Masque d'Explosion"),
+                                                  {
+                                                  CustomMessage("a mask", /*german*/"eine Maske", /*french*/"un masque")
+                                                  }, {
+                                                  CustomMessage("an explosive face", /*german*/"die Explosionsmaske", /*french*/"le Masque d'Explosion")});
+    hintTextTable[RHT_COMBO_MASK_STONE] = HintText(CustomMessage("the Stone Mask", /*german*/"die Steinmaske", /*french*/"le Masque de Pierre"),
+                                                  {
+                                                  CustomMessage("a mask", /*german*/"eine Maske", /*french*/"un masque")
+                                                  }, {
+                                                  CustomMessage("an unnoticed face", /*german*/"die Steinmaske", /*french*/"le Masque de Pierre")});
+    hintTextTable[RHT_COMBO_MASK_KAMARO] = HintText(CustomMessage("Kamaro's Mask", /*german*/"Kamaros Maske", /*french*/"le Masque de Kamaro"),
+                                                  {
+                                                  CustomMessage("a mask", /*german*/"eine Maske", /*french*/"un masque")
+                                                  }, {
+                                                  CustomMessage("a dancing face", /*german*/"Kamaros Maske", /*french*/"le Masque de Kamaro")});
+    // ComboShip (cross-game items): MM songs in OOT
+    hintTextTable[RHT_COMBO_SONG_ELEGY] = HintText(CustomMessage("the Elegy of Emptiness", /*german*/"Hymne der Leere", /*french*/"Élégie du Vide"),
+                                                  {
+                                                  CustomMessage("something melodic", /*german*/"etwas Melodisches", /*french*/"quelque chose de mélodieux")
+                                                  }, {
+                                                  CustomMessage("a song of shells", /*german*/"Hymne der Leere", /*french*/"Élégie du Vide")});
+    hintTextTable[RHT_COMBO_SONG_HEALING] = HintText(CustomMessage("the Song of Healing", /*german*/"Lied der Befreiung", /*french*/"Chant de Soins"),
+                                                  {
+                                                  CustomMessage("something melodic", /*german*/"etwas Melodisches", /*french*/"quelque chose de mélodieux")
+                                                  }, {
+                                                  CustomMessage("a soothing melody", /*german*/"Lied der Befreiung", /*french*/"Chant de Soins")});
+    hintTextTable[RHT_COMBO_SONG_SONATA] = HintText(CustomMessage("the Sonata of Awakening", /*german*/"Sonate des Erwachens", /*french*/"Sonate de l'Éveil"),
+                                                  {
+                                                  CustomMessage("something melodic", /*german*/"etwas Melodisches", /*french*/"quelque chose de mélodieux")
+                                                  }, {
+                                                  CustomMessage("a song that wakes", /*german*/"Sonate des Erwachens", /*french*/"Sonate de l'Éveil")});
+    hintTextTable[RHT_COMBO_SONG_GORON] = HintText(CustomMessage("the Goron Lullaby", /*german*/"Goronisches Schlaflied", /*french*/"Berceuse des Gorons"),
+                                                  {
+                                                  CustomMessage("something melodic", /*german*/"etwas Melodisches", /*french*/"quelque chose de mélodieux")
+                                                  }, {
+                                                  CustomMessage("a sleepy tune", /*german*/"Goronisches Schlaflied", /*french*/"Berceuse des Gorons")});
+    hintTextTable[RHT_COMBO_SONG_BOSSA] = HintText(CustomMessage("the New Wave Bossa Nova", /*german*/"Bossa Nova des Meeres", /*french*/"Bossa-nova des Flots"),
+                                                  {
+                                                  CustomMessage("something melodic", /*german*/"etwas Melodisches", /*french*/"quelque chose de mélodieux")
+                                                  }, {
+                                                  CustomMessage("a song of the sea", /*german*/"Bossa Nova des Meeres", /*french*/"Bossa-nova des Flots")});
+    hintTextTable[RHT_COMBO_SONG_OATH] = HintText(CustomMessage("the Oath to Order", /*german*/"Hymne des Appells", /*french*/"Hymne de l'Appel"),
+                                                  {
+                                                  CustomMessage("something melodic", /*german*/"etwas Melodisches", /*french*/"quelque chose de mélodieux")
+                                                  }, {
+                                                  CustomMessage("a song to the giants", /*german*/"Hymne des Appells", /*french*/"Hymne de l'Appel")});
+    // ComboShip (cross-game items): progressive child sword
+    hintTextTable[RHT_COMBO_PROGRESSIVE_CHILD_SWORD] = HintText(CustomMessage("a Progressive Kokiri Sword", /*german*/"ein Kokiri-Schwert (Upgrade)", /*french*/"une Épée Kokiri (prog.)"),
+                                                  {
+                                                  CustomMessage("a weapon", /*german*/"eine Waffe", /*french*/"une arme")
+                                                  }, {
+                                                  CustomMessage("a sharper blade", /*german*/"eine schärfere Klinge", /*french*/"une lame plus tranchante")});
+    hintTextTable[RHT_COMBO_RAZOR_SWORD] = HintText(CustomMessage("the Razor Sword", /*german*/"das Schmiedeschwert", /*french*/"l'Épée Rasoir"),
+                                                  {
+                                                  CustomMessage("a weapon", /*german*/"eine Waffe", /*french*/"une arme")
+                                                  }, {
+                                                  CustomMessage("a sharper blade", /*german*/"eine schärfere Klinge", /*french*/"une lame plus tranchante")});
+    hintTextTable[RHT_COMBO_GILDED_SWORD] = HintText(CustomMessage("the Gilded Sword", /*german*/"das Goldene Schwert", /*french*/"l'Épée Dorée"),
+                                                  {
+                                                  CustomMessage("a weapon", /*german*/"eine Waffe", /*french*/"une arme")
+                                                  }, {
+                                                  CustomMessage("a golden blade", /*german*/"eine goldene Klinge", /*french*/"une lame dorée")});
 #endif
 
     hintTextTable[RHT_OCARINA_A_BUTTON] = HintText(CustomMessage("an Ocarina A Button", /*german*/"die A-Taste der Okarina", /*french*/"la Touche A de l'Ocarina"),

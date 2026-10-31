@@ -392,6 +392,20 @@ typedef struct RandoSaveInfo {
     u16 sariaPriorityItems[16];
 #ifdef COMBO_BUILD
     u8 pendingTrapCount; // ComboShip: cross-world traps granted while MM was dormant; drained on activation
+    u8 comboSlingshotSeeds; // ComboShip (cross-game items): Deku Seeds for the OOT Slingshot in MM
+    // ComboShip (cross-game items): Farore's Wind point (CrossSpells.cpp). 0 none, 1 set in MM, 2 set in OOT
+    // (Cross-Games Farore's Wind: casting here warps there).
+    u8 comboFwState;
+    RespawnData comboFw;
+    // ComboShip (Cross-Games Age, AdultLink.cpp): Link's age in Termina (0 child, 1 adult), and each age's C buttons and
+    // worn OOT boots/tunic (comboAgeLoadoutSet bit n: comboAgeLoadout[n] holds one).
+    u8 comboLinkAdult;
+    u8 comboAgeLoadoutSet;
+    struct {
+        u8 buttonItems[4];  // [EQUIP_SLOT_C_LEFT..C_RIGHT] used; [0] (B) unused
+        u8 cButtonSlots[4]; // likewise
+        u8 wear;            // bit 0 Iron Boots, 1 Hover Boots, 2 Goron Tunic, 3 Zora Tunic
+    } comboAgeLoadout[2];
 #endif
 } RandoSaveInfo;
 

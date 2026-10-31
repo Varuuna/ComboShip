@@ -27,6 +27,17 @@ s32 D_808144F1C = 0;
 
 FileSelectState* gFileSelectState = NULL;
 
+#ifdef COMBO_BUILD
+// ComboShip (#27, Majora's Mask title screen + file select): MM's file select hands file actions to OOT's
+// (BenPort.cpp).
+int Combo_MM_FrontEndActive(void);
+int Combo_MM_FrontEndOpenFile(int slot);
+int Combo_MM_FrontEndFileSelectFrame(void);
+int Combo_MM_FileSelectIsUp(void) {
+    return gFileSelectState != NULL;
+}
+#endif
+
 // 2S2H [Enhancement] To handle File 3 support and toggle, we undef the file num max and replace it for a CVar check
 #undef FILE_NUM_MAX
 #define FILE_NUM_MAX (CVarGetInteger("gEnhancements.Saving.FileSlot3", true) ? 3 : 2)
@@ -2237,6 +2248,14 @@ void FileSelect_LoadGame(GameState* thisx) {
     FileSelectState* this = (FileSelectState*)thisx;
     u16 i;
 
+#ifdef COMBO_BUILD
+    // ComboShip (#27): with MM's front end, OOT's file select loads the file (both saves, the slot's game); MM's loop
+    // ends at the next frame start.
+    if (Combo_MM_FrontEndOpenFile(this->buttonIndex)) {
+        return;
+    }
+#endif
+
     gSaveContext.fileNum = this->buttonIndex;
     Sram_OpenSave(this, &this->sramCtx);
 
@@ -2392,6 +2411,14 @@ void FileSelect_Main(GameState* thisx) {
     Input* input = CONTROLLER1(&this->state);
     s32 texIndex;
     s32 pad;
+
+#ifdef COMBO_BUILD
+    // ComboShip (#27): with MM's front end, drive a combo seed's generation from here; while it runs the file select
+    // ignores input (no file is created, copied or erased under it).
+    if (Combo_MM_FrontEndFileSelectFrame()) {
+        memset(input, 0, sizeof(*input));
+    }
+#endif
 
     func_8012CF0C(this->state.gfxCtx, 0, 1, 0, 0, 0);
 

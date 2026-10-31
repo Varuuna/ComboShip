@@ -6,6 +6,9 @@
 
 #include "z_en_guard_nuts.h"
 #include "overlays/effects/ovl_Effect_Ss_Hahen/z_eff_ss_hahen.h"
+#ifdef COMBO_BUILD
+#include "2s2h/Rando/MiscBehavior/CrossGear.h" // ComboShip: cross-game items (OOT masks in MM)
+#endif
 
 #define FLAGS \
     (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_FRIENDLY | ACTOR_FLAG_FREEZE_EXCEPTION | ACTOR_FLAG_MINIMAP_ICON_ENABLED)
@@ -163,7 +166,12 @@ void EnGuardNuts_Wait(EnGuardNuts* this, PlayState* play) {
     if (yawDiff > 0x6000) {
         D_80ABBE20 = 2;
     }
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): the gate guard greets a Skull-Masked Link like a Deku (OoTMM).
+    if ((player->transformation == PLAYER_FORM_DEKU) || Combo_Gear_IsWearingMask(play, COMBO_MASK_SKULL)) {
+#else
     if (player->transformation == PLAYER_FORM_DEKU) {
+#endif
         // this is the palace of...
         this->guardTextIndex = 0;
         if (CHECK_WEEKEVENTREG(WEEKEVENTREG_17_04) && (!this->hasCompletedConversation)) {

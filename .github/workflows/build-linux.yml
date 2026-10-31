@@ -85,6 +85,41 @@ jobs:
         working-directory: build-cmake/combo
         run: ./comborando --seed ci-linux-smoke --count 1
 
+      # ComboShip (cross-game items): every cross-game item option on, plus all Shared Items, over a few
+      # seeds, so the new pool entries, shared families and cross-game placements go through the real fill.
+      - name: Smoke-test seed generation with cross-game items (comborando)
+        working-directory: build-cmake/combo
+        run: |
+          python3 - <<'PY'
+          import json, os
+          path = "comboship.json"
+          cfg = json.load(open(path)) if os.path.exists(path) else {}
+          cfg = cfg if isinstance(cfg, dict) else {}  # the default run leaves a literal `null` here
+          cvars = cfg.setdefault("CVars", {})
+          oot = cvars.setdefault("gRandoSettings", {})
+          for key in ["ComboMaskBlast", "ComboMaskStone", "ComboMaskKamaro", "ComboMmSongs",
+                      "ComboSongOfSoaring", "ComboChildSwords", "ShuffleMasks",
+                      "ComboAgelessSwords", "ComboAgelessShields", "ComboAgelessTunics", "ComboAgelessBoots",
+                      "ComboAgelessSticks", "ComboAgelessBoomerang", "ComboAgelessHammer", "ComboAgelessHookshot",
+                      "ComboAgelessSlingshot", "ComboAgelessBow", "ComboAgelessChildTrade", "ComboAgelessStrength"]:
+              oot[key] = 1
+          mm = cvars.setdefault("gRando", {}).setdefault("Options", {})
+          for key in ["RO_CROSS_BOOTS_IRON", "RO_CROSS_BOOTS_HOVER", "RO_CROSS_TUNIC_GORON",
+                      "RO_CROSS_TUNIC_ZORA", "RO_CROSS_SCALES", "RO_CROSS_STRENGTH", "RO_CROSS_MASK_GERUDO",
+                      "RO_CROSS_MASK_SKULL", "RO_CROSS_MASK_SPOOKY", "RO_CROSS_SONG_ZELDA",
+                      "RO_CROSS_SPELL_FIRE", "RO_CROSS_SPELL_WIND", "RO_CROSS_SPELL_LOVE",
+                      "RO_CROSS_HAMMER", "RO_CROSS_BOOMERANG", "RO_CROSS_SLINGSHOT", "RO_CROSS_SHIELD_DEKU",
+                      "RO_CROSS_STONE_AGONY", "RO_CROSS_OCARINA_FAIRY", "RO_CROSS_HOOKSHOT_SHORT",
+                      "RO_CROSS_STICKS_NUTS", "RO_CROSS_GAME_FW", "RO_CROSS_GAME_AGE",
+                      "RO_SHUFFLE_SONG_SUN", "RO_SHUFFLE_SONG_SARIA", "RO_SHUFFLE_SONG_WARP_SONGS"]:
+              mm[key] = 1
+          json.dump(cfg, open(path, "w"), indent=2)
+          PY
+          set -o pipefail
+          ./comborando --seed ci-linux-cross --count 3 --shared-items all 2>&1 | tee cross-smoke.log
+          # Surface which shared families went effective (and any that didn't) in the job summary.
+          grep -E "\[ComboShip\] Shared|error|ERROR" cross-smoke.log | head -80 >> "$GITHUB_STEP_SUMMARY" || true
+
       # Stages the runnable tree (binaries + assets + port o2rs; game archives oot.o2r / mm.o2r
       # are ROM-extracted by the user and never built or shipped here) and packages it as a
       # self-contained AppImage — linuxdeploy bundles the system .so deps and combo/linux/AppRun

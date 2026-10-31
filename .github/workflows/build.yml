@@ -56,29 +56,85 @@ jobs:
       # Order matters: libultraship -> soh -> 2ship (2ship builds ZAPD/OTRExporter; soh builds Torch).
       # comboui + ComboShip pull the rest of the runtime in as dependencies.
       - name: Build libultraship
-        run: cmake --build build/x64 --target libultraship --config Release
+        shell: pwsh
+        # Re-emit compiler/linker errors as annotations (readable via the checks API without the raw log).
+        run: |
+          cmake --build build/x64 --target libultraship --config Release 2>&1 | Tee-Object -FilePath build-libultraship.log
+          if ($LASTEXITCODE -ne 0) {
+            Select-String -Path build-libultraship.log -Pattern ': (fatal )?error |error LNK' | Select-Object -First 50 | ForEach-Object { Write-Output "::error::$($_.Line.Trim())" }
+            exit 1
+          }
       - name: Build soh
-        run: cmake --build build/x64 --target soh --config Release
+        shell: pwsh
+        # Re-emit compiler/linker errors as annotations (readable via the checks API without the raw log).
+        run: |
+          cmake --build build/x64 --target soh --config Release 2>&1 | Tee-Object -FilePath build-soh.log
+          if ($LASTEXITCODE -ne 0) {
+            Select-String -Path build-soh.log -Pattern ': (fatal )?error |error LNK' | Select-Object -First 50 | ForEach-Object { Write-Output "::error::$($_.Line.Trim())" }
+            exit 1
+          }
       - name: Build 2ship
-        run: cmake --build build/x64 --target 2ship --config Release
+        shell: pwsh
+        # Re-emit compiler/linker errors as annotations (readable via the checks API without the raw log).
+        run: |
+          cmake --build build/x64 --target 2ship --config Release 2>&1 | Tee-Object -FilePath build-2ship.log
+          if ($LASTEXITCODE -ne 0) {
+            Select-String -Path build-2ship.log -Pattern ': (fatal )?error |error LNK' | Select-Object -First 50 | ForEach-Object { Write-Output "::error::$($_.Line.Trim())" }
+            exit 1
+          }
       # Headless seed validator (pulls libultraship/soh/2ship as deps, already built above). Uploaded
       # below so validate-seed.yml can download it from develop instead of doing its own build.
       # Nothing else depends on it, so it is skipped unless a caller asks for the validator.
       - name: Build comborando
         if: inputs.validator
-        run: cmake --build build/x64 --target comborando --config Release
+        shell: pwsh
+        # Re-emit compiler/linker errors as annotations (readable via the checks API without the raw log).
+        run: |
+          cmake --build build/x64 --target comborando --config Release 2>&1 | Tee-Object -FilePath build-comborando.log
+          if ($LASTEXITCODE -ne 0) {
+            Select-String -Path build-comborando.log -Pattern ': (fatal )?error |error LNK' | Select-Object -First 50 | ForEach-Object { Write-Output "::error::$($_.Line.Trim())" }
+            exit 1
+          }
       - name: Build comboui
-        run: cmake --build build/x64 --target comboui --config Release
+        shell: pwsh
+        # Re-emit compiler/linker errors as annotations (readable via the checks API without the raw log).
+        run: |
+          cmake --build build/x64 --target comboui --config Release 2>&1 | Tee-Object -FilePath build-comboui.log
+          if ($LASTEXITCODE -ne 0) {
+            Select-String -Path build-comboui.log -Pattern ': (fatal )?error |error LNK' | Select-Object -First 50 | ForEach-Object { Write-Output "::error::$($_.Line.Trim())" }
+            exit 1
+          }
       - name: Build ComboShip
-        run: cmake --build build/x64 --target ComboShip --config Release
+        shell: pwsh
+        # Re-emit compiler/linker errors as annotations (readable via the checks API without the raw log).
+        run: |
+          cmake --build build/x64 --target ComboShip --config Release 2>&1 | Tee-Object -FilePath build-ComboShip.log
+          if ($LASTEXITCODE -ne 0) {
+            Select-String -Path build-ComboShip.log -Pattern ': (fatal )?error |error LNK' | Select-Object -First 50 | ForEach-Object { Write-Output "::error::$($_.Line.Trim())" }
+            exit 1
+          }
 
       # Port asset archives (--norom). GenerateSohOtr builds Torch's soh-o2r-packer and
       # Generate2ShipOtr builds ZAPD on demand. They must run before cpack — the ship/2s2h ZIP components install
       # ${CMAKE_BINARY_DIR}/soh/soh.o2r and .../mm/2ship.o2r.
       - name: Generate soh.o2r
-        run: cmake --build build/x64 --target GenerateSohOtr --config Release
+        shell: pwsh
+        # Re-emit compiler/linker errors as annotations (readable via the checks API without the raw log).
+        run: |
+          cmake --build build/x64 --target GenerateSohOtr --config Release 2>&1 | Tee-Object -FilePath build-GenerateSohOtr.log
+          if ($LASTEXITCODE -ne 0) {
+            Select-String -Path build-GenerateSohOtr.log -Pattern ': (fatal )?error |error LNK' | Select-Object -First 50 | ForEach-Object { Write-Output "::error::$($_.Line.Trim())" }
+            exit 1
+          }
       - name: Generate 2ship.o2r
-        run: cmake --build build/x64 --target Generate2ShipOtr --config Release
+        shell: pwsh
+        # Re-emit compiler/linker errors as annotations (readable via the checks API without the raw log).
+        run: |
+          cmake --build build/x64 --target Generate2ShipOtr --config Release 2>&1 | Tee-Object -FilePath build-Generate2ShipOtr.log
+          if ($LASTEXITCODE -ne 0) {
+            Select-String -Path build-Generate2ShipOtr.log -Pattern ': (fatal )?error |error LNK' | Select-Object -First 50 | ForEach-Object { Write-Output "::error::$($_.Line.Trim())" }
+            exit 1
+          }
 
       # cpack -G ZIP merges the combo/ship/2s2h components into one archive under _packages/.
       # Call cpack directly with -C Release so the multi-config generator can't package Debug by

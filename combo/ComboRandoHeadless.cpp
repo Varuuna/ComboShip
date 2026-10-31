@@ -203,8 +203,8 @@ static int Run(int argc, char** argv) {
     auto SOH_SetComboStartingGame = Sym<void (*)(int)>(soh, "SOH_SetComboStartingGame");
     auto SOH_ReadComboStartingGameCVar = Sym<int (*)(void)>(soh, "SOH_ReadComboStartingGameCVar");
     // Shared Items: also pushed before every dump (shapes OOT's wallet force + MM's trimmed pool).
-    auto SOH_SetComboSharedItems = Sym<void (*)(uint32_t)>(soh, "SOH_SetComboSharedItems");
-    auto SOH_ReadComboSharedCVars = Sym<uint32_t (*)(void)>(soh, "SOH_ReadComboSharedCVars");
+    auto SOH_SetComboSharedItems = Sym<void (*)(ComboRando::SharedMask)>(soh, "SOH_SetComboSharedItems");
+    auto SOH_ReadComboSharedCVars = Sym<ComboRando::SharedMask (*)(void)>(soh, "SOH_ReadComboSharedCVars");
 
     ComboRando::OracleFns oot{ Sym<FnOracleVoid>(soh, "Combo_SOH_Rando_Reset"),
                                Sym<FnOracleSetItems>(soh, "Combo_SOH_Rando_SetOwnedItems"),
@@ -265,7 +265,7 @@ static int Run(int argc, char** argv) {
         // #135: the seed's starting game. Absent on old spoilers, which all started in OOT.
         const bool mmStart = spoiler.value("startingGame", std::string("OOT")) == "MM";
         // Shared Items: absent on old spoilers -> mask 0 -> feature off.
-        const uint32_t sharedMask =
+        const ComboRando::SharedMask sharedMask =
             ComboRando::SharedMaskFromKeys(spoiler.value("sharedItems", nlohmann::json::array()));
 
         auto ootEnabledTricks =
@@ -400,7 +400,7 @@ static int Run(int argc, char** argv) {
                     // Both games' wallet normalizes to "Progressive Wallet"; attribute to the home game
                     // unless shared, where a pickup raises both (see Combo_SharedReconcileNow).
                     if (item == "Progressive Wallet") {
-                        if (sharedMask & (1u << ComboRando::SF_WALLET)) {
+                        if (sharedMask & ComboRando::SharedBit(ComboRando::SF_WALLET)) {
                             ++ow;
                             ++mw;
                         } else {
@@ -539,7 +539,7 @@ static int Run(int argc, char** argv) {
                          : SOH_ReadComboStartingGameCVar ? SOH_ReadComboStartingGameCVar()
                                                          : 0;
     // Shared Items: --shared-items wins ("all"/"none"/comma-separated keys); else the menu CVars.
-    uint32_t sharedMask = 0;
+    ComboRando::SharedMask sharedMask = 0;
     if (sharedItemsArg == "all") {
         sharedMask = ComboRando::SharedMaskAll();
     } else if (sharedItemsArg == "none" || sharedItemsArg.empty()) {
@@ -688,7 +688,7 @@ static int Run(int argc, char** argv) {
                     // Shared Items: the EFFECTIVE mask (families actually trimmed this fill), not the
                     // requested one — a family with no OOT copies was left alone (see CrossWorldRando.h).
                     nlohmann::json sharedItemsJson = fillSpoiler.value("sharedItems", nlohmann::json::array());
-                    const uint32_t effectiveSharedMask = ComboRando::SharedMaskFromKeys(sharedItemsJson);
+                    const ComboRando::SharedMask effectiveSharedMask = ComboRando::SharedMaskFromKeys(sharedItemsJson);
                     consolidated["sharedItems"] = sharedItemsJson;
                     if (fillSpoiler.contains("sharedStartingMm"))
                         consolidated["sharedStartingMm"] = fillSpoiler["sharedStartingMm"];

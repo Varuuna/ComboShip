@@ -253,7 +253,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                                                  ComboRando::ComboGenProgress* progress = nullptr,
                                                  const std::string& forcedOotJson = "",
                                                  OotAccess ootAccess = OotAccess::ALL_REACHABLE, CwGoal goal = {},
-                                                 GameId startingGame = GAME_OOT, uint32_t sharedMask = 0) {
+                                                 GameId startingGame = GAME_OOT, SharedMask sharedMask = 0) {
     CombinedFillResult result;
     result.success = false;
 
@@ -283,8 +283,12 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     // unbalanceable pool ("no discardable junk") instead of the rebuild it actually needs.
     std::string missingCategory;
 
+    bool mmAgeNeedsAdult = false; // Cross-Games Age: MM has adult-only (or Random) items (MM dump "ageNeedsAdult")
     auto parsePool = [&](Game game, const std::string& dumpJson) {
         auto d = nlohmann::json::parse(dumpJson);
+        if (game == GAME_MM) {
+            mmAgeNeedsAdult = d.value("ageNeedsAdult", false);
+        }
 
         // Fillable checks (name only; the pool below feeds the items).
         for (auto& c : d.value("checks", nlohmann::json::array())) {
@@ -440,7 +444,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
 
     // Shared Items (OoTMM-style): trim MM's copies of each effective family; the fixpoint below
     // mirrors the OOT-owned count back onto MM's oracle. See deviations/rando.md.
-    uint32_t effectiveSharedMask = 0;
+    SharedMask effectiveSharedMask = 0;
     // Shared items OOT starts with (MM names); MM logic starts with them too.
     std::vector<std::string> sharedStartingMm;
     if (sharedMask != 0) {
@@ -454,7 +458,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                     ootStarting.push_back(n.get<std::string>());
         } catch (...) {}
         for (int i = 0; i < SF_COUNT; ++i) {
-            if (!(sharedMask & (1u << i)))
+            if (!(sharedMask & SharedBit(i)))
                 continue;
             const auto& def = SharedFamilyByIndex(i);
             if (def.isMask && !maskQuestShuffle) {
@@ -462,16 +466,28 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                 continue;
             }
             size_t ootCopies = 0;
+            size_t ootMainCopies = 0; // the main ootName only (a family with an alt name needs one)
             for (const auto& it : advItems)
-                if (it.game == GAME_OOT && it.name == def.ootName)
+                if (it.game == GAME_OOT && SharedFamilyOotNameMatches(def, it.name)) {
                     ++ootCopies;
+                    ootMainCopies += (it.name == def.ootName) ? 1 : 0;
+                }
             for (const auto& p : lockedPlacements)
-                if (p.item.game == GAME_OOT && p.item.name == def.ootName)
+                if (p.item.game == GAME_OOT && SharedFamilyOotNameMatches(def, p.item.name)) {
                     ++ootCopies;
-            const size_t ootStartingCopies =
+                    ootMainCopies += (p.item.name == def.ootName) ? 1 : 0;
+                }
+            const size_t ootStartingCopies = SharedFamilyOotCount(def, ootStarting);
+            ootMainCopies +=
                 static_cast<size_t>(std::count(ootStarting.begin(), ootStarting.end(), std::string(def.ootName)));
             if (ootCopies == 0 && ootStartingCopies == 0) {
                 std::cout << "[ComboShip] Shared " << def.key << ": OOT pool has none, left MM copies alone\n";
+                continue;
+            }
+            if (def.ootAltName != nullptr && ootMainCopies == 0) {
+                // e.g. Shared Kokiri Sword without OOT's Extra Child Swords: OOT has one tier, MM keeps its own.
+                std::cout << "[ComboShip] Shared " << def.key << ": OOT pool has no '" << def.ootName
+                          << "', left MM copies alone\n";
                 continue;
             }
             if (ootCopies == 0)
@@ -482,7 +498,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                     sharedStartingMm.push_back(def.mmName);
             if (!def.mmHasItem) {
                 // MM has no pool copy of this item — nothing to trim, just mark the family effective.
-                effectiveSharedMask |= (1u << i);
+                effectiveSharedMask |= SharedBit(i);
                 std::cout << "[ComboShip] Shared " << def.key << ": MM has no item, not trimmed\n";
                 continue;
             }
@@ -504,14 +520,14 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                           << "', not shared\n";
                 continue;
             }
-            effectiveSharedMask |= (1u << i);
+            effectiveSharedMask |= SharedBit(i);
             std::cout << "[ComboShip] Shared " << def.key << ": trimmed " << removed << " MM '" << def.mmName
                       << "' (balancer will pad with junk)\n";
         }
         // Keep only the families that ended up effective (a bail-out above may follow the push).
         std::erase_if(sharedStartingMm, [&](const std::string& mmName) {
             for (int i = 0; i < SF_COUNT; ++i)
-                if ((effectiveSharedMask & (1u << i)) && mmName == SharedFamilyByIndex(i).mmName)
+                if ((effectiveSharedMask & SharedBit(i)) && mmName == SharedFamilyByIndex(i).mmName)
                     return false;
             return true;
         });
@@ -794,13 +810,12 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
                 portalOpen = ootOracle.GetPortalOpen() != 0;
             if (effectiveSharedMask != 0) {
                 for (int i = 0; i < SF_COUNT; ++i) {
-                    if (!(effectiveSharedMask & (1u << i)))
+                    if (!(effectiveSharedMask & SharedBit(i)))
                         continue;
                     const auto& def = SharedFamilyByIndex(i);
                     if (!def.mmHasItem)
                         continue; // nothing to push; MM logic doesn't need it
-                    size_t k =
-                        static_cast<size_t>(std::count(ootOwned.begin(), ootOwned.end(), std::string(def.ootName)));
+                    size_t k = SharedFamilyOotCount(def, ootOwned);
                     size_t target = std::min<size_t>(k, static_cast<size_t>(def.mmTierCap));
                     for (size_t n = sharedGiven[i]; n < target; ++n)
                         mmOwned.push_back(def.mmName);
@@ -839,6 +854,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     bool fillOk = false;
     int passesUsed = 0;
     std::string lastPassError; // names the terminal cause instead of a generic "fill failed"
+    bool sawAdultInMm = false; // Cross-Games Age: some search let adult Link into Termina
 
     // Expected post-balance multiset, for the per-pass backstop below: every pool item must reach
     // `placements`. This is the assertion that catches item loss from ANY cause, not just truncation.
@@ -979,6 +995,7 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
             }
 
             auto fr = reachableFixpoint(ootRemaining, mmRemaining);
+            sawAdultInMm = sawAdultInMm || fr.cross.mmAdultIn;
             auto& ootReachable = fr.ootReachable;
             auto& mmReachable = fr.mmReachable;
 
@@ -1243,6 +1260,12 @@ inline CombinedFillResult CrossWorldCombinedFill(const std::string& sohDumpJson,
     if (!fillOk) {
         result.error = "assumed fill failed after " + std::to_string(kMaxPasses) +
                        " passes; last cause: " + (lastPassError.empty() ? "unknown (see log)" : lastPassError);
+        // Cross-Games Age: name the usual culprit when MM wanted adult Link and logic never got him to Termina.
+        if (mmAgeNeedsAdult && !sawAdultInMm) {
+            result.error += ". Some MM items are for adult Link only, but in this seed adult Link never reaches "
+                            "Termina: he gets there by playing the Song of Soaring in Hyrule (Song of Soaring (OoT), "
+                            "Shared Song of Soaring, or starting with it) onto an owl statue";
+        }
         return result;
     }
 

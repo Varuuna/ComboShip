@@ -295,7 +295,19 @@ ItemObtainability Randomizer::GetItemObtainabilityFromRandomizerGet(RandomizerGe
 
         // Equipment
         case RG_KOKIRI_SWORD:
+#ifdef COMBO_BUILD
+            // ComboShip (cross-game items): with Extra Child Swords it upgrades an owned Kokiri Sword (item.cpp).
+            if (GetRandoSettingValue(RSK_COMBO_CHILD_SWORDS)) {
+                return !Flags_GetRandomizerInf(RAND_INF_OBTAINED_COMBO_GILDED_SWORD) ? CAN_OBTAIN
+                                                                                     : CANT_OBTAIN_ALREADY_HAVE;
+            }
+#endif
             return !CHECK_OWNED_EQUIP(EQUIP_TYPE_SWORD, EQUIP_INV_SWORD_KOKIRI) ? CAN_OBTAIN : CANT_OBTAIN_ALREADY_HAVE;
+#ifdef COMBO_BUILD
+        case RG_COMBO_PROGRESSIVE_CHILD_SWORD:
+            return !Flags_GetRandomizerInf(RAND_INF_OBTAINED_COMBO_GILDED_SWORD) ? CAN_OBTAIN
+                                                                                 : CANT_OBTAIN_ALREADY_HAVE;
+#endif
         case RG_MASTER_SWORD:
             return !CHECK_OWNED_EQUIP(EQUIP_TYPE_SWORD, EQUIP_INV_SWORD_MASTER) ? CAN_OBTAIN : CANT_OBTAIN_ALREADY_HAVE;
         case RG_BIGGORON_SWORD:
@@ -1228,6 +1240,15 @@ extern "C" u16 Randomizer_Item_Give(PlayState* play, GetItemEntry giEntry) {
             if (!ChildTradeSlotOccupied()) {
                 INV_CONTENT(ITEM_TRADE_CHILD) = ITEM_LETTER_ZELDA;
             }
+#ifdef COMBO_BUILD
+        } else if (item >= RG_COMBO_MASK_BLAST && item <= RG_COMBO_MASK_KAMARO) {
+            // ComboShip (cross-game items): MM masks join the child trade cycle (ShuffleTradeItems.c).
+            u8 slotItem = INV_CONTENT(ITEM_TRADE_CHILD);
+            if (!ChildTradeSlotOccupied() &&
+                !(slotItem >= ITEM_COMBO_MASK_BLAST && slotItem <= ITEM_COMBO_MASK_KAMARO)) {
+                INV_CONTENT(ITEM_TRADE_CHILD) = (int)ITEM_COMBO_MASK_BLAST + (item - RG_COMBO_MASK_BLAST);
+            }
+#endif
         } else if (item == RG_ROCS_FEATHER) {
             if (INV_CONTENT(ITEM_NAYRUS_LOVE) == ITEM_NONE) {
                 INV_CONTENT(ITEM_NAYRUS_LOVE) = ITEM_ROCS_FEATHER;

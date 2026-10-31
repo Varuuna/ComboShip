@@ -32,24 +32,36 @@ int DungeonItemToDungeon(RandoItemId itemId) {
     int dungeon = -1;
     switch (itemId) {
         case RI_WOODFALL_SMALL_KEY:
+#ifdef COMBO_BUILD
+        case RI_WOODFALL_KEYRING: // ComboShip: Ship of Harkinian's "Key Rings"
+#endif
         case RI_WOODFALL_BOSS_KEY:
         case RI_WOODFALL_STRAY_FAIRY:
         case RI_REMAINS_ODOLWA:
             dungeon = DUNGEON_SCENE_INDEX_WOODFALL_TEMPLE;
             break;
         case RI_SNOWHEAD_SMALL_KEY:
+#ifdef COMBO_BUILD
+        case RI_SNOWHEAD_KEYRING: // ComboShip: Ship of Harkinian's "Key Rings"
+#endif
         case RI_SNOWHEAD_BOSS_KEY:
         case RI_SNOWHEAD_STRAY_FAIRY:
         case RI_REMAINS_GOHT:
             dungeon = DUNGEON_SCENE_INDEX_SNOWHEAD_TEMPLE;
             break;
         case RI_GREAT_BAY_SMALL_KEY:
+#ifdef COMBO_BUILD
+        case RI_GREAT_BAY_KEYRING: // ComboShip: Ship of Harkinian's "Key Rings"
+#endif
         case RI_GREAT_BAY_BOSS_KEY:
         case RI_GREAT_BAY_STRAY_FAIRY:
         case RI_REMAINS_GYORG:
             dungeon = DUNGEON_SCENE_INDEX_GREAT_BAY_TEMPLE;
             break;
         case RI_STONE_TOWER_SMALL_KEY:
+#ifdef COMBO_BUILD
+        case RI_STONE_TOWER_KEYRING: // ComboShip: Ship of Harkinian's "Key Rings"
+#endif
         case RI_STONE_TOWER_BOSS_KEY:
         case RI_STONE_TOWER_STRAY_FAIRY:
         case RI_REMAINS_TWINMOLD:

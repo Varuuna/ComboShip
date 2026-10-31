@@ -5,6 +5,9 @@
 
 #include "z64actor.h"
 #include "z64door.h"
+#ifdef COMBO_BUILD
+#include "2s2h/Rando/MiscBehavior/AdultLink.h" // ComboShip: Cross-Games Age
+#endif
 
 #include "prevent_bss_reordering.h"
 #include "fault.h"
@@ -1508,6 +1511,12 @@ f32 Player_GetHeight(Player* player) {
     } else {
         extraHeight = 0.0f;
     }
+
+#ifdef COMBO_BUILD
+    if (Combo_AdultLink_Is(player)) { // ComboShip (Cross-Games Age): OOT's adult Link height
+        return extraHeight + 68.0f;
+    }
+#endif
 
     switch (player->transformation) {
         default:

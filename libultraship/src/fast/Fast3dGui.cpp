@@ -1,4 +1,5 @@
 #include "fast/Fast3dGui.h"
+#include "ship/resource/CrossRMRegistry.h" // ComboShip: routed GUI texture loads
 
 #include "fast/Fast3dWindow.h"
 #include "ship/Context.h"
@@ -795,8 +796,29 @@ void Fast3dGui::LoadGuiTexture(const std::string& name, const Fast::Texture& res
 
 void Fast3dGui::LoadGuiTexture(const std::string& name, const std::string& path, const std::string& palettePath,
                                const ImVec4& tint) {
-    const auto res = static_cast<Fast::Texture*>(
-        Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path, true).get());
+    // ComboShip (cross-game items): "__OTR__@<game>:<path>" loads from that game's ResourceManager, the
+    // ImGui-side mirror of the interpreter's routed texture loads, so one game's icon tables can name the
+    // other game's textures. A missing resource is skipped (logged) instead of dereferenced.
+    std::shared_ptr<Ship::ResourceManager> rm = Ship::Context::GetRawInstance()->GetResourceManager();
+    std::string loadPath = path;
+    static constexpr char kRoutePrefix[] = "__OTR__@";
+    if (loadPath.rfind(kRoutePrefix, 0) == 0) {
+        const size_t colon = loadPath.find(':', sizeof(kRoutePrefix) - 1);
+        if (colon != std::string::npos) {
+            auto routed = Ship::CrossRMRegistry::Get(
+                loadPath.substr(sizeof(kRoutePrefix) - 1, colon - (sizeof(kRoutePrefix) - 1)));
+            if (routed != nullptr) {
+                rm = routed;
+                loadPath = "__OTR__" + loadPath.substr(colon + 1);
+            }
+        }
+    }
+    const auto resource = rm->LoadResource(loadPath, true);
+    const auto res = static_cast<Fast::Texture*>(resource.get());
+    if (res == nullptr) {
+        SPDLOG_WARN("LoadGuiTexture: resource not found for {}", path);
+        return;
+    }
 
     LoadGuiTexture(name, *res, palettePath, tint);
 }

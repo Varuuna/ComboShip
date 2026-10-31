@@ -11,6 +11,12 @@
 #include "overlays/ovl_file_choose/ovl_file_choose.h"
 #include "BenPort.h"
 #include "2s2h/BenGui/CosmeticEditor.h"
+#ifdef COMBO_BUILD
+// ComboShip (#27, Majora's Mask title screen + file select): 1 when MM's front end took the new file (BenPort.cpp).
+int Combo_MM_FrontEndNameEntryDone(int slot, const u8* name8);
+#else
+#define Combo_MM_FrontEndNameEntryDone(slot, name8) 0
+#endif
 
 void FileSelect_DrawTexQuadI4(GraphicsContext* gfxCtx, TexturePtr texture, s16 point) {
     OPEN_DISPS(gfxCtx);
@@ -513,7 +519,11 @@ void FileSelect_DrawNameEntry(GameState* thisx) {
                                 }
                             }
 
-                            if (validName) {
+                            if (validName &&
+                                Combo_MM_FrontEndNameEntryDone(this->buttonIndex, this->fileNames[this->buttonIndex])) {
+                                // ComboShip (#27): OOT's file select creates the file (both saves, the combo seed)
+                                // and loads it; without a seed the name entry stays open.
+                            } else if (validName) {
                                 Audio_PlaySfx(NA_SE_SY_FSEL_DECIDE_L);
                                 gSaveContext.fileNum = this->buttonIndex;
                                 time = CURRENT_TIME;

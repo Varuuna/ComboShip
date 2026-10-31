@@ -1505,6 +1505,130 @@
                     "The jump can also be used when already in mid-air. Roc's Feather is not considered by logic."
                 ]
             },
+            "combo_mask_blast": {
+                "name": "Blast Mask (MM Mask in OoT)",
+                "description": [
+                    "Adds Majora's Mask's Blast Mask to the item pool as a child trade-slot item. Toggle it on Link ",
+                    "from a C button; while worn, B sets off an explosion on Link's face (with a cooldown). ",
+                    "Not considered by logic."
+                ]
+            },
+            "combo_mask_stone": {
+                "name": "Stone Mask (MM Mask in OoT)",
+                "description": [
+                    "Adds Majora's Mask's Stone Mask to the item pool as a child trade-slot item. While worn, many ",
+                    "enemies and the Gerudo and castle guards don't notice Link. Not considered by logic."
+                ]
+            },
+            "combo_mask_kamaro": {
+                "name": "Kamaro's Mask (MM Mask in OoT)",
+                "description": [
+                    "Adds Majora's Mask's Kamaro's Mask to the item pool as a child trade-slot item. Cosmetic: Link ",
+                    "wears it. Not considered by logic."
+                ]
+            },
+            "combo_mm_songs": {
+                "name": "MM Songs in OoT",
+                "description": [
+                    "Adds Majora's Mask's Elegy of Emptiness, Song of Healing, Sonata of Awakening, Goron Lullaby, ",
+                    "New Wave Bossa Nova and Oath to Order to the item pool as songs Link can play in Hyrule. ",
+                    "They have no effect in Hyrule (the Elegy leaves a flash of light where Link stands); combine ",
+                    "them with Shared Items to make one copy count for both games. Not considered by logic."
+                ]
+            },
+            "combo_child_swords": {
+                "name": "Extra Child Swords (MM Swords in OoT)",
+                "description": [
+                    "Makes the Kokiri Sword progressive like Majora's Mask's sword: adds two Progressive Kokiri ",
+                    "Swords to the item pool, upgrading it to the Razor Sword (double damage) and then the Gilded ",
+                    "Sword (triple damage), with MM's models and icons. Logic still only needs the Kokiri Sword; ",
+                    "the upgrades are not considered by logic."
+                ]
+            },
+            "combo_ageless_swords": {
+                "name": "Ageless Swords",
+                "description": [
+                    "Child Link can use the Master Sword and the Biggoron Sword, and adult Link the Kokiri Sword. Child Link holds them with his own sword model. ",
+                    "Item placement logic will respect this option, so it might be required to use this to progress."
+                ]
+            },
+            "combo_ageless_shields": {
+                "name": "Ageless Shields",
+                "description": [
+                    "Adult Link can use the Deku Shield and child Link the Mirror Shield. ",
+                    "Item placement logic will respect this option, so it might be required to use this to progress."
+                ]
+            },
+            "combo_ageless_tunics": {
+                "name": "Ageless Tunics",
+                "description": [
+                    "Child Link can wear the Goron and Zora Tunics, with their heat and underwater protection. ",
+                    "Item placement logic will respect this option, so it might be required to use this to progress."
+                ]
+            },
+            "combo_ageless_boots": {
+                "name": "Ageless Boots",
+                "description": [
+                    "Child Link can wear the Iron Boots and the Hover Boots. ",
+                    "Item placement logic will respect this option, so it might be required to use this to progress."
+                ]
+            },
+            "combo_ageless_sticks": {
+                "name": "Ageless Sticks",
+                "description": [
+                    "Adult Link can use Deku Sticks. ",
+                    "Item placement logic will respect this option, so it might be required to use this to progress."
+                ]
+            },
+            "combo_ageless_boomerang": {
+                "name": "Ageless Boomerang",
+                "description": [
+                    "Adult Link can use the Boomerang. ",
+                    "Item placement logic will respect this option, so it might be required to use this to progress."
+                ]
+            },
+            "combo_ageless_hammer": {
+                "name": "Ageless Hammer",
+                "description": [
+                    "Child Link can use the Megaton Hammer. ",
+                    "Item placement logic will respect this option, so it might be required to use this to progress."
+                ]
+            },
+            "combo_ageless_hookshot": {
+                "name": "Ageless Hookshot",
+                "description": [
+                    "Child Link can use the Hookshot and the Longshot. ",
+                    "Item placement logic will respect this option, so it might be required to use this to progress."
+                ]
+            },
+            "combo_ageless_slingshot": {
+                "name": "Ageless Slingshot",
+                "description": [
+                    "Adult Link can use the Fairy Slingshot. ",
+                    "Item placement logic will respect this option, so it might be required to use this to progress."
+                ]
+            },
+            "combo_ageless_bow": {
+                "name": "Ageless Bow",
+                "description": [
+                    "Child Link can use the Fairy Bow and the magic arrows. ",
+                    "Item placement logic will respect this option, so it might be required to use this to progress."
+                ]
+            },
+            "combo_ageless_child_trade": {
+                "name": "Ageless Child Trade",
+                "description": [
+                    "Adult Link can use the child trade items: the Weird Egg, Cucco, Zelda's Letter and the masks. ",
+                    "Item placement logic will respect this option, so it might be required to use this to progress."
+                ]
+            },
+            "combo_ageless_strength": {
+                "name": "Ageless Strength",
+                "description": [
+                    "Child Link can use the Silver and Golden Gauntlets (otherwise he only gets the Goron's Bracelet's strength). ",
+                    "Item placement logic will respect this option, so it might be required to use this to progress."
+                ]
+            },
             "slingbow_break_beehives": {
                 "name": "Slingshot/Bow Can Break Beehives",
                 "description": "Allows Slingshot and Bow to break beehives when Beehive Shuffle is turned on."

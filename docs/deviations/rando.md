@@ -2164,3 +2164,689 @@ wins if both are present):
 Before applying, every `GetAllOptions()` CVar is cleared (and `ExcludedLocations` emptied), so a key an
 older spoiler lacks reads as the default, not the local machine's value. A user's `comboship.json`
 keeps its stale leaf keys (no clash); those settings fall back to defaults.
+
+## Cross-game items: Ocarina of Time gear in Majora's Mask (2026-10-11)
+
+**Why:** OoTMM's "Cross-Game" item settings — `bootsIronMm`, `bootsHoverMm`, `tunicGoronMm`, `tunicZoraMm`,
+`scalesMm`, `strengthMm` and their `shared*` twins. Human Link can wear/use OOT equipment in Termina. Opt-in
+MM seed options (Item Pool tab, "Ocarina of Time Gear"): `RO_CROSS_BOOTS_IRON`, `RO_CROSS_BOOTS_HOVER`,
+`RO_CROSS_TUNIC_GORON`, `RO_CROSS_TUNIC_ZORA`, `RO_CROSS_SCALES`, `RO_CROSS_STRENGTH` (all default off, so
+existing seeds and settings are unchanged). Gameplay is ported from OoTMM's MM Player patches (MIT,
+`packages/generator/src/mm/actors/Player.c`) onto 2ship's decomp names; the address → function map used
+is: `func_80123140` (Player_SetBootData), `Player_GetStrength`, `Player_UseItem`, `func_808430E0`
+(hover update), `func_8083827C` (fall start), `func_8083EA44` (step sfx), `func_80844784` (ground
+movement), `func_80834600` (floor damage), `Player_UpdateBodyBurn`, `Player_Action_24`,
+`Player_ActionHandler_2` (lift / underwater pickup), `Player_Action_59` + `Player_UpdateInterface` (dive).
+
+**State:** ownership and what is worn are `RandoInf` flags (`RANDO_INF_OBTAINED_BOOTS_IRON`..,
+`RANDO_INF_COMBO_WEARING_*`), appended before `RANDO_INF_MAX`. The rando save arrays are positional JSON,
+so `BenJsonConversions.hpp` reads `randoInf` and `randoSaveOptions` tolerantly (`ComboGetArrayTolerant`:
+shorter arrays from older saves load with the new tail zeroed instead of throwing). New `RI_*` ids are
+appended after `RI_COMBO_FOREIGN`; new `RO_*` ids before `RO_MAX`.
+
+**Item ids (`mm/include/z64item.h`, guarded):** `ITEM_COMBO_*` reuse unused `ItemId` values `0xB8..0xC4`
+(only `z_message.c`'s textbox-icon table names them, never as inventory). `0xB5..0xB7` are skipped on
+purpose: kaleido uses them as transient magic-arrow equip ids. Every table that can be indexed by them is
+widened to `ITEM_COMBO_TABLE_SIZE` (externs in `variables.h` too):
+- `gItemSlots` (`z_inventory.c`): the gap up to `ITEM_COMBO_MIN` is **explicit `SLOT_NONE`**. Callers test
+  `itemId < ARRAY_COUNT(gItemSlots) && gItemSlots[itemId] != SLOT_NONE`; a zero-filled gap would read as
+  `SLOT_OCARINA` and write e.g. a sword over the ocarina. (MSVC C has no range designators.)
+- `gItemIcons` (`z_inventory.c`): the gap is `gEmptyTexture` (what callers drew before for ids past the
+  end); `LoadGuiTextures` skips it.
+- `gPlayerFormItemRestrictions` (`z_parameter.c`): the human row allows the combo ids.
+- `Kaleido_LoadItemNameStatic`: OOT name textures for the combo ids.
+- `Player_ItemToItemAction`: combo ids return `PLAYER_IA_NONE` (past `sItemItemActions`).
+
+**OOT textures in MM (libultraship, guarded by being ComboShip-only code):** texture paths of the form
+`"__OTR__@oot:<path>"` load from OOT's ResourceManager — `LoadTextureResourceRouted` in
+`fast/interpreter.cpp` (raw `G_SETTIMG`, `G_SETTIMG_OTR_FILEPATH`, BG) and `Fast3dGui::LoadGuiTexture`
+(ImGui; also null-checks the resource now). Paths live in `mm/2s2h/Rando/MiscBehavior/CrossItemAssets.h`
+as `ALIGN_ASSET(2)` arrays: the interpreter only treats an even pointer as a path.
+
+**UX:** Iron Boots + Goron Tunic join the Room Key / Letter to Mama cycle, Hover Boots + Zora Tunic the
+Letter to Kafei / Pendant cycle (`KaleidoItemPage.cpp`, like OoTMM's trade slots); using one from a C button
+toggles it (`Combo_CrossItem_TryUse`, top of `Player_UseItem`). Boots are drawn on Link with OoTMM's
+child-sized meshes (`CrossGearBoots.c`, after `SkelAnime_DrawFlexLod` in `Player_DrawImpl` while segment
+0x0D still holds the limb matrices). Tunic color reuses the cosmetic editor's human-tunic DL patch through
+`CosmeticEditor_SetHumanTunicOverride`.
+
+**Effects:** Iron Boots use MM's Goron boot index (every `currentBoots >= PLAYER_BOOTS_ZORA_UNDERWATER` path
+sinks Link and walks him on the bottom) with OoTMM's child boot regs and press heavy switches; Hover Boots
+port OOT's hover timer (`gComboHoverBootsTimer`, reset on jump / hookshot / jump attack like OOT), ledge
+float, hover hum and no traction; Goron Tunic delays hot-floor damage (OOT's 120/60 frames, via the unused
+`floorTypeTimer`/`prevFloorType` remnants), burns like Goron Link and clears hot-room hazards; Zora Tunic
+clears the underwater hazard (MM still carries OOT's tunic checks in `Interface_Update`); scales raise
+human Link's dive depth 120 → 240 → 360 (OoTMM's table, 8-step dive counter); Silver Gauntlets give human
+Link Zora strength (heavy blocks), Golden give Goron strength (boulders, kegs via `Player_GetStrength`).
+
+**Fixes (2026-10-16):**
+- *Strength:* with OOT's strength in the MM pool (`RO_CROSS_STRENGTH`), human Link's strength *is* OOT's, like
+  OoTMM's `Player_GetStrengthCustom`: nothing without the Goron's Bracelet (bomb flowers and bushes don't come up,
+  MM's Deku-strength check), human strength with it, Zora with Silver, Goron with Golden. Before, the gauntlets only
+  raised it, so Link could lift everything without the Bracelet. Under Cross-Games Age, gauntlets restricted to the
+  other age count as the Bracelet (OoTMM's `Player_GetEffectiveHumanStrength`); item conversion and progressive
+  gives use the owned tier (`Combo_Gear_GetStrengthOwned`), which the age check used to zero.
+- *Hover Boots glow:* OOT's glowing ring under the boots while hovering (`Combo_Gear_DrawHoverGlow` from
+  `Player_Draw`, OOT's `gHoverBootsCircleDL` through "@oot:").
+- *Colors:* the MM cosmetic editor (Link) gains "Goron Tunic (OoT)", "Zora Tunic (OoT)", "Adult Link Tunic",
+  "Silver Gauntlets (OoT)" and "Golden Gauntlets (OoT)" (`CosmeticEditor_GetComboColor`, OOT's colors by default).
+  MM's own "Goron Tunic"/"Zora Tunic" entries are the transformation forms' tunics, which is why editing them never
+  changed OOT's tunics.
+- *Short Hookshot:* shows MM's Hookshot icon.
+
+**Logic:** none yet. MM's logic never requires these items (no new MM routes), so the fill places them as
+non-required majors. OoTMM's MM logic uses them heavily (hover routes, `underwater_walking`,
+`can_lift_*`); porting those to 2ship's regions is follow-up work.
+
+**Cross-game presentation:** MM's copies draw OOT's model by OOT item name (`MM_DrawOOTItemByName`, a by-name
+resolver split out of `ComboFillForeignDrawInfoOOT`); found in OOT, they draw OOT's native model
+(`ComboCrossGearNativeOOT` in `ComboForeignDrawOOT.h`), since MM has no model to describe.
+
+**Shared Items:** six families (`SF_IRON_BOOTS`..`SF_STRENGTH`, keys `bootsIron` `bootsHover` `tunicGoron`
+`tunicZora` `scales` `strength`). MM's copy only exists with the matching MM option on; otherwise the
+family logs "MM pool has none" and stays unshared. `SF_COUNT` is now 30 of the mask's 32 bits
+(`static_assert`); the next batch of families must widen the mask first.
+
+### OOT masks in MM: Gerudo, Skull, Spooky (2026-10-11)
+
+OoTMM's `gerudoMaskMm`, `skullMaskMm`, `spookyMaskMm`. MM options `RO_CROSS_MASK_GERUDO/SKULL/SPOOKY`; items
+`RI_MASK_GERUDO/SKULL/SPOOKY` (`ITEM_COMBO_MASK_*`), owned/worn as `RANDO_INF_OBTAINED_MASK_*` /
+`RANDO_INF_COMBO_WEARING_MASK_*`. They join the item page's trade cycles (Gerudo: Moon's Tear/Deeds, Skull:
+Room Key/Letter to Mama, Spooky: Letter to Kafei/Pendant — kaleido's cycle UI is item-page only) and toggle
+from a C button. An OOT mask is exclusive with MM's own masks: putting one on clears `currentMask`
+(`equippedMask` too), and any MM mask or transformation going on clears the OOT mask (`Combo_Gear_OnPlayerUpdate`).
+Drawn after the skeleton with the head limb matrix (`0x0D0001C0`, OoTMM's `prepareMask`) and OOT's
+`gLinkChild*MaskDL` through `"@oot:"` routing.
+
+**Actor effects (vendored, guarded, one hook each):** `EnDns` (`func_8092CC68`) and `EnGuardNuts` let a
+Skull-Masked human Link into Deku Palace; `EnLookNuts`, `EnFirefly`, `EnCrow`, `EnBat` see the Skull Mask as
+the Stone Mask (file-local `Player_GetMask` macro → `Combo_Gear_GetMaskSkullAsStone`); `EnGe2_DetectPlayer`
+ignores proximity for the Gerudo Mask. Spooky has no effect (OoTMM uses it only for night gibdos in logic).
+
+**Logic:** `HAS_COMBO_MASK_SKULL` opens `RR_DEKU_PALACE_INSIDE_LOWER` (OoTMM `can_enter_deku_palace`: the
+lower palace, throne room and bean grotto are all child-reachable there); `HAS_COMBO_MASK_GERUDO` joins the
+Pirates' Fortress plaza-tower guard alternatives (OoTMM `can_evade_gerudo`). Shared variants wait for the
+Shared Items mask to be widened past 32 bits.
+
+### Shared Items mask widened to 64 bits (2026-10-11)
+
+`ComboRando::SharedMask` (`uint64_t`) + `SharedBit(i)` replace the `uint32_t` mask and `1u << i` everywhere
+(`SharedItems.h`, `CrossWorldRando.h`, `CrossForeign.h`, `CrossHints.h`, `ComboPlaythrough.h`, launcher,
+validator, menu). The ABIs moved with it: `SOH_SetComboSharedItems` / `MM_SetComboSharedItems` take, and
+`SOH_ReadComboSharedCVars` returns, a `SharedMask`; `gComboSharedMask` (soh, read by `settings.cpp`'s wallet
+force) and `gMMComboSharedMask` are `uint64_t`. Spoilers store family keys, so no seed/save format change.
+New families: `maskGerudo`, `maskSkull`, `maskSpooky` (need OOT Shuffle Masks + MM's matching OOT-mask
+option), `songSun`, `songSaria` (need MM's Sun's/Saria's Song shuffle; sharing Saria's replaces MM's
+hint-charge copies with the one shared song, as OoTMM).
+
+### MM masks in OOT: Blast, Stone, Kamaro (2026-10-11)
+
+OoTMM's `blastMaskOot`, `stoneMaskOot`, `kamaroMaskOot` and their `sharedMask*` twins. OOT seed options
+`RSK_COMBO_MASK_BLAST/STONE/KAMARO` (Additional Items; default off); items `RG_COMBO_MASK_*`, owned as
+`RAND_INF_OBTAINED_COMBO_MASK_*` (appended, `RandoGetToRandInf` sets them on grant).
+
+- **Item ids (`soh/include/z64item.h`, guarded):** `ITEM_COMBO_MASK_BLAST/STONE/KAMARO` = `0x9E..0xA0`, after
+  `ITEM_ROCS_FEATHER`; `gItemIcons` (and its `variables.h` extern) widen to `ITEM_COMBO_TABLE_SIZE` with MM's
+  icons through `"@mm:"` (`soh/soh/Enhancements/combo/ComboMmAssets.h`). `gItemSlots` is left alone, as for
+  Roc's Feather: every `SLOT(item)` caller is ammo/bottle-ranged. `gItemAgeReqs` = child (`z_play.c`).
+- **Child trade cycle (`ShuffleTradeItems.c`):** the three masks follow Weird Egg..Mask of Truth; the grant
+  (`randomizer.cpp`) fills an empty slot like the vanilla masks.
+- **Use/wear (`ComboMmMasks.cpp`):** `VB_CHANGE_HELD_ITEM_AND_USE_ITEM` toggles the worn mask (`VB_ITEM_ACTION_BE_NONE`:
+  they have no item action); worn state is separate from `Player::currentMask` (its tables cover OOT's eight
+  masks only) and the two exclude each other. Name textures: `VB_DRAW_CUSTOM_ITEM_NAME`, MM's own.
+- **Draw (`z_player.c`, guarded):** `Combo_OotMask_Draw` after the vanilla mask block in `Player_DrawGameplay`:
+  head-limb matrix `0x0D0001C1` then MM's player mask DL (`object_mask_*`) via `"@mm:"`. Blast Mask: segment 9 =
+  opaque env color (MM's unlit-fuse branch of `Player_DrawBlastMask`).
+- **Effects:** Blast — B (read in `ShouldActorUpdate` for the player, before its update, then swallowed) spawns
+  an `EnBom` with `timer = 1` at Link's focus whose explosion AT is `AT_TYPE_PLAYER` (hits enemies and bombable
+  walls, never Link); cooldown 0x136 frames (OoTMM's default). Stone — OoTMM's `shouldActorIgnorePlayer` list
+  sees Link far away for the length of its update (`ShouldActorUpdate` fakes `yawTowardsPlayer` /
+  `xzDistToPlayer` / `yDistToPlayer` / `xyzDistToPlayerSq`, `OnActorUpdate` restores; a skipped update is
+  restored at the next actor). Kamaro — cosmetic (OoTMM's dance needs MM's animation; not ported).
+- **Models:** OOT draws MM's real get-item model by MM item name (`Randomizer_DrawComboMmMask` →
+  `OOT_DrawMMItemByName`, a by-name split of `ComboFillForeignDrawInfo`); OOT's copies placed in MM draw MM's
+  native mask (`ComboCrossMaskNativeMM` in `ComboForeignDrawMM.h`).
+- **Shared Items:** `maskBlast`, `maskStone`, `maskKamaro` (`SF_BLAST_MASK`..). **Logic:** none.
+
+### Songs in the other game (2026-10-11)
+
+OoTMM's `elegyOot`, `songHealingOot`, `songAwakeningOot`, `songGoronOot`, `songZoraOot`, `songOrderOot` (one OOT
+toggle, `RSK_COMBO_MM_SONGS`) and `songZeldaLullabyMm` (MM `RO_CROSS_SONG_ZELDA`). Like OoTMM they have no
+effect in the other game except the Elegy's statue in OOT; their use is as items and with Shared Items.
+
+- **OOT (`ComboMmSongs.cpp`):** `RG_COMBO_SONG_*` / `RAND_INF_OBTAINED_COMBO_SONG_*`; recognized by a note ring
+  on `OnOcarinaNote` (the Song of Soaring's rules, OOT's song table untouched) during free play: chime, ocarina
+  put away, an `OCEFF_WIPE3` flash (Elegy: OoTMM's green time-block flash). Drawn as song notes in MM's colors.
+- **Elegy statue in OOT (2026-10-16, `ComboElegyShell.cpp`):** like OoTMM's `Custom_Torch2` (MM's `En_Torch2`), the
+  Elegy leaves a statue of Link where he stood: one at a time (a replay moves it), fading in, solid once he steps
+  away; it blocks him, holds down switches and can be hookshotted. MM's human shell model (`gElegyShellHumanDL`,
+  "@mm:"), a dynamic-id actor (ActorDB, `ACTORCAT_PROP`). Found while testing: an `EnWood02` spawner over the void
+  kills itself right after spawning its trees, which then write into its freed memory; the statue reused it and
+  crashed. `EnWood02_Destroy` (guarded) now orphans its trees.
+- **MM (`MiscBehavior/CrossSongs.cpp`):** `RI_SONG_ZELDA` / `RANDO_INF_OBTAINED_SONG_ZELDA` make MM's leftover
+  `OCARINA_SONG_ZELDAS_LULLABY` recognizable through `VB_SONG_AVAILABLE_TO_PLAY` (yielding to the Termina wall
+  like the warp songs); its name box (`0x1B72 + 21`) is supplied in `OnOpenText`. In free play MM treats it
+  as a generic song event.
+- **Shared Items:** `songElegy`, `songHealing`, `songAwakening`, `songZora`, `songOrder`, `songZeldaLullaby`.
+  No shared Goron Lullaby: MM's is a two-tier progressive (intro, full) while OOT's copy is one item.
+- **Draw across games:** OOT's copies placed in MM draw MM's song notes; MM's Zelda's Lullaby placed in OOT
+  draws OOT's own.
+
+### OOT spells in MM: Din's Fire, Farore's Wind, Nayru's Love (2026-10-11)
+
+OoTMM's `spellFireMm`, `spellWindMm`, `spellLoveMm` and their `sharedSpell*` twins. MM options
+`RO_CROSS_SPELL_FIRE/WIND/LOVE`; items `RI_SPELL_*` (`ITEM_COMBO_SPELL_*`, already reserved with icons, names, slots
+and form restrictions), owned as `RANDO_INF_OBTAINED_SPELL_*`. They join the trade cycles (Din's: Moon's Tear /
+Deeds, Farore's: Room Key / Letter to Mama, Nayru's: Letter to Kafei / Pendant) and are cast from a C button by
+human Link (`Combo_CrossItem_TryUse` → `Combo_Spell_Cast`).
+
+**Effects (`mm/2s2h/Rando/MiscBehavior/CrossSpells.cpp`):** OOT's `Magic_Fire` / `Magic_Dark` logic run as combo
+state from `Combo_Gear_OnPlayerUpdate` and drawn from an `OnActorDraw` hook on the player, not as actors (MM's actor
+table has no slot for them); models are OOT's own (`"@oot:overlays/ovl_Magic_*"`).
+- Din's Fire (12 magic): the expanding sphere and screen tint; its cylinder (owned by the player actor) carries
+  `DMG_FIRE_ARROW`, like OoTMM, so enemies burn as from a fire arrow. A scene change ends it.
+- Nayru's Love (24 magic): `invincibilityTimer = -100` for 1200 frames, the diamond around Link's waist; carries
+  over scene changes like OOT's `nayrusLoveTimer`.
+- Farore's Wind (12 magic): first cast stores the spot (`Play_SetRespawnData(RESPAWN_MODE_HUMAN, ...)`, which
+  MM only initializes). With a point set, casting asks like OOT's (free, as in OOT): "Return to the warp point /
+  Dispel the warp point / Exit"; Return transitions with `respawnFlag = RESPAWN_MODE_HUMAN + 1` (Player_Init reads
+  `respawn[flag - 1]`), using the point up. Refused where the Song of Soaring is. The point is saved (see Cross-Games
+  Farore's Wind). The prompt is a hand-laid `CustomMessage` box polled from `Combo_Spells_OnPlayerUpdate`; Link's
+  input is held (`PLAYER_STATE1_20`) while it is up.
+- The magic meter: MM leaves it flashing after `MAGIC_CONSUME_NOW` until the caster calls `Magic_Reset` (OOT's Player
+  does when a spell ends), and `Magic_Consume` refuses while it flashes, so a second cast in the same scene failed.
+  `UpdateMagicReset` puts it back to idle 20 frames after the magic is drained (2026-10-17).
+- No casting animation: the effect starts from the C-button press.
+
+**Shared Items:** `spellFire`, `spellWind`, `spellLove`. **Logic:** none. OOT draws MM's copies with its own models.
+
+### OOT tools in MM: Megaton Hammer, Boomerang, Fairy Slingshot, Deku Shield (2026-10-11)
+
+OoTMM's `hammerMm`, `boomerangMm`, `slingshotMm`, `dekuShieldMm` and the `sharedHammer` / `sharedBoomerang` /
+`sharedSlingshot` twins. MM options `RO_CROSS_HAMMER/BOOMERANG/SLINGSHOT/SHIELD_DEKU` (Item Pool, default off); items
+`RI_HAMMER/BOOMERANG/SLINGSHOT/SHIELD_DEKU`, owned as `RANDO_INF_OBTAINED_*`. Logic and behavior live in
+`mm/2s2h/Rando/MiscBehavior/CrossTools.cpp` (C ABI in `CrossGear.h`).
+
+**Held tools ride on MM item actions.** `Player_ItemToItemAction` maps the three `ITEM_COMBO_*` ids for human Link
+(`Combo_Tools_ItemAction`), and `Combo_CrossItem_TryUse` lets vanilla `Player_UseItem` take them:
+- Megaton Hammer → `PLAYER_IA_SWORD_TWO_HANDED` (the Great Fairy's Sword swings); `func_8083375C` swaps in OoTMM's
+  `{ DMG_GORON_PUNCH, 2, 4, 2, 4 }`.
+- Boomerang → `PLAYER_IA_11`, OOT's own boomerang action that MM kept and re-pointed at Zora Link's fins. For human
+  Link (`COMBO_HUMAN_BOOMERANG`) `func_80830E30` / `Player_UpperAction_12..15` play OOT's animations
+  (`link_boom_throw_wait2waitR`, `throwR`, `catch` from OOT's archive; the `waitR` loop is MM's own) and
+  `Player_UpperAction_14` spawns one `EnBoom` (left half, no partner: `EnBoom_Destroy` already clears the thrown
+  state when it has neither child nor parent) like OOT's `func_808359FC`. `EnBoom_Draw` uses OOT's `gBoomerangRefDL`
+  for it. It flies like OOT's boomerang, not a Zora fin (`EnBoom::comboOot` -> `EnBoom_ComboOotFly`, a port of OOT's
+  `EnBoom_Fly`, 2026-10-17): straight at a locked-on actor with no outward sweep, OOT's 12 units a frame (8 in MM,
+  whose `Actor_UpdatePos` scales speed by 1.5), back after 20 frames, turning back on hitting an actor as well as a
+  wall, 1 damage (OOT's) with MM's `DMG_ZORA_BOOMERANG` flag so MM enemies react to it. MM's fin behavior stays for
+  water splashes and for not grabbing heart pieces / containers. After the catch, `Player_UpperAction_16` returns
+  to the Boomerang's own `Player_UpperAction_11` (MM went to `Player_UpperAction_0`, which never throws again: Zora
+  Link throws with B), so it can be thrown again.
+- Fairy Slingshot → `PLAYER_IA_BOW`. `func_808305BC` returns `ITEM_COMBO_SLINGSHOT` + `ARROW_TYPE_SLINGSHOT` (MM's
+  EnArrow still has the seed) with its own ammo, `RandoSaveInfo::comboSlingshotSeeds` (30 max, OOT's first bullet bag;
+  full on grant; JSON `comboSlingshotSeeds`, tolerant). Seeds hit as `DMG_DEKU_BUBBLE` (OoTMM). `Inventory_ChangeAmmo`
+  and `Interface_DrawAmmoCount` handle the id. Arrow drops also spawn while the Slingshot is owned (`func_800A7650`)
+  and every arrow pickup refills seeds (`Combo_Tools_OnArrowPickup`, both pickup paths in `z_en_item00.c`).
+- `Player_UseItem`: pressing a tool's button while holding the MM item sharing its action (or the reverse) switches
+  `heldItemId` instead of firing/swinging; the model follows `heldItemId`.
+
+**Inventory:** the three tools join the trade-slot cycles (Hammer: Moon's Tear/Deeds, Boomerang: Room Key/Letter
+to Mama, Slingshot: Letter to Kafei/Pendant); their `gItemSlots` entries moved from the Great Fairy's Sword /
+Pictograph Box / Bow slots (reserved earlier, never used) to those trade slots.
+
+**Deku Shield:** no inventory item. `Combo_Tools_EquipDekuShield` puts it in an empty shield slot as
+`EQUIP_VALUE_SHIELD_HERO` + `RANDO_INF_COMBO_SHIELD_IS_DEKU`; Link burning, or fire (damage effect 1) blocked with it,
+takes it away (`Combo_Tools_OnPlayerUpdate`). `Item_Give` of a Hero's/Mirror Shield drops the marker first
+(`Combo_Tools_ReplaceDekuShield`), and `IsItemObtainable(RI_SHIELD_HERO)` ignores an equipped Deku Shield. No Shared
+Deku Shield: OOT's burns and is re-bought, and a shared one would keep coming back.
+
+**Models (`z_player_lib.c`, guarded):** OOT's own, loaded at runtime from the player's OOT archive; nothing of OOT's
+is compiled in. The Hammer and the held Boomerang are OOT's hand-holding-the-tool display lists
+(`gLinkAdultLeftHandHoldingHammerNearDL`, `gLinkChildLeftFistAndBoomerangFarDL` + `gLinkChildDL_18580`) cut where
+OOT's fist material begins (the first texture named `Gauntlet` / `gLinkChildHandTex`, backed up over its pipe sync /
+othermode / texture commands: the same cuts as OoTMM's custom objects). The cut copies the loaded LUS `Gfx` words
+(`DisplayListFactory`'s two-word opcodes are skipped as pairs) and is drawn after MM's closed left fist inside a
+`G_COMBO_RM_PUSH("oot")` bracket, so its texture/vertex hashes resolve against OOT's archive; the cache holds the OOT
+resource and is released from a `CrossRMRegistry` teardown listener. The Slingshot hand, its first-person arm and
+string, and the Deku Shield in hand and on the back are whole OOT display lists by "@oot:" path
+(`Combo_Tools_*DL`). The slingshot string uses OOT's child offset `{606, 236, 0}` and bend.
+
+**Routed animations (`BenPort.cpp`):** `ResourceMgr_LoadAnimByName` loads `"__OTR__@<game>:"` paths from that game's
+ResourceManager inside a `ResourceManagerScope` (the owning factory nested-loads Link animation frame data through the
+active RM); a missing one falls back to MM's `link_boom_throw_waitR` so callers never see NULL. OOT and MM Link
+animations share the frame layout (22 limbs + face word), as OoTMM relies on.
+
+**Shared Items:** `hammer`, `boomerang`, `slingshot` (OOT `Progressive Slingshot` tier 1 ↔ MM `Fairy Slingshot`).
+**Logic:** none, like the other cross-game items. Not ported: OoTMM's hammer shockwave and Snowhead pillar/rusty
+switch interactions, boomerang item-fetch tuning, and the Deku Shield icon on the equipment page (it shows the Hero's
+Shield).
+
+### Extra child swords: Razor and Gilded Swords in OOT (2026-10-12)
+
+OoTMM's `extraChildSwordsOot`: the Kokiri Sword upgrades like MM's sword. OOT option `RSK_COMBO_CHILD_SWORDS`
+(`ComboChildSwords`, default off) adds two `RG_COMBO_PROGRESSIVE_CHILD_SWORD` to the pool. The Kokiri Sword and both
+progressive copies resolve in `Item::GetGIEntry` to the next tier (Kokiri Sword → `RG_COMBO_RAZOR_SWORD` →
+`RG_COMBO_GILDED_SWORD`), owned as `RAND_INF_OBTAINED_COMBO_RAZOR_SWORD/_GILDED_SWORD`; obtainability stops at the
+Gilded Sword. The equipment stays OOT's Kokiri Sword (equip flag, B button, `ITEM_SWORD_KOKIRI`), so everything that
+checks for it is unchanged; MM's Razor Sword durability is not ported.
+
+**Gameplay (`soh/soh/Enhancements/combo/ComboChildSwords.cpp`):**
+- Damage: `CollisionCheck_ApplyDamage` (guarded) multiplies hits carrying `DMG_SLASH_KOKIRI`, `DMG_SPIN_KOKIRI` or
+  `DMG_JUMP_KOKIRI` by 2 (Razor) or 3 (Gilded); zero-damage table entries stay zero.
+- Models: `VB_PLAYER_OVERRIDE_LIMB_DRAW` / `_PAUSE` replace child Link's Kokiri-Sword hand and sheath display lists
+  (matched by OOT resource name, near and far LOD) with MM's `gLinkHuman*RazorSword*` / `*GildedSword*` by "@mm:"
+  path; sheath variants that carry the Deku Shield add OOT's `gLinkChildDekuShieldWithMatrixDL`. A Hylian Shield on
+  the back keeps OOT's combined model.
+- Icon and name: `gItemIcons[ITEM_SWORD_KOKIRI]` is pointed at MM's Razor/Gilded icon each frame (restored at
+  tier 0), and `VB_DRAW_CUSTOM_ITEM_NAME` supplies MM's name texture on the equipment page.
+
+**Logic:** only the Kokiri Sword, as before; the upgrades are out of logic. **Shared Items:** "Shared Kokiri Sword"
+(below). OOT's progressive copies placed in MM draw as OOT's Kokiri Sword.
+
+### Shared Kokiri Sword (OoTMM `sharedSwords`) (2026-10-16)
+
+A Shared Items family, `SF_CHILD_SWORDS` (key `childSwords`, CVar `gCombo.Rando.Shared.ChildSwords`, menu label
+"Shared Kokiri Sword"): OOT's Kokiri Sword and its two Progressive Kokiri Swords (Extra Child Swords) are three
+progressive child swords for both games, and MM's Progressive Swords are trimmed from its pool. The tiers are
+Kokiri, Razor, Gilded in both games: OOT's equip flag + `RAND_INF_OBTAINED_COMBO_RAZOR/GILDED_SWORD`, MM's sword
+equip value (counting a sword the Takkuri stole, like `ConvertItem`, so a theft isn't undone; the Fierce Deity's
+Sword never counts). Raises use `RG_KOKIRI_SWORD` / `RG_COMBO_RAZOR_SWORD` / `RG_COMBO_GILDED_SWORD` and MM's
+`RI_PROGRESSIVE_SWORD`. Two-way, so MM's starting Kokiri Sword also gives OOT its Kokiri Sword once both saves
+sync (OOT's logic doesn't expect it; that only makes the seed easier).
+
+- **Two OOT names:** `SharedFamilyDef` gained `ootAltName` (here "Kokiri Sword", beside "Progressive Kokiri Sword").
+  The trim count, the fill's MM mirror (`CrossWorldRando.h`, `ComboPlaythrough.h`), the shared-item hint lookup
+  (`CrossHints.h`), the cross-game suffix (`CrossForeign.h`) and `SharedUntaggedNames` count both names
+  (`SharedFamilyOotNameMatches` / `SharedFamilyOotCount`).
+- **Needs Extra Child Swords**, like OoTMM: without it OOT has one sword tier and MM would lose its Razor and Gilded
+  Swords, so a family with an alt name is only effective when OOT's pool has its main name (the log says "OOT pool
+  has no 'Progressive Kokiri Sword', left MM copies alone").
+
+Tested headless: 2/2 seeds pass with it and Extra Child Swords on (2 MM swords trimmed), and with Extra Child Swords
+off it stays unshared. In game: OOT raised Kokiri → Gilded, MM raised Kokiri → Gilded.
+
+### OOT items in MM: Stone of Agony, Fairy Ocarina, Short Hookshot, Deku Stick & Nut upgrades (2026-10-12)
+
+OoTMM's `stoneAgonyMm`, `fairyOcarinaMm`, `shortHookshotMm` and `sticksNutsUpgradesMm`. MM options
+`RO_CROSS_STONE_AGONY`, `RO_CROSS_OCARINA_FAIRY`, `RO_CROSS_HOOKSHOT_SHORT`, `RO_CROSS_STICKS_NUTS` (Item Pool, default
+off). Gameplay in `mm/2s2h/Rando/MiscBehavior/CrossUpgrades.cpp` (C ABI in `CrossGear.h`).
+
+- **Stone of Agony:** `RI_STONE_OF_AGONY` / `RANDO_INF_OBTAINED_STONE_OF_AGONY`. MM already rumbles near secrets
+  (`Player_DetectSecrets`); with the option on that rumble waits for the Stone (`Combo_Upgrades_SecretRumble`,
+  guarded in `z_player.c`), and each rumble flashes OOT's 24x24 Stone of Agony icon above the rupee counter
+  (`OnInterfaceDrawStart`, OoTMM's `Interface_AgonyIconDraw`). Out of logic (OoTMM's `MM_HIDDEN_GROTTOS` trick on).
+- **Fairy Ocarina:** a second `RI_OCARINA` in the pool. `ConvertItem` turns the first one (the starting ocarina too)
+  into `RI_OCARINA_FAIRY`: MM's own `ITEM_OCARINA_OF_TIME` plus `RANDO_INF_COMBO_OCARINA_IS_FAIRY`, so it plays every
+  song (OoTMM's `has_ocarina` counts the Fairy Ocarina) and logic is unchanged. The next `RI_OCARINA` clears the
+  marker. While marked: OOT's icon (`gItemIcons[ITEM_OCARINA_OF_TIME]`, swapped each frame and C/D-pad icons
+  reloaded), OOT's pause name (`z_kaleido_scope_NES.c`), OOT's `gLinkChildRightHandHoldingFairyOcarinaNearDL` in
+  human Link's hand (`Combo_Tools_RightHandDL`, `PLAYER_MODELTYPE_RH_INSTRUMENT`).
+- **Short Hookshot:** a second `RI_HOOKSHOT`; the first becomes `RI_HOOKSHOT_SHORT` (MM's Hookshot plus
+  `RANDO_INF_COMBO_HOOKSHOT_IS_SHORT`). `ArmsHook_Wait` flies 13 frames instead of 26 (OoTMM's
+  `ArmsHook_SetTimerAndParent`) and the first-person reticle uses OOT's Hookshot range (38600 vs 77600); MM's
+  Hookshot icon (OOT's until 2026-10-16). MM's logic `HAS_ITEM(ITEM_HOOKSHOT)` (`Logic.h`) ignores a Short Hookshot, so logic needs both copies
+  (OoTMM's `can_hookshot`; its `can_hookshot_short` uses are not ported).
+- **Deku Stick & Nut upgrades:** `RI_PROGRESSIVE_STICK_UPGRADE` / `RI_PROGRESSIVE_NUT_UPGRADE` x2 each, raising MM's
+  leftover `UPG_DEKU_STICKS` / `UPG_DEKU_NUTS` (sticks 10/20/30, nuts 20/30/40) and refilling what is owned. They don't
+  grant sticks/nuts themselves. No `sticksNutsUpgradesInitial`.
+
+**Shared Items:** `stoneAgony` (OOT's `QUEST_STONE_OF_AGONY`), `stickUpgrades` + `nutUpgrades` (one menu toggle,
+"Shared Deku Sticks & Nuts"; tier = upgrades past the first capacity in both games, OOT's Deku Stick/Nut Bag included).
+`hookshot` now holds two MM tiers: with the Short Hookshot, OOT's Hookshot/Longshot pair with MM's Short Hookshot/
+Hookshot; without it MM's Hookshot comes with the first copy and the second is ignored there. No Shared Ocarinas yet.
+MM's copies placed in OOT draw OOT's own models (`ComboCrossGearNativeOOT`).
+
+## Ageless items (OoTMM `items.ageless`) (2026-10-12)
+
+Twelve OOT options, `RSK_COMBO_AGELESS_SWORDS/SHIELDS/TUNICS/BOOTS/STICKS/BOOMERANG/HAMMER/HOOKSHOT/SLINGSHOT/BOW/
+CHILD_TRADE/STRENGTH` (`ComboAgeless*` CVars, Logic section of the OOT randomizer menu, default off): OoTMM's
+`agelessSwords` ... `agelessStrength`. Each lets Link use that group at either age.
+
+- **In game (`soh/soh/Enhancements/combo/ComboAgeless.cpp`):** SoH's "Timeless Equipment" cheat split per group on
+  the same checks. `VB_ITEM_MEETS_AGE_REQ` / `VB_SLOT_MEETS_AGE_REQ` handlers map item ids / inventory slots to
+  their group (bow covers the magic arrows and quivers, slingshot the bullet bags, child trade the whole child trade
+  slot including masks and the MM masks). `CHECK_AGE_REQ_EQUIP` (`z_kaleido_scope.h`, guarded) also asks
+  `Combo_Ageless_Equip(type)`, since its `VB_PLAYER_MEETS_AGE_REQ` carries only the age; `Player_GetStrength`
+  (guarded) returns the full upgrade with ageless strength. Models are the game's per-age ones, as with the cheat.
+- **Logic (`Logic::CanUse`, guarded):** the `// || HookshotAsChild` placeholders become `|| ctx->GetOption(...)`.
+  Region rules that pair an explicit age with the item (`IsAdult && logic->CanUse(RG_HOOKSHOT)`, ~100 of them) are
+  left alone, so logic under-credits ageless items there rather than assuming a child can make an adult-only reach.
+- **Not ported:** `agelessGFS` (OOT has no Great Fairy's Sword) and `agelessSoaring` (ComboShip's Song of Soaring in
+  OOT already works and is in logic at both ages).
+- **Child Link's gear (2026-10-16):** child Link now wears what he can use.
+  - Iron and Hover Boots, and Silver and Golden Gauntlets, use OoTMM's child-sized meshes
+    (`soh/soh/Enhancements/combo/ComboChildGearMeshes.c`). The boots are the same meshes MM's human Link wears; the
+    gauntlets are OoTMM's `DrawChildGauntlets`. They are drawn in `Player_DrawImpl` (`z_player_lib.c`, guarded), with
+    OOT adult Link's textures and the cosmetics editor's gauntlet colors. The Goron Bracelet shows only at bracelet
+    strength.
+  - An adult sword (Master Sword, Giant's Knife, Biggoron's Sword) with no shield or the Deku Shield: OOT drew its
+    swordless child models, so the sword was missing from his back. With SoH's "Show Age-Dependent Equipment" he now
+    wears adult Link's sheath (moved and scaled like SoH's other adult gear when "Scale Adult Equipment as Child" is on)
+    with the Deku Shield over it; without it, his own sheath, matching the Kokiri Sword model in his hand
+    (`OverrideChildAdultSwordSheath`, `ComboAgeless.cpp`, through `VB_PLAYER_OVERRIDE_LIMB_DRAW`). The Hylian and
+    Mirror Shield cases were already handled by SoH. The pause-menu Link is unchanged.
+
+## Cross-Games Farore's Wind (OoTMM `crossGameFw`) (2026-10-12, a point per game 2026-10-17)
+
+MM option `RO_CROSS_GAME_FW` (Item Pool, under Farore's Wind; it needs `RO_CROSS_SPELL_WIND`). Each game keeps its own
+Farore's Wind point, and casting in one game offers to warp to the other game's point (the teleport songs'
+`Combo_RequestCrossSwitch`), spawning there and using that point up. **Deviation:** OoTMM has one point across both
+games (setting it in one game replaces the other's); ComboShip keeps both and asks which one, as requested.
+
+What casting does (the same in both games; "here" is the game cast in, "there" the other one):
+
+| Points | Prompt | Choices |
+| --- | --- | --- |
+| none | none | sets a point here (spends magic) |
+| here only | "Warp to the warp point?" (OOT: its own box) | Return / Dispel / Exit |
+| there only | "There is a warp point in Hyrule/Termina." | Warp to Hyrule/Termina / Set a warp point here (spends magic) / Exit |
+| both | as "here only"; Return then asks "which point?" | Termina / Hyrule (each game lists its own first) |
+
+Opening a prompt is free, like OOT's. Dispel only clears this game's point.
+
+- **Protocol (`combo/rando/CrossFw.h`):** each DLL exports `<GAME>_ComboFw(op)` on its own save (state, the point's
+  entrance, arm the arrival, clear a legacy marker) and takes a peer callback from the launcher
+  (`<GAME>_SetComboFwPeer`) that forwards to the other game while both halves of the slot are resident
+  (`combo/ComboShip.cpp`). Dormant writes persist immediately, like dormant item grants. `CFW_MARK_CROSS` is a no-op
+  now; a "lives over there" marker saved by the one-point version (`CFW_CROSS`) reads as no point and is dropped.
+- **MM (`CrossSpells.cpp`):** the point lives in the save (`RandoSaveInfo::comboFwState` / `comboFw`, JSON
+  `comboFwState` / `comboFw`, tolerant), with or without the option. `FwPrompt` drives the boxes (`CustomMessage`,
+  laid out by hand: `\x11` new line, `\xC2` / `\xC3` choices). `title_setup.c` (guarded) calls
+  `Combo_MM_ApplyFwArrival` after a cross arrival: entrance, `respawn[RESPAWN_MODE_HUMAN]` and `respawnFlag` from the
+  point.
+- **OOT (`soh/soh/Enhancements/combo/ComboCrossFw.cpp`):** OOT's own point is `gSaveContext.fw` as always.
+  `z_player.c` (guarded): `Player_UseItem` / `Player_ActionHandler_13` open the prompt when only Termina has a point,
+  and `Player_Action_8085063C` shows `TEXT_COMBO_FW_THERE` (Termina only) or OOT's own box, then `TEXT_COMBO_FW_WHICH`
+  after Return when both exist (`OnOpenText` hooks load the `CustomMessage`s). "Set a warp point here" runs OOT's normal
+  cast (`func_8083AF44`), so magic and the point work as vanilla. OOT's two-choice box only indents lines from the
+  third on, so the "which point?" question takes two lines. `title_setup.c` calls `Combo_OoT_ApplyFwArrival`:
+  `respawnFlag` 3 with `respawn[RESPAWN_MODE_TOP]` from the point, like OOT's own return. OOT stores its point from the
+  room-entry respawn (`fw.pos = respawn[RESPAWN_MODE_DOWN]`), so arriving from Termina lands there, as OOT's own return
+  from another area does.
+- **Not ported:** OoTMM keeps one point per age; SoH already keeps OOT's per age, MM keeps one.
+- **Known:** a point set while standing in the Clock Tower's doorway in South Clock Town respawns Link on the door's
+  exit, which carries him back to Hyrule (`SCENE_INSIDETOWER` spawn 1 is the way back).
+
+Also: MM's `title_setup.c` now includes `consolevariablebridge.h` for its Remember Save Location `CVarGetInteger`
+(an implicit declaration clang rejects).
+
+## Cross-Games Age (OoTMM `crossAge`) (2026-10-12)
+
+Majora's Mask played at Ocarina of Time's age. The setting is the MM option `RO_CROSS_GAME_AGE` (Item Pool tab,
+"Cross-Games Age"); the sections below cover the setting, the adult model, the age requirements and the logic.
+
+### Cross-Games Age: the setting (2026-10-12)
+
+- **Entering Termina:** when Link crosses from Hyrule (the Happy Mask Shop, a teleport song, Cross-Games Farore's
+  Wind), the launcher passes OOT Link's age (`SOH_ComboLinkIsAdult` -> `MM_SetComboEntryAge`) and MM takes it as it
+  loads the save (`Combo_AdultLink_ApplyEntryAge` in `title_setup.c`). Resuming a slot last saved in MM keeps the age
+  MM was saved at (as OoTMM, whose MM save carries the age). The age lives in the MM save
+  (`shipSaveInfo.rando.comboLinkAdult`).
+- **Per-age loadout (OoTMM `Age_SwapEquipmentMm`):** each age keeps its own C buttons and worn OOT boots and tunic
+  (`comboAgeLoadout[2]`). The first visit at an age starts from the other age's buttons. On restore each button
+  re-reads its inventory slot (bottle contents, a traded-away deed), except the OOT items that share MM's cycling
+  trade slots, which are never used up. Masks, OOT masks and transformations come off on an age change.
+- **Logic:** the fill reads the same option (the menu's choice for the dump and file creation; the save's afterwards),
+  so the adult pass and the age requirements switch on with it.
+- The developer CVar `gCombo.Dev.MmAdultLink` still forces adult Link (and the age system) for testing.
+
+Tested in game: entering MM from adult OOT Link draws adult Link; swapping ages restores each age's C buttons (two
+OOT items on the same trade slot stay distinct) and Iron Boots. Headless: on with all "Any age" and with three
+adult-only items passes; the same without OOT's Song of Soaring fails with the hint; off passes as before.
+
+### Cross-Games Age: adult Link in MM (2026-10-12)
+
+Human Link can be OOT's adult Link (`mm/2s2h/Rando/MiscBehavior/AdultLink.{h,cpp}`), read when the player actor is
+created (`Player_Init`, human form only, `Combo_AdultLink_IsAdultAge`).
+
+- **Body:** MM's Fierce Deity skeleton is OOT's adult skeleton limb for limb (FD is drawn at 1.5x), so adult Link runs
+  on it at human Link's scale with MM's animations. `Player_Init` (guarded) takes that skeleton and an age-properties
+  entry built from FD's (OOT adult Link's vectors, voice, surface sounds and animations) with OOT's adult sizes, the
+  same values OoTMM writes. `Player_GetHeight` (z_actor.c) returns OOT's adult 68; the leg IK and foot tables use FD's
+  rows, which equal OOT's adult ones.
+- **Model (z_player_lib.c, guarded):** `Player_DrawImpl` wraps the limb override: whatever MM picks per limb becomes
+  OOT adult Link's display list ("@oot:" routing to `object_link_boy`, near/far by LOD), with OOT's adult eyes and
+  mouth on segments 0x08/0x09 and the tunic as the environment color (Kokiri, Goron, Zora). First-person aiming uses
+  OOT's own first-person arms, including the right forearm MM leaves out.
+- **MM gear:** as on OoTMM's adult Link, he carries MM's own gear. MM's human item hands are a call to the closed fist
+  and calls to the item; they are rebuilt with OOT adult Link's fist and the item 1.25x bigger. Sheaths and back
+  shields are 1.25x bigger too. The Ocarina is OOT's adult hand holding the Ocarina of Time. Sword reach follows
+  OoTMM's adult values (4000 Kokiri/Razor, 5500 Gilded/Great Fairy's Sword). The bow string is OOT's adult one.
+- **Masks:** MM's masks and the OOT masks (Gerudo, Skull, Spooky) are scaled 1.25x in head space, OoTMM's adult mask
+  matrix (`mm_adult_link_mask_mtx.bin`). Under hat-like masks (Bunny Hood, Kafei's Mask, Postman's Hat, Captain's
+  Hat) his long cap is hidden.
+- **OOT gear:** Iron and Hover Boots are OOT's adult boot meshes (same skeleton, same limb matrices). Silver and
+  Golden Gauntlets draw OOT's gauntlet plates (open or closed per hand). Bottles use OOT's adult bottle glass,
+  tinted by its contents.
+- **Cross-game tools:** the Megaton Hammer is OOT adult Link's own hammer hand. The Boomerang, Slingshot, Deku Shield
+  and Fairy Ocarina (child items in OOT) are cut out of OOT child Link's meshes and drawn in adult Link's fist. The
+  Slingshot mesh draws the hand first, so its cut drops only the hand's triangles. In first person the Slingshot uses
+  OOT adult Link's bow hand without the bow (as OoTMM does), and its string stretches up to OoTMM's adult 1.65.
+- **Fixes (2026-10-16):**
+  - *Tunic color:* MM's sword, sheath and shield lists set their own environment color, which OOT's tunic is shaded
+    with, so a limb drawn after them could come out the wrong color (a player's Goron Tunic chest turned black with the
+    Mirror Shield and Razor Sword, likely with a sheath mod installed). Every MM gear list built for adult Link now ends
+    by restoring the tunic color (`sTunicEnvDL`, rewritten each frame), and so does the shield on his back
+    (`Combo_AdultLink_RestoreTunicColor`).
+  - *Items held overhead:* the rando's get-item model (`CustomItem.cpp`) sat at human Link's height, in front of adult
+    Link's face; it now uses adult heights (72 in the get-item pose, 68 for quick pickups).
+  - *Riding Epona:* MM's riding animations put adult Link's hips 12.7 units higher than human Link's, so he floated
+    over the saddle; he now sits 12.7 lower while riding and when mounting (`Combo_AdultLink_RiderDrop`, `z_player.c`).
+    Epona is still MM's young horse (OoTMM swaps in its own adult Epona).
+  - *First person:* the Bow and Hookshot are MM's own in adult Link's fist, as in third person, instead of OOT's
+    adult first-person bow and hookshot hands.
+- **Known gaps:** a held Deku Stick and the transformation-mask cutscene items keep MM's child placement. The
+  All-Night and Kamaro masks fit closely enough that adult Link's face shows through at the edges.
+
+### Cross-Games Age: MM age requirements (OoTMM `items.mmAgeRequirements`) (2026-10-12)
+
+OoTMM's "<item> requires Child Link / requires Adult Link" pairs and "Random MM Age Requirements", as one MM option per
+item: `RO_AGE_REQ_<item>` (Any age, Child only, Adult only, Random; `RandoOptionAgeReq`). The 63 items, in OoTMM's
+order, are `mm/2s2h/Rando/MiscBehavior/AgeReqList.h` (an X-macro shared by the option enum, the option table and the
+menu). The module is `AgeRequirements.{h,cpp}`.
+
+- **Only with an adult Link:** the requirements apply, and the menu card (Item Pool tab, "Age Requirements (MM)")
+  shows, only while MM can have an adult Link (the Cross-Games Age setting: `Combo_AdultLink_AgeSystemOn` for a
+  save, `Combo_AdultLink_AgeSystemConfigured` for the menu before one exists). A save created without it stores "Any age" for every item, so no seed can ask for an age
+  MM can't reach.
+- **Random:** resolved when the save is created (native `OnFileCreate` and the combo `MM_InitRandoSaveFile`, with the
+  seed), with OoTMM's solver (`randomizeMmAgeRequirements`): each random item gets a coin flip for its preferred age,
+  and a backtracking search keeps OoTMM's dependencies (Deku Mask with the Swamp Title Deed, Goron Mask with the
+  Mountain Title Deed and the Powder Keg, Zora Mask with the Ocean Title Deed, Strength with the Powder Keg; the
+  Powder Keg may follow either the Goron Mask or Strength when those two differ). Items outside the pool (an OOT item
+  whose option is off) aren't restricted. Its own random stream (splitmix64 from the seed), so it doesn't shift the
+  seed's other rolls; the combo logic will call `Rando::AgeReq::Resolve` with the same seed to agree with the save.
+  If no assignment fits, the random items stay unrestricted (OoTMM throws).
+- **In game:** an item for the other age is greyed out like an item the current form can't use
+  (`VB_ITEM_BE_RESTRICTED`: C buttons, D-pad and pause menu). OoTMM refuses to equip it instead; ComboShip lets it be
+  assigned, unusable. The Fairy Ocarina and Short Hookshot share the Ocarina of Time and Hookshot slots, so the slot
+  follows whichever one Link has. Elemental arrows count while drawn (`ITEM_BOW_FIRE` etc.). Strength upgrades at the
+  wrong age count as none (`Combo_Gear_GetStrength`).
+- **Minigames:** like OoTMM, the Town and Swamp Shooting Galleries and Honey & Darling (bombchus, bombs, bow by day)
+  refuse Link at the wrong age, with their own "no bow" / wrong-form lines (`COMBO_AGE_OK` in `z_en_syateki_man.c`
+  and `z_en_fu.c`).
+- **Not ported yet:** OoTMM also refuses Romani's ranch defense, Cremia's cart escort and Koume's boat archery at the
+  wrong bow age (these lend Link the bow, so they need new dialogue), and drops no arrows or seeds when the Bow or
+  Slingshot belongs to the other age.
+- **Random dependency added by ComboShip:** elemental arrows share the Bow's age (OoTMM can roll a child Bow with adult
+  Light Arrows, which no age can shoot).
+
+### Cross-Games Age: age-aware MM logic (2026-10-12)
+
+The combined fill's MM oracle (`Combo_MM_Rando_GetReachableChecks`, `mm/2s2h/BenPort.cpp`) now explores Termina once
+per age Link can be in it, as OoTMM's pathfinder does:
+
+- **Child** always (the Happy Mask Shop link is child-only in OOT, as in OoTMM). **Adult** when MM can have an adult
+  Link, OOT reports that adult Link can play the Song of Soaring (`CW_OOT_OUT_ADULT_SOAR`: Soaring owned and an adult
+  region reached; fed to MM as `kCwOotAdultSoaring`, `combo/rando/CrossWarpLogic.h`) and an owl statue is active to
+  land on. That is OoTMM's only adult route too (`"MM SOARING"` from OOT's `GLOBAL` area).
+- Regions and their times are tracked per age; MM events are shared (the world remembers them); a check counts when
+  either age reaches it. `HAS_ITEM`, the trade-item flags (`HAS_TRADE_ITEM`) and the OOT masks in MM logic only count
+  an item at an age its requirement allows (`gComboLogicAge`, `Combo_AgeReq_LogicAllowsItem`; an O(1) table, since
+  `HAS_ITEM` runs on every item test). Outside the fill, `gComboLogicAge` is -1 and Link's real age is used.
+- **Owls:** unshuffled owl statues aren't items, so the oracle never owned one. With the age system on, an owl is
+  activated in the search once its statue's check is reachable (at either age), like hitting it in game, and the
+  adult pass starts as soon as one is. The oracle's save state is wiped per query, so this never leaks between
+  searches.
+- **Same "Random" as the save:** the oracle resolves the age requirements with the attempt's combo seed
+  (`Rando::AgeReq::Resolve` in `Combo_MM_Rando_Reset`), the same call `MM_InitRandoSaveFile` makes.
+- **Failure hint:** the MM dump carries `ageNeedsAdult` (some item is adult-only or Random); if the fill then fails
+  without ever getting adult Link into Termina, the error says so and names the Song of Soaring routes.
+- Off (no adult Link), every requirement is "Any age", no adult pass runs and the owned lists and memo keys are
+  unchanged, so existing seeds generate as before.
+
+Tested headless: off and all-"Any age" pass; Bow/Hookshot/Gibdo Mask adult-only passes (the adult pass runs); the
+same with OOT's Song of Soaring removed fails with the hint; a Random subset (non-transformation masks, Bow, Hookshot,
+Bombchu) passes 3/3. Randomizing every item at once usually can't be beaten (e.g. both ocarinas child-only leaves
+adult Link no songs), as in OoTMM.
+
+## Ship of Harkinian's randomizer settings in MM (2026-10-16)
+
+Four of SoH's randomizer settings, which 2Ship's randomizer didn't have, ported to MM's. Each is a new MM rando
+option (`gRando.Options.RO_*`, appended to `RandoOptionId` since save arrays are positional) and follows the seed:
+it is read from the save's `randoSaveOptions`, so the combined fill's MM oracle and the save agree. New items and
+RandoInf flags are appended too. Shared header: `mm/2s2h/Rando/MiscBehavior/SohSettings.h`.
+
+### Shop prices (SoH's shopsanity prices)
+
+**What:** Rando → Check Pool → World & NPCs, under Shops / Tingle Maps: "Shop Prices" with SoH's modes for every
+shuffled shop item and Tingle map. Random (2Ship's own 0-199 roll for every check) stays the default and keeps the RNG
+stream, so default seeds are unchanged.
+
+- Vanilla: MM's prices, read from its shop messages (the Goron Shop's winter ones; Tingle's 5/20/40).
+- Cheap Balanced / Balanced: SoH's tables (0-95 / 0-295 in steps of 5).
+- Fixed / Range: in steps of 5 rupees.
+- Set By Wallet: weights for free, the starting wallet (1-99), the Adult's (100-200), the Giant's (201-500) and the
+  Tycoon's (501-999) Wallets. MM has no "no wallet", so SoH's no-wallet/child weights become free/starting.
+- Affordable (not Fixed): the cheapest price of the wallet a roll needs (0, 5, 100, 205, 505).
+- Prices are capped at the biggest wallet in the seed (999 with the Tycoon's Wallet shuffled, else 500), and
+  `CAN_AFFORD` (Logic.h) now asks for the Giant's Wallet up to 500 and the Tycoon's past it (it assumed 200 max).
+
+`mm/2s2h/Rando/Logic/ShopPrices.cpp` (`RollCheckPrice`, called where `GeneratePools` rolled `Ship_Random(0, 200)`).
+
+### Infinite Upgrades
+
+**What:** Rando → Item Pool → Abilities & Upgrades: Off / Progressive / Condensed Progressive (it replaces the "Coming
+Soon" placeholder). Progressive adds one more copy of each upgrade to the pool; the copy past the last tier is its
+infinite item. Condensed adds none: the copy after the first tier is already infinite (for the Deku Stick & Nut
+Upgrades, whose first tier is MM's own capacity, the first upgrade). Families: bomb bag, quiver, wallet, magic, Bombchu
+Bag, and the Deku Stick & Nut Upgrades when those are on.
+
+An infinite item also raises its upgrade to the last tier (a skipped Condensed tier never leaves logic or capacity
+behind); owned, the ammo / magic / rupees stay full every frame and the ammo count is hidden on C and D-pad buttons
+and in the pause menu (the B button keeps it for minigame ammo). `ConvertItem` gives the infinite item through
+`Rando::InfiniteUpgradeFor`, before the tier switch. `mm/2s2h/Rando/MiscBehavior/InfiniteUpgrades.cpp`.
+
+### Bombchu Bag
+
+**What:** Rando → Item Pool → Abilities & Upgrades: None / Single Bag / Progressive Bags. With a bag on, bombchus
+need it and the bomb bag stops carrying them (`GiveItem`, the oracle's `GiveItemForOracle`, `InfiniteUpgradesGive`).
+Single: one bag holding 40. Progressive: three bags holding 20, 30 and 40 (MM's bomb bag sizes). Owned tiers are
+`RANDO_INF_OBTAINED_BOMBCHU_BAG_*`; a bombchu in the inventory without one (a starting Bombchu) counts as the first.
+The bag is drawn as OOT's Bombchu Bag (`MM_DrawOOTItemByName`), as is the infinite one, like SoH.
+
+**Vendored:** bombchu capacity was the bomb bag's everywhere, so these ask `Combo_Rando_BombchuCapacity()`:
+- `mm/src/code/z_parameter.c` — `Item_Give` (bombchus and refills; refills need the bag), `Inventory_ChangeAmmo`,
+  `Item_CheckObtainabilityImpl` (refills need the bag, not a bomb bag), and the HUD's full-ammo color.
+- `mm/src/overlays/kaleido_scope/ovl_kaleido_scope/z_kaleido_item.c` — the pause menu's full-ammo color.
+- `mm/src/overlays/actors/ovl_En_GirlA/z_en_girla.c` — `EnGirlA_CanBuyBombchus` (unshuffled Bomb Shop bombchus).
+
+`mm/2s2h/Rando/MiscBehavior/BombchuBag.cpp`. Not combined with the Shared Bombchu Bags family, which keeps its own
+behavior (OOT's bag grants MM's bombchus).
+
+### Key Rings
+
+**What:** Rando → Item Pool → Dungeon Items, under Small Keys: Off / Random / Count / Selection, as in SoH. A temple's
+key ring replaces all of its small keys in the pool (`ApplyKeyrings`, `GeneratePools`) and gives them at once: the
+found count logic reads (`foundDungeonKeys`) goes to the temple's total and the keys in hand grow by the difference,
+so the Song of Time keeps restoring them. Random/Count pick temples with the seeded RNG and write them back into
+`RO_KEYRINGS_*`. Vanilla or Start With small keys ignore it (no keys to replace). Own Dungeon confines a ring to its
+temple (`PlacementConstraints.cpp`). Drawn as the temple's small key, fanned out three times.
+`mm/2s2h/Rando/MiscBehavior/Keyrings.cpp`.
+
+### Stick / nut capacity kept on the first pickup
+
+**Vendored:** `mm/src/code/z_parameter.c` `Item_Give` set the stick / nut upgrade back to tier 1 whenever Link had
+none in his inventory, so a capacity upgrade (Deku Stick & Nut Upgrades, Infinite Upgrades) found before the first
+stick or nut was lost. With `COMBO_BUILD` it only sets tier 1 when there is no tier yet.
+
+Tested in game: tier-by-tier conversion and grants for every family in both modes, the HUD hiding the ammo counts,
+both bag modes, key rings (4/4 keys from 1/4), the bombchu bag and key ring models; pools and prices for every mode
+(`GeneratePools` on a live save); headless `comborando`: 3/3 seeds pass with Set By Wallet prices, Tycoon's Wallet,
+Progressive Infinite Upgrades, Progressive Bags, Random key rings and the stick & nut upgrades all on.
+
+## Strength upgrades on human Link in MM, and MM colors for OOT's Link models (2026-10-17)
+
+**Strength (`CrossGear.cpp` `Combo_Gear_DrawStrength`):** with OOT strength in MM (`RO_CROSS_STRENGTH`), human Link
+now wears what he owns, as in OoTMM's MM `Player_Draw` (`DrawGauntlets` / `DrawChildGauntlets`):
+- Goron's Bracelet: OOT child Link's own bracelet (`gLinkChildGoronBraceletDL`, "@oot:" routed).
+- Silver / Golden Gauntlets: OoTMM's child-sized plates (`CrossGearGauntlets.c`, ported from OoTMM's
+  `common/gauntlets.c` + `gauntlets.vtx.inc`; textures are OOT adult Link's), tinted with the cosmetic editor's
+  "Silver/Golden Gauntlets (OoT)" colors; the gem's color is a sub-list rewritten each draw.
+- Adult Link (Cross-Games Age) keeps OOT's adult gauntlets (`AdultLink.cpp`) and, as in OOT, no bracelet.
+
+Drawn from `Player_DrawImpl` (`mm/src/code/z_player_lib.c`, guarded) after the boots, with the same limb matrices.
+
+**Colors (`CrossGearColors.cpp`, `BenGui/CosmeticEditor.cpp`):** new MM cosmetic options, beside "Adult Link Tunic"
+and the gauntlet colors: Adult Link Hair, Adult Link Linen, Adult Link Boots, Goron's Bracelet (OoT), Gauntlets Gem
+(OoT). SoH colors these by patching OOT's display lists in place; MM draws the same lists from OOT's archive, so that
+would recolor OOT's Link too. Instead, while one of these options is set, MM draws its own copy of the list with SoH's
+patches applied at SoH's command indices (`gsDPSetPrimColor` / `gsDPSetGrayscaleColor` / `gsSPGrayscale`), inside a
+`G_COMBO_RM_PUSH("oot")` bracket so the copy's references still resolve in OOT's archive. Unset, MM draws OOT's list,
+so the color follows OOT's cosmetic editor as before. Copies are dropped on the CrossRMRegistry teardown; custom
+(mod) models are left alone, like SoH. Hooked in `Combo_AdultLink_RemapLimb` (every adult limb), the adult gauntlet
+hand plates, and the child bracelet.
+
+Tested in game: the bracelet and both gauntlets on child Link; adult Link with every new color set (hair, linen,
+boots, gauntlets); the bracelet and gem colors on child Link.
+
+## Majora's Mask title screen + file select (2026-10-17)
+
+Item #27 of the 2026-10-13 notes. Settings > "Title & File Select" (`gCombo.FrontEnd`: 0 = Ocarina of Time's, the
+default; 1 = Majora's Mask's). Read by the launcher at startup and whenever a game goes back to its title screen.
+
+**Design.** MM's title screen and file select are the front end, but every file action is still carried out by OOT's
+file select, so the slot/seed machinery is unchanged: MM picks, OOT loads or creates.
+- **Startup (`combo/ComboShip.cpp`):** after the eager MM boot, the loop enters MM first with no file
+  (`MM_ResumeGame(-1)`: Setup -> logo -> title -> file select) instead of `SOH_RunMain`. OOT is booted only when a file
+  is picked (`SOH_ResumeForeground` + `SOH_RunMain`).
+- **Load (`z_file_choose_NES.c` `FileSelect_LoadGame`, guarded):** with the front end on, MM records "load slot N"
+  (`Combo_MM_FrontEndOpenFile`) and its loop ends at the next frame start (return kind 3,
+  `MM_TakeComboFrontEndAction`). The launcher passes it to OOT (`SOH_SetComboFileSelectAction`); OOT's `TitleSetup` goes
+  straight to `FileChoose_Init` while one is pending, and `FileChoose_Main`'s first frame runs `FileChoose_LoadGame` on
+  that slot (`Combo_RunFileSelectAction`). From there it is a normal OOT file-select load: slot bind, and
+  `Combo_ResumeMMIfLastSavedThere` takes the player to MM when the slot was last saved there.
+- **New file (`z_file_nameset_NES.c`, guarded):** MM's name entry confirms "create slot N named X" instead of
+  `Sram_InitSave`. It needs a combo seed: the launcher reloads the remembered one first (`Combo_FrontEndSeedReady`),
+  otherwise MM shows a notification and the name entry stays open. OOT copies the name into the slot's meta info and runs `Sram_InitSave` as its own name entry does, which fires
+  the launcher's new-save handling (MM save, seed bind), then loads the slot. 2ship's New File Setup screen (preset /
+  vanilla or rando / seed) is skipped (`NewFileSetup.cpp`): combo files take the ComboShip seed.
+- **Copy / erase:** erase already wiped both saves and the slot (`gMMComboDeleteForeignSave`); copy now copies the whole
+  slot too (`z_file_copy_erase.c` -> `Combo_FrontEndCopy` -> `Combo_CopyContainer`).
+- **Generation:** the ComboShip menu's Generate is allowed on MM's file select too (`SOH_IsOnComboFileSelect`), and MM's
+  file select drives the main-thread finalize each frame (`Combo_MM_FrontEndFileSelectFrame` -> `SOH_PollComboFinalize`).
+  While a seed generates MM's file select ignores input: the MM reachability searches borrow MM's `gSaveContext`.
+  `SOH_PollComboFinalize` / `SOH_RequestComboReload` now run inside OOT's ResourceManager scope, since MM's is the
+  active one there.
+- **Back to the title:** a reset or owl-save quit in MM (return kinds 1/2) re-enters MM's title instead of OOT's; OOT
+  reaching its own `TitleSetup` (a reset, the credits) asks the launcher (`Combo_FrontEndTakeTitle`), which parks OOT
+  and enters MM's title.
+- **File names (`combo/ComboFileNames.h`):** the two games share the characters but not their codes: MM (and OOT's PAL
+  order) keep A-Z at 0x0A and space at 0x3E, while OOT on an NTSC ROM keeps A-Z at 0xAB and space at 0xDF. OOT's name now
+  goes into a new MM save converted (`SOH_GetCurrentPlayerName`; before this every NTSC-made file's MM name was blank),
+  MM's name entry's name goes into OOT converted back, and MM's file select shows the OOT file's name
+  (`ComboFixupReadSave` in MM's `SaveManager.cpp`), so files made before the fix show their names too.
+- **"ZELDA3" marker:** combo MM saves come from `Sram_InitNewSave`, which leaves MM's file marker empty, so MM's file
+  select read every slot as empty. `ComboFixupReadSave` stamps it on read.
+- **No empty slots from opening it:** MM's file select clears every empty slot when it opens (a null write of the MM
+  section). A null write to a slot with no container on disk is now a no-op (`Combo_WriteGameSave`), instead of making
+  an empty `fileN.combosav`.
+- **First OOT boot after the front end:** OOT's window "running" flag was still off, so OOT quit on its first frame;
+  `SOH_ResumeForeground` turns it back on.
+
+**Tested (Linux build, 2026-10-18):** MM title and file select with three slots; loading an MM-last slot resumes MM, an
+OoT-only slot goes to OOT; a reset from MM and from OOT both return to MM's title; Generate from MM's file select
+finalizes; a new file from MM's name entry ("Ab2.") is created with the seed, starts in Link's house, and its name shows
+on MM's file select and in both games' saves; Copy duplicates the whole slot (both games and the seed); Erase removes
+the slot and leaves no file behind; the Mask Shop still switches to MM in a two-game seed loaded this way.

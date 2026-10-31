@@ -418,6 +418,56 @@ void Rando::StaticData::InitItemTable() {
     // ComboShip (teleport songs): MM's Song of Soaring as an OOT item (RandoInf-backed, drawn as a song note).
     itemTable[RG_SONG_OF_SOARING] =                     Item(RG_SONG_OF_SOARING,                  Text{ "Song of Soaring", "Chant de l'Envol", "Lied des Fluges" },                                                                  ITEMTYPE_ITEM,              GI_MAP,               true,  LOGIC_SONG_OF_SOARING,              RHT_SONG_OF_SOARING,                   RG_SONG_OF_SOARING,                   OBJECT_GI_MELODY,       GID_SONG_PRELUDE,     TEXT_RANDOMIZER_CUSTOM_ITEM, 0x80, CHEST_ANIM_LONG,  ITEM_CATEGORY_MAJOR,  MOD_RANDOMIZER, {"the ", "le ", "das "});
     itemTable[RG_SONG_OF_SOARING].SetCustomDrawFunc(Randomizer_DrawSongOfSoaring);
+    // ComboShip (cross-game items): MM masks in OOT. Drawn with MM's real model ("@mm:"), see draw.cpp.
+    itemTable[RG_COMBO_MASK_BLAST] = Item(RG_COMBO_MASK_BLAST, Text{ "Blast Mask", "Masque d'Explosion", "Explosionsmaske" }, ITEMTYPE_ITEM, RG_COMBO_MASK_BLAST, true, LOGIC_COMBO_MASK_BLAST,
+                           RHT_COMBO_MASK_BLAST, RG_COMBO_MASK_BLAST, OBJECT_GI_TRUTH_MASK, GID_MASK_TRUTH, TEXT_RANDOMIZER_CUSTOM_ITEM, 0x80,
+                           CHEST_ANIM_LONG, ITEM_CATEGORY_MAJOR, MOD_RANDOMIZER, {"the ", "le ", "die "});
+    itemTable[RG_COMBO_MASK_BLAST].SetCustomDrawFunc(Randomizer_DrawComboMmMask);
+    itemTable[RG_COMBO_MASK_STONE] = Item(RG_COMBO_MASK_STONE, Text{ "Stone Mask", "Masque de Pierre", "Steinmaske" }, ITEMTYPE_ITEM, RG_COMBO_MASK_STONE, true, LOGIC_COMBO_MASK_STONE,
+                           RHT_COMBO_MASK_STONE, RG_COMBO_MASK_STONE, OBJECT_GI_TRUTH_MASK, GID_MASK_TRUTH, TEXT_RANDOMIZER_CUSTOM_ITEM, 0x80,
+                           CHEST_ANIM_LONG, ITEM_CATEGORY_MAJOR, MOD_RANDOMIZER, {"the ", "le ", "die "});
+    itemTable[RG_COMBO_MASK_STONE].SetCustomDrawFunc(Randomizer_DrawComboMmMask);
+    itemTable[RG_COMBO_MASK_KAMARO] = Item(RG_COMBO_MASK_KAMARO, Text{ "Kamaro's Mask", "Masque de Kamaro", "Kamaros Maske" }, ITEMTYPE_ITEM, RG_COMBO_MASK_KAMARO, true, LOGIC_COMBO_MASK_KAMARO,
+                           RHT_COMBO_MASK_KAMARO, RG_COMBO_MASK_KAMARO, OBJECT_GI_TRUTH_MASK, GID_MASK_TRUTH, TEXT_RANDOMIZER_CUSTOM_ITEM, 0x80,
+                           CHEST_ANIM_LONG, ITEM_CATEGORY_MAJOR, MOD_RANDOMIZER, {"the ", "le ", "die "});
+    itemTable[RG_COMBO_MASK_KAMARO].SetCustomDrawFunc(Randomizer_DrawComboMmMask);
+    // ComboShip (cross-game items): MM songs in OOT, drawn as MM-tinted song notes (draw.cpp).
+    itemTable[RG_COMBO_SONG_ELEGY] = Item(RG_COMBO_SONG_ELEGY, Text{ "Elegy of Emptiness", "Élégie du Vide", "Hymne der Leere" }, ITEMTYPE_ITEM, RG_COMBO_SONG_ELEGY, true, LOGIC_COMBO_SONG_ELEGY,
+                           RHT_COMBO_SONG_ELEGY, RG_COMBO_SONG_ELEGY, OBJECT_GI_MELODY, GID_SONG_PRELUDE, TEXT_RANDOMIZER_CUSTOM_ITEM, 0x80,
+                           CHEST_ANIM_LONG, ITEM_CATEGORY_MAJOR, MOD_RANDOMIZER, {"the ", "le ", "das "});
+    itemTable[RG_COMBO_SONG_ELEGY].SetCustomDrawFunc(Randomizer_DrawComboMmSong);
+    itemTable[RG_COMBO_SONG_HEALING] = Item(RG_COMBO_SONG_HEALING, Text{ "Song of Healing", "Chant de Soins", "Lied der Befreiung" }, ITEMTYPE_ITEM, RG_COMBO_SONG_HEALING, true, LOGIC_COMBO_SONG_HEALING,
+                           RHT_COMBO_SONG_HEALING, RG_COMBO_SONG_HEALING, OBJECT_GI_MELODY, GID_SONG_PRELUDE, TEXT_RANDOMIZER_CUSTOM_ITEM, 0x80,
+                           CHEST_ANIM_LONG, ITEM_CATEGORY_MAJOR, MOD_RANDOMIZER, {"the ", "le ", "das "});
+    itemTable[RG_COMBO_SONG_HEALING].SetCustomDrawFunc(Randomizer_DrawComboMmSong);
+    itemTable[RG_COMBO_SONG_SONATA] = Item(RG_COMBO_SONG_SONATA, Text{ "Sonata of Awakening", "Sonate de l'Éveil", "Sonate des Erwachens" }, ITEMTYPE_ITEM, RG_COMBO_SONG_SONATA, true, LOGIC_COMBO_SONG_SONATA,
+                           RHT_COMBO_SONG_SONATA, RG_COMBO_SONG_SONATA, OBJECT_GI_MELODY, GID_SONG_PRELUDE, TEXT_RANDOMIZER_CUSTOM_ITEM, 0x80,
+                           CHEST_ANIM_LONG, ITEM_CATEGORY_MAJOR, MOD_RANDOMIZER, {"the ", "le ", "das "});
+    itemTable[RG_COMBO_SONG_SONATA].SetCustomDrawFunc(Randomizer_DrawComboMmSong);
+    itemTable[RG_COMBO_SONG_GORON] = Item(RG_COMBO_SONG_GORON, Text{ "Goron Lullaby", "Berceuse des Gorons", "Goronisches Schlaflied" }, ITEMTYPE_ITEM, RG_COMBO_SONG_GORON, true, LOGIC_COMBO_SONG_GORON,
+                           RHT_COMBO_SONG_GORON, RG_COMBO_SONG_GORON, OBJECT_GI_MELODY, GID_SONG_PRELUDE, TEXT_RANDOMIZER_CUSTOM_ITEM, 0x80,
+                           CHEST_ANIM_LONG, ITEM_CATEGORY_MAJOR, MOD_RANDOMIZER, {"the ", "le ", "das "});
+    itemTable[RG_COMBO_SONG_GORON].SetCustomDrawFunc(Randomizer_DrawComboMmSong);
+    itemTable[RG_COMBO_SONG_BOSSA] = Item(RG_COMBO_SONG_BOSSA, Text{ "New Wave Bossa Nova", "Bossa-nova des Flots", "Bossa Nova des Meeres" }, ITEMTYPE_ITEM, RG_COMBO_SONG_BOSSA, true, LOGIC_COMBO_SONG_BOSSA,
+                           RHT_COMBO_SONG_BOSSA, RG_COMBO_SONG_BOSSA, OBJECT_GI_MELODY, GID_SONG_PRELUDE, TEXT_RANDOMIZER_CUSTOM_ITEM, 0x80,
+                           CHEST_ANIM_LONG, ITEM_CATEGORY_MAJOR, MOD_RANDOMIZER, {"the ", "le ", "das "});
+    itemTable[RG_COMBO_SONG_BOSSA].SetCustomDrawFunc(Randomizer_DrawComboMmSong);
+    itemTable[RG_COMBO_SONG_OATH] = Item(RG_COMBO_SONG_OATH, Text{ "Oath to Order", "Hymne de l'Appel", "Hymne des Appells" }, ITEMTYPE_ITEM, RG_COMBO_SONG_OATH, true, LOGIC_COMBO_SONG_OATH,
+                           RHT_COMBO_SONG_OATH, RG_COMBO_SONG_OATH, OBJECT_GI_MELODY, GID_SONG_PRELUDE, TEXT_RANDOMIZER_CUSTOM_ITEM, 0x80,
+                           CHEST_ANIM_LONG, ITEM_CATEGORY_MAJOR, MOD_RANDOMIZER, {"the ", "le ", "das "});
+    itemTable[RG_COMBO_SONG_OATH].SetCustomDrawFunc(Randomizer_DrawComboMmSong);
+    // ComboShip (cross-game items): progressive child sword, Kokiri -> Razor -> Gilded (item.cpp resolves it). The two
+    // upgrades are MM's swords, drawn with MM's real models ("@mm:", draw.cpp).
+    itemTable[RG_COMBO_PROGRESSIVE_CHILD_SWORD] = Item(RG_COMBO_PROGRESSIVE_CHILD_SWORD, Text{ "Progressive Kokiri Sword", "Épée Kokiri (prog.)", "Kokiri-Schwert (Upgrade)" }, ITEMTYPE_ITEM, GI_SWORD_KOKIRI, true, LOGIC_COMBO_PROGRESSIVE_CHILD_SWORD,
+                           RHT_COMBO_PROGRESSIVE_CHILD_SWORD, ITEM_CATEGORY_MAJOR, {"a ", "une ", "ein "}, "%g");
+    itemTable[RG_COMBO_RAZOR_SWORD] = Item(RG_COMBO_RAZOR_SWORD, Text{ "Razor Sword", "Épée Rasoir", "Schmiedeschwert" }, ITEMTYPE_ITEM, RG_COMBO_RAZOR_SWORD, true, LOGIC_COMBO_RAZOR_SWORD,
+                           RHT_COMBO_RAZOR_SWORD, RG_COMBO_RAZOR_SWORD, OBJECT_GI_SWORD_1, GID_SWORD_KOKIRI, TEXT_RANDOMIZER_CUSTOM_ITEM, 0x80,
+                           CHEST_ANIM_LONG, ITEM_CATEGORY_MAJOR, MOD_RANDOMIZER, {"the ", "l'", "das "});
+    itemTable[RG_COMBO_RAZOR_SWORD].SetCustomDrawFunc(Randomizer_DrawComboMmSword);
+    itemTable[RG_COMBO_GILDED_SWORD] = Item(RG_COMBO_GILDED_SWORD, Text{ "Gilded Sword", "Épée Dorée", "Goldenes Schwert" }, ITEMTYPE_ITEM, RG_COMBO_GILDED_SWORD, true, LOGIC_COMBO_GILDED_SWORD,
+                           RHT_COMBO_GILDED_SWORD, RG_COMBO_GILDED_SWORD, OBJECT_GI_SWORD_1, GID_SWORD_KOKIRI, TEXT_RANDOMIZER_CUSTOM_ITEM, 0x80,
+                           CHEST_ANIM_LONG, ITEM_CATEGORY_MAJOR, MOD_RANDOMIZER, {"the ", "l'", "das "});
+    itemTable[RG_COMBO_GILDED_SWORD].SetCustomDrawFunc(Randomizer_DrawComboMmSword);
 #endif
     itemTable[RG_OCARINA_C_UP_BUTTON] =                 Item(RG_OCARINA_C_UP_BUTTON,              Text{ "Ocarina C Up Button", "Touche C-Haut de l'Ocarina", "C-Oben-Taste der Okarina" },                                             ITEMTYPE_ITEM,              GI_MAP,               true,  LOGIC_OCARINA_C_UP_BUTTON,          RHT_OCARINA_C_UP_BUTTON,               RG_OCARINA_C_UP_BUTTON,               OBJECT_GI_MAP,          GID_STONE_OF_AGONY,   TEXT_RANDOMIZER_CUSTOM_ITEM, 0x80, CHEST_ANIM_LONG,  ITEM_CATEGORY_MAJOR,  MOD_RANDOMIZER, {"the ", "la ", "den "});
     itemTable[RG_OCARINA_C_UP_BUTTON].SetCustomDrawFunc(Randomizer_DrawOcarinaButton);

@@ -8,6 +8,11 @@
 #include "overlays/effects/ovl_Effect_Ss_Solder_Srch_Ball/z_eff_ss_solder_srch_ball.h"
 
 #include "2s2h/GameInteractor/GameInteractor.h"
+#ifdef COMBO_BUILD
+#include "2s2h/Rando/MiscBehavior/CrossGear.h"
+// ComboShip (cross-game items): OOT's Skull Mask counts as the Stone Mask for this actor (OoTMM).
+#define Player_GetMask(play) ((PlayerMask)Combo_Gear_GetMaskSkullAsStone(play))
+#endif
 
 #define FLAGS (ACTOR_FLAG_MINIMAP_ICON_ENABLED)
 

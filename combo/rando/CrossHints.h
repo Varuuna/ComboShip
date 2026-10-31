@@ -315,17 +315,17 @@ inline nlohmann::json Generate(uint32_t masterSeed, const std::string& sohDumpJs
     auto placements = ParseSpoilerPlacements(spoilerJson, sohDumpJson, mmDumpJson);
     // Shared Items: point MM's item-location hints at the OOT copy of a trimmed family.
     {
-        uint32_t sharedMask = 0;
+        SharedMask sharedMask = 0;
         try {
             sharedMask =
                 SharedMaskFromKeys(nlohmann::json::parse(spoilerJson).value("sharedItems", nlohmann::json::array()));
         } catch (...) {}
         for (int i = 0; sharedMask != 0 && i < SF_COUNT; ++i) {
             const auto& def = SharedFamilyByIndex(i);
-            if (!(sharedMask & (1u << i)) || !def.mmHasItem || mmItemLocations.contains(def.mmName))
+            if (!(sharedMask & SharedBit(i)) || !def.mmHasItem || mmItemLocations.contains(def.mmName))
                 continue;
             for (const auto& p : placements) {
-                if (p.itemGame != GAME_OOT || p.item != def.ootName)
+                if (p.itemGame != GAME_OOT || !SharedFamilyOotNameMatches(def, p.item))
                     continue;
                 if (p.checkGame == GAME_OOT) {
                     auto ca = ootChecks.find(p.check);

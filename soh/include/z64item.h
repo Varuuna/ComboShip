@@ -311,6 +311,13 @@ typedef enum {
     /* 0x9B */ ITEM_NUT_UPGRADE_40,
     /* 0x9C */ ITEM_CUSTOM,
     /* 0x9D */ ITEM_ROCS_FEATHER,
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): MM masks worn in OOT. Child trade cycle items, toggled from a C button.
+    /* 0x9E */ ITEM_COMBO_MASK_BLAST,
+    /* 0x9F */ ITEM_COMBO_MASK_STONE,
+    /* 0xA0 */ ITEM_COMBO_MASK_KAMARO,
+    /* 0xA1 */ ITEM_COMBO_TABLE_SIZE, // gItemIcons / gItemSlots cover ids below this
+#endif
     /* 0xFC */ ITEM_LAST_USED = 0xFC,
     /* 0xFE */ ITEM_NONE_FE = 0xFE,
     /* 0xFF */ ITEM_NONE = 0xFF

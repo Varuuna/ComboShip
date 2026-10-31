@@ -5,7 +5,8 @@
 #include "2s2h/Rando/Rando.h"
 #include "2s2h_assets.h"
 #ifdef COMBO_BUILD
-#include "2s2h/Rando/MiscBehavior/MiscBehavior.h" // ComboShip: MM_LookupForeign for foreign-item name substitution
+#include "2s2h/Rando/MiscBehavior/MiscBehavior.h"    // ComboShip: MM_LookupForeign for foreign-item name substitution
+#include "2s2h/Rando/MiscBehavior/CrossItemAssets.h" // ComboShip: OOT icons for cross-game items
 #endif
 
 extern "C" {
@@ -282,6 +283,64 @@ std::map<RandoItemId, RandoStaticItem> Items = {
     // mailbox. The spoilerName ("RI_COMBO_FOREIGN", via the #id macro) is what the combo generator
     // writes into the MM placement payload (GetItemIdFromName -> RI_COMBO_FOREIGN).
     RI(RI_COMBO_FOREIGN,              "",     "Combo Foreign Item",         RITYPE_JUNK,            ITEM_NONE,                       GI_RUPEE_BLUE,               GID_RUPEE_BLUE),
+    // ComboShip (cross-game items): OOT gear usable in MM (MiscBehavior/CrossGear.cpp). No MM GetItem/draw
+    // ids: DrawItem renders OOT's model by name, GiveItem sets RandoInf flags + the trade slot. Boots and
+    // tunics carry their ITEM_COMBO_* id (pause-menu cycle + C-button use); scales/strength are passive.
+    RI(RI_BOOTS_IRON,                 "the",  "Iron Boots",                 RITYPE_MAJOR,           ITEM_COMBO_BOOTS_IRON,           GI_NONE,                     GID_NONE),
+    RI(RI_BOOTS_HOVER,                "the",  "Hover Boots",                RITYPE_MAJOR,           ITEM_COMBO_BOOTS_HOVER,          GI_NONE,                     GID_NONE),
+    RI(RI_TUNIC_GORON,                "a",    "Goron Tunic",                RITYPE_MAJOR,           ITEM_COMBO_TUNIC_GORON,          GI_NONE,                     GID_NONE),
+    RI(RI_TUNIC_ZORA,                 "a",    "Zora Tunic",                 RITYPE_MAJOR,           ITEM_COMBO_TUNIC_ZORA,           GI_NONE,                     GID_NONE),
+    RI(RI_PROGRESSIVE_SCALE,          "a",    "Progressive Scale",          RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    RI(RI_SCALE_SILVER,               "the",  "Silver Scale",               RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    RI(RI_SCALE_GOLDEN,               "the",  "Golden Scale",               RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    RI(RI_PROGRESSIVE_STRENGTH,       "a",    "Strength Upgrade",           RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    RI(RI_STRENGTH_GORONS_BRACELET,   "the",  "Goron's Bracelet",           RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    RI(RI_STRENGTH_SILVER_GAUNTLETS,  "the",  "Silver Gauntlets",           RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    RI(RI_STRENGTH_GOLDEN_GAUNTLETS,  "the",  "Golden Gauntlets",           RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    RI(RI_MASK_GERUDO,                "the",  "Gerudo Mask",                RITYPE_MAJOR,           ITEM_COMBO_MASK_GERUDO,          GI_NONE,                     GID_NONE),
+    RI(RI_MASK_SKULL,                 "the",  "Skull Mask",                 RITYPE_MAJOR,           ITEM_COMBO_MASK_SKULL,           GI_NONE,                     GID_NONE),
+    RI(RI_MASK_SPOOKY,                "the",  "Spooky Mask",                RITYPE_MAJOR,           ITEM_COMBO_MASK_SPOOKY,          GI_NONE,                     GID_NONE),
+    // OOT songs playable in MM (MiscBehavior/CrossSongs.cpp). No quest bit: owned as a RandoInf flag.
+    RI(RI_SONG_ZELDA,                 "",     "Zelda's Lullaby",            RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    // OOT spells cast by human Link in MM (MiscBehavior/CrossSpells.cpp), from the trade-slot cycles.
+    RI(RI_SPELL_FIRE,                 "",     "Din's Fire",                 RITYPE_MAJOR,           ITEM_COMBO_SPELL_FIRE,           GI_NONE,                     GID_NONE),
+    RI(RI_SPELL_WIND,                 "",     "Farore's Wind",              RITYPE_MAJOR,           ITEM_COMBO_SPELL_WIND,           GI_NONE,                     GID_NONE),
+    RI(RI_SPELL_LOVE,                 "",     "Nayru's Love",               RITYPE_MAJOR,           ITEM_COMBO_SPELL_LOVE,           GI_NONE,                     GID_NONE),
+    // OOT tools used by human Link in MM (MiscBehavior/CrossTools.cpp): Hammer, Boomerang and Slingshot from the
+    // trade-slot cycles; the Deku Shield is equipped like the Hero's Shield (no inventory item).
+    RI(RI_HAMMER,                     "the",  "Megaton Hammer",             RITYPE_MAJOR,           ITEM_COMBO_HAMMER,               GI_NONE,                     GID_NONE),
+    RI(RI_BOOMERANG,                  "the",  "Boomerang",                  RITYPE_MAJOR,           ITEM_COMBO_BOOMERANG,            GI_NONE,                     GID_NONE),
+    RI(RI_SLINGSHOT,                  "the",  "Fairy Slingshot",            RITYPE_MAJOR,           ITEM_COMBO_SLINGSHOT,            GI_NONE,                     GID_NONE),
+    RI(RI_SHIELD_DEKU,                "a",    "Deku Shield",                RITYPE_LESSER,          ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    // OOT items in MM (MiscBehavior/CrossUpgrades.cpp). The Fairy Ocarina and the Short Hookshot are MM's own ocarina /
+    // hookshot in the inventory, marked as the first tier; the capacity upgrades raise MM's own stick/nut upgrades.
+    RI(RI_STONE_OF_AGONY,             "the",  "Stone of Agony",             RITYPE_LESSER,          ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    RI(RI_OCARINA_FAIRY,              "the",  "Fairy Ocarina",              RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    RI(RI_HOOKSHOT_SHORT,             "the",  "Short Hookshot",             RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    RI(RI_PROGRESSIVE_STICK_UPGRADE,  "a",    "Progressive Stick Capacity", RITYPE_LESSER,          ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    RI(RI_DEKU_STICK_UPGRADE_20,      "a",    "Deku Stick Capacity (20)",   RITYPE_LESSER,          ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    RI(RI_DEKU_STICK_UPGRADE_30,      "a",    "Deku Stick Capacity (30)",   RITYPE_LESSER,          ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    RI(RI_PROGRESSIVE_NUT_UPGRADE,    "a",    "Progressive Nut Capacity",   RITYPE_LESSER,          ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    RI(RI_DEKU_NUT_UPGRADE_30,        "a",    "Deku Nut Capacity (30)",     RITYPE_LESSER,          ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    RI(RI_DEKU_NUT_UPGRADE_40,        "a",    "Deku Nut Capacity (40)",     RITYPE_LESSER,          ITEM_NONE,                       GI_NONE,                     GID_NONE),
+    // Ship of Harkinian's "Infinite Upgrades" (MiscBehavior/InfiniteUpgrades.cpp): drawn as the last tier.
+    RI(RI_BOMB_BAG_INF,               "the",  "Infinite Bomb Bag",          RITYPE_LESSER,          ITEM_NONE,                       GI_NONE,                     GID_BOMB_BAG_40),
+    RI(RI_QUIVER_INF,                 "the",  "Infinite Quiver",            RITYPE_LESSER,          ITEM_NONE,                       GI_NONE,                     GID_QUIVER_50),
+    RI(RI_WALLET_INF,                 "the",  "Infinite Wallet",            RITYPE_LESSER,          ITEM_NONE,                       GI_NONE,                     GID_WALLET_GIANT),
+    RI(RI_MAGIC_INF,                  "the",  "Infinite Magic Meter",       RITYPE_LESSER,          ITEM_NONE,                       GI_NONE,                     GID_MAGIC_JAR_BIG),
+    RI(RI_STICK_UPGRADE_INF,          "",     "Infinite Stick Capacity",    RITYPE_LESSER,          ITEM_NONE,                       GI_NONE,                     GID_DEKU_STICK),
+    RI(RI_NUT_UPGRADE_INF,            "",     "Infinite Nut Capacity",      RITYPE_LESSER,          ITEM_NONE,                       GI_NONE,                     GID_DEKU_NUTS),
+    RI(RI_BOMBCHU_INF,                "",     "Infinite Bombchus",          RITYPE_LESSER,          ITEM_NONE,                       GI_NONE,                     GID_BOMBCHU),
+    // Ship of Harkinian's "Bombchu Bag" (MiscBehavior/BombchuBag.cpp): drawn as OOT's Bombchu Bag.
+    RI(RI_PROGRESSIVE_BOMBCHU_BAG,    "a",    "Bombchu Bag",                RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_BOMBCHU),
+    RI(RI_BOMBCHU_BAG_20,             "a",    "Bombchu Bag (20)",           RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_BOMBCHU),
+    RI(RI_BOMBCHU_BAG_30,             "a",    "Bombchu Bag (30)",           RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_BOMBCHU),
+    RI(RI_BOMBCHU_BAG_40,             "a",    "Bombchu Bag (40)",           RITYPE_MAJOR,           ITEM_NONE,                       GI_NONE,                     GID_BOMBCHU),
+    // Ship of Harkinian's "Key Rings": every small key of one temple.
+    RI(RI_WOODFALL_KEYRING,           "the",  "Woodfall Key Ring",          RITYPE_SMALL_KEY,       ITEM_NONE,                       GI_NONE,                     GID_KEY_SMALL),
+    RI(RI_SNOWHEAD_KEYRING,           "the",  "Snowhead Key Ring",          RITYPE_SMALL_KEY,       ITEM_NONE,                       GI_NONE,                     GID_KEY_SMALL),
+    RI(RI_GREAT_BAY_KEYRING,          "the",  "Great Bay Key Ring",         RITYPE_SMALL_KEY,       ITEM_NONE,                       GI_NONE,                     GID_KEY_SMALL),
+    RI(RI_STONE_TOWER_KEYRING,        "the",  "Stone Tower Key Ring",       RITYPE_SMALL_KEY,       ITEM_NONE,                       GI_NONE,                     GID_KEY_SMALL),
 };
 
 std::map<StartingItemCategory, std::vector<RandoItemId>> StartingItemsMap = {
@@ -319,6 +378,15 @@ std::map<StartingItemCategory, std::vector<RandoItemId>> StartingItemsMap = {
           RI_FROG_BLUE, RI_FROG_CYAN,   RI_FROG_PINK,   RI_FROG_WHITE,
           RI_TIME_DAY_1, RI_TIME_NIGHT_1, RI_TIME_DAY_2, RI_TIME_NIGHT_2, RI_TIME_DAY_3, RI_TIME_NIGHT_3, RI_TIME_PROGRESSIVE,
           RI_OCARINA_BUTTON_A, RI_OCARINA_BUTTON_C_DOWN, RI_OCARINA_BUTTON_C_RIGHT, RI_OCARINA_BUTTON_C_LEFT, RI_OCARINA_BUTTON_C_UP,
+#ifdef COMBO_BUILD
+          // ComboShip (cross-game items)
+          RI_BOOTS_IRON, RI_BOOTS_HOVER, RI_TUNIC_GORON, RI_TUNIC_ZORA, RI_PROGRESSIVE_SCALE, RI_PROGRESSIVE_STRENGTH,
+          RI_MASK_GERUDO, RI_MASK_SKULL, RI_MASK_SPOOKY, RI_SONG_ZELDA,
+          RI_SPELL_FIRE, RI_SPELL_WIND, RI_SPELL_LOVE,
+          RI_HAMMER, RI_BOOMERANG, RI_SLINGSHOT, RI_SHIELD_DEKU,
+          RI_STONE_OF_AGONY, RI_PROGRESSIVE_STICK_UPGRADE, RI_PROGRESSIVE_NUT_UPGRADE,
+          RI_PROGRESSIVE_BOMBCHU_BAG, // Ship of Harkinian's "Bombchu Bag"
+#endif
         } }, 
 };
 
@@ -326,6 +394,10 @@ std::map<RandoItemId, u8> MaxStartingItemsMap = {
     { RI_PROGRESSIVE_SWORD, 3 }, { RI_PROGRESSIVE_BOMB_BAG, 3 }, { RI_PROGRESSIVE_WALLET, 2 },
     { RI_PROGRESSIVE_BOW, 3 },   { RI_PROGRESSIVE_LULLABY, 2 },  { RI_PROGRESSIVE_MAGIC, 2 },
     { RI_TIME_PROGRESSIVE, 6 },
+#ifdef COMBO_BUILD
+    { RI_PROGRESSIVE_SCALE, 2 }, { RI_PROGRESSIVE_STRENGTH, 3 }, // ComboShip (cross-game items)
+    { RI_PROGRESSIVE_BOMBCHU_BAG, 3 },                            // Ship of Harkinian's "Bombchu Bag"
+#endif
 };
 // clang-format on
 
@@ -435,6 +507,86 @@ u8 GetIconForZMessage(RandoItemId randoItemId) {
 
 const char* GetIconTexturePath(RandoItemId randoItemId) {
     switch (randoItemId) {
+#ifdef COMBO_BUILD
+        // ComboShip (cross-game items): OOT icons ("@oot:" routed, CrossItemAssets.h).
+        case RI_BOOTS_IRON:
+            return gComboIconBootsIronTex;
+        case RI_BOOTS_HOVER:
+            return gComboIconBootsHoverTex;
+        case RI_TUNIC_GORON:
+            return gComboIconTunicGoronTex;
+        case RI_TUNIC_ZORA:
+            return gComboIconTunicZoraTex;
+        case RI_PROGRESSIVE_SCALE:
+        case RI_SCALE_SILVER:
+            return gComboIconScaleSilverTex;
+        case RI_SCALE_GOLDEN:
+            return gComboIconScaleGoldenTex;
+        case RI_PROGRESSIVE_STRENGTH:
+        case RI_STRENGTH_GORONS_BRACELET:
+            return gComboIconGoronsBraceletTex;
+        case RI_STRENGTH_SILVER_GAUNTLETS:
+            return gComboIconSilverGauntletsTex;
+        case RI_STRENGTH_GOLDEN_GAUNTLETS:
+            return gComboIconGoldenGauntletsTex;
+        case RI_MASK_GERUDO:
+            return gComboIconMaskGerudoTex;
+        case RI_MASK_SKULL:
+            return gComboIconMaskSkullTex;
+        case RI_MASK_SPOOKY:
+            return gComboIconMaskSpookyTex;
+        case RI_SPELL_FIRE:
+            return gComboIconDinsFireTex;
+        case RI_SPELL_WIND:
+            return gComboIconFaroresWindTex;
+        case RI_SPELL_LOVE:
+            return gComboIconNayrusLoveTex;
+        case RI_HAMMER:
+            return gComboIconHammerTex;
+        case RI_BOOMERANG:
+            return gComboIconBoomerangTex;
+        case RI_SLINGSHOT:
+            return gComboIconSlingshotTex;
+        case RI_SHIELD_DEKU:
+            return gComboIconShieldDekuTex;
+        case RI_STONE_OF_AGONY:
+            return gComboIconStoneOfAgonyTex;
+        case RI_OCARINA_FAIRY:
+            return gComboIconOcarinaFairyTex;
+        case RI_HOOKSHOT_SHORT:
+            return (const char*)gItemIconHookshotTex; // MM's own Hookshot icon
+        case RI_PROGRESSIVE_STICK_UPGRADE:
+        case RI_DEKU_STICK_UPGRADE_20:
+        case RI_DEKU_STICK_UPGRADE_30:
+            return (const char*)gItemIcons[ITEM_DEKU_STICK];
+        case RI_PROGRESSIVE_NUT_UPGRADE:
+        case RI_DEKU_NUT_UPGRADE_30:
+        case RI_DEKU_NUT_UPGRADE_40:
+        case RI_NUT_UPGRADE_INF:
+            return (const char*)gItemIcons[ITEM_DEKU_NUT];
+        // Ship of Harkinian's "Infinite Upgrades", "Bombchu Bag" and "Key Rings".
+        case RI_STICK_UPGRADE_INF:
+            return (const char*)gItemIcons[ITEM_DEKU_STICK];
+        case RI_BOMB_BAG_INF:
+            return (const char*)gItemIcons[ITEM_BOMB_BAG_40];
+        case RI_QUIVER_INF:
+            return (const char*)gItemIcons[ITEM_QUIVER_50];
+        case RI_WALLET_INF:
+            return (const char*)gItemIcons[ITEM_WALLET_GIANT];
+        case RI_MAGIC_INF:
+            return (const char*)gItemIcons[ITEM_MAGIC_JAR_BIG];
+        case RI_BOMBCHU_INF:
+        case RI_PROGRESSIVE_BOMBCHU_BAG:
+        case RI_BOMBCHU_BAG_20:
+        case RI_BOMBCHU_BAG_30:
+        case RI_BOMBCHU_BAG_40:
+            return (const char*)gItemIcons[ITEM_BOMBCHU];
+        case RI_WOODFALL_KEYRING:
+        case RI_SNOWHEAD_KEYRING:
+        case RI_GREAT_BAY_KEYRING:
+        case RI_STONE_TOWER_KEYRING:
+            return (const char*)gItemIcons[ITEM_KEY_SMALL];
+#endif
         case RI_BOMBCHU:
         case RI_BOMBCHU_5:
             return (const char*)gItemIcons[ITEM_BOMBCHU];
@@ -599,6 +751,7 @@ const char* GetIconTexturePath(RandoItemId randoItemId) {
         case RI_SONG_REQUIEM:
         case RI_SONG_NOCTURNE:
         case RI_SONG_PRELUDE:
+        case RI_SONG_ZELDA: // ComboShip (cross-game items)
             // ComboShip (teleport songs): no MM icon of their own; the soaring note stands in (they soar to OOT).
             return (const char*)gItemIcons[ITEM_SONG_SOARING];
 #endif

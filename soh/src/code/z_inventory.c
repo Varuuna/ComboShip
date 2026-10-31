@@ -4,6 +4,9 @@
 #include "textures/icon_item_24_static/icon_item_24_static.h"
 #include "textures/parameter_static/parameter_static.h"
 #include <soh_assets.h>
+#ifdef COMBO_BUILD
+#include "soh/Enhancements/combo/ComboMmAssets.h"
+#endif
 
 // Bit Flag array in which gBitFlags[n] is literally (1 << n)
 u32 gBitFlags[] = {
@@ -199,6 +202,12 @@ void* gItemIcons[] = {
     "", // ITEM_CUSTOM
     // Start custom items
     gRocsFeatherTex,
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): MM masks worn in OOT (ITEM_COMBO_MASK_*), MM's own icons via "@mm:".
+    gComboMmIconBlastMaskTex,
+    gComboMmIconStoneMaskTex,
+    gComboMmIconKamaroMaskTex,
+#endif
 };
 
 // Used to map item IDs to inventory slots

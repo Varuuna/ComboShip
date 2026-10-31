@@ -1176,6 +1176,21 @@ void BenMenu::AddEnhancements() {
                               "- Stack with Bunny Hood: Dashing while wearing the Bunny Hood combines both boosts to "
                               "run even faster.")
                      .ComboVec(&dashAfterRollOptions));
+    // ComboShip: SoH's Improved Roll and its steering (Enhancements/Player/ImprovedRoll.cpp).
+    AddWidget(path, "Improved Roll", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.Player.ImprovedRoll")
+        .Options(CheckboxOptions().Tooltip(
+            "Allows Link to chain a new roll by pressing A during a roll, maintaining maximum roll speed."));
+    AddWidget(path, "Improved Roll Steering", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.Player.ImprovedRollSteering")
+        .PreFunc([](WidgetInfo& info) {
+            if (mBenMenu->disabledMap.at(DISABLE_FOR_IMPROVED_ROLL_OFF).active) {
+                info.activeDisables.push_back(DISABLE_FOR_IMPROVED_ROLL_OFF);
+            }
+        })
+        .Options(CheckboxOptions().Tooltip(
+            "Allows slight directional steering with the control stick while rolling. "
+            "Steering is automatically disabled while Z is held, preserving Z-target roll glitch setups."));
     AddWidget(path, "Dpad Equips", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Dpad.DpadEquips")
         .Options(CheckboxOptions().Tooltip("Allows you to equip items to your D-pad."));
@@ -1326,6 +1341,11 @@ void BenMenu::AddEnhancements() {
     AddWidget(path, "Remove Explosive Limit", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Items.RemoveExplosiveLimit")
         .Options(CheckboxOptions().Tooltip("Removes the cap of 3 active explosives being deployed at once."));
+    // ComboShip: SoH's Deku Nuts Explode Bombs (Enhancements/Items/NutsExplodeBombs.cpp).
+    AddWidget(path, "Deku Nuts Explode Bombs", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.Items.NutsExplodeBombs")
+        .Options(CheckboxOptions().Tooltip("Make Deku Nuts explode Bombs, similar to how they interact with Bombchus. "
+                                           "This does not affect Powder Kegs."));
 
     path.column = SECTION_COLUMN_3;
     AddWidget(path, "Saving", WIDGET_SEPARATOR_TEXT);
@@ -2562,7 +2582,11 @@ void BenMenu::InitElement() {
             "Koume is Invincible" } },
         { DISABLE_FOR_INVASION_SKIP,
           { [](disabledInfo& info) -> bool { return CVarGetInteger("gEnhancements.Minigames.SkipRanchInvasion", 0); },
-            "Alien Invasion Skipped" } }
+            "Alien Invasion Skipped" } },
+        // ComboShip: SoH's Improved Roll
+        { DISABLE_FOR_IMPROVED_ROLL_OFF,
+          { [](disabledInfo& info) -> bool { return !CVarGetInteger("gEnhancements.Player.ImprovedRoll", 0); },
+            "Improved Roll is Disabled" } },
     };
 }
 
@@ -2787,6 +2811,13 @@ int32_t BenMenu::EvalDisabledByIndex(int32_t i, const char** outReason) {
     bool d = (w->options && w->options->disabled);
     if (d && outReason) {
         *outReason = w->options->disabledTooltip; // MM: const char* (no .c_str())
+    }
+    // A preFunc that names its reasons (activeDisables) disables the widget too, as Menu::DrawElement does.
+    if (!d && !w->activeDisables.empty()) {
+        d = true;
+        if (outReason) {
+            *outReason = disabledMap.at(w->activeDisables.front()).reason;
+        }
     }
     return d ? 1 : 0;
 }

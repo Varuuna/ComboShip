@@ -2976,6 +2976,53 @@ void FileChoose_DrawRandoSaveVersionWarning(GameState* thisx) {
     CLOSE_DISPS(this->state.gfxCtx);
 }
 
+#ifdef COMBO_BUILD
+// ComboShip (#27, Majora's Mask title screen + file select): MM's file select picked a file and handed it here
+// (OTRGlobals.cpp SOH_SetComboFileSelectAction). 1 = load the slot, 2 = create it first with MM's name entry (converted
+// to OOT's glyph codes) and the loaded combo seed. Loading goes through FileChoose_LoadGame like a
+// real pick, so the launcher's save-load handling (slot bind, resume in MM when it was last played there) is unchanged.
+// Returns 1 once the file is loading; 0 leaves the player on this file select (no seed, or nothing to load).
+extern int gComboFsActionKind;
+extern int gComboFsActionSlot;
+extern u8 gComboFsActionName[8];
+#include "ComboFileNames.h"
+int Combo_FrontEndTakeTitle(void);
+static s32 Combo_RunFileSelectAction(FileChooseContext* this) {
+    const int kind = gComboFsActionKind;
+    const int slot = gComboFsActionSlot;
+    gComboFsActionKind = 0;
+    gComboFsActionSlot = -1;
+    if (slot < 0 || slot > 2) {
+        return 0;
+    }
+    if (kind == 2) {
+        if (!Randomizer_IsSeedGenerated() && !Randomizer_IsSpoilerLoaded()) {
+            SOH_RequestComboReload(NULL); // the remembered seed, as this screen's own first frame would
+        }
+        if (!Randomizer_IsSeedGenerated() && !Randomizer_IsSpoilerLoaded()) {
+            Sfx_PlaySfxCentered(NA_SE_SY_ERROR);
+            return 0;
+        }
+        // MM's name entry typed it in MM's glyph codes; store it in the codes Sram_InitSave's file will use.
+        const int ntsc = !(ResourceMgr_GetGameRegion(0) == GAME_REGION_PAL && gSaveContext.language != LANGUAGE_JPN);
+        for (int i = 0; i < 8; i++) {
+            Save_GetSaveMetaInfo(slot)->playerName[i] = ComboNameCharMmToOot(gComboFsActionName[i], ntsc);
+        }
+        this->buttonIndex = slot;
+        this->questType[slot] = QUEST_RANDOMIZER;
+        gSaveContext.fileNum = slot;
+        u16 dayTime = gSaveContext.dayTime;
+        Sram_InitSave(this); // fires the launcher's new-save handling (MM save, seed bind), as the name entry does
+        gSaveContext.dayTime = dayTime;
+    } else if (!Save_GetSaveMetaInfo(slot)->valid) {
+        return 0;
+    }
+    this->buttonIndex = slot;
+    FileChoose_LoadGame(&this->state);
+    return 1;
+}
+#endif
+
 void FileChoose_Main(GameState* thisx) {
     static void* controlsTextures[] = {
         gFileSelControlsENGTex,
@@ -2989,6 +3036,18 @@ void FileChoose_Main(GameState* thisx) {
     Color_RGB8 helpTextColor = { 100, 255, 255 };
 
     GameInteractor_ExecuteOnFileChooseMain(thisx);
+
+#ifdef COMBO_BUILD
+    if (gComboFsActionKind != 0) {
+        if (Combo_RunFileSelectAction(this)) {
+            return; // loading: nothing to draw on the way out
+        }
+        if (Combo_FrontEndTakeTitle()) {
+            this->state.running = false; // couldn't: back to MM's title (no next gamestate ends OOT's loop)
+            return;
+        }
+    }
+#endif
 
     if (CVarGetInteger(CVAR_COSMETIC("Title.FileChoose.Changed"), 0)) {
         Color_RGB8 backgroundColor =

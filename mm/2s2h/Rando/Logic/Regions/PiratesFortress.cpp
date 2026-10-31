@@ -283,10 +283,20 @@ static RegisterShipInitFunc initFunc([]() {
             CONNECTION(RR_PIRATES_FORTRESS_PLAZA_LEFT_LOWER, HAS_ITEM(ITEM_HOOKSHOT)),
             CONNECTION(RR_PIRATES_FORTRESS_PLAZA_RIGHT, HAS_ITEM(ITEM_HOOKSHOT)),
             // Outside of using Stones Mask you have to deal with this guard in some way.
+#ifdef COMBO_BUILD
+            // ComboShip (cross-game items): OOT's Gerudo Mask gets past this guard (OoTMM can_evade_gerudo).
+            // (Whole invocation guarded: MSVC rejects preprocessor directives inside macro arguments.)
+            CONNECTION(RR_PIRATES_FORTRESS_PLAZA_TOWER, (
+                (HAS_ITEM(ITEM_DEKU_NUT) || HAS_ITEM(ITEM_BOW) || HAS_ITEM(ITEM_HOOKSHOT) || HAS_ITEM(ITEM_MASK_STONE)) ||
+                HAS_COMBO_MASK_GERUDO ||
+                (CAN_BE_DEKU && HAS_MAGIC) || CAN_BE_ZORA
+            )),
+#else
             CONNECTION(RR_PIRATES_FORTRESS_PLAZA_TOWER, (
                 (HAS_ITEM(ITEM_DEKU_NUT) || HAS_ITEM(ITEM_BOW) || HAS_ITEM(ITEM_HOOKSHOT) || HAS_ITEM(ITEM_MASK_STONE)) ||
                 (CAN_BE_DEKU && HAS_MAGIC) || CAN_BE_ZORA
             )),
+#endif
         },
         .events = {
             EVENT(RE_ACCESS_PIRATE_PICTURE, true),

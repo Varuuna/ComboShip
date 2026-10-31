@@ -365,7 +365,7 @@ inline std::string ShownForeignName(const ForeignItem& fi, const char* resolved)
 // Tag a spoiler "foreign" array's displayNames with their home-game suffix for the consolidated file.
 // Every display surface (shops, hints, trackers, toasts) reads displayName, so tag once here.
 // advancement/trap/category are emitted only when meaningful; every loader defaults them.
-inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray, uint32_t sharedMask = 0) {
+inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray, SharedMask sharedMask = 0) {
     nlohmann::json out = nlohmann::json::array();
     for (const auto& fm : foreignArray) {
         std::string checkGame = fm.value("checkGame", "");
@@ -381,7 +381,7 @@ inline nlohmann::json BuildForeignArray(const nlohmann::json& foreignArray, uint
         bool shared = false;
         if (sharedMask != 0 && itemGame == "oot") {
             for (int i = 0; i < SF_COUNT; ++i) {
-                if ((sharedMask & (1u << i)) && itemName == SharedFamilyByIndex(i).ootName) {
+                if ((sharedMask & SharedBit(i)) && SharedFamilyOotNameMatches(SharedFamilyByIndex(i), itemName)) {
                     shared = true;
                     break;
                 }

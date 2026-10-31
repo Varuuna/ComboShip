@@ -1953,6 +1953,29 @@ typedef enum {
     // - `*Actor`
     VB_PLAYER_CUTSCENE_ACTION,
 
+    // ComboShip: SoH's Improved Roll (Enhancements/Player/ImprovedRoll.cpp)
+    // #### `result`
+    // ```c
+    // false
+    // ```
+    // #### `args`
+    // - `*Player`
+    // - `*PlayState`
+    // - `*Input` (sPlayerControlInput)
+    // - `s32` (sPlayerFloorType)
+    VB_PLAYER_ROLL_CHAIN,
+
+    // ComboShip: SoH's Improved Roll Steering (Enhancements/Player/ImprovedRoll.cpp)
+    // #### `result`
+    // ```c
+    // false
+    // ```
+    // #### `args`
+    // - `*Player`
+    // - `*PlayState`
+    // - `s16 yawTarget` (stick world-space yaw, promoted to int in va_list)
+    VB_PLAYER_ROLL_STEER,
+
     // #### `result`
     // ```c
     // true

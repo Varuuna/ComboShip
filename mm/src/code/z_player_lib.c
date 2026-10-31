@@ -4,6 +4,10 @@
  */
 
 #include "global.h"
+#ifdef COMBO_BUILD
+#include "2s2h/Rando/MiscBehavior/CrossGear.h" // ComboShip: cross-game items (OOT gear in MM)
+#include "2s2h/Rando/MiscBehavior/AdultLink.h" // ComboShip: Cross-Games Age (adult Link in MM)
+#endif
 #include "2s2h/GameInteractor/GameInteractor.h"
 
 #include "objects/gameplay_keep/gameplay_keep.h"
@@ -655,6 +659,10 @@ void func_80123140(PlayState* play, Player* player) {
     }
 
     Actor_SetScale(&player->actor, scale);
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): OOT Iron/Hover Boots override the boot index + physics regs.
+    Combo_Gear_ApplyBootData(play, player);
+#endif
 }
 
 // #region 2S2H [Port] Determine if we're using a custom model for link
@@ -1675,6 +1683,14 @@ bool Player_IsBurningStickInRange(PlayState* play, Vec3f* pos, f32 xzRange, f32 
 }
 
 u8 Player_GetStrength(void) {
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): with OOT's strength in the item pool, human Link's strength is OOT's, like
+    // OoTMM's Strength (MM): nothing without the Goron's Bracelet (he can't lift what human Link normally can), the
+    // Bracelet human Link's own, Silver = Zora's heavy-block pushing, Golden = Goron's boulder/keg lifting.
+    if ((GET_PLAYER_FORM == PLAYER_FORM_HUMAN) && Combo_Gear_StrengthReplacesHuman()) {
+        return (u8)Combo_Gear_GetStrength();
+    }
+#endif
     return sPlayerStrengths[GET_PLAYER_FORM];
 }
 
@@ -2052,6 +2068,24 @@ PlayerFaceIndices sPlayerFaces[PLAYER_FACE_MAX] = {
     { PLAYER_EYES_OPEN, PLAYER_MOUTH_SMILE },   // PLAYER_FACE_SMILE
 };
 
+#ifdef COMBO_BUILD
+// ComboShip (Cross-Games Age): adult Link's limbs go through the player's own limb override first, then get OOT's
+// adult display list for whatever it chose.
+static OverrideLimbDrawFlex sComboAdultOverrideLimbDraw;
+
+static s32 Combo_AdultOverrideLimbDraw(PlayState* play, s32 limbIndex, Gfx** dList, Vec3f* pos, Vec3s* rot,
+                                       Actor* actor) {
+    s32 skip = (sComboAdultOverrideLimbDraw != NULL)
+                   ? sComboAdultOverrideLimbDraw(play, limbIndex, dList, pos, rot, actor)
+                   : false;
+
+    Combo_AdultLink_RemapLimb(play, (Player*)actor, limbIndex, (void**)dList, sPlayerLod,
+                              (sComboAdultOverrideLimbDraw == Player_OverrideLimbDrawGameplayFirstPerson) &&
+                                  (((Player*)actor)->unk_AA5 == PLAYER_UNKAA5_3));
+    return skip;
+}
+#endif
+
 // Note the correct pointer to pass as the jointTable is the jointTable pointer from the SkelAnime struct, not the
 // buffer from the Player struct itself since that one may be misaligned.
 void Player_DrawImpl(PlayState* play, void** skeleton, Vec3s* jointTable, s32 dListCount, s32 lod,
@@ -2113,7 +2147,25 @@ void Player_DrawImpl(PlayState* play, void** skeleton, Vec3s* jointTable, s32 dL
         lod = 0;
     }
     sPlayerLod = lod;
+#ifdef COMBO_BUILD
+    // ComboShip (Cross-Games Age): OOT adult Link's face and tunic color, and his display lists per limb.
+    if ((actor != NULL) && Combo_AdultLink_Is((Player*)actor)) {
+        Combo_AdultLink_SetupDraw(play, (Player*)actor, eyeIndex, mouthIndex);
+        sComboAdultOverrideLimbDraw = overrideLimbDraw;
+        overrideLimbDraw = Combo_AdultOverrideLimbDraw;
+    }
+#endif
     SkelAnime_DrawFlexLod(play, skeleton, jointTable, dListCount, overrideLimbDraw, postLimbDraw, actor, lod);
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): OOT boots on human Link's feet. Segment 0x0D still holds this
+    // skeleton's limb matrices, which the boot display lists load (like OoTMM's MM boot meshes).
+    // Adult Link (Cross-Games Age) gets OOT's adult boots there.
+    if ((actor != NULL) && (actor->id == ACTOR_PLAYER) && (playerForm == PLAYER_FORM_HUMAN)) {
+        Combo_AdultLink_DrawGear(play, (Player*)actor);
+        Combo_Gear_DrawBoots(play, (Player*)actor);
+        Combo_Gear_DrawStrength(play, (Player*)actor);
+    }
+#endif
 
     CLOSE_DISPS(play->state.gfxCtx);
 }
@@ -2175,14 +2227,21 @@ void Player_AdjustSingleLeg(PlayState* play, Player* player, SkelAnime* skelAnim
         return;
     }
 
-    sp74 = D_801C0910[player->transformation];
-    sp70 = D_801C0924[player->transformation];
-    sp7C = D_801C0938[player->transformation] - player->unk_AB8;
+#ifdef COMBO_BUILD
+    // ComboShip (Cross-Games Age): adult Link's legs are Fierce Deity's (OOT's adult leg lengths).
+    s32 legForm = Combo_AdultLink_Is(player) ? PLAYER_FORM_FIERCE_DEITY : player->transformation;
+#else
+    s32 legForm = player->transformation;
+#endif
+
+    sp74 = D_801C0910[legForm];
+    sp70 = D_801C0924[legForm];
+    sp7C = D_801C0938[legForm] - player->unk_AB8;
     Matrix_Push();
     Matrix_TranslateRotateZYX(pos, rot);
     Matrix_MultZero(&sp90);
-    Matrix_TranslateRotateZYX(&D_801C08C0[player->transformation], &skelAnime->jointTable[shinLimbIndex]);
-    Matrix_Translate(D_801C08FC[player->transformation], 0.0f, 0.0f, MTXMODE_APPLY);
+    Matrix_TranslateRotateZYX(&D_801C08C0[legForm], &skelAnime->jointTable[shinLimbIndex]);
+    Matrix_Translate(D_801C08FC[legForm], 0.0f, 0.0f, MTXMODE_APPLY);
     Matrix_MultZero(&sp84);
     Matrix_MultVecY(-300.0f, &footprintPos);
     Matrix_Pop();
@@ -2608,6 +2667,60 @@ void func_80125CE0(Player* player, struct_80124618* arg1, Vec3f* pos, Vec3s* rot
     Matrix_Scale(player->unk_AF0[0].x, player->unk_AF0[0].y, player->unk_AF0[0].z, MTXMODE_APPLY);
 }
 
+#ifdef COMBO_BUILD
+// ComboShip (cross-game items): OOT tools in human Link's hands (CrossTools.cpp). The models are OOT's own: the
+// Hammer and the held Boomerang are OOT display lists cut before OOT's fist, drawn after MM's closed fist inside an
+// OOT ResourceManager bracket (their texture/vertex references are OOT's); the Slingshot and the Deku Shield are
+// whole OOT hand display lists, loaded by "@oot:" routed path.
+static const char sComboRmOot[] = "oot";
+
+static Gfx* Combo_HandWithTool(PlayState* play, Gfx* hand, Gfx* tool) {
+    Gfx* dl = GRAPH_ALLOC(play->state.gfxCtx, 5 * sizeof(Gfx));
+    Gfx* d = dl;
+
+    gSPDisplayList(d++, hand);
+    gSPComboRMPush(d++, sComboRmOot);
+    gSPDisplayList(d++, tool);
+    gSPComboRMPop(d++);
+    gSPEndDisplayList(d++);
+    return dl;
+}
+
+static void Combo_OverrideToolHand(PlayState* play, Player* player, s32 limbIndex, Gfx** dList) {
+    Gfx* tool;
+
+    if ((player->transformation != PLAYER_FORM_HUMAN) || (*dList == NULL)) {
+        return;
+    }
+    if (Combo_AdultLink_Is(player)) {
+        // Cross-Games Age: adult Link's own fist (or OOT's whole adult Hammer hand) around the tool.
+        s32 wholeHand = false;
+
+        tool = (Gfx*)Combo_Tools_AdultHandToolDL(
+            player, limbIndex, (limbIndex == PLAYER_LIMB_LEFT_HAND) ? sPlayerLeftHandType : sPlayerRightHandType,
+            &wholeHand);
+        if (tool != NULL) {
+            *dList = wholeHand
+                         ? tool
+                         : Combo_HandWithTool(play, (Gfx*)Combo_AdultLink_ClosedFistDL(limbIndex, sPlayerLod), tool);
+            Combo_AdultLink_KeepHand(limbIndex);
+        }
+        return;
+    }
+    if (limbIndex == PLAYER_LIMB_LEFT_HAND) {
+        tool = (Gfx*)Combo_Tools_LeftHandToolDL(player, sPlayerLeftHandType);
+        if (tool != NULL) {
+            *dList = Combo_HandWithTool(play, gPlayerLeftHandClosedDLs[D_801F59E0 + sPlayerLod], tool);
+        }
+    } else if (limbIndex == PLAYER_LIMB_RIGHT_HAND) {
+        tool = (Gfx*)Combo_Tools_RightHandDL(player, sPlayerRightHandType);
+        if (tool != NULL) {
+            *dList = tool;
+        }
+    }
+}
+#endif
+
 s32 Player_OverrideLimbDrawGameplayDefault(PlayState* play, s32 limbIndex, Gfx** dList, Vec3f* pos, Vec3s* rot,
                                            Actor* actor) {
     Player* player = (Player*)actor;
@@ -2646,6 +2759,9 @@ s32 Player_OverrideLimbDrawGameplayDefault(PlayState* play, s32 limbIndex, Gfx**
 
             *dList = leftHandDLists[sPlayerLod];
             CosmeticEditor_SplitHeldItem(dList, CVAR_COSMETIC("Silly.LinkSwordScale"));
+#ifdef COMBO_BUILD
+            Combo_OverrideToolHand(play, player, limbIndex, dList); // ComboShip: Hammer / Boomerang
+#endif
 
             if (player->transformation == PLAYER_FORM_GORON) {
                 if (BEN_ANIM_EQUAL(player->skelAnime.animation, gPlayerAnim_pg_punchA)) {
@@ -2704,6 +2820,9 @@ s32 Player_OverrideLimbDrawGameplayDefault(PlayState* play, s32 limbIndex, Gfx**
 
                 *dList = rightHandDLists[sPlayerLod];
                 CosmeticEditor_SplitHeldItem(dList, CVAR_COSMETIC("Silly.LinkShieldScale"));
+#ifdef COMBO_BUILD
+                Combo_OverrideToolHand(play, player, limbIndex, dList); // ComboShip: Slingshot / Deku Shield
+#endif
 
                 if (BEN_ANIM_EQUAL(player->skelAnime.animation, gPlayerAnim_pg_punchB)) {
                     func_80125CE0(player, D_801C0784, pos, rot);
@@ -2759,6 +2878,12 @@ s32 Player_OverrideLimbDrawGameplayFirstPerson(PlayState* play, s32 limbIndex, G
             } else {
                 *dList = sPlayerFirstPersonRightHandDLs[player->transformation];
             }
+#ifdef COMBO_BUILD
+            // ComboShip (cross-game items): OOT's first-person child arm drawing the Slingshot.
+            if (Combo_Tools_FirstPersonRightHandDL(player) != NULL) {
+                *dList = (Gfx*)Combo_Tools_FirstPersonRightHandDL(player);
+            }
+#endif
         } else {
             *dList = NULL;
         }
@@ -3750,6 +3875,23 @@ s32 func_80128640(PlayState* play, Player* player, Gfx* dlist) {
         PlayerBottle bottle = Player_BottleFromIA(player, player->itemAction);
         Vec3f* temp_v1_2 = &D_801C0CE8[player->transformation];
 
+#ifdef COMBO_BUILD
+        // ComboShip (Cross-Games Age): OOT adult Link's bottle glass, tinted by its contents like OOT
+        // (Player_PostLimbDrawGameplay, OOT decomp: sBottleDLists / sBottleColors, white when empty).
+        if (Combo_AdultLink_Is(player)) {
+            static Color_RGB8 sComboEmptyBottleColor = { 255, 255, 255 };
+            Color_RGB8* comboColor =
+                (bottle != PLAYER_BOTTLE_EMPTY) ? &sPlayerBottleColors[bottle] : &sComboEmptyBottleColor;
+
+            OPEN_DISPS(play->state.gfxCtx);
+            MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, play->state.gfxCtx);
+            gDPSetEnvColor(POLY_XLU_DISP++, comboColor->r, comboColor->g, comboColor->b, 0);
+            gSPDisplayList(POLY_XLU_DISP++, (Gfx*)Combo_AdultLink_BottleDL());
+            CLOSE_DISPS(play->state.gfxCtx);
+            return true;
+        }
+#endif
+
         OPEN_DISPS(play->state.gfxCtx);
 
         Matrix_Push();
@@ -3804,6 +3946,12 @@ Vec3f sPlayerFootPos[PLAYER_FORM_MAX] = {
 
 void Player_SetFeetPos(PlayState* play, Player* player, s32 limbIndex) {
     Vec3f* footPos = &sPlayerFootPos[player->transformation];
+
+#ifdef COMBO_BUILD
+    if (Combo_AdultLink_Is(player)) { // ComboShip (Cross-Games Age): adult feet
+        footPos = &sPlayerFootPos[PLAYER_FORM_FIERCE_DEITY];
+    }
+#endif
 
     Actor_SetFeetPos(&player->actor, limbIndex, PLAYER_LIMB_LEFT_FOOT, footPos, PLAYER_LIMB_RIGHT_FOOT, footPos);
 }
@@ -3872,6 +4020,11 @@ void Player_PostLimbDrawGameplay(PlayState* play, s32 limbIndex, Gfx** dList1, G
                         D_801C0994->x = player->unk_B0C * 5000.0f;
                     } else {
                         D_801C0994->x = sMeleeWeaponLengths[Player_GetMeleeWeaponHeld(player)];
+#ifdef COMBO_BUILD
+                        // Cross-Games Age: adult Link's longer arms and swords (OoTMM: 4000 / 5500).
+                        D_801C0994->x =
+                            Combo_AdultLink_MeleeWeaponLength(player, Player_GetMeleeWeaponHeld(player), D_801C0994->x);
+#endif
                     }
                     func_80126B8C(play, player);
                 }
@@ -3890,11 +4043,26 @@ void Player_PostLimbDrawGameplay(PlayState* play, s32 limbIndex, Gfx** dList1, G
                 static Vec3f D_801C0D98 = { -35.0f, -395.0f, 0.0f };
                 // Unused
                 static s32 D_801C0DA4 = 0;
+#ifdef COMBO_BUILD
+                // ComboShip (cross-game items): OOT's slingshot string at OOT's child offset (sBowSlingshotStringData).
+                static Vec3f sComboSlingshotStringPos = { 606.0f, 236.0f, 0.0f };
+                // Cross-Games Age: OOT adult Link's bow string where OOT puts it (sBowSlingshotStringData).
+                static Vec3f sComboAdultBowStringPos = { 0.0f, -360.4f, 0.0f };
+                s32 comboAdult = Combo_AdultLink_Is(player);
+                Gfx* comboStringDL = (Gfx*)Combo_Tools_SlingshotStringDL(player);
+                Gfx* comboAdultBowStringDL =
+                    (comboAdult && (comboStringDL == NULL)) ? (Gfx*)Combo_AdultLink_BowStringDL() : NULL;
+                Vec3f* stringPos = (comboStringDL != NULL)           ? &sComboSlingshotStringPos
+                                   : (comboAdultBowStringDL != NULL) ? &sComboAdultBowStringPos
+                                                                     : &D_801C0D98;
+#else
+                Vec3f* stringPos = &D_801C0D98;
+#endif
 
                 OPEN_DISPS(play->state.gfxCtx);
 
                 Matrix_Push();
-                Matrix_Translate(D_801C0D98.x, D_801C0D98.y, D_801C0D98.z, MTXMODE_APPLY);
+                Matrix_Translate(stringPos->x, stringPos->y, stringPos->z, MTXMODE_APPLY);
                 if ((player->stateFlags3 & PLAYER_STATE3_40) && (player->unk_B28 >= 0) && (player->unk_ACC < 0xB)) {
                     Vec3f sp20C;
                     f32 temp_fv0;
@@ -3907,16 +4075,36 @@ void Player_PostLimbDrawGameplay(PlayState* play, s32 limbIndex, Gfx** dList1, G
                         player->unk_B08 = 0.0f;
                     } else {
                         player->unk_B08 *= 1.6f;
+#ifdef COMBO_BUILD
+                        // Cross-Games Age: OoTMM lets adult Link's slingshot string stretch to 1.65.
+                        if (comboAdult && (comboStringDL != NULL) && (player->unk_B08 > 1.65f)) {
+                            player->unk_B08 = 1.65f;
+                        } else if (!(comboAdult && (comboStringDL != NULL)) && (player->unk_B08 > 1.0f)) {
+                            player->unk_B08 = 1.0f;
+                        }
+#else
                         if (player->unk_B08 > 1.0f) {
                             player->unk_B08 = 1.0f;
                         }
+#endif
                     }
                     player->unk_B0C = -0.5f;
                 }
                 Matrix_Scale(1.0f, player->unk_B08, 1.0f, MTXMODE_APPLY);
+#ifdef COMBO_BUILD
+                if ((comboStringDL != NULL) && !comboAdult) {
+                    Matrix_RotateZF(player->unk_B08 * -0.2f, MTXMODE_APPLY); // OOT bends the child's string
+                }
+#endif
 
                 MATRIX_FINALIZE_AND_LOAD(POLY_XLU_DISP++, play->state.gfxCtx);
+#ifdef COMBO_BUILD
+                gSPDisplayList(POLY_XLU_DISP++, (comboStringDL != NULL)           ? comboStringDL
+                                                : (comboAdultBowStringDL != NULL) ? comboAdultBowStringDL
+                                                                                  : D_801C0D94);
+#else
                 gSPDisplayList(POLY_XLU_DISP++, D_801C0D94);
+#endif
 
                 Matrix_Pop();
 
@@ -3958,7 +4146,13 @@ void Player_PostLimbDrawGameplay(PlayState* play, s32 limbIndex, Gfx** dList1, G
                     heldActor->shape.rot = heldActor->world.rot;
                     if (func_800B7128(player)) {
                         Matrix_Translate(500.0f, 300.0f, 0.0f, MTXMODE_APPLY);
+#ifdef COMBO_BUILD
+                        // ComboShip (cross-game items): the Short Hookshot's reticle reaches OOT's Hookshot range.
+                        Player_DrawHookshotReticle(play, player,
+                                                   Combo_Upgrades_HookshotIsShort() ? 38600.0f : 77600.0f);
+#else
                         Player_DrawHookshotReticle(play, player, 77600.0f);
+#endif
                     }
                 }
             } else if (player->meleeWeaponState != PLAYER_MELEE_WEAPON_STATE_0) {
@@ -4054,6 +4248,17 @@ void Player_PostLimbDrawGameplay(PlayState* play, s32 limbIndex, Gfx** dList1, G
                 s32 maskMinusOne = player->currentMask - 1;
 
                 OPEN_DISPS(play->state.gfxCtx);
+#ifdef COMBO_BUILD
+                // ComboShip (Cross-Games Age): MM's masks are made for child Link's head; adult Link's head
+                // limb gets them scaled and moved onto his face (every mask, special ones included).
+                s32 comboAdultMask = Combo_AdultLink_Is(player);
+
+                if (comboAdultMask) {
+                    Matrix_Push();
+                    Combo_AdultLink_MaskTransform();
+                    MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, play->state.gfxCtx);
+                }
+#endif
 
                 if (player->currentMask == PLAYER_MASK_COUPLE) {
                     Player_DrawCouplesMask(play, player);
@@ -4091,6 +4296,11 @@ void Player_PostLimbDrawGameplay(PlayState* play, s32 limbIndex, Gfx** dList1, G
                 }
 
                 gSPDisplayList(POLY_OPA_DISP++, D_801C0B20[maskMinusOne]);
+#ifdef COMBO_BUILD
+                if (comboAdultMask) {
+                    Matrix_Pop();
+                }
+#endif
 
                 CLOSE_DISPS(play->state.gfxCtx);
             }
@@ -4267,7 +4477,28 @@ void Player_PostLimbDrawGameplay(PlayState* play, s32 limbIndex, Gfx** dList1, G
             (player->currentShield != PLAYER_SHIELD_NONE) &&
             ((player->sheathType == PLAYER_MODELTYPE_SHEATH_14) ||
              (player->sheathType == PLAYER_MODELTYPE_SHEATH_15))) {
+#ifdef COMBO_BUILD
+            // ComboShip (cross-game items): the Deku Shield on the back is OOT's own (with its matrix). Cross-Games
+            // Age: adult Link carries it bigger, like the rest of MM's gear.
+            s32 comboAdultShield = Combo_AdultLink_Is(player);
+
+            if (comboAdultShield) {
+                OPEN_DISPS(play->state.gfxCtx);
+                Matrix_Push();
+                Combo_AdultLink_GearTransform();
+                MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, play->state.gfxCtx);
+                CLOSE_DISPS(play->state.gfxCtx);
+            }
+            CosmeticEditor_DrawBackShield(play, (Combo_Tools_BackShieldDL(player) != NULL)
+                                                    ? (Gfx*)Combo_Tools_BackShieldDL(player)
+                                                    : gPlayerShields[2 * ((player->currentShield - 1) ^ 0)]);
+            if (comboAdultShield) {
+                Matrix_Pop();
+                Combo_AdultLink_RestoreTunicColor(play); // MM's shields set their own environment color
+            }
+#else
             CosmeticEditor_DrawBackShield(play, gPlayerShields[2 * ((player->currentShield - 1) ^ 0)]);
+#endif
         }
 
         if (player->actor.scale.y >= 0.0f) {

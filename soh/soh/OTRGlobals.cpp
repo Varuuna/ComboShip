@@ -147,6 +147,7 @@
 #include "soh/SohGui/SohModals.h"
 #ifdef COMBO_BUILD
 #include "ComboMenuSharedContext.h" // ComboShip: shared per-DLL ImGui context helper (combo-owned)
+#include "ComboFileNames.h"         // ComboShip: file-name glyph codes shared with MM
 #include "rando/CrossForeign.h"     // ComboShip (#164): g_comboForeignJson for the hint-key map replay
 #include "rando/SharedItems.h"      // ComboShip: Shared Items family table
 #include "rando/CrossWarpLogic.h"   // ComboShip (teleport songs): cross-game warp logic bits
@@ -2845,9 +2846,11 @@ extern "C" COMBO_EXPORT void SOH_SetOnNewSaveCallback(void (*cb)(int fileNum)) {
 
 // ComboShip: the current save's file name (8 font-code bytes). Valid inside the new-save callback,
 // where the launcher copies it into the matching MM save.
+// Returns the current file's name in MM's glyph codes (ComboFileNames.h).
 extern "C" COMBO_EXPORT void SOH_GetCurrentPlayerName(unsigned char out8[8]) {
     for (int i = 0; i < 8; i++) {
-        out8[i] = gSaveContext.playerName[i];
+        out8[i] =
+            ComboNameCharOotToMm(gSaveContext.playerName[i], gSaveContext.ship.filenameLanguage != NAME_LANGUAGE_PAL);
     }
 }
 
@@ -3306,15 +3309,15 @@ extern "C" COMBO_EXPORT void SOH_RefreshComboStartingGameUI(void) {
 
 // ComboShip: Shared Items (OoTMM-style) — see combo/rando/SharedItems.h. gComboSharedMask shapes the
 // gen-time wallet force (settings.cpp); the ABI below reconciles tiers between OOT and MM at runtime.
-extern "C" int gComboSharedMask = 0;
-extern "C" COMBO_EXPORT void SOH_SetComboSharedItems(uint32_t mask) {
-    gComboSharedMask = static_cast<int>(mask);
+extern "C" uint64_t gComboSharedMask = 0; // ComboRando::SharedMask (64-bit since the cross-game item families)
+extern "C" COMBO_EXPORT void SOH_SetComboSharedItems(ComboRando::SharedMask mask) {
+    gComboSharedMask = mask;
 }
-extern "C" COMBO_EXPORT uint32_t SOH_ReadComboSharedCVars(void) {
-    uint32_t mask = 0;
+extern "C" COMBO_EXPORT ComboRando::SharedMask SOH_ReadComboSharedCVars(void) {
+    ComboRando::SharedMask mask = 0;
     for (int i = 0; i < ComboRando::SF_COUNT; ++i) {
         if (CVarGetInteger(ComboRando::SharedFamilyByIndex(i).cvar, 0)) {
-            mask |= (1u << i);
+            mask |= ComboRando::SharedBit(i);
         }
     }
     return mask;
@@ -3370,6 +3373,78 @@ extern "C" COMBO_EXPORT int SOH_GetSharedTier(int family) try {
         case ComboRando::SF_PRELUDE_OF_LIGHT:
             // QUEST_SONG_MINUET..PRELUDE and the SF_ rows are both contiguous in OOT warp-index order.
             return CHECK_QUEST_ITEM(QUEST_SONG_MINUET + (family - ComboRando::SF_MINUET_OF_FOREST)) ? 1 : 0;
+        // Cross-game items: OOT's own equipment/upgrade values.
+        case ComboRando::SF_IRON_BOOTS:
+            return CHECK_OWNED_EQUIP(EQUIP_TYPE_BOOTS, EQUIP_INV_BOOTS_IRON) ? 1 : 0;
+        case ComboRando::SF_HOVER_BOOTS:
+            return CHECK_OWNED_EQUIP(EQUIP_TYPE_BOOTS, EQUIP_INV_BOOTS_HOVER) ? 1 : 0;
+        case ComboRando::SF_GORON_TUNIC:
+            return CHECK_OWNED_EQUIP(EQUIP_TYPE_TUNIC, EQUIP_INV_TUNIC_GORON) ? 1 : 0;
+        case ComboRando::SF_ZORA_TUNIC:
+            return CHECK_OWNED_EQUIP(EQUIP_TYPE_TUNIC, EQUIP_INV_TUNIC_ZORA) ? 1 : 0;
+        case ComboRando::SF_SCALES:
+            return CUR_UPG_VALUE(UPG_SCALE);
+        case ComboRando::SF_STRENGTH:
+            return CUR_UPG_VALUE(UPG_STRENGTH);
+        case ComboRando::SF_ELEGY:
+            return Flags_GetRandomizerInf(RAND_INF_OBTAINED_COMBO_SONG_ELEGY) ? 1 : 0;
+        case ComboRando::SF_SONG_OF_HEALING:
+            return Flags_GetRandomizerInf(RAND_INF_OBTAINED_COMBO_SONG_HEALING) ? 1 : 0;
+        case ComboRando::SF_SONATA:
+            return Flags_GetRandomizerInf(RAND_INF_OBTAINED_COMBO_SONG_SONATA) ? 1 : 0;
+        case ComboRando::SF_BOSSA_NOVA:
+            return Flags_GetRandomizerInf(RAND_INF_OBTAINED_COMBO_SONG_BOSSA) ? 1 : 0;
+        case ComboRando::SF_OATH:
+            return Flags_GetRandomizerInf(RAND_INF_OBTAINED_COMBO_SONG_OATH) ? 1 : 0;
+        case ComboRando::SF_ZELDAS_LULLABY:
+            return CHECK_QUEST_ITEM(QUEST_SONG_LULLABY) ? 1 : 0;
+        case ComboRando::SF_DINS_FIRE:
+            return INV_CONTENT(ITEM_DINS_FIRE) == ITEM_DINS_FIRE ? 1 : 0;
+        case ComboRando::SF_FARORES_WIND:
+            return INV_CONTENT(ITEM_FARORES_WIND) == ITEM_FARORES_WIND ? 1 : 0;
+        case ComboRando::SF_NAYRUS_LOVE:
+            // With Roc's Feather the slot can hold the feather; ownership is then the RandInf flag.
+            return (INV_CONTENT(ITEM_NAYRUS_LOVE) == ITEM_NAYRUS_LOVE ||
+                    Flags_GetRandomizerInf(RAND_INF_OBTAINED_NAYRUS_LOVE))
+                       ? 1
+                       : 0;
+        case ComboRando::SF_HAMMER:
+            return INV_CONTENT(ITEM_HAMMER) == ITEM_HAMMER ? 1 : 0;
+        case ComboRando::SF_BOOMERANG:
+            return INV_CONTENT(ITEM_BOOMERANG) == ITEM_BOOMERANG ? 1 : 0;
+        case ComboRando::SF_SLINGSHOT:
+            return CUR_UPG_VALUE(UPG_BULLET_BAG);
+        case ComboRando::SF_STONE_OF_AGONY:
+            return CHECK_QUEST_ITEM(QUEST_STONE_OF_AGONY) ? 1 : 0;
+        // Upgrades past the first capacity (10 sticks / 20 nuts, or the shuffled Deku Stick / Nut Bag).
+        case ComboRando::SF_STICK_UPGRADES:
+            return std::max(0, (int)CUR_UPG_VALUE(UPG_STICKS) - 1);
+        case ComboRando::SF_NUT_UPGRADES:
+            return std::max(0, (int)CUR_UPG_VALUE(UPG_NUTS) - 1);
+        case ComboRando::SF_BLAST_MASK:
+            return Flags_GetRandomizerInf(RAND_INF_OBTAINED_COMBO_MASK_BLAST) ? 1 : 0;
+        case ComboRando::SF_STONE_MASK:
+            return Flags_GetRandomizerInf(RAND_INF_OBTAINED_COMBO_MASK_STONE) ? 1 : 0;
+        case ComboRando::SF_KAMARO_MASK:
+            return Flags_GetRandomizerInf(RAND_INF_OBTAINED_COMBO_MASK_KAMARO) ? 1 : 0;
+        case ComboRando::SF_GERUDO_MASK:
+            return Flags_GetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_MASK_GERUDO) ? 1 : 0;
+        case ComboRando::SF_SKULL_MASK:
+            return Flags_GetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_MASK_SKULL) ? 1 : 0;
+        case ComboRando::SF_SPOOKY_MASK:
+            return Flags_GetRandomizerInf(RAND_INF_CHILD_TRADES_HAS_MASK_SPOOKY) ? 1 : 0;
+        case ComboRando::SF_SUNS_SONG:
+            return CHECK_QUEST_ITEM(QUEST_SONG_SUN) ? 1 : 0;
+        case ComboRando::SF_SARIAS_SONG:
+            return CHECK_QUEST_ITEM(QUEST_SONG_SARIA) ? 1 : 0;
+        // Shared Kokiri Sword: the Kokiri Sword, then Extra Child Swords' Razor and Gilded (ComboChildSwords.cpp).
+        case ComboRando::SF_CHILD_SWORDS:
+            if (!CHECK_OWNED_EQUIP(EQUIP_TYPE_SWORD, EQUIP_INV_SWORD_KOKIRI)) {
+                return 0;
+            }
+            return Flags_GetRandomizerInf(RAND_INF_OBTAINED_COMBO_GILDED_SWORD)  ? 3
+                   : Flags_GetRandomizerInf(RAND_INF_OBTAINED_COMBO_RAZOR_SWORD) ? 2
+                                                                                 : 1;
         default:
             return 0;
     }
@@ -3463,6 +3538,96 @@ extern "C" COMBO_EXPORT void SOH_RaiseSharedTier(int family, int tier) try {
                 break;
             case ComboRando::SF_PRELUDE_OF_LIGHT:
                 rg = RG_PRELUDE_OF_LIGHT;
+                break;
+            case ComboRando::SF_IRON_BOOTS:
+                rg = RG_IRON_BOOTS;
+                break;
+            case ComboRando::SF_HOVER_BOOTS:
+                rg = RG_HOVER_BOOTS;
+                break;
+            case ComboRando::SF_GORON_TUNIC:
+                rg = RG_GORON_TUNIC;
+                break;
+            case ComboRando::SF_ZORA_TUNIC:
+                rg = RG_ZORA_TUNIC;
+                break;
+            case ComboRando::SF_SCALES:
+                rg = cur == 0 ? RG_SILVER_SCALE : RG_GOLDEN_SCALE;
+                break;
+            case ComboRando::SF_STRENGTH:
+                rg = cur == 0 ? RG_GORONS_BRACELET : cur == 1 ? RG_SILVER_GAUNTLETS : RG_GOLDEN_GAUNTLETS;
+                break;
+            case ComboRando::SF_ELEGY:
+                rg = RG_COMBO_SONG_ELEGY;
+                break;
+            case ComboRando::SF_SONG_OF_HEALING:
+                rg = RG_COMBO_SONG_HEALING;
+                break;
+            case ComboRando::SF_SONATA:
+                rg = RG_COMBO_SONG_SONATA;
+                break;
+            case ComboRando::SF_BOSSA_NOVA:
+                rg = RG_COMBO_SONG_BOSSA;
+                break;
+            case ComboRando::SF_OATH:
+                rg = RG_COMBO_SONG_OATH;
+                break;
+            case ComboRando::SF_ZELDAS_LULLABY:
+                rg = RG_ZELDAS_LULLABY;
+                break;
+            case ComboRando::SF_DINS_FIRE:
+                rg = RG_DINS_FIRE;
+                break;
+            case ComboRando::SF_FARORES_WIND:
+                rg = RG_FARORES_WIND;
+                break;
+            case ComboRando::SF_NAYRUS_LOVE:
+                rg = RG_NAYRUS_LOVE;
+                break;
+            case ComboRando::SF_HAMMER:
+                rg = RG_MEGATON_HAMMER;
+                break;
+            case ComboRando::SF_BOOMERANG:
+                rg = RG_BOOMERANG;
+                break;
+            case ComboRando::SF_SLINGSHOT:
+                rg = cur == 0 ? RG_FAIRY_SLINGSHOT : cur == 1 ? RG_BIG_BULLET_BAG : RG_BIGGEST_BULLET_BAG;
+                break;
+            case ComboRando::SF_STONE_OF_AGONY:
+                rg = RG_STONE_OF_AGONY;
+                break;
+            case ComboRando::SF_STICK_UPGRADES:
+                rg = cur == 0 ? RG_DEKU_STICK_CAPACITY_20 : RG_DEKU_STICK_CAPACITY_30;
+                break;
+            case ComboRando::SF_NUT_UPGRADES:
+                rg = cur == 0 ? RG_DEKU_NUT_CAPACITY_30 : RG_DEKU_NUT_CAPACITY_40;
+                break;
+            case ComboRando::SF_BLAST_MASK:
+                rg = RG_COMBO_MASK_BLAST;
+                break;
+            case ComboRando::SF_STONE_MASK:
+                rg = RG_COMBO_MASK_STONE;
+                break;
+            case ComboRando::SF_KAMARO_MASK:
+                rg = RG_COMBO_MASK_KAMARO;
+                break;
+            case ComboRando::SF_GERUDO_MASK:
+                rg = RG_GERUDO_MASK;
+                break;
+            case ComboRando::SF_SKULL_MASK:
+                rg = RG_SKULL_MASK;
+                break;
+            case ComboRando::SF_SPOOKY_MASK:
+                rg = RG_SPOOKY_MASK;
+                break;
+            case ComboRando::SF_SUNS_SONG:
+                rg = RG_SUNS_SONG;
+                break;
+            case ComboRando::SF_SARIAS_SONG:
+                rg = RG_SARIAS_SONG;
+                break;
+            case ComboRando::SF_CHILD_SWORDS:
+                rg = cur == 0 ? RG_KOKIRI_SWORD : cur == 1 ? RG_COMBO_RAZOR_SWORD : RG_COMBO_GILDED_SWORD;
                 break;
             default:
                 break;
@@ -3774,6 +3939,7 @@ extern "C" COMBO_EXPORT void SOH_SetTargetEntrance(int entrance) {
     gComboTargetEntrance = entrance;
 }
 
+extern "C" int gComboFsActionKind; // ComboShip (#27), defined with the front-end exports below
 extern "C" COMBO_EXPORT void SOH_ResumeGame(void) {
     auto ctx = Ship::Context::GetRawInstance();
     // Flush every log line immediately so the resume diagnostics survive a hard crash (the console
@@ -3804,7 +3970,8 @@ extern "C" COMBO_EXPORT void SOH_ResumeGame(void) {
     if (sComboResetPending && gSaveContext.fileNum != 0xFF) {
         GameInteractor_ExecuteOnExitGame(gSaveContext.fileNum);
     }
-    gComboReturnFileNum = sComboResetPending ? -1 : (s32)gSaveContext.fileNum;
+    // ComboShip (#27): a file action from MM's file select goes to OOT's file select, never straight into a slot.
+    gComboReturnFileNum = (sComboResetPending || gComboFsActionKind != 0) ? -1 : (s32)gSaveContext.fileNum;
     if (sComboResetPending) {
         gComboTargetEntrance = -1; // a reset return boots to the title; never carry an armed target there
     }
@@ -3825,6 +3992,11 @@ extern "C" COMBO_EXPORT void SOH_ResumeGame(void) {
 extern "C" COMBO_EXPORT void SOH_ResumeForeground(void) {
     auto ctx = Ship::Context::GetRawInstance();
     SOH_ReinitForResume(); // OOT RM active, OOT audio, OOT GUI + menu
+    // ComboShip (#27): with MM's title screen first, MM's loop cleared the shared window's running flag on its way out;
+    // re-arm it or OOT's first loop (SOH_RunMain) would return at once.
+    if (auto fast3d = std::dynamic_pointer_cast<Fast::Fast3dWindow>(ctx->GetWindow())) {
+        fast3d->SetIsRunning(true);
+    }
     // Re-sync this DLL's ImGui current-context (GImGui is per-module).
     ImGui::SetCurrentContext(ctx->GetWindow()->GetGui()->GetImGuiContext());
 }
@@ -5374,6 +5546,8 @@ extern "C" COMBO_EXPORT void SOH_SetOnComboFinalizeCallback(int (*cb)()) {
 // Called every frame on the main thread from the file-select loop. Runs the launcher's pending
 // main-thread apply; returns nonzero once generation is fully resolved (finalized or failed).
 extern "C" COMBO_EXPORT int SOH_PollComboFinalize(void) {
+    // OOT's archive is the active one even when MM's file select (#27 front end) is the screen polling this.
+    Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("oot"));
     const int resolved = gComboFinalizeCallback ? gComboFinalizeCallback() : 1;
     if (resolved) {
         SetComboRandoGenerating(false); // finalized or failed: the file-select loop plays the result sfx
@@ -5389,6 +5563,7 @@ extern "C" COMBO_EXPORT void SOH_SetOnComboReloadCallback(int (*cb)(const char*)
     gComboReloadCallback = cb;
 }
 extern "C" COMBO_EXPORT int SOH_RequestComboReload(const char* path) {
+    Ship::ResourceManagerScope rmScope(Ship::CrossRMRegistry::Get("oot")); // see SOH_PollComboFinalize
     return gComboReloadCallback ? gComboReloadCallback(path) : 0;
 }
 
@@ -5500,6 +5675,57 @@ extern "C" COMBO_EXPORT void SOH_TriggerComboGenerate(void) {
 extern "C" void FileChoose_Main(GameState* thisx);
 extern "C" COMBO_EXPORT uint8_t SOH_IsOnFileSelect(void) {
     return (gPlayState == NULL && gGameState != NULL && gGameState->main == (GameStateFunc)FileChoose_Main) ? 1 : 0;
+}
+
+// ComboShip (#27): title screen + file select front end. 0 = Ocarina of Time's (OOT boots first, as always), 1 =
+// Majora's Mask's: the launcher opens MM's title and file select, and MM's file select hands each file action to OOT's
+// file select (combo/ComboShip.cpp, mm/2s2h/BenPort.cpp). See docs/deviations/rando.md "Majora's Mask title screen".
+extern "C" COMBO_EXPORT int SOH_ReadComboFrontEndCVar(void) {
+    return CVarGetInteger("gCombo.FrontEnd", 0) == 1 ? 1 : 0;
+}
+// MM's file select is up (pushed by the launcher): generation may run there too.
+static int (*gComboMmOnFileSelect)(void) = nullptr;
+extern "C" COMBO_EXPORT void SOH_SetComboMmOnFileSelect(int (*fn)(void)) {
+    gComboMmOnFileSelect = fn;
+}
+// Either game's file select (the combo menu's Generate / plando Save gate).
+extern "C" COMBO_EXPORT uint8_t SOH_IsOnComboFileSelect(void) {
+    return (SOH_IsOnFileSelect() || (gComboMmOnFileSelect != nullptr && gComboMmOnFileSelect() != 0)) ? 1 : 0;
+}
+extern "C" COMBO_EXPORT int SOH_IsComboGenerating(void) {
+    return IsRandoGenerating() ? 1 : 0;
+}
+extern "C" COMBO_EXPORT int SOH_IsComboSeedReady(void) {
+    return (Randomizer_IsSeedGenerated() || Randomizer_IsSpoilerLoaded()) ? 1 : 0;
+}
+// A file action MM's file select asked for, run by OOT's file select the moment it opens (z_file_choose.c): 1 = load
+// the slot, 2 = create it with this name (OOT's filename characters) and load it. TitleSetup goes straight to the file
+// select while one is pending.
+extern "C" int gComboFsActionKind = 0;
+extern "C" int gComboFsActionSlot = -1;
+extern "C" uint8_t gComboFsActionName[8] = { 0 };
+extern "C" COMBO_EXPORT void SOH_SetComboFileSelectAction(int kind, int slot, const uint8_t* name8) {
+    gComboFsActionKind = (slot >= 0 && slot <= 2 && (kind == 1 || kind == 2)) ? kind : 0;
+    gComboFsActionSlot = gComboFsActionKind ? slot : -1;
+    memset(gComboFsActionName, 0, sizeof(gComboFsActionName));
+    if (name8 != nullptr) {
+        memcpy(gComboFsActionName, name8, sizeof(gComboFsActionName));
+    }
+}
+// TitleSetup is about to show OOT's title while the MM front end is on: the launcher takes the player to MM's title
+// instead (returns 1, and OOT then leaves its game loop).
+static int (*gComboFrontEndTitleCb)(void) = nullptr;
+extern "C" COMBO_EXPORT void SOH_SetComboFrontEndTitleCallback(int (*cb)(void)) {
+    gComboFrontEndTitleCb = cb;
+}
+extern "C" int Combo_FrontEndTakeTitle(void) {
+    return (gComboFrontEndTitleCb != nullptr && gComboFrontEndTitleCb() != 0) ? 1 : 0;
+}
+
+// ComboShip (Cross-Games Age): OOT Link's age as he leaves Hyrule; the launcher passes it to MM, which
+// takes it on entry when the setting is on (AdultLink.cpp). 1 adult, 0 child.
+extern "C" COMBO_EXPORT int SOH_ComboLinkIsAdult(void) {
+    return gSaveContext.linkAge == LINK_AGE_ADULT ? 1 : 0;
 }
 
 // ComboShip (#89): leave OOT's game loop before its first Play frame so the launcher can enter MM.
@@ -5614,6 +5840,15 @@ extern "C" COMBO_EXPORT const char* Combo_SOH_Rando_GetReachableChecks(void) {
                              logic->HasItem(RG_OCARINA_C_DOWN_BUTTON) && logic->HasItem(RG_OCARINA_C_LEFT_BUTTON) &&
                              logic->HasItem(RG_OCARINA_C_UP_BUTTON);
         sComboCrossOut = canSoar ? ComboRando::CW_OOT_OUT_CAN_SOAR : 0u;
+        // ComboShip (Cross-Games Age): ... as adult Link, who then lands in Termina as adult. Soaring works at
+        // either age in OOT; adult Link is reachable once any region is reached as adult (the spawn, or beyond the
+        // Door of Time after time travel).
+        const bool adultReachable = RegionTable(RR_ROOT)->Adult() || RegionTable(RR_ROOT_EXITS)->Adult() ||
+                                    RegionTable(RR_ADULT_SPAWN)->Adult() ||
+                                    RegionTable(RR_TOT_BEYOND_DOOR_OF_TIME)->Adult();
+        if (canSoar && adultReachable) {
+            sComboCrossOut |= ComboRando::CW_OOT_OUT_ADULT_SOAR;
+        }
     }
     gComboOracleCrossIn = 0;
 #endif

@@ -2,6 +2,10 @@
 #include "interface/parameter_static/parameter_static.h"
 #include "archives/icon_item_static/icon_item_static_yar.h"
 #include "archives/icon_item_24_static/icon_item_24_static_yar.h"
+#ifdef COMBO_BUILD
+#include "2s2h_assets.h"                             // gEmptyTexture
+#include "2s2h/Rando/MiscBehavior/CrossItemAssets.h" // ComboShip: OOT icons for cross-game items
+#endif
 
 // Bit Flag array in which gBitFlags[n] is (1 << n)
 u32 gBitFlags[] = {
@@ -97,7 +101,11 @@ u32 gGsFlagsShift[] = {
     24,
 };
 
+#ifdef COMBO_BUILD
+TexturePtr gItemIcons[ITEM_COMBO_TABLE_SIZE] = {
+#else
 TexturePtr gItemIcons[] = {
+#endif
     gItemIconOcarinaOfTimeTex,       // ITEM_OCARINA_OF_TIME
     gItemIconBowTex,                 // ITEM_BOW
     gItemIconFireArrowTex,           // ITEM_ARROW_FIRE
@@ -229,10 +237,86 @@ TexturePtr gItemIcons[] = {
     gOcarinaCLeftTex,                // ITEM_INVALID_5
     gOcarinaCRightTex,               // ITEM_INVALID_6
     gOcarinaATex,                    // ITEM_INVALID_7
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): the ids between ITEM_INVALID_7 and ITEM_COMBO_MIN used to fall past the
+    // end of this table (callers then drew gEmptyTexture); keep them empty explicitly.
+    gEmptyTexture, // 0x83
+    gEmptyTexture, // 0x84
+    gEmptyTexture, // 0x85
+    gEmptyTexture, // 0x86
+    gEmptyTexture, // 0x87
+    gEmptyTexture, // 0x88
+    gEmptyTexture, // 0x89
+    gEmptyTexture, // 0x8A
+    gEmptyTexture, // 0x8B
+    gEmptyTexture, // 0x8C
+    gEmptyTexture, // 0x8D
+    gEmptyTexture, // 0x8E
+    gEmptyTexture, // 0x8F
+    gEmptyTexture, // 0x90
+    gEmptyTexture, // 0x91
+    gEmptyTexture, // 0x92
+    gEmptyTexture, // 0x93
+    gEmptyTexture, // 0x94
+    gEmptyTexture, // 0x95
+    gEmptyTexture, // 0x96
+    gEmptyTexture, // 0x97
+    gEmptyTexture, // 0x98
+    gEmptyTexture, // 0x99
+    gEmptyTexture, // 0x9A
+    gEmptyTexture, // 0x9B
+    gEmptyTexture, // 0x9C
+    gEmptyTexture, // 0x9D
+    gEmptyTexture, // 0x9E
+    gEmptyTexture, // 0x9F
+    gEmptyTexture, // 0xA0
+    gEmptyTexture, // 0xA1
+    gEmptyTexture, // 0xA2
+    gEmptyTexture, // 0xA3
+    gEmptyTexture, // 0xA4
+    gEmptyTexture, // 0xA5
+    gEmptyTexture, // 0xA6
+    gEmptyTexture, // 0xA7
+    gEmptyTexture, // 0xA8
+    gEmptyTexture, // 0xA9
+    gEmptyTexture, // 0xAA
+    gEmptyTexture, // 0xAB
+    gEmptyTexture, // 0xAC
+    gEmptyTexture, // 0xAD
+    gEmptyTexture, // 0xAE
+    gEmptyTexture, // 0xAF
+    gEmptyTexture, // 0xB0
+    gEmptyTexture, // 0xB1
+    gEmptyTexture, // 0xB2
+    gEmptyTexture, // 0xB3
+    gEmptyTexture, // 0xB4
+    gEmptyTexture, // 0xB5
+    gEmptyTexture, // 0xB6
+    gEmptyTexture, // 0xB7
+    // OOT icons, routed to OOT's ResourceManager by the "@oot:" texture marker (libultraship
+    // interpreter, LoadTextureResourceRouted; Fast3dGui::LoadGuiTexture for ImGui).
+    [ITEM_COMBO_BOOTS_IRON] = gComboIconBootsIronTex,
+    [ITEM_COMBO_BOOTS_HOVER] = gComboIconBootsHoverTex,
+    [ITEM_COMBO_TUNIC_GORON] = gComboIconTunicGoronTex,
+    [ITEM_COMBO_TUNIC_ZORA] = gComboIconTunicZoraTex,
+    [ITEM_COMBO_MASK_GERUDO] = gComboIconMaskGerudoTex,
+    [ITEM_COMBO_MASK_SKULL] = gComboIconMaskSkullTex,
+    [ITEM_COMBO_MASK_SPOOKY] = gComboIconMaskSpookyTex,
+    [ITEM_COMBO_SPELL_FIRE] = gComboIconDinsFireTex,
+    [ITEM_COMBO_SPELL_WIND] = gComboIconFaroresWindTex,
+    [ITEM_COMBO_SPELL_LOVE] = gComboIconNayrusLoveTex,
+    [ITEM_COMBO_HAMMER] = gComboIconHammerTex,
+    [ITEM_COMBO_BOOMERANG] = gComboIconBoomerangTex,
+    [ITEM_COMBO_SLINGSHOT] = gComboIconSlingshotTex,
+#endif
 };
 
 // Used to map item IDs to inventory slots
+#ifdef COMBO_BUILD
+u8 gItemSlots[ITEM_COMBO_TABLE_SIZE] = {
+#else
 u8 gItemSlots[77] = {
+#endif
     SLOT_OCARINA,            // ITEM_OCARINA_OF_TIME
     SLOT_BOW,                // ITEM_BOW
     SLOT_ARROW_FIRE,         // ITEM_ARROW_FIRE
@@ -310,6 +394,132 @@ u8 gItemSlots[77] = {
     SLOT_BOW,                // ITEM_BOW_FIRE
     SLOT_BOW,                // ITEM_BOW_ICE
     SLOT_BOW,                // ITEM_BOW_LIGHT
+#ifdef COMBO_BUILD
+    // ComboShip (cross-game items): explicit SLOT_NONE up to ITEM_COMBO_MIN. Callers guard with
+    // `itemId < ARRAY_COUNT(gItemSlots) && gItemSlots[itemId] != SLOT_NONE`; a zero-filled gap would
+    // read as SLOT_OCARINA and write those items over the ocarina. (MSVC C has no range designators.)
+    SLOT_NONE, // 0x4D
+    SLOT_NONE, // 0x4E
+    SLOT_NONE, // 0x4F
+    SLOT_NONE, // 0x50
+    SLOT_NONE, // 0x51
+    SLOT_NONE, // 0x52
+    SLOT_NONE, // 0x53
+    SLOT_NONE, // 0x54
+    SLOT_NONE, // 0x55
+    SLOT_NONE, // 0x56
+    SLOT_NONE, // 0x57
+    SLOT_NONE, // 0x58
+    SLOT_NONE, // 0x59
+    SLOT_NONE, // 0x5A
+    SLOT_NONE, // 0x5B
+    SLOT_NONE, // 0x5C
+    SLOT_NONE, // 0x5D
+    SLOT_NONE, // 0x5E
+    SLOT_NONE, // 0x5F
+    SLOT_NONE, // 0x60
+    SLOT_NONE, // 0x61
+    SLOT_NONE, // 0x62
+    SLOT_NONE, // 0x63
+    SLOT_NONE, // 0x64
+    SLOT_NONE, // 0x65
+    SLOT_NONE, // 0x66
+    SLOT_NONE, // 0x67
+    SLOT_NONE, // 0x68
+    SLOT_NONE, // 0x69
+    SLOT_NONE, // 0x6A
+    SLOT_NONE, // 0x6B
+    SLOT_NONE, // 0x6C
+    SLOT_NONE, // 0x6D
+    SLOT_NONE, // 0x6E
+    SLOT_NONE, // 0x6F
+    SLOT_NONE, // 0x70
+    SLOT_NONE, // 0x71
+    SLOT_NONE, // 0x72
+    SLOT_NONE, // 0x73
+    SLOT_NONE, // 0x74
+    SLOT_NONE, // 0x75
+    SLOT_NONE, // 0x76
+    SLOT_NONE, // 0x77
+    SLOT_NONE, // 0x78
+    SLOT_NONE, // 0x79
+    SLOT_NONE, // 0x7A
+    SLOT_NONE, // 0x7B
+    SLOT_NONE, // 0x7C
+    SLOT_NONE, // 0x7D
+    SLOT_NONE, // 0x7E
+    SLOT_NONE, // 0x7F
+    SLOT_NONE, // 0x80
+    SLOT_NONE, // 0x81
+    SLOT_NONE, // 0x82
+    SLOT_NONE, // 0x83
+    SLOT_NONE, // 0x84
+    SLOT_NONE, // 0x85
+    SLOT_NONE, // 0x86
+    SLOT_NONE, // 0x87
+    SLOT_NONE, // 0x88
+    SLOT_NONE, // 0x89
+    SLOT_NONE, // 0x8A
+    SLOT_NONE, // 0x8B
+    SLOT_NONE, // 0x8C
+    SLOT_NONE, // 0x8D
+    SLOT_NONE, // 0x8E
+    SLOT_NONE, // 0x8F
+    SLOT_NONE, // 0x90
+    SLOT_NONE, // 0x91
+    SLOT_NONE, // 0x92
+    SLOT_NONE, // 0x93
+    SLOT_NONE, // 0x94
+    SLOT_NONE, // 0x95
+    SLOT_NONE, // 0x96
+    SLOT_NONE, // 0x97
+    SLOT_NONE, // 0x98
+    SLOT_NONE, // 0x99
+    SLOT_NONE, // 0x9A
+    SLOT_NONE, // 0x9B
+    SLOT_NONE, // 0x9C
+    SLOT_NONE, // 0x9D
+    SLOT_NONE, // 0x9E
+    SLOT_NONE, // 0x9F
+    SLOT_NONE, // 0xA0
+    SLOT_NONE, // 0xA1
+    SLOT_NONE, // 0xA2
+    SLOT_NONE, // 0xA3
+    SLOT_NONE, // 0xA4
+    SLOT_NONE, // 0xA5
+    SLOT_NONE, // 0xA6
+    SLOT_NONE, // 0xA7
+    SLOT_NONE, // 0xA8
+    SLOT_NONE, // 0xA9
+    SLOT_NONE, // 0xAA
+    SLOT_NONE, // 0xAB
+    SLOT_NONE, // 0xAC
+    SLOT_NONE, // 0xAD
+    SLOT_NONE, // 0xAE
+    SLOT_NONE, // 0xAF
+    SLOT_NONE, // 0xB0
+    SLOT_NONE, // 0xB1
+    SLOT_NONE, // 0xB2
+    SLOT_NONE, // 0xB3
+    SLOT_NONE, // 0xB4
+    SLOT_NONE, // 0xB5
+    SLOT_NONE, // 0xB6
+    SLOT_NONE, // 0xB7
+    // OOT items share the trade-slot cycles like OoTMM's extra items.
+    [ITEM_COMBO_BOOTS_IRON] = SLOT_TRADE_KEY_MAMA,
+    [ITEM_COMBO_TUNIC_GORON] = SLOT_TRADE_KEY_MAMA,
+    [ITEM_COMBO_BOOTS_HOVER] = SLOT_TRADE_COUPLE,
+    [ITEM_COMBO_TUNIC_ZORA] = SLOT_TRADE_COUPLE,
+    [ITEM_COMBO_MASK_GERUDO] = SLOT_TRADE_DEED,
+    [ITEM_COMBO_MASK_SKULL] = SLOT_TRADE_KEY_MAMA,
+    [ITEM_COMBO_MASK_SPOOKY] = SLOT_TRADE_COUPLE,
+    [ITEM_COMBO_SPELL_FIRE] = SLOT_TRADE_DEED,
+    [ITEM_COMBO_SPELL_WIND] = SLOT_TRADE_KEY_MAMA,
+    [ITEM_COMBO_SPELL_LOVE] = SLOT_TRADE_COUPLE,
+    [ITEM_COMBO_HAMMER] = SLOT_TRADE_DEED,
+    [ITEM_COMBO_BOOMERANG] = SLOT_TRADE_KEY_MAMA,
+    [ITEM_COMBO_SLINGSHOT] = SLOT_TRADE_COUPLE,
+#endif
 };
 
 s16 gItemPrices[] = {

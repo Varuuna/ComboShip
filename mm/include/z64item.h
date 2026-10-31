@@ -357,6 +357,33 @@ typedef enum ItemId {
     /* 0xFF */ ITEM_NONE = 0xFF
 } ItemId;
 
+#ifdef COMBO_BUILD
+// ComboShip (cross-game items, OoTMM-style): OOT items usable in MM. They live in the trade-slot item
+// cycles (see 2s2h/Rando/MiscBehavior/KaleidoItemPage.cpp) and are used from a C button. The ids
+// reuse unused ItemId values (only z_message.c's textbox-icon table names them, never as inventory).
+// 0xB5..0xB7 are deliberately skipped: kaleido uses them as transient magic-arrow equip ids.
+// Every ItemId-indexed table that can see these (gItemIcons, gItemSlots, gPlayerFormItemRestrictions,
+// the kaleido item-name statics, sItemItemActions via Player_ItemToItemAction) is sized to
+// ITEM_COMBO_TABLE_SIZE or guarded. See docs/deviations/rando.md "Cross-game items".
+#define ITEM_COMBO_MIN ITEM_B8
+#define ITEM_COMBO_BOOTS_IRON ITEM_B8
+#define ITEM_COMBO_BOOTS_HOVER ITEM_B9
+#define ITEM_COMBO_TUNIC_GORON ITEM_BA
+#define ITEM_COMBO_TUNIC_ZORA ITEM_BB
+#define ITEM_COMBO_MASK_GERUDO ITEM_BC
+#define ITEM_COMBO_MASK_SKULL ITEM_BD
+#define ITEM_COMBO_MASK_SPOOKY ITEM_BE
+#define ITEM_COMBO_SPELL_FIRE ITEM_BF
+#define ITEM_COMBO_SPELL_WIND ITEM_C0
+#define ITEM_COMBO_SPELL_LOVE ITEM_C1
+#define ITEM_COMBO_HAMMER ITEM_C2
+#define ITEM_COMBO_BOOMERANG ITEM_C3
+#define ITEM_COMBO_SLINGSHOT ITEM_C4
+#define ITEM_COMBO_MAX ITEM_C5 // exclusive
+#define ITEM_COMBO_TABLE_SIZE ITEM_COMBO_MAX
+#define IS_COMBO_CROSS_ITEM(item) (((item) >= ITEM_COMBO_MIN) && ((item) < ITEM_COMBO_MAX))
+#endif
+
 #define BOTTLE_FIRST 0
 #define BOTTLE_MAX 6
 
